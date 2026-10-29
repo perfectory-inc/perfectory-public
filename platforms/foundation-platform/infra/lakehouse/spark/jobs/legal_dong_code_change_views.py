@@ -18,6 +18,10 @@ instead of storing its own copy:
 Plain Python over plain rows, so the test lane without PySpark exercises every view. A row is a
 mapping with at least `kind`, `old_code`, `new_code`, `level`, `effective_date` and `source`, as the
 change table's contract names them.
+
+Every view reads the pairs through `pair_rows`, so none of them sees a pair that official evidence
+superseded (root ADR-0329): the table holds both rows forever, and the view resolves to the one in
+force.
 """
 
 from __future__ import annotations
@@ -27,17 +31,57 @@ from typing import Any, Iterable, Mapping, Sequence
 # The levels parcels are numbered under (the 읍면동 in a city, the 리 in the country).
 LEAF_LEVELS = ("eupmyeondong", "ri")
 CHANGE_TABLE = "reference.legal_dong_code_change"
+PAIR, SUPERSESSION = "pair", "supersession"
+STEWARD_SOURCE = "steward:"
+OFFICIAL_SOURCE = "official:parcel-history"
+# The evidence grade of a pair, by its `source` (the provenance it is recorded under), strongest
+# first (root ADR-0329 §1). A steward's pair is a person's decision: no evidence outranks it
+# automatically. The official parcel-number history (ADR-0150) outranks every inference.
+EVIDENCE_RANKS: tuple[tuple[str, int], ...] = (
+    (STEWARD_SOURCE, 0),
+    ("official:", 1),
+    ("derived:code-go-kr:date+name:", 2),
+    ("derived:parcel-jibun:", 3),
+    ("derived:children", 4),
+)
+
+
+def evidence_rank(source: str) -> int:
+    """The grade of `source` in `EVIDENCE_RANKS` (lower is stronger); anything else ranks last."""
+
+    return next((rank for prefix, rank in EVIDENCE_RANKS if source.startswith(prefix)), len(EVIDENCE_RANKS))
+
+
+def superseded_pairs(rows: Iterable[Mapping[str, Any]]) -> set[tuple[str, str]]:
+    """Every (old, new) a `supersession` row withdraws (root ADR-0329 §1)."""
+
+    return {(str(row["old_code"]), str(row["new_code"])) for row in rows
+            if row.get("kind") == SUPERSESSION and row.get("old_code") and row.get("new_code")}
+
+
+def is_superseded(row: Mapping[str, Any], superseded: set[tuple[str, str]]) -> bool:
+    """Whether the pair `row` is withdrawn. A steward's pair never is: a supersession is only ever
+    recorded against a derived pair, and a reader without the `source` column (the Gold build reads
+    `kind, old_code, new_code, level`) must reach the same answer as one with it."""
+
+    return ((str(row.get("old_code")), str(row.get("new_code"))) in superseded
+            and not str(row.get("source") or "").startswith(STEWARD_SOURCE))
 
 
 def pair_rows(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
-    """The recorded pairs, one per distinct (old, new, source), as plain strings.
+    """The pairs in force, one per distinct (old, new, source), as plain strings.
 
-    The table is append-only and a pair may be recorded by several runs; the view repeats none.
+    The table is append-only and a pair may be recorded by several runs; the view repeats none. A
+    pair a `supersession` row withdraws is left out (root ADR-0329).
     """
 
+    rows = list(rows)
+    superseded = superseded_pairs(rows)
     out: dict[tuple[str, str, str], dict[str, str]] = {}
     for row in rows:
-        if row.get("kind") != "pair" or not row.get("old_code") or not row.get("new_code"):
+        if row.get("kind") != PAIR or not row.get("old_code") or not row.get("new_code"):
+            continue
+        if is_superseded(row, superseded):
             continue
         key = (str(row["old_code"]), str(row["new_code"]), str(row.get("source") or ""))
         # A dated row of a pair wins over an undated one (a steward pair recorded before it was dated).
@@ -169,3 +213,47 @@ def renumbered_into(rows: Iterable[Mapping[str, Any]], served_codes: Iterable[st
             if target in served and source not in served:
                 into.setdefault(source, set()).add(target)
     return {source: next(iter(targets)) for source, targets in sorted(into.items()) if len(targets) == 1}
+
+
+# How many leading PNU digits a code of each level fixes.
+CODE_LEVEL_DIGITS = {"sido": 2, "sigungu": 5, "eupmyeondong": 8, "ri": 10}
+
+
+def code_prefix(code: str) -> str:
+    """The PNU prefix every parcel under `code` starts with: as many digits as its level fixes."""
+
+    import code_go_kr_legal_dong as cg  # noqa: PLC0415 - imported here like `sigungu_crosswalk_view`
+
+    return code[:CODE_LEVEL_DIGITS[cg.code_level(code)]]
+
+
+def changed_codes(
+    before: Iterable[Mapping[str, Any]], after: Iterable[Mapping[str, Any]],
+    columns: Sequence[str] = ("kind", "old_code", "new_code", "level"),
+) -> set[str]:
+    """Both codes of every row that differs between two reads of the table, by `columns` (the Gold
+    build's). The parcels under them are the ones a change of the table can reach (root ADR-0273):
+    a supersession reaches its old code, the code it withdrew and the code that replaced it, and
+    nothing else (root ADR-0329 §3)."""
+
+    def keyed(rows: Iterable[Mapping[str, Any]]) -> set[tuple[str, ...]]:
+        return {tuple(str(row.get(column) or "") for column in columns) for row in rows}
+
+    moved = keyed(before) ^ keyed(after)
+    at = {column: index for index, column in enumerate(columns)}
+    return {row[at[side]] for row in moved for side in ("old_code", "new_code") if len(row[at[side]]) == 10}
+
+
+def corrected_successors(rows: Iterable[Mapping[str, Any]]) -> dict[str, str]:
+    """{the new 동·리 a superseded pair named: the one now in force for the same old code}, where the
+    old code has exactly one pair in force (root ADR-0329 §3). An id one inherited from the old code
+    belongs to the other (`administrative_boundaries_handoff_to_silver.resolve_unit_ids`)."""
+
+    rows = list(rows)
+    current = leaf_pairs(rows)
+    out: dict[str, str] = {}
+    for old, withdrawn in sorted(superseded_pairs(rows)):
+        news = current.get(old, {})
+        if len(news) == 1 and withdrawn not in news:
+            out[withdrawn] = next(iter(news))
+    return out

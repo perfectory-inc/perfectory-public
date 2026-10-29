@@ -228,9 +228,10 @@ class BuildColumns(unittest.TestCase):
         self.assertEqual(rebuild.producer_whole_table_inputs(building), ())
 
     def test_a_code_reaches_the_pnus_its_level_fixes(self):
-        self.assertEqual({level: parcel.CODE_LEVEL_DIGITS[parcel.code_level(code)] for level, code in (
+        self.assertEqual({level: parcel.code_change_views.code_prefix(code) for level, code in (
             ("sido", "9900000000"), ("sigungu", "9999900000"), ("eupmyeondong", "9999900100"),
-            ("ri", "9999900101"))}, {"sido": 2, "sigungu": 5, "eupmyeondong": 8, "ri": 10})
+            ("ri", "9999900101"))}, {"sido": "99", "sigungu": "99999", "eupmyeondong": "99999001",
+                                     "ri": "9999900101"})
 
 
 class UndeclaredFull(unittest.TestCase):

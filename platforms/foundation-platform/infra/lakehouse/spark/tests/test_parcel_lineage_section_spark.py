@@ -84,6 +84,23 @@ class LineageSectionSparkTest(unittest.TestCase):
         got = self.section([*derived, lapsed])
         self.assertEqual(sorted(e["predecessor_pnu"] for e in got[G]), [H, I])
 
+    def test_a_code_change_link_a_superseded_pair_carried_is_not_read(self):
+        # Root ADR-0329 §3: A's 동 pair was a date + name inference into B's 동, superseded by the
+        # official one into C's; the lineage holds both links (append-only), the section shows C only,
+        # on both ends. Unrelated and pending rows pass.
+        from parcel_lineage_section import drop_outranked_code_changes_frame
+
+        stale = edge(A, B, "code_change", "code_derived", kind="same_lot_paired_dong", ref="derived:code-go-kr:date+name:20990701")
+        current = edge(A, C, "code_change", "code_derived", kind="same_lot_paired_dong", ref="official:parcel-history")
+        rows = [stale, current, edge(D, E, "split", "official"), edge(None, F, "other", "pending", cardinality=None, when=None)]
+        got = self.section(rows)
+        self.assertEqual([e["successor_pnu"] for e in got[A]], [C])
+        self.assertNotIn(B, got)
+        self.assertIn(E, got)
+        self.assertIn(F, got)
+        kept = drop_outranked_code_changes_frame(self.spark.createDataFrame(rows, SCHEMA)).collect()
+        self.assertEqual(sorted((r.predecessor_pnu or "", r.successor_pnu) for r in kept), sorted([("", F), (A, C), (D, E)]))
+
     def test_a_run_without_the_lineage_has_an_empty_section(self):
         from parcel_lineage_section import build_lineage
 

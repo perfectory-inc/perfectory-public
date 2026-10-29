@@ -71,9 +71,11 @@ schema:
       - type: "text"
         description: "change_key unique"
       - type: "text"
-        description: "kind is pair"
+        description: "kind is pair or supersession"
       - type: "text"
         description: "a pair names old_code and new_code"
+      - type: "text"
+        description: "a supersession names the pair it withdraws in old_code and new_code"
 customProperties:
   - property: "pipelineGraphNode"
     value: "reference-legal-dong-code-change"

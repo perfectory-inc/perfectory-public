@@ -79,7 +79,7 @@ from parcel_lineage_section import LINEAGE_EDGE_COLUMNS, build_lineage
 from parcel_lineage import Link
 import vworld_parcel_editions as parcel_editions
 import legal_dong_code_change_views as code_change_views
-from code_go_kr_legal_dong import EXISTS, code_level
+from code_go_kr_legal_dong import EXISTS
 from lakehouse_engine import (
     apply_catalog_settings,
     assert_catalog_env,
@@ -185,8 +185,6 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 # The inputs keyed by the Gold row's own PNU.
 PNU_KEYED_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES)
-# How many leading PNU digits a code of each level fixes.
-CODE_LEVEL_DIGITS = {"sido": 2, "sigungu": 5, "eupmyeondong": 8, "ri": 10}
 
 # parcel_zoning_catalog_projection_load.rs anchor_for: the resolved endpoints of the
 # parent_ucode walk, plus the urban root that stands for itself.
@@ -1540,14 +1538,16 @@ def affected_pnus(
 
 def code_change_pnus(old: dict[str, DataFrame], new: dict[str, DataFrame]) -> list[DataFrame]:
     """The parcels under either code of a code change row that differs: the rows they are built
-    from are re-keyed by it (`read_renumbering`) and the coverage guard counts by it."""
+    from are re-keyed by it (`read_renumbering`) and the coverage guard counts by it. A supersession
+    reaches the parcels under its old code, the code it withdrew and the code now in force (root
+    ADR-0329 §3). The table is a few thousand rows, read whole like `read_renumbering` does."""
 
-    rows = incremental.changed_rows(old[CODE_CHANGE_SOURCE], new[CODE_CHANGE_SOURCE], ("old_code", "new_code"))
-    codes = {code for row in rows.collect() for code in (row.old_code, row.new_code) if code and len(code) == 10}
+    columns = BUILD_COLUMNS[CODE_CHANGE_SOURCE]
+    before, after = ([row.asDict() for row in frames[CODE_CHANGE_SOURCE].select(*columns).collect()] for frames in (old, new))
     by_digits: dict[int, list[str]] = {}
-    for code in sorted(codes):
-        digits = CODE_LEVEL_DIGITS[code_level(code)]
-        by_digits.setdefault(digits, []).append(code[:digits])
+    for code in sorted(code_change_views.changed_codes(before, after, columns)):
+        prefix = code_change_views.code_prefix(code)
+        by_digits.setdefault(len(prefix), []).append(prefix)
     if not by_digits:
         return []
     under = F.lit(False)

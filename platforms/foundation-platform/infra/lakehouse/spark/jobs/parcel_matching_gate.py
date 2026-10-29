@@ -199,8 +199,12 @@ def check_attribute(name: str, parcels: Any, held: Any, lineage: Any | None) -> 
     lacking = missing.count()
     violators: list[str] = []
     if lineage is not None and lacking:
+        # Before keeping some successors' rows: a replaced code change link and the one in force reach
+        # different successors (root ADR-0329 §3).
+        from parcel_lineage_section import drop_outranked_code_changes_frame  # noqa: PLC0415
+
         rows = (
-            lineage.join(missing.select(F.col("pnu").alias("successor_pnu")), "successor_pnu", "left_semi")
+            drop_outranked_code_changes_frame(lineage).join(missing.select(F.col("pnu").alias("successor_pnu")), "successor_pnu", "left_semi")
             .join(
                 held.select(F.col("pnu").alias("predecessor_pnu"), F.lit(True).alias("predecessor_held")),
                 "predecessor_pnu",

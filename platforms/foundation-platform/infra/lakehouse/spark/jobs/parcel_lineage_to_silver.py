@@ -280,14 +280,15 @@ def read_pnus(spark: Any, cat: str, snapshot: str, sidos: str, *, table: str | N
 
 
 def read_code_changes(spark: Any, table: str) -> list[dict[str, Any]]:
-    """The 동·리 pairs of the pinned code change table; the view in `parcel_lineage` reads them."""
+    """The 동·리 pairs of the pinned code change table and the supersessions that withdraw some of
+    them (root ADR-0329); the view in `parcel_lineage` reads them."""
 
     levels = ", ".join(f"'{level}'" for level in pl.views.LEAF_LEVELS)
     return [
         row.asDict()
         for row in spark.sql(
             f"SELECT kind, old_code, new_code, level, effective_date, source, rule_verdict, detail FROM {table} "
-            f"WHERE kind = 'pair' AND level IN ({levels})"
+            f"WHERE kind IN ('{pl.views.PAIR}', '{pl.views.SUPERSESSION}') AND level IN ({levels})"
         ).collect()
     ]
 

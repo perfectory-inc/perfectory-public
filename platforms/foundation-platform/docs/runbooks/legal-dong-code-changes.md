@@ -77,8 +77,11 @@ lineage_stewardship (06:50, spark 3자리)
 2 와 3 이 같은 동을 서로 다른 새 코드로 정하면, 또는 지번 짝(이미 기록된 것 포함)이나 날짜·이름 짝이 같은 변경의
 결정적인 공식 근거가 옮기는 코드(하나·분할·사슬) 어느 것도 아니면
 (루트 [ADR-0150](../../../../docs/adr/0150-the-official-parcel-number-history-decides-before-the-jibun-sets.md),
-[ADR-0156](../../../../docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md)) 짝 맞추기는 `PairingConflict` 로 멈춘다: 두 답을 다 적고
-아무것도 쓰지 않는다(4 절). 결정적인 근거는 동 단위 행, 또는 앞 판 필지의 `jibun_overlap_min_share` 이상을 한 코드로 옮기는
+[ADR-0156](../../../../docs/adr/0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md),
+[ADR-0329](../../../../docs/adr/0329-official-evidence-supersedes-a-recorded-inference-automatically.md)) 공식 근거가 이긴다:
+공식 짝을 쌓고, 이미 기록된 파생 짝은 `kind = supersession` 행으로 물린다(지우지 않는다; `detail` 이 무엇을 왜 물렸는지
+적는다). 이번 실행의 추정은 기록하지 않고 요약의 `official_overruled_inferences` 에 남는다. 스튜어드 짝은 그대로 서고
+스튜어드 목록(`status` = `official_contradicts_steward`, 승인 대상 아님)과 슬랙 #alerts 로 사람에게 간다(4 절). 결정적인 근거는 동 단위 행, 또는 앞 판 필지의 `jibun_overlap_min_share` 이상을 한 코드로 옮기는
 필지 행이다. 같은 변경은 토지이동일자가 code.go.kr 폐지일이나 그 다음 날인 행이다. 그보다 적은 필지 행(경계 조정)이나 다른
 날의 행은 짝을 반박하지 않고, 요약의 `official_partial_moves`(옛 코드별 필지 수)에 보인다. 다른 날의 결정적 근거가 짝과 다른 코드를 가리키면 실행은 계속되지만 요약의 `official_off_window_decisive` 와 스튜어드 목록(`status` = `official_disagrees_off_window`, 승인 대상 아님)에 남는다. 사람이 두 원천을 확인한다(4 절). 어느 쪽도 조용히 이기지 않는다. 공식 필지 행이 옛 동을 여러 새 동으로 나누면 짝이 아니라 `split` 이다.
 
@@ -166,7 +169,7 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
   생긴 것뿐이다: 전국에서 바닥 날짜 뒤에 생긴 아무 코드나 재면, 본번 범위가 넓은 먼 리가 지번을 모두 덮어 진짜
   후계자를 이긴다. 번호가 같아도 같은 땅일 때만 센다: 지목이 같고 면적이 계약의 `pairing.land_match` 안이어야
   한다(지목은 `jibun` 끝 글자, 면적은 경계에서 Spark 실행기가 잰다). 공식 필지 번호 이력이 들어오면 그것이 먼저
-  정하고, 지번 단계와 다르면 실행이 `PairingConflict` 로 멈춘다(아무것도 쓰지 않는다; 두 답을 보고 원인을 찾는다).
+  정하고, 지번 단계와 다르면 공식 답이 선다(진 지번 답은 `official_overruled_inferences`, 루트 ADR-0329).
   판이 계약에 없거나 표에 적재되지 않았으면 그 동은 `awaiting_data` 이고 `jibun` 칸이 필요한 판을 이름으로
   말한다. 판의 수집·적재는 [VWorld 연속지적도 판 런북](./vworld-parcel-editions.md)이다. 환경 변수
   `LEGAL_DONG_PARCELS_BEFORE/AFTER` 는 없어졌다.
@@ -197,7 +200,8 @@ export FOUNDATION_SIGUNGU_CROSSWALK_PROJECTION=/var/lib/foundation-platform/lega
   3. 계보 단위를 한 번 돌린다. journal 에 `parcel-number-change loaded` 가 남고, 짝 맞추기 요약
      (`pairs-summary.json`)의 `official_parcel_links` 가 기간 안 짝 수, `pairs_by_evidence.official_parcel_history` 가
      공식 이력이 정한 짝 수다. 법정동 표 넘김이 없는 날이면 최신 스냅숏으로 짝 맞추기만 다시 돈다.
-  4. 공식 이력이 이미 기록된 지번·날짜·이름 짝이나 이번 지번 단계와 다르게 정하면 실행이 `PairingConflict` 로 멈춘다(4 절).
+  4. 공식 이력이 이미 기록된 지번·날짜·이름 짝과 다르게 정하면 그 짝을 `supersession` 행으로 물리고 공식 짝을 쌓는다.
+     요약의 `superseded_pairs` 와 journal 의 `legal-dong-code superseded …` 줄이 무엇을 물렸는지 말한다(루트 ADR-0329).
   5. 별도 PR 에서 `parcel_number_change_history` 의 `enabled` 를 `true` 로 바꾸고 `disabled_reason` 을 지운다.
 
   수집이 넘긴 것을 다시 받고 싶으면 `accepted.json` 에서 그 파일 키(`<download_ds_id>-<파일 번호>`)를 지운다. 다음
@@ -241,7 +245,8 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 | 계보 단위 0a | `TableShrunk`, `SourceFormatError` | 표 스냅숏과 비교해 거부 | 넘김은 `pending/` 에 남는다. 원인을 고친 뒤 단위를 다시 돌린다 |
 | 계보 단위 0a | `would be dropped without a word` | 적재 대장이 새 행의 적재 단위를 이미 안다고 했다 | 실행 id 가 겹쳤다는 뜻이다. 행은 쓰지 않았다. 같은 초에 두 실행이 돌았는지 본다 |
 | 계보 단위 0a | `read back a crosswalk other than the one this run planned` | 쓰고 다시 읽은 변경표의 view 가 계획과 다르다(그 사이 다른 쓰기) | 투영은 바뀌지 않았다. 다른 쓰기를 찾고 단위를 다시 돌린다 |
-| 계보 단위 0a | `PairingConflict` (`the official parcel-number history (…) says …, the 지번 step … says …` 또는 `… (dong_level 또는 parcel_level, dated …) moves it into …, the pair from derived:… says …`) | 공식 이력과 지번 겹침(또는 이미 기록된 파생 짝)이 같은 동을 서로 다른 새 코드로 정했다. 파생 짝은 같은 변경 기간의 결정적 공식 근거와만 비교한다(ADR-0156) | 아무것도 쓰지 않았다. 두 원천을 확인한다: 판이 잘못 적재됐으면 판을 바로잡고, 공식 이력이 틀렸으면 스튜어드 짝으로 기록한다(5 절) |
+| 계보 단위 0a | 슬랙 `법정동 스튜어드 짝을 같은 변경의 공식 이력이 반박함`, journal `legal-dong-code steward-contradicted <옛>-><스튜어드 짝>` | 같은 변경의 결정적 공식 근거가 스튜어드 짝과 다른 코드를 가리킨다(루트 ADR-0329 §2). 실패가 아니다: 짝은 그대로 서고 나머지는 모두 쌓였다 | 스튜어드 목록의 `official_contradicts_steward` 항목에서 두 답을 본다. 스튜어드가 틀렸으면 새 스튜어드 짝을 기록한다(5 절). 공식 이력이 틀렸으면 그대로 둔다 |
+| 계보 단위 0a | journal `legal-dong-code superseded <옛>-><물린 짝> (…) by official …` | 기록된 파생 짝을 같은 변경의 결정적 공식 근거가 물렸다(루트 ADR-0329). 실패도 알림도 아니다 | 할 일 없다. 그 시도 묶음의 계보가 다음 도출에서 다시 만들어지고, Gold 는 세 코드 아래 PNU 만 다시 만든다 |
 | 30527 수집 | `the header is not …`, `fields, the header`, `PNU parts are not` | 제공자 파일 형식이 바뀌었다 | 아무것도 넘기지 않았고 상태도 그대로다. 원본은 Bronze 에 있다. 계약의 `header`·`pnu_parts` 를 맞추는 PR 을 낸다 |
 | 30527 수집 | `rows have no date, above the contract's share` | 날짜를 읽을 수 없는 행이 계약의 한계를 넘었다(열이 밀렸다) | 위와 같다 |
 | 30527 수집 | `shrunk from` | 같은 파일이 직전 판보다 계약의 한계 넘게 줄었다 | 깨진 파일이다. 다음 날 다시 받는다. 계속되면 제공자 화면을 확인한다 |
@@ -258,8 +263,8 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 `/var/lib/foundation-platform/legal-dong-code/pairing-owed.json` 하나다: 0a 가 어느 넘김이든 적재하기 전에 쓰고(빚진
 넘김 이름, 짝을 맞출 스냅숏 날짜, 처음 빚진 실행), 짝 맞추기의 쌓기와 설치가 끝난 뒤에만 지운다. 그 파일이 있으면
 대기 넘김도 스튜어드 결정도 없는 날에도 최신 스냅숏으로 다시 짝을 맞춘다(`re-paired (pairing owed)`). 짝 맞추기가
-실패하면 단위는 여전히 실패하고 파일은 남는다. 그래서 30527 넘김이 `loaded/` 로 옮겨진 뒤 `PairingConflict` 로 멈춘
-날(2026-10-06)처럼 대기 넘김이 사라져도, 원인을 고친 다음 실행이 다시 맞춘다. 손으로 파일을 만들거나 지우지 않는다.
+실패하면 단위는 여전히 실패하고 파일은 남는다. 그래서 30527 넘김이 `loaded/` 로 옮겨진 뒤 짝 맞추기가 멈춘
+날(2026-10-06, 그때의 `PairingConflict`)처럼 대기 넘김이 사라져도, 원인을 고친 다음 실행이 다시 맞춘다. 손으로 파일을 만들거나 지우지 않는다.
 성공한 짝 맞추기는 `last-pairing.json` 에 남는다(실행, 스냅숏 날짜, 갚은 빚). 그 기록도 빚도 없는데 `loaded/` 에
 넘김이 있으면(이 기록이 생기기 전에 적재한 호스트) 0a 가 그 넘김들로 한 번 빚을 만들고 갚는다: 첫 실행에 짝 맞추기가
 한 번 더 돈다.

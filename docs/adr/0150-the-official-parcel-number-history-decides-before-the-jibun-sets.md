@@ -69,3 +69,5 @@ ADR-0148 §4 는 필지고유번호변동연혁(VWorld MK/30527)의 공식 짝�
 ---
 
 2026-10-06: §2 의 범위는 [ADR-0156](./0156-only-decisive-official-evidence-of-the-same-change-contradicts-a-derived-pair.md) 이 고쳤다. 파생 짝을 반박하는 것은 같은 변경 기간에 날짜가 붙은 결정적 공식 근거(동 단위 행, 또는 계약 비율 이상의 필지 행)뿐이다.
+
+2026-10-29: §2 의 "실행을 멈춘다"는 [ADR-0329](./0329-official-evidence-supersedes-a-recorded-inference-automatically.md) 가 고쳤다. 같은 변경의 결정적 공식 근거가 기록된 파생 짝을 반박하면 공식 짝과 `supersession` 행을 쌓아 자동으로 대체한다. 스튜어드 짝은 그대로 두고 사람에게 알린다.

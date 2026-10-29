@@ -165,7 +165,9 @@ pub(super) const REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS: &[LakehouseColumn] = 
 /// `derived:parcel-jibun:<snapshots>` (the 지번 sets of two parcel snapshots, ADR-0113 §5),
 /// `official:parcel-history` (`silver.parcel_number_change_history`, the 필지고유번호변동연혁 links), `derived:children` (a 시군구 or
 /// 시도 rolled up from its 동) or `steward:<who>`. Append-only: a change is recorded once, keyed by
-/// `change_key`; a load is one derivation run or one steward decision.
+/// `change_key`; a load is one derivation run or one steward decision. A derived pair that official
+/// evidence of the same change contradicts is withdrawn by a `supersession` row naming it (root
+/// ADR-0329): the row stays, and every view reads the pair in force instead.
 pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTableContract {
     table_name: "reference.legal_dong_code_change",
     layer: LakehouseLayer::Reference,
@@ -180,8 +182,9 @@ pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTa
     quality_gates: &[
         "append_only",
         "change_key unique",
-        "kind is pair",
+        "kind is pair or supersession",
         "a pair names old_code and new_code",
+        "a supersession names the pair it withdraws in old_code and new_code",
     ],
     // 도출 실행 한 번(표 키 + 실행 시각), 또는 스튜어드 결정 파일 하나가 한 번의 적재다. 이미 있는
     // change_key 는 적재 전에 걸러 내므로 같은 변경을 다시 도출해도 다시 넣지 않는다.

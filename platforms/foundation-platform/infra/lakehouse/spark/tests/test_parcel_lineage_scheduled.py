@@ -118,6 +118,35 @@ class ProducerArguments(unittest.TestCase):
         for part in ("from_snapshot_id = 'a'", "to_snapshot_id = 'b'", f"rules_version = '{pl.RULES_VERSION}'",
                      "IN ('96', '97')"):
             self.assertIn(part, sql)
+        self.assertNotIn("derived_at_utc", sql)
+
+    def test_a_group_whose_dong_pair_was_superseded_after_it_was_derived_is_derived_again_and_only_it(self):
+        # Root ADR-0329 §3: official evidence withdrew a 동 pair under sido 99 on 2099-11-02; the
+        # lineage of that group carried the withdrawn pair's links, so it is held only by a derivation
+        # at or after then. Other groups are untouched.
+        from datetime import datetime
+
+        supersessions = [{"old_code": "9999910100", "recorded_at_utc": datetime(2099, 11, 2, 3, 4, 5)},
+                         {"old_code": "9999910700", "recorded_at_utc": datetime(2099, 10, 1)}]
+        self.assertEqual(job.superseded_since(supersessions, "99"), datetime(2099, 11, 2, 3, 4, 5))
+        self.assertEqual(job.superseded_since(supersessions, "96,99"), datetime(2099, 11, 2, 3, 4, 5))
+        self.assertIsNone(job.superseded_since(supersessions, "98"))
+        sql = job.held_sql("t", "a", "b", "99", job.superseded_since(supersessions, "99"))
+        self.assertIn("derived_at_utc >= TIMESTAMP '2099-11-02 03:04:05'", sql)
+
+        class Spark:
+            def __init__(self):
+                self.queries = []
+
+            def sql(self, query):
+                self.queries.append(query)
+                return type("Result", (), {"collect": lambda _self: []})()
+
+        spark = Spark()
+        self.assertFalse(job.is_held(spark, "t", True, "a", "b", supersessions, "99", "99"))
+        self.assertFalse(job.is_held(spark, "t", True, "a", "b", supersessions, "98", "98"))
+        self.assertIn("derived_at_utc", spark.queries[0])
+        self.assertNotIn("derived_at_utc", spark.queries[1])
 
 
 if __name__ == "__main__":

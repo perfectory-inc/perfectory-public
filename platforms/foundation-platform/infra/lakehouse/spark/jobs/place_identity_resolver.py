@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+import legal_dong_code_change_views as views
+
 # A via step the pipeline graph guard accepts as "this edge goes through the resolver" (ADR-0288 §1).
 RESOLVER_VIA = "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
 
@@ -64,11 +66,12 @@ def with_current_code(pnu: str, current_legal_code: str) -> str:
 
 
 def pairs_from_lakehouse(spark: Any, catalog: str) -> tuple[dict[str, str], set[str]]:
-    """The code crosswalk read from `reference.legal_dong_code_change` (the recorded pairs)."""
+    """The code crosswalk read from `reference.legal_dong_code_change`: the pairs in force, through the
+    one view every reader uses, so a pair official evidence superseded is not read (root ADR-0329)."""
 
     table = f"`{catalog}`.`reference`.`legal_dong_code_change`"
-    rows = spark.sql(f"SELECT old_code, new_code FROM {table} WHERE kind = 'pair'").collect()
-    return code_crosswalk((row["old_code"], row["new_code"]) for row in rows)
+    rows = [row.asDict() for row in spark.sql(f"SELECT kind, old_code, new_code, level, effective_date, source FROM {table}").collect()]
+    return code_crosswalk((pair["old_code"], pair["new_code"]) for pair in views.pair_rows(rows))
 
 
 def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], parcels: Any) -> Any:
