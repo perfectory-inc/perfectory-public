@@ -167,6 +167,35 @@ def lots_by_dong(pnus: Iterable[str]) -> dict[str, set[str]]:
     return out
 
 
+# The evidence kind of a code_change link carried by a 동 pair; its `evidence_ref` is the pair's source.
+SAME_LOT_PAIRED_DONG = "same_lot_paired_dong"
+
+
+def drop_outranked_code_changes(rows: Iterable[Mapping[str, object]]) -> list[Mapping[str, object]]:
+    """The lineage rows without the code_change links a better-graded 동 pair replaced (root ADR-0329 §3).
+
+    A parcel renumbered with its 동 has one successor. When a derived 동 pair was later superseded by
+    official evidence, the re-derivation appends the link the official pair carries next to the one
+    the withdrawn pair carried (the lineage is append-only): of one predecessor's `same_lot_paired_dong`
+    links, only those whose pair source has the best grade (`views.evidence_rank`) stand. Every other
+    row passes unchanged; `parcel_lineage_section.drop_outranked_code_changes_frame` is the same rule
+    over a frame.
+    """
+
+    rows = list(rows)
+
+    def ranked(row: Mapping[str, object]) -> bool:
+        return row.get("evidence_kind") == SAME_LOT_PAIRED_DONG and bool(row.get("predecessor_pnu"))
+
+    best: dict[object, int] = {}
+    for row in rows:
+        if ranked(row):
+            rank = views.evidence_rank(str(row.get("evidence_ref") or ""))
+            best[row["predecessor_pnu"]] = min(rank, best.get(row["predecessor_pnu"], rank))
+    return [row for row in rows
+            if not ranked(row) or views.evidence_rank(str(row.get("evidence_ref") or "")) == best[row["predecessor_pnu"]]]
+
+
 def carry_over(before: set[str], after: set[str], pairing: DongPairing) -> tuple[list[Link], set[str], set[str]]:
     """Links for parcels whose lot survives under the paired dong; returns (links, vanished, appeared).
 
@@ -183,7 +212,7 @@ def carry_over(before: set[str], after: set[str], pairing: DongPairing) -> tuple
             kept.add(p)
             reached.add(q)
             if q != p:
-                links.append(Link(p, q, "code_change", "code_derived", "same_lot_paired_dong", pairing.how.get(p[:10], "")))
+                links.append(Link(p, q, "code_change", "code_derived", SAME_LOT_PAIRED_DONG, pairing.how.get(p[:10], "")))
     return links, before - kept, after - reached
 
 

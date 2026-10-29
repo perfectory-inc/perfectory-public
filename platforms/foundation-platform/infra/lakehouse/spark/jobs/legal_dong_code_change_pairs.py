@@ -18,7 +18,8 @@ One run reads one code.go.kr full-table snapshot (`reference.legal_dong_code_sna
    without the option, and what only it could settle is reported `awaiting_data` (ADR-0144 §4).
    The parcel lineage is not evidence here: it reads its 동 pairs from this table (ADR-0145 §2);
 2. appends the changes not yet recorded to `reference.legal_dong_code_change`, the only table it
-   writes;
+   writes: the pairs, and a `supersession` row for each recorded inference that official evidence of
+   the same change contradicts (root ADR-0329; the views then read the official pair in its place);
 3. writes the crosswalk projection (`--projection-output`) the hub exports read: a view of the
    change table (`legal_dong_code_change_views.sigungu_crosswalk_view`) naming the change table
    snapshot it was read at, and the steward list (`--review-output`).
@@ -82,14 +83,46 @@ def change_key(kind: str, source: str, old_code: str, new_code: str) -> str:
 
 
 def decided_pairs(recorded: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
-    """Every pair the change table records, with its source: they stand in every later run."""
+    """Every pair in force in the change table, with its source: they stand in every later run until
+    official evidence of the same change supersedes one (root ADR-0329). A superseded pair is not
+    judged again."""
 
+    superseded = views.superseded_pairs(recorded)
     return [
         {"old_code": row["old_code"], "new_code": row["new_code"], "source": row["source"],
          "rule_verdict": row.get("rule_verdict") or "", "detail": row.get("detail") or ""}
         for row in recorded
-        if row["kind"] == "pair"
+        if row["kind"] == views.PAIR and not views.is_superseded(row, superseded)
     ]
+
+
+def supersession_rows(result: cg.PairingResult, derivation_run_id: str, now: datetime) -> list[dict[str, Any]]:
+    """One `supersession` row per recorded derived pair the official evidence withdrew (root ADR-0329 §1).
+
+    Its `old_code`/`new_code` name the withdrawn pair (the views leave that pair out), its `source` the
+    evidence that withdrew it, its `effective_date` the change it corrects (the old code's 폐지일), and
+    `detail` the audit record: which recorded row it withdraws, which pairs now stand for the old code
+    (`superseded_by`, empty when the official rows split it), why, and what the official rows said.
+    The ledger keeps the withdrawn row; `recorded_at_utc` is when the correction was made.
+    """
+
+    standing: dict[str, list[str]] = {}
+    for pair in result.pairs:
+        standing.setdefault(pair["old_code"], []).append(change_key(views.PAIR, pair["source"], pair["old_code"], pair["new_code"]))
+    rows = []
+    for item in result.superseded:
+        old, new = item["old_code"], item["new_code"]
+        detail = {
+            "reason": "official_evidence_of_the_same_change",
+            "supersedes": change_key(views.PAIR, item["source"], old, new),
+            "superseded_source": item["source"],
+            "superseded_by": sorted(standing.get(old, [])),
+            "evidence": {"official_targets": item["official_targets"], "kind": item["kind"], "changed_on": item["changed_on"]},
+        }
+        rows.append(change_row(views.SUPERSESSION, views.OFFICIAL_SOURCE, old, new, derivation_run_id, now,
+                               level=cg.code_level(old), effective_date=item["effective_date"], rule_verdict="superseded",
+                               detail=json.dumps(detail, ensure_ascii=False, sort_keys=True)))
+    return rows
 
 
 def dated_steward_corrections(
@@ -190,16 +223,19 @@ def plan_derivation(
     """
 
     pairing = contract["pairing"]
-    # Raises cg.PairingConflict when the official history and the 지번 step disagree: the run stops
-    # here, before anything is appended, and the message names both answers.
+    # Official evidence of the same change supersedes a recorded inference (root ADR-0329): the
+    # official pair and the supersession row are appended together, in one load.
     result = cg.pair_changes(rows, pairing["floor_date"], decided_pairs(recorded), jibun, official_links,
                              float(pairing["jibun_overlap_min_share"]), cg.land_match_tolerance(contract))
     known = {row["change_key"] for row in recorded}
     fresh: list[dict[str, Any]] = []
-    for pair in result.pairs:
-        row = change_row("pair", pair["source"], pair["old_code"], pair["new_code"], derivation_run_id, now,
-                         level=pair["level"], effective_date=pair["effective_date"], rule_verdict=pair["rule_verdict"],
-                         detail=pair["detail"])
+    candidates = [
+        change_row(views.PAIR, pair["source"], pair["old_code"], pair["new_code"], derivation_run_id, now,
+                   level=pair["level"], effective_date=pair["effective_date"], rule_verdict=pair["rule_verdict"],
+                   detail=pair["detail"])
+        for pair in result.pairs
+    ]
+    for row in [*candidates, *supersession_rows(result, derivation_run_id, now)]:
         if row["change_key"] not in known:
             known.add(row["change_key"])
             fresh.append(row)
@@ -234,6 +270,13 @@ def plan_derivation(
             # Decisive official evidence dated outside a code's change window that names another code:
             # not this change's evidence, so no conflict, but each is on the review list for a person.
             "official_off_window_decisive": result.official_off_window_decisive,
+            # The audit trail of root ADR-0329: recorded inferences this run withdrew (each also a
+            # `supersession` row), this run's inferences the official evidence decided otherwise, and
+            # steward pairs the official evidence contradicts (standing, and on the review list).
+            "superseded_pairs": [{key: item[key] for key in ("old_code", "new_code", "source", "official_targets", "kind")}
+                                 for item in result.superseded],
+            "official_overruled_inferences": result.overruled,
+            "steward_contradicted_by_official": result.steward_contradicted,
         },
     }
 

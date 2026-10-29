@@ -469,7 +469,7 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         pair = {p["old_code"]: p for p in result.pairs}["9811010100"]
         self.assertEqual((pair["new_code"], pair["source"]), ("9911010100", "official:parcel-history"))
 
-    def test_official_history_decides_before_the_jibun_step_and_a_disagreement_stops_the_run(self):
+    def test_official_history_decides_before_the_jibun_step_and_wins_a_disagreement(self):
         rows = merged_table()
         rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
         rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
@@ -480,12 +480,17 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         pair = {p["old_code"]: p for p in cg.pair_changes(table, FLOOR, jibun=jibun, official_links=agree,
                                                          min_share=MIN_SHARE).pairs}["9811010100"]
         self.assertEqual((pair["new_code"], pair["source"]), ("9911010100", "official:parcel-history"))
-        # 심은 불일치: 공식 이력은 다른동, 지번은 새갑동. 둘 중 하나를 고르지 않고 멈춘다(아무것도 쓰지 않는다).
+        # 심은 불일치: 공식 이력은 다른동, 지번은 새갑동. 공식 이력이 이긴다(root ADR-0329); 지번 추정은
+        # 기록되지 않고 감사 기록(`official_overruled_inferences`)에 남는다.
         disagree = dated([(pnu("9811010100", 1), pnu("9911010300", 9)), (pnu("9811010100", 2), pnu("9911010300", 10))])
-        with self.assertRaisesRegex(cg.PairingConflict, "9911010300.*9911010100"):
-            cg.pair_changes(table, FLOOR, jibun=jibun, official_links=disagree, min_share=MIN_SHARE)
-        with self.assertRaises(cg.PairingConflict):
-            pairs_job.plan_derivation(table, [], CONTRACT, CADASTRAL, "run", NOW, jibun, disagree)
+        result = cg.pair_changes(table, FLOOR, jibun=jibun, official_links=disagree, min_share=MIN_SHARE)
+        self.assertEqual({p["old_code"]: (p["new_code"], p["source"]) for p in result.pairs}["9811010100"],
+                         ("9911010300", "official:parcel-history"))
+        plan = pairs_job.plan_derivation(table, [], CONTRACT, CADASTRAL, "run", NOW, jibun, disagree)
+        self.assertEqual([(i["old_code"], i["new_code"], i["source"], i["official_targets"])
+                          for i in plan["counts"]["official_overruled_inferences"]],
+                         [("9811010100", "9911010100", "derived:parcel-jibun:b->a", ["9911010300"])])
+        self.assertNotIn(("9811010100", "9911010100"), {(r["old_code"], r["new_code"]) for r in plan["fresh_changes"]})
 
     def test_links_into_two_dongs_go_to_the_steward(self):
         rows = merged_table()
@@ -503,9 +508,10 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         [item] = [i for i in result.review if i["old_code"] == "9811010100"]
         self.assertEqual((item["status"], sorted(item["split_into"])), ("split", ["9911010100", "9911010300"]))
 
-    def test_a_recorded_derived_pair_the_official_history_contradicts_stops_the_run(self):
+    def test_a_recorded_derived_pair_the_official_history_contradicts_is_superseded(self):
         # Review of #339: a pair already in the change table skipped the official check. 심은 사고: a
-        # 지번 pair recorded before the official history arrived says 새갑동; the history says 다른동.
+        # 지번 pair recorded before the official history arrived says 새갑동; the history says 다른동. The
+        # official evidence supersedes it (root ADR-0329): nothing stops, nothing is deleted.
         rows = merged_table()
         rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
         rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
@@ -513,19 +519,19 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         recorded = [pairs_job.change_row("pair", "derived:parcel-jibun:b->a", "9811010100", "9911010100", "run0", NOW,
                                          level="eupmyeondong", rule_verdict="jibun")]
         disagree = dated([(dong_row("9811010100"), dong_row("9911010300"))])
-        with self.assertRaisesRegex(cg.PairingConflict, "9911010300.*derived:parcel-jibun.*9911010100"):
-            pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, disagree)
+        plan = pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, disagree)
+        self.assertEqual({(r["kind"], r["old_code"], r["new_code"]) for r in plan["fresh_changes"] if r["old_code"] == "9811010100"},
+                         {("pair", "9811010100", "9911010300"), ("supersession", "9811010100", "9911010100")})
         # Agreeing official evidence, or none, leaves the recorded pair standing.
         agree = dated([(dong_row("9811010100"), dong_row("9911010100"))])
-        pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, agree)
-        pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW)
-        # A steward's pair is a person's decision with its reason, not re-judged here.
-        steward = [dict(recorded[0], source="steward:steward-a", change_key="pair|steward:steward-a|9811010100|9911010100")]
-        pairs_job.plan_derivation(table, steward, CONTRACT, CADASTRAL, "run1", NOW, None, disagree)
+        for links in (agree, None):
+            plan = pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, links)
+            self.assertEqual(plan["counts"]["superseded_pairs"], [])
 
-    def test_a_derived_pair_outside_an_official_split_or_chain_stops_the_run(self):
+    def test_a_derived_pair_outside_an_official_split_or_chain_is_superseded_and_the_code_goes_back_to_the_data(self):
         # Review of #341: official rows that settle nothing (a split, or a target abolished again) still
-        # say where the 동 went; a recorded derived pair naming none of those codes is refused.
+        # say where the 동 went; a recorded derived pair naming none of those codes is withdrawn, and the
+        # code is judged as if it had never been paired: a split, or what the data still lacks.
         rows = merged_table()
         rows[5] = row("9911010100", "합성특별시 가구 새갑동", parent="9911000000", created=DAY)
         rows.append(row("9911010300", "합성특별시 가구 다른동", parent="9911000000", created=DAY))
@@ -534,17 +540,24 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         recorded = [pairs_job.change_row("pair", "derived:parcel-jibun:b->a", "9811010100", "9911010400", "run0", NOW,
                                          level="eupmyeondong", rule_verdict="jibun")]
         split = dated([(dong_row("9811010100"), dong_row("9911010100")), (dong_row("9811010100"), dong_row("9911010300"))])
-        with self.assertRaisesRegex(cg.PairingConflict, "moves it into 9911010100, 9911010300.*9911010400"):
-            pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, split)
+        plan = pairs_job.plan_derivation(table, recorded, CONTRACT, CADASTRAL, "run1", NOW, None, split)
+        [withdrawn] = [r for r in plan["fresh_changes"] if r["kind"] == "supersession"]
+        self.assertEqual((withdrawn["old_code"], withdrawn["new_code"]), ("9811010100", "9911010400"))
+        detail = json.loads(withdrawn["detail"])
+        self.assertEqual((detail["superseded_by"], detail["evidence"]["official_targets"]), ([], ["9911010100", "9911010300"]))
+        [item] = [i for i in plan["review"] if i["old_code"] == "9811010100"]
+        self.assertEqual(item["status"], "split")
         # A chain: the official target was abolished again, so it settles nothing, yet the derived pair
         # names another code.
         rows.append(row("9911010500", "합성특별시 가구 옛동", "폐지", "9911000000", created=DAY, abolished="20990801"))
         chain = dated([(dong_row("9811010100"), dong_row("9911010500"))])
-        with self.assertRaisesRegex(cg.PairingConflict, "moves it into 9911010500"):
-            pairs_job.plan_derivation(as_rows(table_html(rows)), recorded, CONTRACT, CADASTRAL, "run1", NOW, None, chain)
+        plan = pairs_job.plan_derivation(as_rows(table_html(rows)), recorded, CONTRACT, CADASTRAL, "run1", NOW, None, chain)
+        self.assertEqual([(i["new_code"], i["official_targets"]) for i in plan["counts"]["superseded_pairs"]],
+                         [("9911010400", ["9911010500"])])
         # Naming one of the split's codes is not a contradiction.
         inside = [dict(recorded[0], new_code="9911010300", change_key="pair|derived:parcel-jibun:b->a|9811010100|9911010300")]
-        pairs_job.plan_derivation(table, inside, CONTRACT, CADASTRAL, "run1", NOW, None, split)
+        plan = pairs_job.plan_derivation(table, inside, CONTRACT, CADASTRAL, "run1", NOW, None, split)
+        self.assertEqual(plan["counts"]["superseded_pairs"], [])
 
     def test_a_few_parcel_rows_are_evidence_not_a_decision_for_the_dong(self):
         # Review of #341: one boundary-adjustment row (1 of the 동's 40 parcels) must not decide where the
@@ -565,13 +578,18 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         [item] = [i for i in result.review if i["old_code"] == "9811010100"]
         self.assertIn("official partial", item["waiting_for"])
 
-    def test_a_date_and_name_pair_the_official_history_contradicts_stops_the_run(self):
-        # 갑동 → 합성특별시 가구 갑동 by the name rule; 심은 공식 이력은 을동으로 옮겼다고 한다.
+    def test_a_date_and_name_pair_the_official_history_contradicts_in_the_same_run_gives_way(self):
+        # 갑동 → 합성특별시 가구 갑동 by the name rule; 심은 공식 이력은 을동으로 옮겼다고 한다. The rule's
+        # pair is never recorded; the official one is.
         disagree = dated([(dong_row("9811010100"), dong_row("9911010200"))])
-        with self.assertRaisesRegex(cg.PairingConflict, "date\\+name"):
-            cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=disagree, min_share=MIN_SHARE)
+        result = cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=disagree, min_share=MIN_SHARE)
+        self.assertEqual({p["old_code"]: (p["new_code"], p["source"]) for p in result.pairs}["9811010100"],
+                         ("9911010200", "official:parcel-history"))
+        self.assertEqual([(i["new_code"], i["source"]) for i in result.overruled],
+                         [("9911010100", f"derived:code-go-kr:date+name:{DAY}")])
         agree = dated([(dong_row("9811010100"), dong_row("9911010100"))])
-        cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=agree, min_share=MIN_SHARE)
+        result = cg.pair_changes(as_rows(table_html(merged_table())), FLOOR, official_links=agree, min_share=MIN_SHARE)
+        self.assertEqual(result.overruled, [])
 
     # --- only decisive evidence of the same change contradicts a pair (root ADR-0156) -------------
 
@@ -620,17 +638,20 @@ class OfficialParcelHistoryTest(unittest.TestCase):
         self.assertIn(("9811010100", "9911010100"), {(r["old_code"], r["new_code"]) for r in plan["fresh_changes"]})
         self.assertEqual(plan["counts"]["official_partial_moves"], {"9811010100": 13})
 
-    def test_a_decisive_move_on_the_day_of_the_change_elsewhere_still_stops_the_run(self):
+    def test_a_decisive_move_on_the_day_of_the_change_elsewhere_decides_the_pair(self):
+        def decided(links):
+            plan = self.merger_with(links)
+            pair = {r["old_code"]: (r["new_code"], r["source"]) for r in plan["fresh_changes"] if r["kind"] == "pair"}
+            return pair["9811010100"], [(i["kind"], i["official_targets"]) for i in plan["counts"]["official_overruled_inferences"]]
+
         adjustment = dated([(pnu("9811010100", n), pnu("9811010200", 900 + n)) for n in range(1, 14)], self.EARLIER)
+        official = ("9911010200", "official:parcel-history")
         whole = dated([(dong_row("9811010100"), dong_row("9911010200"))])
-        with self.assertRaisesRegex(cg.PairingConflict, "9811010100: .*dong_level.*9911010200.*date\\+name.*9911010100"):
-            self.merger_with(adjustment + whole)
+        self.assertEqual(decided(adjustment + whole), (official, [("dong_level", ["9911010200"])]))
         # The day after the 폐지일 is the same change (폐지일 = 생성일 − 1).
-        with self.assertRaisesRegex(cg.PairingConflict, "dong_level"):
-            self.merger_with(dated([(dong_row("9811010100"), dong_row("9911010200"))], cg._next_day(DAY)))
+        self.assertEqual(decided(dated([(dong_row("9811010100"), dong_row("9911010200"))], cg._next_day(DAY)))[0], official)
         parcels = dated([(pnu("9811010100", n), pnu("9911010200", n)) for n in range(1, 201)])
-        with self.assertRaisesRegex(cg.PairingConflict, "9811010100: .*parcel_level.*9911010200.*9911010100"):
-            self.merger_with(adjustment + parcels)
+        self.assertEqual(decided(adjustment + parcels), (official, [("parcel_level", ["9911010200"])]))
 
     def test_a_boundary_that_is_not_a_polygon_is_skipped_and_counted_up_to_the_contract_bound(self):
         # Review of #339: one point geometry failed the whole run.
@@ -697,6 +718,134 @@ class OfficialParcelHistoryTest(unittest.TestCase):
             (root / "links.txt").write_text(f"{dong_row('9811010100')} {dong_row('9911010100')}\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "YYYYMMDD"):
                 pairs_job.main(base + ["--official-links", str(root / "links.txt")])
+
+
+# --- official evidence supersedes a recorded inference (root ADR-0329) ---------------------------
+
+# 시군구 99999: 갑동 (OLD) is abolished on DAY. The code list creates a 갑동 of the same name that day
+# (INFERRED, which the date + name rule pairs it with) and a 새갑동 (OFFICIAL, where the official
+# parcel-number history, arriving months later, says it went). 을동 (UNTOUCHED) does not change.
+OLD, UNTOUCHED, INFERRED, OFFICIAL = "9999910100", "9999910200", "9999910300", "9999910500"
+LATER = datetime(2099, 11, 2, tzinfo=timezone.utc)
+
+
+def supersession_table():
+    return as_rows(table_html([
+        row("9900000000", "합성도", parent="0000000000", created="20000101"),
+        row("9999900000", "합성도 합성시", parent="9900000000", created="20000101"),
+        row(OLD, "합성도 합성시 갑동", "폐지", "9999900000", abolished=DAY),
+        row(UNTOUCHED, "합성도 합성시 을동", parent="9999900000", created="20000101"),
+        row(INFERRED, "합성도 합성시 갑동", parent="9999900000", created=DAY),
+        row(OFFICIAL, "합성도 합성시 새갑동", parent="9999900000", created=DAY),
+    ]))
+
+
+class OfficialSupersedesInferenceTest(unittest.TestCase):
+    OFFICIAL_LINKS = dated([(dong_row(OLD), dong_row(OFFICIAL))])
+
+    def plan(self, recorded, links=None, run="run", now=NOW):
+        return pairs_job.plan_derivation(supersession_table(), recorded, CONTRACT, CADASTRAL, run, now, None, links)
+
+    def first_run(self):
+        """The date + name pair, recorded before the official history arrived."""
+
+        first = self.plan([], run="run1")
+        [inferred] = first["fresh_changes"]
+        self.assertEqual((inferred["kind"], inferred["old_code"], inferred["new_code"], inferred["source"]),
+                         ("pair", OLD, INFERRED, f"derived:code-go-kr:date+name:{DAY}"))
+        return first["fresh_changes"]
+
+    def test_an_official_pair_arriving_later_supersedes_a_date_and_name_pair_and_reaches_only_its_pnus(self):
+        recorded = self.first_run()
+        later = self.plan(recorded, self.OFFICIAL_LINKS, run="run2", now=LATER)
+        fresh = {row["kind"]: row for row in later["fresh_changes"]}
+        self.assertEqual(sorted(fresh), ["pair", "supersession"], "the official pair and the record it supersedes, in one load")
+        self.assertEqual((fresh["pair"]["old_code"], fresh["pair"]["new_code"], fresh["pair"]["source"]),
+                         (OLD, OFFICIAL, "official:parcel-history"))
+        withdrawn = fresh["supersession"]
+        self.assertEqual((withdrawn["old_code"], withdrawn["new_code"], withdrawn["source"], withdrawn["rule_verdict"]),
+                         (OLD, INFERRED, "official:parcel-history", "superseded"))
+        self.assertEqual((withdrawn["effective_date"], withdrawn["recorded_at_utc"]), (DAY, LATER), "valid from the change, recorded now")
+        detail = json.loads(withdrawn["detail"])
+        self.assertEqual(detail, {
+            "reason": "official_evidence_of_the_same_change",
+            "supersedes": recorded[0]["change_key"],
+            "superseded_source": f"derived:code-go-kr:date+name:{DAY}",
+            "superseded_by": [fresh["pair"]["change_key"]],
+            "evidence": {"official_targets": [OFFICIAL], "kind": "dong_level", "changed_on": [DAY, cg._next_day(DAY)]},
+        })
+        self.assertEqual(later["counts"]["superseded_pairs"],
+                         [{"old_code": OLD, "new_code": INFERRED, "source": f"derived:code-go-kr:date+name:{DAY}",
+                           "official_targets": [OFFICIAL], "kind": "dong_level"}])
+        ledger = recorded + later["fresh_changes"]
+        self.assertIn(recorded[0], ledger, "append-only: the withdrawn pair is still recorded")
+
+        # Every reader resolves to the official pair, with or without the source column (the Gold
+        # build reads `kind, old_code, new_code, level` only).
+        self.assertEqual(views.leaf_pairs(ledger), {OLD: {OFFICIAL: "official:parcel-history"}})
+        projected = [{k: row[k] for k in ("kind", "old_code", "new_code", "level")} for row in ledger]
+        self.assertEqual(set(views.leaf_pairs(projected)[OLD]), {OFFICIAL})
+
+        # Downstream gets exactly the parcels under the old code, the withdrawn code and the official one.
+        changed = views.changed_codes(recorded, ledger)
+        self.assertEqual(changed, {OLD, INFERRED, OFFICIAL})
+        parcels = [pnu(code, n) for code in (OLD, UNTOUCHED, INFERRED, OFFICIAL) for n in (1, 2)]
+        reached = {p for p in parcels if any(p.startswith(views.code_prefix(code)) for code in changed)}
+        self.assertEqual(reached, {pnu(code, n) for code in (OLD, INFERRED, OFFICIAL) for n in (1, 2)})
+
+        # The lineage keeps the link the official pair carries; the one the withdrawn pair carried,
+        # still in the append-only lineage, is not read (`steward_resolved` is every reader's door).
+        import lineage_review_queue as queue
+
+        def link(successor, ref):
+            return {"predecessor_pnu": pnu(OLD, 1), "successor_pnu": successor, "relation": "code_change",
+                    "grade": "code_derived", "evidence_kind": "same_lot_paired_dong", "evidence_ref": ref}
+
+        other = {**link(pnu(UNTOUCHED, 2), "synthetic"), "predecessor_pnu": pnu(UNTOUCHED, 1)}
+        stale, current = link(pnu(INFERRED, 1), f"derived:code-go-kr:date+name:{DAY}"), link(pnu(OFFICIAL, 1), "official:parcel-history")
+        self.assertCountEqual(queue.steward_resolved([stale, current, other]), [current, other])
+        self.assertCountEqual(queue.steward_resolved([stale, other]), [stale, other], "until it is derived again")
+
+    def test_official_evidence_against_a_steward_pair_goes_to_review_not_an_override(self):
+        steward = [pairs_job.change_row("pair", "steward:steward-a", OLD, INFERRED, "steward:steward-a:d1", NOW,
+                                        level="eupmyeondong", effective_date=DAY, rule_verdict="steward", detail="현장 확인")]
+        plan = self.plan(steward, self.OFFICIAL_LINKS, run="run2", now=LATER)
+        self.assertEqual(plan["fresh_changes"], [], "a person's pair is neither withdrawn nor replaced by a rule")
+        self.assertEqual(views.leaf_pairs(steward + plan["fresh_changes"]), {OLD: {INFERRED: "steward:steward-a"}})
+        [item] = [i for i in plan["review"] if i["old_code"] == OLD]
+        self.assertEqual((item["kind"], item["status"], item["steward_pair"], item["official"]["official_targets"]),
+                         ("official_contradicts_steward", "official_contradicts_steward", INFERRED, [OFFICIAL]))
+        self.assertEqual(plan["counts"]["steward_contradicted_by_official"][OLD]["official_targets"], [OFFICIAL])
+        self.assertEqual(plan["counts"]["review_by_status"], {"official_contradicts_steward": 1})
+        # Not an approvable item: no approval or rule clears it, a person reads both answers.
+        with self.assertRaisesRegex(ValueError, "not on the steward list"):
+            pairs_job.steward_rows(plan["review"], [f"{OLD}={OFFICIAL}"], "steward-b", "", None, "run", NOW)
+        handoff = pairs_job.review_handoff(plan["review"], supersession_table(), True, {}, NOW)
+        self.assertEqual(handoff["items"], [], "the steward database takes pair items only")
+
+    def test_official_evidence_dated_outside_the_change_window_still_goes_to_a_person(self):
+        recorded = self.first_run()
+        off_window = dated([(dong_row(OLD), dong_row(OFFICIAL))], "20990415")
+        plan = self.plan(recorded, off_window, run="run2", now=LATER)
+        self.assertEqual(plan["fresh_changes"], [], "no supersession: another day is another change (ADR-0156 §2)")
+        self.assertEqual(plan["counts"]["superseded_pairs"], [])
+        self.assertEqual(views.leaf_pairs(recorded)[OLD], {INFERRED: f"derived:code-go-kr:date+name:{DAY}"})
+        [item] = [i for i in plan["review"] if i["old_code"] == OLD]
+        self.assertEqual((item["kind"], item["status"], item["paired_with"]),
+                         ("official_off_window", "official_disagrees_off_window", [INFERRED]))
+
+    def test_rerunning_after_a_supersession_appends_nothing_and_decides_the_same(self):
+        recorded = self.first_run()
+        second = self.plan(recorded, self.OFFICIAL_LINKS, run="run2", now=LATER)
+        ledger = recorded + second["fresh_changes"]
+        for run in ("run3", "run4"):
+            again = self.plan(ledger, self.OFFICIAL_LINKS, run=run, now=LATER)
+            self.assertEqual(again["fresh_changes"], [], run)
+            self.assertEqual(again["counts"]["superseded_pairs"], [], "a withdrawn pair is not judged again")
+            self.assertEqual((again["review"], again["crosswalk"]), (second["review"], second["crosswalk"]))
+        # Without the official rows (a run that does not read them) the official pair still stands.
+        self.assertEqual(self.plan(ledger, run="run5")["fresh_changes"], [])
+        self.assertEqual(views.leaf_pairs(ledger), {OLD: {OFFICIAL: "official:parcel-history"}})
 
 # --- the handoff ------------------------------------------------------------------------------
 

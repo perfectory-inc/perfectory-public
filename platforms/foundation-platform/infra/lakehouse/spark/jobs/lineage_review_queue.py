@@ -21,7 +21,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
-from parcel_lineage import GRADE_RANK
+from parcel_lineage import GRADE_RANK, drop_outranked_code_changes
 
 REVIEW_GRADES = frozenset({"needs_review", "pending"})
 STEWARD = "steward"
@@ -123,11 +123,12 @@ def steward_resolved(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any
     that decision replaces the derived rows (a link names the one predecessor; "not a link" leaves
     a pending row that links nothing). Every other parcel keeps its derived rows; lapsed steward
     rows are dropped. The registry, the attribute carry, the matching gate and the queue all read
-    through this one function, so none of them can disagree about what a person decided.
+    through this one function, so none of them can disagree about what a person decided. A code
+    change link a better-graded 동 pair replaced is not read either (root ADR-0329 §3).
     """
 
     by_successor: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
-    for row in rows:
+    for row in drop_outranked_code_changes(rows):
         by_successor[row["successor_pnu"]].append(row)
     resolved: list[Mapping[str, Any]] = []
     for successor in sorted(by_successor):

@@ -99,7 +99,8 @@ def multipolygon_wkb(geometry: dict[str, Any]) -> bytes:
 
 
 def resolve_unit_ids(
-    codes: list[str], predecessor_of: dict[str, str], previous_ids: dict[str, str]
+    codes: list[str], predecessor_of: dict[str, str], previous_ids: dict[str, str],
+    corrected: dict[str, str] | None = None,
 ) -> tuple[dict[str, str], dict[str, int]]:
     """The id each code carries in this snapshot (ADR-0113 §9).
 
@@ -108,14 +109,24 @@ def resolve_unit_ids(
     never given to two codes: if two codes would inherit the same id, only the one that is the
     predecessor's own continuation — the same code, else the first in order — takes it and the other
     starts its own.
+
+    `corrected` is {the code a superseded pair named: the code now in force for the same old code}
+    (`legal_dong_code_change_views.corrected_successors`, root ADR-0329 §3): the id the first one
+    inherited from the old code moves to the second, and the first is resolved as if it had never
+    inherited (its own predecessor, else its own v5). Earlier snapshots keep the ids they recorded.
     """
 
+    moved = {current: previous_ids[wrong] for wrong, current in (corrected or {}).items()
+             if wrong in previous_ids and current in codes}
+    released = {wrong for wrong, current in (corrected or {}).items() if current in moved}
     ids: dict[str, str] = {}
     taken: set[str] = set()
-    counts = {"kept": 0, "inherited": 0, "new": 0, "collisions": 0}
-    ordered = sorted(codes, key=lambda c: (c not in previous_ids, c))
+    counts = {"kept": 0, "inherited": 0, "new": 0, "collisions": 0, "corrected": 0}
+    ordered = sorted(codes, key=lambda c: (c not in moved, c not in previous_ids or c in released, c))
     for code in ordered:
-        if code in previous_ids:
+        if code in moved:
+            candidate, how = moved[code], "corrected"
+        elif code in previous_ids and code not in released:
             candidate, how = previous_ids[code], "kept"
         elif code in predecessor_of:
             old = predecessor_of[code]
@@ -258,7 +269,7 @@ def read_predecessors(spark: Any, args: argparse.Namespace) -> tuple[dict[str, s
         row.asDict()
         for row in spark.sql(
             f"SELECT kind, old_code, new_code, level, effective_date, source FROM {table} "
-            f"WHERE kind = 'pair' AND level IN ({levels})"
+            f"WHERE kind IN ('{views.PAIR}', '{views.SUPERSESSION}') AND level IN ({levels})"
         ).collect()
     ]
     olds = set(views.leaf_pairs(rows))
@@ -285,6 +296,8 @@ def read_predecessors(spark: Any, args: argparse.Namespace) -> tuple[dict[str, s
         "pairs_read": len(rows),
         "renumbered": len(predecessors),
         "weighed_by": args.predecessor_parcel_snapshot_id,
+        # Ids a superseded pair gave to the wrong code move to the code in force (root ADR-0329 §3).
+        "corrected": views.corrected_successors(rows),
     }
 
 
@@ -378,7 +391,8 @@ def main(argv: list[str] | None = None) -> int:
                 summary["previous_snapshot_id"] = previous[0]["source_snapshot_id"]
             if args.legal_dong_change_table:
                 predecessor_of, summary["predecessors"] = read_predecessors(spark, args)
-            unit_ids, id_counts = resolve_unit_ids(codes, predecessor_of, previous_ids)
+            unit_ids, id_counts = resolve_unit_ids(codes, predecessor_of, previous_ids,
+                                                   summary.get("predecessors", {}).get("corrected"))
             rows = silver_rows(features, args.source_snapshot_id, args.source_record_id, ingested_at, unit_ids)
             summary["row_count"] = len(rows)
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])

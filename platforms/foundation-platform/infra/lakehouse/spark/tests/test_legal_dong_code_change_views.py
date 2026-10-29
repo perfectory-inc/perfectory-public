@@ -134,6 +134,36 @@ class LeafPairWindowTest(unittest.TestCase):
         self.assertEqual(len(views.leaf_pairs(rows)), 5, "without a window every pair is a pair")
 
 
+class SupersessionTest(unittest.TestCase):
+    """Root ADR-0329: a `supersession` row withdraws a derived pair in every view; never a steward's."""
+
+    INFERRED = change("9999910100", "9999910300", "eupmyeondong")
+    OFFICIAL = change("9999910100", "9999910500", "eupmyeondong", source="official:parcel-history")
+    WITHDRAWN = change("9999910100", "9999910300", "eupmyeondong", source="official:parcel-history", kind="supersession")
+
+    def test_every_view_reads_the_pair_in_force(self):
+        rows = [self.INFERRED, self.OFFICIAL, self.WITHDRAWN]
+        self.assertEqual([(p["new_code"], p["source"]) for p in views.pair_rows(rows)], [("9999910500", "official:parcel-history")])
+        self.assertEqual(views.leaf_pairs(rows), {"9999910100": {"9999910500": "official:parcel-history"}})
+        self.assertEqual(views.renumbered_into(rows, {"9999910500"}), {"9999910100": "9999910500"})
+        self.assertEqual(views.dong_predecessors(rows, lots(pnu("9999910100", 1))), {"9999910500": "9999910100"})
+        self.assertEqual(views.corrected_successors(rows), {"9999910300": "9999910500"})
+        # Before the supersession the old code was a split of two pairs, and no id moved.
+        self.assertEqual(len(views.leaf_pairs([self.INFERRED, self.OFFICIAL])["9999910100"]), 2)
+        self.assertEqual(views.corrected_successors([self.INFERRED, self.OFFICIAL]), {})
+
+    def test_a_steward_pair_is_never_withdrawn(self):
+        steward = {**self.INFERRED, "source": "steward:steward-a"}
+        self.assertEqual(views.leaf_pairs([steward, self.WITHDRAWN]), {"9999910100": {"9999910300": "steward:steward-a"}})
+
+    def test_the_evidence_grades_order_a_person_then_the_official_record_then_the_inferences(self):
+        ranks = [views.evidence_rank(source) for source in (
+            "steward:a", "official:parcel-history", "derived:code-go-kr:date+name:20990701",
+            "derived:parcel-jibun:a->b", "derived:children", "synthetic")]
+        self.assertEqual(ranks, sorted(ranks))
+        self.assertEqual(len(set(ranks)), len(ranks))
+
+
 class RenumberedIntoTest(unittest.TestCase):
     """A 1:1 renumbering is translated into whichever side the served edition holds; nothing else is."""
 

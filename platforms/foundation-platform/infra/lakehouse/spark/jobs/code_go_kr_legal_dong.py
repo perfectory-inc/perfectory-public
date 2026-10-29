@@ -32,7 +32,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 import parcel_lineage as pl
 from parcel_land import jimok_of, wkb_area_m2  # noqa: F401 - the 지번 step reads both through this module
-from legal_dong_code_change_views import LEAF_LEVELS
+from legal_dong_code_change_views import LEAF_LEVELS, STEWARD_SOURCE
 
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "code-go-kr-legal-dong.contract.json"
 EXISTS, ABOLISHED = "존재", "폐지"
@@ -320,16 +320,12 @@ Land = tuple[str, float]
 
 
 
-# A pair from these sources is derived, so official evidence may contradict it (`hold_against_official`);
-# a steward's or the official history's own pair is not re-judged.
+# A pair from these sources is an inference, so official evidence of the same change supersedes it
+# (`official_contradiction`, root ADR-0329); a steward's pair is a person's and is only reported.
 DERIVED_SOURCES = ("derived:parcel-jibun:", "derived:code-go-kr:date+name:")
 
 BELOW_WAIT = re.compile(r"^\d+ codes below wait: ")
 OFFICIAL_HISTORY_MISSING = "the official parcel-number history (필지고유번호변동연혁), not collected"
-
-
-class PairingConflict(ValueError):
-    """Two kinds of evidence settle one code on different new codes. Nothing may be written."""
 
 
 def is_dong_level_link(pnu: str) -> bool:
@@ -388,6 +384,15 @@ class PairingResult:
     # {old code: [{new, changed_on, kind, share}]}: decisive official evidence dated outside its change
     # window naming a code its pair does not (`off_window_moves`); each is also on the review list
     official_off_window_decisive: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # Recorded derived pairs decisive official evidence of the same change contradicts: each is withdrawn
+    # by a `supersession` row (root ADR-0329 §1), with the evidence that withdrew it
+    superseded: list[dict[str, Any]] = field(default_factory=list)
+    # This run's own inferences (date + name, 지번) the official evidence decided otherwise: never
+    # recorded, so nothing to withdraw; reported for the audit trail
+    overruled: list[dict[str, Any]] = field(default_factory=list)
+    # {old code: the steward pair and the official evidence against it}: a person's pair stands and is
+    # put before a person again (root ADR-0329 §2)
+    steward_contradicted: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def pair_changes(
@@ -417,15 +422,18 @@ def pair_changes(
        `dong_level`); otherwise the parcel rows do, when they carry every linked parcel of the old
        code into one new code (`parcel_level`), and a code they carry into several is a split. This is
        how a code whose 지번 were renumbered is settled. Off when `official_links` is None. It decides
-       before the 지번 step; where both settle a code they must agree, and a disagreement raises
-       `PairingConflict` naming both answers. A pair the change table already records, or the date +
-       name rule or the 지번 step settles, from a derived source is held against it too
-       (`hold_against_official`), but only against decisive official evidence of the same event:
-       동-level rows, or parcel rows moving at least `min_share` of the old code's parcels into one
-       code, dated in the old code's change window (its 폐지일 or the day after). Parcel rows moving
-       fewer (a boundary adjustment of a few parcels, often months earlier, while the 동 lives on)
-       are evidence for those parcels' lineage, never for the 동's pair; they are counted in
-       `official_partial_moves` (root ADR-0156).
+       before the 지번 step: where the two disagree, the official answer stands and the 지번 one is
+       reported in `overruled`. A pair from a derived source — recorded, or the date + name rule's or
+       the 지번 step's in this run — is held against decisive official evidence of the same event
+       (`official_contradiction`): 동-level rows, or parcel rows moving at least `min_share` of the
+       old code's parcels into one code, dated in the old code's change window (its 폐지일 or the day
+       after). When that evidence names other codes, the official evidence wins (root ADR-0329): a
+       recorded pair is withdrawn (`superseded`, which the caller records as a `supersession` row)
+       and the code is settled as if it had never been recorded; this run's inference is not
+       accepted (`overruled`). A steward's pair stands and is reported in `steward_contradicted`.
+       Parcel rows moving fewer (a boundary adjustment of a few parcels, often months earlier, while
+       the 동 lives on) are evidence for those parcels' lineage, never for the 동's pair; they are
+       counted in `official_partial_moves` (root ADR-0156).
     3. **지번 sets** (`derived:parcel-jibun:<snapshots>`), for what 1 and 2 cannot settle (a
        renamed, split or merged 동): of the codes at its level that newly hold parcels in the later
        snapshot, lie in its 시도 or one a 시도 pair carries it onto, and were created in its change
@@ -608,8 +616,14 @@ def pair_changes(
         ("", ""). A 동-level row decides first. The parcel rows decide only where no 동-level row names
         it, all of them go to one current code, and they link at least `min_share` of the parcels the
         old code held in the earlier edition: a few boundary-adjustment rows are evidence of where
-        those parcels went, not of where the 동 went."""
+        those parcels went, not of where the 동 went. Decisive evidence of the change itself (dated
+        in its window, `event_moves`) naming one current code decides before all of that, so a
+        boundary adjustment on another day cannot keep the change's own record from settling it
+        (root ADR-0329)."""
 
+        targets, how, _ = event_moves(old)
+        if len(targets) == 1 and targets <= alive:
+            return next(iter(targets)), how
         dong = dong_links_by_old.get(old, set())
         if dong:
             return (next(iter(dong)), "dong_level") if len(dong) == 1 and dong <= alive else ("", "")
@@ -669,19 +683,24 @@ def pair_changes(
             )
         return found
 
-    def hold_against_official(old: str, new: str, source: str) -> None:
-        """A derived pair (recorded, the date + name rule's, or the 지번 step's) must name a code that
-        decisive official evidence of the same change (`event_moves`) moves `old` into, whenever that
-        evidence names any: a single answer, one of a split, or the next hop of a chain."""
+    def official_contradiction(old: str, new: str) -> dict[str, Any] | None:
+        """The decisive official evidence of `old`'s own change (`event_moves`) when it moves `old`
+        somewhere other than `new` — a single answer, a split's codes, or a chain's next hop — as
+        `{official_targets, kind, changed_on}`; None when it names `new` or says nothing."""
 
-        if code_level(old) not in LEAF_LEVELS or not source.startswith(DERIVED_SOURCES):
-            return
+        if code_level(old) not in LEAF_LEVELS:
+            return None
         targets, how, _ = event_moves(old)
-        if targets and new not in targets:
-            raise PairingConflict(
-                f"{old}: the official parcel-number history ({how}, dated {'/'.join(sorted(change_window(old)))}) "
-                f"moves it into {', '.join(sorted(targets))}, the pair from {source} says {new}; nothing is "
-                "written until the evidence is reconciled")
+        if not targets or new in targets:
+            return None
+        return {"official_targets": sorted(targets), "kind": how, "changed_on": sorted(change_window(old))}
+
+    overruled: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    def overrule(old: str, new: str, source: str, against: dict[str, Any]) -> None:
+        """Records once that this run's inference (`source`) gave way to the official evidence."""
+
+        overruled.setdefault((old, new, source), {"old_code": old, "new_code": new, "source": source, **against})
 
     def partial_moves(old: str) -> int:
         """How many of `old`'s parcels the official parcel rows move outside a decisive move of its own
@@ -698,17 +717,19 @@ def pair_changes(
         return (best, share) if best and unique and share >= min_share else ("", 0.0)
 
     def settle_leaf(old: str) -> None:
-        """Official parcel-number history first, then the 지번 step; two answers must agree."""
+        """Official parcel-number history first, then the 지번 step; the official answer wins."""
 
         official, how = official_answer(old)
         by_land, share = jibun_answer(old)
-        if official and by_land and official != by_land:
-            raise PairingConflict(
-                f"{old}: the official parcel-number history ({how}) says {official}, the 지번 step "
-                f"({evidence(old)[0].label}, share {share:.4f}) says {by_land}; nothing is written "
-                "until the evidence is reconciled")
-        if by_land and not official:
-            hold_against_official(old, by_land, f"derived:parcel-jibun:{evidence(old)[0].label}")
+        if by_land:
+            source = f"derived:parcel-jibun:{evidence(old)[0].label}"
+            if official:
+                against = None if official == by_land else {"official_targets": [official], "kind": how, "changed_on": []}
+            else:
+                against = official_contradiction(old, by_land)
+            if against:
+                overrule(old, by_land, source, against)
+                by_land = ""
         if official:  # 2
             accept(old, official, "official:parcel-history", "official_parcel_history", how)
         elif by_land:  # 3
@@ -738,15 +759,33 @@ def pair_changes(
         unsettled = sorted((old for old in olds if old not in successors), key=order)
         for old in unsettled:  # 0 and 1, top-down
             if old in decided_by_old:
-                for pair in decided_by_old[old]:
-                    hold_against_official(old, pair["new_code"], pair["source"])
+                standing = []
+                for pair in decided_by_old.pop(old):
+                    source = pair["source"]
+                    against = None if source.startswith("official:") else official_contradiction(old, pair["new_code"])
+                    if against and source.startswith(DERIVED_SOURCES):
+                        # Withdrawn: the code is settled below as if the pair had never been recorded.
+                        result.superseded.append({
+                            "old_code": old, "new_code": pair["new_code"], "source": source,
+                            "effective_date": by_code.get(old, {}).get("abolished_date", ""), **against})
+                        continue
+                    if against and source.startswith(STEWARD_SOURCE):
+                        result.steward_contradicted[old] = {"steward_pair": pair["new_code"], "steward_source": source, **against}
+                    standing.append(pair)
+                if not standing:
+                    continue
+                decided_by_old[old] = standing
+                for pair in standing:
                     accept(old, pair["new_code"], pair["source"], pair.get("rule_verdict") or "steward", pair.get("detail") or "")
                 continue
             candidates = rule_candidates(old)
             if len(candidates) == 1:
                 source = f"derived:code-go-kr:date+name:{by_code[old]['abolished_date']}"
-                hold_against_official(old, candidates[0], source)
-                accept(old, candidates[0], source, "rule")
+                against = official_contradiction(old, candidates[0])
+                if against:
+                    overrule(old, candidates[0], source, against)
+                else:
+                    accept(old, candidates[0], source, "rule")
         for old in sorted((old for old in olds if old not in successors), key=order, reverse=True):
             level = code_level(old)
             if level in LEAF_LEVELS:
@@ -843,6 +882,18 @@ def pair_changes(
                 "name": row.get("full_name", "") if row else "",
             }
         )
+    result.overruled = [overruled[key] for key in sorted(overruled)]
+    for old, contradiction in sorted(result.steward_contradicted.items()):
+        row = by_code.get(old)
+        # A person's pair is not withdrawn by a rule (root ADR-0329 §2): it stands, and both answers go
+        # before a person. Its own kind, like `official_off_window`: no approval clears it.
+        result.review.append({
+            "kind": "official_contradicts_steward", "old_code": old, "level": code_level(old),
+            "status": "official_contradicts_steward", "steward_pair": contradiction["steward_pair"],
+            "steward_source": contradiction["steward_source"],
+            "official": {key: contradiction[key] for key in ("official_targets", "kind", "changed_on")},
+            "as_of": row.get("abolished_date", "") if row else "", "name": row.get("full_name", "") if row else "",
+        })
     return result
 
 

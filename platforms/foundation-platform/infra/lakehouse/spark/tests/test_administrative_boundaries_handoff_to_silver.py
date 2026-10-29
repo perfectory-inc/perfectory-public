@@ -57,7 +57,7 @@ class UnitIdAcrossRenumberingTest(unittest.TestCase):
         self.assertEqual(ids["9999920100"], previous["9999910100"], "renumbered: same place, same id")
         self.assertEqual(ids["9999910200"], previous["9999910200"], "unchanged code keeps its id")
         self.assertEqual(ids["9999930100"], administrative_unit_id("9999930100"), "a new place gets its own")
-        self.assertEqual(counts, {"kept": 1, "inherited": 1, "new": 1, "collisions": 0})
+        self.assertEqual(counts, {"kept": 1, "inherited": 1, "new": 1, "collisions": 0, "corrected": 0})
 
     def test_a_first_snapshot_with_a_known_predecessor_uses_the_predecessor_code(self):
         ids, _ = resolve_unit_ids(["9999920100"], {"9999920100": "9999910100"}, {})
@@ -71,6 +71,23 @@ class UnitIdAcrossRenumberingTest(unittest.TestCase):
         self.assertNotEqual(ids["9999910100"], ids["9999920100"])
         self.assertEqual(ids["9999910100"], previous["9999910100"], "the continuing code keeps it")
         self.assertEqual(counts["collisions"], 1)
+
+    def test_an_id_a_superseded_pair_gave_to_the_wrong_dong_moves_to_the_dong_in_force(self):
+        # Root ADR-0329 §3: the last release gave 갑동 (9999910100)'s id to 9999910300 through a date +
+        # name pair; official evidence superseded it with 9999910500, which got a fresh id. This release
+        # moves the place's id to 9999910500 and gives 9999910300 its own; 을동 keeps its id.
+        place = administrative_unit_id("9999910100")
+        previous = {"9999910300": place, "9999910500": administrative_unit_id("9999910500"),
+                    "9999910200": administrative_unit_id("9999910200")}
+        codes = ["9999910200", "9999910300", "9999910500"]
+        ids, counts = resolve_unit_ids(codes, {"9999910500": "9999910100"}, previous, {"9999910300": "9999910500"})
+        self.assertEqual(ids["9999910500"], place)
+        self.assertEqual(ids["9999910300"], administrative_unit_id("9999910300"))
+        self.assertEqual(ids["9999910200"], previous["9999910200"])
+        self.assertEqual(counts, {"kept": 1, "inherited": 0, "new": 1, "collisions": 0, "corrected": 1})
+        # Without the correction the wrong dong would keep the place's id for ever.
+        unchanged, _ = resolve_unit_ids(codes, {"9999910500": "9999910100"}, previous)
+        self.assertEqual(unchanged["9999910300"], place)
 
 
 class WkbTest(unittest.TestCase):
@@ -204,6 +221,20 @@ class PredecessorsFromTheChangeTableTest(unittest.TestCase):
         self.assertEqual(summary["change_table_snapshot_id"], "7")
         self.assertIn("FROM `lakehouse`.`reference`.`legal_dong_code_change`", spark.queries[0])
         self.assertIn("level IN ('eupmyeondong', 'ri')", spark.queries[0])
+
+    def test_a_superseded_pair_is_no_predecessor_and_its_id_correction_is_named(self):
+        # Root ADR-0329: the date + name pair 10100 -> 10300 was superseded by the official 10100 -> 10500.
+        changes = [{**self.change("9999910100", "9999910300"), "source": "derived:code-go-kr:date+name:20990701"},
+                   {**self.change("9999910100", "9999910500"), "source": "official:parcel-history"},
+                   {**self.change("9999910100", "9999910300"), "kind": "supersession", "source": "official:parcel-history"}]
+        args = parse_args(["--input", "a", "--source-snapshot-id", "s1", "--source-record-id", "r",
+                           "--legal-dong-change-table", "reference.legal_dong_code_change",
+                           "--predecessor-parcel-snapshot-id", "june"])
+        spark = _Spark(changes, ["9999910100100010000"])
+        predecessors, summary = read_predecessors(spark, args)
+        self.assertEqual(predecessors, {"9999910500": "9999910100"})
+        self.assertEqual(summary["corrected"], {"9999910300": "9999910500"})
+        self.assertIn("kind IN ('pair', 'supersession')", spark.queries[0])
 
     def test_a_parcel_snapshot_holding_none_of_the_old_codes_is_refused(self):
         # Every weight would be zero and the merger's id would go to whichever code sorts first.

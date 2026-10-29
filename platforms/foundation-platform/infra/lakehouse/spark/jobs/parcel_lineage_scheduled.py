@@ -11,7 +11,8 @@ so a group is at most one or two sidos, never the country.
 
 A group is derived once per (edition pair, group, rules version): it is skipped when
 silver.parcel_lineage already holds a row of that pair and rules version whose successor lies in
-the group. No group starts after the deadline; the next run continues where this one stopped.
+the group, unless official evidence withdrew a 동 pair of the group after that row was derived
+(`superseded_since`, root ADR-0329 §3): then that group alone is derived again. No group starts after the deadline; the next run continues where this one stopped.
 A group the producer refuses (a vanished 동 code the code change table does not pair, say) is
 recorded with its reason and the others go on: one region's missing record must not hold back
 every region after it. The run says so (`refused`), and the stewardship unit then fails loudly.
@@ -102,16 +103,39 @@ def run_groups(
     return outcome
 
 
-def held_sql(table: str, from_snapshot_id: str, to_snapshot_id: str, to_sido: str) -> str:
+def held_sql(table: str, from_snapshot_id: str, to_snapshot_id: str, to_sido: str, since: datetime | None = None) -> str:
+    """A row of this pair, rules version and group; with `since`, only one derived at or after it."""
+
+    after = f"AND derived_at_utc >= TIMESTAMP '{since:%Y-%m-%d %H:%M:%S}' " if since is not None else ""
     return (
         f"SELECT 1 FROM {table} WHERE from_snapshot_id = '{from_snapshot_id}' "
-        f"AND to_snapshot_id = '{to_snapshot_id}' AND rules_version = '{pl.RULES_VERSION}' "
+        f"AND to_snapshot_id = '{to_snapshot_id}' AND rules_version = '{pl.RULES_VERSION}' {after}"
         f"AND substr(successor_pnu, 1, 2) IN ({producer.sql_prefixes(to_sido)}) LIMIT 1"
     )
 
 
-def is_held(spark: Any, table: str, exists: bool, from_id: str, to_id: str, from_sido: str, to_sido: str) -> bool:
-    return exists and bool(spark.sql(held_sql(table, from_id, to_id, to_sido)).collect())
+def superseded_since(supersessions: list[dict[str, Any]], from_sido: str) -> datetime | None:
+    """When the last 동 pair of this group was withdrawn by official evidence (root ADR-0329 §3): the
+    newest `recorded_at_utc` of a `supersession` row whose old code lies in `from_sido`, or None. A
+    group derived before it carried the withdrawn pair's links and is derived again, and only that
+    group: the lineage's own unit, since a group's parcels pair only with each other."""
+
+    prefixes = set(from_sido.split(","))
+    times = [row["recorded_at_utc"] for row in supersessions if str(row["old_code"])[:2] in prefixes]
+    return max(times) if times else None
+
+
+def read_supersessions(spark: Any, change_table: str) -> list[dict[str, Any]]:
+    """The `supersession` rows of the pinned code change table (a few, next to its pairs)."""
+
+    return [row.asDict() for row in spark.sql(
+        f"SELECT old_code, recorded_at_utc FROM {change_table} WHERE kind = '{pl.views.SUPERSESSION}'").collect()]
+
+
+def is_held(spark: Any, table: str, exists: bool, from_id: str, to_id: str, supersessions: list[dict[str, Any]],
+            from_sido: str, to_sido: str) -> bool:
+    since = superseded_since(supersessions, from_sido)
+    return exists and bool(spark.sql(held_sql(table, from_id, to_id, to_sido, since)).collect())
 
 
 def derive_one(spark: Any, args: argparse.Namespace, contract: dict[str, Any], pair: tuple[str, str],
@@ -191,10 +215,12 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             exists = spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{args.iceberg_namespace}.{args.iceberg_table}")
             from_id, to_id = (editions.snapshot_id(contract, name) for name in pair)
+            supersessions = read_supersessions(
+                spark, f"{cat}.{ROLE_TABLES['code_changes']} VERSION AS OF {pins['code_changes']['snapshot_id']}")
 
             remaining = max(args.deadline_minutes * 60 - (time.monotonic() - started), 0)
             outcome = run_groups(sido_groups(before, after),
-                                 functools.partial(is_held, spark, table, exists, from_id, to_id),
+                                 functools.partial(is_held, spark, table, exists, from_id, to_id, supersessions),
                                  functools.partial(derive_one, spark, args, contract, pair, pins_path), remaining)
             summary["pairs"].append({"from": pair[0], "to": pair[1], "pins": pins, **outcome})
     finally:

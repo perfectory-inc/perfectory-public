@@ -41,7 +41,15 @@ SPARK = textwrap.dedent("""
         verdicts = {f"db:{i}": "recorded" for i in recorded}
         if "--steward-decisions" in opt:
             verdicts.update({p.name: "recorded" for p in out("--steward-decisions").glob("*.json")})
-        out("--summary-output").write_text(json.dumps({"steward_decisions": verdicts, "rules_version": os.environ["RULES_VERSION"]}))
+        summary = {"steward_decisions": verdicts, "rules_version": os.environ["RULES_VERSION"]}
+        if os.environ.get("OFFICIAL_DECIDED"):
+            summary["superseded_pairs"] = [{"old_code": "9999910100", "new_code": "9999910300",
+                                            "source": "derived:code-go-kr:date+name:20990701",
+                                            "official_targets": ["9999910500"], "kind": "dong_level"}]
+            summary["steward_contradicted_by_official"] = {"9999910700": {
+                "steward_pair": "9999910800", "steward_source": "steward:steward-a", "official_targets": ["9999910900"],
+                "kind": "dong_level", "changed_on": ["20990701", "20990702"]}}
+        out("--summary-output").write_text(json.dumps(summary))
     elif job == "vworld_parcel_number_change_history.py":
         out("--summary-output").write_text("{}")
     else:
@@ -75,6 +83,7 @@ DRIVER = textwrap.dedent("""
     mkdir -p "${work}"
     run_log="${work}/run.log"
     publisher() { "${PUBLISHER_BIN}" "$@"; }
+    notify_slack() { printf '%s\\n---\\n' "$1" >> "${WORK_ROOT}/slack.log"; }
     spark() { printf '%s\\n' "$1" >> "${CALLS}"; python3 "${SPARK_STUB}" "${work}" "${container_work}" "$@"; }
     source "${LOAD}"
     load_legal_dong_code_handoffs
@@ -107,7 +116,7 @@ class Harness(unittest.TestCase):
         self.calls = self.root / "calls.log"
         self.runs = 0
 
-    def run_cycle(self, fail_pairing=False):
+    def run_cycle(self, fail_pairing=False, official_decided=False):
         self.runs += 1
         self.calls.write_text("")
         self.publisher_calls.write_text("")
@@ -121,6 +130,8 @@ class Harness(unittest.TestCase):
                "FOUNDATION_LEGAL_DONG_JOBS_DIR": str(self.root / "jobs")}
         if fail_pairing:
             env["FAIL_PAIRING"] = "1"
+        if official_decided:
+            env["OFFICIAL_DECIDED"] = "1"
         return subprocess.run(["bash", str(self.root / "driver.sh")], env=env, capture_output=True, text=True,
                               timeout=120)
 
@@ -301,6 +312,35 @@ class StewardDatabase(Harness):
         self.assertNotEqual(self.run_cycle(fail_pairing=True).returncode, 0)
         self.assertNotIn("record-lineage-steward-folds", self.publisher())
         self.assertEqual(json.loads(self.db.read_text()), ["d-1"], "an approval the run did not append stays standing")
+
+
+class OfficialEvidenceDecided(Harness):
+    """Root ADR-0329: a superseded inference is journalled; a contradicted steward pair reaches a person."""
+
+    def test_a_supersession_is_journalled_and_a_contradicted_steward_pair_is_one_alert(self):
+        self.latest_snapshot()
+        self.published()
+        (self.legal / "last-pairing.json").write_text(json.dumps({"rules_version": "v1"}))
+        self.stage_parcel_number_change("pnch-20991101T000000Z")
+        result = self.run_cycle(official_decided=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        run1 = [line for line in self.journal_lines() if line.endswith("run=run1")]
+        self.assertTrue(any("legal-dong-code superseded 9999910100->9999910300 (derived:code-go-kr:date+name:20990701) "
+                            "by official dong_level 9999910500" in line for line in run1), run1)
+        self.assertTrue(any("legal-dong-code steward-contradicted 9999910700->9999910800" in line for line in run1), run1)
+        slack = (self.root / "runs" / "slack.log").read_text(encoding="utf-8").split("---\n")
+        self.assertEqual(len([m for m in slack if m.strip()]), 1, "one message per run")
+        self.assertIn("9999910700->9999910800", slack[0])
+        self.assertNotIn("9999910100", slack[0], "a supersession is the record working, not an alert")
+
+    def test_a_pairing_without_either_says_nothing(self):
+        self.latest_snapshot()
+        self.published()
+        (self.legal / "last-pairing.json").write_text(json.dumps({"rules_version": "v1"}))
+        self.stage_parcel_number_change("pnch-20991101T000000Z")
+        self.assertEqual(self.run_cycle().returncode, 0)
+        self.assertFalse((self.root / "runs" / "slack.log").exists())
+        self.assertFalse(any("superseded" in line for line in self.journal_lines()))
 
 
 class RulesVersion(Harness):

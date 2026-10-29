@@ -14,7 +14,9 @@
 #               않았으면 그 동은 판단 대기로 남고, 필요한 판을 이름으로 말한다(ADR-0148).
 #               필지 번호 공식 이력(필지고유번호변동연혁, VWorld 30527)은 silver.parcel_number_change_history 가
 #               행을 가졌을 때(그 넘김을 하나라도 적재했을 때) 읽는다: 짝 맞추기 기간의 공식 짝이 지번 단계보다
-#               먼저 정하고, 둘이 다르게 정하면 아무것도 쓰지 않고 멈춘다(ADR-0150). 표가 비었으면 그 단계는 꺼져
+#               먼저 정하고, 같은 변경의 결정적 공식 근거가 추정 짝과 다르면 공식 짝이 이긴다: 이미 기록된 추정 짝은
+#               supersession 행으로 물리고(지우지 않는다), 스튜어드 짝은 그대로 두고 사람에게 알린다
+#               (root ADR-0329, legal_dong_report_supersessions). 표가 비었으면 그 단계는 꺼져
 #               있고, 그것만 정할 수 있는 동은 판단 대기(awaiting_data)로 남는다(ADR-0144 §4). 필지 계보는 증거가
 #               아니다: 계보가 이 표의 동 짝을 읽으므로, 거꾸로 읽으면 서로가 서로를 읽는다(ADR-0145 §2).
 #   3. 넘김을 loaded/ 로 옮긴다.
@@ -63,6 +65,34 @@ legal_dong_steward_database_owes_pairing() {
     "${work}/legal-dong/steward-decisions-probe.json")" != 0 ]
 }
 
+# What official evidence decided over a recorded pair, from the pairing summary $1 (root ADR-0329): each
+# withdrawn inference is a journal line (its supersession row is the record), and a steward pair the official
+# evidence contradicts — which stands, and is on the steward list with both answers — is also one Slack
+# message for the people who decide it (notify_slack, from lineage-stewardship-cycle.sh).
+legal_dong_report_supersessions() {
+  local lines alerts
+  lines="$(python3 -I - "$1" <<'PY'
+import json, sys
+summary = json.load(open(sys.argv[1], encoding="utf-8"))
+for item in summary.get("superseded_pairs", []):
+    print(f"superseded {item['old_code']}->{item['new_code']} ({item['source']}) by official "
+          f"{item['kind']} {','.join(item['official_targets']) or '-'}")
+for old, item in sorted(summary.get("steward_contradicted_by_official", {}).items()):
+    print(f"steward-contradicted {old}->{item['steward_pair']} ({item['steward_source']}) official "
+          f"{item['kind']} {','.join(item['official_targets'])}")
+PY
+)"
+  [ -n "${lines}" ] || return 0
+  while IFS= read -r line; do
+    job_journal "${journal}" "legal-dong-code ${line} run=${run_id}"
+  done <<< "${lines}"
+  alerts="$(grep '^steward-contradicted ' <<< "${lines}" || true)"
+  if [ -n "${alerts}" ] && declare -F notify_slack >/dev/null; then
+    notify_slack "⚠️ 법정동 스튜어드 짝을 같은 변경의 공식 이력이 반박함 (짝은 그대로, ADR-0329 §2). 스튜어드 목록의 official_contradicts_steward 항목에서 두 답을 확인:
+${alerts}"
+  fi
+}
+
 # Pairs one snapshot: $1 snapshot date, $2 its Bronze key.
 legal_dong_pair() {
   local snapshot_date="$1" table_key="$2" out="${work}/legal-dong" cout="${container_work}/legal-dong"
@@ -86,6 +116,7 @@ legal_dong_pair() {
     --summary-output "${cout}/pairs-summary.json"
   legal_dong_install "${out}/projection.json" "${LEGAL_DONG_STATE_ROOT}/sigungu-crosswalk.projection.json"
   legal_dong_install "${out}/steward-review.json" "${LEGAL_DONG_STATE_ROOT}/steward-review.json"
+  legal_dong_report_supersessions "${out}/pairs-summary.json"
   # Each staged decision moves to recorded/ or rejected/, as the run judged it.
   python3 -I - "${out}/pairs-summary.json" "${LEGAL_DONG_STATE_ROOT}/steward" <<'PY'
 import json, pathlib, sys
