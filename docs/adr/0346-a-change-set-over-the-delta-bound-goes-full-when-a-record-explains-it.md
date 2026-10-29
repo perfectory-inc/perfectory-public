@@ -26,8 +26,8 @@ building 이 멈추자 그 문서를 따르는 unit-price 레인도 "따르는 b
 - 바뀜 5,933,490 · 새 6,029 · 삭제 6,487 · 같음 5,790.
 - 시도 41(952,543 PNU 의 `row_digest` 다름)에서 문서 안의 `floor_row_id`·`units[].building_link_evidence.unit_row_id`·
   `building_link_source_record_id`·`building_link_input_sha256` 네 필드를 지우고 비교하면 다른 PNU 는 **1,628**(0.17%)이다.
-- 그 네 값은 `bronze/source=hubgokr__…/OPN<배치>.zip#line-N` — 원천 파일 이름과 줄 번호다. 10-20 판(`OPN20260920…`)에서
-  10-28 판(`OPN20261020…`)으로 다섯 Silver 입력이 모두 새 배치가 되어 모든 문서가 바뀌었다.
+- 그 네 값은 `bronze/source=hubgokr__…/OPN<배치>.zip#line-N` — 원천 파일 이름과 줄 번호다. 10-20 판(9월 배치 파일)에서
+  10-28 판(10월 배치 파일)으로 다섯 Silver 입력이 모두 새 배치가 되어 모든 문서가 바뀌었다.
 - 층 행 id 는 [ADR-0331](./0331-building-floor-and-unit-area-rows-are-named-by-their-natural-key-not-their-file-line.md)(#932, 10-29 05:40Z 병합)이
   자연 키로 고쳤다. 6612 는 그 전(10-28 19:59Z)에 만들어졌다. 호(`unit_row_id`)와 연결 근거 두 필드는 아직 줄 번호이고
   건물 문서의 **5.95%**(353,978 / 5,945,309, 6612 측정)가 그것을 싣는다. 그래서 다음 달부터는 이 몫만 매달 바뀐다(상한 아래).
