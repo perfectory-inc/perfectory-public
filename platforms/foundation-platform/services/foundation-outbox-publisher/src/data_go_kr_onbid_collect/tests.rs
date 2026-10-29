@@ -14,8 +14,9 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    close_vanished, collect, item_key, item_pass_due, kst_date, persist, read_answer,
-    source_contract, Answer, Api, Fetcher, ItemKey, State, PREFIX,
+    close_vanished, collect, item_key, item_pass_due, kst14, kst14_of, kst_date, listed_of,
+    owed_details, persist, prune_media_memo, read_answer, settle_details, source_contract, Answer,
+    Api, Coverage, DetailMark, Fetcher, ItemKey, LineOutcome, Listed, MediaRef, State, PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -248,15 +249,15 @@ async fn a_round_that_leaves_the_list_gets_its_result_asked_once() -> anyhow::Re
     Ok(())
 }
 
-#[tokio::test]
-async fn an_open_item_is_detailed_once_and_not_re_asked() -> anyhow::Result<()> {
+/// A provider listing `listed` and answering every 물건상세 with a synthetic photo URL.
+async fn detail_provider(listed: &[Value]) -> anyhow::Result<MockServer> {
     let contract = source_contract()?;
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path(contract.item_list.path.clone()))
         .and(query_param("prptDivCd", "0007"))
         .and(query_param("pvctTrgtYn", "N"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(rows(&[item("A-1", 1)])))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rows(listed)))
         .with_priority(1)
         .mount(&server)
         .await;
@@ -276,6 +277,29 @@ async fn an_open_item_is_detailed_once_and_not_re_asked() -> anyhow::Result<()> 
         .with_priority(10)
         .mount(&server)
         .await;
+    Ok(server)
+}
+
+fn listed_item(cltr: &str, condition: i64, modified: &str, bid_end: &str) -> Value {
+    let mut row = item(cltr, condition);
+    row["mdfcnDt"] = json!(modified);
+    row["cltrBidEndDt"] = json!(bid_end);
+    row
+}
+
+fn complete(photos: u32) -> LineOutcome {
+    LineOutcome {
+        complete: true,
+        photos,
+    }
+}
+
+#[tokio::test]
+async fn an_open_item_is_detailed_until_its_media_landed_and_again_when_the_provider_changes_it(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server =
+        detail_provider(&[listed_item("A-1", 1, "20990101090000", "209901101000")]).await?;
 
     let mut state = State::default();
     let first = at("2099-01-01T00:00:00Z");
@@ -284,7 +308,10 @@ async fn an_open_item_is_detailed_once_and_not_re_asked() -> anyhow::Result<()> 
     assert_eq!(report.details_received, 1);
     assert_eq!(report.details_owed, 0);
     assert_eq!(report.details_errored, 0);
-    assert_eq!(state.detailed, BTreeSet::from([key("A-1", 1)]));
+    assert_eq!(report.fetched.len(), 1);
+    assert!(!report.fetched[0].refresh);
+    // Received is not complete: nothing is marked until the media step says its media landed.
+    assert!(state.details.is_empty());
     let detail_lines = fetcher
         .lines
         .get(&Api::ItemDetail)
@@ -296,12 +323,220 @@ async fn an_open_item_is_detailed_once_and_not_re_asked() -> anyhow::Result<()> 
     assert!(detail_lines[0].contains("cltrMngNo"));
     assert!(!detail_lines[0].contains(KEY));
 
-    // Three hours later the item list is due again with the same open item: detail is not re-asked.
+    // Its media did not all land (a cap, a timeout): an hour later it is asked again.
+    assert_eq!(
+        settle_details(&mut state, &report.fetched, &[LineOutcome::default()]),
+        0
+    );
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(
+        &contract,
+        &mut fetcher,
+        &mut state,
+        at("2099-01-01T01:00:00Z"),
+    )
+    .await?;
+    assert_eq!(report.details_received, 1);
+    assert_eq!(
+        settle_details(&mut state, &report.fetched, &[complete(2)]),
+        1
+    );
+    assert_eq!(state.details[&key("A-1", 1)].photos, 2);
+
+    // Three hours later the item list is due again with the same row: detail is not re-asked.
     let later = at("2099-01-01T03:00:00Z");
     let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
     let report = collect(&contract, &mut fetcher, &mut state, later).await?;
+    assert!(report.item_pass_complete);
     assert_eq!(report.details_received, 0);
     assert!(!fetcher.lines.contains_key(&Api::ItemDetail));
+
+    // A status change is not a change of the detail; the provider's modification stamp is.
+    let mut status_only = listed_item("A-1", 1, "20990101090000", "209901101000");
+    status_only["pbctStatCd"] = json!("0002");
+    let server = detail_provider(&[status_only]).await?;
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(
+        &contract,
+        &mut fetcher,
+        &mut state,
+        at("2099-01-01T06:00:00Z"),
+    )
+    .await?;
+    assert_eq!(report.details_received, 0);
+    let server =
+        detail_provider(&[listed_item("A-1", 1, "20990101150000", "209901101000")]).await?;
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(
+        &contract,
+        &mut fetcher,
+        &mut state,
+        at("2099-01-01T09:00:00Z"),
+    )
+    .await?;
+    assert_eq!(report.details_received, 1);
+    assert_eq!(report.details_refreshed, 1);
+    assert!(report.fetched[0].refresh);
+    Ok(())
+}
+
+fn listed(digest: &str, ends: Option<&str>) -> Listed {
+    Listed {
+        bid_ends_kst: ends.map(str::to_owned),
+        digest: digest.to_owned(),
+    }
+}
+
+fn mark(digest: &str, photos: u32) -> DetailMark {
+    DetailMark {
+        digest: digest.to_owned(),
+        photos,
+    }
+}
+
+#[test]
+fn details_are_owed_open_before_ended_new_before_changed_earliest_end_first() {
+    // 2099-01-05 00:00 UTC = 09:00 KST.
+    let now = at("2099-01-05T00:00:00Z");
+    let mut state = State::default();
+    let open = BTreeSet::from([
+        key("ENDED", 1),
+        key("LATE", 1),
+        key("SOON", 1),
+        key("NO-END", 1),
+        key("CHANGED", 1),
+        key("SAME", 1),
+    ]);
+    state
+        .listed
+        .insert(key("ENDED", 1), listed("d", Some("20990104120000")));
+    state
+        .listed
+        .insert(key("LATE", 1), listed("d", Some("20990301100000")));
+    state
+        .listed
+        .insert(key("SOON", 1), listed("d", Some("20990105100000")));
+    state.listed.insert(key("NO-END", 1), listed("d", None));
+    state
+        .listed
+        .insert(key("CHANGED", 1), listed("new", Some("20990105100000")));
+    state
+        .listed
+        .insert(key("SAME", 1), listed("d", Some("20990105100000")));
+    state.details.insert(key("CHANGED", 1), mark("old", 1));
+    state.details.insert(key("SAME", 1), mark("d", 1));
+
+    let owed = owed_details(&mut state, &open, now);
+    let order = owed
+        .iter()
+        .map(|owed| owed.key.cltr_mng_no.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(order, ["SOON", "LATE", "NO-END", "CHANGED", "ENDED"]);
+    assert!(owed
+        .iter()
+        .all(|owed| owed.refresh == (owed.key.cltr_mng_no == "CHANGED")));
+}
+
+#[test]
+fn a_mark_made_before_the_list_was_read_adopts_its_digest_instead_of_a_refetch() {
+    let mut state = State::default();
+    state.details.insert(key("A", 1), mark("", 0));
+    let open = BTreeSet::from([key("A", 1)]);
+    assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
+    state.listed.insert(key("A", 1), listed("d", None));
+    assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
+    assert_eq!(state.details[&key("A", 1)].digest, "d");
+}
+
+#[test]
+fn the_list_digest_reads_only_the_refresh_fields_and_the_bid_end_is_korean_time(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let a = listed_of(
+        &contract.item_detail,
+        &listed_item("A", 1, "20990101090000", "209901101000"),
+    );
+    let mut status = listed_item("A", 1, "20990101090000", "209901101000");
+    status["pbctStatCd"] = json!("0010");
+    assert_eq!(listed_of(&contract.item_detail, &status), a);
+    let modified = listed_of(
+        &contract.item_detail,
+        &listed_item("A", 1, "20990102090000", "209901101000"),
+    );
+    assert_ne!(modified.digest, a.digest);
+    assert_eq!(a.bid_ends_kst.as_deref(), Some("20990110100000"));
+    assert_eq!(
+        kst14(&json!("20990110100030")).as_deref(),
+        Some("20990110100030")
+    );
+    assert_eq!(kst14(&json!("2099-01-10")), None);
+    assert_eq!(kst14_of(at("2099-01-10T01:00:00Z")), "20990110100000");
+    Ok(())
+}
+
+#[test]
+fn coverage_counts_the_conditions_whose_bid_has_not_ended() {
+    let now = at("2099-01-05T00:00:00Z");
+    let mut state = State {
+        open_items: Some(BTreeSet::from([
+            key("A", 1),
+            key("B", 1),
+            key("C", 1),
+            key("D", 1),
+        ])),
+        ..State::default()
+    };
+    state
+        .listed
+        .insert(key("D", 1), listed("d", Some("20990101000000")));
+    state.details.insert(key("A", 1), mark("d", 3));
+    state.details.insert(key("B", 1), mark("d", 0));
+    state.details.insert(key("D", 1), mark("d", 3));
+    let coverage = Coverage::of(&state, now);
+    assert_eq!(
+        (coverage.open, coverage.covered, coverage.with_photos),
+        (3, 2, 1)
+    );
+    let text = coverage.prometheus(now);
+    assert!(text.contains("foundation_onbid_item_detail_coverage_ratio 0.6666"));
+    assert!(text.contains("foundation_onbid_item_detail_open_conditions 3\n"));
+    assert!(Coverage::default()
+        .prometheus(now)
+        .contains("coverage_ratio 1\n"));
+}
+
+#[test]
+fn the_media_memo_keeps_the_open_items_only_and_the_state_round_trips() -> anyhow::Result<()> {
+    let mut state = State {
+        open_items: Some(BTreeSet::from([key("A", 1)])),
+        ..State::default()
+    };
+    let known = |cltr: &str| MediaRef {
+        sha256: "a".repeat(64),
+        media_format: "jpg".to_owned(),
+        size_bytes: 1,
+        cltr_mng_no: cltr.to_owned(),
+    };
+    state
+        .media
+        .insert("https://www.onbid.co.kr/a.jpg".to_owned(), known("A"));
+    state
+        .media
+        .insert("https://www.onbid.co.kr/b.jpg".to_owned(), known("GONE"));
+    state.details.insert(key("A", 1), mark("d", 1));
+    state
+        .listed
+        .insert(key("A", 1), listed("d", Some("20990101000000")));
+    prune_media_memo(&mut state);
+    assert_eq!(state.media.len(), 1);
+
+    let text = serde_json::to_string(&state)?;
+    let back: State = serde_json::from_str(&text)?;
+    assert_eq!(back, state);
+    // A state from before root ADR-0330 (`detailed`, no details) loads with nothing complete.
+    let old: State =
+        serde_json::from_value(json!({"detailed": [{"cltr_mng_no": "A", "pbct_cdtn_no": 1}]}))?;
+    assert!(old.details.is_empty());
     Ok(())
 }
 

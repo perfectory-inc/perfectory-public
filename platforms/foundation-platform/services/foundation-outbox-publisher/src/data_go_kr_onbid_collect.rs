@@ -64,6 +64,8 @@ const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const CONTENT_TYPE: &str = "application/gzip";
 const KST_HOURS: i64 = 9;
+/// The node-exporter textfile the coverage series land in (root ADR-0330 §4).
+const METRICS_FILE: &str = "onbid-item-detail.prom";
 
 /// The four APIs, by the contract's names for them.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -120,6 +122,14 @@ pub(crate) struct Endpoint {
     pub(crate) retry_after_hours: Option<i64>,
     #[serde(default)]
     pub(crate) max_asks: Option<u32>,
+    /// item_detail: the list-row fields whose digest says the condition changed and its detail is
+    /// owed again (root ADR-0330 §2).
+    #[serde(default)]
+    pub(crate) refresh_on_list_fields: Vec<String>,
+    /// item_detail: the list-row field holding the round's bid end (KST `yyyyMMddHHmm[ss]`), the
+    /// order details are owed in (root ADR-0330 §2).
+    #[serde(default)]
+    pub(crate) bid_end_field: Option<String>,
     pub(crate) every_hours: i64,
 }
 
@@ -148,6 +158,11 @@ pub(crate) struct Media {
     pub(crate) download_timeout_seconds: u64,
     /// A single file larger than this is not stored (safety valve; root: the 5.89 GB single-PUT stall).
     pub(crate) max_file_bytes: u64,
+    /// Downloads of one condition's media in flight at once (root ADR-0330 §3).
+    pub(crate) concurrency: usize,
+    /// No new condition's media is started once this many seconds of the media step have passed,
+    /// so the step's wall time is bounded whatever the counts (root ADR-0330 §3).
+    pub(crate) run_time_budget_seconds: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -244,10 +259,72 @@ pub(crate) struct State {
     /// Closed conditions the provider still had no result for after `max_asks`.
     #[serde(default)]
     pub(crate) results_given_up: u64,
-    /// Open item conditions whose 물건상세 (getRlstDtlInf2) we have already fetched, so a later run
-    /// asks only the new ones. Pruned each run to the still-open set, so it cannot grow unbounded.
+    /// What the last complete item pass said about each open condition (root ADR-0330 §2).
+    #[serde(default, with = "keyed")]
+    pub(crate) listed: BTreeMap<ItemKey, Listed>,
+    /// Open conditions whose 물건상세 was fetched AND whose media all landed (root ADR-0330 §1), with
+    /// the list digest they were fetched at. Pruned each run to the still-open set. (The earlier
+    /// `detailed` set marked a condition at fetch even when the media cap skipped its photos; it is
+    /// no longer read, so those conditions are fetched again.)
+    #[serde(default, with = "keyed")]
+    pub(crate) details: BTreeMap<ItemKey, DetailMark>,
+    /// Media URL → its stored blob, for the open items only: a URL already stored is not
+    /// downloaded again (root ADR-0330 §3).
     #[serde(default)]
-    pub(crate) detailed: BTreeSet<ItemKey>,
+    pub(crate) media: BTreeMap<String, MediaRef>,
+}
+
+/// One open condition as the item list showed it.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Listed {
+    /// The bid end as 14 KST digits (`yyyyMMddHHmmss`); `None` when the row has none.
+    pub(crate) bid_ends_kst: Option<String>,
+    /// Digest of the contract's `refresh_on_list_fields` values.
+    pub(crate) digest: String,
+}
+
+/// A condition whose detail and media are complete.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DetailMark {
+    /// The list digest it was fetched at; empty when fetched before the item list was read.
+    pub(crate) digest: String,
+    /// Photos stored for it.
+    pub(crate) photos: u32,
+}
+
+/// A stored media file, as the detail Bronze line is rewritten to point at it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MediaRef {
+    pub(crate) sha256: String,
+    /// The extension (`jpg`, `pdf`, …), `MediaFormat::extension`.
+    pub(crate) media_format: String,
+    pub(crate) size_bytes: u64,
+    /// The item it was seen for, so the memo is pruned with the open items.
+    pub(crate) cltr_mng_no: String,
+}
+
+/// A map keyed by `ItemKey` as a JSON list of `[key, value]` pairs (JSON keys are strings only).
+mod keyed {
+    use std::collections::BTreeMap;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::ItemKey;
+
+    pub(crate) fn serialize<S: Serializer, V: Serialize>(
+        map: &BTreeMap<ItemKey, V>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(map.iter())
+    }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>, V: Deserialize<'de>>(
+        deserializer: D,
+    ) -> Result<BTreeMap<ItemKey, V>, D::Error> {
+        Ok(Vec::<(ItemKey, V)>::deserialize(deserializer)?
+            .into_iter()
+            .collect())
+    }
 }
 
 impl State {
@@ -377,6 +454,214 @@ pub(crate) fn item_key(item: &JsonValue) -> anyhow::Result<ItemKey> {
     })
 }
 
+/// 14 KST digits (`yyyyMMddHHmmss`) of a provider date-time (`yyyyMMddHHmm` or with seconds).
+pub(crate) fn kst14(value: &JsonValue) -> Option<String> {
+    let text = match value {
+        JsonValue::String(text) => text.trim().to_owned(),
+        JsonValue::Number(number) => number.to_string(),
+        _ => return None,
+    };
+    if !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    match text.len() {
+        12 => Some(format!("{text}00")),
+        14 => Some(text),
+        _ => None,
+    }
+}
+
+/// An instant as 14 KST digits, comparable with [`kst14`].
+pub(crate) fn kst14_of(at: DateTime<Utc>) -> String {
+    (at + chrono::Duration::hours(KST_HOURS))
+        .format("%Y%m%d%H%M%S")
+        .to_string()
+}
+
+/// What the item detail needs of one list row: its bid end and the digest of its refresh fields.
+pub(crate) fn listed_of(endpoint: &Endpoint, item: &JsonValue) -> Listed {
+    use sha2::{Digest as _, Sha256};
+    let mut hasher = Sha256::new();
+    for field in &endpoint.refresh_on_list_fields {
+        hasher.update(field.as_bytes());
+        hasher.update([0]);
+        hasher.update(item[field].to_string().as_bytes());
+        hasher.update([0]);
+    }
+    let digest = hasher.finalize()[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Listed {
+        bid_ends_kst: endpoint
+            .bid_end_field
+            .as_ref()
+            .and_then(|field| kst14(&item[field])),
+        digest,
+    }
+}
+
+/// One open condition whose detail is owed.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Owed {
+    pub(crate) key: ItemKey,
+    pub(crate) digest: String,
+    /// It was complete at another digest: the provider changed the row.
+    pub(crate) refresh: bool,
+}
+
+/// The open conditions whose detail is owed, in the order they are asked (root ADR-0330 §2): those
+/// whose bid has not ended before those whose has, never-fetched before changed, the earliest bid end
+/// first (unknown last), then by key.
+pub(crate) fn owed_details(
+    state: &mut State,
+    open: &BTreeSet<ItemKey>,
+    now: DateTime<Utc>,
+) -> Vec<Owed> {
+    // A mark made before the item list was read adopts the list's digest instead of being re-asked.
+    for (key, mark) in &mut state.details {
+        if mark.digest.is_empty() {
+            if let Some(listed) = state.listed.get(key) {
+                mark.digest.clone_from(&listed.digest);
+            }
+        }
+    }
+    let now = kst14_of(now);
+    let mut owed = open
+        .iter()
+        .filter_map(|key| {
+            let listed = state.listed.get(key);
+            let digest = listed
+                .map(|listed| listed.digest.clone())
+                .unwrap_or_default();
+            let refresh = match state.details.get(key) {
+                None => false,
+                Some(mark) if listed.is_none() || mark.digest == digest => return None,
+                Some(_) => true,
+            };
+            let ends = listed.and_then(|listed| listed.bid_ends_kst.clone());
+            let ended = ends.as_deref().is_some_and(|ends| ends < now.as_str());
+            Some((
+                (ended, refresh, ends.is_none(), ends),
+                Owed {
+                    key: key.clone(),
+                    digest,
+                    refresh,
+                },
+            ))
+        })
+        .collect::<Vec<_>>();
+    owed.sort_by(|(left, a), (right, b)| left.cmp(right).then_with(|| a.key.cmp(&b.key)));
+    owed.into_iter().map(|(_, owed)| owed).collect()
+}
+
+/// A detail fetched this run: which condition, at which list digest, and its Bronze line.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Fetched {
+    pub(crate) key: ItemKey,
+    pub(crate) digest: String,
+    pub(crate) refresh: bool,
+    /// Index of its line in `Fetcher::lines[ItemDetail]`.
+    pub(crate) line: usize,
+}
+
+/// How the media of one detail line ended.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LineOutcome {
+    /// Every media URL of the line is stored or permanently skipped.
+    pub(crate) complete: bool,
+    /// Photos of the line now stored.
+    pub(crate) photos: u32,
+}
+
+/// Marks complete the conditions whose media all landed; the rest stay owed and are fetched again
+/// by a later run (root ADR-0330 §1). Returns how many were marked.
+pub(crate) fn settle_details(
+    state: &mut State,
+    fetched: &[Fetched],
+    outcomes: &[LineOutcome],
+) -> usize {
+    let mut marked = 0;
+    for fetched in fetched {
+        if let Some(outcome) = outcomes
+            .get(fetched.line)
+            .filter(|outcome| outcome.complete)
+        {
+            state.details.insert(
+                fetched.key.clone(),
+                DetailMark {
+                    digest: fetched.digest.clone(),
+                    photos: outcome.photos,
+                },
+            );
+            marked += 1;
+        }
+    }
+    marked
+}
+
+/// Detail-and-media coverage of the conditions whose bid has not ended (root ADR-0330 §4).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+pub(crate) struct Coverage {
+    pub(crate) open: usize,
+    pub(crate) covered: usize,
+    pub(crate) with_photos: usize,
+}
+
+impl Coverage {
+    pub(crate) fn of(state: &State, now: DateTime<Utc>) -> Self {
+        let now = kst14_of(now);
+        let mut coverage = Self::default();
+        for key in state.open_items.iter().flatten() {
+            let ends = state
+                .listed
+                .get(key)
+                .and_then(|listed| listed.bid_ends_kst.as_deref());
+            if ends.is_some_and(|ends| ends < now.as_str()) {
+                continue;
+            }
+            coverage.open += 1;
+            if let Some(mark) = state.details.get(key) {
+                coverage.covered += 1;
+                coverage.with_photos += usize::from(mark.photos > 0);
+            }
+        }
+        coverage
+    }
+
+    /// The node-exporter textfile series (root ADR-0321 §5's collector; rule
+    /// `FoundationOnbidDetailCoverageRegressed`).
+    #[allow(clippy::cast_precision_loss)]
+    pub(crate) fn prometheus(&self, now: DateTime<Utc>) -> String {
+        let ratio = if self.open == 0 {
+            1.0
+        } else {
+            self.covered as f64 / self.open as f64
+        };
+        format!(
+            "# HELP foundation_onbid_item_detail_open_conditions Onbid item conditions listed whose bid has not ended (root ADR-0330).\n\
+             # TYPE foundation_onbid_item_detail_open_conditions gauge\n\
+             foundation_onbid_item_detail_open_conditions {}\n\
+             # HELP foundation_onbid_item_detail_covered_conditions Of those, the ones whose detail was fetched and whose media all landed.\n\
+             # TYPE foundation_onbid_item_detail_covered_conditions gauge\n\
+             foundation_onbid_item_detail_covered_conditions {}\n\
+             # HELP foundation_onbid_item_detail_with_photos_conditions Of the covered, the ones with at least one photo stored.\n\
+             # TYPE foundation_onbid_item_detail_with_photos_conditions gauge\n\
+             foundation_onbid_item_detail_with_photos_conditions {}\n\
+             # HELP foundation_onbid_item_detail_coverage_ratio covered / open (1 when nothing is open).\n\
+             # TYPE foundation_onbid_item_detail_coverage_ratio gauge\n\
+             foundation_onbid_item_detail_coverage_ratio {ratio}\n\
+             # HELP foundation_onbid_item_detail_written_timestamp_seconds When the collector last wrote these series.\n\
+             # TYPE foundation_onbid_item_detail_written_timestamp_seconds gauge\n\
+             foundation_onbid_item_detail_written_timestamp_seconds {}\n",
+            self.open,
+            self.covered,
+            self.with_photos,
+            now.timestamp()
+        )
+    }
+}
+
 /// Item conditions open in the previous complete pass and absent from this one: their bidding
 /// ended. Added to the owed results once each.
 pub(crate) fn close_vanished(
@@ -428,6 +713,8 @@ struct Config {
     live_write: bool,
     output_dir: PathBuf,
     state_dir: PathBuf,
+    /// The node-exporter textfile directory for the coverage series; none, none written.
+    metrics_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -454,6 +741,9 @@ impl Config {
             ),
             output_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?),
             state_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_STATE_DIR"))?),
+            metrics_dir: optional_env_value(&format!("{PREFIX}_METRICS_DIR"))?
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from),
         })
     }
 }
@@ -611,7 +901,14 @@ pub(crate) struct RunReport {
     pub(crate) details_owed: usize,
     /// 물건상세 requests that errored this run; isolated so they never fail the run.
     pub(crate) details_errored: usize,
+    /// Of the details received, those asked again because the provider changed the list row.
+    pub(crate) details_refreshed: usize,
+    /// Of the details received, those whose media all landed (marked complete after the media step).
+    pub(crate) details_completed: usize,
     pub(crate) stopped_by_budget: Vec<String>,
+    /// The details received, for the media step to settle; not part of the manifest.
+    #[serde(skip)]
+    pub(crate) fetched: Vec<Fetched>,
 }
 
 /// Runs every due request. Mutates the state only in memory; the caller saves it.
@@ -652,6 +949,7 @@ pub(crate) async fn collect(
     if item_pass_due(contract, state, now) {
         report.item_pass_attempted = true;
         let mut keys = BTreeSet::new();
+        let mut listed = BTreeMap::new();
         let mut complete = true;
         'pass: for code in &codes {
             for flag in &contract.item_list.private_contract_flags {
@@ -662,7 +960,9 @@ pub(crate) async fn collect(
                 {
                     Some(items) => {
                         for item in &items {
-                            keys.insert(item_key(item)?);
+                            let key = item_key(item)?;
+                            listed.insert(key.clone(), listed_of(&contract.item_detail, item));
+                            keys.insert(key);
                         }
                     }
                     None => {
@@ -679,6 +979,7 @@ pub(crate) async fn collect(
             report.item_pass_complete = true;
             report.open_items = Some(keys.len());
             report.closed_items = close_vanished(state, keys, now);
+            state.listed = listed;
         }
     }
 
@@ -739,12 +1040,13 @@ pub(crate) async fn collect(
     report.results_owed = state.pending_results.len();
 
     // 물건상세 (getRlstDtlInf2, ADR-0296 §1 / ADR-0297): the full detail of each open item condition
-    // we have not detailed yet, oldest key first, within the item-detail daily budget. The response's
-    // photo and attachment URLs are mirrored to R2 in a later stage; here the detail only lands in
-    // Bronze. A detail failure is isolated — counted and the loop stops, but the run still succeeds —
-    // so a detail problem (a wrong path, a provider hiccup) never breaks item-list or result collection.
+    // owed one (never complete, or the provider changed its list row), in the order of root ADR-0330
+    // §2, within the item-detail daily budget. The response's media is mirrored by `run` after this;
+    // a condition is marked complete only once its media all landed (`settle_details`). A detail
+    // failure is isolated — counted and the loop stops, but the run still succeeds — so a detail
+    // problem (a wrong path, a provider hiccup) never breaks item-list or result collection.
     if let Some(open) = state.open_items.clone() {
-        state.detailed.retain(|key| open.contains(key));
+        state.details.retain(|key, _| open.contains(key));
         // Only a bounded slice of the owed details per run, so the run finishes within the job's
         // time limit (the full backfill is spread over many runs). Without this the loop walks every
         // open item in one run and the job times out before persisting anything (incident 2026-10-26).
@@ -752,13 +1054,14 @@ pub(crate) async fn collect(
             .item_detail
             .per_run_limit
             .map_or(usize::MAX, |limit| limit as usize);
-        let owed: Vec<ItemKey> = open
-            .iter()
-            .filter(|key| !state.detailed.contains(key))
-            .take(per_run)
-            .cloned()
-            .collect();
-        for key in owed {
+        let owed = owed_details(state, &open, now);
+        let owed_total = owed.len();
+        for Owed {
+            key,
+            digest,
+            refresh,
+        } in owed.into_iter().take(per_run)
+        {
             let params = [
                 ("cltrMngNo", key.cltr_mng_no.clone()),
                 ("pbctCdtnNo", key.pbct_cdtn_no.to_string()),
@@ -770,11 +1073,21 @@ pub(crate) async fn collect(
                         .push(Api::ItemDetail.name().to_owned());
                     break;
                 }
-                // 00 rows or 03 no-data: the provider answered and the line is in Bronze; mark the
-                // condition detailed so a later run does not ask it again.
+                // 00 rows or 03 no-data: the provider answered and the line is in Bronze; the media
+                // step settles whether the condition is complete.
                 Ok(Sent::Answer(Answer::Rows { .. } | Answer::NoData)) => {
-                    state.detailed.insert(key);
+                    let line = fetcher
+                        .lines
+                        .get(&Api::ItemDetail)
+                        .map_or(0, |lines| lines.len().saturating_sub(1));
                     report.details_received += 1;
+                    report.details_refreshed += usize::from(refresh);
+                    report.fetched.push(Fetched {
+                        key,
+                        digest,
+                        refresh,
+                        line,
+                    });
                 }
                 Err(error) => {
                     // The request's raw body was already kept as a Bronze line; stop so a broken
@@ -785,10 +1098,8 @@ pub(crate) async fn collect(
                 }
             }
         }
-        report.details_owed = open
-            .iter()
-            .filter(|key| !state.detailed.contains(key))
-            .count();
+        // Not counting this run's; `run` adds back those whose media did not all land.
+        report.details_owed = owed_total - report.details_received;
     }
 
     report.stopped_by_budget.dedup();
@@ -1062,6 +1373,29 @@ fn ingestion_run(
     }
 }
 
+/// Drops the stored-media memo of items no longer listed, so it holds the open items' media only.
+pub(crate) fn prune_media_memo(state: &mut State) {
+    let Some(open) = &state.open_items else {
+        return;
+    };
+    let items = open
+        .iter()
+        .map(|key| key.cltr_mng_no.as_str())
+        .collect::<BTreeSet<_>>();
+    state
+        .media
+        .retain(|_, known| items.contains(known.cltr_mng_no.as_str()));
+}
+
+/// The coverage series as a node-exporter textfile, replaced whole (write, then rename).
+fn write_metrics(dir: &Path, coverage: &Coverage, now: DateTime<Utc>) -> anyhow::Result<()> {
+    let path = dir.join(METRICS_FILE);
+    let tmp = dir.join(format!("{METRICS_FILE}.tmp"));
+    std::fs::write(&tmp, coverage.prometheus(now))
+        .with_context(|| format!("failed to write {}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).with_context(|| format!("failed to install {}", path.display()))
+}
+
 /// Collects every due request into Bronze and writes the run's manifest.
 ///
 /// # Errors
@@ -1084,7 +1418,7 @@ pub async fn run() -> anyhow::Result<()> {
         &config.service_key,
         config.request_spacing,
     )?;
-    let report = match collect(&contract, &mut fetcher, &mut state, now).await {
+    let mut report = match collect(&contract, &mut fetcher, &mut state, now).await {
         Ok(report) => report,
         Err(error) => {
             // The calls were spent; only the counts are kept, so the next run asks again.
@@ -1119,21 +1453,38 @@ pub async fn run() -> anyhow::Result<()> {
                 .build()
             {
                 Ok(http) => {
-                    let (report, used, rewritten) = crate::onbid_media::mirror_detail_lines(
+                    let mut revalidate = vec![false; detail_lines.len()];
+                    for fetched in report.fetched.iter().filter(|fetched| fetched.refresh) {
+                        if let Some(flag) = revalidate.get_mut(fetched.line) {
+                            *flag = true;
+                        }
+                    }
+                    let settings = crate::onbid_media::MirrorSettings {
+                        object_prefix: &contract.media.object_prefix,
+                        url_host: &contract.media.url_host,
+                        max_file_bytes: contract.media.max_file_bytes,
+                        daily_limit: contract.media.daily_download_limit,
+                        per_run_limit: contract.media.per_run_limit,
+                        concurrency: contract.media.concurrency,
+                        deadline: std::time::Instant::now()
+                            + Duration::from_secs(contract.media.run_time_budget_seconds),
+                    };
+                    let mirrored = crate::onbid_media::mirror_detail_lines(
                         &detail_lines,
-                        &contract.media.object_prefix,
-                        &contract.media.url_host,
-                        contract.media.max_file_bytes,
-                        contract.media.daily_download_limit,
-                        contract.media.per_run_limit,
+                        &revalidate,
+                        &mut state.media,
+                        &settings,
                         state.budget.media_downloads,
                         storage.as_ref(),
                         &http,
                     )
                     .await;
-                    state.budget.media_downloads = used;
-                    media_report = Some(report);
-                    fetcher.lines.insert(Api::ItemDetail, rewritten);
+                    state.budget.media_downloads = mirrored.downloads_today;
+                    report.details_completed =
+                        settle_details(&mut state, &report.fetched, &mirrored.outcomes);
+                    report.details_owed += report.details_received - report.details_completed;
+                    media_report = Some(mirrored.report);
+                    fetcher.lines.insert(Api::ItemDetail, mirrored.lines);
                 }
                 Err(error) => {
                     tracing::warn!(error = %error, "onbid media HTTP client build failed; skipping media");
@@ -1182,7 +1533,14 @@ pub async fn run() -> anyhow::Result<()> {
     // Saved only after every object landed: a failed commit leaves the state as it was, so the
     // next run asks the same item results again.
     if config.live_write {
+        prune_media_memo(&mut state);
         state.save(&state_path)?;
+        if let Some(dir) = &config.metrics_dir {
+            // A metrics write never fails the run; a stale file pages on its own (the rule's age check).
+            if let Err(error) = write_metrics(dir, &Coverage::of(&state, now), now) {
+                tracing::warn!(error = %error, "Onbid coverage metrics were not written");
+            }
+        }
     }
     tracing::info!(
         live_write = config.live_write,

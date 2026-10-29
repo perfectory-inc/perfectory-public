@@ -19,7 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/foundation-platform/onbid
+ReadWritePaths=/var/lib/foundation-platform/onbid /var/lib/foundation-jobs/metrics
 
 [Install]
 WantedBy=multi-user.target
