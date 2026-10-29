@@ -334,7 +334,7 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
     versions = release_versions(staged, latest.newest_first)
     edition = release_edition(staged, latest)
     # One instant for the run: the markers and, for a table ordered by it, every row (ADR-0317).
-    instant = F.lit(now()).cast("timestamp")
+    instant = F.lit(datetime.now(timezone.utc)).cast("timestamp")
     stamp, edition_column = commit_stamp(latest, edition, instant)
     if edition_column is not None:
         refuse_older_edition(edition, read_editions(spark, qualified, unquoted, MAIN))
