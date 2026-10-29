@@ -79,6 +79,8 @@ def check(inventory: dict, source: dict, lakehouse: dict, record: list[str], web
     for api, spec in inventory["apis"].items():
         if spec["collected"] and api not in source:
             failures.append(f"{api}: marked collected, but data-go-kr-onbid.contract.json has no {api} endpoint")
+        if not str(spec.get("decision", "")).strip():
+            failures.append(f"{api}: says neither why it is collected nor why not (`decision`)")
         known.update(f"{api}.{f['path']}" for f in spec["fields"])
     for api, spec in inventory["apis"].items():
         seen = set()
@@ -137,7 +139,7 @@ def check(inventory: dict, source: dict, lakehouse: dict, record: list[str], web
     return failures
 
 
-def spec_paths(dataset: str) -> set[str]:
+def spec_paths(dataset: str, operation: str) -> set[str]:
     page = urllib.request.urlopen(f"https://www.data.go.kr/data/{dataset}/openapi.do", timeout=60).read().decode()
     found = re.search(r"swaggerJson = `(.*?)`", page, re.S)
     if not found:
@@ -154,14 +156,14 @@ def spec_paths(dataset: str) -> set[str]:
         else:
             paths.append(at)
 
-    walk(next(iter(swagger["definitions"].values())), "")
+    walk(swagger["definitions"][f"{operation}_response"], "")
     return {p[len("body.items.item."):] for p in paths if p not in ENVELOPE}
 
 
 def refresh(inventory: dict) -> int:
     drift = 0
     for api, spec in inventory["apis"].items():
-        live = spec_paths(spec["dataset"].split(":", 1)[1])
+        live = spec_paths(spec["dataset"].split(":", 1)[1], spec["operation"])
         held = {f["path"] for f in spec["fields"]}
         for path in sorted(live - held):
             print(f"{api}: the provider added {path}")
