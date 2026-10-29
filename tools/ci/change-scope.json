@@ -140,7 +140,11 @@
         "scripts/ci/ci_time_budget.py",
         "tools/container-images.env",
         "tools/host-memory-budget.contract.json",
-        "tools/technology-versions.contract.json"
+        "tools/technology-versions.contract.json",
+        "scripts/ci/fetch_pinned.py",
+        "tools/*.json",
+        "tools/*.env",
+        "tools/sigstore/**"
       ]
     },
     "foundation-release-build.yml": {
@@ -732,7 +736,11 @@
       {
         "name": "build-coupling-baseline",
         "paths": [
-          "**/*.rs"
+          "**/*.rs",
+          "**/Cargo.toml",
+          "**/Dockerfile*",
+          "**/*.dockerignore",
+          "**/*compose*.yml"
         ]
       },
       {

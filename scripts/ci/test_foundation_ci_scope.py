@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import io
+import json
 import re
 import subprocess
 import tempfile
@@ -10,6 +11,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+import change_scope
 import foundation_ci_scope as scope
 
 
@@ -172,13 +174,43 @@ class FoundationCiScopeTest(unittest.TestCase):
         self.assertIn("rust-quality", doc)
         self.assertIn("postgres-integration", doc)
 
+    def test_the_release_dry_run_runs_where_main_would_build_a_release(self) -> None:
+        """Root ADR-0345, from 2026-10-29 (#939): the release workflow's own scope decides."""
+        crate = "platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/schema_registry.rs"
+        for event in ("pull_request", "merge_group"):
+            with self.subTest(event=event):
+                self.assertTrue(scope.release_image_selected(event, [crate]))
+                self.assertFalse(scope.release_image_selected(event, ["products/gongzzang/apps/web/page.tsx"]))
+        self.assertTrue(scope.release_image_selected("pull_request", ["tools/release-build.contract.json"]))
+        self.assertTrue(scope.release_image_selected("pull_request", None), "unknown paths build")
+        self.assertTrue(scope.release_image_selected("workflow_dispatch", []))
+        # main and the nightly run: the release workflow builds main for real.
+        for event in ("push", "schedule"):
+            self.assertFalse(scope.release_image_selected(event, [crate]))
+        web = scope.skipped_jobs(selected=set(), paths=["products/gongzzang/apps/web/page.tsx"],
+                                 crates_answer="", suites_answer="", event_name="pull_request")
+        self.assertIn(scope.RELEASE_JOB, web)
+
+    def test_foundation_ci_starts_wherever_the_release_scope_does(self) -> None:
+        # The dry run lives in Foundation CI, so every release input must start it.
+        workflows = json.loads((REPO_ROOT / "tools/ci/change-scope.json").read_text(encoding="utf-8"))["workflows"]
+        foundation = workflows["foundation-ci.yml"]["paths"]
+        for glob in workflows[scope.RELEASE_WORKFLOW]["paths"]:
+            with self.subTest(glob=glob):
+                self.assertTrue(
+                    glob in foundation or glob == ".github/workflows/foundation-ci.yml"
+                    or any(change_scope.glob_regex(f).match(glob) for f in foundation),
+                    f"{glob} starts a release build but not Foundation CI",
+                )
+
     def test_an_unreadable_or_full_answer_skips_none_of_its_jobs(self) -> None:
         for crates, suites in (("", ""), ("all\tpush verifies every crate\n", "all\tx\n")):
             with self.subTest(crates=crates):
                 skipped = scope.skipped_jobs(
                     selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites
                 )
-                self.assertEqual(skipped, [])
+                # A document starts no release build, whatever the crate answer (root ADR-0345).
+                self.assertEqual(skipped, [scope.RELEASE_JOB])
         # Unknown paths (no comparison): supply-chain runs.
         self.assertNotIn(
             "supply-chain",
@@ -341,22 +373,33 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = FOUNDATION_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_required_foundation_aggregates_the_scope_and_nine_jobs(self) -> None:
+    def test_required_foundation_aggregates_the_scope_and_ten_jobs(self) -> None:
         self.assertIn(
             "needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, "
-            "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]",
+            "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime, release-image]",
             self.workflow,
         )
-        # The nine gates and the area scope job (root ADR-0313).
-        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 10)
+        # The ten jobs and the area scope job (root ADR-0313, ADR-0345).
+        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 11)
         # Root ADR-0324: the scope job names the jobs with no work; each gate and the result read it.
         self.assertIn("--skipped-jobs", self._job_section("scope"))
         self.assertIn("CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}", self.workflow)
-        jobs = ("rust-quality", "suites", "supply-chain", "postgres-integration", *scope.GATES)
+        jobs = ("rust-quality", "suites", "supply-chain", "postgres-integration", scope.RELEASE_JOB, *scope.GATES)
         for job in jobs:
             with self.subTest(job=job):
                 self.assertIn(f"!contains(fromJSON(needs.scope.outputs.skipped), '{job}')", self._job_section(job))
-        self.assertEqual(set(jobs) - set(scope.GATES), {*scope.CRATE_JOBS, scope.SUITE_JOB, scope.SUPPLY_CHAIN_JOB})
+        self.assertEqual(set(jobs) - set(scope.GATES),
+                         {*scope.CRATE_JOBS, scope.SUITE_JOB, scope.SUPPLY_CHAIN_JOB, scope.RELEASE_JOB})
+
+    def test_the_release_dry_run_holds_no_write_and_publishes_nothing(self) -> None:
+        # Root ADR-0345: the pull request's build reads main's cache and writes nothing anywhere.
+        section = self._job_section(scope.RELEASE_JOB)
+        self.assertIn("scripts/deploy/foundation-release-build.py", section)
+        self.assertIn("--cache-read-only", section)
+        work = "\n".join(line for line in section.splitlines() if "name:" not in line)
+        for forbidden in ("permissions:", "attest", "release-push", "docker login", "upload-artifact", "secrets."):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, work)
 
     def test_only_a_job_that_runs_pnpm_caches_pnpm(self) -> None:
         self.assertEqual(pnpm_caches_without_pnpm(self.workflow), [])
