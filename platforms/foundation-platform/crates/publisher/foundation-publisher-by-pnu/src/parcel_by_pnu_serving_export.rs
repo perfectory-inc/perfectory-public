@@ -321,7 +321,7 @@ async fn export(
         snapshot.snapshot_id,
     );
     rows.ensure_complete()?;
-    let scanned_row_count = rows.manifest_record_count;
+    let scanned_row_count = rows.live_record_count();
     if let Some(expected_row_count) = config.expected_row_count {
         ensure!(
             expected_row_count == scanned_row_count,

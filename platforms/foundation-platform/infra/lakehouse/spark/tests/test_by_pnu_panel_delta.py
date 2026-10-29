@@ -206,6 +206,13 @@ class RecordedChangeSet(unittest.TestCase):
         with self.assertRaises(ValueError):
             delta.unchanged_rest(5, {"changed": 3, "new": 2, "same": 1})
 
+    def test_a_merge_on_read_snapshot_holds_its_records_less_its_position_deletes(self):
+        # Root ADR-0344: total-records counts a deleted row until compaction folds the delete in.
+        self.assertEqual(delta.live_rows("100", "7", "0"), 93)
+        self.assertEqual(delta.live_rows("100", None, None), 100)
+        with self.assertRaises(ValueError):
+            delta.live_rows("100", "0", "3")
+
 
 if __name__ == "__main__":
     unittest.main()

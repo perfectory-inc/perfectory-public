@@ -12,7 +12,7 @@
 //! pruning, the filter on the prefix column before any other column decodes, and the page
 //! skipping are the decoder's, not a second implementation of them.
 
-use std::{ops::Range, sync::Arc};
+use std::{collections::BTreeSet, ops::Range, sync::Arc};
 
 use anyhow::{bail, ensure, Context};
 use bytes::Bytes;
@@ -53,7 +53,7 @@ pub(super) struct RangedDecode {
     pub range_requests: u64,
 }
 
-/// Decodes the rows of `data_file` under `prefix` (see
+/// Decodes the rows of `data_file` under `prefix`, less the positions `deleted` (see
 /// [`iceberg_scan::decode_rows_under`], whose rows this returns for any file) reading only the
 /// byte ranges the decode needs. The file's length is the one its manifest recorded: Iceberg
 /// records the written length, and a footer read against another length fails rather than reads
@@ -63,6 +63,7 @@ pub(super) async fn decode_rows_under(
     lakehouse: &impl LakehouseByteReader,
     data_file: &ScannedDataFile,
     prefix: Option<(&str, &str)>,
+    deleted: &BTreeSet<u64>,
     mut visit: impl FnMut(JsonMap<String, JsonValue>) -> bool,
 ) -> anyhow::Result<RangedDecode> {
     let location = data_file.file_path.as_str();
@@ -77,7 +78,7 @@ pub(super) async fn decode_rows_under(
     let file_rows = iceberg_scan::file_row_count(&metadata)?;
     let builder = ParquetPushDecoderBuilder::try_new_decoder(metadata)
         .with_context(|| format!("failed to plan the Parquet read of {location}"))?;
-    let (builder, group_skipped) = iceberg_scan::keep_prefix(builder, prefix)?;
+    let (builder, group_skipped) = iceberg_scan::keep_prefix(builder, prefix, deleted)?;
     let mut decoder = builder
         .build()
         .with_context(|| format!("failed to build the Parquet decoder of {location}"))?;

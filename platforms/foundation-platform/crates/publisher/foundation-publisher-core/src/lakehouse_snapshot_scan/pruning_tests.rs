@@ -459,6 +459,7 @@ fn a_scan_that_does_not_account_for_every_row_is_refused() {
         rows: Vec::new(),
         data_file_count: 3,
         manifest_record_count: 10,
+        deleted_record_count: 0,
         skipped_data_file_count: 1,
         skipped_record_count: 4,
         read_record_count: 6,

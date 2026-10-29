@@ -92,9 +92,9 @@ pub async fn run() -> anyhow::Result<()> {
         );
     }
     ensure!(
-        scanned_row_count == scanned.manifest_record_count,
+        scanned_row_count == scanned.live_record_count(),
         "scanned {scanned_row_count} rows but the manifests declared {} rows",
-        scanned.manifest_record_count
+        scanned.live_record_count()
     );
 
     let plan = plan_catalog_rows(&scanned.rows)?;

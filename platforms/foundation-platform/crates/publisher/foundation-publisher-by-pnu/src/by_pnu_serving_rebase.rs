@@ -944,7 +944,7 @@ async fn scan_gold_shard(
         digests: digests
             .into_inner()
             .map_err(|_| anyhow::anyhow!("the digest map lock was poisoned"))?,
-        table_rows: rows.manifest_record_count,
+        table_rows: rows.live_record_count(),
     })
 }
 

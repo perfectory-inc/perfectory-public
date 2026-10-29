@@ -232,9 +232,9 @@ async fn export(
         );
     }
     ensure!(
-        scanned_row_count == rows.manifest_record_count,
+        scanned_row_count == rows.live_record_count(),
         "scanned {scanned_row_count} rows but the manifests declared {} rows",
-        rows.manifest_record_count
+        rows.live_record_count()
     );
 
     let entries = write_artifacts(config, output, &provenance, &rows.rows).await?;

@@ -6,7 +6,7 @@
 //! Keeping the column set on `LakehouseTableContract` means the projection cannot silently disagree
 //! with the canonical table it reads.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{bail, ensure, Context};
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
@@ -19,7 +19,8 @@ use bytes::Bytes;
 use chrono::{DateTime, NaiveDate, SecondsFormat, TimeDelta, Utc};
 use lakehouse_domain::LakehouseTableContract;
 use parquet::arrow::arrow_reader::{
-    ArrowPredicateFn, ArrowReaderBuilder, ParquetRecordBatchReaderBuilder, RowFilter,
+    ArrowPredicateFn, ArrowReaderBuilder, ParquetRecordBatchReaderBuilder, RowFilter, RowSelection,
+    RowSelector,
 };
 use parquet::arrow::ProjectionMask;
 use parquet::file::metadata::ParquetMetaData;
@@ -27,6 +28,9 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 
 /// Iceberg `manifest_file.content` / `data_file.content` value for row data.
 const CONTENT_DATA: i64 = 0;
+/// Iceberg `manifest_file.content` value for delete files, and `data_file.content` value for
+/// position deletes.
+const CONTENT_POSITION_DELETES: i64 = 1;
 /// Iceberg `manifest_entry.status` value for an entry removed by this snapshot.
 const STATUS_DELETED: i64 = 2;
 const PARQUET_FILE_FORMAT: &str = "PARQUET";
@@ -126,20 +130,127 @@ fn prefix_successor(prefix: &[u8]) -> Option<Vec<u8>> {
     })
 }
 
+/// The manifests a snapshot's manifest list points at: those of data files, and those of delete
+/// files (a merge-on-read commit's, root ADR-0344).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ManifestLocations {
+    /// Manifests listing data files.
+    pub data: Vec<String>,
+    /// Manifests listing delete files.
+    pub deletes: Vec<String>,
+}
+
 /// Returns the manifest locations a snapshot's manifest list points at.
-pub fn manifest_locations(manifest_list_avro: &[u8]) -> anyhow::Result<Vec<String>> {
-    let mut locations = Vec::new();
+pub fn manifest_locations(manifest_list_avro: &[u8]) -> anyhow::Result<ManifestLocations> {
+    let mut locations = ManifestLocations::default();
     for record in
         avro_records(manifest_list_avro).context("failed to read Iceberg manifest list")?
     {
-        let content = optional_integer_field(&record, "content")?.unwrap_or(CONTENT_DATA);
-        ensure!(
-            content == CONTENT_DATA,
-            "Iceberg snapshot carries a delete manifest; this scan reads row data only"
-        );
-        locations.push(string_field(&record, "manifest_path")?);
+        let path = string_field(&record, "manifest_path")?;
+        match optional_integer_field(&record, "content")?.unwrap_or(CONTENT_DATA) {
+            CONTENT_DATA => locations.data.push(path),
+            CONTENT_POSITION_DELETES => locations.deletes.push(path),
+            other => bail!(
+                "Iceberg manifest {path} has content {other}, which is neither data nor deletes"
+            ),
+        }
     }
     Ok(locations)
+}
+
+/// One position delete file reachable from the scanned snapshot: each of its rows names a data
+/// file and a row position in it that the snapshot no longer holds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ScannedDeleteFile {
+    /// Storage location the manifest recorded for the delete file.
+    pub file_path: String,
+    /// Positions the delete file holds, as its manifest recorded.
+    pub record_count: u64,
+}
+
+/// Returns the live position delete files one delete manifest points at.
+///
+/// Equality deletes and deletion vectors are refused, never skipped: a scan that passed over them
+/// would serve rows the table no longer holds. The Gold tables are format v2 and their only writer
+/// of deletes is Spark's merge-on-read `MERGE`, which writes position deletes (root ADR-0344).
+pub fn delete_files(manifest_avro: &[u8]) -> anyhow::Result<Vec<ScannedDeleteFile>> {
+    let (_, entries) = avro_container(manifest_avro).context("failed to read Iceberg manifest")?;
+    let mut delete_files = Vec::new();
+    for entry in entries {
+        let status = optional_integer_field(&entry, "status")?.unwrap_or(CONTENT_DATA);
+        if status == STATUS_DELETED {
+            continue;
+        }
+        let file = resolve(
+            field(&entry, "data_file")
+                .context("Iceberg manifest entry is missing its data_file record")?,
+        );
+        let file_path = string_field(file, "file_path")?;
+        let content = optional_integer_field(file, "content")?.unwrap_or(CONTENT_DATA);
+        ensure!(
+            content == CONTENT_POSITION_DELETES,
+            "Iceberg delete file {file_path} has content {content}; this scan applies position \
+             deletes only (equality deletes are refused, root ADR-0344)"
+        );
+        let file_format = string_field(file, "file_format")?;
+        ensure!(
+            file_format.eq_ignore_ascii_case(PARQUET_FILE_FORMAT),
+            "Iceberg delete file {file_path} is {file_format}; this scan reads Parquet position \
+             deletes only (deletion vectors are refused, root ADR-0344)"
+        );
+        let record_count = optional_integer_field(file, "record_count")?
+            .context("Iceberg delete file is missing its record_count")?;
+        delete_files.push(ScannedDeleteFile {
+            file_path,
+            record_count: u64::try_from(record_count)
+                .context("Iceberg delete file record_count must not be negative")?,
+        });
+    }
+    Ok(delete_files)
+}
+
+/// Adds the positions one position delete file removes from the data files in `positions` (keyed
+/// by data file path) to that file's set. A row naming a data file outside `positions` is dropped:
+/// it is a delete of a file the snapshot no longer holds (its rows were rewritten elsewhere).
+///
+/// A data file is named by its path alone. The Iceberg spec also asks that the data file's
+/// sequence number not exceed the delete file's; that only tells apart two files at one path, and
+/// Iceberg's writers never reuse a path.
+pub fn add_position_deletes(
+    parquet_bytes: Vec<u8>,
+    positions: &mut HashMap<String, BTreeSet<u64>>,
+) -> anyhow::Result<()> {
+    let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(parquet_bytes))
+        .context("failed to open an Iceberg position delete file")?;
+    let mask = ProjectionMask::columns(builder.parquet_schema(), ["file_path", "pos"]);
+    let reader = builder
+        .with_projection(mask)
+        .build()
+        .context("failed to build the position delete reader")?;
+    for batch in reader {
+        let batch = batch.context("failed to read a position delete record batch")?;
+        let paths = batch
+            .column_by_name("file_path")
+            .and_then(|column| column.as_any().downcast_ref::<StringArray>())
+            .context("a position delete file has no string file_path column")?;
+        let rows = batch
+            .column_by_name("pos")
+            .and_then(|column| column.as_any().downcast_ref::<Int64Array>())
+            .context("a position delete file has no 64-bit pos column")?;
+        ensure!(
+            paths.null_count() == 0 && rows.null_count() == 0,
+            "a position delete file has a row without its file_path or pos"
+        );
+        for index in 0..batch.num_rows() {
+            if let Some(set) = positions.get_mut(paths.value(index)) {
+                set.insert(
+                    u64::try_from(rows.value(index))
+                        .context("a position delete names a negative position")?,
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Returns the live Parquet data files one manifest points at.
@@ -290,7 +401,7 @@ pub(super) fn decode_rows_under(
     let builder = ParquetRecordBatchReaderBuilder::try_new(Bytes::from(parquet_bytes))
         .context("failed to open Iceberg Parquet data file")?;
     let file_rows = file_row_count(builder.metadata())?;
-    let (builder, group_skipped) = keep_prefix(builder, prefix)?;
+    let (builder, group_skipped) = keep_prefix(builder, prefix, &BTreeSet::new())?;
     let reader = builder
         .build()
         .context("failed to build the Iceberg Parquet reader")?;
@@ -312,7 +423,7 @@ pub(super) fn file_row_count(metadata: &ParquetMetaData) -> anyhow::Result<u64> 
 }
 
 /// The rows of a file decoded to its end that were never handed over: skipped by their row group,
-/// or filtered out under the prefix.
+/// removed by a position delete, or filtered out under the prefix.
 pub(super) fn rows_not_handed_over(file_rows: u64, decoded: u64) -> anyhow::Result<u64> {
     file_rows
         .checked_sub(decoded)
@@ -321,33 +432,52 @@ pub(super) fn rows_not_handed_over(file_rows: u64, decoded: u64) -> anyhow::Resu
 
 /// Narrows a Parquet reader to `column` values under `prefix`: the row groups whose statistics
 /// prove they hold none are left out, and the rest are filtered on `column` alone before any other
-/// column decodes. Returns the narrowed builder and the rows of the row groups left out. Shared by
-/// the in-memory reader and the ranged one ([`super::ranged_parquet`]), so both keep the same rows
+/// column decodes. The file positions in `deleted` (its position deletes, root ADR-0344) are never
+/// decoded. Returns the narrowed builder and the rows of the row groups left out. Shared by the
+/// in-memory reader and the ranged one ([`super::ranged_parquet`]), so both keep the same rows
 /// whatever bytes they were handed.
 pub(super) fn keep_prefix<T>(
     builder: ArrowReaderBuilder<T>,
     prefix: Option<(&str, &str)>,
+    deleted: &BTreeSet<u64>,
 ) -> anyhow::Result<(ArrowReaderBuilder<T>, u64)> {
-    let Some((column, prefix)) = prefix else {
-        return Ok((builder, 0));
-    };
-    let leaf = builder
-        .parquet_schema()
-        .columns()
-        .iter()
-        .position(|leaf| leaf.path().parts() == [column]);
+    let leaf = prefix.and_then(|(column, _)| {
+        builder
+            .parquet_schema()
+            .columns()
+            .iter()
+            .position(|leaf| leaf.path().parts() == [column])
+    });
     let mut group_skipped: u64 = 0;
     let mut read = Vec::new();
+    let mut start: u64 = 0;
     for (index, group) in builder.metadata().row_groups().iter().enumerate() {
-        if leaf.is_some_and(|leaf| row_group_excludes(group.column(leaf), prefix)) {
+        let rows = u64::try_from(group.num_rows())?;
+        if leaf.is_some_and(|leaf| {
+            prefix.is_some_and(|(_, prefix)| row_group_excludes(group.column(leaf), prefix))
+        }) {
             group_skipped = group_skipped
-                .checked_add(u64::try_from(group.num_rows())?)
+                .checked_add(rows)
                 .context("skipped row count overflow")?;
         } else {
-            read.push(index);
+            read.push((index, start, rows));
         }
+        start = start.checked_add(rows).context("row position overflow")?;
     }
-    let builder = builder.with_row_groups(read);
+    ensure!(
+        deleted.last().is_none_or(|&last| last < start),
+        "a position delete names row {:?} of a file of {start} rows",
+        deleted.last()
+    );
+    let builder = if deleted.is_empty() {
+        builder
+    } else {
+        builder.with_row_selection(live_rows(&read, deleted)?)
+    };
+    let builder = builder.with_row_groups(read.iter().map(|&(index, ..)| index).collect());
+    let Some((_, prefix)) = prefix else {
+        return Ok((builder, group_skipped));
+    };
     let builder = match leaf {
         Some(leaf) => {
             let mask = ProjectionMask::leaves(builder.parquet_schema(), [leaf]);
@@ -360,6 +490,31 @@ pub(super) fn keep_prefix<T>(
         None => builder,
     };
     Ok((builder, group_skipped))
+}
+
+/// The rows to decode of the row groups `read` (`(index, first row's file position, rows)`, in file
+/// order): all but the file positions `deleted`. Arrow applies a selection to the selected row
+/// groups' rows only, so positions in groups left out are not in it.
+pub(super) fn live_rows(
+    read: &[(usize, u64, u64)],
+    deleted: &BTreeSet<u64>,
+) -> anyhow::Result<RowSelection> {
+    let mut selectors = Vec::new();
+    for &(_, start, rows) in read {
+        let end = start + rows;
+        let mut at = start;
+        for &position in deleted.range(start..end) {
+            if position > at {
+                selectors.push(RowSelector::select(usize::try_from(position - at)?));
+            }
+            selectors.push(RowSelector::skip(1));
+            at = position + 1;
+        }
+        if end > at {
+            selectors.push(RowSelector::select(usize::try_from(end - at)?));
+        }
+    }
+    Ok(RowSelection::from(selectors))
 }
 
 /// Hands each row of one decoded batch to `visit`, counting it in `decoded`. Returns whether to go
@@ -659,7 +814,7 @@ fn optional_integer_field(record: &AvroValue, name: &str) -> anyhow::Result<Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{data_files, format_decimal, parse_decimal_type, resolve};
+    use super::{data_files, delete_files, format_decimal, parse_decimal_type, resolve};
     use apache_avro::{types::Value as AvroValue, Schema, Writer};
 
     #[test]
@@ -712,6 +867,70 @@ mod tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].record_count, 37);
         assert_eq!(files[0].file_size_in_bytes, 4_096);
+        Ok(())
+    }
+
+    /// One delete manifest entry of `content` and `format`.
+    fn delete_manifest(content: i64, format: &str) -> anyhow::Result<Vec<u8>> {
+        let schema = Schema::parse_str(
+            r#"{"type": "record", "name": "manifest_entry", "fields": [
+                {"name": "status", "type": "long"},
+                {"name": "data_file", "type": {"type": "record", "name": "data_file", "fields": [
+                  {"name": "content", "type": "long"},
+                  {"name": "file_path", "type": "string"},
+                  {"name": "file_format", "type": "string"},
+                  {"name": "record_count", "type": "long"}]}}]}"#,
+        )?;
+        let mut writer = Writer::new(&schema, Vec::new());
+        writer.append(AvroValue::Record(vec![
+            ("status".to_owned(), AvroValue::Long(1)),
+            (
+                "data_file".to_owned(),
+                AvroValue::Record(vec![
+                    ("content".to_owned(), AvroValue::Long(content)),
+                    (
+                        "file_path".to_owned(),
+                        AvroValue::String("s3://lakehouse/gold/t/d.parquet".to_owned()),
+                    ),
+                    (
+                        "file_format".to_owned(),
+                        AvroValue::String(format.to_owned()),
+                    ),
+                    ("record_count".to_owned(), AvroValue::Long(3)),
+                ]),
+            ),
+        ]))?;
+        Ok(writer.into_inner()?)
+    }
+
+    #[test]
+    fn only_parquet_position_deletes_are_applied_and_any_other_delete_is_refused(
+    ) -> anyhow::Result<()> {
+        let files = delete_files(&delete_manifest(1, "PARQUET")?)?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].record_count, 3);
+        // An equality delete, and a v3 deletion vector (Puffin): refused, never passed over.
+        assert!(delete_files(&delete_manifest(2, "PARQUET")?).is_err());
+        assert!(delete_files(&delete_manifest(1, "PUFFIN")?).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn deleted_positions_are_skipped_only_inside_the_row_groups_read() -> anyhow::Result<()> {
+        use parquet::arrow::arrow_reader::{RowSelection, RowSelector};
+        // Two groups read: rows 0..4 and 10..13 of the file; 5 lies in a group not read.
+        let deleted = std::collections::BTreeSet::from([0, 2, 5, 12]);
+        let selection = super::live_rows(&[(0, 0, 4), (2, 10, 3)], &deleted)?;
+        assert_eq!(
+            selection,
+            RowSelection::from(vec![
+                RowSelector::skip(1),
+                RowSelector::select(1),
+                RowSelector::skip(1),
+                RowSelector::select(3),
+                RowSelector::skip(1),
+            ])
+        );
         Ok(())
     }
 

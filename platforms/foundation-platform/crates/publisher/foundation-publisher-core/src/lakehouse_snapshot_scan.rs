@@ -7,6 +7,8 @@
 
 pub mod iceberg_scan;
 #[cfg(test)]
+mod merge_on_read_tests;
+#[cfg(test)]
 mod production_shape_tests;
 #[cfg(test)]
 mod pruning_tests;
@@ -15,7 +17,10 @@ mod ranged_parquet;
 mod ranged_parquet_tests;
 pub mod shard_plan;
 
-use std::ops::Range;
+use std::{
+    collections::{BTreeSet, HashMap},
+    ops::Range,
+};
 
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
@@ -113,8 +118,12 @@ pub struct ScannedRows {
     pub rows: Vec<JsonMap<String, JsonValue>>,
     /// Number of Parquet data files the manifests pointed at, read or skipped.
     pub data_file_count: u64,
-    /// Row count the manifests declared for the whole snapshot, read or skipped.
+    /// Row count the manifests declared for the whole snapshot's data files, read or skipped,
+    /// before any position delete: what [`Self::ensure_complete`] accounts for.
     pub manifest_record_count: u64,
+    /// Rows of the snapshot's data files, read or skipped, that its position deletes remove (a
+    /// merge-on-read commit's, root ADR-0344). They are never decoded.
+    pub deleted_record_count: u64,
     /// Data files the scan did not open because their manifest bounds prove they hold no row
     /// under the scan's prefix (`ScannedDataFile::excludes_prefix`).
     pub skipped_data_file_count: u64,
@@ -126,8 +135,8 @@ pub struct ScannedRows {
     /// what must equal `read_record_count` with `skipped_row_group_record_count` — the retained
     /// rows never can when a filter is in play.
     pub decoded_row_count: u64,
-    /// Rows of the files read that sat in row groups whose Parquet statistics prove they hold
-    /// none of the scan's prefix, so they were not decoded.
+    /// Rows of the files read that were not decoded: in row groups whose Parquet statistics prove
+    /// they hold none of the scan's prefix, filtered out under it, or removed by a position delete.
     pub skipped_row_group_record_count: u64,
     /// Bytes the manifests declared for the data files the scan read: what reading each of them
     /// whole would have downloaded.
@@ -144,6 +153,14 @@ pub struct ScannedRows {
 }
 
 impl ScannedRows {
+    /// The rows the snapshot holds: its data files' rows less those its position deletes remove.
+    /// What a reader compares a row count with, never `manifest_record_count`.
+    #[must_use]
+    pub const fn live_record_count(&self) -> u64 {
+        self.manifest_record_count
+            .saturating_sub(self.deleted_record_count)
+    }
+
     /// Refuses a scan that did not account for every row of the snapshot: each file it read was
     /// decoded to the row count its manifest declared, and the files it read and the files it
     /// skipped on proof of their bounds together are the whole snapshot (root ADR-0164).
@@ -209,7 +226,8 @@ impl<'a> KeptPrefix<'a> {
 /// Snapshot-level statistics read only from Iceberg manifests.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ScannedSnapshotInventory {
-    /// Sum of every live data file's manifest `record_count`.
+    /// Sum of every live data file's manifest `record_count`, less the rows the snapshot's
+    /// position deletes remove (root ADR-0344).
     pub row_count: u64,
     /// Number of live data files reachable from the current snapshot.
     pub data_file_count: u64,
@@ -217,12 +235,13 @@ pub struct ScannedSnapshotInventory {
     pub total_bytes: u64,
 }
 
-/// Reads snapshot statistics without opening a Parquet data file.
+/// Reads snapshot statistics without opening a Parquet data file (its position delete files are
+/// read, to count the rows they remove).
 pub async fn scan_snapshot_inventory(
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
 ) -> anyhow::Result<ScannedSnapshotInventory> {
-    let data_files = snapshot_data_files(lakehouse, snapshot).await?;
+    let (data_files, deleted) = snapshot_files(lakehouse, snapshot).await?;
     let mut row_count = 0_u64;
     let mut total_bytes = 0_u64;
     for data_file in &data_files {
@@ -234,14 +253,17 @@ pub async fn scan_snapshot_inventory(
             .context("manifest data file byte count overflow")?;
     }
     Ok(ScannedSnapshotInventory {
-        row_count,
+        row_count: row_count
+            .checked_sub(deleted_record_count(&deleted)?)
+            .context("the position deletes remove more rows than the data files hold")?,
         data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
         total_bytes,
     })
 }
 
 /// The shards of a by-PNU bake of `snapshot`, planned from its manifests alone (no data file is
-/// opened), and the snapshot's whole record count: see [`shard_plan`].
+/// opened), and the snapshot's whole record count before deletes, an upper bound: see
+/// [`shard_plan`].
 ///
 /// # Errors
 /// Returns an error when the manifest list or a manifest cannot be read.
@@ -251,7 +273,7 @@ pub async fn plan_snapshot_shards(
     column: &str,
     max_rows: u64,
 ) -> anyhow::Result<(Vec<shard_plan::PlannedShard>, u64)> {
-    let data_files = snapshot_data_files(lakehouse, snapshot).await?;
+    let (data_files, _) = snapshot_files(lakehouse, snapshot).await?;
     let records = data_files
         .iter()
         .try_fold(0_u64, |sum, file| sum.checked_add(file.record_count))
@@ -306,11 +328,12 @@ pub async fn scan_snapshot_rows_kept(
             prefix.column
         );
     }
-    let data_files = snapshot_data_files(lakehouse, snapshot).await?;
+    let (data_files, deleted) = snapshot_files(lakehouse, snapshot).await?;
     let mut scanned = ScannedRows {
         rows: Vec::new(),
         data_file_count: u64::try_from(data_files.len()).context("data file count overflow")?,
         manifest_record_count: 0,
+        deleted_record_count: deleted_record_count(&deleted)?,
         skipped_data_file_count: 0,
         skipped_record_count: 0,
         read_record_count: 0,
@@ -368,6 +391,9 @@ pub async fn scan_snapshot_rows_kept(
             lakehouse,
             data_file,
             prefix.map(|prefix| (prefix.column, prefix.prefix)),
+            deleted
+                .get(data_file.file_path.as_str())
+                .context("a data file the scan reads has no delete set")?,
             |row| {
                 past_limit = keep_row(rows, row, keep, max_kept);
                 !past_limit
@@ -425,21 +451,71 @@ fn keep_row(
     false
 }
 
-async fn snapshot_data_files(
+/// The snapshot's data files, and the positions its position delete files remove from each, keyed
+/// by data file path (an empty set for a file nothing deletes from). Every live delete file is read
+/// whole: they hold a path and a position per deleted row, and compaction folds them back into the
+/// data files on a cadence (root ADR-0344).
+async fn snapshot_files(
     lakehouse: &impl LakehouseByteReader,
     snapshot: &IcebergSnapshotManifestList,
-) -> anyhow::Result<Vec<iceberg_scan::ScannedDataFile>> {
+) -> anyhow::Result<(
+    Vec<iceberg_scan::ScannedDataFile>,
+    HashMap<String, BTreeSet<u64>>,
+)> {
     let manifest_list = lakehouse
         .read(snapshot.manifest_list_location.as_str())
         .await?;
-    let manifest_locations = iceberg_scan::manifest_locations(&manifest_list)?;
+    let manifests = iceberg_scan::manifest_locations(&manifest_list)?;
 
     let mut data_files = Vec::new();
-    for location in manifest_locations {
+    for location in &manifests.data {
         let manifest = lakehouse.read(location.as_str()).await?;
         data_files.extend(iceberg_scan::data_files(&manifest)?);
     }
-    Ok(data_files)
+    let mut deleted = data_files
+        .iter()
+        .map(|file| (file.file_path.clone(), BTreeSet::new()))
+        .collect::<HashMap<_, _>>();
+    let mut delete_files = 0_usize;
+    for location in &manifests.deletes {
+        let manifest = lakehouse.read(location.as_str()).await?;
+        for delete_file in iceberg_scan::delete_files(&manifest)? {
+            let bytes = lakehouse.read(delete_file.file_path.as_str()).await?;
+            iceberg_scan::add_position_deletes(bytes, &mut deleted).with_context(|| {
+                format!(
+                    "failed to read position delete file {}",
+                    delete_file.file_path
+                )
+            })?;
+            delete_files += 1;
+        }
+    }
+    for file in &data_files {
+        let last = deleted
+            .get(file.file_path.as_str())
+            .and_then(BTreeSet::last);
+        ensure!(
+            last.is_none_or(|&last| last < file.record_count),
+            "a position delete names row {last:?} of {}, which holds {} rows",
+            file.file_path,
+            file.record_count
+        );
+    }
+    if delete_files > 0 {
+        tracing::info!(
+            table = snapshot.table_name.as_str(),
+            delete_files,
+            deleted_rows = deleted.values().map(BTreeSet::len).sum::<usize>(),
+            "read the snapshot's position deletes"
+        );
+    }
+    Ok((data_files, deleted))
+}
+
+/// The rows the position deletes `deleted` remove from the live data files.
+fn deleted_record_count(deleted: &HashMap<String, BTreeSet<u64>>) -> anyhow::Result<u64> {
+    u64::try_from(deleted.values().map(BTreeSet::len).sum::<usize>())
+        .context("deleted row count overflow")
 }
 
 /// Maps an Iceberg storage location onto a key in the configured lakehouse bucket.
