@@ -19,7 +19,8 @@
 #      lakehouse_spark_run, which runs the write check and the job as `run --rm --no-deps`: no
 #      dependency container, which `run` would create under the service's name.
 #   3. A host job script never names a container itself: no `docker rm <fixed name>` and no
-#      `docker run|create --name <fixed name>`. A name built from the run ($...) is its own.
+#      container started (run or create) under a fixed --name. A name built from the run ($...)
+#      is its own.
 set -euo pipefail
 
 root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Proves batch-containers-are-run-scoped refuses what it exists to refuse: the 2026-10-29 tree (a
 # batch service with a fixed container_name, a job that removes that name and starts compose
-# itself), a fixed `docker run --name`, and a helper that drops --no-deps; and accepts a standing
-# named service, a run-built name and the helper.
+# itself), a container started under a fixed --name, and a helper that drops --no-deps; and
+# accepts a standing named service, a run-built name and the helper.
 set -euo pipefail
 
 guard="$(cd "$(dirname "$0")" && pwd)/batch-containers-are-run-scoped.sh"
@@ -38,7 +38,7 @@ lakehouse_spark_run() {
 SH
   cat >"$ops/job.sh" <<'SH'
 # docker rm foundation-platform-old is only a comment
-docker run --rm --name "fixture-${INVOCATION_ID}" fixture/tool:1
+docker run --rm --name "fixture-${INVOCATION_ID}" fixture/tool:local
 lakehouse_spark_run foundation-platform-compute spark spark-submit job.py
 SH
 }
@@ -74,7 +74,9 @@ printf 'docker compose -f "${RELEASE_ROOT}/compose.lakehouse.yml" run --rm spark
 expect fail "a job that starts compose.lakehouse.yml itself"
 
 reset
-printf 'docker run -d --name fixture-relay fixture/relay:1\n' >>"$ops/job.sh"
+cat >>"$ops/job.sh" <<'SH'
+docker run -d --name fixture-relay fixture/relay:local
+SH
 expect fail "a job that starts a container under a fixed name"
 
 reset
