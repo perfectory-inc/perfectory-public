@@ -112,6 +112,66 @@ class TheUnpauseOrder(unittest.TestCase):
         self.assertLess(order.index("by_pnu_serving_bake"), order.index("gold_panel_rebuild"))
 
 
+class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
+    """Root ADR-0336, 2026-10-28: a deploy held by_pnu_public_auction_bake paused 21:19-21:40 while
+    gold_public_auction_rebuild ran; Airflow queued nothing for its 21:38 event (asset event 3912), and
+    the bake waited 13 hours for its 10:45 fallback. The deploy asks owed_by_inputs once every DAG is
+    unpaused; this pins that it answers for every reader the job list starts by its inputs."""
+
+    LAST_RUN = job_specs._instant("2026-10-28T21:04:08Z")
+    EVENT = job_specs._instant("2026-10-28T21:38:23Z")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.specs = job_specs.load_specs()
+        cls.by_id = {spec.job_id: spec for spec in cls.specs}
+
+    def test_the_incident_replayed(self):
+        bake = self.by_id["by_pnu_public_auction_bake"]
+        events = {"iceberg://gold.parcel_public_auction": self.EVENT}
+        self.assertEqual(job_specs.owed_by_inputs(self.specs, events, {bake.dag_id: self.LAST_RUN}, set()),
+                         ["by_pnu_public_auction_bake"])
+        # Started after the change (its fallback, an operator, the event itself), or queued: nothing owed.
+        later = job_specs._instant("2026-10-29T10:45:00Z")
+        self.assertEqual(job_specs.owed_by_inputs(self.specs, events, {bake.dag_id: later}, set()), [])
+        self.assertEqual(job_specs.owed_by_inputs(self.specs, events, {bake.dag_id: self.LAST_RUN}, {bake.dag_id}), [])
+
+    def test_every_reader_is_owed_for_every_input_another_job_changes(self):
+        # Derived from jobs.v1.json and the pipeline graph: each enabled `inputs` job, and each of its
+        # starting inputs another job writes. No list of pairs is kept here.
+        pairs = 0
+        for reader in self.specs:
+            if not reader.enabled or reader.started_by != "inputs":
+                continue
+            for producer in reader.producers:
+                for dataset in set(self.by_id[producer].outputs) & set(reader.starting_inputs):
+                    pairs += 1
+                    with self.subTest(reader=reader.job_id, producer=producer, dataset=dataset):
+                        events = {job_specs.asset_uri(dataset): self.EVENT}
+                        owed = job_specs.owed_by_inputs(self.specs, events, {reader.dag_id: self.LAST_RUN}, set())
+                        self.assertIn(reader.job_id, owed)
+        self.assertGreater(pairs, 0)
+
+    def test_a_reader_never_run_is_owed_only_for_a_change_after_it_was_switched_on(self):
+        bake = self.by_id["by_pnu_public_auction_bake"]
+        events = {"iceberg://gold.parcel_public_auction": job_specs._instant(bake.enabled_since)}
+        self.assertEqual(job_specs.owed_by_inputs(self.specs, events, {}, set()), [], "not after enabled_since")
+        events = {"iceberg://gold.parcel_public_auction": self.EVENT}
+        self.assertEqual(job_specs.owed_by_inputs(self.specs, events, {}, set()), ["by_pnu_public_auction_bake"])
+
+    def test_its_own_output_a_scheduled_job_or_a_switched_off_one_is_owed_nothing(self):
+        everything = {job_specs.asset_uri(dataset): self.EVENT for spec in self.specs for dataset in spec.inputs}
+        runs = {spec.dag_id: self.LAST_RUN for spec in self.specs}
+        owed = set(job_specs.owed_by_inputs(self.specs, everything, runs, set()))
+        self.assertEqual(owed, {spec.job_id for spec in self.specs if spec.enabled and spec.started_by == "inputs"})
+        # gold_panel_rebuild writes an input it reads (root ADR-0182): its own event alone owes it nothing.
+        panel = self.by_id["gold_panel_rebuild"]
+        own = set(panel.inputs) & set(panel.outputs)
+        self.assertTrue(own)
+        events = {job_specs.asset_uri(dataset): self.EVENT for dataset in own}
+        self.assertNotIn("gold_panel_rebuild", job_specs.owed_by_inputs(self.specs, events, runs, set()))
+
+
 class TheRealJobList(unittest.TestCase):
     def setUp(self):
         self.specs = job_specs.load_specs()
