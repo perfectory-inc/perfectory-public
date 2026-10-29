@@ -34,6 +34,7 @@ use foundation_publisher_core::industrial_complex_gold_profile_store;
 use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_core::public_data_control_support;
 use foundation_publisher_core::r2_layout;
+use foundation_publisher_core::schema_registry;
 
 pub mod building_by_pnu_serving_export;
 #[cfg(test)]

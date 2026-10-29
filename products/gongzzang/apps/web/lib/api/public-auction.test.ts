@@ -95,9 +95,11 @@ describe("public auction media", () => {
     PublicAuctionDocumentSchema.parse({ ...document(), public_auction: { rounds } });
 
   it("parses a round's photos in source order and defaults a round with no photos field to []", () => {
+    const bid_ends_at = "2026-01-05T08:00:00.000Z";
     const parsed = parse([
-      { item_name: "테스트 물건 1", photos: [photo, appraisal] },
-      { item_name: "테스트 물건 2" }, // omits `photos`: the schema must fill in an empty array
+      { item_name: "테스트 물건 1", bid_ends_at, photos: [photo, appraisal] },
+      // A revision-1 round: no `photos`, read as [].
+      { item_name: "테스트 물건 2", bid_ends_at },
     ]);
     expect(parsed.public_auction.rounds.map((r) => r.photos.map((p) => p.media_kind))).toEqual([
       ["photo", "appraisal"],
@@ -105,7 +107,9 @@ describe("public auction media", () => {
     ]);
   });
 
-  it("accepts the live v1 and the photo-bearing v2, and rejects any other version", () => {
+  // Root ADR-0336: major 1's strings, `.v1` (which every later revision of the major carries) and
+  // the legacy `.v2`; no `.v3` is ever written for a revision.
+  it("accepts every string of major 1, and rejects any other version", () => {
     for (const schema_version of [
       "foundation-platform.parcel_public_auction_by_pnu.v1",
       "foundation-platform.parcel_public_auction_by_pnu.v2",
@@ -124,7 +128,13 @@ describe("public auction media", () => {
 
   it("rejects a malformed content address so it can never reach an img/href", () => {
     expect(() =>
-      parse([{ item_name: "테스트 물건", photos: [{ ...photo, sha256: "../../etc/passwd" }] }]),
+      parse([
+        {
+          item_name: "테스트 물건",
+          bid_ends_at: "2026-01-05T08:00:00.000Z",
+          photos: [{ ...photo, sha256: "../../etc/passwd" }],
+        },
+      ]),
     ).toThrow();
   });
 

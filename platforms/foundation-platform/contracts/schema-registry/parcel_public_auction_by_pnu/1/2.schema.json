@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_public_auction_by_pnu major 1 revision 2",
+  "description": "A parcel's open onbid public auction rounds, served by PNU on the parcel edge (lane parcel-public-auction). A field that is not required may be absent or null.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_public_auction_by_pnu.v1",
+        "foundation-platform.parcel_public_auction_by_pnu.v2"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "public_auction": {
+      "type": "object",
+      "properties": {
+        "rounds": {
+          "type": "array",
+          "description": "Open rounds, soonest-closing first",
+          "items": {
+            "type": "object",
+            "properties": {
+              "appraisal_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "attached_via": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_begins_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_ends_at": {
+                "type": "string"
+              },
+              "bid_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cltr_mng_no": {
+                "type": "string"
+              },
+              "dsps_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "first_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "item_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "land_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "lowest_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "lowest_bid_price_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "onbid_cltr_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "onbid_pbanc_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pbct_cdtn_no": {
+                "type": "integer"
+              },
+              "pbct_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pbct_nsq": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbct_stat_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "photos": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "description": "The round's onbid media, content-addressed: the web builds each public URL from sha256 and media_format (root ADR-0296 §5)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "media_format": {
+                      "type": "string",
+                      "enum": [
+                        "jpg",
+                        "png",
+                        "gif",
+                        "pdf"
+                      ]
+                    },
+                    "media_kind": {
+                      "type": "string",
+                      "enum": [
+                        "photo",
+                        "appraisal"
+                      ]
+                    },
+                    "sequence": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "media_format",
+                    "media_kind",
+                    "sha256",
+                    "size_bytes"
+                  ]
+                }
+              },
+              "prpt_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "share_item_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usbd_nft": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "usg_lcls_ctgr_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_lcls_ctgr_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_mcls_ctgr_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_mcls_ctgr_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_scls_ctgr_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_scls_ctgr_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "bid_ends_at",
+              "cltr_mng_no",
+              "pbct_cdtn_no"
+            ]
+          }
+        },
+        "source_datasets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "rounds",
+        "source_datasets"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "public_auction"
+  ]
+}

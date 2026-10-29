@@ -1,50 +1,30 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { PnuSchema } from "./building-edge";
+import { ParcelPublicAuctionByPnuSchema as Generated } from "./public-auction.generated";
 
 // A parcel's on-bid public auctions are their own by-PNU document on the parcel edge
 // (`parcel-public-auction` lane, root ADR-0280), apart from the parcel document. The panel shows
-// the source's own words (root ADR-0070/0078); code-only fields the screen never reads are dropped
-// by the schema rather than declared. A null `usg_*_ctgr_name` is "no name yet" (data.go.kr
-// 15157768 code table pending), not a value to invent.
+// the source's own words (root ADR-0070/0078). A null `usg_*_ctgr_name` is "no name yet"
+// (data.go.kr 15157768 code table pending), not a value to invent.
+// The document's shape is the foundation's schema registry's (root ADR-0336): the generated schema
+// is its current revision narrowed to what this panel reads, accepting every revision of the major
+// by subject and major alone, so a revision that adds a field changes nothing here. This file only
+// extends it.
 // Each auction round carries its onbid media (root ADR-0298): photos and the appraisal report,
-// content-addressed by sha256 on the catalog edge. A round may legitimately carry none.
-const PublicAuctionPhotoSchema = z.object({
-  sha256: z.string().regex(/^[0-9a-f]{64}$/),
-  media_kind: z.enum(["photo", "appraisal"]),
-  sequence: z.number().nullish(),
-  title: z.string().nullish(),
-  media_format: z.enum(["jpg", "png", "gif", "pdf"]),
-  size_bytes: z.number(),
-});
+// content-addressed by sha256 on the catalog edge. A round may legitimately carry none, and a
+// revision-1 round has no `photos` at all: both read as [].
+const GeneratedRound = Generated.shape.public_auction.shape.rounds.element;
+const PublicAuctionPhotoSchema = GeneratedRound.shape.photos.unwrap().unwrap().element;
 
 export type PublicAuctionPhoto = z.infer<typeof PublicAuctionPhotoSchema>;
 
-export const PublicAuctionDocumentSchema = z.object({
-  // Accept the live v1 and the photo-bearing v2 through the cut-over: v1 rounds carry no `photos`
-  // (it defaults to []), v2 rounds carry them (root ADR-0296 §5). The web must take v2 before the
-  // document bake cuts over, or the panel would reject every served document.
-  schema_version: z.enum([
-    "foundation-platform.parcel_public_auction_by_pnu.v1",
-    "foundation-platform.parcel_public_auction_by_pnu.v2",
-  ]),
+export const PublicAuctionDocumentSchema = Generated.extend({
   pnu: PnuSchema,
-  public_auction: z.object({
+  public_auction: Generated.shape.public_auction.extend({
     rounds: z.array(
-      z.object({
-        item_name: z.string().nullish(),
-        appraisal_amount_krw: z.number().nullish(),
-        lowest_bid_price_krw: z.number().nullish(),
-        bid_begins_at: z.string().nullish(),
-        bid_ends_at: z.string().nullish(),
-        pbct_nsq: z.string().nullish(),
-        land_area_m2: z.number().nullish(),
-        building_area_m2: z.number().nullish(),
-        share_item_yn: z.string().nullish(),
-        usg_scls_ctgr_name: z.string().nullish(),
-        usg_mcls_ctgr_name: z.string().nullish(),
-        usg_lcls_ctgr_name: z.string().nullish(),
-        photos: z.array(PublicAuctionPhotoSchema).default([]),
+      GeneratedRound.extend({
+        photos: GeneratedRound.shape.photos.transform((photos) => photos ?? []),
       }),
     ),
   }),

@@ -23,6 +23,7 @@ use crate::by_pnu_serving_manifest_publish::{
 };
 use crate::pack_lane_document::{fields, Source};
 use crate::parcel_by_pnu_serving_export::parcel_document::ParcelByPnuDocument;
+use crate::schema_registry;
 
 /// A document's fields: path (an array's items under `<field>[]`) to whether it is required.
 type Shape = BTreeMap<String, bool>;
@@ -135,6 +136,10 @@ fn pack_shape(
         ("pnu".to_owned(), true),
         ("source".to_owned(), true),
     ]);
+    if lane.document_schema_revision.is_some() {
+        // Optional: the subject's earlier documents carry none (root ADR-0336).
+        shape.insert("schema_revision".to_owned(), false);
+    }
     for (path, required) in shape_of::<Source<'static>>()? {
         shape.insert(format!("source.{path}"), required);
     }
@@ -217,14 +222,46 @@ fn check(version: &str, shape: &Shape, held: &[String]) -> anyhow::Result<()> {
             render(shape)
         );
     };
+    compare(&recorded, shape, held, &path.display().to_string())?;
+    newest(version)
+}
+
+/// A registered subject's current revision as fields (root ADR-0336): the registry's schema file,
+/// walked as a type's schema is. `None` for a lane whose subject the registry does not list.
+fn registered(lane: &str) -> anyhow::Result<Option<(String, Shape)>> {
+    let Some(subject) = schema_registry::subject_of_lane(lane)? else {
+        return Ok(None);
+    };
+    let current = subject.current();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../contracts/schema-registry")
+        .join(
+            subject
+                .subject
+                .strip_prefix("foundation-platform.")
+                .unwrap_or(&subject.subject),
+        )
+        .join(current.major.to_string())
+        .join(format!("{}.schema.json", current.revision));
+    let schema: Value = serde_json::from_str(
+        &std::fs::read_to_string(&path).with_context(|| format!("{}", path.display()))?,
+    )
+    .with_context(|| format!("{} is not JSON", path.display()))?;
+    let mut shape = Shape::new();
+    walk(&schema, "", &BTreeMap::new(), &mut shape)?;
+    Ok(Some((path.display().to_string(), shape)))
+}
+
+/// Holds `shape` to `recorded` (what `source` holds), the subtrees of `held` taken as recorded.
+fn compare(recorded: &Shape, shape: &Shape, held: &[String], source: &str) -> anyhow::Result<()> {
     let mut expected = shape.clone();
-    for (field, required) in &recorded {
+    for (field, required) in recorded {
         if held.iter().any(|held| is_under(field, held)) {
             expected.insert(field.clone(), *required);
         }
     }
-    if recorded == expected {
-        return newest(version);
+    if *recorded == expected {
+        return Ok(());
     }
     let gained = expected
         .keys()
@@ -240,9 +277,8 @@ fn check(version: &str, shape: &Shape, held: &[String]) -> anyhow::Result<()> {
         .map(|(field, _)| field)
         .collect::<Vec<_>>();
     bail!(
-        "{version} differs from {}: gained {gained:?}, lost {lost:?}, required changed {changed:?}; \
-         the new version's fields:\n{}",
-        path.display(),
+        "the document differs from {source}: gained {gained:?}, lost {lost:?}, required changed \
+         {changed:?}; the new version's fields:\n{}",
         render(&expected)
     )
 }
@@ -306,6 +342,11 @@ fn expansion_violations(old: &Shape, new: &Shape) -> Vec<String> {
 fn every_declared_expansion_only_adds_optional_fields() -> anyhow::Result<()> {
     let mut failures = Vec::new();
     for lane in ByPnuLane::all()? {
+        // A registered subject's revisions are held to FULL compatibility by the registry's own
+        // check (scripts/schema_registry.py, root ADR-0336), its records frozen at revision 2.
+        if schema_registry::subject_of_lane(lane.name())?.is_some() {
+            continue;
+        }
         let current = document_schema_version(lane);
         let readable = readable_document_schema_versions(lane);
         ensure!(
@@ -393,7 +434,13 @@ fn every_by_pnu_document_has_the_fields_its_schema_version_recorded() -> anyhow:
             ByPnuLane::Building => (building.clone(), Vec::new()),
             ByPnuLane::Pack(pack) => pack_shape(lane.name(), pack, &hosts)?,
         };
-        if let Err(error) = check(document_schema_version(lane), &shape, &held) {
+        // A registered subject is held to its current revision in the registry (root ADR-0336),
+        // so a new revision there is the whole change; every other lane to its record.
+        let held_to = match registered(lane.name())? {
+            Some((source, revision)) => compare(&revision, &shape, &held, &source),
+            None => check(document_schema_version(lane), &shape, &held),
+        };
+        if let Err(error) = held_to {
             failures.push(format!("{} lane: {error:#}", lane.name()));
         }
     }

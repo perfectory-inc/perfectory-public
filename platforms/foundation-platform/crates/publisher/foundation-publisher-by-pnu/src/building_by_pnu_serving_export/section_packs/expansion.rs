@@ -111,11 +111,8 @@ pub(super) async fn run(
     let view = PackView::served(store, lane, &probe.state).await?;
     // Served answers are read as every reader reads them: under the recorded versions and the
     // ones the contract lets the lane serve (a record that lags its documents, 2026-10-28).
-    let schemas = probe
-        .state
-        .servable_document_schema_versions(lane)
-        .into_iter()
-        .collect::<Vec<_>>();
+    let servable = probe.state.servable_document_schema_versions(lane);
+    let schemas = servable.iter().map(String::as_str).collect::<Vec<_>>();
     // Futures are built in a loop, as the bake's are (the command table's `Send` check).
     let mut jobs = Vec::with_capacity(by_dong.len());
     for (dong, documents) in &by_dong {

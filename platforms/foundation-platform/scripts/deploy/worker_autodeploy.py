@@ -15,6 +15,8 @@ deployed a commit and on every tick that finds the host already on main's head. 
 - refuses with exit 78 before any side effect when the host is half configured (the token file
   lacks a name or is open to others, a by-PNU lane's monitor file is missing; a pack-only lane's
   missing file means it is not cut over yet, and its smoke is the capabilities read alone);
+- per by-PNU Worker, before anything is uploaded: can-i-deploy (root ADR-0336) — the new version
+  must read every major of a registered subject that the serving version says it reads (Deploy.can_i_deploy);
 - per Worker: dependencies from the lockfile, D1 migrations when the entry has them, then for the
   preview Worker (when the gateway has one) and then production: upload a version, refuse it unless
   it carries every variable and secret the version serving now has (keep_vars inherits them from the
@@ -66,7 +68,7 @@ WRANGLER = pathlib.Path(__file__).resolve().parent / "worker-wrangler.sh"
 # monitor's fix (#803) changed neither the Worker's inputs nor the deployer, so nothing retried.
 TOOL_FILES = ("scripts/deploy/worker_autodeploy.py", "scripts/deploy/worker-wrangler.sh",
               "config/worker-deploys.contract.json", "scripts/ops/by-pnu-serving-monitor.sh",
-              "scripts/ops/by-pnu-edge-probe.py",
+              "scripts/ops/by-pnu-edge-probe.py", "scripts/schema_registry.py",
               "crates/publisher/foundation-publisher-by-pnu/src", "crates/publisher/foundation-publisher-core/src")
 
 
@@ -136,6 +138,32 @@ class Worker:
     born_pack_only: bool = False
     # How much slower than the hostname it is compared with a version may read the sample (held_to_monitor).
     latency_ratio: float = 1.0
+    # The registered subjects (root ADR-0336) the lanes this Worker serves own, with the majors this
+    # tree's registry lists: what the new version reads (it bundles the same file).
+    document_schemas: dict[str, list[int]] = dataclasses.field(default_factory=dict)
+
+
+def schema_registry_module():
+    """scripts/schema_registry.py of the tree this deployer runs from."""
+
+    import importlib.util  # noqa: PLC0415
+
+    path = pathlib.Path(__file__).resolve().parents[1] / "schema_registry.py"
+    spec = importlib.util.spec_from_file_location("schema_registry", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def served_document_schemas(platform: pathlib.Path, gateways: dict[str, Any], gateway: str) -> dict[str, list[int]]:
+    """The registered subjects of the lanes a gateway block serves: its own (`parcel_by_pnu_gateway`
+    is the parcel lane, `by_pnu_lanes.<lane>` that lane) and every kind line naming it as its host."""
+
+    own = gateway.removeprefix("by_pnu_lanes.").removesuffix("_by_pnu_gateway")
+    lanes = [own, *(lane for lane, entry in gateways.get("by_pnu_lanes", {}).items() if entry.get("host") == gateway)]
+    registry = json.loads((platform / "contracts/schema-registry/registry.json").read_text(encoding="utf-8"))
+    return {entry["subject"]: sorted({revision["major"] for revision in entry["revisions"]})
+            for entry in registry["subjects"] if entry["owner"]["lane"] in lanes}
 
 
 def _pointer(block: dict[str, Any], dotted: str) -> Any:
@@ -201,7 +229,9 @@ def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
                               smoke=entry["smoke"], d1_database=d1, targets=targets,
                               born_pack_only=entry["gateway"].startswith("by_pnu_lanes.")
                               and block.get("pack_only") is True,
-                              latency_ratio=float(contract["monitor_latency"]["ratio_to_compared_hostname"])))
+                              latency_ratio=float(contract["monitor_latency"]["ratio_to_compared_hostname"]),
+                              document_schemas=served_document_schemas(platform, gateways, entry["gateway"])
+                              if entry["smoke"]["kind"] == "by-pnu" else {}))
     return workers, int(contract["attempts_per_change"])
 
 
@@ -455,6 +485,44 @@ class Deploy:
                 headers[key.strip().lower()] = value.strip()
         return status, headers
 
+    def capabilities(self, hostname: str) -> dict[str, Any] | None:
+        """The capabilities answer of the version serving `hostname`, `None` when it gives none."""
+
+        url = f"https://{hostname}{self.worker.gateway['request_path']['capabilities']}"
+        result = command(["curl", "-sS", "--fail", "--max-time", "20", "-H", "Cache-Control: no-cache", url], check=False)
+        try:
+            answer = json.loads(result.stdout) if result.returncode == 0 else None
+        except json.JSONDecodeError:
+            answer = None
+        return answer if isinstance(answer, dict) else None
+
+    def can_i_deploy(self) -> None:
+        """Pact's can-i-deploy for the documents the Worker serves (root ADR-0336), before anything
+        is uploaded. The publisher publishes a registered subject's major only after the serving
+        version says it reads it, so the served documents are of majors that version reads: the new
+        one must read each of them too, or every request of the lane becomes a 503 until the smoke
+        rolls it back. The serving version's answer is the deployed record; one built before the
+        registry names no majors and is not compared."""
+
+        if not self.worker.document_schemas:
+            return
+        production = self.worker.targets[-1]
+        answer = self.capabilities(production.hostname)
+        deployed = (answer or {}).get("document_schemas")
+        if not isinstance(deployed, dict):
+            log(f"{self.worker.id}: {production.hostname} names no document schemas it reads; nothing to compare")
+            return
+        registry = schema_registry_module()
+        mine = {"document_schemas": self.worker.document_schemas}
+        refusals = [why for subject, majors in deployed.items() if subject in self.worker.document_schemas
+                    for major in majors
+                    for why in registry.can_i_deploy(registry.load(self.workspace / PLATFORM), subject, major,
+                                                     {"the new version": mine})]
+        if refusals:
+            raise Failed(f"can-i-deploy: {production.hostname} serves documents the new version cannot read: "
+                         + "; ".join(refusals))
+        log(f"{self.worker.id}: can-i-deploy: the new version reads every major {production.hostname} reads")
+
     def wait_for(self, url: str, accept, what: str) -> None:
         seen = None
         for attempt in range(self.host.poll_tries):
@@ -551,6 +619,7 @@ class Deploy:
     # -- the whole deploy --
 
     def run(self) -> dict[str, Any]:
+        self.can_i_deploy()
         command(["bash", str(WRANGLER), str(self.workspace), self.service, "install"])
         self.resolve_d1_ids()
         before = {target.label: self.serving(target) for target in self.worker.targets}

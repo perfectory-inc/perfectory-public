@@ -9,7 +9,7 @@
       "preview": "section_packs.preview_worker",
       "service_dir": "services/foundation-by-pnu-gateway",
       "wrangler_config": "wrangler.parcel.jsonc",
-      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json", "contracts/schema-registry/registry.json"],
       "smoke": {"kind": "by-pnu", "lane": "parcel"}
     },
     {
@@ -18,7 +18,7 @@
       "preview": "section_packs.preview_worker",
       "service_dir": "services/foundation-by-pnu-gateway",
       "wrangler_config": "wrangler.building.jsonc",
-      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json", "contracts/schema-registry/registry.json"],
       "smoke": {"kind": "by-pnu", "lane": "building"}
     },
     {
@@ -27,7 +27,7 @@
       "preview": "section_packs.preview_worker",
       "service_dir": "services/foundation-by-pnu-gateway",
       "wrangler_config": "wrangler.unit-price.jsonc",
-      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json"],
+      "inputs": ["services/foundation-by-pnu-gateway", "config/r2-connections.contract.json", "contracts/schema-registry/registry.json"],
       "smoke": {
         "kind": "by-pnu",
         "lane": "unit-price",

@@ -248,11 +248,45 @@ pub fn resolve_lane_entry(
         .as_object_mut()
         .ok_or_else(|| format!("{host} is not an object"))?;
     derived.insert("pack_only".to_owned(), json!(true));
+    // A kind whose subject the schema registry lists (root ADR-0336) takes its document schema from
+    // there and never states one: the version it bakes is the current revision's string, and every
+    // other string of the same major is one it expands (FULL compatible by the registry's check).
+    let subject =
+        crate::schema_registry::subject_of_lane(name).map_err(|error| error.to_string())?;
+    if let Some(subject) = subject {
+        if let Some(field) = [
+            "document_schema_version",
+            "document_schema_version_reason",
+            "document_schema_expands",
+        ]
+        .into_iter()
+        .find(|field| fields.contains_key(*field))
+        {
+            return Err(format!(
+                "by_pnu_lanes.{name}.{field}: the lane's subject {} is in the schema registry \
+                 (contracts/schema-registry, root ADR-0336), which alone names its versions",
+                subject.subject
+            ));
+        }
+        let current = &subject.current().schema_version;
+        let expands = subject
+            .wire_versions(subject.major)
+            .into_iter()
+            .filter(|version| version != current)
+            .collect::<Vec<_>>();
+        derived.insert("document_schema_expands".to_owned(), json!(expands));
+        if let Some(revision) = subject.written_revision() {
+            derived.insert("document_schema_revision".to_owned(), json!(revision));
+        }
+    }
     // A kind's document is `.v1` until it gains, loses or renames a field; its line then states the
     // later version of the same name and why (contracts/by-pnu-documents holds every version).
     let document = format!("foundation-platform.{snake}_by_pnu.v");
     let version = match fields.get("document_schema_version") {
-        None => format!("{document}1"),
+        None => subject.map_or_else(
+            || format!("{document}1"),
+            |subject| subject.current().schema_version.clone(),
+        ),
         Some(stated) => stated
             .as_str()
             .filter(|stated| {
@@ -364,6 +398,9 @@ struct PackLaneEntry {
     /// ADR-0320); empty when a bump is a whole new generation.
     #[serde(default)]
     document_schema_expands: Vec<String>,
+    /// The `schema_revision` a registered subject's documents carry (root ADR-0336).
+    #[serde(default)]
+    document_schema_revision: Option<u32>,
     /// The live lane whose preview serves the same PNUs: the pack-only gate (나) measures this
     /// lane's preview against it.
     latency_baseline_lane: String,
@@ -414,6 +451,9 @@ pub struct PackLane {
     /// The earlier versions this one expands (root ADR-0320): documents of them stay served beside
     /// it until the next whole generation.
     pub document_schema_expands: Vec<String>,
+    /// The `schema_revision` the lane's documents carry: its registered subject's current revision,
+    /// once the registry made one (root ADR-0336); `None` for every other lane.
+    pub document_schema_revision: Option<u32>,
     pub latency_baseline_lane: String,
     pub latency_p95_max_ms: f64,
     /// The document key's suffix, for a lane keyed narrower than a PNU (root ADR-0204).
@@ -528,6 +568,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         gold,
         document_schema_version: entry.document_schema_version,
         document_schema_expands: entry.document_schema_expands,
+        document_schema_revision: entry.document_schema_revision,
         latency_baseline_lane: entry.latency_baseline_lane,
         latency_p95_max_ms: entry.latency_p95_max_ms,
         key_suffix,
@@ -1317,6 +1358,43 @@ mod tests {
         );
         assert!(pack.document_schema_expands.is_empty());
         assert_eq!(lane.unit(), "parcel-zoning-by-pnu");
+        Ok(())
+    }
+
+    #[test]
+    fn a_registered_lane_takes_its_document_schema_from_the_registry_alone() -> anyhow::Result<()> {
+        // Root ADR-0336. 2026-10-27..29: the public auction lane's version string sat in this
+        // contract, the web, the monitor's manifest record and the Worker's smoke, and its v1 -> v2
+        // expansion broke each copy on its own. Its line now names none; the registry does.
+        let auction = ByPnuLane::named("parcel-public-auction")?
+            .and_then(ByPnuLane::pack_lane)
+            .context("the contract names the public auction lane")?;
+        let subject = crate::schema_registry::subject_of_lane("parcel-public-auction")?
+            .context("the registry lists the public auction subject")?;
+        assert_eq!(
+            auction.document_schema_version,
+            subject.current().schema_version
+        );
+        // It expands every other string of its major: revision 1's.
+        assert_eq!(
+            auction.document_schema_expands,
+            [format!("{}.v1", subject.subject)]
+        );
+        assert_eq!(auction.document_schema_revision, None);
+        let contract = written()?;
+        let line = &contract["by_pnu_lanes"]["parcel-public-auction"];
+        for field in [
+            "document_schema_version",
+            "document_schema_version_reason",
+            "document_schema_expands",
+        ] {
+            assert!(line.get(field).is_none(), "{field}");
+            let mut stated = line.clone();
+            stated[field] = json!(subject.current().schema_version);
+            let refused = resolve_lane_entry("parcel-public-auction", &stated, &contract)
+                .expect_err("a registered lane may not state its version");
+            assert!(refused.contains("schema registry"), "{refused}");
+        }
         Ok(())
     }
 }

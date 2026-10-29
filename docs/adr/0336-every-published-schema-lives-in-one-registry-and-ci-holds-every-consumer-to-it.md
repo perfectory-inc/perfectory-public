@@ -1,6 +1,6 @@
 # ADR 0336: 발행하는 모든 스키마는 레지스트리 한 곳에 살고, CI 는 모든 소비자를 그 호환성 규칙에 묶는다
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-29
 - Builds on: [ADR-0193](./0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md)(종류별 레인·문서 버전 이름 유도), [ADR-0320](./0320-a-document-schema-bump-bakes-only-the-documents-it-changes.md)(expand/contract, `document_schema_expands`), [ADR-0123](./0123-data-contracts-are-generated-odcs-from-the-two-sources-that-already-own-the-facts.md)(ODCS 는 두 정본에서 생성), [ADR-0327](./0327-a-worker-deploy-and-a-quarter-hourly-probe-read-what-users-read-twice.md)(배포 스모크·상시 탐침)
 - 관련 사건: 2026-10-27~29 — 공매 by-PNU 문서가 `parcel_public_auction_by_pnu.v1` → `.v2`(사진 색인, #877)로, 필지 문서가 `parcel_by_pnu_profile.v1` → `.v2` 로 바뀌자 소비자 넷이 **각자** 깨졌다: (1) 매시 서빙 모니터가 매시 실패, (2) 전체 세대 발행이 옛 manifest 기록을 복사해 v2 문서 위에 v1 을 적음(#929), (3) 옛 빌드의 웹 미리보기가 v2 를 거부, (4) Worker 배포 게이트가 스모크(모니터) 실패로 세 번 되돌림.

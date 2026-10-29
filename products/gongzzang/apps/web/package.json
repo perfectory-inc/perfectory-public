@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "probe:naver": "playwright test --config playwright.probes.config.ts",
     "test:bundle": "size-limit",
+    "gen:schemas": "node codegen/gen-schemas.mjs",
     "api:generate": "openapi-typescript ../../crates/foundation-platform-client/openapi/catalog.v1.json -o lib/api/foundation-catalog.generated.ts"
   },
   "dependencies": {

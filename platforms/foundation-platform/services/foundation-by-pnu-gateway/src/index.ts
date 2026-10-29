@@ -18,6 +18,7 @@ import {
   withRetry,
 } from "./packs";
 import { cacheOrigin, LANE, laneOfPath, LANES, lanePacks, OWN, policy, type ServedLane } from "./lane";
+import { documentSchemas } from "./schemas";
 
 const patchPolicy = connectionContract.by_pnu_serving_patches;
 const packPolicy = connectionContract.by_pnu_section_packs;
@@ -432,9 +433,15 @@ async function packResponse(
   return timed(new Response(body, { status: 200, headers, encodeBody: "manual" }), "document");
 }
 
+/// What the lane reads: its manifest schemas, and the majors of the registered subject it serves
+/// (root ADR-0336), which the publisher asks before it publishes a major (can-i-deploy).
 function capabilities(lane: ServedLane): Response {
   return new Response(
-    `${JSON.stringify({ unit: lane.unit, manifest_schema_versions: MANIFEST_SCHEMA_VERSIONS })}\n`,
+    `${JSON.stringify({
+      unit: lane.unit,
+      manifest_schema_versions: MANIFEST_SCHEMA_VERSIONS,
+      document_schemas: documentSchemas(lane.name),
+    })}\n`,
     {
       headers: {
         "Cache-Control": "no-store",

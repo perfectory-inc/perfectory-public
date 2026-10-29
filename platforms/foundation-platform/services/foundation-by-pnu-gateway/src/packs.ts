@@ -1,5 +1,6 @@
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { cacheOrigin, lanePacks, OWN, type ServedLane } from "./lane";
+import { recordsReadableDocuments } from "./schemas";
 
 /// Section packs (root ADR-0147, ADR-0151): one R2 object per (section, legal dong), head + index +
 /// body, or one per part of a large dong (ADR-0163). Each lane has one section, `documents`, whose
@@ -95,6 +96,8 @@ export function parseSectionPacks(raw: unknown, patchCeiling: number, lane: Serv
   ) {
     return null;
   }
+  // Root ADR-0336: a registered subject's documents are read by subject and major, whatever revision.
+  if (!recordsReadableDocuments(lane.name, block)) return null;
   const unitLength = block.unit_prefix_length;
   if (!isPositive(unitLength) || unitLength > 19) return null;
   // A part unit is a dong of the contract's unit length and a part (`parts.unit_pattern`).

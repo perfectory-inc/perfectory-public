@@ -1,0 +1,97 @@
+{
+  "$comment": "Root ADR-0336: the one registry of the schemas Foundation publishes to users and downstream. A subject is one kind of published document; its revisions are append-only (a merged revision and its schema file never change, scripts/guard/schema-registry.sh) and each one is held to the subject's compatibility mode against every earlier revision of its major (scripts/schema_registry.py check). A document names its subject and major in `schema_version` (`<subject>.v<major>`), and from the first revision registered here on its revision in `schema_revision`; consumers check the subject and the major only. A revision marked `legacy` was served before the registry and keeps the string it was served under, a frozen alias of its major: no new revision may be legacy, and no later major may take a number a legacy string already holds. `consumers` is each reader's pact: the paths it reads, a `required` one being a path it cannot do without, which every revision of the subject's major must guarantee. `record` names the pre-registry field record a legacy revision was translated from (contracts/by-pnu-documents), held equal to it. The subjects not listed here keep their earlier mechanism (config/r2-connections.contract.json document_schema_version, contracts/by-pnu-documents) until they are moved one at a time.",
+  "schema_version": 1,
+  "decision": "docs/adr/0336-every-published-schema-lives-in-one-registry-and-ci-holds-every-consumer-to-it.md",
+  "subjects": [
+    {
+      "subject": "foundation-platform.parcel_public_auction_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-public-auction",
+        "producer": "infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
+          "legacy": true,
+          "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v1.json",
+          "decision": "docs/adr/0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md",
+          "reason": "the first served document: a parcel's open onbid rounds, the Gold JSON column as written"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v2",
+          "legacy": true,
+          "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v2.json",
+          "decision": "docs/adr/0296-public-auction-serves-full-info-and-shares-one-content-addressed-media-store.md",
+          "reason": "each round gains its media index (rounds[].photos[], content-addressed by sha256), an optional field: an expansion of revision 1 served under its own string before the registry existed"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/public-auction.generated.ts",
+          "reason": "the 공매 panel: generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "public_auction", "required": true},
+            {"path": "public_auction.rounds", "required": true},
+            {"path": "public_auction.rounds[].item_name", "required": false},
+            {"path": "public_auction.rounds[].appraisal_amount_krw", "required": false},
+            {"path": "public_auction.rounds[].lowest_bid_price_krw", "required": false},
+            {"path": "public_auction.rounds[].bid_begins_at", "required": false},
+            {"path": "public_auction.rounds[].bid_ends_at", "required": true},
+            {"path": "public_auction.rounds[].pbct_nsq", "required": false},
+            {"path": "public_auction.rounds[].land_area_m2", "required": false},
+            {"path": "public_auction.rounds[].building_area_m2", "required": false},
+            {"path": "public_auction.rounds[].share_item_yn", "required": false},
+            {"path": "public_auction.rounds[].usg_scls_ctgr_name", "required": false},
+            {"path": "public_auction.rounds[].usg_mcls_ctgr_name", "required": false},
+            {"path": "public_auction.rounds[].usg_lcls_ctgr_name", "required": false},
+            {"path": "public_auction.rounds[].photos", "required": false},
+            {"path": "public_auction.rounds[].photos[].sha256", "required": true},
+            {"path": "public_auction.rounds[].photos[].media_kind", "required": true},
+            {"path": "public_auction.rounds[].photos[].sequence", "required": false},
+            {"path": "public_auction.rounds[].photos[].title", "required": false},
+            {"path": "public_auction.rounds[].photos[].media_format", "required": true},
+            {"path": "public_auction.rounds[].photos[].size_bytes", "required": true}
+          ]
+        },
+        {
+          "name": "foundation-publisher",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back, the serving monitor (foundation-by-pnu-serving-monitor@parcel-public-auction) and the Worker autodeploy smoke hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "source", "required": true},
+            {"path": "public_auction", "required": true},
+            {"path": "attached_via", "required": false}
+          ]
+        },
+        {
+          "name": "foundation-by-pnu-gateway",
+          "at": "platforms/foundation-platform/services/foundation-by-pnu-gateway/src/schemas.ts",
+          "reason": "the parcel Worker serves the document bytes as they are and reads none of its fields; it holds the manifest's record of the document schema to the subject's majors and names them at its capabilities path, which the publisher asks before it publishes a major the Worker has not read (can-i-deploy)",
+          "reads": []
+        },
+        {
+          "name": "by-pnu-edge-probe",
+          "at": "platforms/foundation-platform/scripts/ops/by-pnu-edge-probe.py",
+          "reason": "the quarter-hourly probe and the Worker deploy's smoke name the first media blob the lane's sample documents carry",
+          "reads": [
+            {"path": "public_auction.rounds[].photos", "required": false},
+            {"path": "public_auction.rounds[].photos[].sha256", "required": true},
+            {"path": "public_auction.rounds[].photos[].media_format", "required": true}
+          ]
+        }
+      ]
+    }
+  ]
+}
