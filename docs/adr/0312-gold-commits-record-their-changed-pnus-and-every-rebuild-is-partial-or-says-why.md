@@ -107,3 +107,9 @@ Gold 의 `affected` 는 여전히 Silver 두 판의 차이(`changed_rows`)로 �
 - `gold.<t>__changes` 는 쌓기만 하고 작다(커밋당 바뀐 PNU 수 + 1 행). 만료·압축 대상이 아니다.
 - 공매의 계보 사슬 걷기 85 초(드라이버에서 6.5M 링크 전체)는 계보 판이 바뀔 때만 다시 할 수 있도록 후보를
   계보 스냅숏별로 두는 것이 다음 일이다.
+
+---
+
+- 2026-10-30 각주: 전량 덮어쓰기도 이제 바뀐 키를 기록한다. 쓰기 전에 `merge_source` 의 `row_digest` 차이를 내고,
+  `foundation.keys-changed` 와 `__changes` 를 남긴다. 그래서 §1 의 "기록 없는 걸음" 에서 덮어쓰기가 빠진다.
+  [ADR-0347](./0347-unit-ids-and-link-evidence-are-named-by-content-and-every-gold-commit-records-its-changed-keys.md) §4.

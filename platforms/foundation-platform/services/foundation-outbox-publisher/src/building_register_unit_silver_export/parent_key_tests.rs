@@ -91,9 +91,14 @@ fn explicit_parent_key_wins_over_a_different_name_match_in_real_export() -> anyh
     let row = exported_row(&config)?;
     assert_eq!(row["building_mgm_bldrgst_pk"], "building-b");
     assert_eq!(row["building_link_method"], "parent_key");
+    // Named by the basic-outline row's key, not its file and line (root ADR-0347).
     assert_eq!(
         row["building_link_source_record_id"],
-        format!("bronze/source={DEFAULT_BASIS_SOURCE_SLUG}/OPN209912310000000003.zip#line-000001")
+        lakehouse_application::building_register_row_identity::natural_row_identity(
+            "building-register-basis",
+            &["unit-opaque"],
+            1
+        )
     );
     assert!(row["building_link_reason"].is_null());
     assert_eq!(row["building_main_or_annex"], "main");
@@ -104,7 +109,8 @@ fn explicit_parent_key_wins_over_a_different_name_match_in_real_export() -> anyh
         .as_array()
         .expect("input manifest");
     assert_eq!(sources.len(), 3);
-    assert_eq!(
+    // The row carries the digest of its own relation facts; the run summary keeps the inputs'.
+    assert_ne!(
         row["building_link_input_sha256"],
         summary["source"]["building_link_input_sha256"]
     );
@@ -114,6 +120,29 @@ fn explicit_parent_key_wins_over_a_different_name_match_in_real_export() -> anyh
         assert_eq!(source["sha256"].as_str().expect("sha256").len(), 64);
     }
     fs::remove_dir_all(config.bronze_local_object_root)?;
+    Ok(())
+}
+
+/// Root ADR-0347, incident 2026-10-29: the next monthly release moved every line and renamed the
+/// files, and every unit's id and link evidence changed with them although no relation did.
+#[test]
+fn the_next_release_with_moved_lines_keeps_unit_ids_and_link_evidence() -> anyhow::Result<()> {
+    let september = fixture("foundation-parent-key-release-a", valid_basis())?;
+    let before = exported_row(&september)?;
+    let mut reordered = valid_basis();
+    reordered.reverse();
+    reordered.insert(0, basis_line("another-unit", "building-a", "4"));
+    let october = fixture("foundation-parent-key-release-b", reordered)?;
+    let after = exported_row(&october)?;
+    for key in [
+        "unit_row_id",
+        "building_link_source_record_id",
+        "building_link_input_sha256",
+    ] {
+        assert_eq!(before[key], after[key], "{key}");
+    }
+    fs::remove_dir_all(september.bronze_local_object_root)?;
+    fs::remove_dir_all(october.bronze_local_object_root)?;
     Ok(())
 }
 

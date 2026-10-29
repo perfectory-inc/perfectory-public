@@ -8,8 +8,9 @@ Changed and new PNUs are the patch's upserts; PNUs gone from Gold are its tombst
 An incremental Gold commit records the PNUs it merged (`gold.<t>__changes`, root ADR-0191 §4,
 ADR-0312 §1). When every commit between the two snapshots is recorded (or a compaction), only those
 PNUs are compared: both snapshots are semi-joined to them, so nothing is shuffled but the recorded
-keys, and a run with no recorded change reads no row. A step without a record (a full rebuild, a
-schema backfill) falls back to joining the two snapshots whole. Both paths give the same counts.
+keys, and a run with no recorded change reads no row. A full rebuild records its changed keys too
+(root ADR-0347). A step without a record (a schema backfill, a commit before ADR-0347) falls back
+to joining the two snapshots whole. Both paths give the same counts.
 
 The comparison snapshot is the one the serving manifest last reflected
 (`reflected_gold_iceberg_snapshot_id`), never a guess. Designed refusals, each a distinct exit:
