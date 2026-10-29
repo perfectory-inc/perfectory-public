@@ -127,3 +127,10 @@ id 는 계보를 한 번 더 적은 것일 뿐이다.
   흔들림을 없앤다.
 - **전유공용면적 export 를 DuckDB 임시 표로 묶기(층처럼)**: 1억 1천만 행의 모든 열을 디스크에 다시 쓴다. 순번에
   필요한 것은 행마다 20바이트다.
+
+---
+
+- 2026-10-30 각주: 같은 규칙을 호 `unit_row_id`(키 `mgm_bldrgst_pk`)와 연결 근거
+  `building_link_source_record_id`·`building_link_input_sha256` 로 넓혔다. 근거 id 는 기본개요 행의 키로 짓고,
+  digest 는 관계 판정이 읽은 사실로 만든다. 2026-10-29 건물 레인 거부(5,933,490 / 5,945,309 문서)가 계기다.
+  [ADR-0347](./0347-unit-ids-and-link-evidence-are-named-by-content-and-every-gold-commit-records-its-changed-keys.md).

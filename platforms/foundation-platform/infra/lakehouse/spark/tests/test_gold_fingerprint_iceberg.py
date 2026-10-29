@@ -121,8 +121,8 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
 @unittest.skipUnless(os.getenv("RUN_ICEBERG_TESTS") == "1", "requires the pinned Iceberg runtime")
 class RecordedChangesIcebergTest(unittest.TestCase):
     """Root ADR-0312 §1: an incremental merge records the PNUs it changed, and the bake's delta compares
-    only those, with the counts the whole-snapshot join gives; a full overwrite records none, and the
-    delta joins the two snapshots again."""
+    only those, with the counts the whole-snapshot join gives; a full overwrite records the keys whose
+    row_digest it changed (root ADR-0347), and the delta reads them with the same counts."""
 
     TABLE = "proof.gold.recorded_panel"
 
@@ -220,12 +220,31 @@ class RecordedChangesIcebergTest(unittest.TestCase):
         self.assertEqual({k: via_join_of_record[k] for k in counts}, {k: via_join[k] for k in counts})
         self.assertEqual(self.delta(second, third)[0]["upsert_count"], 0)
 
-        # A full overwrite records no step: the delta joins the snapshots again.
-        rewritten = self.spark.table(self.TABLE).withColumn("payload", F.concat("payload", F.lit("!")))
-        incremental.Outcome(mode="full", row_count=4, metrics={}, gold=rewritten.cache()).commit(
-            self.spark, self.TABLE, {"silver.example": "14"}, "overwrite")
-        self.assertIsNone(incremental.recorded_changes(self.spark, self.TABLE, compacted, self.head()))
-        self.assertEqual(self.delta(compacted, self.head())[0]["change_source"], "diff")
+        # Root ADR-0347: a full overwrite records the keys whose row_digest it changed, like a merge.
+        # Incident 2026-10-29: two whole overwrites of gold.building_panel recorded nothing, and the
+        # bake could not tell 0.17% real change from 99.8% rewritten ids.
+        changed = F.col("pnu") == p[0]
+        rewritten = (self.spark.table(self.TABLE)
+                     .withColumn("payload", F.when(changed, F.concat("payload", F.lit("!"))).otherwise(F.col("payload")))
+                     .withColumn("row_digest", F.when(changed, F.lit("d0b")).otherwise(F.col("row_digest")))
+                     .where(F.col("pnu") != p[3]).cache())
+        rewritten.count()
+        outcome = incremental.Outcome(mode="full", row_count=3, metrics={}, gold=rewritten)
+        outcome.commit(self.spark, self.TABLE, {"silver.example": "14"}, "overwrite")
+        overwritten = self.head()
+        summary = self.spark.sql(f"SELECT operation, summary FROM {self.TABLE}.snapshots "
+                                 f"WHERE snapshot_id = {overwritten}").first()
+        self.assertEqual(summary.operation, "overwrite")
+        self.assertEqual(summary.summary[incremental.KEYS_CHANGED_PROPERTY], "2")
+        self.assertEqual(outcome.report()["overwrite_changes"],
+                         {"affected_pnus": 2, "inserted_pnus": 0, "updated_pnus": 1, "deleted_pnus": 1})
+        recorded = {r.pnu for r in incremental.recorded_changes(self.spark, self.TABLE, compacted, overwritten).collect()}
+        self.assertEqual(recorded, {p[0], p[3]})
+        via_record, upserts, deletes = self.delta(compacted, overwritten)
+        via_join, joined_upserts, joined_deletes = self.delta(compacted, overwritten, recorded=False)
+        self.assertEqual((via_record["change_source"], via_join["change_source"]), ("recorded", "diff"))
+        self.assertEqual({k: via_record[k] for k in counts}, {k: via_join[k] for k in counts})
+        self.assertEqual((upserts, deletes), (joined_upserts, joined_deletes))
 
 
 if __name__ == "__main__":

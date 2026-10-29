@@ -1,6 +1,8 @@
 //! Silver normalization helpers for official building-register unit (전유부 호) rows.
 
-use crate::building_register_row_identity::row_identity;
+use crate::building_register_row_identity::{
+    natural_key_occurrences, natural_row_identity, NaturalKeyRank,
+};
 use std::collections::BTreeMap;
 
 use foundation_normalization_domain::{
@@ -58,6 +60,10 @@ pub struct BuildingRegisterUnitSourceRow {
     pub floor_number_raw: String,
     /// 1-based source line number inside the Bronze object when available.
     pub source_line_number: Option<u64>,
+    /// Occurrence among the release's rows that share this unit's key, when the caller ranked a
+    /// release larger than one batch ([`unit_key_rank`]); `None` ranks within the batch (root
+    /// ADR-0347, as ADR-0331 for floors).
+    pub key_occurrence: Option<u32>,
 }
 
 /// Input required to normalize building-register unit source rows into Silver rows.
@@ -113,9 +119,10 @@ pub struct BuildingRegisterUnitSilverRow {
     /// Automatic links are `parent_key` or `unresolved`; other historical methods require
     /// an active staff-approved normalization application.
     pub building_link_method: String,
-    /// Basic-outline source row supplying the parent relationship, when present.
+    /// Basic-outline row supplying the parent relationship, named by its key (root ADR-0347).
     pub building_link_source_record_id: Option<String>,
-    /// SHA-256 of the exact unit/title/basic-outline input manifest.
+    /// SHA-256 of the basic-outline facts the link was decided from (root ADR-0347); the input
+    /// manifest's digest is the run summary's.
     pub building_link_input_sha256: Option<String>,
     /// Machine-readable reason the source parent is absent or rejected.
     pub building_link_reason: Option<String>,
@@ -332,7 +339,32 @@ pub fn parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
         floor_type_name_raw: fields[FLOOR_TYPE_NAME_INDEX].trim().to_owned(),
         floor_number_raw: fields[FLOOR_NUMBER_INDEX].trim().to_owned(),
         source_line_number: Some(one_based_line_number),
+        key_occurrence: None,
     })
+}
+
+/// The rank entry of one 전유부 row, for a caller that ranks a whole release before normalizing
+/// it row by row; feed the entries to
+/// [`natural_key_occurrences`](crate::building_register_row_identity::natural_key_occurrences)
+/// and set each row's `key_occurrence` (root ADR-0347).
+///
+/// The unit's provider key (`mgm_bldrgst_pk`, 호 level) is its identity: 19,860,453 rows held
+/// 19,860,453 distinct keys in the 2026-10 release (measured), so the occurrence is 1 and the
+/// content columns only order a duplicate the provider may yet send.
+#[must_use]
+pub fn unit_key_rank(record: &BuildingRegisterUnitSourceRow, index: u32) -> NaturalKeyRank {
+    NaturalKeyRank::new(
+        &[record.mgm_bldrgst_pk.as_str()],
+        &[
+            record.register_parcel_key.as_str(),
+            record.dong_name_raw.as_str(),
+            record.unit_name_raw.as_str(),
+            record.floor_type_code_raw.as_str(),
+            record.floor_type_name_raw.as_str(),
+            record.floor_number_raw.as_str(),
+        ],
+        index,
+    )
 }
 
 /// Normalizes building-register unit source rows into Silver rows.
@@ -349,10 +381,22 @@ pub fn normalize_building_register_unit_silver_rows(
         ));
     }
 
+    let mut ranks = Vec::with_capacity(input.records.len());
+    for (index, record) in input.records.iter().enumerate() {
+        let index = u32::try_from(index).map_err(|_| {
+            BuildingRegisterUnitSilverPlanError::InvalidInput(
+                "unit batch exceeds u32 rows".to_owned(),
+            )
+        })?;
+        ranks.push(unit_key_rank(record, index));
+    }
     input
         .records
         .iter()
-        .map(|record| build_silver_row(record, input))
+        .zip(natural_key_occurrences(ranks))
+        .map(|(record, occurrence)| {
+            build_silver_row(record, record.key_occurrence.unwrap_or(occurrence), input)
+        })
         .collect()
 }
 
@@ -371,7 +415,7 @@ pub fn normalize_building_register_unit_silver_rows_with_parent_keys(
     let mut rows = normalize_building_register_unit_silver_rows(input)?;
     for row in &mut rows {
         row.building_link_source_record_id = basis.source_record_id(&row.mgm_bldrgst_pk);
-        row.building_link_input_sha256 = Some(basis.input_sha256().to_owned());
+        row.building_link_input_sha256 = Some(basis.evidence_sha256(&row.mgm_bldrgst_pk));
         let result = match basis.resolve_unit(&row.mgm_bldrgst_pk) {
             BuildingRegisterUnitParent::Linked(parent) => building_keys.resolve_parent_pk(parent),
             BuildingRegisterUnitParent::Absent(reason)
@@ -551,6 +595,7 @@ fn validate_non_empty(field: &str, value: &str) -> Result<(), BuildingRegisterUn
 
 fn build_silver_row(
     record: &BuildingRegisterUnitSourceRow,
+    occurrence: u32,
     input: &BuildingRegisterUnitSilverRowsInput<'_>,
 ) -> Result<BuildingRegisterUnitSilverRow, BuildingRegisterUnitSilverPlanError> {
     let normalized = normalize_building_register_unit(RawBuildingRegisterUnit {
@@ -564,10 +609,11 @@ fn build_silver_row(
         },
     });
     let mut row = BuildingRegisterUnitSilverRow {
-        unit_row_id: row_identity(
+        // Named by the unit's key, never its file line: a monthly file moves every line (root ADR-0347).
+        unit_row_id: natural_row_identity(
             "building-register-unit",
-            record.source_record_id.as_str(),
-            record.source_line_number,
+            &[record.mgm_bldrgst_pk.as_str()],
+            occurrence,
         ),
         mgm_bldrgst_pk: record.mgm_bldrgst_pk.clone(),
         pnu: record.pnu.clone(),
@@ -836,6 +882,43 @@ mod tests {
         Ok(())
     }
 
+    /// Root ADR-0347 (2026-10-29: 5,933,490 of 5,945,309 building documents changed because a
+    /// new monthly file moved every line): a unit is named by its key, not its file and line.
+    #[test]
+    fn a_unit_keeps_its_id_when_the_next_release_moves_its_line(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let raw = line("102동", "624호", "20", "지상", "6");
+        let id_in = |object: &str,
+                     line_number: u64|
+         -> Result<String, Box<dyn std::error::Error>> {
+            let record = parse_building_register_unit_source_row_from_hub_bulk_text_line(
+                &raw,
+                object,
+                line_number,
+            )?;
+            let rows = normalize_building_register_unit_silver_rows(
+                &BuildingRegisterUnitSilverRowsInput {
+                    records: std::slice::from_ref(&record),
+                    source_snapshot_id: "hub",
+                    bronze_object_key: object,
+                    valid_from_utc: DateTime::parse_from_rfc3339("2026-06-20T00:00:00Z")?.to_utc(),
+                    ingested_at_utc: DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")?.to_utc(),
+                },
+            )?;
+            Ok(rows[0].unit_row_id.clone())
+        };
+        let september = id_in("bronze/source=x/OPN209911300000000003.zip", 17)?;
+        assert_eq!(
+            september,
+            id_in("bronze/source=x/OPN209912310000000003.zip", 90_210)?
+        );
+        assert_eq!(
+            september,
+            natural_row_identity("building-register-unit", &["1002129933"], 1)
+        );
+        Ok(())
+    }
+
     #[test]
     fn serializes_row_to_jsonl_with_all_contract_fields() -> Result<(), Box<dyn std::error::Error>>
     {
@@ -948,7 +1031,7 @@ mod tests {
     }
 
     fn empty_basis() -> Result<BuildingRegisterBasisIndex, BuildingRegisterUnitSilverPlanError> {
-        BuildingRegisterBasisIndex::new("bronze/basis.zip", &"a".repeat(64))
+        BuildingRegisterBasisIndex::new(&"a".repeat(64))
     }
 
     fn basis_for(
@@ -1193,6 +1276,15 @@ mod tests {
                 &empty_basis()?,
             )?;
             assert_eq!(rows.len(), records.len(), "case={case}");
+            let ids = rows
+                .iter()
+                .map(|row| row.unit_row_id.as_str())
+                .collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(
+                ids.len(),
+                rows.len(),
+                "rows sharing a key keep distinct ids"
+            );
             for (row, record) in rows.iter().zip(&records) {
                 assert_eq!(row.building_mgm_bldrgst_pk, None, "case={case}");
                 assert_eq!(row.building_link_method, "unresolved");
@@ -1200,13 +1292,7 @@ mod tests {
                 assert_eq!(row.building_title_unit_count, None);
                 assert_eq!(row.normalization_application_id, None);
                 assert_eq!(row.normalization_status, "accepted");
-                assert_eq!(
-                    row.unit_row_id,
-                    format!(
-                        "building-register-unit:{bronze_key}#line-{:06}",
-                        record.source_line_number.ok_or("source line must exist")?
-                    )
-                );
+                assert!(row.unit_row_id.starts_with("building-register-unit:nk1:"));
                 assert_eq!(row.source_record_id, record.source_record_id);
                 assert_eq!(row.mgm_bldrgst_pk, record.mgm_bldrgst_pk);
                 assert_eq!(row.pnu, record.pnu);

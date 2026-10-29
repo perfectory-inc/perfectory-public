@@ -2,8 +2,10 @@ use super::*;
 use crate::hub_provider_release::{ProviderMonth, ProviderRelease};
 use foundation_publisher_silver::sigungu_crosswalk::hub_sido_tally;
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
+use lakehouse_application::building_register_row_identity::natural_key_occurrences;
 use lakehouse_application::{
-    parse_building_register_unit_source_row_from_hub_bulk_text_line_via, BuildingRegisterBasisIndex,
+    parse_building_register_unit_source_row_from_hub_bulk_text_line_via, unit_key_rank,
+    BuildingRegisterBasisIndex,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -24,6 +26,8 @@ pub(super) struct ParentInputs {
     pub evidence: Vec<SourceEvidence>,
     /// Rows by 시도 against the cadastral parcel set, judged in the pre-pass (ADR-0142).
     pub sigungu_sido: serde_json::Value,
+    /// Each unit line's occurrence among the release's rows of its key, in line order (ADR-0347).
+    pub occurrences: Vec<u32>,
     paths: Vec<PathBuf>,
 }
 
@@ -95,14 +99,17 @@ impl ParentInputs {
             titles.insert(entry);
             Ok(())
         })?;
-        let mut basis = BuildingRegisterBasisIndex::new(&evidence[2].bronze_object_key, &digest)?;
+        let mut basis = BuildingRegisterBasisIndex::new(&digest)?;
         decode_zip_lines(&paths[2], None, |line, line_number| {
             basis.insert_hub_line(line, line_number)?;
             Ok(())
         })?;
         // Validate the complete source before any writer can create/truncate output.
-        // Reuse the export's parser and crosswalk; this pass retains no unit rows in memory.
+        // Reuse the export's parser and crosswalk; this pass retains no unit rows in memory, only
+        // each row's 20-byte natural-key rank (root ADR-0347): a duplicate key's occurrence needs
+        // the whole release, as the unit-area export's (ADR-0331).
         let mut sido_tally = hub_sido_tally(crosswalk)?;
+        let mut ranks = Vec::new();
         decode_zip_lines(&paths[0], None, |line, line_number| {
             let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
                 crosswalk,
@@ -114,6 +121,8 @@ impl ParentInputs {
                 format!("failed to parse building-register unit line {line_number}")
             })?;
             sido_tally.observe(&record.register_parcel_key);
+            let index = u32::try_from(ranks.len()).context("unit release exceeds u32 rows")?;
+            ranks.push(unit_key_rank(&record, index));
             Ok(())
         })?;
         let sigungu_sido = sido_tally.finish()?;
@@ -124,6 +133,7 @@ impl ParentInputs {
             basis,
             evidence,
             sigungu_sido,
+            occurrences: natural_key_occurrences(ranks),
             paths,
         })
     }

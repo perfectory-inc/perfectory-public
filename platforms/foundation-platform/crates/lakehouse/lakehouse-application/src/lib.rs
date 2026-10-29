@@ -93,7 +93,7 @@ pub use building_register_unit_silver_plan::{
     building_register_unit_silver_row_to_jsonl, normalize_building_register_unit_silver_rows,
     normalize_building_register_unit_silver_rows_with_parent_keys,
     parse_building_register_unit_source_row_from_hub_bulk_text_line,
-    parse_building_register_unit_source_row_from_hub_bulk_text_line_via,
+    parse_building_register_unit_source_row_from_hub_bulk_text_line_via, unit_key_rank,
     BuildingRegisterUnitSilverOverride, BuildingRegisterUnitSilverOverrideIndex,
     BuildingRegisterUnitSilverPlanError, BuildingRegisterUnitSilverRow,
     BuildingRegisterUnitSilverRowsInput, BuildingRegisterUnitSourceRow,

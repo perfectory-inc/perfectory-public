@@ -114,6 +114,14 @@ class Layout(unittest.TestCase):
         self.assertEqual(len(failures), 1)
         self.assertIn("changed 0.12% of its keys and added 100% of its bytes", failures[0])
 
+    def test_a_full_rebuild_that_says_what_it_changed_is_named_not_failed(self):
+        # Root ADR-0347: a whole overwrite records its changed keys; 2026-10-29 gold.building_panel
+        # rewrote 5,945,309 PNUs for 0.17% of real change. The full rebuild is a declared exception.
+        failures, notes = check.layout_findings("gold.t", "pnu", self.ORDERED,
+                                                self.summary(100, 100, 1_000_000, 1_700), "overwrite")
+        self.assertEqual(failures, [])
+        self.assertIn("full rebuild that changed 0.17% of its keys", notes[0])
+
     def test_a_change_that_rewrote_its_share_passes(self):
         self.assertEqual(check.layout_findings("gold.t", "pnu", self.ORDERED,
                                                self.summary(50, 100, 1_000, 500)), ([], []))

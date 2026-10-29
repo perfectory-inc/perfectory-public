@@ -127,9 +127,13 @@ def amplification(summary: dict) -> tuple[float, float | None]:
     return byte_share, (int(keys) / records if keys is not None and records else None)
 
 
-def layout_findings(table: str, key: str, bounds: list[tuple[str, str]], summary: dict | None) -> tuple[list[str], list[str]]:
+def layout_findings(table: str, key: str, bounds: list[tuple[str, str]], summary: dict | None,
+                    operation: str | None = None) -> tuple[list[str], list[str]]:
     """(failures, notes) for one clustered table: its files' key ranges, and its last data commit
-    (`summary`, None for a table with no commit after its first)."""
+    (`summary` and Iceberg `operation`, None for a table with no commit after its first).
+
+    A whole `overwrite` is the full rebuild, a declared exception (root ADR-0314): it says how many
+    keys it changed since root ADR-0347, and the check names that share instead of failing it."""
     failures, notes = [], []
     share = region_read_share(bounds, REGION_DIGITS[key])
     if share > REGION_READ_SHARE_LIMIT:
@@ -141,6 +145,9 @@ def layout_findings(table: str, key: str, bounds: list[tuple[str, str]], summary
             if byte_share > REGION_READ_SHARE_LIMIT:
                 notes.append(f"{table}: its last commit added {byte_share:.0%} of its bytes and does not say "
                              f"how many keys it changed ({KEYS_CHANGED})")
+        elif operation == "overwrite":
+            notes.append(f"{table}: its last commit was a full rebuild that changed {key_share:.2%} of its keys "
+                         f"and wrote {byte_share:.0%} of its bytes")
         elif byte_share > AMPLIFICATION_LIMIT * max(key_share, KEY_SHARE_FLOOR):
             failures.append(f"{table}: its last commit changed {key_share:.2%} of its keys and added "
                             f"{byte_share:.0%} of its bytes (limit {AMPLIFICATION_LIMIT}x the key share, "
@@ -162,9 +169,10 @@ def layout(trino_rows, trino_url: str, contracts: dict, lakehouse: dict) -> tupl
             f"SELECT element_at(lower_bounds, {field}), element_at(upper_bounds, {field}) "
             f'FROM r2.{namespace}."{name}$files" WHERE content = 0')) if low is not None and high is not None]
         last = trino_rows(trino_url, (
-            f'SELECT summary FROM r2.{namespace}."{name}$snapshots" '
+            f'SELECT summary, operation FROM r2.{namespace}."{name}$snapshots" '
             "WHERE operation <> 'replace' AND parent_id IS NOT NULL ORDER BY committed_at DESC LIMIT 1"))
-        found, noted = layout_findings(table, key, bounds, dict(last[0][0]) if last else None)
+        found, noted = layout_findings(table, key, bounds, dict(last[0][0]) if last else None,
+                                       last[0][1] if last else None)
         failures += found
         notes += noted
     return failures, notes

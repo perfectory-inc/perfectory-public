@@ -158,15 +158,24 @@ fn export_handoff_via(
     let mut applied_override_count = 0u64;
     let mut reason_counts = BTreeMap::<String, u64>::new();
     let mut link_counts = LinkExportCounts::default();
+    let mut next_row = 0usize;
 
     decode_zip_lines(object_path, config.max_rows, |line, line_number| {
-        let record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
+        let mut record = parse_building_register_unit_source_row_from_hub_bulk_text_line_via(
             sigungu_crosswalk,
             line,
             bronze_object_key,
             line_number,
         )
         .with_context(|| format!("failed to parse building-register unit line {line_number}"))?;
+        // The release-wide rank from the pre-pass (root ADR-0347); the file is verified unchanged.
+        record.key_occurrence = Some(
+            *inputs
+                .occurrences
+                .get(next_row)
+                .context("unit Bronze object changed between its two reads")?,
+        );
+        next_row += 1;
         let mut rows = normalize_building_register_unit_silver_rows_with_parent_keys(
             &BuildingRegisterUnitSilverRowsInput {
                 records: std::slice::from_ref(&record),
@@ -915,7 +924,12 @@ mod tests {
         let output_file = root
             .join("silver-handoff")
             .join("building_register_units.jsonl");
-        let target_unit_row_id = format!("building-register-unit:{object_key}#line-000001");
+        let target_unit_row_id =
+            lakehouse_application::building_register_row_identity::natural_row_identity(
+                "building-register-unit",
+                &["1002129933"],
+                1,
+            );
 
         parent_key_tests::stage_empty_references(&root)?;
         let report = export_handoff(&UnitExportConfig {

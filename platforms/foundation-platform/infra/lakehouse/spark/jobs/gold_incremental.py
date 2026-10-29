@@ -38,7 +38,8 @@ this module adds is the machinery around it:
    `gold.<t>__changes` (root ADR-0191 §4, ADR-0312 §1): the merged PNUs under the commit's
    (parent, head) step, plus one NULL marker so a step that changed nothing is recorded too. The
    by-PNU bake's delta reads those PNUs instead of joining two whole snapshots; a step without a
-   record (a full overwrite, a backfill) sends it back to that join.
+   record (a backfill, a hand write) sends it back to that join. A full overwrite records its
+   changed keys too, by the `row_digest` difference the publish in 8 takes (root ADR-0347).
 7. **Keeping the comparison point.** After a commit the producer tags each pinned Silver snapshot
    (`input_tag`), so snapshot expiry cannot remove the state the next incremental run compares
    against. A pin that is gone anyway makes the planner choose the full rebuild.
@@ -337,6 +338,8 @@ class Outcome:
     publish_changed_keys: float | None = None
     row_key: tuple[str, ...] = (KEY,)
     published: dict[str, Any] | None = None
+    # A whole overwrite's changed keys, as it recorded them (root ADR-0347).
+    overwrite_changes: dict[str, int] | None = None
 
     def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
         """Write the full Gold in `write_mode`, or merge the changed PNUs; one snapshot either way.
@@ -366,8 +369,7 @@ class Outcome:
             if self.publish_changed_keys is not None and spark.catalog.tableExists(table.replace("`", "")):
                 self.publish_by_key(spark, table, pins, properties)
                 return
-            # A whole overwrite records no step: the bake's delta compares the two snapshots.
-            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties)
+            self.overwrite_recording_changes(spark, table, write_mode, pins, properties)
             return
         started = time.monotonic()
         # An empty merge leaves the content as it is, so it keeps the current fingerprint.
@@ -379,6 +381,50 @@ class Outcome:
                                       unchanged)
         phase_done("merge", started)
         record_changes(spark, table, self.merge["source"] if self.merged else None)
+
+    def overwrite_recording_changes(self, spark: Any, table: str, write_mode: str, pins: dict[str, str],
+                                    properties: dict[str, str]) -> None:
+        """Write the full Gold whole, and record the keys it changed like any other commit (root ADR-0347).
+
+        The keys are the publish's own difference (`merge_source`: `row_key` and `row_digest` against
+        the current Gold), fixed on disk before the overwrite replaces what it compares against. The
+        overwrite carries their count (KEYS_CHANGED_PROPERTY) and appends them to `gold.<t>__changes`,
+        so the bake's delta reads them instead of joining two whole snapshots, and a large change it
+        finds is one a record explains (root ADR-0346). A first build (no table yet) has no previous
+        rows to differ from; its commit has no parent step to record. A difference that cannot be
+        taken (the current Gold lacks a column the build no longer makes) leaves the step unrecorded,
+        as before: recording never fails the write (`record_changes`).
+        """
+        from pyspark.sql import functions as F
+
+        from gold_rebuild import write_gold_snapshot
+
+        if not spark.catalog.tableExists(table.replace("`", "")):
+            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties)
+            return
+        started = time.monotonic()
+        stages = Stages(spark)
+        try:
+            try:
+                if write_mode == "append":
+                    changed = self.gold.select(KEY)
+                    counts = {"inserted_pnus": self.row_count, "updated_pnus": 0, "deleted_pnus": 0}
+                else:
+                    source, counts = merge_source(self.gold, spark.table(table), self.row_key)
+                    changed = source.select(KEY)
+                changed = stages.materialize("overwrite-changed-keys", changed.distinct())
+                self.overwrite_changes = {"affected_pnus": changed.count(), **counts}
+            except Exception as error:  # noqa: BLE001 - see the docstring
+                print(f"gold-changes-unrecorded table={table} reason={error}", flush=True)
+                changed = None
+            started = phase_done("overwrite-diff", started)
+            recorded = {} if changed is None else {KEYS_CHANGED_PROPERTY: str(keys_changed(counts))}
+            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), {**properties, **recorded})
+            phase_done("overwrite", started)
+            if changed is not None:
+                record_changes(spark, table, changed)
+        finally:
+            stages.remove()
 
     def publish_by_key(self, spark: Any, table: str, pins: dict[str, str], properties: dict[str, str]) -> None:
         """Write-Audit-Publish a full build (root ADR-0321 §5, Netflix's Iceberg WAP).
@@ -446,6 +492,8 @@ class Outcome:
         if self.published is not None:
             report["publish"] = {"to": "changed_keys", "by": self.published["by"]}
             report["counts"] = self.published["counts"]
+        if self.overwrite_changes is not None:
+            report["overwrite_changes"] = self.overwrite_changes
         if self.merged is not None:
             report["merged"] = self.merged
         if self.content_unchanged is not None:
