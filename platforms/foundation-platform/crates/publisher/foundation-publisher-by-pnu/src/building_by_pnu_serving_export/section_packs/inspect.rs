@@ -67,7 +67,7 @@ pub async fn inspect(
             (
                 PackView::served(store, lane, &state).await?,
                 "manifest".to_owned(),
-                served_schemas(&state),
+                servable_schemas(lane, &state),
             )
         }
     };
@@ -90,15 +90,19 @@ pub async fn inspect_state(
         pnu,
         &view,
         "recorded state".to_owned(),
-        &served_schemas(state),
+        &servable_schemas(store.lane(), state),
     )
     .await
 }
 
-/// The document schemas `state` serves (root ADR-0320): its base's and its patches'.
-fn served_schemas(state: &crate::by_pnu_section_pack_manifest::SectionPacksState) -> Vec<String> {
+/// The document schemas `state` may answer with: what it records and what the contract lets the
+/// lane serve (root ADR-0320; `SectionPacksState::servable_document_schema_versions`).
+fn servable_schemas(
+    lane: ByPnuLane,
+    state: &crate::by_pnu_section_pack_manifest::SectionPacksState,
+) -> Vec<String> {
     state
-        .served_document_schema_versions()
+        .servable_document_schema_versions(lane)
         .into_iter()
         .map(ToOwned::to_owned)
         .collect()

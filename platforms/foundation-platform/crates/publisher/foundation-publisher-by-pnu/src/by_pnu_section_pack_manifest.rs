@@ -156,6 +156,23 @@ impl SectionPacksState {
             .collect()
     }
 
+    /// Every document schema a reader holds the lane's served answers to: the ones this state
+    /// records ([`Self::served_document_schema_versions`]) and the ones the contract lets the lane
+    /// serve now (`readable_document_schema_versions`: the version the release bakes and the ones
+    /// it expands, root ADR-0320). A schema bump alone never makes a served document unreadable.
+    ///
+    /// The records alone are not enough: until 2026-10-29 a whole generation kept the record of
+    /// the generation it replaced, so parcel generation 6 and public-auction generation 2
+    /// (2026-10-28) served v2 documents under a v1 record, and every hourly serving monitor run of
+    /// both lanes failed "the documents fragment is not a ...v1 document".
+    pub fn servable_document_schema_versions(&self, lane: ByPnuLane) -> BTreeSet<&str> {
+        let mut schemas = self.served_document_schema_versions();
+        schemas.extend(
+            crate::by_pnu_serving_manifest_publish::readable_document_schema_versions(lane),
+        );
+        schemas
+    }
+
     /// The patches that apply to `section`, newest first.
     pub fn patches_of<'a>(
         &'a self,
@@ -357,6 +374,29 @@ pub mod tests {
             .is_none());
         let read: SectionPacksState = serde_json::from_value(written)?;
         assert_eq!(read, block);
+        Ok(())
+    }
+
+    /// 2026-10-28: parcel and public-auction served v2 documents under a v1 record, and their
+    /// hourly monitors failed every run. A reader takes what the state records and what the
+    /// contract lets the lane serve, so neither a lying record nor a schema bump refuses a
+    /// document the lane may serve; a version in neither stays refused.
+    #[test]
+    fn a_reader_takes_the_records_and_what_the_contract_lets_the_lane_serve() -> anyhow::Result<()>
+    {
+        let block = state(1)?;
+        let lane = ByPnuLane::Building;
+        let servable = block.servable_document_schema_versions(lane);
+        assert!(servable.contains("doc.v2"), "{servable:?}");
+        for readable in
+            crate::by_pnu_serving_manifest_publish::readable_document_schema_versions(lane)
+        {
+            assert!(
+                servable.contains(readable),
+                "{readable} missing from {servable:?}"
+            );
+        }
+        assert!(!servable.contains("doc.v0"));
         Ok(())
     }
 

@@ -1491,5 +1491,6 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
     Ok(())
 }
 
+mod document_schema_record;
 mod equality_gate;
 mod rollback;
