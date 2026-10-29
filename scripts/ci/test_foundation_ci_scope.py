@@ -148,6 +148,63 @@ class FoundationCiScopeTest(unittest.TestCase):
         self.assertNotIn("::warning", out)
         self.assertIn('"deferred_to_merge_queue": []', out)
 
+    def test_jobs_with_no_work_are_skipped_before_they_take_a_runner(self) -> None:
+        """Root ADR-0324, from #907: one crate in foundation-outbox. The unselected gates, the
+        suites and supply-chain took a runner each to find they had nothing to do."""
+        crate = "platforms/foundation-platform/crates/foundation-outbox/src/r2.rs"
+        selected = scope.selected_gates(event_name="pull_request", base="a" * 40, head="b" * 40, paths=[crate])
+        skipped = scope.skipped_jobs(
+            selected=selected,
+            paths=[crate],
+            crates_answer="some\t1 crate(s) changed\nchanged\tfoundation-outbox\naffected\tfoundation-outbox\n",
+            suites_answer="some\tno suite reads it\n",
+        )
+        self.assertEqual(
+            skipped,
+            ["boundary-slice", "compose-smoke", "spark-runtime", "static-release-toolchain-windows",
+             "suites", "supply-chain"],
+        )
+        # A document: no crate, so neither Rust job runs.
+        doc = scope.skipped_jobs(
+            selected=set(), paths=["platforms/foundation-platform/README.md"],
+            crates_answer="some\t0 crate(s) changed\n", suites_answer="some\tnone\n",
+        )
+        self.assertIn("rust-quality", doc)
+        self.assertIn("postgres-integration", doc)
+
+    def test_an_unreadable_or_full_answer_skips_none_of_its_jobs(self) -> None:
+        for crates, suites in (("", ""), ("all\tpush verifies every crate\n", "all\tx\n")):
+            with self.subTest(crates=crates):
+                skipped = scope.skipped_jobs(
+                    selected=set(scope.GATES), paths=["x/y.md"], crates_answer=crates, suites_answer=suites
+                )
+                self.assertEqual(skipped, [])
+        # Unknown paths (no comparison): supply-chain runs.
+        self.assertNotIn(
+            "supply-chain",
+            scope.skipped_jobs(selected=set(), paths=None, crates_answer="some\tx\n", suites_answer="some\tx\n"),
+        )
+
+    def test_a_manifest_or_policy_change_runs_supply_chain(self) -> None:
+        for path in (
+            "platforms/foundation-platform/crates/catalog/catalog-domain/Cargo.toml",
+            "platforms/foundation-platform/deny.toml",
+            "tools/cargo-deny.env",
+            "tools/syft.env",
+            "platforms/foundation-platform/Cargo.lock",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(scope.supply_chain_selected([path], crates_all=False))
+        self.assertFalse(scope.supply_chain_selected(["products/gongzzang/Cargo.toml"], crates_all=False))
+
+    def test_skipped_jobs_writes_an_empty_list_for_an_untouched_area(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "out"
+            with redirect_stdout(io.StringIO()):
+                scope.main(["--skipped-jobs", "--affected", "false", "--event-name", "pull_request",
+                            "--github-output", str(output)])
+            self.assertEqual(output.read_text(encoding="utf-8"), "skipped=[]\n")
+
     def test_removing_a_required_route_is_detected(self) -> None:
         mutations = (
             ("boundary-slice", "prefixes", "scripts/tiles/"),
@@ -292,6 +349,14 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
         )
         # The nine gates and the area scope job (root ADR-0313).
         self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 10)
+        # Root ADR-0324: the scope job names the jobs with no work; each gate and the result read it.
+        self.assertIn("--skipped-jobs", self._job_section("scope"))
+        self.assertIn("CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}", self.workflow)
+        jobs = ("rust-quality", "suites", "supply-chain", "postgres-integration", *scope.GATES)
+        for job in jobs:
+            with self.subTest(job=job):
+                self.assertIn(f"!contains(fromJSON(needs.scope.outputs.skipped), '{job}')", self._job_section(job))
+        self.assertEqual(set(jobs) - set(scope.GATES), {*scope.CRATE_JOBS, scope.SUITE_JOB, scope.SUPPLY_CHAIN_JOB})
 
     def test_only_a_job_that_runs_pnpm_caches_pnpm(self) -> None:
         self.assertEqual(pnpm_caches_without_pnpm(self.workflow), [])

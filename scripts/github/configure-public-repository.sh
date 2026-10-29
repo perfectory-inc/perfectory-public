@@ -394,7 +394,8 @@ require_green_contexts() {
       echo "FAIL public-repository-config: unsafe required context '$context'" >&2
       return 1
     }
-    jq_filter="[.check_runs[] | select(.name == \"$context\" and .conclusion == \"success\" and .app.id == $actions_app_id)] | length"
+    # Skipped is how an untouched area's required job passes (root ADR-0324); GitHub counts it green.
+    jq_filter="[.check_runs[] | select(.name == \"$context\" and (.conclusion == \"success\" or .conclusion == \"skipped\") and .app.id == $actions_app_id)] | length"
     success_count="$(api --method GET "repos/$target/commits/$head_sha/check-runs" \
       -f check_name="$context" -F app_id="$actions_app_id" -f filter=latest -F per_page=100 \
       --jq "$jq_filter")"

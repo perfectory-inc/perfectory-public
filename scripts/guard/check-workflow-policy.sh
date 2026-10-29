@@ -523,6 +523,11 @@ for workflow in "${workflows[@]}"; do
         scope_env_count[job]++
         next
       }
+      # Root ADR-0324: the jobs the scope job found with no work, the only ones it may skip.
+      if (mapping ~ /^          CHANGE_SCOPE_SKIPPED:[[:space:]]*\$\{\{[[:space:]]*needs\.scope\.outputs\.skipped[[:space:]]*\}\}[[:space:]]*$/) {
+        skipped_env_count[job]++
+        next
+      }
       env_child_count[job]++
       if (mapping ~ /^          REQUIRED_RESULT_[A-Z0-9_]+:[[:space:]]*\$\{\{[[:space:]]*needs\.[A-Za-z0-9_-]+\.result[[:space:]]*\}\}[[:space:]]*$/) {
         env_name=mapping; sub(/^          /, "", env_name); sub(/:.*/, "", env_name)
@@ -553,7 +558,16 @@ for workflow in "${workflows[@]}"; do
        } else if (job_count == 1) {
          if (job_ifs[required_job] != "") fail("single required job must not be conditional")
        } else {
-        if (job_ifs[required_job] != "${{ always() }}") fail("terminal job must use exact if: ${{ always() }}")
+        # Root ADR-0324: the terminal job of a scoped workflow runs unless its scope job succeeded and
+        # answered that the area is untouched; then it is skipped, which GitHub counts as passing.
+        if (seen_job["scope"]) {
+          if (job_ifs[required_job] != "${{ always() && (needs.scope.result != '\''success'\'' || needs.scope.outputs.affected == '\''true'\'') }}") {
+            fail("a scoped terminal job must use the exact if: of root ADR-0324")
+          }
+        } else if (job_ifs[required_job] != "${{ always() }}") fail("terminal job must use exact if: ${{ always() }}")
+        if (skipped_env_count[required_job] > (seen_job["scope"] ? 1 : 0)) {
+          fail("terminal step may pass CHANGE_SCOPE_SKIPPED once, and only with a scope job")
+        }
         if (job_strategy[required_job]) fail("terminal job must not use a matrix strategy")
         if (job_env[required_job]) fail("terminal job must not define job-level env")
         if (step_count[required_job] != 2 || run_count[required_job] != 1 \

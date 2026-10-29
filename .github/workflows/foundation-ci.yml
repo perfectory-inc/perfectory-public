@@ -49,6 +49,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       affected: ${{ steps.select.outputs.affected }}
+      skipped: ${{ steps.jobs.outputs.skipped }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -64,10 +65,30 @@ jobs:
           CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
         run: python3 scripts/ci/change_scope.py select --workflow foundation-ci.yml
+      # Root ADR-0324: a job with no work never takes a runner. Every job waited 20-250 s for one
+      # (#907), and the jobs that only found they had nothing to do were a third of the queue.
+      # The selectors' own tests run here, where the selection is made.
+      - name: Select the jobs that have work
+        id: jobs
+        working-directory: .
+        env:
+          AFFECTED: ${{ steps.select.outputs.affected }}
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$AFFECTED" = true ]; then
+            python3 scripts/ci/test_foundation_ci_scope.py
+            python3 scripts/ci/test_foundation_postgres_production_shape.py
+          fi
+          python3 scripts/ci/foundation_ci_scope.py --skipped-jobs --affected "$AFFECTED" \
+            --event-name "$CHANGE_SCOPE_EVENT" --base "$CHANGE_SCOPE_BASE" --head "$CHANGE_SCOPE_HEAD" \
+            --github-output "$GITHUB_OUTPUT"
 
   rust-quality:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'rust-quality') }}
     name: Rust fmt, unit tests, clippy
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -85,10 +106,6 @@ jobs:
           path: ~/.cache/perfectory/pinned
           key: pinned-release-binaries-v1-${{ runner.os }}
           restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
-
-      - name: Verify Foundation CI scope selection
-        working-directory: ${{ github.workspace }}
-        run: python3 scripts/ci/test_foundation_ci_scope.py -v
 
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
@@ -196,7 +213,7 @@ jobs:
 
   suites:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'suites') }}
     name: Python and Node suites
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -300,7 +317,7 @@ jobs:
 
   static-release-toolchain-windows:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'static-release-toolchain-windows') }}
     name: Static-release executable toolchain (Windows)
     runs-on: windows-2022
     timeout-minutes: 20
@@ -383,7 +400,7 @@ jobs:
 
   supply-chain:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'supply-chain') }}
     name: Supply-chain release gates
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -455,7 +472,7 @@ jobs:
 
   postgres-integration:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'postgres-integration') }}
     name: Postgres integration tests
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -482,12 +499,6 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
-
-      # The production-shape gate's own tests run whatever the crate selection: a change to the gate
-      # alone reaches no crate, and the gate below then does not run (root ADR-0313).
-      - name: Verify the production-shape gate
-        working-directory: ${{ github.workspace }}
-        run: python3 scripts/ci/test_foundation_postgres_production_shape.py
 
       - name: Set dynamic database URL
         env:
@@ -598,7 +609,7 @@ jobs:
 
   kafka-integration:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'kafka-integration') }}
     name: Kafka and Schema Registry integration tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -742,7 +753,7 @@ jobs:
 
   compose-smoke:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'compose-smoke') }}
     name: Independent Foundation Compose smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -856,7 +867,7 @@ jobs:
 
   boundary-slice:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'boundary-slice') }}
     name: Boundary vertical slice
     runs-on: ubuntu-24.04
     # The slice compiles the publisher from source inside a pinned container before it can publish,
@@ -916,7 +927,7 @@ jobs:
 
   spark-runtime:
     needs: [scope]
-    if: ${{ needs.scope.outputs.affected == 'true' }}
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'spark-runtime') }}
     name: Spark and Iceberg runtime tests
     runs-on: ubuntu-24.04
     # Pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file,
@@ -959,7 +970,7 @@ jobs:
 
   required:
     name: required/foundation
-    if: ${{ always() }}
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
     needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -970,6 +981,7 @@ jobs:
       - name: Require every Foundation gate
         env:
           CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
+          CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}
           REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
           REQUIRED_RESULT_SUITES: ${{ needs.suites.result }}

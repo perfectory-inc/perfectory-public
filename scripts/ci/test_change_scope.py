@@ -36,7 +36,7 @@ BUILD_JOB = """\
 REQUIRED_JOB = """\
   required:
     name: required/example
-    if: ${{ always() }}
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
     needs: [scope, build]
     steps:
       - name: Require
@@ -247,6 +247,31 @@ class CheckTest(unittest.TestCase):
         fixture = Fixture(self)
         fixture.workflow(fixture.files[".github/workflows/example-ci.yml"].replace("          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}\n", ""))
         self.assertRejected(fixture, "required job must pass")
+
+    def test_required_job_that_always_runs_is_refused(self) -> None:
+        """Root ADR-0324: an untouched area's required job is skipped, not run to say so."""
+        fixture = Fixture(self)
+        fixture.workflow(fixture.files[".github/workflows/example-ci.yml"].replace(cs.REQUIRED_IF, "${{ always() }}"))
+        self.assertRejected(fixture, "the required job must run `if:")
+
+    def test_a_scope_job_listing_skipped_jobs_gates_each_job_and_the_result_on_it(self) -> None:
+        fixture = Fixture(self)
+        listing = (
+            fixture.files[".github/workflows/example-ci.yml"]
+            .replace("      affected: ${{ steps.select.outputs.affected }}\n",
+                     "      affected: ${{ steps.select.outputs.affected }}\n      " + cs.SKIPPED_OUTPUT + "\n")
+        )
+        fixture.workflow(listing)
+        self.assertRejected(fixture, "job `build` must run only `if: " + cs.job_if("build"))
+        self.assertRejected(fixture, "must pass `CHANGE_SCOPE_SKIPPED")
+        gated = listing.replace(cs.SCOPE_IF, cs.job_if("build")).replace(
+            "          " + cs.SCOPE_ENV + "\n", "          " + cs.SCOPE_ENV + "\n          " + cs.SKIPPED_ENV + "\n"
+        )
+        fixture.workflow(gated)
+        self.assertEqual(fixture.errors(), [])
+        # Another job's name in the condition does not gate this one.
+        fixture.workflow(gated.replace("'build') }}", "'other') }}"))
+        self.assertRejected(fixture, "job `build` must run only")
 
     def test_stale_glob_is_refused(self) -> None:
         fixture = Fixture(self)

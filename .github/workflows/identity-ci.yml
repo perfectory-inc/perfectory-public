@@ -329,7 +329,7 @@ jobs:
 
   required:
     name: required/identity
-    if: ${{ always() }}
+    if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
     needs: [scope, rust-quality, live-contracts, compose-smoke, contract-determinism, supply-chain]
     runs-on: ubuntu-24.04
     timeout-minutes: 5

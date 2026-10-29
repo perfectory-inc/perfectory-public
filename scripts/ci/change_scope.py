@@ -40,6 +40,16 @@ XTASK_INPUTS = ("tools/xtask/**", ".cargo/config.toml", "rust-toolchain.toml")
 NAMED_FILE = re.compile(r"(?<![\w./-])((?:[\w.-]+/)+[\w.-]+\.(?:sh|py|json|toml|yml|yaml))\b")
 SCOPE_IF = "${{ needs.scope.outputs.affected == 'true' }}"
 SCOPE_ENV = "CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}"
+# Root ADR-0324: an untouched area's required job is skipped (GitHub counts that as passing); a
+# failed or cancelled scope job still runs it, and it fails.
+REQUIRED_IF = "${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}"
+# A scope job that outputs `skipped` (the jobs it found with no work) gates each job on it too.
+SKIPPED_OUTPUT = "skipped: ${{ steps.jobs.outputs.skipped }}"
+SKIPPED_ENV = "CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}"
+
+
+def job_if(job: str) -> str:
+    return f"${{{{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), '{job}') }}}}"
 
 
 def glob_regex(glob: str) -> re.Pattern[str]:
@@ -222,18 +232,24 @@ def check_workflow(workflow: str, text: str) -> list[str]:
     scope = jobs.get("scope", "")
     if f"run: python3 {SELECTOR} select --workflow {workflow}\n" not in scope or "affected: ${{ steps.select.outputs.affected }}" not in scope:
         errors.append(f"{workflow}: job `scope` must run `python3 {SELECTOR} select --workflow {workflow}` and output `affected`")
+    lists_skipped = SKIPPED_OUTPUT in scope
     for job, block in jobs.items():
         if job == "scope":
             continue
         if re.search(r"^    name: required/", block, re.MULTILINE):
             if SCOPE_ENV not in block:
                 errors.append(f"{workflow}: the required job must pass `{SCOPE_ENV}` to its result check")
+            if lists_skipped and SKIPPED_ENV not in block:
+                errors.append(f"{workflow}: the required job must pass `{SKIPPED_ENV}` to its result check")
+            if f"    if: {REQUIRED_IF}\n" not in block:
+                errors.append(f"{workflow}: the required job must run `if: {REQUIRED_IF}`")
             continue
         needs = re.search(r"^    needs: \[([^\]]*)\]", block, re.MULTILINE)
         if not needs or "scope" not in [n.strip() for n in needs.group(1).split(",")]:
             errors.append(f"{workflow}: job `{job}` must need `scope`")
-        if f"    if: {SCOPE_IF}\n" not in block:
-            errors.append(f"{workflow}: job `{job}` must run only `if: {SCOPE_IF}`")
+        expected = job_if(job) if lists_skipped else SCOPE_IF
+        if f"    if: {expected}\n" not in block:
+            errors.append(f"{workflow}: job `{job}` must run only `if: {expected}`")
     return errors
 
 
