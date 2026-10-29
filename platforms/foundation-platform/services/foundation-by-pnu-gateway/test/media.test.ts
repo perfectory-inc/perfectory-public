@@ -17,7 +17,7 @@ const KEY = `onbid/media/sha256/${HASH}.jpg`;
 const BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0x01]);
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
-async function worker(lane: string): Promise<Miniflare> {
+async function worker(lane: string, bindings: Record<string, unknown> = {}): Promise<Miniflare> {
   const bundle = await build({
     entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
     define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify(lane) },
@@ -33,7 +33,7 @@ async function worker(lane: string): Promise<Miniflare> {
     compatibilityDate: "2026-04-26",
     modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
     r2Buckets: [BINDING],
-    bindings: { FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: "https://app.example.test" },
+    bindings: { FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: "https://app.example.test", ...bindings },
     cache: true,
   });
 }
@@ -85,6 +85,26 @@ describe("the parcel edge serves content-addressed media", () => {
     expect((await get(`onbid/media/sha256/${HASH}.svg`)).status).toBe(404);
     expect((await get(`${KEY}?x=1`)).status).toBe(404);
   });
+});
+
+it("serves a cached blob again with the Worker version header (cache hits have immutable headers)", async () => {
+  // 2026-10-28: the second GET of every photo answered 500 — the cache hit's headers are immutable and
+  // the version header was set on them. Production binds version metadata, so this test does too.
+  const runtime = await worker("parcel", {
+    FOUNDATION_PLATFORM_WORKER_VERSION: { id: "v-test", tag: "", timestamp: "" },
+  });
+  try {
+    const bucket = await runtime.getR2Bucket(BINDING);
+    await bucket.put(KEY, BYTES, { httpMetadata: { contentType: "image/jpeg" } });
+    for (const pass of ["miss", "hit"]) {
+      const response = await runtime.dispatchFetch(`https://catalog.example.test/${KEY}`);
+      expect(response.status, pass).toBe(200);
+      expect(response.headers.get("foundation-worker-version"), pass).toBe("v-test");
+      expect(new Uint8Array(await response.arrayBuffer()), pass).toEqual(BYTES);
+    }
+  } finally {
+    await runtime.dispose();
+  }
 });
 
 it("the building lane does not serve media (only the parcel edge does)", async () => {
