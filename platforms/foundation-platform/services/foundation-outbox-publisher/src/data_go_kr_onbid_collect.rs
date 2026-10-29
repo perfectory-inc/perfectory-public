@@ -269,6 +269,11 @@ pub(crate) struct State {
     /// round of it. Pruned each run to the still-listed items.
     #[serde(default)]
     pub(crate) items: BTreeMap<String, ItemMark>,
+    /// Open items not yet complete whose photos all landed (only appraisals owed), with the list
+    /// digests they were fetched at: asked after every item still owed photos (root ADR-0339
+    /// footnote 2026-10-29). Pruned like `items`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) photos_landed: BTreeMap<String, ItemMark>,
     /// Media URL → its stored blob, for the open items only: a URL already stored is not
     /// downloaded again (root ADR-0330 §3).
     #[serde(default)]
@@ -857,6 +862,9 @@ pub(crate) async fn collect(
             .collect::<BTreeSet<_>>();
         state
             .items
+            .retain(|cltr, _| listed_items.contains(cltr.as_str()));
+        state
+            .photos_landed
             .retain(|cltr, _| listed_items.contains(cltr.as_str()));
         // Only a bounded slice of the owed details per run, so the run finishes within the job's
         // time limit (the full backfill is spread over many runs). Without this the loop walks every

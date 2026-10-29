@@ -147,6 +147,17 @@ class PhotoTest(unittest.TestCase):
         self.assertEqual((appraisal["sha256"], appraisal["media_format"], appraisal["title"]), (b, "pdf", "감정원"))
         self.assertEqual(appraisal["source_record_id"], "bronze/d.gz")
 
+    def test_photos_that_landed_before_the_appraisal_still_become_rows(self) -> None:
+        # The collector's photos-first run (root ADR-0339 footnote 2026-10-29): every photo stored, the
+        # appraisal left for a later run with its link and no hash. The photos reach Silver now.
+        a, b = "a" * 64, "b" * 64
+        it = {"cltrMngNo": "X-0001", "pbctCdtnNo": 1,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 10},
+                              {"urlAdr": f"sha256:{b}", "sha256": b, "media_format": "jpg", "size_bytes": 11}],
+              "apslEvlClgList": [{"urlAdr": "https://www.onbid.co.kr/op/x.pdf"}]}
+        rows = job.photo_rows_of([self._detail([it])], "bronze/d.gz", "s", NOW)
+        self.assertEqual(sorted((r["media_kind"], r["sha256"]) for r in rows), [("photo", a), ("photo", b)])
+
     def test_the_same_item_and_hash_on_two_lines_is_one_row(self) -> None:
         a = "a" * 64
         it = {"cltrMngNo": "X-1", "pbctCdtnNo": 2,

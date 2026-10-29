@@ -291,6 +291,7 @@ fn listed_item(cltr: &str, condition: i64, modified: &str, bid_end: &str) -> Val
 fn complete(photos: u32) -> LineOutcome {
     LineOutcome {
         complete: true,
+        photos_complete: true,
         photos,
     }
 }
@@ -553,6 +554,57 @@ fn details_are_owed_open_before_ended_new_before_changed_earliest_end_first() {
     assert!(owed
         .iter()
         .all(|owed| owed.refresh == (owed.key.cltr_mng_no == "CHANGED")));
+}
+
+#[test]
+fn an_item_owed_only_appraisals_waits_behind_every_item_still_owed_photos() {
+    // 2099-01-05 00:00 UTC = 09:00 KST. SOON closes first, LATE last.
+    let now = at("2099-01-05T00:00:00Z");
+    let mut state = State::default();
+    let open = BTreeSet::from([key("SOON", 1), key("LATE", 1)]);
+    state
+        .listed
+        .insert(key("SOON", 1), listed("d", Some("20990105100000")));
+    state
+        .listed
+        .insert(key("LATE", 1), listed("d", Some("20990301100000")));
+    let fetched = owed_details(&mut state, &open, now)
+        .into_iter()
+        .enumerate()
+        .map(|(line, owed)| super::Fetched {
+            key: owed.key,
+            seen: owed.seen,
+            refresh: owed.refresh,
+            line,
+        })
+        .collect::<Vec<_>>();
+    // SOON's photos landed, its appraisal did not; LATE got nothing.
+    let photos_only = LineOutcome {
+        complete: false,
+        photos_complete: true,
+        photos: 3,
+    };
+    assert_eq!(
+        settle_details(&mut state, &fetched, &[photos_only, LineOutcome::default()]),
+        0
+    );
+    let order = |state: &mut State, open: &BTreeSet<ItemKey>| {
+        owed_details(state, open, now)
+            .into_iter()
+            .map(|owed| owed.key.cltr_mng_no)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(order(&mut state, &open), ["LATE", "SOON"]);
+    // A new stamp on SOON may bring new photos: it is owed photos again.
+    let mut changed = state.clone();
+    changed
+        .listed
+        .insert(key("SOON", 1), listed("d2", Some("20990105100000")));
+    assert_eq!(order(&mut changed, &open), ["SOON", "LATE"]);
+    // Its appraisal lands later: complete, and no longer remembered as photos-only.
+    assert_eq!(settle_details(&mut state, &fetched[..1], &[complete(3)]), 1);
+    assert!(state.photos_landed.is_empty());
+    assert_eq!(order(&mut state, &open), ["LATE"]);
 }
 
 #[test]

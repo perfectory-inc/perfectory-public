@@ -86,7 +86,8 @@ fn adopt_round_marks(state: &mut State) {
 }
 
 /// The open items whose detail is owed, in the order they are asked (root ADR-0330 §2 per item,
-/// root ADR-0339 §1): items with a round whose bid has not ended before the rest, never-fetched before
+/// root ADR-0339 §1): items with a round whose bid has not ended before the rest, items still owed
+/// photos before those owed only appraisals (root ADR-0339 footnote 2026-10-29), never-fetched before
 /// changed, the earliest such bid end first (unknown last), then by key. An item is owed again when
 /// one of its rounds shows a list digest the item was not complete at — a round whose `mdfcnDt`
 /// changed, or a new round with a stamp none of the others had; a new round with a known stamp is not.
@@ -125,9 +126,15 @@ pub(crate) fn owed_details(
             Some(mark) if seen.is_subset(&mark.seen) => continue,
             Some(_) => true,
         };
+        // Its photos landed at the digests it shows now: only its appraisals are owed, so it waits
+        // behind every item still without photos (root ADR-0339 footnote 2026-10-29).
+        let photos_landed = state
+            .photos_landed
+            .get(cltr)
+            .is_some_and(|mark| seen.is_subset(&mark.seen));
         let ((ended, unknown, ends), key, _) = item_rounds.swap_remove(0);
         owed.push((
-            (ended, refresh, unknown, ends),
+            (ended, photos_landed, refresh, unknown, ends),
             Owed {
                 key: key.clone(),
                 seen,
@@ -155,12 +162,16 @@ pub(crate) struct Fetched {
 pub(crate) struct LineOutcome {
     /// Every media URL of the line is stored or permanently skipped.
     pub(crate) complete: bool,
+    /// Every photo URL of the line is stored or permanently skipped (its appraisals may not be).
+    pub(crate) photos_complete: bool,
     /// Photos of the line now stored.
     pub(crate) photos: u32,
 }
 
 /// Marks complete the items whose media all landed; the rest stay owed and are fetched again by a
-/// later run (root ADR-0330 §1, per item by root ADR-0339 §1). Returns how many were marked.
+/// later run (root ADR-0330 §1, per item by root ADR-0339 §1). An item whose photos landed but not
+/// its appraisals is remembered in `photos_landed`, so it waits behind the items still without
+/// photos (root ADR-0339 footnote 2026-10-29). Returns how many were marked complete.
 pub(crate) fn settle_details(
     state: &mut State,
     fetched: &[Fetched],
@@ -168,18 +179,22 @@ pub(crate) fn settle_details(
 ) -> usize {
     let mut marked = 0;
     for fetched in fetched {
-        if let Some(outcome) = outcomes
-            .get(fetched.line)
-            .filter(|outcome| outcome.complete)
-        {
-            state.items.insert(
-                fetched.key.cltr_mng_no.clone(),
-                ItemMark {
-                    seen: fetched.seen.clone(),
-                    photos: outcome.photos,
-                },
-            );
+        let Some(outcome) = outcomes.get(fetched.line) else {
+            continue;
+        };
+        let cltr = &fetched.key.cltr_mng_no;
+        let mark = ItemMark {
+            seen: fetched.seen.clone(),
+            photos: outcome.photos,
+        };
+        if outcome.complete {
+            state.photos_landed.remove(cltr);
+            state.items.insert(cltr.clone(), mark);
             marked += 1;
+        } else if outcome.photos_complete {
+            state.photos_landed.insert(cltr.clone(), mark);
+        } else {
+            state.photos_landed.remove(cltr);
         }
     }
     marked

@@ -2,8 +2,8 @@
 //! 저장소에 담는다 (ADR-0296 §2 / ADR-0297, root ADR-0290 §7). 쓰기는 내용주소 write-once
 //! (`put_object` CreateOnly + sha256), Bronze 객체별 원장 행이 아니다 (ADR-0298).
 //!
-//! 두 부분이다: 물건상세 응답에서 받을 URL 을 고르는 순수 함수 [`candidate_urls`], 그리고 그것을
-//! 하루 예산 안에서 받아 `<prefix>/sha256/<hash>.<ext>` 로 한 번만 저장하는 [`mirror`]. 형식은
+//! 두 부분이다: 물건상세 응답에서 받을 URL 을 종류별로 고르는 순수 함수 [`candidate_urls`], 그리고
+//! 그것을 하루 예산 안에서 (모든 줄의 사진 먼저, 그다음 감정평가서) 받아 `<prefix>/sha256/<hash>.<ext>` 로 한 번만 저장하는 [`mirror`]. 형식은
 //! 바이트 매직으로 판정하고(`foundation_shared_kernel::MediaFormat::sniff`), 키는 내용 해시라서
 //! 같은 사진은 한 번만 저장된다. 다운로드 실패는 격리된다 — 미디어 미러링은 수집 run 을 깨지 않는다.
 //!
@@ -32,19 +32,21 @@ const MEDIA_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 const PHOTO_FIELD: &str = "potoUrlList";
 const APPRAISAL_FIELD: &str = "apslEvlClgList";
 
-/// The photo and appraisal-attachment URLs of one 물건상세 response, on the allowed host only:
-/// photos first (what the screen shows), then appraisals, each once.
+/// The media kinds in the order a run downloads them: every line's photos (what the screen shows,
+/// ~7% of the bytes) before any line's appraisals (root ADR-0339 footnote 2026-10-29).
+const FIELDS_IN_ORDER: [&str; 2] = [PHOTO_FIELD, APPRAISAL_FIELD];
+
+/// The URLs of one media `field` (`potoUrlList` or `apslEvlClgList`) of one 물건상세 response, on
+/// the allowed host only, each once.
 ///
 /// `detail` is the parsed `getRlstDtlInf2` response (`{"body":{"items":{"item": obj | [obj]}}}`).
 /// A URL on any other host is dropped (the provider's URLs are all `www.onbid.co.kr`; refusing the
 /// rest keeps a tampered or unexpected response from making us fetch an arbitrary host).
-pub(crate) fn candidate_urls(detail: &JsonValue, host: &str) -> Vec<String> {
+pub(crate) fn candidate_urls(detail: &JsonValue, field: &str, host: &str) -> Vec<String> {
     let mut urls: Vec<String> = Vec::new();
-    for field in [PHOTO_FIELD, APPRAISAL_FIELD] {
-        for url in field_urls(detail, field, host) {
-            if !urls.contains(&url) {
-                urls.push(url);
-            }
+    for url in field_urls(detail, field, host) {
+        if !urls.contains(&url) {
+            urls.push(url);
         }
     }
     urls
@@ -200,17 +202,22 @@ fn stop_reason(report: &mut MediaReport, deadline: Instant, capped_by_day: bool)
     }
 }
 
-/// Mirrors the photos and appraisal attachments of this run's 물건상세 responses, one detail line
-/// (one condition) at a time in the order the lines were asked (root ADR-0330 §1, §3).
+/// Mirrors the photos and appraisal attachments of this run's 물건상세 responses: first the photos of
+/// every line, then the appraisals of every line, each pass one detail line (one item) at a time in
+/// the order the lines were asked (root ADR-0330 §1, §3; photos first by root ADR-0339 footnote
+/// 2026-10-29 — 93% of the bytes are appraisals, so one shared budget let a few items' PDFs hold
+/// back every other item's photos).
 ///
 /// For each line, a URL already in `memo` is not downloaded again unless `revalidate[line]` (the
-/// provider changed that condition); the rest are downloaded `concurrency` at a time and stored once
-/// by content hash. A line is complete when every URL is stored or permanently skipped (an unknown
-/// format, over `max_file_bytes`, a 4xx); a timeout, 5xx or store error leaves it incomplete, so the
-/// condition is fetched again by a later run. A line is started only when its downloads fit what is
-/// left of `min(per_run_limit, daily_limit - already_downloaded)` and the deadline has not passed —
-/// so the step's wall time is at most the budget plus one line, and no condition is left half
-/// mirrored by a cap. Every attempt counts toward the caps, failed ones too (incident 2026-10-26:
+/// provider changed that item); the rest are downloaded `concurrency` at a time and stored once by
+/// content hash. A line is complete when every URL of both kinds is stored or permanently skipped
+/// (an unknown format, over `max_file_bytes`, a 4xx); a timeout, 5xx or store error leaves it
+/// incomplete, so the item is fetched again by a later run. A line's photos (or appraisals) are
+/// started only when they fit what is left of `min(per_run_limit, daily_limit - already_downloaded)`
+/// and the deadline has not passed; once one does not, nothing more starts — so the step's wall time
+/// is at most the budget plus one line's group, and no kind of an item is left half mirrored by a
+/// cap. A stored photo is written into its line (and so reaches Silver) whether or not the line's
+/// appraisals landed. Every attempt counts toward the caps, failed ones too (incident 2026-10-26:
 /// failures that did not count walked hundreds of slow links past the job's time limit). Every
 /// failure is isolated: media mirroring never fails the collection run.
 pub(crate) async fn mirror_detail_lines(
@@ -246,32 +253,40 @@ pub(crate) async fn mirror_detail_lines(
     // The content facts of each resolved URL, so the detail Bronze lines can be rewritten to point at
     // the stored blob by hash (root ADR-0290 §7). A URL seen in several lines is downloaded once.
     let mut resolved: HashMap<String, StoredMedia> = HashMap::new();
-    for (index, line) in detail_lines.iter().enumerate() {
-        let Some(response) = line_response(line) else {
-            continue;
-        };
-        let cltr = detail_items(&response)
-            .first()
-            .and_then(|item| item["cltrMngNo"].as_str())
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
-        let fresh = revalidate.get(index).copied().unwrap_or(false);
-        let mut wanted = Vec::new();
-        for url in candidate_urls(&response, settings.url_host) {
-            if resolved.contains_key(&url) {
+    let responses = detail_lines
+        .iter()
+        .map(|line| line_response(line))
+        .collect::<Vec<_>>();
+    // Per line: every URL of the kinds passed so far landed or was skipped for good.
+    let mut landed = vec![true; detail_lines.len()];
+    for field in FIELDS_IN_ORDER {
+        for (index, response) in responses.iter().enumerate() {
+            let Some(response) = response else {
+                continue;
+            };
+            let cltr = detail_items(response)
+                .first()
+                .and_then(|item| item["cltrMngNo"].as_str())
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            let fresh = revalidate.get(index).copied().unwrap_or(false);
+            let mut wanted = Vec::new();
+            for url in candidate_urls(response, field, settings.url_host) {
+                if resolved.contains_key(&url) {
+                    continue;
+                }
+                match memo.get(&url).filter(|_| !fresh) {
+                    Some(known) => {
+                        report.reused += 1;
+                        resolved.insert(url, StoredMedia::from(known));
+                    }
+                    None => wanted.push(url),
+                }
+            }
+            if wanted.is_empty() {
                 continue;
             }
-            match memo.get(&url).filter(|_| !fresh) {
-                Some(known) => {
-                    report.reused += 1;
-                    resolved.insert(url, StoredMedia::from(known));
-                }
-                None => wanted.push(url),
-            }
-        }
-        let mut complete = true;
-        if !wanted.is_empty() {
             let count = u32::try_from(wanted.len()).unwrap_or(u32::MAX);
             if stopped
                 || attempts.saturating_add(count) > this_run_cap
@@ -282,58 +297,61 @@ pub(crate) async fn mirror_detail_lines(
                 }
                 // Later lines still settle when all their media is already stored.
                 stopped = true;
-                complete = false;
-            } else {
-                attempts += count;
-                let results = futures_util::stream::iter(wanted)
-                    .map(|url| async {
-                        let stored = download_and_store(
-                            &url,
-                            &prefix,
-                            storage,
-                            http,
-                            settings.max_file_bytes,
-                        )
-                        .await;
-                        (url, stored)
-                    })
-                    .buffer_unordered(settings.concurrency.max(1))
-                    .collect::<Vec<_>>()
-                    .await;
-                for (url, stored) in results {
-                    match stored {
-                        Ok(Stored::New(media)) => {
-                            report.downloaded += 1;
-                            report.bytes_stored += media.size_bytes;
-                            memo.insert(url.clone(), media.memo(&cltr));
-                            resolved.insert(url, media);
-                        }
-                        Ok(Stored::Deduplicated(media)) => {
-                            report.deduplicated += 1;
-                            memo.insert(url.clone(), media.memo(&cltr));
-                            resolved.insert(url, media);
-                        }
-                        Ok(Stored::Oversize) => report.skipped_oversize += 1,
-                        Ok(Stored::UnknownFormat) => report.skipped_unknown_format += 1,
-                        Ok(Stored::Gone) => report.skipped_gone += 1,
-                        Err(error) => {
-                            complete = false;
-                            report.errored += 1;
-                            tracing::warn!(error = %error, "onbid media download failed; isolated from the run");
-                        }
+                landed[index] = false;
+                continue;
+            }
+            attempts += count;
+            let results = futures_util::stream::iter(wanted)
+                .map(|url| async {
+                    let stored =
+                        download_and_store(&url, &prefix, storage, http, settings.max_file_bytes)
+                            .await;
+                    (url, stored)
+                })
+                .buffer_unordered(settings.concurrency.max(1))
+                .collect::<Vec<_>>()
+                .await;
+            for (url, stored) in results {
+                match stored {
+                    Ok(Stored::New(media)) => {
+                        report.downloaded += 1;
+                        report.bytes_stored += media.size_bytes;
+                        memo.insert(url.clone(), media.memo(&cltr));
+                        resolved.insert(url, media);
+                    }
+                    Ok(Stored::Deduplicated(media)) => {
+                        report.deduplicated += 1;
+                        memo.insert(url.clone(), media.memo(&cltr));
+                        resolved.insert(url, media);
+                    }
+                    Ok(Stored::Oversize) => report.skipped_oversize += 1,
+                    Ok(Stored::UnknownFormat) => report.skipped_unknown_format += 1,
+                    Ok(Stored::Gone) => report.skipped_gone += 1,
+                    Err(error) => {
+                        landed[index] = false;
+                        report.errored += 1;
+                        tracing::warn!(error = %error, "onbid media download failed; isolated from the run");
                     }
                 }
             }
         }
-        let photos = field_urls(&response, PHOTO_FIELD, settings.url_host)
+        if field == PHOTO_FIELD {
+            for (outcome, landed) in outcomes.iter_mut().zip(&landed) {
+                outcome.photos_complete = *landed;
+            }
+        }
+    }
+    for (index, response) in responses.iter().enumerate() {
+        let Some(response) = response else {
+            continue;
+        };
+        let photos = field_urls(response, PHOTO_FIELD, settings.url_host)
             .iter()
             .filter(|url| resolved.contains_key(*url))
             .count();
-        outcomes[index] = LineOutcome {
-            complete,
-            photos: u32::try_from(photos).unwrap_or(u32::MAX),
-        };
-        if complete {
+        outcomes[index].complete = landed[index];
+        outcomes[index].photos = u32::try_from(photos).unwrap_or(u32::MAX);
+        if landed[index] {
             report.lines_complete += 1;
         } else {
             report.lines_incomplete += 1;
@@ -521,7 +539,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{candidate_urls, host_is, run_download_bound};
+    use super::{candidate_urls, host_is, run_download_bound, FIELDS_IN_ORDER, PHOTO_FIELD};
     use serde_json::json;
 
     #[test]
@@ -553,7 +571,10 @@ mod tests {
             "apslEvlClgList": [{"urlAdr": "https://www.onbid.co.kr/op/appraisal.pdf", "apslEvlOrgNm": "x"}],
             "thnlImgUrlAdr": "https://www.onbid.co.kr/op/thumb.jpg"
         }));
-        let urls = candidate_urls(&d, "www.onbid.co.kr");
+        let urls = FIELDS_IN_ORDER
+            .iter()
+            .flat_map(|field| candidate_urls(&d, field, "www.onbid.co.kr"))
+            .collect::<Vec<_>>();
         assert_eq!(
             urls,
             vec![
@@ -561,20 +582,30 @@ mod tests {
                 "https://www.onbid.co.kr/op/b.jpg".to_owned(),
                 "https://www.onbid.co.kr/op/appraisal.pdf".to_owned(),
             ],
-            "only potoUrlList + apslEvlClgList urlAdr on the allowed host, photos first, each once"
+            "only potoUrlList + apslEvlClgList urlAdr on the allowed host, photos first"
         );
     }
 
     #[test]
-    fn a_single_item_object_is_handled_like_a_one_element_list() {
-        let d = detail(json!({"potoUrlList": [{"urlAdr": "https://www.onbid.co.kr/op/only.jpg"}]}));
-        assert_eq!(candidate_urls(&d, "www.onbid.co.kr").len(), 1);
+    fn a_single_item_object_is_handled_like_a_one_element_list_and_a_repeat_is_asked_once() {
+        let d = detail(json!({"potoUrlList": [
+            {"urlAdr": "https://www.onbid.co.kr/op/only.jpg"},
+            {"urlAdr": "https://www.onbid.co.kr/op/only.jpg"}
+        ]}));
+        assert_eq!(candidate_urls(&d, PHOTO_FIELD, "www.onbid.co.kr").len(), 1);
     }
 
     #[test]
     fn no_media_fields_yields_nothing() {
-        assert!(candidate_urls(&detail(json!({"cltrMngNo": "A-1"})), "www.onbid.co.kr").is_empty());
-        assert!(candidate_urls(&json!({"body": {}}), "www.onbid.co.kr").is_empty());
+        for field in FIELDS_IN_ORDER {
+            assert!(candidate_urls(
+                &detail(json!({"cltrMngNo": "A-1"})),
+                field,
+                "www.onbid.co.kr"
+            )
+            .is_empty());
+            assert!(candidate_urls(&json!({"body": {}}), field, "www.onbid.co.kr").is_empty());
+        }
     }
 
     #[test]
@@ -761,6 +792,105 @@ mod tests {
         .await;
         assert_eq!(mirrored.report.reused, 0);
         assert_eq!(mirrored.report.deduplicated, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_run_that_runs_out_mid_way_stores_every_items_photos_before_any_appraisal(
+    ) -> anyhow::Result<()> {
+        use super::{mirror_detail_lines, MirrorSettings};
+        use std::collections::BTreeMap;
+        use std::time::{Duration, Instant};
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+        // Each path answers its own bytes: a JPEG for `.jpg`, a PDF for `.pdf`.
+        struct ByPath;
+        impl Respond for ByPath {
+            fn respond(&self, request: &Request) -> ResponseTemplate {
+                let path = request.url.path();
+                let magic: &[u8] = if path.ends_with(".pdf") {
+                    b"%PDF-"
+                } else {
+                    &[0xFF, 0xD8, 0xFF]
+                };
+                ResponseTemplate::new(200).set_body_bytes([magic, path.as_bytes()].concat())
+            }
+        }
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ByPath)
+            .mount(&server)
+            .await;
+        let base = server.uri();
+        let host = reqwest::Url::parse(&base)?
+            .host_str()
+            .unwrap_or_default()
+            .to_owned();
+        // Four items in asking order, each with two photos and one appraisal.
+        let lines = ["A", "B", "C", "D"]
+            .iter()
+            .map(|cltr| {
+                let photos = (1..=2)
+                    .map(|n| json!({"urlAdr": format!("{base}/{cltr}{n}.jpg")}))
+                    .collect::<Vec<_>>();
+                let body = detail(json!({
+                    "cltrMngNo": cltr, "pbctCdtnNo": 1, "potoUrlList": photos,
+                    "apslEvlClgList": [{"urlAdr": format!("{base}/{cltr}.pdf")}]
+                }));
+                json!({"body": body.to_string()}).to_string()
+            })
+            .collect::<Vec<_>>();
+        let root = std::env::temp_dir().join(format!("onbid-media-{}", uuid::Uuid::new_v4()));
+        let storage = foundation_outbox::FileObjectStorage::new(root)?;
+        // Room for 9 downloads: one shared budget would have spent it on A, B and C whole and left D
+        // without a photo; photos first spends 8 on every item's photos and 1 on A's appraisal.
+        let settings = MirrorSettings {
+            object_prefix: "onbid/media",
+            url_host: &host,
+            max_file_bytes: 1024,
+            daily_limit: 100,
+            per_run_limit: 9,
+            concurrency: 2,
+            deadline: Instant::now() + Duration::from_secs(60),
+        };
+        let mirrored = mirror_detail_lines(
+            &lines,
+            &[],
+            &mut BTreeMap::new(),
+            &settings,
+            0,
+            &storage,
+            &reqwest::Client::new(),
+        )
+        .await;
+        let outcomes = mirrored
+            .outcomes
+            .iter()
+            .map(|outcome| (outcome.photos_complete, outcome.complete, outcome.photos))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            outcomes,
+            [
+                (true, true, 2),
+                (true, false, 2),
+                (true, false, 2),
+                (true, false, 2)
+            ],
+            "every item's photos landed; only A's appraisal did, so A alone is complete"
+        );
+        assert_eq!(mirrored.downloads_today, 9);
+        assert!(mirrored.report.per_run_reached);
+        // The last item's photos point at their blobs (the Silver photo loader reads `sha256`) though
+        // its appraisal did not land and so keeps its link.
+        let record: serde_json::Value = serde_json::from_str(&mirrored.lines[3])?;
+        let response: serde_json::Value =
+            serde_json::from_str(record["body"].as_str().unwrap_or_default())?;
+        let item = &response["body"]["items"]["item"];
+        assert!(item["potoUrlList"]
+            .as_array()
+            .is_some_and(|photos| photos.iter().all(|photo| photo["sha256"].is_string())));
+        assert!(item["apslEvlClgList"][0].get("sha256").is_none());
         Ok(())
     }
 }
