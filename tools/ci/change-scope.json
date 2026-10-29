@@ -794,6 +794,28 @@
         "budget_seconds": 15
       },
       {
+        "name": "onbid-field-coverage-self-test",
+        "paths": [
+          "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json",
+          "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json",
+          "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+          "platforms/foundation-platform/contracts/schema-registry/**",
+          "platforms/foundation-platform/scripts/schema_registry.py",
+          "products/gongzzang/apps/web/components/panels/parcel/public-auction.tsx"
+        ]
+      },
+      {
+        "name": "onbid-field-coverage",
+        "paths": [
+          "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json",
+          "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json",
+          "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+          "platforms/foundation-platform/contracts/schema-registry/**",
+          "platforms/foundation-platform/scripts/schema_registry.py",
+          "products/gongzzang/apps/web/components/panels/parcel/public-auction.tsx"
+        ]
+      },
+      {
         "name": "pipeline-graph-covers-every-dataset-self-test",
         "paths": [
           "scripts/catalog/**",
