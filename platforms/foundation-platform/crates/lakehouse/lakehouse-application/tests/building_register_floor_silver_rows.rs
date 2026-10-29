@@ -1,7 +1,7 @@
 //! Contract tests for building-register floor Silver row normalization.
 
 use chrono::{DateTime, Utc};
-use lakehouse_application::building_register_row_identity::row_identity;
+use lakehouse_application::building_register_row_identity::natural_row_identity;
 use lakehouse_application::{
     build_building_register_floor_entity_context_pack_input,
     build_building_register_floor_normalization_proposal_input,
@@ -49,10 +49,11 @@ fn normalizes_building_register_floor_rows_into_silver_shape() -> TestResult {
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
     // Spelled out here rather than built, so this file pins the shape at least once instead of
-    // comparing the production rule against itself.
+    // comparing the production rule against itself: the natural key (pk, 층구분, 층번호) and its
+    // first occurrence, not the file and line (root ADR-0331).
     assert_eq!(
         row.floor_row_id,
-        "building-register-floor:line-42#line-000042"
+        "building-register-floor:nk1:9d06674013d160716ae3aa4c86a12959"
     );
     assert_eq!(row.mgm_bldrgst_pk, "SYNTHETIC-BUILDING-0001");
     assert_eq!(row.floor_type_code_raw, "10");
@@ -568,12 +569,12 @@ fn silver_row(
 ) -> TestResult<BuildingRegisterFloorSilverRow> {
     Ok(BuildingRegisterFloorSilverRow {
         // Built by the production rule, not by a second spelling of it here. What the rule
-        // produces is pinned once, in `building_register_row_identity`; what this file checks
-        // is that the plan feeds it the right record and line.
-        floor_row_id: row_identity(
+        // produces is pinned once, in `building_register_row_identity`; the fixture line stands
+        // in for the occurrence so two hand-built rows never share an id.
+        floor_row_id: natural_row_identity(
             "building-register-floor",
-            source_record_id,
-            Some(fixture_line_number(source_record_id)),
+            &["SYNTHETIC-BUILDING-0001", "10", "1"],
+            u32::try_from(fixture_line_number(source_record_id))?,
         ),
         mgm_bldrgst_pk: "SYNTHETIC-BUILDING-0001".to_owned(),
         floor_type_code_raw: "10".to_owned(),

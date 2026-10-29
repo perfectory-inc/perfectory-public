@@ -1,6 +1,8 @@
 //! Silver handoff helpers for official building-register floor rows.
 
-use crate::building_register_row_identity::row_identity;
+use crate::building_register_row_identity::{
+    natural_key_occurrences, natural_row_identity, NaturalKeyRank,
+};
 use std::collections::{BTreeMap, HashMap};
 
 mod columns;
@@ -75,7 +77,7 @@ pub struct BuildingRegisterFloorSourceRow {
 /// Silver `silver.building_register_floors` row prepared from one source row.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct BuildingRegisterFloorSilverRow {
-    /// Stable Silver row id.
+    /// Stable Silver row id: the row's natural key, not its file position (root ADR-0331).
     pub floor_row_id: String,
     /// Provider building-register management primary key.
     pub mgm_bldrgst_pk: String,
@@ -276,13 +278,51 @@ pub fn normalize_building_register_floor_silver_rows_with_title_counts<
         }
     }
 
-    // Pass 3: build Silver rows from the (possibly resolved) results.
+    // Pass 3: build Silver rows from the (possibly resolved) results, each named by its natural
+    // key. The batch must hold every row of a building, as the hub export's groups do.
+    let occurrences = floor_key_occurrences(input.records)?;
     input
         .records
         .iter()
         .zip(normalized.iter())
-        .map(|(record, per_row)| build_silver_row(record, per_row, input))
+        .zip(occurrences)
+        .map(|((record, per_row), occurrence)| build_silver_row(record, per_row, occurrence, input))
         .collect()
+}
+
+/// The provider's 층별개요 rows have no row key: a floor (`mgm_bldrgst_pk`, 층구분, 층번호) holds
+/// one row per use, and Silver keeps the rows apart by occurrence (root ADR-0331).
+const fn floor_identity(record: &BuildingRegisterFloorSourceRow) -> [&str; 3] {
+    [
+        record.mgm_bldrgst_pk.as_str(),
+        record.floor_type_code_raw.as_str(),
+        record.floor_number_raw.as_str(),
+    ]
+}
+
+fn floor_key_occurrences(
+    records: &[BuildingRegisterFloorSourceRow],
+) -> Result<Vec<u32>, BuildingRegisterFloorSilverPlanError> {
+    let ranks = records
+        .iter()
+        .enumerate()
+        .map(|(index, record)| {
+            let index = u32::try_from(index).map_err(|_| {
+                BuildingRegisterFloorSilverPlanError::InvalidInput(
+                    "floor batch exceeds u32 rows".to_owned(),
+                )
+            })?;
+            Ok(NaturalKeyRank::new(
+                &floor_identity(record),
+                &[
+                    record.floor_type_name_raw.as_str(),
+                    record.floor_label_raw.as_deref().unwrap_or(""),
+                ],
+                index,
+            ))
+        })
+        .collect::<Result<Vec<_>, BuildingRegisterFloorSilverPlanError>>()?;
+    Ok(natural_key_occurrences(ranks))
 }
 
 fn raw_floor(record: &BuildingRegisterFloorSourceRow) -> RawBuildingRegisterFloor<'_> {
@@ -631,13 +671,14 @@ fn floor_sequence_context_value(row: &BuildingRegisterFloorSilverRow) -> JsonVal
 fn build_silver_row(
     record: &BuildingRegisterFloorSourceRow,
     normalized: &NormalizedBuildingRegisterFloor,
+    occurrence: u32,
     input: &BuildingRegisterFloorSilverRowsInput<'_>,
 ) -> Result<BuildingRegisterFloorSilverRow, BuildingRegisterFloorSilverPlanError> {
     let mut row = BuildingRegisterFloorSilverRow {
-        floor_row_id: row_identity(
+        floor_row_id: natural_row_identity(
             "building-register-floor",
-            record.source_record_id.as_str(),
-            record.source_line_number,
+            &floor_identity(record),
+            occurrence,
         ),
         mgm_bldrgst_pk: record.mgm_bldrgst_pk.clone(),
         floor_type_code_raw: record.floor_type_code_raw.clone(),

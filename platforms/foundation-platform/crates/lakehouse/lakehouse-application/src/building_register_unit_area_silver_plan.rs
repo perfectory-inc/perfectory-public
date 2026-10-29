@@ -7,7 +7,9 @@
 //! shared `unit_designation`, converts parcel identity per ADR 0023, and types
 //! the 전유/공용 split plus the ㎡ area value.
 
-use crate::building_register_row_identity::row_identity;
+use crate::building_register_row_identity::{
+    natural_key_occurrences, natural_row_identity, NaturalKeyRank,
+};
 use chrono::{DateTime, Utc};
 use foundation_normalization_domain::{
     building_register_unit_designation, normalize_building_register_floor, RawBuildingRegisterFloor,
@@ -99,6 +101,10 @@ pub struct BuildingRegisterUnitAreaSourceRow {
     pub created_date_raw: String,
     /// 1-based source line number inside the Bronze object when available.
     pub source_line_number: Option<u64>,
+    /// Occurrence among the release's rows that share this row's identity, when the caller
+    /// ranked a release larger than one batch ([`unit_area_key_rank`]); `None` ranks within the
+    /// batch (root ADR-0331).
+    pub key_occurrence: Option<u32>,
 }
 
 /// Input required to normalize unit-area source rows into Silver rows.
@@ -118,7 +124,7 @@ pub struct BuildingRegisterUnitAreaSilverRowsInput<'a> {
 /// Silver `silver.building_register_unit_areas` row prepared from one source row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildingRegisterUnitAreaSilverRow {
-    /// Stable Silver row id.
+    /// Stable Silver row id: the row's natural key, not its file position (root ADR-0331).
     pub area_row_id: String,
     /// Provider unit management primary key — join key to `silver.building_register_units`.
     pub mgm_bldrgst_pk: String,
@@ -287,6 +293,7 @@ pub fn parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
         area_m2_raw: fields[AREA_M2_INDEX].trim().to_owned(),
         created_date_raw: fields[CREATED_DATE_INDEX].trim().to_owned(),
         source_line_number: Some(one_based_line_number),
+        key_occurrence: None,
     })
 }
 
@@ -304,11 +311,63 @@ pub fn normalize_building_register_unit_area_silver_rows(
         ));
     }
 
+    let mut ranks = Vec::with_capacity(input.records.len());
+    for (index, record) in input.records.iter().enumerate() {
+        let index = u32::try_from(index).map_err(|_| {
+            BuildingRegisterUnitSilverPlanError::InvalidInput(
+                "unit-area batch exceeds u32 rows".to_owned(),
+            )
+        })?;
+        ranks.push(unit_area_key_rank(record, index));
+    }
+    let batch_occurrences = natural_key_occurrences(ranks);
     input
         .records
         .iter()
-        .map(|record| build_area_silver_row(record, input))
+        .zip(batch_occurrences)
+        .map(|(record, occurrence)| {
+            build_area_silver_row(record, record.key_occurrence.unwrap_or(occurrence), input)
+        })
         .collect()
+}
+
+/// The provider's 전유공용면적 rows have no row key: a unit's floor holds one row per use and
+/// area. These columns identify the row; the rest only order rows that share them (root
+/// ADR-0331).
+const fn unit_area_identity(record: &BuildingRegisterUnitAreaSourceRow) -> [&str; 5] {
+    [
+        record.mgm_bldrgst_pk.as_str(),
+        record.area_kind_code_raw.as_str(),
+        record.main_or_annex_name_raw.as_str(),
+        record.floor_type_code_raw.as_str(),
+        record.floor_number_raw.as_str(),
+    ]
+}
+
+/// The rank entry of one 전유공용면적 row, for a caller that ranks a whole release before
+/// normalizing it in batches; feed the entries to
+/// [`natural_key_occurrences`](crate::building_register_row_identity::natural_key_occurrences)
+/// and set each row's `key_occurrence`.
+#[must_use]
+pub fn unit_area_key_rank(
+    record: &BuildingRegisterUnitAreaSourceRow,
+    index: u32,
+) -> NaturalKeyRank {
+    NaturalKeyRank::new(
+        &unit_area_identity(record),
+        &[
+            record.area_kind_name_raw.as_str(),
+            record.floor_type_name_raw.as_str(),
+            record.floor_label_raw.as_str(),
+            record.structure_name_raw.as_str(),
+            record.usage_code_raw.as_str(),
+            record.usage_name_raw.as_str(),
+            record.usage_detail_raw.as_str(),
+            record.area_m2_raw.as_str(),
+            record.created_date_raw.as_str(),
+        ],
+        index,
+    )
 }
 
 /// Typed 전유/공용 split from the provider code (`1` 전유 / `2` 공용), cross-checked
@@ -350,6 +409,7 @@ fn parse_area_m2(area_m2_raw: &str) -> Option<f64> {
 
 fn build_area_silver_row(
     record: &BuildingRegisterUnitAreaSourceRow,
+    occurrence: u32,
     input: &BuildingRegisterUnitAreaSilverRowsInput<'_>,
 ) -> Result<BuildingRegisterUnitAreaSilverRow, BuildingRegisterUnitSilverPlanError> {
     let floor = normalize_building_register_floor(RawBuildingRegisterFloor {
@@ -376,10 +436,10 @@ fn build_area_silver_row(
     };
 
     let mut row = BuildingRegisterUnitAreaSilverRow {
-        area_row_id: row_identity(
+        area_row_id: natural_row_identity(
             "building-register-unit-area",
-            record.source_record_id.as_str(),
-            record.source_line_number,
+            &unit_area_identity(record),
+            occurrence,
         ),
         mgm_bldrgst_pk: record.mgm_bldrgst_pk.clone(),
         register_kind_name_raw: record.register_kind_name_raw.clone(),
@@ -667,9 +727,11 @@ mod tests {
 
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
+        // The natural key, not the file and line (root ADR-0331): SHA-256 of
+        // `pk␟전유공용구분␟주부속구분명␟층구분␟층번호␟occurrence`, first 128 bits.
         assert_eq!(
             row.area_row_id,
-            "building-register-unit-area:bronze/source=hubgokr__building_register_exclusive_common_area/synthetic-fixture.zip#line-000001"
+            "building-register-unit-area:nk1:ce0ca4cd4597bedc376463f414823a38"
         );
         assert_eq!(row.area_kind, "exclusive");
         assert_eq!(row.area_m2, Some(42.125));
@@ -680,6 +742,36 @@ mod tests {
         assert_eq!(row.normalization_status, "accepted");
         assert_eq!(row.normalization_reason, "accepted_exclusive_area");
         assert_eq!(row.row_checksum_sha256.len(), 64);
+        Ok(())
+    }
+
+    /// Two area rows of one unit's floor differ only in use; each keeps its id when the next
+    /// release lists them in the other order, and an occurrence ranked over the whole release
+    /// (the streaming export's) wins over the batch's own rank.
+    #[test]
+    fn rows_sharing_an_identity_keep_their_ids_across_file_order() -> TestResult {
+        let stairs = parse(&area_line(&[(USAGE_DETAIL_INDEX, "계단실")]))?;
+        let hall = parse(&area_line(&[(USAGE_DETAIL_INDEX, "복도")]))?;
+        let id_of = |rows: &[BuildingRegisterUnitAreaSilverRow], detail: &str| {
+            rows.iter()
+                .find(|row| row.usage_detail_raw == detail)
+                .map(|row| row.area_row_id.clone())
+        };
+        let first = normalize(&[stairs.clone(), hall.clone()])?;
+        let second = normalize(&[hall.clone(), stairs])?;
+
+        assert_eq!(id_of(&first, "계단실"), id_of(&second, "계단실"));
+        assert_eq!(id_of(&first, "복도"), id_of(&second, "복도"));
+        assert_ne!(id_of(&first, "계단실"), id_of(&first, "복도"));
+
+        let mut ranked = hall;
+        ranked.key_occurrence = Some(2);
+        let expected = natural_row_identity(
+            "building-register-unit-area",
+            &unit_area_identity(&ranked),
+            2,
+        );
+        assert_eq!(id_of(&normalize(&[ranked])?, "복도"), Some(expected));
         Ok(())
     }
 
