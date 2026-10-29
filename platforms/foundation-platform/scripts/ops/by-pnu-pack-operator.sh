@@ -184,10 +184,14 @@ UUID='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 GOLD_SCHEDULED=foundation-gold-panel-rebuild.service
 # The data kinds' rebuild (root ADR-0193): it moves the kind Golds a kind lane bakes.
 GOLD_KINDS=foundation-gold-kind-rebuild.service
+# The unit price Gold's own rebuild (root ADR-0333): the same script and lock, its own job.
+GOLD_UNIT_PRICE=foundation-gold-unit-price-rebuild.service
 GOLD_UNIT=foundation-gold-panel-rebuild-unconditional
 BAKE_SCHEDULED=foundation-by-pnu-serving-bake.service
 # The own-producer public-auction lane bakes in its own job beside it (root ADR-0303).
 BAKE_OWN_PRODUCER=foundation-by-pnu-public-auction-bake.service
+# The unit price lane bakes in its own job too (root ADR-0333).
+BAKE_UNIT_PRICE=foundation-by-pnu-unit-price-bake.service
 PACK_BAKES='foundation-*-pack-bake-g*.service'
 # The rebuild's one reason, so the plan and the Gold history name where it came from.
 GOLD_REASON="root ADR-0166: by-pnu-pack-operator gold-rebuild, the Gold a section pack generation is baked from"
@@ -258,7 +262,7 @@ refuse_while_the_deploy_holds() {
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
 refuse_while_baking() {
   local lane lock running
-  refuse_while_active "${BAKE_SCHEDULED}" "${BAKE_OWN_PRODUCER}"
+  refuse_while_active "${BAKE_SCHEDULED}" "${BAKE_OWN_PRODUCER}" "${BAKE_UNIT_PRICE}"
   running="$(running_units "${PACK_BAKES}")"
   [[ -z "${running}" ]] || refuse "a section pack bake is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
   for lane in building parcel ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
@@ -454,7 +458,7 @@ if [[ "${ACTION}" == kind-sizes ]]; then
   # in the small Spark, never beside a Gold rebuild or a bake (the host's memory budget).
   (($# == 0)) || refuse "kind-sizes takes nothing after it"
   [[ "${LANE}" == parcel || "${LANE}" == building ]] || refuse "kind-sizes measures the parcel or the building panel"
-  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "foundation-${LANE}-kind-sizes"
+  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_UNIT_PRICE}" "foundation-${LANE}-kind-sizes"
   refuse_while_baking
   read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${BAKE_ROOT}/kind-sizes"
@@ -502,7 +506,7 @@ fi
 
 if [[ "${ACTION}" == gold-rebuild ]]; then
   (($# == 0)) || refuse "gold-rebuild takes nothing after it: it rebuilds the panel Gold tables, and its reason is fixed"
-  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
+  refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${GOLD_UNIT_PRICE}"
   refuse_while_baking
   # The scheduled unit is the one definition of how a rebuild runs: account, environment files,
   # time bound, the Spark cleanup after every exit, sandbox and state directory. This starts a
@@ -640,7 +644,8 @@ case "${ACTION}" in
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
       [[ ! -f "${WORK}/logs/${action}.log" ]] || tail -3 "${WORK}/logs/${action}.log" | cut -c1-300
     done
-    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${BAKE_SCHEDULED}" "${BAKE_OWN_PRODUCER}"; do
+    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${GOLD_UNIT_PRICE}" "${BAKE_SCHEDULED}" \
+        "${BAKE_OWN_PRODUCER}" "${BAKE_UNIT_PRICE}"; do
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
     done
     [[ ! -f "${GOLD_LOG}" ]] || tail -3 "${GOLD_LOG}" | cut -c1-300
@@ -686,7 +691,7 @@ case "${ACTION}" in
   bake)
     # A Gold that moves under the bake stops it; the lane lock (the bake takes it) keeps it apart
     # from the scheduled bake.
-    refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}"
+    refuse_while_active "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${GOLD_UNIT_PRICE}"
     read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-bake)"
     # Each worker exports one shard; the scheduled bake's MemoryMax is the measured bound of one
     # shard's export (its unit file says how it was measured), so the bake gets one per worker.

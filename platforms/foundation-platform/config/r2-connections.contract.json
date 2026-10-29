@@ -583,7 +583,7 @@
       "latency_baseline_lane": "building",
       "latency_baseline_lane_reason": "every PNU with a priced unit has a building document (a unit price is served under the PNU its building document carries it), so the building preview reads the same PNUs through the same Worker code at the same placement: the pack-only gate (나) holds this lane's cold and warm reads to the bounds it holds a cut-over to",
       "documents_follow_lane": "building",
-      "documents_follow_lane_reason": "a unit's price is served under the PNU its building document carries it, and the Gold rebuild places the units of both panels from the same register snapshots (gold-panel-rebuild.contract.json pins_from). In the registered bake this lane runs after the building lane and is not baked in a run where the building lane failed, so it does not publish units under PNUs the served building documents do not yet carry them under",
+      "documents_follow_lane_reason": "a unit's price is served under the PNU its building document carries it, and the Gold rebuild places the units of both panels from the same register snapshots (gold-panel-rebuild.contract.json pins_from). This lane bakes in its own job (by_pnu_unit_price_bake, root ADR-0333) and only a Gold built from the same register snapshots as the building Gold the building lane serves (scripts/ops/lane_follow_gate.py); otherwise it waits, so it does not publish units under PNUs the served building documents do not yet carry them under",
       "latency_p95_max_ms": 1400,
       "latency_p95_max_ms_reason": "the baseline's documents carry more than this lane's (the building document carried the unit price history until root ADR-0190), so a slow building read could hide a slow lane inside the increase bound. Gate (나) also holds this lane's own cold and warm p95 to an absolute bound: the slowest cold pack p95 a lane now serves measured at its cut-over (parcel generation 1, 1,379 ms from ai-server, root ADR-0162)",
       "connection": "lakehouse",
@@ -669,7 +669,7 @@
           "public_hostname": "unit-prices-preview.perfectory.io"
         },
         "scheduled_bake": {
-          "job": "by_pnu_serving_bake",
+          "job": "by_pnu_unit_price_bake",
           "capability": "unit_price_section_pack_patches"
         }
       }

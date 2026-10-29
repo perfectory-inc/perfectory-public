@@ -1,0 +1,29 @@
+[Unit]
+Description=Foundation Platform asset reconciler: start each asset whose inputs moved past what it last read and that nothing runs (root ADR-0333)
+After=network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The lakehouse catalog it reads table metadata from over REST (no Spark, no data file), with the
+# operations map's read-only token, as the shape ledger check does (root ADR-0259). Without the file
+# no asset can be read: the run fails and its unit's failure notice says so.
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/asset_reconcile.py
+# The job list's time_limit_minutes (jobs.v1.json): a tick reads the metadata of six tables and asks
+# systemd which jobs run. Generated from the list, not hand-set: `cargo run -p foundation-jobs --
+# generate` (committed_units test).
+TimeoutStartSec=3m
+TimeoutStopSec=30
+# A Python process reading JSON; counted under host_reserved like the other default_pool jobs.
+MemoryMax=256M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Its own state (since when an owed asset has been idle) and its textfile for node-exporter.
+ReadWritePaths=/var/lib/foundation-platform/asset-reconcile /var/lib/foundation-jobs/metrics

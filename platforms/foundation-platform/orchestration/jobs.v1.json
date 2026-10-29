@@ -39,7 +39,8 @@
     {"path": "/data/foundation-platform/source-sweep", "mode": "0755"},
     {"path": "/data/foundation-platform/silver-refresh", "mode": "2770"},
     {"path": "/data/foundation-platform/tile-bake", "mode": "0755"},
-    {"path": "/var/lib/foundation-platform/source-sweep", "mode": "0755"}
+    {"path": "/var/lib/foundation-platform/source-sweep", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/asset-reconcile", "mode": "0755"}
   ],
   "state_paths_not_created_here": {},
   "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
@@ -838,7 +839,7 @@
       "full_tracked_by": "Gold partial write (root ADR-0314 §4: the Gold contract load declares incremental, and PR #896 keeps the PNU range order through MERGE and compaction)",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet, and the unit price rebuild (gold_unit_price_rebuild), which is its own job since root ADR-0333: on 2026-10-28 two runs of this job timed out under one 160-minute limit and cut gold.unit_price off both times.",
       "systemd_service": "foundation-gold-panel-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -857,9 +858,6 @@
         "silver-building-register-units-to-gold-building-panel",
         "silver-building-register-unit-areas-to-gold-building-panel",
         "silver-unit-official-price-to-gold-building-panel",
-        "silver-building-register-titles-to-gold-unit-price-panel",
-        "silver-building-register-units-to-gold-unit-price-panel",
-        "silver-unit-official-price-to-gold-unit-price-panel",
         "silver-building-register-apartment-price-to-silver-unit-official-price",
         "silver-building-register-exclusive-unit-to-silver-unit-official-price",
         "silver-parcel-boundaries-to-gold-parcel-panel",
@@ -876,6 +874,33 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"
+    },
+    {
+      "id": "gold_unit_price_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Rebuild gold.unit_price (root ADR-0190) with its Spark producer (scripts/ops/gold-panel-rebuild.sh unit-price) when its inputs moved past the snapshots its current Gold recorded: the building registers at the snapshots the current building Gold was built from (pins_from), and silver.unit_official_price at its head; otherwise nothing (root ADR-0139). Only the PNUs whose inputs changed are recomputed and merged (root ADR-0180), whole when finding the change costs more than the rebuild (root ADR-0326). Its own job and asset since root ADR-0333: inside gold_panel_rebuild it shared one 160-minute limit with both panels, and on 2026-10-28 both runs timed out in it (the incremental run had 44 of its measured 44-60 minutes). Started when gold_panel_rebuild committed the building panel or joined a new price vintage, or a register Silver changed, by the asset reconciler (asset_reconcile) when an event was lost, and at 09:35 as the fallback (root ADR-0171); a committed rebuild starts the unit price bake (by_pnu_unit_price_bake). It does not join the unit prices itself: gold_panel_rebuild owns silver.unit_official_price.",
+      "systemd_service": "foundation-gold-unit-price-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "35 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 80,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-titles-to-gold-unit-price-panel",
+        "silver-building-register-units-to-gold-unit-price-panel",
+        "silver-unit-official-price-to-gold-unit-price-panel",
+        "gold-building-panel-to-gold-unit-price-panel"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-29T12:00:00Z"
     },
     {
       "id": "admin_boundary_release",
@@ -1110,11 +1135,10 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, then each pack-only lane's Gold panel (config/r2-connections.contract.json by_pnu_lanes, root ADR-0190), in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, then each pack-only lane's Gold panel this job carries the served edge of (config/r2-connections.contract.json by_pnu_lanes, root ADR-0190; a lane whose served edge another job carries bakes in that job, root ADR-0303, ADR-0333), in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
       "capabilities": [
         "building_section_pack_patches",
         "parcel_section_pack_patches",
-        "unit_price_section_pack_patches",
         "by_pnu_kind_section_pack_patches"
       ],
       "systemd_service": "foundation-by-pnu-serving-bake.service",
@@ -1137,7 +1161,6 @@
         "gold-building-panel-to-building-by-pnu-serving",
         "gold-building-panel-to-building-by-pnu-section-packs",
         "gold-parcel-panel-to-parcel-by-pnu-section-packs",
-        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs",
         "gold-parcel-zoning-to-parcel-zoning-by-pnu-section-packs",
         "gold-parcel-price-to-parcel-price-by-pnu-section-packs",
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
@@ -1176,8 +1199,65 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-28T00:00:00Z"
+    },
+    {
+      "id": "by_pnu_unit_price_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.unit_price (root ADR-0190) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh unit-price), as section packs: a change set decides a create-only patch, a reflect-only manifest or a full new generation, as every lane does. Its own job and asset since root ADR-0333, out of `by_pnu_serving_bake all`, where it waited behind the parcel lane (a 20-hour national re-bake on 2026-10-23..28). Its documents follow the building lane's (documents_follow_lane): it bakes a unit price Gold only once the building lane serves a building Gold built from the same register snapshots, and otherwise ends `waiting` until it does, a state the asset reconciler (asset_reconcile) re-checks every five minutes, not a run order inside one unit. Started when gold_unit_price_rebuild commits a new snapshot, by the reconciler when that event was lost or the building lane caught up, and at 10:55 as the fallback (root ADR-0171), apart from the 10:15 and 10:45 bakes so no two clock starts share the fixed-name lakehouse-target-init container. One slot and MemoryMax=3G (root ADR-0138): its whole generation is 169,117 documents in nine shards, and with the parcel and public-auction bakes beside it the pool holds 22g, no more than the release builder.",
+      "capabilities": [
+        "unit_price_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-unit-price-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-unit-price-panel-to-unit-price-by-pnu-section-packs"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-29T12:00:00Z"
+    },
+    {
+      "id": "asset_reconcile",
+      "scope": "skip-if-unchanged",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The asset reconciler (root ADR-0333 §7): every five minutes, for each job it reconciles, compares the version each input of the job's asset is at now (the Iceberg snapshot of a Gold input, or for a pinned input the snapshot its pinning Gold was built from) with the version the asset's last run read (a Gold's recorded source pins; a by-PNU lane's reads.jsonl, which its bake appends), reading only catalog metadata over REST, no Spark and no data file. An asset whose input moved past what it read, that is not running and not waiting on the lane its documents follow, is printed as owed with a key of the versions it owes; its DAG then starts the job once per key (a deterministic run id, so a repeated tick or a lost event never starts it twice), unless a run of it is already queued or running. The trigger only queues the run: it waits for its pool's slots like any other. Writes asset_lag_seconds and asset_unscheduled_seconds per asset for node-exporter (/var/lib/foundation-jobs/metrics/asset-reconcile.prom; the FoundationAsset* alerts), and keeps since when an owed asset has been idle with room in its pool under its state path. Changes no data: its outcome is always unchanged. It covers the 공매 Gold to bake edge whose event 3912 started nothing on 2026-10-28 (13 hours late), and the unit price edges split out by root ADR-0333; the other `inputs` jobs move to it in stage 2.",
+      "systemd_service": "foundation-asset-reconcile.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/asset-reconcile",
+        "/var/lib/foundation-jobs/metrics"
+      ],
+      "schedule": "0,5,10,15,20,25,30,35,40,45,50,55 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 3,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reconciles": [
+        "gold_unit_price_rebuild",
+        "by_pnu_unit_price_bake",
+        "by_pnu_public_auction_bake"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-29T12:00:00Z"
     }
   ],
+  "reconciles_means": "The jobs the asset reconciler starts by state rather than by event (root ADR-0333 §7, Kubernetes controllers and Dagster declarative automation are level-triggered the same way). Each named job is an enabled `inputs` job that makes exactly one asset (one output node of the pipeline graph): a Gold table, whose read versions are the source pins its commits record, or a by-PNU lane's section packs, whose read version is the Gold snapshot the lane's last run left served (by-pnu-serving-bake.sh appends it to the lane's reads.jsonl). A job naming `reconciles` carries no pipeline-graph edges: it reads the inputs and outputs of the jobs it reconciles. orchestration/dags/job_specs.py refuses any other shape; scripts/ops/asset_reconcile.py and the reconciler's DAG read this list and nothing else.",
   "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused; a failed run alerts through the unit's own OnFailure and the DAGs are unpaused regardless (root ADR-0173). It marks the jobs short enough to run inside a deploy; the long jobs are left to their schedule (the daily source sweep since root ADR-0172 lets it fetch everything it lacks, which can take hours).",
   "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",

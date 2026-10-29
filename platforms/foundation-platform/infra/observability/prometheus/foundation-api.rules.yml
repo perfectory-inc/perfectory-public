@@ -277,3 +277,49 @@ groups:
         annotations:
           summary: 'Dependabot 알림을 읽는 GitHub 토큰이 {{ $value }}일 뒤 만료돼요 — 런북대로 새 토큰을 넣어 주세요'
           runbook: docs/runbooks/security-advisories.md
+  # Each asset's lag and how long it has gone unscheduled (root ADR-0333 §7). 2026-10-28 21:38 the
+  # 공매 Gold rebuild committed and recorded asset event 3912, which reached a bake a deploy held
+  # paused; nothing queued it and no series said so: the screen would have waited 13 hours for the
+  # 10:45 fallback. The asset reconciler (scripts/ops/asset_reconcile.py, every 5 minutes) compares
+  # each asset's inputs with what its last run read and writes these series; the records name them as
+  # ADR-0333 does. An asset owed a run with room in its pool and no run for three reconcile periods
+  # (15 minutes) means the reconciler or the scheduler did not start it. A deploy that holds DAGs
+  # paused is FoundationDeployDagsPausedLong's, so it is left out while the pause lasts.
+  - name: foundation-assets
+    rules:
+      - record: asset_lag_seconds
+        expr: foundation_asset_lag_seconds
+      - record: asset_unscheduled_seconds
+        expr: time() - foundation_asset_unscheduled_since_timestamp_seconds
+      - alert: FoundationAssetUnscheduled
+        expr: >-
+          asset_unscheduled_seconds > 900
+          unless on() foundation_deploy_dags_paused_since_timestamp_seconds
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.asset }} 의 입력이 바뀌었는데 {{ humanizeDuration $value }}째 {{ $labels.job }} 실행이 없어요(풀에 자리가 있는데도). foundation_asset_reconcile DAG 의 start 과제와 journalctl -u foundation-asset-reconcile.service 를 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationAssetReconcilerStopped
+        # Six periods: a deploy pauses every DAG for up to about 15 minutes (root ADR-0321 §5
+        # measurements), and the unscheduled series above stop moving when the reconciler does.
+        expr: >-
+          time() - foundation_asset_reconcile_timestamp_seconds > 1800
+          or absent(foundation_asset_reconcile_timestamp_seconds)
+        for: 10m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 자산 조정기(asset_reconcile)가 30분 넘게 돌지 않았어요. 잃어버린 이벤트로 멈춘 작업을 아무도 다시 시작하지 않아요
+          runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationAssetUnreadable
+        expr: foundation_asset_reconcile_error == 1
+        for: 30m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '자산 조정기가 {{ $labels.asset }} 의 판을 30분째 못 읽어요. 카탈로그 REST 나 by-PNU reads.jsonl 을 확인하세요'
+          runbook: docs/runbooks/asset-reconcile.md

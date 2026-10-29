@@ -17,6 +17,7 @@ last_reviewed: 2026-07-29
 - [lakehouse 장애 대응](./lakehouse-incident-response.md)
 - [예약 작업 운영 (Airflow) — 설치·작업 옮기기·확인](./production-orchestrator-cutover.md)
 - [필지 by-PNU R2 서빙 굽기·발행](./parcel-by-pnu-serving-bake.md)
+- [자산 조정기 — 잃어버린 이벤트로 멈춘 자산 다시 시작하기](./asset-reconcile.md)
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
 - [산업단지 경계 새 판 — 예약 작업](./complex-boundary-release.md)
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)

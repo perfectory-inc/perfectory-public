@@ -6,8 +6,9 @@
 #
 # A table's unit (parcel, building, unit-price, ...) is its `unit` in
 # infra/lakehouse/contracts/gold-panel-rebuild.contract.json. `all` (the registered job) rebuilds
-# every table of that contract in its order (gold.parcel_panel, gold.building_panel,
-# gold.unit_price; root ADR-0190). `kinds` (the registered kind job, foundation-gold-kind-
+# the panel tables of that contract that job makes, in its order (gold.parcel_panel,
+# gold.building_panel); gold.unit_price (root ADR-0190) is its own job's (`unit-price`, root
+# ADR-0333: one job per asset). `kinds` (the registered kind job, foundation-gold-kind-
 # rebuild) rebuilds the Gold table of every by-PNU data kind line instead (root ADR-0193 §9): each
 # kind is pinned to its host panel's inputs, so it runs after the panel job committed. One Spark run at a time: each takes the whole compose
 # `spark` cap (root ADR-0138). A failed table does not stop the others; `all` fails if any did.
@@ -74,21 +75,40 @@ done
 # the contract gains, or a kind line the R2 connection contract gains, is rebuilt without an edit here.
 # A kind with its own producer (root ADR-0287) reads Silver the panels do not, on its own cadence: it
 # is run by its unit from its own job, never inside `kinds`.
-mapfile -t TABLES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs" <<'PY'
-import sys
+# Each line also names the job that makes the table: the job whose pipeline-graph edges end at its
+# node (job_specs.writer_of; `-` when the job list or the graph cannot be read). `all` rebuilds the
+# panels gold_panel_rebuild makes; a panel with a job of its own (gold.unit_price, root ADR-0333: one
+# job per asset) runs from that job only.
+mapfile -t TABLES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../.." <<'PY'
+import json, pathlib, sys
 sys.dont_write_bytecode = True
-sys.path.insert(0, sys.argv[1])
+root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root / "infra/lakehouse/spark/jobs"))
 import gold_rebuild
+tables = gold_rebuild.load_contract()["tables"]
+try:
+    sys.path.insert(0, str(root / "orchestration/dags"))
+    import job_specs
+    graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+    nodes = {node.get("table_name"): node["id"] for node in graph["nodes"] if node.get("table_name")}
+    jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+    writers = {name: job_specs.writer_of(nodes.get(name), jobs, graph) or "-" for name in tables}
+except Exception:  # noqa: BLE001 -- a release without them keeps the contract's own split
+    writers = {}
 print("\n".join(("panel " if "lane" not in table else "kind " if "pins_from" in table else "own ") + table["unit"]
-                for table in gold_rebuild.load_contract()["tables"].values()))
+                + " " + writers.get(name, "-") for name, table in tables.items()))
 PY
 )
-PANEL_UNITS=() KIND_UNITS=() OWN_UNITS=()
+PANEL_UNITS=() KIND_UNITS=() OWN_UNITS=() ALL_UNITS=()
+declare -A BUILDER=()
 for table in ${TABLES[@]+"${TABLES[@]}"}; do
-  case "${table}" in
-    "panel "*) PANEL_UNITS+=("${table#panel }") ;;
-    "kind "*) KIND_UNITS+=("${table#kind }") ;;
-    "own "*) OWN_UNITS+=("${table#own }") ;;
+  read -r kind unit builder <<<"${table}"
+  BUILDER["${unit}"]="${builder}"
+  case "${kind}" in
+    panel) PANEL_UNITS+=("${unit}")
+           [[ "${builder}" != gold_panel_rebuild && "${builder}" != - ]] || ALL_UNITS+=("${unit}") ;;
+    kind) KIND_UNITS+=("${unit}") ;;
+    own) OWN_UNITS+=("${unit}") ;;
   esac
 done
 UNITS=(${PANEL_UNITS[@]+"${PANEL_UNITS[@]}"} ${KIND_UNITS[@]+"${KIND_UNITS[@]}"} ${OWN_UNITS[@]+"${OWN_UNITS[@]}"})
@@ -122,14 +142,11 @@ if [[ -z "${GOLD_PANEL_REBUILD_LOCK_HELD:-}" ]]; then
 fi
 if [[ "${UNIT}" == all || "${UNIT}" == kinds ]]; then
   status=0
-  if [[ "${UNIT}" == all ]]; then RUN_UNITS=(${PANEL_UNITS[@]+"${PANEL_UNITS[@]}"}); else RUN_UNITS=(${KIND_UNITS[@]+"${KIND_UNITS[@]}"}); fi
+  if [[ "${UNIT}" == all ]]; then RUN_UNITS=(${ALL_UNITS[@]+"${ALL_UNITS[@]}"}); else RUN_UNITS=(${KIND_UNITS[@]+"${KIND_UNITS[@]}"}); fi
   # Each table that commits a snapshot names itself here; the job's last line says whether any did,
   # which is what starts the by-PNU bake (root ADR-0171).
   GOLD_PANEL_REBUILD_COMMITTED="$(mktemp)"
-  # The table whose run joined the unit prices names itself here, so a later table of this run that
-  # reads them does not start the national join again (step 0).
-  GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED="$(mktemp)"
-  export GOLD_PANEL_REBUILD_COMMITTED GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED
+  export GOLD_PANEL_REBUILD_COMMITTED
   for unit in ${RUN_UNITS[@]+"${RUN_UNITS[@]}"}; do
     [[ -n "${unit}" ]] || continue
     "${BASH_SOURCE[0]}" "${unit}" ${OPTIONS[@]+"${OPTIONS[@]}"} || { table_status=$?; ((status)) || status=${table_status}; }
@@ -139,7 +156,7 @@ if [[ "${UNIT}" == all || "${UNIT}" == kinds ]]; then
   else
     echo "foundation-job-outcome unchanged"
   fi
-  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}" "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
+  rm -f "${GOLD_PANEL_REBUILD_COMMITTED}"
   exit "${status}"
 fi
 # A table run on its own (a job's whole program, gold_public_auction_rebuild; not a table of `all`
@@ -202,29 +219,27 @@ spark() {
 
 # 0. The unit prices the building panel and the unit price history read (root ADR-0182, ADR-0190): silver.unit_official_price joins the two hub
 # tables' newest shared vintage, nationally, in one batch, unless it holds that vintage already.
-# The join belongs to this job because only this job reads it, and because the spark pool has no
-# room for another job that holds its slots (root ADR-0138). A dry run writes nothing, so it skips it.
-# Within one `all`, a table after the one whose join succeeded skips it: the join just ran.
-if [[ "${UNIT}" == building || "${UNIT}" == unit-price ]] && ((${#VALIDATE[@]} == 0)); then
-  if [[ -s "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED:-}" ]]; then
-    log "unit prices: already joined by this run's $(head -1 "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}") rebuild"
-  else
-    if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
-      grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
-      log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
-      exit 1
-    fi
-    log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
-    [[ -z "${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED:-}" ]] || echo "${UNIT}" >>"${GOLD_PANEL_REBUILD_UNIT_PRICES_JOINED}"
+# The join belongs to the building panel's run, in gold_panel_rebuild, the one job that writes
+# silver.unit_official_price (one job per asset, root ADR-0333): the unit price rebuild, its own job,
+# reads what that run joined, and is started by it. The spark pool has no room for another job that
+# holds its slots for the join (root ADR-0138). A dry run writes nothing, so it skips it.
+if [[ "${UNIT}" == building ]] && ((${#VALIDATE[@]} == 0)); then
+  if ! spark unit_official_price.py --summary-output "${container_work}/unit-official-price.json"; then
+    grep -a -E 'Error|Exception' "${work}/unit_official_price.py.log" | grep -v '^\s*at ' | tail -5 >&2 || true
+    log "FAILED: could not derive silver.unit_official_price (log ${work}/unit_official_price.py.log)"
+    exit 1
   fi
+  log "unit prices: $(python3 -I -c 'import json,sys; s=json.load(open(sys.argv[1])); print("vintage", s["vintage"], "appended" if s.get("appended") else "already held")' "${work}/unit-official-price.json")"
 fi
 
 # 1. Plan. An enabled job may not plan from a Gold's publish time (see --unconditional above); a
 # missing or unreadable job list counts as enabled.
 plan_options=()
-# The job that rebuilds this table: the panel job, or the kind job for a data kind (root ADR-0193).
+# The job that rebuilds this table: the one whose graph edges end at it, or else the panel job, or
+# the kind job for a data kind (root ADR-0193).
 job_id=gold_panel_rebuild
 [[ " ${KIND_UNITS[*]-} " != *" ${UNIT} "* ]] || job_id=gold_kind_rebuild
+[[ "${BUILDER[${UNIT}]:--}" == - ]] || job_id="${BUILDER[${UNIT}]}"
 if python3 -I - "${JOBS}" "${job_id}" <<'PY'
 import json, sys
 try:
@@ -322,3 +337,6 @@ else
   [[ -z "${GOLD_PANEL_REBUILD_COMMITTED:-}" ]] || echo "${gold_table}" >>"${GOLD_PANEL_REBUILD_COMMITTED}"
   log "committed ${gold_table}: ${rows} rows (floor ${minimum:-none}) in $((SECONDS - started))s by a ${built} rebuild; the by-PNU bake serves it on its next turn"
 fi
+# Root ADR-0333 §7: the input versions this run read, as a result line; the commit records the same
+# pins in its summary, which the asset reconciler compares with the inputs' heads.
+((${#VALIDATE[@]})) || echo "foundation-asset-read ${gold_table} $(python3 -I -c 'import json,sys; print(" ".join(f"{k}={v}" for k, v in sorted(json.load(open(sys.argv[1])).items())))' "${work}/pins.json")"

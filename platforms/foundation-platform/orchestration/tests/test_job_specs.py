@@ -1,6 +1,7 @@
 """The job list builds the DAGs the scheduler runs (root ADR-0122); these pin what it may say."""
 
 import copy
+import datetime
 import hashlib
 import json
 import os
@@ -125,6 +126,10 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
     def setUpClass(cls):
         cls.specs = job_specs.load_specs()
         cls.by_id = {spec.job_id: spec for spec in cls.specs}
+        # An event after every job was switched on: a job switched on later (enabled_since, the time
+        # its pull request merged) is owed nothing for an earlier change, which a later test pins.
+        switched_on = max(job_specs._instant(spec.enabled_since) for spec in cls.specs if spec.enabled)
+        cls.CHANGE = max(cls.EVENT, switched_on + datetime.timedelta(minutes=1))
 
     def test_the_incident_replayed(self):
         bake = self.by_id["by_pnu_public_auction_bake"]
@@ -147,7 +152,7 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
                 for dataset in set(self.by_id[producer].outputs) & set(reader.starting_inputs):
                     pairs += 1
                     with self.subTest(reader=reader.job_id, producer=producer, dataset=dataset):
-                        events = {job_specs.asset_uri(dataset): self.EVENT}
+                        events = {job_specs.asset_uri(dataset): self.CHANGE}
                         owed = job_specs.owed_by_inputs(self.specs, events, {reader.dag_id: self.LAST_RUN}, set())
                         self.assertIn(reader.job_id, owed)
         self.assertGreater(pairs, 0)
@@ -160,7 +165,7 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
         self.assertEqual(job_specs.owed_by_inputs(self.specs, events, {}, set()), ["by_pnu_public_auction_bake"])
 
     def test_its_own_output_a_scheduled_job_or_a_switched_off_one_is_owed_nothing(self):
-        everything = {job_specs.asset_uri(dataset): self.EVENT for spec in self.specs for dataset in spec.inputs}
+        everything = {job_specs.asset_uri(dataset): self.CHANGE for spec in self.specs for dataset in spec.inputs}
         runs = {spec.dag_id: self.LAST_RUN for spec in self.specs}
         owed = set(job_specs.owed_by_inputs(self.specs, everything, runs, set()))
         self.assertEqual(owed, {spec.job_id for spec in self.specs if spec.enabled and spec.started_by == "inputs"})
@@ -168,7 +173,7 @@ class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
         panel = self.by_id["gold_panel_rebuild"]
         own = set(panel.inputs) & set(panel.outputs)
         self.assertTrue(own)
-        events = {job_specs.asset_uri(dataset): self.EVENT for dataset in own}
+        events = {job_specs.asset_uri(dataset): self.CHANGE for dataset in own}
         self.assertNotIn("gold_panel_rebuild", job_specs.owed_by_inputs(self.specs, events, runs, set()))
 
 
@@ -356,15 +361,17 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # 1-slot bake run), and by what already holds the pool when its turn comes: one panel Gold
         # rebuild (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
         # The hourly Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of
-        # it once too. The public-auction bake (1 slot, 115 + 30; root ADR-0303) counts like the serving bake;
-        # the bound reads no takes_turns, so it counts though it does not take turns.
+        # it once too. The public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
+        # (1 slot, 60 + 30; root ADR-0333) count like the serving bake; the bound reads no takes_turns, so
+        # they count though they do not take turns.
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + (115 + 30))
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + (115 + 30) + (60 + 30))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
                                          "gold_panel_rebuild", "by_pnu_serving_bake", "by_pnu_public_auction_bake",
+                                         "by_pnu_unit_price_bake",
                                          "onbid_public_auction_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
@@ -694,13 +701,15 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
     def test_a_lighter_narrower_job_still_counts_every_time(self):
         # The bake (1 slot) is lighter than FLOOR but fits where FLOOR (3) does not, so Airflow may
         # start it ahead: it stays among the jobs counted ahead, as does the hourly Onbid load and
-        # the own-producer public-auction bake (1 slot, 115 + 30; root ADR-0303).
+        # the own-producer public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
+        # (1 slot, 60 + 30; root ADR-0333).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
         self.assertIn("by_pnu_serving_bake", blockers)
         self.assertIn("by_pnu_public_auction_bake", blockers)
+        self.assertIn("by_pnu_unit_price_bake", blockers)
         self.assertIn("onbid_public_auction_silver", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + (115 + 30))
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + (115 + 30) + (60 + 30))
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])

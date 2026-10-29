@@ -95,17 +95,29 @@ def added_migrations(running: Path, new: Path) -> list[str]:
 
 
 def writers(new: Path, tables: list[str], every_table: bool) -> tuple[list[str], list[str]]:
-    """(the jobs that write one of `tables`, the jobs the graph names no table for)."""
+    """(the jobs whose asset is made from one of `tables`, the jobs the graph names no table for).
+
+    A job's asset is the table it writes, or, for a job that writes no table (a by-PNU bake, whose
+    asset is a lane's packs), the tables its asset is made from: the deploy holds only the assets the
+    release changes (root ADR-0333 §5, narrowing root ADR-0308). Before, a bake was a job the graph
+    could not place and every table change held it (2026-10-28: the public-auction bake, held paused
+    by a release that changed no table it reads, missed its Gold's event 3912). The asset reconciler
+    (`reconciles`) reads catalog metadata and writes nothing, so nothing a release changes holds it.
+    """
     graph = read(new / GRAPH)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = {edge["id"]: edge for edge in graph["edges"]}
     writing, unknown = [], []
     for job in read(new / JOBS)["jobs"]:
-        written = {nodes[edges[edge]["to"]].get("table_name") for edge in job.get("pipeline_graph_edges", [])
-                   if edge in edges and edges[edge]["to"] in nodes} - {None}
-        if not written:
+        carried = [edges[edge] for edge in job.get("pipeline_graph_edges", []) if edge in edges]
+        written = {nodes[edge["to"]].get("table_name") for edge in carried if edge["to"] in nodes} - {None}
+        made_from = {nodes[edge["from"]].get("table_name") for edge in carried if edge["from"] in nodes} - {None}
+        asset = written or made_from
+        if job.get("reconciles") and not carried:
+            continue
+        if not asset:
             unknown.append(job["id"])
-        elif every_table or written & set(tables):
+        elif every_table or asset & set(tables):
             writing.append(job["id"])
     return sorted(writing), sorted(unknown)
 

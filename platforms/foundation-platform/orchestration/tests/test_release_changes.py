@@ -127,6 +127,28 @@ class ReleaseChanges(unittest.TestCase):
                                             "infra/lakehouse/spark/jobs/migrate.py changed"), lines[0])
         self.assertEqual(lines[-1], "jobs the deploy holds until the release is live: maintenance, write_a, write_b")
 
+    def test_a_job_that_writes_no_table_is_held_by_the_tables_its_asset_is_made_from(self):
+        # Root ADR-0333 §5: a by-PNU bake's asset is a lane's packs, made from one Gold. Before, the
+        # graph placed it nowhere and every table change held it: 2026-10-28 a release that changed no
+        # table the public-auction bake reads held it paused, and it missed its Gold's event 3912.
+        # The reconciler reads metadata and writes nothing: nothing a release changes holds it.
+        graph = {"nodes": [*GRAPH["nodes"], {"id": "packs-a"}, {"id": "packs-b"}],
+                 "edges": [*GRAPH["edges"], {"id": "a-to-packs", "from": "a", "to": "packs-a"},
+                           {"id": "b-to-packs", "from": "b", "to": "packs-b"}]}
+        jobs = {"jobs": [*JOBS["jobs"], {"id": "bake_a", "pipeline_graph_edges": ["a-to-packs"]},
+                         {"id": "bake_b", "pipeline_graph_edges": ["b-to-packs"]},
+                         {"id": "reconcile", "pipeline_graph_edges": [], "reconciles": ["bake_a", "bake_b"]}]}
+        for root in (self.running, self.new):
+            self.write(root, "docs/catalog/pipeline-graph.v1.json", graph)
+            self.write(root, "orchestration/jobs.v1.json", jobs)
+        changed = {**CONTRACTS, "silver.a": {"columns": [{"name": "k"}, {"name": "added"}]}}
+        self.write(self.new, "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json", {"contracts": changed})
+        self.assertEqual(self.run_script()[2:], [
+            "jobs that write them: bake_a, write_a",
+            "jobs whose writes the pipeline graph does not name: maintenance",
+            "jobs the deploy holds until the release is live: bake_a, maintenance, write_a",
+        ])
+
     def test_a_new_input_file_is_a_change_and_a_readme_is_not(self):
         (self.new / "infra/lakehouse/contracts/README.md").write_text("prose")
         self.assertEqual(self.run_script()[0], "lakehouse tables this release changes: none")

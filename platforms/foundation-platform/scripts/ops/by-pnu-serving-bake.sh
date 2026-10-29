@@ -122,13 +122,15 @@ case "${UNIT}" in
     # The verified re-base is the parcel lane's alone (root ADR-0146 §1).
     for lane in building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
       [[ -n "${lane}" ]] || continue
-      # An own-producer kind (its own Gold producer; servability resolved at Gold, root ADR-0292)
-      # bakes in its own by-PNU bake job, concurrently with this one, so `all` does not bake it
-      # (root ADR-0303). Its superseded generations are still retired below, like every lane's.
-      own_producer=""
-      [[ "${lane}" == building ]] || own_producer="$(python3 -I "$(dirname "${BASH_SOURCE[0]}")/../../infra/lakehouse/spark/jobs/by_pnu_kinds.py" "${lane}" own_producer)"
-      if [[ -n "${own_producer}" ]]; then
-        echo "by-pnu-serving-bake ${lane}: skipped: an own-producer lane bakes in its own job (root ADR-0303)"
+      # A lane whose packs another job makes (the job that carries the pipeline-graph edge into
+      # `<lane>-by-pnu-section-packs`) bakes in that job, concurrently with this one: the own-producer
+      # public-auction kind (root ADR-0303) and the unit price lane (root ADR-0333, one job per
+      # asset). `all` is by_pnu_serving_bake's program. Its superseded generations are still retired
+      # below, like every lane's. A job list that cannot be read leaves the lane here, as before.
+      baked_by=""
+      [[ "${lane}" == building ]] || baked_by="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/../../orchestration/dags/job_specs.py" --writer "${lane}-by-pnu-section-packs")" || baked_by=""
+      if [[ -n "${baked_by}" && "${baked_by}" != by_pnu_serving_bake ]]; then
+        echo "by-pnu-serving-bake ${lane}: skipped: the lane bakes in its own job ${baked_by} (root ADR-0303, ADR-0333)"
         continue
       fi
       # A lane whose documents follow another's (contract documents_follow_lane, root ADR-0190) is
@@ -276,12 +278,16 @@ if ! flock -n 9; then
 fi
 # A lane run on its own (not a lane of `all`, which decides the run's outcome above) ends with the
 # outcome line itself, whichever way it exits (root ADR-0260: a run without one is failed).
+OWN_RUN=false LANE_WAITING=""
 if [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]]; then
+  OWN_RUN=true
   BY_PNU_BAKE_PUBLISHED="$(mktemp)"
   lane_outcome() {
     local code=$?
     if ((code)); then
       echo "foundation-job-outcome failed the ${UNIT} lane exited ${code}"
+    elif [[ -n "${LANE_WAITING}" ]]; then
+      echo "foundation-job-outcome waiting ${LANE_WAITING}"
     elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
       echo "foundation-job-outcome changed"
     else
@@ -291,6 +297,26 @@ if [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]]; then
   }
   trap lane_outcome EXIT
 fi
+# Root ADR-0333 §7: every run that leaves the lane serving a Gold snapshot records which one it read,
+# appended to the lane's reads.jsonl (never rewritten) and as a result line. The manifest is the
+# commit record; this is the asset reconciler's cheap view of it (scripts/ops/asset_reconcile.py),
+# which starts the lane again when its Gold moves past it. A run waiting for the lane its documents
+# follow records what it waits for, so the reconciler starts it again once that lane moves.
+# record_read <served snapshot> [<gold snapshot it waits to bake> <followed lane> <followed snapshot>]
+record_read() {
+  python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "$@" <<'PY'
+import datetime, json, sys
+path, lane, served, *waiting = sys.argv[1:]
+record = {"at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "lane": lane,
+          "read_snapshot_id": served, "outcome": "waiting" if waiting else "served"}
+if waiting:
+    record["gold_snapshot_id"], follows, followed = waiting
+    record["waiting_on"] = {"lane": follows, "read_snapshot_id": followed}
+with open(path, "a", encoding="utf-8") as reads:
+    reads.write(json.dumps(record, sort_keys=True) + "\n")
+PY
+  echo "foundation-asset-read ${UNIT} gold=$1"
+}
 
 # 1. What is there to do?
 state="${STATE_ROOT}/state.json"
@@ -384,6 +410,7 @@ if [[ "${gold}" == "${reflected}" ]]; then
   else
     log "nothing to do: the served state (generation ${base}, ${patch_count} patches) already reflects Gold snapshot ${gold}"
   fi
+  record_read "${reflected}"
   exit 0
 fi
 
@@ -417,6 +444,31 @@ if (earlier and earlier.get("mode", "full") == "full" and not earlier.get("refus
 PY
 )"
 [[ -z "${pinned}" ]] || gold="${pinned}"
+
+# A lane whose documents follow another's, baked by its own job (root ADR-0333: the unit price lane
+# follows the building lane, root ADR-0190), bakes a Gold snapshot only once the followed lane serves
+# one built from the same pinned inputs (scripts/ops/lane_follow_gate.py); otherwise it waits, and
+# the asset reconciler starts it again when the followed lane moves. Inside `all` the lanes run in
+# order and a lane is not baked in a run where the one it follows failed (above), so this is not asked.
+if [[ "${OWN_RUN}" == true && "${UNIT}" != parcel && "${UNIT}" != building ]]; then
+  follows="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/lane_follow_gate.py" "${UNIT}" --follows)" \
+    || { log "refused: cannot read which lane the ${UNIT} lane's documents follow"; exit 65; }
+  if [[ -n "${follows}" ]]; then
+    followed_state="${STATE_ROOT}/follows-${follows}.json"
+    rm -f "${followed_state}"
+    FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${followed_state}" \
+      "${PUBLISHER_BIN}" "show-${follows}-by-pnu-serving-state"
+    gate="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/lane_follow_gate.py" "${UNIT}" "${gold}" "${followed_state}")" \
+      || { log "refused: cannot tell whether the ${follows} lane serves what Gold snapshot ${gold} was built from"; exit 65; }
+    if [[ "${gate}" == waiting* ]]; then
+      read -r _ followed_snapshot gate_reason <<<"${gate}"
+      log "waiting: ${gate_reason}; baked once the ${follows} lane serves it"
+      record_read "${reflected}" "${gold}" "${follows}" "${followed_snapshot}"
+      LANE_WAITING="the ${follows} lane it follows does not serve what Gold snapshot ${gold} was built from"
+      exit 0
+    fi
+  fi
+fi
 
 # Every choice and count of this run, for the run summary.
 declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}" [gold_now_iceberg_snapshot_id]="${gold_now}"
@@ -647,6 +699,7 @@ if [[ "${mode}" == reflect ]]; then
   summary[published]=reflect
   write_summary
   [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]] || echo "${UNIT}" >>"${BY_PNU_BAKE_PUBLISHED}"
+  record_read "${gold}"
   log "published: the served ${LANE_SERVES} now reflect Gold snapshot ${gold}; nothing was baked"
   exit 0
 fi
@@ -854,6 +907,7 @@ rm -f "${progress}"
 summary[published]="${mode}" summary[documents]="${expected}" summary[tombstones]="${tombstones}"
 write_summary
 [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]] || echo "${UNIT}" >>"${BY_PNU_BAKE_PUBLISHED}"
+record_read "${gold}"
 # The shard summaries list every object or pack (hundreds of MB for a national object run). Keep
 # their counts.
 python3 -I - "${summary_dir}" <<'PY'
