@@ -462,7 +462,12 @@ async fn contiguous_zip_keeps_full_input_jsonl_bytes_and_sha() -> anyhow::Result
             actual_proposal.len(),
             format!("{:x}", Sha256::digest(&actual_proposal)),
         ),
-        (2585, "pending".to_owned(), 0, "pending".to_owned(),)
+        (
+            2585,
+            "053520ad322fdc195f346fd037d803614d315fbe03e4e77130e0d89acc7914d9".to_owned(),
+            3827,
+            "ddbc336ac456a18f87e2252c11c361094281ce0b6c578928eaa8a47107c7b850".to_owned(),
+        )
     );
     Ok(())
 }
