@@ -163,6 +163,10 @@ pub(crate) enum Selection {
 }
 
 impl Selection {
+    pub(crate) fn is_empty(&self) -> bool {
+        matches!(self, Self::Some { affected, .. } if affected.is_empty())
+    }
+
     pub(crate) fn verifies(&self, package: &str) -> bool {
         match self {
             Self::All => true,

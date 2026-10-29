@@ -31,7 +31,9 @@ use serde::Serialize;
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
 use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_manifest::ServedManifest;
-use crate::by_pnu_serving_manifest_publish::{document_schema_version, gold_table};
+use crate::by_pnu_serving_manifest_publish::{
+    document_schema_version, gold_table, readable_document_schema_versions,
+};
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
 use crate::public_data_control_support::{optional_env_value, required_env_value};
@@ -50,6 +52,9 @@ pub struct LaneState {
     gold_iceberg_snapshot_id: Option<String>,
     /// The document schema the export bakes now.
     document_schema_version: &'static str,
+    /// The document schemas a served state may hold for this release to patch over it: the one
+    /// it bakes, then the earlier versions that one only adds optional fields to (root ADR-0320).
+    readable_document_schema_versions: Vec<&'static str>,
     published: PublishedState,
     /// Every generation with at least one object, ascending; includes the published base.
     generations_with_objects: Vec<u64>,
@@ -64,7 +69,12 @@ pub struct LaneState {
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct PackLaneState {
     reflected_gold_iceberg_snapshot_id: String,
+    /// The document schema the base generation was baked under.
     document_schema_version: String,
+    /// The schema of the newest documents served: the newest patch's, else the base's.
+    newest_document_schema_version: String,
+    /// Every schema an answer may be stamped with: the base's and every listed patch's.
+    served_document_schema_versions: Vec<String>,
     document_count: u64,
     newest_patch: u64,
     /// The most patches any one section reads (its live patches).
@@ -208,6 +218,7 @@ pub async fn read_state(
         gold_table: gold_table(lane),
         gold_iceberg_snapshot_id,
         document_schema_version: document_schema_version(lane),
+        readable_document_schema_versions: readable_document_schema_versions(lane),
         published: PublishedState {
             manifest_schema_version: manifest.wire_schema_version,
             base_generation: manifest.base_generation,
@@ -259,6 +270,12 @@ async fn pack_lane_state(
     Ok(PackLaneState {
         reflected_gold_iceberg_snapshot_id: packs.reflected_gold_iceberg_snapshot_id.clone(),
         document_schema_version: packs.document_schema_version.clone(),
+        newest_document_schema_version: packs.newest_document_schema_version().to_owned(),
+        served_document_schema_versions: packs
+            .served_document_schema_versions()
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
         document_count: packs.document_count,
         newest_patch: packs.newest_patch(),
         max_live_patches: packs
@@ -390,6 +407,10 @@ mod tests {
             value["document_schema_version"],
             document_schema_version(lane)
         );
+        assert_eq!(
+            value["readable_document_schema_versions"][0],
+            document_schema_version(lane)
+        );
         assert!(
             value["section_packs"].is_null(),
             "an object lane reports no packs"
@@ -406,8 +427,11 @@ mod tests {
         let mut packs = crate::by_pnu_section_pack_manifest::tests::state(2)?;
         packs.sections[0].generation = 3;
         packs.sections[0].patch_floor = 4;
+        // Patch 5 expanded the base's documents to a later version (root ADR-0320).
+        let mut expanding = crate::by_pnu_section_pack_manifest::tests::patch(5, &["9999900000"]);
+        expanding.document_schema_version = Some("doc.v3".to_owned());
         packs.patches = vec![
-            crate::by_pnu_section_pack_manifest::tests::patch(5, &["9999900000"]),
+            expanding,
             crate::by_pnu_section_pack_manifest::tests::patch(4, &["9999900000"]),
         ];
         let manifest = serde_json::json!({
@@ -447,6 +471,12 @@ mod tests {
         assert_eq!(value["sections"][0]["generation"], 3);
         assert_eq!(value["generations_with_packs"], serde_json::json!([2]));
         assert_eq!(value["patches_with_packs"], serde_json::json!([7]));
+        assert_eq!(value["document_schema_version"], "doc.v2");
+        assert_eq!(value["newest_document_schema_version"], "doc.v3");
+        assert_eq!(
+            value["served_document_schema_versions"],
+            serde_json::json!(["doc.v2", "doc.v3"])
+        );
         Ok(())
     }
 }

@@ -37,6 +37,10 @@ last_reviewed: 2026-10-05
 
 ```text
 legal_dong_code_changes (05:15, default_pool)
+  0. collect-code-go-kr-legal-dong (probe)     변경기간 검색: 고정된 창(since~9999-12-31)에 생성·폐지된 코드만
+     probe                                     (약 70 KB, root ADR-0322 §2). 직전 전체 실행이 고정한 행과 같고
+                                               전체 대조(full_reconcile_days, 7일)가 밀리지 않았으면 checked_at_utc 만
+                                               남기고 끝난다(unchanged, confirmed_by=probe). 아니면 아래로
   1. collect-code-go-kr-legal-dong (dry run)   전체 표를 받기만 한다 (요청 둘: 양식 화면, 표)
   2. check                                     형식·표 크기 검사, 행이 accepted.json 의 표와 같은지
                                                통과하면 어느 쪽이든 accepted.json 의 checked_at_utc 를 남긴다
@@ -231,7 +235,8 @@ sudo systemd-run --wait --pipe --collect -p User=foundation-platform -p Group=fo
 | 어디서 | 문구 | 뜻 | 할 일 |
 | --- | --- | --- | --- |
 | 수집 | `returned HTTP …`, `answered with an empty body` | 사이트가 응답하지 않았다 | 다음 날 다시 받는다. 이틀 넘으면 사이트를 확인한다 |
-| 수집 | `columns changed`, `no table headed` | 사이트 화면 형식이 바뀌었다 | 아무것도 적재되지 않았다. 받은 원본은 그 실행의 `runs/<id>/fetch/` 에 있다(검사 전이라 Bronze 에는 없다). 계약의 머리글을 새 형식에 맞추는 PR 을 낸다 |
+| 수집 | `columns changed`, `no table headed` | 사이트 화면 형식이 바뀌었다 | 아무것도 적재되지 않았다. 받은 원본은 그 실행의 `runs/<id>/fetch/`(물어보기는 `runs/<id>/probe/`)에 있다(검사 전이라 Bronze 에는 없다). 계약의 머리글을 새 형식에 맞추는 PR 을 낸다 |
+| 수집 | journal 에 `"reason": "the site lists other changes"` 가 매일 | 물어보기 창의 행이 고정된 행과 다르다 → 그날은 전체 표를 받았다 | 정상(표가 바뀐 날). 표가 그대로인데 매일이면 사이트의 변경기간 결과가 흔들리는 것이다: 전체 표는 그대로 받으므로 빠지는 것은 없고 아낌만 없다. 계약 `changed_since_probe` 를 확인한다 |
 | 수집 | `TableShrunk` | 전체 표가 직전보다 계약의 한계(1%) 넘게 줄었다 | 깨진 응답이다. 아무것도 넘기지 않았다. 다음 날 다시 받는다 |
 | 계보 단위 0a | `TableShrunk`, `SourceFormatError` | 표 스냅숏과 비교해 거부 | 넘김은 `pending/` 에 남는다. 원인을 고친 뒤 단위를 다시 돌린다 |
 | 계보 단위 0a | `would be dropped without a word` | 적재 대장이 새 행의 적재 단위를 이미 안다고 했다 | 실행 id 가 겹쳤다는 뜻이다. 행은 쓰지 않았다. 같은 초에 두 실행이 돌았는지 본다 |

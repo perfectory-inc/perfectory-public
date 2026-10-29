@@ -270,6 +270,28 @@ pub fn join(lane: ByPnuLane, schema: &str, fragments: &[(&str, &[u8])]) -> anyho
     }
 }
 
+/// [`join`] under any of `schemas`: a served state holds documents of the version its base was
+/// baked under and of every version a patch over it expanded that to (root ADR-0320).
+///
+/// # Errors
+/// Refuses what [`join`] refuses under every one of `schemas`, naming the first refusal.
+pub fn join_any(
+    lane: ByPnuLane,
+    schemas: &[&str],
+    fragments: &[(&str, &[u8])],
+) -> anyhow::Result<()> {
+    let mut refused = None;
+    for schema in schemas {
+        match join(lane, schema, fragments) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                refused.get_or_insert(error);
+            }
+        }
+    }
+    Err(refused.unwrap_or_else(|| anyhow::anyhow!("no document schema to hold the fragments to")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,6 +396,31 @@ mod tests {
             ByPnuLane::Building,
             schema_of(ByPnuLane::Building),
             &[(DOCUMENTS, older.bytes.as_slice())]
+        )
+        .is_err());
+        // A state whose patch expanded v2 to this release's version answers both (root ADR-0320).
+        let newer = pack_document(&building)?;
+        let served = [
+            stamped.schema_version.as_str(),
+            schema_of(ByPnuLane::Building),
+        ];
+        for bytes in [&older.bytes, &newer.bytes] {
+            join_any(
+                ByPnuLane::Building,
+                &served,
+                &[(DOCUMENTS, bytes.as_slice())],
+            )?;
+        }
+        assert!(join_any(
+            ByPnuLane::Building,
+            &served[1..],
+            &[(DOCUMENTS, older.bytes.as_slice())]
+        )
+        .is_err());
+        assert!(join_any(
+            ByPnuLane::Building,
+            &[],
+            &[(DOCUMENTS, newer.bytes.as_slice())]
         )
         .is_err());
         Ok(())

@@ -18,7 +18,9 @@ use crate::building_by_pnu_serving_export::building_document::{
     BuildingByPnuDocument, BuildingByPnuPage, BUILDING_PAGE_SCHEMA_VERSION,
 };
 use crate::by_pnu_gateway_contract::{ByPnuLane, PackLane};
-use crate::by_pnu_serving_manifest_publish::document_schema_version;
+use crate::by_pnu_serving_manifest_publish::{
+    document_schema_version, readable_document_schema_versions,
+};
 use crate::pack_lane_document::{fields, Source};
 use crate::parcel_by_pnu_serving_export::parcel_document::ParcelByPnuDocument;
 
@@ -180,15 +182,11 @@ fn render(shape: &Shape) -> String {
     format!("[\n{}\n]\n", lines.join(",\n"))
 }
 
-/// Holds `shape` to the record of `version`, leaving the subtrees of `held` to their own tests.
-fn check(version: &str, shape: &Shape, held: &[String]) -> anyhow::Result<()> {
+/// The fields `version`'s record holds; `None` when it has no record.
+fn recorded(version: &str) -> anyhow::Result<Option<Shape>> {
     let path = records().join(format!("{version}.json"));
     let Ok(text) = std::fs::read_to_string(&path) else {
-        bail!(
-            "{version} has no record {}; commit it as:\n{}",
-            path.display(),
-            render(shape)
-        );
+        return Ok(None);
     };
     let entries: Vec<Value> =
         serde_json::from_str(&text).with_context(|| format!("{} is not JSON", path.display()))?;
@@ -206,6 +204,19 @@ fn check(version: &str, shape: &Shape, held: &[String]) -> anyhow::Result<()> {
             path.display()
         );
     }
+    Ok(Some(recorded))
+}
+
+/// Holds `shape` to the record of `version`, leaving the subtrees of `held` to their own tests.
+fn check(version: &str, shape: &Shape, held: &[String]) -> anyhow::Result<()> {
+    let path = records().join(format!("{version}.json"));
+    let Some(recorded) = recorded(version)? else {
+        bail!(
+            "{version} has no record {}; commit it as:\n{}",
+            path.display(),
+            render(shape)
+        );
+    };
     let mut expected = shape.clone();
     for (field, required) in &recorded {
         if held.iter().any(|held| is_under(field, held)) {
@@ -256,6 +267,118 @@ fn newest(version: &str) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+/// Why a reader of `new` cannot read every `old` document as one of its own (root ADR-0320); empty
+/// when `new` expands `old`. An `old` document has no field `new` added, so an added field must be
+/// optional, or lie under an added optional field (a new optional object may require its parts);
+/// every `old` field stays, and none becomes required. The records hold paths and requiredness
+/// only: a field that keeps its path but changes its type is a new version that expands nothing.
+fn expansion_violations(old: &Shape, new: &Shape) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (path, was_required) in old {
+        match new.get(path) {
+            None => violations.push(format!("{path} is gone")),
+            Some(true) if !was_required => violations.push(format!("{path} became required")),
+            Some(_) => {}
+        }
+    }
+    let added_optional = |field: &str| !old.contains_key(field) && new.get(field) == Some(&false);
+    for (path, required) in new {
+        if old.contains_key(path) || !required {
+            continue;
+        }
+        let under_added_optional = path
+            .match_indices('.')
+            .map(|(at, _)| path[..at].trim_end_matches("[]"))
+            .any(added_optional);
+        if !under_added_optional {
+            violations.push(format!("{path} is added as required"));
+        }
+    }
+    violations
+}
+
+/// Every version a lane declares its current one expands has a record, and the current record
+/// only adds optional fields to it (root ADR-0320): the bake then patches a served base of that
+/// version instead of rebaking every document, and the documents of it stay served beside the new.
+#[test]
+fn every_declared_expansion_only_adds_optional_fields() -> anyhow::Result<()> {
+    let mut failures = Vec::new();
+    for lane in ByPnuLane::all()? {
+        let current = document_schema_version(lane);
+        let readable = readable_document_schema_versions(lane);
+        ensure!(
+            readable.first() == Some(&current),
+            "{}: the readable versions start with the baked one",
+            lane.name()
+        );
+        let Some(new) = recorded(current)? else {
+            failures.push(format!("{}: {current} has no record", lane.name()));
+            continue;
+        };
+        for earlier in &readable[1..] {
+            match recorded(earlier)? {
+                None => failures.push(format!(
+                    "{}: {current} expands {earlier}, which has no record",
+                    lane.name()
+                )),
+                Some(old) => {
+                    let violations = expansion_violations(&old, &new);
+                    if !violations.is_empty() {
+                        failures.push(format!(
+                            "{}: {current} does not expand {earlier}: {violations:?}",
+                            lane.name()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    ensure!(
+        failures.is_empty(),
+        "{}\n\nA version may expand an earlier one only by adding optional fields; any other \
+         change is a new version that expands nothing, and its first bake is a whole generation",
+        failures.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn an_expansion_adds_only_optional_fields() {
+    let shape = |fields: &[(&str, bool)]| -> Shape {
+        fields
+            .iter()
+            .map(|(path, required)| ((*path).to_owned(), *required))
+            .collect()
+    };
+    let old = shape(&[("pnu", true), ("price", false), ("price.amount", true)]);
+    // A new optional object may require its parts; an optional field anywhere is an expansion.
+    let new = shape(&[
+        ("pnu", true),
+        ("price", false),
+        ("price.amount", true),
+        ("price.note", false),
+        ("legal_dong", false),
+        ("legal_dong.name", true),
+        ("rounds", false),
+        ("rounds[].photos", false),
+        ("rounds[].photos[].sha256", true),
+    ]);
+    assert!(expansion_violations(&old, &new).is_empty());
+    // A field gone, a field made required, a required field added outside a new optional one.
+    let mut narrowed = new.clone();
+    narrowed.remove("price.amount");
+    narrowed.insert("price".to_owned(), true);
+    narrowed.insert("price.currency".to_owned(), true);
+    assert_eq!(
+        expansion_violations(&old, &narrowed),
+        [
+            "price became required",
+            "price.amount is gone",
+            "price.currency is added as required"
+        ]
+    );
 }
 
 #[test]

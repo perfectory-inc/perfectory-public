@@ -13,40 +13,10 @@ on:
   # main verifies every crate, as the merge queue does.
   schedule:
     - cron: "41 17 * * *"
+  # A push to main the merge queue already passed on the same tree does nothing (root ADR-0313).
   push:
     branches:
       - main
-    paths:
-      - "platforms/foundation-platform/**"
-      - "scripts/deploy/**"
-      - "scripts/tiles/**"
-      - "scripts/verify/integration.sh"
-      - "tools/xtask/src/live.rs"
-      - "scripts/verify/foundation-spark-runtime.sh"
-      - "scripts/verify/foundation-spark-runtime-files.sh"
-      - "scripts/ci/test_foundation_spark_runtime_files.py"
-      - "scripts/ci/foundation_postgres_production_shape.py"
-      - "scripts/ci/test_foundation_postgres_production_shape.py"
-      - "tools/xtask/src/ci.rs"
-      - "scripts/guard/foundation-kafka-contract.sh"
-      - "**/Cargo.lock"
-      - "**/pnpm-lock.yaml"
-      - "platforms/intelligence-platform/docker/c2-event-backbone.compose.yml"
-      - "docs/technology-stack.md"
-      - "docs/adr/**"
-      # `administrative_boundary_contract` asserts on these two documents, so a
-      # change to either must rerun the test that guards it.
-      # `area-ci-input-coverage` derives this requirement from the sources.
-      - "docs/architecture/**"
-      - ".github/workflows/foundation-ci.yml"
-      # The tile-contract guard reads the frontend workflow's inputs here (root ADR-0202).
-      - "tools/ci/change-scope.json"
-      # Shared verification SSOT (ADR-0004): xtask / the cargo alias / the
-      # toolchain pin change how THIS area is verified, so they must retrigger it.
-      # monorepo-guard `xtask-path-coverage` enforces this for every area CI.
-      - "tools/xtask/**"
-      - ".cargo/config.toml"
-      - "rust-toolchain.toml"
 permissions:
   contents: read
 
@@ -70,7 +40,34 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_R2_SECRET_ACCESS_KEY }}
 
 jobs:
+  # Root ADR-0202: whether this workflow's area changed (tools/ci/change-scope.json). An untouched
+  # area skips every job below and required/foundation still reports success. On a push to main
+  # the token reads whether the merge queue already passed this tree (root ADR-0313).
+  scope:
+    name: Change scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      affected: ${{ steps.select.outputs.affected }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - name: Select
+        id: select
+        working-directory: .
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: python3 scripts/ci/change_scope.py select --workflow foundation-ci.yml
+
   rust-quality:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Rust fmt, unit tests, clippy
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -135,10 +132,23 @@ jobs:
       # Foundation-specific: the committed Catalog OpenAPI artifact must match a
       # fresh export (this builds+runs export-catalog-openapi, which compiles what
       # it needs — the standalone build step is redundant with xtask clippy below).
+      # Only when foundation-api is among the crates verified (root ADR-0313): the export compiles it,
+      # and a pull request that reaches no crate compiled it anyway.
       - name: Verify generated Catalog OpenAPI artifact
         shell: bash
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
         run: |
           set -euo pipefail
+          selected=0
+          python3 ../../scripts/ci/change_scope.py crates --workspace platforms/foundation-platform \
+            --includes foundation-api || selected=$?
+          if [ "$selected" -eq 3 ]; then
+            exit 0
+          fi
+          [ "$selected" -eq 0 ] || exit "$selected"
           cargo run --locked --quiet -p foundation-api --bin export-catalog-openapi -- /tmp/catalog.v1.json
           cmp docs/openapi/catalog.v1.json /tmp/catalog.v1.json
 
@@ -185,6 +195,8 @@ jobs:
 
 
   suites:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Python and Node suites
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -287,6 +299,8 @@ jobs:
           key: node-cache-foundation-${{ runner.os }}-pnpm-${{ hashFiles('platforms/foundation-platform/services/*-gateway/pnpm-lock.yaml') }}
 
   static-release-toolchain-windows:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Static-release executable toolchain (Windows)
     runs-on: windows-2022
     timeout-minutes: 20
@@ -368,6 +382,8 @@ jobs:
           cargo run --locked -p foundation-outbox-publisher -- verify-static-release-toolchain
 
   supply-chain:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Supply-chain release gates
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -438,6 +454,8 @@ jobs:
           if-no-files-found: warn
 
   postgres-integration:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Postgres integration tests
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -465,6 +483,12 @@ jobs:
           filter: blob:none
           persist-credentials: false
 
+      # The production-shape gate's own tests run whatever the crate selection: a change to the gate
+      # alone reaches no crate, and the gate below then does not run (root ADR-0313).
+      - name: Verify the production-shape gate
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/ci/test_foundation_postgres_production_shape.py
+
       - name: Set dynamic database URL
         env:
           POSTGRES_PORT: ${{ job.services.postgres.ports['5432'] }}
@@ -474,7 +498,26 @@ jobs:
         working-directory: ${{ github.workspace }}
         shell: bash
         run: bash scripts/ci/rust-setup.sh
+      # Root ADR-0313: a change that reaches no crate needs no database, no apt and no compile. On
+      # #870 (one ADR) this job spent 4m07s on apt-get and 18 s on a migration build for 0 tests.
+      - name: Select crates
+        working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+        run: |
+          set -euo pipefail
+          answer="$(python3 scripts/ci/change_scope.py crates --workspace platforms/foundation-platform)"
+          echo "$answer"
+          if [ "${answer%%[[:space:]]*}" = all ] || grep -q '^affected[[:space:]]' <<<"$answer"; then
+            echo "FOUNDATION_CI_GATE_SELECTED=true" >>"$GITHUB_ENV"
+          else
+            echo "FOUNDATION_CI_GATE_SELECTED=false" >>"$GITHUB_ENV"
+          fi
       - name: Rust cache
+        if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1 (SHA pin, ADR 0028)
         with:
           workspaces: |
@@ -489,6 +532,10 @@ jobs:
       - name: Install database client
         shell: bash
         run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "No Foundation crate is verified; the database client is not needed."
+            exit 0
+          fi
           set -euo pipefail
           if ! command -v psql >/dev/null 2>&1; then
             if command -v sudo >/dev/null 2>&1 && sudo -n true; then
@@ -508,13 +555,28 @@ jobs:
         shell: bash
         env:
           SHAPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        run: cargo xtask ci postgres-production-shape "$DATABASE_URL" "$SHAPE_BASE"
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "No Foundation crate is verified; no migration runs."
+            exit 0
+          fi
+          cargo xtask ci postgres-production-shape "$DATABASE_URL" "$SHAPE_BASE"
 
       - name: Run migrations through the production runner
-        run: FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "No Foundation crate is verified; the migration runner is not built."
+            exit 0
+          fi
+          FOUNDATION_MIGRATOR_DATABASE_URL="$DATABASE_URL" cargo run --locked --quiet -p foundation-api --bin foundation-migrate
 
       - name: Seed local vector tile manifest
-        run: psql "$DATABASE_URL" -f infra/db/seeds/local_vector_tile_manifest.sql
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "No Foundation crate is verified; nothing is seeded."
+            exit 0
+          fi
+          psql "$DATABASE_URL" -f infra/db/seeds/local_vector_tile_manifest.sql
 
       # The integration test COMMAND is the single SSOT in xtask (ADR-0004), the
       # same one `scripts/verify/integration.sh foundation` runs locally against a
@@ -527,9 +589,16 @@ jobs:
           CHANGE_SCOPE_EVENT: ${{ github.event_name }}
           CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
-        run: cargo xtask integration foundation --affected
+        run: |
+          if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
+            echo "No Foundation crate is verified; no integration test runs."
+            exit 0
+          fi
+          cargo xtask integration foundation --affected
 
   kafka-integration:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Kafka and Schema Registry integration tests
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -672,6 +741,8 @@ jobs:
           exit "$cleanup_status"
 
   compose-smoke:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Independent Foundation Compose smoke
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -784,6 +855,8 @@ jobs:
           timeout --foreground 120s docker compose down -v --remove-orphans
 
   boundary-slice:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Boundary vertical slice
     runs-on: ubuntu-24.04
     # The slice compiles the publisher from source inside a pinned container before it can publish,
@@ -842,6 +915,8 @@ jobs:
           bash scripts/tiles/boundary-slice-proof.sh
 
   spark-runtime:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' }}
     name: Spark and Iceberg runtime tests
     runs-on: ubuntu-24.04
     # Pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file,
@@ -885,7 +960,7 @@ jobs:
   required:
     name: required/foundation
     if: ${{ always() }}
-    needs: [rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]
+    needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -894,6 +969,8 @@ jobs:
           persist-credentials: false
       - name: Require every Foundation gate
         env:
+          CHANGE_SCOPE_RUN: ${{ needs.scope.outputs.affected }}
+          REQUIRED_RESULT_SCOPE: ${{ needs.scope.result }}
           REQUIRED_RESULT_RUST_QUALITY: ${{ needs.rust-quality.result }}
           REQUIRED_RESULT_SUITES: ${{ needs.suites.result }}
           REQUIRED_RESULT_STATIC_RELEASE_TOOLCHAIN_WINDOWS: ${{ needs.static-release-toolchain-windows.result }}

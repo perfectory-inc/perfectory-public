@@ -107,13 +107,17 @@ jobs:
         run: |
           python3 scripts/ci/test_actions_cache_budget.py -v
           python3 scripts/ci/actions_cache_budget.py check
-      # Root ADR-0207: on a pull request the runner keeps the guards whose inputs
-      # changed (tools/ci/change-scope.json `guards`); every other event runs them all.
+      # Root ADR-0207: on a pull request and in the merge queue (root ADR-0313) the runner keeps the
+      # guards whose inputs changed (tools/ci/change-scope.json `guards`); a push to main the queue
+      # already passed on the same tree runs none (the token reads the queue's runs); every other
+      # event runs them all. This is the one run of the guards per CI run: an area's `verify` no
+      # longer runs them.
       - name: Repository guard and harness verification
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           CHANGE_SCOPE_EVENT: ${{ github.event_name }}
-          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha }}
-          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.sha }}
         run: cargo xtask verify tooling
       # Root ADR-0202: the scope selector's unit suite plants every refused shape
       # and its last test checks the repository's workflows against
