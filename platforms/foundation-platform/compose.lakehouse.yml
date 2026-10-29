@@ -36,6 +36,13 @@ services:
         bind:
           create_host_path: false
       - ./infra/lakehouse/trino/config.properties:/etc/trino/config.properties:ro
+      # The image's jvm.config with one change (root ADR-0343 §2): its InitialRAMPercentage=80 made
+      # the heap's floor equal its ceiling, so Trino held 12.9GiB of the 16g cap while idle (10.4GB
+      # committed, 2.7GB used, 2026-10-29). The floor is 10% (1.6GB) and G1 returns unused heap
+      # after a minute without a collection (G1PeriodicGCInterval, JEP 346); the ceiling (80%,
+      # 12.8GB) and the query limits in config.properties are unchanged. No comments in the file:
+      # the launcher reads every line as a JVM option.
+      - ./infra/lakehouse/trino/jvm.config:/etc/trino/jvm.config:ro
 
   lakehouse-target-init:
     logging: *log-cap
