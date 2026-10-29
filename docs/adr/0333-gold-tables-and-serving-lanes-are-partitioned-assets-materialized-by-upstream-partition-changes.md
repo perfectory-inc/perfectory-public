@@ -1,6 +1,6 @@
 # ADR 0333: Gold 표와 서빙 레인은 파티션된 자산이고, 상류 파티션의 변경이 그 파티션만 만든다
 
-- Status: Proposed
+- Status: Accepted (2026-10-29, 소유자 지시; 첫 조각과 함께)
 - Date: 2026-10-29
 - Builds on: [ADR-0118](./0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md)(Airflow, Dagster 재검토 조건), [ADR-0122](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)·[ADR-0270](./0270-server-jobs-come-from-one-spec-and-run-through-one-runner.md)(한 spec·한 실행기), [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)(풀·메모리 조합), [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)(작업 단위 Airflow 자산), [ADR-0303](./0303-each-by-pnu-lane-is-its-own-schedule-pipeline.md)(레인별 굽기), [ADR-0305](./0305-a-check-that-found-no-work-is-that-jobs-turn.md)(`takes_turns`), [ADR-0312](./0312-gold-commits-record-their-changed-pnus-and-every-rebuild-is-partial-or-says-why.md)(바뀐 PNU 기록), [ADR-0314](./0314-partial-processing-is-the-default-and-full-is-a-contract-exception.md)(부분이 기본), [ADR-0308](./0308-the-deploy-stops-only-the-jobs-its-release-holds-and-skips-a-step-whose-inputs-did-not-change.md)(배포는 잡는 작업만)
 - 관련 사건: 2026-10-23~28 — `all` 굽기가 레인 10개를 차례로 돌아 20시간짜리 필지 레인이 공매를 며칠 막았다(ADR-0303 이 공매만 떼어 냄). 2026-10-28 패널 재생성 하나가 parcel → building → unit_price 를 160분 한 상한 안에 묶어 두 번 시간 초과, unit_price 가 잘렸다(#923, ADR-0326). 같은 날 by-PNU 굽기가 14시간 37분 돌다 신호로 끝났다. 배포 0단계는 작업을 최대 5시간 기다렸다(#908). `takes_turns` 가 할 일 없는 레인 뒤에 굽기를 영원히 미뤘다(ADR-0305). 2026-10-28 21:38 UTC `gold_public_auction_rebuild` 가 끝나고 자산 이벤트 3912 를 냈으나 `by_pnu_public_auction_bake` 실행은 한 번도 큐에 들어가지 않았다 — 데이터는 다음 날 10:45 대체 시각까지 약 13시간 기다린다(별도 최소 수정 진행 중).
@@ -144,3 +144,40 @@
 - 파티션 키를 결과 줄·Gold 커밋 기록·manifest 패치가 같은 이름으로 써야 한다 — 이름은 그래프의 `partitions` 하나에서
   온다.
 - 전량 처리(ADR-0314 `full`)는 "모든 파티션 실행"으로 표현되며, 선언·비용·추적 규칙은 그대로다.
+
+## 이행 기록
+
+### 2026-10-29 — 1단계(첫 조각) 와 엔진 시험 (a)~(e)
+
+1단계를 구현했다(아래). 결정 문장은 바꾸지 않았다.
+
+- **자산 분리.** `gold_unit_price_rebuild`(`gold-panel-rebuild.sh unit-price`, spark 3슬롯, 상한 80분 = 측정 최장 3,612초의
+  약 1.3배, `scope: changed-keys`)와 `by_pnu_unit_price_bake`(`by-pnu-serving-bake.sh unit-price`, 1슬롯,
+  `MemoryMax=3G`, 상한 60분)가 각자 작업·유닛이다. `all` 은 그래프에서 자기 작업이 만드는 표·레인만 돈다
+  (`job_specs.writer_of`). 단가 레인의 "건물 레인 뒤에서만" 규칙은 한 실행 안의 순서가 아니라 상태가 되었다:
+  건물 레인이 서빙하는 건물 Gold 와 단가 Gold 가 같은 표제부·전유부 판으로 만들어졌을 때만 굽고, 아니면 `waiting`
+  (`scripts/ops/lane_follow_gate.py`). 그래프에 `gold-building-panel-to-gold-unit-price-panel` 간선(pins_from)을 더했다.
+  호스트 메모리 최악 조합은 61.02g/62g 그대로다.
+- **읽은 판 기록.** Gold 는 커밋 요약의 핀(기존)과 결과 줄 `foundation-asset-read`, 레인은 매니페스트(기존)와
+  `/data/foundation-platform/by-pnu-bake/<lane>/reads.jsonl`(덧붙이기만) 과 같은 결과 줄.
+- **조정기.** `asset_reconcile`(5분, `default_pool`, `reconciles` 세 작업: 단가 Gold, 단가 레인, 공매 레인)이 카탈로그
+  REST 메타데이터(읽기 전용 토큰)와 읽은 판을 비교해 빚진 작업을 키와 함께 찍고, DAG 의 `select`/`start` 가 대기·실행
+  중이 아닌 작업만 실행 id `reconcile__<job>__<key>` 로 한 번 시작한다. 지표 `asset_lag_seconds`·
+  `asset_unscheduled_seconds`(기록 규칙), 경보 `FoundationAssetUnscheduled`(15분 = 주기 3번)·
+  `FoundationAssetReconcilerStopped`(30분)·`FoundationAssetUnreadable`.
+- **배포.** `release_changes.py` 는 표를 쓰지 않는 작업(by-PNU 굽기)을 그 자산이 만들어지는 표로 놓는다: 굽기는 자기 Gold
+  가 바뀔 때만 보류되고, 조정기는 보류되지 않는다.
+
+엔진 시험(§3), `apache/airflow:3.3.2`(운영과 같은 다이제스트), LocalExecutor + Postgres 로 실행·관찰(따로 적은 것은 소스만):
+
+| 시험 | 판정 | 증거 |
+|---|---|---|
+| (a) 파티션 하나의 독립 상한·재시도 | 통과 | `PartitionedAtRuntime` DAG 을 키 5개로 시작: `slow` 만 20초 상한에 3번 실패, `flaky` 는 두 번째 시도 성공, 나머지 첫 시도 성공. 단, `max_active_runs`·풀은 DAG 단위라 파티션끼리 나눠 쓴다 |
+| (b) 상류 파티션 사건이 같은 키 하류만 시작 | 통과 | `PartitionedAssetTimetable`(기본 `IdentityMapper`) 하류가 사건 낸 키마다 정확히 한 실행, 사건 없는 키는 0(`asset_partition_dag_run` 행 확인) |
+| (c) 파티션 하나만 백필 | 부분 통과 | REST `POST dagRuns {partition_key}` 재시작·`clearTaskInstances` 로 그 키만 다시 돈다. `airflow backfill create` 는 시간 파티션(`CronPartitionTimetable`)만 되고, 비시간 키는 `DagNonPeriodicScheduleException`. `airflow dags trigger` 에는 키 인자가 없다 |
+| (d) 파티션 단위 검사가 하류를 막음 | **실패** | 3.3.2 에 자산 검사(asset check)·감사 개념이 없다(소스: `AssetCheck` 류 클래스·표 없음). 출력 과제 앞에 검사 과제를 두는 패턴으로 그 키의 사건·하류는 막히지만, 파티션의 "검사 실패" 상태는 어디에도 남지 않는다 |
+| (e) 조정 루프를 생성된 DAG 으로 5분마다, DB 부하 없이 | 통과(한계 하나) | 위 `select`/`start` 와 같은 모양의 DAG 이 5분 틱마다 같은 실행 id 를 `skip_when_already_exists` 로 건너뜀, 대기 중인 DAG 은 `RuntimeTaskInstance.get_dr_count` 로 걸러짐. 틱 하나 = dag_run 1·task_instance 4·xcom 4~6·log 8 행 → 하루 288틱 약 6~7천 행(`airflow db clean` 없으면 쌓임). 한계: 과제 SDK 의 `TriggerDagRunOperator`·수퍼바이저가 `partition_key` 를 버린다(소스 `supervisor.py`, `api/client.py`) — 파티션 실행을 시작하려면 Core REST 와 토큰이 필요하다 |
+
+(d) 가 Airflow 3.3.2 에서 되지 않으므로 §3 에 따라 파티션 자산의 엔진은 Dagster(`dagster-airlift` 로 레인 하나씩, 같은
+계약에서 정의 생성)다. 이 조각은 그 이행을 시작하지 않았다: 1단계의 자산은 파티션이 없고, 조정기는 Airflow 에서 돈다.
+3단계(첫 `sido` 파티션) 전에 이행 순서를 정한다.

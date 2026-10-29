@@ -43,7 +43,10 @@ with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"command": command, "env": env}) + "\n")
 if os.environ.get("FAKE_EXIT_COMMAND") == command:
     sys.exit(int(os.environ["FAKE_EXIT_CODE"]))
-lane = "PARCEL" if "parcel" in command else "BUILDING"
+# The lane a command names (`export-unit-price-by-pnu-section-packs`), as the publisher derives it.
+import re
+named = re.match(r"^[a-z]+-([a-z-]+?)-(?:by-pnu|superseded)", command)
+lane = (named.group(1) if named else "parcel" if "parcel" in command else "building").upper().replace("-", "_")
 prefix_env = f"FOUNDATION_PLATFORM_{lane}_BY_PNU_SERVING_"
 def expired(pinned, gone="FAKE_EXPIRED"):
     # Like the catalog, a pinned snapshot expiry removed is refused in these words (root ADR-0310).
@@ -263,6 +266,17 @@ class ByPnuServingBake(unittest.TestCase):
         (release / "infra/lakehouse/spark/jobs").mkdir(parents=True)
         (release / "infra/lakehouse/spark/jobs/by_pnu_kinds.py").write_bytes(
             (job_specs.PLATFORM_ROOT / "infra/lakehouse/spark/jobs/by_pnu_kinds.py").read_bytes())
+        # Which job bakes a lane (`all` leaves a lane another job bakes to it) is read from the job
+        # list and the graph (root ADR-0303, ADR-0333).
+        for relative in ("orchestration/dags/job_specs.py", "orchestration/jobs.v1.json",
+                         "docs/catalog/pipeline-graph.v1.json", "infra/datahub/dataset_names.py",
+                         "scripts/ops/lane_follow_gate.py", "scripts/ops/iceberg_metadata.py"):
+            (release / relative).parent.mkdir(parents=True, exist_ok=True)
+            (release / relative).write_bytes((job_specs.PLATFORM_ROOT / relative).read_bytes())
+        # The follow gate reads the Gold rebuild contract through the planner (lane_follow_gate.py).
+        for part in ("infra/lakehouse/contracts", "infra/lakehouse/spark/jobs"):
+            shutil.copytree(job_specs.PLATFORM_ROOT / part, release / part, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__", "tests"))
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -661,6 +675,7 @@ class ByPnuServingBake(unittest.TestCase):
                 if line.startswith("ExecStart=") and "/scripts/ops/by-pnu-serving-bake.sh " in line:
                     programs[spec.job_id] = line.split("by-pnu-serving-bake.sh ", 1)[1].split()
         self.assertEqual(programs.get("by_pnu_public_auction_bake"), ["parcel-public-auction"])
+        self.assertEqual(programs.get("by_pnu_unit_price_bake"), ["unit-price"])
         for job_id, args in programs.items():
             with self.subTest(job_id):
                 self.log.unlink(missing_ok=True)
@@ -672,19 +687,24 @@ class ByPnuServingBake(unittest.TestCase):
     def test_only_a_pack_only_lane_that_says_it_is_not_cut_over_waits_for_the_operator(self):
         # Root ADR-0190. The release ships the contract that names the pack-only lanes.
         shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
-        result, calls = self.bake("all", FAKE_GOLD="101", FAKE_NOT_CUT_OVER="show-unit-price-by-pnu-serving-state")
+        result, calls = self.bake("all", FAKE_GOLD="101", FAKE_NOT_CUT_OVER="show-parcel-zoning-by-pnu-serving-state")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         # Every lane of the contract in its order; a kind line (root ADR-0193 §4) is baked like the
-        # others, EXCEPT an own-producer kind, which bakes in its own job (root ADR-0303) and `all`
-        # skips. Its superseded generations are still retired below, like every lane's.
+        # others, EXCEPT a lane another job bakes: the own-producer kind (root ADR-0303) and the unit
+        # price lane (root ADR-0333, one job per asset), which `all` skips. Their superseded
+        # generations are still retired below, like every lane's.
         lanes = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
-        baked = [lane for lane in lanes if not lanes[lane].get("producer")]
+        elsewhere = {lane: job_specs.writer_of(f"{lane}-by-pnu-section-packs") for lane in lanes}
+        elsewhere = {lane: job for lane, job in elsewhere.items() if job != "by_pnu_serving_bake"}
+        self.assertEqual(elsewhere, {"parcel-public-auction": "by_pnu_public_auction_bake",
+                                     "unit-price": "by_pnu_unit_price_bake"})
+        baked = [lane for lane in lanes if lane not in elsewhere]
         self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],
                          ["show-parcel-by-pnu-serving-state", "show-building-by-pnu-serving-state",
                           *(f"show-{lane}-by-pnu-serving-state" for lane in baked)])
-        skipped = [line for line in result.stdout.splitlines() if "an own-producer lane bakes in its own job" in line]
-        self.assertEqual(skipped, [f"by-pnu-serving-bake {lane}: skipped: an own-producer lane bakes in its own job "
-                                   "(root ADR-0303)" for lane in lanes if lanes[lane].get("producer")])
+        skipped = [line for line in result.stdout.splitlines() if "bakes in its own job" in line]
+        self.assertEqual(skipped, [f"by-pnu-serving-bake {lane}: skipped: the lane bakes in its own job {job} "
+                                   "(root ADR-0303, ADR-0333)" for lane, job in elsewhere.items()])
         # Then every lane retires its superseded pack generations past the window (root ADR-0242).
         retired = [call for call in calls if call["command"].startswith("retire-")]
         self.assertEqual([call["command"] for call in retired],
@@ -695,15 +715,19 @@ class ByPnuServingBake(unittest.TestCase):
             self.assertEqual(call["env"].get(prefix + "PACK_RETIRE_EXECUTE"), "true", call)
             self.assertEqual(call["env"].get(prefix + "OUTPUT_STORAGE_DRIVER"), "r2", call)
         waiting = [line for line in result.stdout.splitlines() if "is not cut over yet" in line]
-        self.assertEqual(waiting, ["by-pnu-serving-bake unit-price: nothing to do: the pack-only unit-price lane is not "
-                                   "cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"])
+        self.assertEqual(waiting, ["by-pnu-serving-bake parcel-zoning: nothing to do: the pack-only parcel-zoning lane is "
+                                   "not cut over yet; its first publish is the operator's pack-only gate (root ADR-0190)"])
         self.assertEqual(result.stdout.count("already reflects Gold snapshot 101"), 1 + len(baked), result.stdout)
+        # Each lane that serves a Gold snapshot records which one it read (root ADR-0333 §7).
+        self.assertEqual(json.loads((self.state_root / "building/reads.jsonl").read_text().splitlines()[-1])["read_snapshot_id"],
+                         "101")
         # Once cut over its state is a served lane's, and it is baked like the others.
         self.log.unlink()
         result, calls = self.bake("unit-price", FAKE_GOLD="101")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertNotIn("not cut over", result.stdout)
         self.assertIn("already reflects Gold snapshot 101", result.stdout)
+        self.assertIn("foundation-asset-read unit-price gold=101", result.stdout)
         # The own-producer lane runs as a single lane (its dedicated job, root ADR-0303); only `all`
         # skips it. Called directly it reads its state and bakes like any other.
         self.log.unlink()
@@ -721,16 +745,49 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertIn("by-pnu-serving-bake parcel: retiring superseded pack generations failed", result.stdout)
         self.assertIn("retire-building-superseded-pack-generations", [call["command"] for call in calls])
 
-    def test_a_lane_whose_documents_follow_the_building_lane_waits_when_that_lane_failed(self):
-        # Root ADR-0190: the unit price documents place units where the building documents do; a
-        # run whose building lane failed does not publish them ahead of it.
+    def test_a_lane_whose_documents_follow_the_parcel_lane_waits_when_that_lane_failed(self):
+        # Root ADR-0193 §9: a kind's documents are its host's section; a run whose parcel lane
+        # failed does not publish them ahead of it.
         shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
-        result, calls = self.bake("all", FAKE_SHORT_PREFIX="9999913", FAKE_SHORT_LANE="BUILDING",
-                                  FAKE_NOT_CUT_OVER="show-unit-price-by-pnu-serving-state")
+        result, calls = self.bake("all", FAKE_SHORT_PREFIX="9999913", FAKE_SHORT_LANE="PARCEL",
+                                  FAKE_NOT_CUT_OVER="show-parcel-zoning-by-pnu-serving-state")
         self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("show-unit-price-by-pnu-serving-state", [call["command"] for call in calls])
-        self.assertIn("by-pnu-serving-bake unit-price: skipped: the building lane it follows failed in this run",
+        self.assertNotIn("show-parcel-zoning-by-pnu-serving-state", [call["command"] for call in calls])
+        self.assertIn("by-pnu-serving-bake parcel-zoning: skipped: the parcel lane it follows failed in this run",
                       result.stdout)
+
+    def test_the_unit_price_lane_bakes_only_what_the_building_lane_serves(self):
+        # Root ADR-0333: its own job now, so no run order keeps the unit price documents behind the
+        # building documents; the gate (lane_follow_gate.py, its own test) compares the registers both
+        # Golds were built from. Waiting is recorded, and the lane is baked once the gate says ok.
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        gate = self.script.parent / "lane_follow_gate.py"
+        gate.write_text("import os, sys\n"
+                        "print('building' if sys.argv[2:] == ['--follows'] else os.environ['FAKE_GATE'])\n")
+        result, calls = self.bake("unit-price", FAKE_GATE="waiting 101 the building lane serves another register build")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("show-building-by-pnu-serving-state", [call["command"] for call in calls])
+        self.assertEqual(self.published(calls), [])
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome waiting the building lane it follows "
+                         "does not serve what Gold snapshot 202 was built from")
+        self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
+        [record] = [json.loads(line) for line in (self.state_root / "unit-price/reads.jsonl").read_text().splitlines()]
+        self.assertEqual({key: record[key] for key in ("lane", "read_snapshot_id", "outcome", "gold_snapshot_id", "waiting_on")},
+                         {"lane": "unit-price", "read_snapshot_id": "101", "outcome": "waiting", "gold_snapshot_id": "202",
+                          "waiting_on": {"lane": "building", "read_snapshot_id": "101"}})
+        self.log.unlink()
+        result, calls = self.bake("unit-price", FAKE_GATE="ok")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(self.published(calls)), 1)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        last = json.loads((self.state_root / "unit-price/reads.jsonl").read_text().splitlines()[-1])
+        self.assertEqual((last["read_snapshot_id"], last["outcome"]), ("202", "served"))
+        # A gate that cannot tell refuses the bake rather than publish ahead of the building documents.
+        self.log.unlink()
+        gate.write_text("import sys\nsys.exit(0 if sys.argv[2:] == ['--follows'] and print('building') is None else 65)\n")
+        result, calls = self.bake("unit-price", FAKE_GOLD="203")
+        self.assertEqual(result.returncode, 65, result.stderr + result.stdout)
+        self.assertEqual(self.published(calls), [])
 
     def test_an_unknown_lane_is_refused(self):
         result, calls = self.bake("tiles")
@@ -1002,11 +1059,13 @@ class ByPnuServingBake(unittest.TestCase):
                 self.assertTrue(last.endswith(" is held by another run"), last)
                 self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
                 self.assertNotIn(f"show-{lane}-by-pnu-serving-state", [call["command"] for call in calls])
-        # A lane whose documents follow the held one waits with it (root ADR-0190).
-        self.assertIn("by-pnu-serving-bake unit-price: waiting: the building lane it follows is held by another run",
-                      result.stdout)
-        self.assertNotIn("show-unit-price-by-pnu-serving-state", [call["command"] for call in calls])
-        # The same exit from anything but the held lock is still a failure, in the job's own service too.
+                if lane == "parcel":
+                    parcel_held, parcel_calls = result, calls
+        # A lane whose documents follow the held one waits with it (root ADR-0190, ADR-0193 §9). The
+        # unit price lane bakes in its own job (root ADR-0333) and waits on the building lane's state there.
+        self.assertIn("by-pnu-serving-bake parcel-zoning: waiting: the parcel lane it follows is held by another run",
+                      parcel_held.stdout)
+        self.assertNotIn("show-parcel-zoning-by-pnu-serving-state", [call["command"] for call in parcel_calls])        # The same exit from anything but the held lock is still a failure, in the job's own service too.
         self.log.unlink(missing_ok=True)
         result, _ = self.bake("all", FAKE_GOLD="101", FAKE_EXIT_COMMAND="show-parcel-by-pnu-serving-state",
                               FAKE_EXIT_CODE="75", FOUNDATION_JOB_SERVICE="1")

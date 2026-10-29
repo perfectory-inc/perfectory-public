@@ -67,6 +67,10 @@ def stand_ins():
             self.downstream.append(other.task_id)
             return other
 
+        @property
+        def output(self):
+            return ("XComArg", self.task_id)
+
     class SSHOperator(BaseOperator):
         allowed = OPERATOR_ARGUMENTS | SSH_ARGUMENTS
         output = b""
@@ -79,6 +83,26 @@ def stand_ins():
             if self.error:
                 raise self.error
             return self.run_ssh_client_command(None, self.kwargs["command"], context=context)
+
+    class TriggerDagRunOperator(BaseOperator):
+        allowed = OPERATOR_ARGUMENTS | {"trigger_dag_id", "trigger_run_id", "skip_when_already_exists",
+                                        "wait_for_completion", "conf"}
+
+        class Partial:
+            def __init__(self, kwargs):
+                self.kwargs = kwargs
+
+            def expand_kwargs(self, arguments):
+                task = TriggerDagRunOperator(**self.kwargs)
+                task.expanded = arguments
+                # An XComArg makes its producer upstream of the mapped task, as Airflow does.
+                producer = next(other for other in DAG.current.tasks if other.task_id == arguments[1])
+                producer.downstream.append(task.task_id)
+                return task
+
+        @classmethod
+        def partial(cls, **kwargs):
+            return cls.Partial(kwargs)
 
     def record(kind):
         def make(*args, **kwargs):
@@ -104,14 +128,17 @@ def stand_ins():
     policy.extend_global_openlineage_emission_policy = lineage_policy
     lineage = types.ModuleType("openlineage.client.event_v2")
     lineage.Dataset = lambda namespace, name: ("Dataset", namespace, name)
+    trigger = types.ModuleType("airflow.providers.standard.operators.trigger_dagrun")
+    trigger.TriggerDagRunOperator = TriggerDagRunOperator
     pendulum = types.ModuleType("pendulum")
     pendulum.datetime = record("datetime")
     pendulum.duration = record("duration")
     modules = {"airflow.sdk": sdk, "airflow.sdk.exceptions": exceptions, "airflow.providers.ssh.operators.ssh": ssh,
                "airflow.providers.openlineage.api.emission_policy": policy, "openlineage.client.event_v2": lineage,
-               "pendulum": pendulum}
+               "pendulum": pendulum, "airflow.providers.standard.operators.trigger_dagrun": trigger}
     for package in ["airflow", "airflow.providers", "airflow.providers.ssh", "airflow.providers.ssh.operators",
                     "airflow.providers.openlineage", "airflow.providers.openlineage.api", "openlineage",
+                    "airflow.providers.standard", "airflow.providers.standard.operators",
                     "openlineage.client"]:
         modules[package] = types.ModuleType(package)
     return modules, built
@@ -159,6 +186,10 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
                     self.assertEqual(template.render(dag_run=dag_run), expected, (run_type, conf))
                 self.assertIs(run.kwargs["do_xcom_push"], False, "the journal is not kept as an XCom")
                 tasks.pop("check", None)  # its own test below
+                if spec.reconciles:  # the asset reconciler, its own test below
+                    self.assertEqual(set(tasks), {"run", "select", "start"})
+                    self.assertEqual(run.downstream, ["select"])
+                    continue
                 if spec.outputs:
                     self.assertEqual(set(tasks), {"run", "publish_outputs"})
                     self.assertEqual(run.downstream, ["publish_outputs"])
@@ -238,6 +269,61 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
                 else:
                     publish.execute({"ti": ti})
                 ti.xcom_pull.assert_called_once_with(task_ids="run", key="outcome")
+
+
+class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
+    """Root ADR-0333 §7: the reconciler's run names what each reconciled job owes; `select` keeps the
+    jobs with no run queued or running and `start` triggers each once per key. 2026-10-28: the 공매
+    Gold's asset event 3912 reached a paused bake and nothing started it for 13 hours."""
+
+    @classmethod
+    def setUpClass(cls):
+        modules, built = stand_ins()
+        load_dag_file(modules)
+        cls.dags = {dag.dag_id: dag for dag in built["dags"]}
+        [cls.spec] = [spec for spec in job_specs.load_specs() if spec.reconciles]
+        cls.tasks = {task.task_id: task for task in cls.dags[cls.spec.dag_id].tasks}
+
+    def test_it_covers_the_public_auction_bake_and_the_unit_price_assets(self):
+        self.assertEqual(set(self.spec.reconciles),
+                         {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake"})
+        start = self.tasks["start"]
+        self.assertEqual(start.expanded, ("XComArg", "select"))
+        self.assertIs(start.kwargs["skip_when_already_exists"], True)
+        self.assertIs(start.kwargs["wait_for_completion"], False)
+        self.assertEqual(self.tasks["select"].downstream, ["start"])
+        for task in (self.tasks["select"], start):
+            self.assertEqual(task.lineage_flags, {"emit_task_events": False})
+
+    def test_the_run_keeps_the_owed_runs_of_the_jobs_it_reconciles_only(self):
+        run = self.tasks["run"]
+        run.output = (b"asset iceberg://gold.unit_price: owed\n"
+                      b"foundation-asset-owed gold_unit_price_rebuild 0123456789abcdef\n"
+                      b"foundation-asset-owed gold_panel_rebuild 0123456789abcdef\n"
+                      b"foundation-asset-owed by_pnu_public_auction_bake fedcba9876543210\n"
+                      b"foundation-job-outcome unchanged\n")
+        ti = mock.Mock()
+        run.run_ssh_client_command(None, self.spec.job_id, context={"ti": ti})
+        ti.xcom_push.assert_any_call(key="outcome", value="unchanged")
+        ti.xcom_push.assert_any_call(key="owed", value=[["gold_unit_price_rebuild", "0123456789abcdef"],
+                                                       ["by_pnu_public_auction_bake", "fedcba9876543210"]])
+
+    def test_select_starts_a_job_once_per_key_unless_a_run_of_it_is_queued_or_running(self):
+        select = self.tasks["select"]
+        ti = mock.Mock()
+        ti.xcom_pull.return_value = [["gold_unit_price_rebuild", "0123456789abcdef"],
+                                     ["by_pnu_public_auction_bake", "fedcba9876543210"]]
+        counts = {"foundation_gold_unit_price_rebuild": 1, "foundation_by_pnu_public_auction_bake": 0}
+        runtime = types.ModuleType("airflow.sdk.execution_time.task_runner")
+        runtime.RuntimeTaskInstance = mock.Mock()
+        runtime.RuntimeTaskInstance.get_dr_count.side_effect = lambda dag_id, states: counts[dag_id]
+        with mock.patch.dict(sys.modules, {"airflow.sdk.execution_time.task_runner": runtime}):
+            starts = select.execute({"ti": ti})
+        ti.xcom_pull.assert_called_once_with(task_ids="run", key="owed")
+        self.assertEqual(starts, [{"trigger_dag_id": "foundation_by_pnu_public_auction_bake",
+                                   "trigger_run_id": "reconcile__by_pnu_public_auction_bake__fedcba9876543210"}])
+        runtime.RuntimeTaskInstance.get_dr_count.assert_any_call(
+            dag_id="foundation_gold_unit_price_rebuild", states=["queued", "running"])
 
 
 class TheCheckBeforeThePool(unittest.TestCase):

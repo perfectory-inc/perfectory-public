@@ -103,6 +103,7 @@
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_public_auction_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_unit_price_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_served_gold": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_tile_bake": [
@@ -141,6 +142,10 @@
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ],
       "by_pnu_public_auction_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ],
+      "by_pnu_unit_price_bake": [
         {"unit": "MemoryMax"},
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ]

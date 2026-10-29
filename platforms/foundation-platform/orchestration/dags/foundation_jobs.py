@@ -13,11 +13,17 @@ so nothing downstream starts.
 
 A job that names a `check_service` runs it first, as task `check` in Airflow's default_pool: when it
 says the run has nothing to do, `run` is skipped before it waits for the job's pool (root ADR-0277).
+
+The asset reconciler (a job that names `reconciles`, root ADR-0333 §7) runs like any job; what its run
+says each reconciled job is owed (`foundation-asset-owed <job> <key>`) goes to task `select`, which
+keeps the jobs with no run queued or running, and task `start` triggers each once per key: the run id
+is the key, so a repeated tick is a no-op. A triggered run waits for its pool like any other.
 """
 
 import pendulum
 from airflow.providers.openlineage.api.emission_policy import extend_global_openlineage_emission_policy
 from airflow.providers.ssh.operators.ssh import SSHOperator
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import DAG, Asset, AssetAny, AssetOrTimeSchedule, BaseOperator, CronTriggerTimetable
 from airflow.sdk.exceptions import AirflowSkipException
 from openlineage.client.event_v2 import Dataset
@@ -31,6 +37,7 @@ from job_specs import (
     check_says_unchanged,
     job_outcome,
     load_specs,
+    owed_runs,
 )
 
 START = pendulum.datetime(2026, 10, 1, tz="UTC")
@@ -51,15 +58,26 @@ RUN_KIND = (
 # took 4.2 s (2026-10-14..18), the unit's own TimeoutStartSec is 5 minutes.
 CHECK_TASK_ID = "check"
 CHECK_TIMEOUT_MINUTES = 6
+# The reconciler's XCom from `run` to `select`: [[job id, key]], never the journal (root ADR-0333 §7).
+OWED_KEY = "owed"
+# A run of a reconciled job that is queued or running already covers what it is owed.
+ACTIVE_STATES = ("queued", "running")
 
 
 class RunJob(SSHOperator):
-    """The SSH run of a job, keeping only what its last lines say it changed."""
+    """The SSH run of a job, keeping only what its last lines say it changed, and for the asset
+    reconciler the runs it says the jobs it reconciles are owed."""
+
+    def __init__(self, *, reconciles=(), **kwargs):
+        super().__init__(**kwargs)
+        self.reconciles = tuple(reconciles)
 
     def run_ssh_client_command(self, ssh_client, command, context=None):
         output = super().run_ssh_client_command(ssh_client, command, context=context)
         outcome = job_outcome(output)
         context["ti"].xcom_push(key=OUTCOME_KEY, value=outcome)
+        if self.reconciles:
+            context["ti"].xcom_push(key=OWED_KEY, value=[list(owed) for owed in owed_runs(output, self.reconciles)])
         if outcome in ("waiting", "skipped"):
             # Not a failure and not a success: skipped, which the data flow map shows as waiting with
             # the reason from this log (root ADR-0260); a paused job or an unusable run-now is
@@ -102,6 +120,32 @@ class PublishOutputs(BaseOperator):
         self.log.info("the run reported %s: recording events on %d output assets", outcome or "nothing", len(self.outlets))
 
 
+class SelectOwed(BaseOperator):
+    """The reconciler's owed runs whose job has no run queued or running, as TriggerDagRunOperator
+    arguments; the run id is the key, so the same versions never start a job twice (root ADR-0333 §7).
+
+    Asked through the task SDK (RuntimeTaskInstance.get_dr_count), one count per owed job: the tick
+    reads no table of its own. Verified on apache/airflow:3.3.2 (ADR-0333 test (e)).
+    """
+
+    def __init__(self, *, dag_id_prefix, **kwargs):
+        super().__init__(**kwargs)
+        self.dag_id_prefix = dag_id_prefix
+
+    def execute(self, context):
+        from airflow.sdk.execution_time.task_runner import RuntimeTaskInstance
+
+        owed = context["ti"].xcom_pull(task_ids=RUN_TASK_ID, key=OWED_KEY) or []
+        starts = []
+        for job, key in owed:
+            dag_id = self.dag_id_prefix + job
+            active = RuntimeTaskInstance.get_dr_count(dag_id=dag_id, states=list(ACTIVE_STATES))
+            self.log.info("%s owes versions %s; %d runs queued or running", job, key, active)
+            if not active:
+                starts.append({"trigger_dag_id": dag_id, "trigger_run_id": f"reconcile__{job}__{key}"})
+        return starts
+
+
 def asset(dataset):
     return Asset(uri=asset_uri(dataset), name=asset_uri(dataset))
 
@@ -140,6 +184,7 @@ for spec in load_specs():
             # run-now started it (conf `operator_request`, root ADR-0282 §4), which the host checks
             # and uses once. Rendered by Airflow per run.
             command=spec.job_id + RUN_KIND,
+            reconciles=spec.reconciles,
             # Seconds without output before the run counts as hung; the journal prints as it goes.
             cmd_timeout=spec.timeout_minutes * 60,
             # The journal is not kept as an XCom; the outcome is (RunJob).
@@ -166,6 +211,14 @@ for spec in load_specs():
             # this bookkeeping step reports nothing of its own (Dawneer reads the latest run, ADR-0165).
             extend_global_openlineage_emission_policy(publish, emit_task_events=False)
             run >> publish
+        if spec.reconciles:
+            select = SelectOwed(task_id="select", dag_id_prefix=spec.dag_id.removesuffix(spec.job_id), retries=0)
+            # Each owed job once per key; a run id that exists already (this key was started) is skipped.
+            start = TriggerDagRunOperator.partial(task_id="start", skip_when_already_exists=True,
+                                                  wait_for_completion=False, retries=0).expand_kwargs(select.output)
+            for task in (select, start):
+                extend_global_openlineage_emission_policy(task, emit_task_events=False)
+            run >> select
         if spec.check_service:
             check = CheckJob(
                 task_id=CHECK_TASK_ID,

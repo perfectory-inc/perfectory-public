@@ -67,6 +67,9 @@ WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed", "skipped")
 CHECK_LINE = re.compile(r"^foundation-job-check (\S+)\r?$", re.MULTILINE)
 # The run's output is the journal of a run that can last a day; the line is at its end.
 OUTCOME_TAIL_BYTES = 64 * 1024
+# What the asset reconciler prints for each job it finds owed a run (root ADR-0333 §7): the job and
+# a key of the input versions it owes. The DAG starts the job once per key.
+OWED_LINE = re.compile(r"^foundation-asset-owed ([a-z][a-z0-9_]*) ([0-9a-f]{16})\r?$", re.MULTILINE)
 
 sys.path.insert(0, str(PLATFORM_ROOT / "infra" / "datahub"))
 from dataset_names import name_of, platform_of, urn_of  # noqa: E402
@@ -92,6 +95,7 @@ class JobSpec:
     producers: tuple = ()  # the other jobs whose outputs are among its inputs
     check_service: str | None = None  # decides, without a pool slot, whether the run has work
     enabled_since: str | None = None  # jobs.v1.json `enabled_since` (root ADR-0239)
+    reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
 
     @property
     def starting_inputs(self):
@@ -131,6 +135,21 @@ def outcome_line(output):
         output = output.encode("utf-8", "replace")
     found = OUTCOME_LINE.findall(bytes(output[-OUTCOME_TAIL_BYTES:]))
     return "foundation-job-outcome " + found[-1].decode("utf-8", "replace") if found else None
+
+
+def owed_runs(output, reconciled):
+    """[(job id, key)] the reconciler's run printed, for the jobs it reconciles, in its order, once each.
+
+    Only a job in `reconciled` (its `reconciles`) may be named: what the host prints never starts
+    another DAG. The whole output is read: the lines come before the outcome line, and the run is short.
+    """
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", "replace")
+    found = {}
+    for job, key in OWED_LINE.findall(output or ""):
+        if job in reconciled:
+            found.setdefault(job, key)
+    return list(found.items())
 
 
 def check_says_unchanged(output):
@@ -501,13 +520,21 @@ def job_nodes(jobs, graph):
     """Job id -> (inputs, outputs): the pipeline-graph node ids each job reads and writes.
 
     A job's are the endpoints of the pipeline-graph edges it names; a job that checks the
-    data-contract tables (`reads_data_contracts`) reads those tables and writes nothing.
+    data-contract tables (`reads_data_contracts`) reads those tables and writes nothing; the asset
+    reconciler (`reconciles`, root ADR-0333 §7) reads the inputs and outputs of the jobs it
+    reconciles and writes nothing.
     """
     edges = {edge["id"]: edge for edge in graph["edges"]}
     found = {}
+    reconcilers = []
     for job in jobs["jobs"]:
         job_id = job["id"]
         reads_contracts = job.get("reads_data_contracts", False)
+        if "reconciles" in job:
+            if job["pipeline_graph_edges"] or reads_contracts:
+                raise JobListError(f"{job_id}: a job that reconciles others carries no pipeline-graph edge of its own")
+            reconcilers.append(job)
+            continue
         if bool(job["pipeline_graph_edges"]) == bool(reads_contracts):
             raise JobListError(
                 f"{job_id}: a job states the pipeline-graph edges it carries out, or that it reads the "
@@ -526,7 +553,23 @@ def job_nodes(jobs, graph):
             found[job_id] = (sorted({by_table[table] for table in tables}), [])
         else:
             found[job_id] = (sorted({edge["from"] for edge in carried}), sorted({edge["to"] for edge in carried}))
+    for job in reconcilers:
+        names = job["reconciles"]
+        if not (isinstance(names, list) and names and all(name in found for name in names)
+                and len(set(names)) == len(names)):
+            raise JobListError(f"{job['id']}: reconciles must list other jobs of the list, each once")
+        found[job["id"]] = (sorted({node for name in names for node in found[name][0] + found[name][1]}), [])
     return found
+
+
+def writer_of(node_id, jobs=None, graph=None):
+    """The job whose pipeline-graph edges end at `node_id`, or None (the job that makes that asset)."""
+    jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
+    graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
+    # From the edges alone: the host scripts ask this, and nothing else of the job list need hold.
+    ends = {edge["id"]: edge["to"] for edge in graph["edges"]}
+    return next((job["id"] for job in jobs["jobs"] for edge in job.get("pipeline_graph_edges", [])
+                 if ends.get(edge) == node_id), None)
 
 
 def datasets(jobs, graph):
@@ -745,6 +788,18 @@ def load_specs(jobs=None, graph=None):
                     f"{job_id}: enabled and started by its inputs, but every job that writes them "
                     f"({', '.join(feeders[job_id])}) is switched off"
                 )
+        reconciles = tuple(job.get("reconciles", ()))
+        for name in reconciles:
+            # Root ADR-0333 §7: the reconciler starts a job whose one asset's inputs moved past what it
+            # read. It reads a Gold's recorded pins or a lane's reads; a job making several assets (the
+            # 2026-10-28 panel rebuild that cut gold.unit_price off) has no one read version to compare.
+            other = by_id[name]
+            if started_by(other) != "inputs" or not other["enabled"] and job["enabled"]:
+                raise JobListError(f"{job_id}: reconciles {name}, which is not an enabled `inputs` job")
+            if len(found[name][1]) != 1:
+                raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
+        if reconciles and (start != "schedule" or job["pool"] != DEFAULT_POOL):
+            raise JobListError(f"{job_id}: a reconciler runs on its own schedule in {DEFAULT_POOL}, never on an event")
         specs.append(
             JobSpec(
                 job_id=job_id,
@@ -765,6 +820,7 @@ def load_specs(jobs=None, graph=None):
                 producers=tuple(feeders[job_id]),
                 check_service=check,
                 enabled_since=since,
+                reconciles=reconciles,
             )
         )
     starvation = pool_starvation(jobs, graph)
@@ -786,6 +842,9 @@ if __name__ == "__main__":
             sys.exit("\n".join(found))
     elif len(sys.argv) == 3 and sys.argv[1] == "--state-root":
         print(job_state_root(sys.argv[2]))
+    elif len(sys.argv) == 3 and sys.argv[1] == "--writer":
+        # The job that makes a pipeline-graph node, or nothing (root ADR-0333: one job, one asset).
+        print(writer_of(sys.argv[2]) or "")
     elif sys.argv[1:] == ["--outcome-line"]:
         # Reads a run's journal on stdin; prints its outcome line, or nothing (root ADR-0260 §2).
         line = outcome_line(sys.stdin.buffer.read())
@@ -793,4 +852,4 @@ if __name__ == "__main__":
             print(line)
     else:
         sys.exit("usage: job_specs.py --write-dependencies | --check-dependencies | --check-state-roots"
-                 " | --state-root <job id> | --outcome-line")
+                 " | --state-root <job id> | --writer <node id> | --outcome-line")

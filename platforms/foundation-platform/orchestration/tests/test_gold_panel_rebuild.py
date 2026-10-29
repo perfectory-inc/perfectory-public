@@ -158,9 +158,15 @@ class GoldPanelRebuild(unittest.TestCase):
             (PLATFORM / "config/r2-connections.contract.json").read_bytes())
         contract = "infra/lakehouse/contracts/gold-panel-rebuild.contract.json"
         self.contract = release / contract
-        (release / "orchestration").mkdir()
+        (release / "orchestration/dags").mkdir(parents=True)
         self.jobs = release / "orchestration/jobs.v1.json"
         self.jobs.write_bytes(job_specs.JOBS.read_bytes())
+        # Which job makes each table is read from the job list and the graph (root ADR-0333).
+        (release / "orchestration/dags/job_specs.py").write_bytes((ORCHESTRATION / "dags/job_specs.py").read_bytes())
+        (release / "docs/catalog").mkdir(parents=True)
+        (release / "docs/catalog/pipeline-graph.v1.json").write_bytes(job_specs.GRAPH.read_bytes())
+        (release / "infra/datahub").mkdir(parents=True)
+        (release / "infra/datahub/dataset_names.py").write_bytes((PLATFORM / "infra/datahub/dataset_names.py").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -193,6 +199,10 @@ class GoldPanelRebuild(unittest.TestCase):
                                             "gold.unit_price": unit_price_panel or table_fixture(False),
                                             **{name: table_fixture(False) for name in KIND_TABLES},
                                             "unit_price": unit_price or {}, **(extra or {})}))
+        return self.run_again(*args)
+
+    def run_again(self, *args):
+        """The script over the catalog as the last run left it."""
         result = subprocess.run(["bash", str(self.script), *args], env=self.env,
                                 capture_output=True, text=True, timeout=120)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
@@ -205,21 +215,18 @@ class GoldPanelRebuild(unittest.TestCase):
         # Root ADR-0182: before the building plan, never for the parcel panel nor in a dry run.
         result, calls, _ = self.rebuild(table_fixture(False), table_fixture(False), "all", unit_price={"appended": True})
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        # Once per run: the unit price panel reads what the building panel's run just joined.
-        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "unit_official_price.py", "gold_rebuild.py",
-                                                           "gold_rebuild.py"])
+        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "unit_official_price.py", "gold_rebuild.py"])
         self.assertIn("unit prices: vintage 209909 appended", result.stdout)
-        self.assertIn("gold-panel-rebuild unit-price: unit prices: already joined by this run's building rebuild",
-                      result.stdout)
         self.log.unlink()
         result, calls, _ = self.rebuild(table_fixture(False), table_fixture(True), "building", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertNotIn("unit_official_price.py", [call["job"] for call in calls])
-        # A table run on its own always joins.
+        # The unit price panel's own job (root ADR-0333) reads what the building panel's run joined:
+        # gold_panel_rebuild is the one job that writes silver.unit_official_price.
         self.log.unlink()
         result, calls, _ = self.rebuild(table_fixture(False), table_fixture(False), "unit-price")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual([call["job"] for call in calls], ["unit_official_price.py", "gold_rebuild.py"])
+        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py"])
 
     def test_a_failed_unit_price_join_refuses_the_building_panel(self):
         result, calls, catalog = self.rebuild(table_fixture(False), table_fixture(True), "building",
@@ -228,12 +235,11 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertIn("could not derive silver.unit_official_price", result.stdout + result.stderr)
         self.assertEqual(self.producer_calls(calls), [])
         self.assertNotIn("commits", catalog["gold.building_panel"])
-        # In `all` a join that failed is not taken as done: the next table that reads it tries again.
+        # In `all` too; the unit price panel is not there to try it again (its own job, root ADR-0333).
         self.log.unlink()
         result, calls, _ = self.rebuild(table_fixture(False), table_fixture(True), "all", unit_price={"crash": True})
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "unit_official_price.py",
-                                                           "unit_official_price.py"])
+        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "unit_official_price.py"])
 
     def test_the_unit_price_panel_places_units_from_the_registers_the_building_panel_was_built_from(self):
         # Root ADR-0190: on its own the price panel waits for the building panel's registers...
@@ -243,16 +249,23 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("nothing to do", result.stdout)
         self.assertNotIn("commits", catalog["gold.unit_price"])
-        # ...and in `all`, rebuilt after the building panel, it takes the pins that one committed.
+        # ...and its own job, started once the building panel committed (root ADR-0333), takes the pins
+        # that one committed.
         self.log.unlink()
         result, calls, catalog = self.rebuild(table_fixture(False), table_fixture(True), "all",
                                               unit_price_panel=shared)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertNotIn("commits", catalog["gold.unit_price"], "`all` leaves the unit price panel to its job")
+        result, calls, catalog = self.run_again("unit-price")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(catalog["gold.unit_price"]["commits"][0]["pins"],
                          catalog["gold.building_panel"]["commits"][0]["pins"])
+        self.assertIn('foundation-asset-read gold.unit_price silver.a=12 silver.b=21', result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
 
-    def test_all_rebuilds_every_table_of_the_contract_in_its_order(self):
-        # A table the contract gains is rebuilt by the scheduled job without an edit to the script.
+    def test_all_rebuilds_every_table_of_the_contract_its_job_makes_in_its_order(self):
+        # A table the contract gains is rebuilt by the scheduled job without an edit to the script;
+        # a table another job makes (gold.unit_price, root ADR-0333) is that job's.
         contract = json.loads(self.contract.read_text(encoding="utf-8"))
         extra = dict(contract["tables"]["gold.parcel_panel"], unit="extra")
         contract["tables"] = {"gold.extra_panel": extra, **contract["tables"]}
@@ -262,7 +275,7 @@ class GoldPanelRebuild(unittest.TestCase):
                                         extra={"gold.extra_panel": table_fixture(False)})
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         planned = [call["args"][call["args"].index("--gold-table") + 1] for call in calls if call["job"] == "gold_rebuild.py"]
-        self.assertEqual(planned, list(contract["tables"]))
+        self.assertEqual(planned, [name for name in contract["tables"] if name != "gold.unit_price"])
         result, calls, _ = self.rebuild(table_fixture(False), table_fixture(False), "extra",
                                         extra={"gold.extra_panel": table_fixture(False)})
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -270,9 +283,8 @@ class GoldPanelRebuild(unittest.TestCase):
     def test_no_newer_silver_is_nothing_to_do(self):
         result, calls, catalog = self.rebuild(table_fixture(False), table_fixture(False), "all")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual(result.stdout.count("nothing to do"), 3, result.stdout)
-        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "unit_official_price.py", "gold_rebuild.py",
-                                                           "gold_rebuild.py"])
+        self.assertEqual(result.stdout.count("nothing to do"), 2, result.stdout)
+        self.assertEqual([call["job"] for call in calls], ["gold_rebuild.py", "unit_official_price.py", "gold_rebuild.py"])
         self.assertFalse(any("commits" in table for table in catalog.values() if isinstance(table, dict)))
         # Nothing committed: the bake is not started (root ADR-0171).
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
@@ -392,7 +404,7 @@ class GoldPanelRebuild(unittest.TestCase):
     def test_spark_runs_in_this_invocations_own_compose_project(self):
         result, calls, _ = self.rebuild(table_fixture(True), table_fixture(True), "all")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual(len(calls), 6)  # three plans, one unit price join, two producers
+        self.assertEqual(len(calls), 5)  # two plans, one unit price join, two producers
         self.assertEqual({call["project"] for call in calls}, {"foundation-gold-rebuild-" + INVOCATION})
         # Outside systemd the run names a fresh project and says how to clean it up.
         del self.env["INVOCATION_ID"]
@@ -450,8 +462,7 @@ class GoldPanelRebuild(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, "the building row floor still refuses")
         self.assertIn("rebuilding gold.parcel_panel: unconditional rebuild: first supervised run", result.stdout)
         self.assertEqual([call["job"] for call in self.producer_calls(calls)],
-                         ["parcel_panel_silver_to_gold.py", "building_panel_silver_to_gold.py",
-                          "unit_price_panel_silver_to_gold.py"])
+                         ["parcel_panel_silver_to_gold.py", "building_panel_silver_to_gold.py"])
         self.assertEqual(catalog["gold.parcel_panel"]["commits"],
                          [{"rows": 1000, "pins": {"silver.a": "11", "silver.b": "21"}}])
         self.assertNotIn("commits", catalog["gold.building_panel"])
@@ -488,6 +499,7 @@ class GoldPanelRebuild(unittest.TestCase):
                 if line.startswith("ExecStart=") and "/scripts/ops/gold-panel-rebuild.sh " in line:
                     programs[spec.job_id] = line.split("gold-panel-rebuild.sh ", 1)[1].split()
         self.assertIn(["parcel-public-auction"], programs.values())
+        self.assertEqual(programs.get("gold_unit_price_rebuild"), ["unit-price"])
         for job_id, args in programs.items():
             with self.subTest(job_id):
                 self.log.unlink(missing_ok=True)
@@ -561,13 +573,36 @@ class Registration(unittest.TestCase):
     def test_the_job_carries_out_every_silver_edge_into_the_panel_golds(self):
         graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
         contract = json.loads((PLATFORM / "infra/lakehouse/contracts/gold-panel-rebuild.contract.json").read_text(encoding="utf-8"))
-        golds = {node["id"] for node in graph["nodes"] if node.get("table_name") in contract["tables"]}
+        # Every panel but the unit price history, which is its own job's (root ADR-0333, below).
+        golds = {node["id"] for node in graph["nodes"]
+                 if node.get("table_name") in contract["tables"] and node["table_name"] != "gold.unit_price"}
         expected = {edge["id"] for edge in graph["edges"] if edge["to"] in golds and edge["status"] == "implemented"}
         # And the unit price join it runs before the building panel (root ADR-0182).
         expected |= {edge["id"] for edge in graph["edges"] if edge["to"] == "silver-unit-official-price"}
         job = next(job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
                    if job["id"] == "gold_panel_rebuild")
         self.assertEqual(set(job["pipeline_graph_edges"]), expected)
+
+    def test_the_unit_price_panel_is_its_own_job_after_the_building_panel(self):
+        # Root ADR-0333: 2026-10-28 the panel job's two runs timed out under one 160-minute limit and
+        # cut gold.unit_price off both times. One job, one asset: its own limit, started by the
+        # building panel's commit (pins_from), and only the asset reconciler besides its inputs.
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        jobs = {job["id"]: job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]}
+        job = jobs["gold_unit_price_rebuild"]
+        self.assertEqual(set(job["pipeline_graph_edges"]),
+                         {edge["id"] for edge in graph["edges"] if edge["to"] == "gold-unit-price-panel"})
+        self.assertIn("gold-building-panel-to-gold-unit-price-panel", job["pipeline_graph_edges"])
+        self.assertEqual((job["started_by"], job["pool"], job["pool_slots"], job["retries"]), ("inputs", "spark", 3, 0))
+        self.assertLess(job["priority_weight"], jobs["gold_panel_rebuild"]["priority_weight"])
+        self.assertEqual(job_specs.writer_of("gold-unit-price-panel"), "gold_unit_price_rebuild")
+        self.assertIn("gold_panel_rebuild", {spec.job_id: spec for spec in job_specs.load_specs()}["gold_unit_price_rebuild"].producers)
+        unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
+        self.assertIn("gold-panel-rebuild.sh unit-price", unit)
+        self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
+        self.assertIn(f"TimeoutStartSec={job['time_limit_minutes']}m", unit)
+        # It shares the panel rebuild's state directory, where the one-rebuild-at-a-time lock lives.
+        self.assertIn("StateDirectory=foundation-gold-panel-rebuild", unit)
 
     def test_every_kind_line_is_wired_into_the_data_map_and_both_jobs(self):
         # Root ADR-0193 §9: a kind line is the only hand-written list. What it needs beyond the line is

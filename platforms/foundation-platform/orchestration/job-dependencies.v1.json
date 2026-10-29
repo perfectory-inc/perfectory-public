@@ -615,6 +615,7 @@
         "silver_refresh_land_use_plan",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
+        "gold_unit_price_rebuild",
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
@@ -1070,6 +1071,7 @@
         "silver_refresh_land_use_plan",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
+        "gold_unit_price_rebuild",
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
@@ -1993,11 +1995,45 @@
           "surface_kind": null
         },
         {
-          "dataset": "iceberg://gold.unit_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
-          "node_id": "gold-unit-price-panel",
-          "title": "호 공시가격 by-PNU 패널",
+          "dataset": "iceberg://silver.unit_official_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
+          "node_id": "silver-unit-official-price",
+          "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "gold_unit_price_rebuild",
+      "producers": [
+        "silver_refresh_building_register_titles",
+        "silver_refresh_building_register_units",
+        "gold_panel_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.building_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
+          "node_id": "gold-building-panel",
+          "title": "건물·층·호 by-PNU 제공용 패널",
           "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_titles,PROD)",
+          "node_id": "silver-building-register-titles",
+          "title": "건물 표제부",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_units,PROD)",
+          "node_id": "silver-building-register-units",
+          "title": "건물 호별 정보",
+          "kind": "silver_table",
           "surface_kind": null
         },
         {
@@ -2006,6 +2042,16 @@
           "node_id": "silver-unit-official-price",
           "title": "세대별 기준일 공시가격",
           "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
           "surface_kind": null
         }
       ]
@@ -2329,6 +2375,7 @@
         "silver_refresh_land_use_plan",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
+        "gold_unit_price_rebuild",
         "admin_boundary_release",
         "parcel_registry",
         "complex_boundary_release",
@@ -2826,14 +2873,6 @@
           "title": "필지 용도지역 판정 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
-        },
-        {
-          "dataset": "iceberg://gold.unit_price",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
-          "node_id": "gold-unit-price-panel",
-          "title": "호 공시가격 by-PNU 패널",
-          "kind": "gold_table",
-          "surface_kind": null
         }
       ],
       "writes": [
@@ -2916,14 +2955,6 @@
           "title": "필지 용도지역 판정 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
-        },
-        {
-          "dataset": "perfectory://unit-price-by-pnu-section-packs",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,unit-price-by-pnu-section-packs,PROD)",
-          "node_id": "unit-price-by-pnu-section-packs",
-          "title": "호 공시가격 by-PNU 묶음 파일",
-          "kind": "serving_surface",
-          "surface_kind": "r2_baked_documents"
         }
       ]
     },
@@ -2952,6 +2983,111 @@
           "surface_kind": "r2_baked_documents"
         }
       ]
+    },
+    {
+      "id": "by_pnu_unit_price_bake",
+      "producers": [
+        "gold_unit_price_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://unit-price-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,unit-price-by-pnu-section-packs,PROD)",
+          "node_id": "unit-price-by-pnu-section-packs",
+          "title": "호 공시가격 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
+      "id": "asset_reconcile",
+      "producers": [
+        "silver_refresh_building_register_titles",
+        "silver_refresh_building_register_units",
+        "gold_panel_rebuild",
+        "gold_unit_price_rebuild",
+        "gold_public_auction_rebuild",
+        "by_pnu_public_auction_bake",
+        "by_pnu_unit_price_bake"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.building_panel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.building_panel,PROD)",
+          "node_id": "gold-building-panel",
+          "title": "건물·층·호 by-PNU 제공용 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_public_auction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
+          "node_id": "gold-parcel-public-auction",
+          "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.unit_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.unit_price,PROD)",
+          "node_id": "gold-unit-price-panel",
+          "title": "호 공시가격 by-PNU 패널",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "perfectory://parcel-public-auction-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-public-auction-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-public-auction-by-pnu-section-packs",
+          "title": "필지 공매 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "iceberg://silver.building_register_titles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_titles,PROD)",
+          "node_id": "silver-building-register-titles",
+          "title": "건물 표제부",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_units",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_units,PROD)",
+          "node_id": "silver-building-register-units",
+          "title": "건물 호별 정보",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.unit_official_price",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.unit_official_price,PROD)",
+          "node_id": "silver-unit-official-price",
+          "title": "세대별 기준일 공시가격",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "perfectory://unit-price-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,unit-price-by-pnu-section-packs,PROD)",
+          "node_id": "unit-price-by-pnu-section-packs",
+          "title": "호 공시가격 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ],
+      "writes": []
     }
   ]
 }
