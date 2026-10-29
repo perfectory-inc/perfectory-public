@@ -270,7 +270,8 @@ def would_expire(snapshots: dict[int, dict[str, Any]], refs: dict[str, dict[str,
                 break
             branch.append(ancestor)
         kept.update(branch)
-    in_branches = {sid for ref in refs.values() if ref["type"] == "BRANCH" for sid in ancestry(snapshots, ref["snapshot_id"])}
+    in_branches = {sid for ref in refs.values() if ref["type"] == "BRANCH"
+                   for sid in ancestry(snapshots, ref["snapshot_id"])}
     kept.update(sid for sid, s in snapshots.items() if sid not in in_branches and s["committed_ms"] >= older_than_ms)
     return set(snapshots) - kept
 
