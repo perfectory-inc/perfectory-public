@@ -4,14 +4,18 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { EdgeBuildingProfileSchema } from "./building-edge";
+import { PublicAuctionDocumentSchema } from "./public-auction";
 import { UnitPriceDocumentSchema } from "./unit-price-edge";
 
 // The web's copies of what the foundation publishes are checked against their sources: the
-// connection contract for the unit price lane, the Rust constant for the building document.
+// connection contract for the unit price and public auction lanes, the Rust constant for the
+// building document.
 const FOUNDATION = resolve(__dirname, "../../../../../../platforms/foundation-platform");
-const lane = JSON.parse(
+const lanes = JSON.parse(
   readFileSync(resolve(FOUNDATION, "config/r2-connections.contract.json"), "utf8"),
-).by_pnu_lanes["unit-price"];
+).by_pnu_lanes;
+const lane = lanes["unit-price"];
+const publicAuction = lanes["parcel-public-auction"];
 const buildingVersion = readFileSync(
   resolve(FOUNDATION, "crates/foundation-contracts/src/building_panel.rs"),
   "utf8",
@@ -27,5 +31,19 @@ describe("the web reads what the foundation publishes", () => {
     expect(UnitPriceDocumentSchema.shape.schema_version.value).toBe(lane.document_schema_version);
     expect(UnitPriceDocumentSchema.shape.source.shape.table.value).toBe(lane.gold_table);
     expect(new URL(env.NEXT_PUBLIC_UNIT_PRICE_EDGE_BASE_URL).host).toBe(lane.public_hostname);
+  });
+
+  // 2026-10-29: a web build that refused the public auction v2 document showed no auction at all.
+  // A lane serves its current version and every version it expands (root ADR-0320 §5), so the web
+  // must take each of them.
+  it("accepts every public auction document version the lane can serve", () => {
+    const servable = [
+      publicAuction.document_schema_version,
+      ...(publicAuction.document_schema_expands ?? []),
+    ];
+    expect(servable[0]).toBeDefined();
+    for (const version of servable) {
+      expect(PublicAuctionDocumentSchema.shape.schema_version.options).toContain(version);
+    }
   });
 });
