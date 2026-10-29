@@ -243,3 +243,6 @@ compose 프로젝트로 재기동 → `activate` → `migrate` → `timers` → 
   [ADR-0137](./0137-the-release-build-is-sized-from-a-measurement-and-runs-alone.md)이 대체했다. 4g에서 빌드가
   한 시간 동안 끝나지 않았고, 측정값(익명 메모리 최대 16.7GiB)으로 다시 정했다. 상한의 정본은
   `tools/release-build.contract.json`이고, 빌드는 등록 작업이 돌고 있으면 시작하지 않는다. 위 결정 본문은 고치지 않았다.
+- 2026-10-28: §3의 "관리자 호스트 빌드"는 [ADR-0309](./0309-ci-builds-the-release-once-and-only-for-a-commit-in-its-scope-the-host-only-pulls-it.md)가
+  바꿨다. 실행물은 이 저장소의 릴리스 워크플로가 main 의 그 커밋에서 빌드·서명하고, 승인은 서명 신원과 다이제스트를 오프라인으로 확인해
+  받는다(ADR-0276 R3). 불변식 1–4 가 어떻게 지켜지는지는 ADR-0309 의 표가 정본이다. 위 결정 본문은 고치지 않았다.

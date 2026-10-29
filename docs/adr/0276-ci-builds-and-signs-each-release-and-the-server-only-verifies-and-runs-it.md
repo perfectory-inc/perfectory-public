@@ -277,3 +277,7 @@ ghcr.io/<정본 조직>/foundation-release            (공개 패키지 하나, 
 - 승인이 compose 이미지(foundation-api, 복구 Postgres)까지 맡게 되어, 지금 승인 밖에서 빌드되던 두 이미지의 빈틈이 닫힌다.
 
 2026-10-28: 구현 점검 — Proposed 유지. R1–R3은 있다(`.github/workflows/foundation-release-build.yml`, `tools/release-build.contract.json`, `scripts/deploy/foundation-release-admission.py`의 `verify-registry`). §10 R4(서버 빌드 경로 제거 — `foundation-release.sh`가 아직 종료 코드 75에서 직접 빌드한다)와 §4.6의 `build:` 거부 시험은 없다.
+
+## 개정 기록
+
+- 2026-10-28: R1–R3 는 [ADR-0309](./0309-ci-builds-the-release-once-and-only-for-a-commit-in-its-scope-the-host-only-pulls-it.md)가 운영 결정으로 확정했다(§7 의 "CI 가 멈추면 기다린다" 포함). 같은 ADR 이 릴리스 빌드와 자동 배포를 `tools/ci/change-scope.json` 의 범위 안 커밋으로 좁혔다. R4 는 열려 있다.

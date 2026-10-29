@@ -66,6 +66,33 @@ if [[ "$(git --git-dir="${mirror}" rev-parse -q --verify refs/heads/main 2>/dev/
   /bin/bash "${control_root}/scripts/github/safe-git-transport.sh" --anonymous --repository "${mirror}" \
     fetch -q --no-tags "https://github.com/${repository}.git" +refs/heads/main:refs/heads/main >/dev/null 2>&1 || true
 fi
+# Main's commits after the running release that change nothing the release is made of or the host
+# reads get no release (root ADR-0309: the release build's scope in tools/ci/change-scope.json, read
+# by change_scope.py of the control checkout): the host already runs what they would deploy, so it
+# is on main as far as a release goes. Any answer but "outside the scope" goes on as before.
+scope=0
+python3 -I -B - "${control_root}" "${mirror}" "${current}" "${head}" <<'PY' || scope=$?
+import subprocess, sys
+from pathlib import Path
+root, mirror, base, head = sys.argv[1:]
+try:
+    sys.path.insert(0, f"{root}/scripts/ci")
+    import change_scope
+    diff = ["git", "--git-dir", mirror, "diff", "--name-only", "-z", "--no-renames", f"{base}...{head}"]
+    changed = {p for p in subprocess.run(diff, check=True, capture_output=True).stdout.decode().split("\0") if p}
+    run, reason = change_scope.decide(change_scope.load_contract(Path(root)), "foundation-release-build.yml",
+                                      "push", changed, Path(root))
+except Exception as error:  # no answer is not "outside the scope"
+    print(f"foundation-autodeploy: cannot tell whether {head[:8]} is in the release's scope: {error!r}", file=sys.stderr)
+    sys.exit(1)
+if not run:
+    print(f"foundation-autodeploy: nothing to deploy after {base[:8]} up to {head[:8]}: {reason}")
+sys.exit(0 if run else 3)
+PY
+if ((scope == 3)); then
+  start_worker_deploy
+  exit 0
+fi
 candidates=()
 while read -r commit; do
   [[ -e "${state}/refused/${commit}" || -e "${state}/failed/${commit}" ]] || candidates+=("${commit}")

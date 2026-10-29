@@ -411,6 +411,49 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertIn("no quiet window", result.stdout)
         self.assertEqual(self.deployed(), [HEAD])
 
+    def main_changing(self, path):
+        """A real mirror: the running release's commit, then one commit on main changing `path`.
+        The control checkout carries the real release-build scope (root ADR-0309)."""
+        control = self.root / "control"
+        repo = PLATFORM.parents[1]
+        for relative in ("scripts/ci/change_scope.py", "tools/ci/change-scope.json"):
+            (control / relative).parent.mkdir(parents=True, exist_ok=True)
+            (control / relative).write_bytes((repo / relative).read_bytes())
+        shutil.copytree(repo / ".github" / "workflows", control / ".github" / "workflows")
+        work = self.root / "work"
+        git = ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+        subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+        (work / "README.md").write_text("base\n")
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "base"], check=True)
+        base = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        (work / path).parent.mkdir(parents=True, exist_ok=True)
+        (work / path).write_text("changed\n")
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "change"], check=True)
+        head = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        subprocess.run(["git", "clone", "-q", "--bare", str(work), str(self.root / "mirror.git")], check=True)
+        (self.root / "opt/releases" / base).mkdir()
+        (self.root / "opt/current").unlink()
+        (self.root / "opt/current").symlink_to(self.root / "opt/releases" / base)
+        return head
+
+    def test_a_commit_outside_the_release_scope_is_not_deployed_and_the_workers_catch_up(self):
+        # 2026-10-27: the web-only #879 got a 10.5 min release build and a 12 min deploy.
+        head = self.main_changing("products/gongzzang/apps/web/page.tsx")
+        result = self.tick(head=head)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("nothing to deploy after", result.stdout)
+        self.assertEqual(self.deployed(), [])
+        self.assertFalse((self.root / "asked.log").exists(), "its checks are not even asked for")
+        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service"])
+
+    def test_a_commit_inside_the_release_scope_is_deployed(self):
+        head = self.main_changing("platforms/foundation-platform/scripts/deploy/x.sh")
+        result = self.tick(head=head)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [head])
+
     def test_a_host_already_on_main_does_nothing(self):
         result = self.tick(head=CURRENT)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
