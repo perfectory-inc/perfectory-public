@@ -72,4 +72,11 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
+      - "silver.onbid_announcement"
+      - "silver.onbid_announcement_bid_result"
+      - "silver.onbid_announcement_detail"
+      - "silver.onbid_item_bid_info"
+      - "silver.onbid_item_bid_result"
       - "silver.onbid_real_estate_item"
+      - "silver.onbid_real_estate_item_detail"
+      - "silver.onbid_real_estate_item_photo"

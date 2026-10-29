@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_item_bid_result"
 name: "온비드 물건 입찰결과"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
+  purpose: "목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 돌고, 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7)."
 team:
   name: "foundation-platform"
 servers:
@@ -254,7 +254,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-item-bid-result"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

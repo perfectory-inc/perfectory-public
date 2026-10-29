@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_real_estate_item_photo"
 name: "온비드 물건 사진"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "물건 상세에서 받은 사진·감정평가서 첨부를 내용해시(sha256)로 색인해, 어느 회차(물건관리번호·공매조건번호)가 어떤 미디어 해시를 갖는지 쌓는다(루트 ADR-0298). 미디어 블롭은 content-addressed 저장소에 한 번만 쓴다. 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
+  purpose: "물건 상세에서 받은 사진·감정평가서 첨부를 내용해시(sha256)로 색인해, 어느 회차(물건관리번호·공매조건번호)가 어떤 미디어 해시를 갖는지 쌓는다(루트 ADR-0298). 미디어 블롭은 content-addressed 저장소에 한 번만 쓴다. 적재 레인은 돌고, 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7)."
 team:
   name: "foundation-platform"
 servers:
@@ -78,7 +78,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-real-estate-item-photo"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

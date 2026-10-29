@@ -15,7 +15,7 @@ could tell, because no file said which provider field went where.
 - `silver` names a column of the lakehouse contract, `gold` a path of the public-auction subject's
   current revision in the schema registry (root ADR-0336), `web` a path the registry's `web`
   consumer pact reads and whose leaf the panel uses; a collected API is in the source contract;
-- the other way: every content column of an Onbid Silver table and every path of the served round
+- the other way: every content column of an Onbid Silver table and every path of the served document
   is claimed by a field or declared `derived`, so the inventory cannot fall behind a new column;
 - a field the inventory marks `pii` (a private person's name) is claimed by no Silver column.
 
@@ -38,7 +38,9 @@ LAKEHOUSE = FP / "infra" / "lakehouse" / "contracts" / "industrial_complex_lakeh
 SUBJECT = "foundation-platform.parcel_public_auction_by_pnu"
 PANEL = ROOT / "products" / "gongzzang" / "apps" / "web" / "components" / "panels" / "parcel" / "public-auction.tsx"
 LOAD_COLUMNS = {"source_record_id", "source_line_number", "source_snapshot_id", "ingested_at_utc", "row_state"}
-ROUND = "public_auction.rounds[]."
+SERVED = "public_auction."
+# The document's frame, which no provider field fills.
+DOCUMENT_FRAME = {"public_auction.rounds", "public_auction.source_datasets"}
 ENVELOPE = {"header.resultCode", "header.resultMsg", "body.totalCount", "body.numOfRows", "body.pageNo"}
 
 
@@ -130,7 +132,8 @@ def check(inventory: dict, source: dict, lakehouse: dict, record: list[str], web
             if column not in claimed_columns and column not in derived:
                 failures.append(f"{column}: no inventory field claims it and it is not declared derived")
     for path in record:
-        if path.startswith(ROUND) and path not in claimed_paths and path not in derived:
+        if (path.startswith(SERVED) and path not in DOCUMENT_FRAME and path not in claimed_paths
+                and path not in derived):
             failures.append(f"{path}: no inventory field claims it and it is not declared derived")
     for section in inventory.get("web_only", []) + inventory.get("site_sections", []):
         for ref in section["api_fields"]:

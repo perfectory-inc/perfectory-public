@@ -21,11 +21,13 @@ Which PNU a sale belongs to:
   is never dropped.
 
 What a PNU's document holds (root ADR-0287 §7): the rounds open as of the build, soonest-closing
-first, each with its codes (and the names Onbid's own code service gives them, when that reference
-is loaded), its money values, its bid window and Onbid's own identifiers. Closed rounds and their
-results stay in Silver, append-only; the screen shows a round only while `bid_ends_at` lies ahead,
-so one that closes between builds disappears without waiting for the next. Values only: codes stay
-codes, and the words are the consumer's.
+first, each with its codes and the names the provider gives them (root ADR-0340 §8), its money
+values, its bid window and conditions, and Onbid's own identifiers. Closed rounds and their results
+stay in Silver, append-only; the screen shows a round only while `bid_ends_at` lies ahead, so one
+that closes between builds disappears without waiting for the next. Beside the rounds, once per
+document, the facts of each item and announcement round the served rounds name
+(`onbid_public_auction_document`, root ADR-0340 §7): the item's detail, bid information, earlier
+rounds' results and maps; the announcement's text, attachments, organisation and opening.
 """
 from __future__ import annotations
 
@@ -34,6 +36,8 @@ import json
 import os
 from dataclasses import dataclass
 from typing import Any
+
+import onbid_public_auction_document as document
 
 JOB_NAME = "onbid_public_auction_silver_to_gold"
 ITEM_SOURCE = "silver.onbid_real_estate_item"
@@ -53,11 +57,15 @@ LINEAGE_MISSING = "lineage_missing"
 # Lineage grades not yet in effect (root ADR-0113 §4): never followed.
 NOT_IN_EFFECT = ("needs_review", "pending")
 # The datasets a served round comes from (data.go.kr ids), carried so the screen can name its source.
-SOURCE_DATASETS = ("data.go.kr:15157207", "data.go.kr:15157254")
+SOURCE_DATASETS = ("data.go.kr:15157207", "data.go.kr:15157254", "data.go.kr:15157247", "data.go.kr:15157251",
+                   "data.go.kr:15157216", "data.go.kr:15157222", "data.go.kr:15157218")
 # One document's ceiling (root ADR-0193): rounds beyond it are dropped from the document, latest
 # closing first; they stay in Silver.
 DOCUMENT_BYTE_LIMIT = 256 * 1024
 DOCUMENT_ENVELOPE_BYTES = 1024
+# How a document is written: nulls too, so its paths are always the registry's — and so its size is
+# measured the same way (a size that skipped nulls let a document of many null fields past the ceiling).
+WRITTEN = {"ignoreNullFields": "false"}
 # A served round's values, in order: identifiers, codes, money, the bid window, sizes.
 ROUND_FIELDS = (
     "cltr_mng_no", "pbct_cdtn_no", "onbid_cltr_no", "onbid_pbanc_no", "pbct_no", "pbct_nsq", "item_name",
@@ -65,8 +73,20 @@ ROUND_FIELDS = (
     "usg_lcls_ctgr_id", "usg_mcls_ctgr_id", "usg_scls_ctgr_id",
     "appraisal_amount_krw", "lowest_bid_price_krw", "lowest_bid_price_raw", "first_bid_price_krw", "usbd_nft",
     "bid_begins_at", "bid_ends_at", "land_area_m2", "building_area_m2", "share_item_yn",
+    # Root ADR-0340 §7: the rest of the list row a buyer reads — the provider's names of its codes,
+    # the bid conditions, the organisations, the notices it carries, the address it gives.
+    "prpt_div_nm", "dsps_mthod_nm", "bid_mthod_nm", "cptn_mthod_cd", "cptn_mthod_nm", "totalamt_unpc_div_cd",
+    "totalamt_unpc_div_nm", "pbct_stat_nm", "bid_div_cd", "bid_div_nm", "pvct_trgt_yn", "bid_prgn_nft",
+    "batc_bid_yn", "crtn_yn", "fee_rate", "apsl_prc_ctrs_lowst_bid_rto", "frst_ctrs_lowst_bid_prc_rto",
+    "org_name", "rqst_org_nm", "rent_mthod_nm", "rent_perd_cont", "dtbt_rqr_edtm_cont", "eltr_grpr_use_yn",
+    "collb_bid_psbl_yn", "twtm_gthr_bid_psbl_yn", "subt_bid_psbl_yn", "evc_rsby_trgt_cont",
+    "location_sido_name", "location_sigungu_name", "location_emd_name", "provider_modified_at",
 )
 USAGE_LEVELS = ("lcls", "mcls", "scls")
+# The Silver tables beside the item list a document is built from (root ADR-0340 §7). Required: the
+# Silver load creates every Onbid table on its first run, empty or not, and a table that is empty
+# leaves its block's fields null.
+DOCUMENT_SOURCES = document.SOURCES
 
 
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
@@ -74,9 +94,9 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     seam `gold_rebuild.producer_inputs` reads. The item table is read whole: `current_rows` reads
     every version to pick the current one per key, so any change to it rebuilds the kind."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE),
+    return ((PARCEL_SOURCE, ITEM_SOURCE, *DOCUMENT_SOURCES),
             {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
-            (ITEM_SOURCE, PHOTO_SOURCE))
+            (ITEM_SOURCE, PHOTO_SOURCE, *DOCUMENT_SOURCES))
 
 
 def declared_sources(lane: str, carry_lineage: bool, photos: bool) -> tuple[str, ...]:
@@ -147,19 +167,23 @@ def served_rounds(round_rows: Any, as_of: Any) -> Any:
 
 
 def with_usage_names(round_rows: Any, usage_codes: Any | None) -> Any:
-    """Each usage code's name as Onbid's code service gives it (`code`, `name`), or null while the
-    reference is not loaded. Never a name of ours."""
+    """Each usage code's name as the provider gives it: the name every list row carries beside the
+    code (`cltr_usg_*_ctgr_nm`, root ADR-0340 §8), else Onbid's code service's (`code`, `name`) when
+    that reference is loaded, else null. Never a name of ours."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     named = round_rows
     for level in USAGE_LEVELS:
         code = f"usg_{level}_ctgr_id"
         name = f"usg_{level}_ctgr_name"
+        inline = f"cltr_usg_{level}_ctgr_nm"
         if usage_codes is None:
             named = named.withColumn(name, F.lit(None).cast("string"))
         else:
             names = usage_codes.select(F.col("code").alias(code), F.col("name").alias(name)).dropDuplicates([code])
             named = named.join(F.broadcast(names), code, "left")
+        if inline in named.columns:
+            named = named.withColumn(name, F.coalesce(F.col(inline), F.col(name)))
     return named
 
 
@@ -169,6 +193,7 @@ def photos_by_item(photo_rows: Any) -> Any:
     (`sequence`)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
+    photo_rows = photo_rows.where(F.col("media_kind").isin(*document.ROUND_MEDIA_KINDS))
     return (photo_rows.groupBy(ITEM).agg(F.array_sort(F.collect_list(F.struct(
         F.col("media_kind").alias("_kind"), F.col("sequence").alias("_seq"),
         F.struct("sha256", "media_kind", "sequence", "title", "media_format", "size_bytes").alias("_photo"),
@@ -187,26 +212,57 @@ def with_photos(round_rows: Any, photos: Any | None) -> Any:
     return round_rows.join(photos, ITEM, "left").withColumn("photos", F.coalesce(F.col("photos"), empty))
 
 
-def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) -> Any:
+def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT, items: Any | None = None,
+                  announcements: Any | None = None) -> Any:
     """One row per PNU: `public_auction_json` (the served rounds, soonest-closing first, cut at the
-    document ceiling), `round_count`, and `attached_via` — null when the PNU holds a round of its
-    own, else its nearest carried round's path."""
+    document ceiling, and once each the item and announcement-round blocks they name), `round_count`,
+    and `attached_via` — null when the PNU holds a round of its own, else its nearest carried round's
+    path. A block's bytes count against the ceiling with the first (soonest-closing) round naming it,
+    so a block is kept exactly when a round naming it is."""
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
 
+    shape = document.document_shape()
     fields = [*ROUND_FIELDS, *(f"usg_{level}_ctgr_name" for level in USAGE_LEVELS), "photos", "attached_via"]
-    entries = placed_rounds.withColumn("_entry", F.struct(*[F.col(f) for f in fields]))
+    # An earlier snapshot of the item list (or a test frame) may lack a later column: it is null.
+    entries = placed_rounds.withColumn("_entry", F.struct(*[
+        (F.col(f) if f in placed_rounds.columns else F.lit(None).cast("string")).alias(f) for f in fields]))
+    if items is None:
+        entries = entries.withColumn("_item", F.lit(None).cast(document.spark_type(shape["items"][0])))
+    else:
+        entries = entries.join(items, document.ITEM, "left")
+    if announcements is None:
+        entries = entries.withColumn("_announcement",
+                                     F.lit(None).cast(document.spark_type(shape["announcements"][0])))
+    else:
+        entries = entries.join(announcements, list(document.ANNOUNCEMENT_KEY), "left")
     order = Window.partitionBy("pnu").orderBy(F.col("bid_ends_at").asc(), *[F.col(k).asc() for k in KEY])
-    sized = (entries.withColumn("_bytes", F.length(F.to_json("_entry")) + F.lit(1))
+
+    def first_of(*columns: str) -> Any:
+        within = Window.partitionBy("pnu", *columns).orderBy(F.col("bid_ends_at").asc(), *[F.col(k).asc() for k in KEY])
+        return F.row_number().over(within) == 1
+
+    def block_bytes(block: str, first: Any) -> Any:
+        return F.when(first & F.col(block).isNotNull(), F.length(F.to_json(block, WRITTEN)) + F.lit(1)).otherwise(F.lit(0))
+
+    entries = (entries.withColumn("_first_item", first_of(document.ITEM))
+               .withColumn("_first_announcement", first_of(*document.ANNOUNCEMENT_KEY)))
+    sized = (entries.withColumn("_bytes", F.length(F.to_json("_entry", WRITTEN)) + F.lit(1)
+                                + block_bytes("_item", F.col("_first_item"))
+                                + block_bytes("_announcement", F.col("_first_announcement")))
              .withColumn("_running", F.sum("_bytes").over(order.rowsBetween(Window.unboundedPreceding, 0))))
     kept = sized.where(F.col("_running") <= F.lit(limit_bytes - DOCUMENT_ENVELOPE_BYTES))
-    # Nulls are written, so a document's field paths are always its record's (contracts/by-pnu-documents).
+    # Nulls are written, so a document's field paths are always its record's (the schema registry).
     return kept.groupBy("pnu").agg(
         F.to_json(F.struct(
             F.array_sort(F.collect_list(F.struct(F.col("bid_ends_at").alias("_sort"), F.col("cltr_mng_no").alias("_k1"),
                                                  F.col("pbct_cdtn_no").alias("_k2"), F.col("_entry").alias("round"))))
             .getField("round").alias("rounds"),
+            # collect_list skips nulls: one block per item and announcement round, ordered by its key.
+            F.array_sort(F.collect_list(F.when(F.col("_first_item"), F.col("_item")))).alias("items"),
+            F.array_sort(F.collect_list(F.when(F.col("_first_announcement"), F.col("_announcement"))))
+            .alias("announcements"),
             F.array(*[F.lit(d) for d in SOURCE_DATASETS]).alias("source_datasets"),
-        ), {"ignoreNullFields": "false"}).alias("public_auction_json"),
+        ), WRITTEN).alias("public_auction_json"),
         F.count(F.lit(1)).alias("round_count"),
         F.when(F.max(F.col("attached_via").isNull().cast("int")) == 1, F.lit(None).cast("string"))
         .otherwise(F.min("attached_via")).alias("attached_via"),
@@ -299,11 +355,20 @@ def placement(frames: dict[str, Any], how: Placement) -> Any:
                   how.candidates, how.merges)
 
 
-def gold_rows(located: Any, as_of: str, source_snapshot_id: str, columns: tuple[str, ...]) -> Any:
-    """The kind's Gold rows from placed rounds: one per PNU that holds a servable round."""
+def blocks(frames: dict[str, Any], located: Any) -> tuple[Any, Any]:
+    """The item and announcement-round blocks of the rounds `located` holds (root ADR-0340 §7)."""
+    return document.item_blocks(frames, located), document.announcement_blocks(frames, located)
+
+
+def gold_rows(located: Any, as_of: str, source_snapshot_id: str, columns: tuple[str, ...],
+              frames: dict[str, Any] | None = None) -> Any:
+    """The kind's Gold rows from placed rounds: one per PNU that holds a servable round, with the
+    blocks of `frames` (none when `frames` is not given: empty `items` and `announcements`)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    return document_rows(servable(located)).select(
+    servable_rounds = servable(located)
+    items, announcements = blocks(frames, servable_rounds) if frames is not None else (None, None)
+    return document_rows(servable_rounds, items=items, announcements=announcements).select(
         "pnu", *GOLD_CONTENT, F.lit(source_snapshot_id).alias("source_snapshot_id"),
         F.lit(as_of).alias("published_at_utc"),
     ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", *GOLD_CONTENT)), 256)).select(*columns)
@@ -366,9 +431,16 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
         return name in changed and name in old and name in new
 
     touched = [incremental.changed_rows(old[ITEM_SOURCE], new[ITEM_SOURCE], KEY)] if present(ITEM_SOURCE) else []
-    if present(PHOTO_SOURCE):
-        items = incremental.changed_rows(old[PHOTO_SOURCE], new[PHOTO_SOURCE], (ITEM,)).distinct()
-        touched.append(new[ITEM_SOURCE].join(items, ITEM, "left_semi").select(*KEY))
+    # A media, detail, bid-info or result row is its item's: every round of the item is touched.
+    for name in (PHOTO_SOURCE, document.DETAIL_SOURCE, document.BID_INFO_SOURCE, document.RESULT_SOURCE):
+        if present(name):
+            items = incremental.changed_rows(old[name], new[name], (ITEM,)).distinct()
+            touched.append(new[ITEM_SOURCE].join(items, ITEM, "left_semi").select(*KEY))
+    # An announcement row is its announcement round's (root ADR-0340 §7).
+    for name in (document.ANNOUNCEMENT_SOURCE, document.ANNOUNCEMENT_RESULT_SOURCE, document.ANNOUNCEMENT_DETAIL_SOURCE):
+        if present(name):
+            announced = incremental.changed_rows(old[name], new[name], document.ANNOUNCEMENT_KEY).distinct()
+            touched.append(new[ITEM_SOURCE].join(announced, list(document.ANNOUNCEMENT_KEY), "left_semi").select(*KEY))
     open_rounds = rounds(new[ITEM_SOURCE]).where(F.col("is_open") & F.col("bid_ends_at").isNotNull())
     closed = open_rounds.where(F.col("bid_ends_at") <= F.to_timestamp(F.lit(how.as_of)))
     if previous_as_of is not None:
@@ -410,7 +482,7 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{source.split('.', 1)[1]}"
         return with_contract_columns(read_pinned_iceberg(spark, table, source, at), load_lakehouse_contract(source))
 
-    tables = [ITEM_SOURCE, *((PHOTO_SOURCE,) if args.photos and PHOTO_SOURCE in pins else ())]
+    tables = [ITEM_SOURCE, *((PHOTO_SOURCE,) if args.photos and PHOTO_SOURCE in pins else ()), *DOCUMENT_SOURCES]
     frames = {name: versions(name, pins).cache() for name in tables}
     old = None if previous is None else {name: versions(name, previous) for name in tables if name in previous}
     named = frames[ITEM_SOURCE].select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
@@ -489,7 +561,7 @@ def main(argv=None) -> int:
             located = placement(inputs, how).cache()
             if inputs is frames:
                 count_placement(located, counters)
-            return gold_rows(located, args.published_at_utc, pins[PARCEL_SOURCE], columns)
+            return gold_rows(located, args.published_at_utc, pins[PARCEL_SOURCE], columns, inputs)
 
         lane = incremental.Lane(
             build=build, restrict=lambda inputs, keys: restrict_inputs(inputs, keys, how),
