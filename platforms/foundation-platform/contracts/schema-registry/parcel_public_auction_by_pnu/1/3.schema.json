@@ -1,0 +1,1951 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_public_auction_by_pnu major 1 revision 3",
+  "description": "A parcel's open onbid public auction rounds, served by PNU on the parcel edge (lane parcel-public-auction). A field that is not required may be absent or null. Revision 3 (root ADR-0340 §7) adds the rest of each round's list row (the provider's names of its codes, the bid conditions, the organisations) and, once per document, the item blocks (detail, bid information, earlier rounds' results, maps) and the announcement-round blocks (text, attachments, organisation, opening) the rounds name.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_public_auction_by_pnu.v1",
+        "foundation-platform.parcel_public_auction_by_pnu.v2"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "public_auction": {
+      "type": "object",
+      "properties": {
+        "announcements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "onbid_pbanc_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pbct_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pbanc_mng_no": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbanc_kind_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbanc_kind_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prpt_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prpt_div_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dsps_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dsps_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "onbid_pbanc_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "org_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rspb_sbr_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbanc_ymd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbct_nsq": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbctsn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cltr_bid_bgng_dt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cltr_bid_end_dt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cltr_opbd_dt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_div_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "exct_stat_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "exct_stat_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbanc_org_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cptn_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cptn_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "totalamt_unpc_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "totalamt_unpc_div_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_amt_rls_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbanc_nsq_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbanc_rtrcn_rsn_cont": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rltn_pbanc_mng_no": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rltn_pbanc_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ptct_cmsn": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pbanc_ptct_qlfc_cont": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "anncm_al_cont": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "atch_file_list": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "btbd_atch_file_nm": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sha256": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "media_format": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "size_bytes": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "anncm_al_cont_omitted": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cltr_mng_no": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "detail": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "sqms_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "cland_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sqms_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "purs_alc_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dtl_cltr_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "apsl_evl_clg_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "apsl_evl_org_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "apsl_appr_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "apsl_evl_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "apsl_evl_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sha256": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "media_format": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "size_bytes": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "leas_inf_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "irst_div_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bid_grtee_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "mthr_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "conv_grtee_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cfmtn_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "mvin_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "rgst_prmr_inf_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "inpr_stng_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "irst_div_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rgst_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "dtbt_rqr_mtrs_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "rgt_rel_cd_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stng_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bond_dclr_stng_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dtbt_rqr_yn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dtbt_rqr_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dtbt_rqr_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "ersr_psbl_yn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "etc_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "ocpy_rel_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "ocpy_rel_cd_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "ctrt_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "mvin_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cfmtn_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "acpm_grtee_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "rnt_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "lsd_part_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "paps_inf": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "dlgt_org_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "mng_no": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbanc_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dtbt_rqr_edtm_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbct_tdps": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "zadr": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "alc_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbct_espc": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bid_perd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "opbd_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dodisp_dudt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "ersr_excl_rgt_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stty_ebr_vld_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pytn_mtrs_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "prcv_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "etc_smry_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "szr_prpt_indct_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "zadr_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "cltr_radr": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "loc_vnty_pscd_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "icdl_cdtn_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "utlz_pscd_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "cltr_etc_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "dspl_vld_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "purr_qlfc_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pytn_mtrs_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "frst_pbanc_ymd": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "batc_bid_cltr_clg_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "dsps_mthod_cd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dsps_mthod_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_usg_lcls_ctgr_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_usg_mcls_ctgr_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_usg_scls_ctgr_id": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_usg_lcls_ctgr_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_usg_mcls_ctgr_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_usg_scls_ctgr_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "onbid_cltr_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "usbd_nft": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "land_sqms": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bld_sqms": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "apsl_evl_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_mng_no": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "prpt_div_cd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "prpt_div_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "crtn_lst_clg_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "crtn_ymd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "crtn_item_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bfmdf_lst_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "afmdf_lst_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "bid_info": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "pbanc_mng_no": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "onbid_pbanc_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tdps_sbtn_dcmt_yn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "nrnk_aply_psbl_yn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pbct_tdps_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pcmt_pay_mtd_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pcmt_pay_term_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_ptct_aply_yn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_vld_crtr_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "smns_ip_dpcn_bid_blckt_yn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tdps_sbtn_dcmt_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tdps_sbtn_dcmt_sbmsn_term_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "tdps_sbtn_dcmt_sbmsn_mthod_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_ptct_aply_dcmt_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_ptct_aply_term_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_ptct_dcmt_sbmsn_mthod_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_rltn_dcmt_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_rltn_dcmt_sbmsn_term_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_rltn_dcmt_sbmsn_mthod_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "collb_mthod_dcmt_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "collb_dcmt_sbmsn_mthod_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "collb_dcmt_sbmsn_term_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "subt_bid_dcmt_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "subt_bid_dcmt_sbmsn_mthod_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "subt_bid_dcmt_sbmsn_term_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "qlfc_lmt_cdtn_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "rgn_lmt_cdtn_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "etc_lmt_cdtn_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "evl_ptdb_clg_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "evl_perd_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pytn_mtrs_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_prc_asmc_calcw_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "min_esure_amt": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "min_esure_rate": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "crtr_amt": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "crtr_rate": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "rsv_prc_rng_cont": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "rsv_prc_chc_num": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "rsv_prc_etmt_num": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "tplm_crrt": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "rsnb_hghprc_cfct": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "crtr_amt_bid_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "opsn_cltr_bid_psbl_yn": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "bid_psbl_cltr_qnty": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "ptct_cmsn": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "prpsl_evl_item_clg_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "evl_item_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "evl_item_ptdb_scr": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "evl_item_desc_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "evl_item_rmk_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "prcn_nsq_bid_rslt_nm": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "prcn_nsq_lowst_bid_prc": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "prcn_bid_clg_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "pbct_nsq": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbctsn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_opbd_dt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbct_stat_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "lowst_bid_prc_indct_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "scfb_amt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "apsl_prc_ctrs_lowst_bid_rto": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "frst_ctrs_lowst_bid_prc_rto": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "cseq_bid_inf_clg_list": {
+                    "type": "array",
+                    "items": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "bid_mng_no": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbct_nsq": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbctsn": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bid_div_cd": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "bid_div_nm": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_bid_bgng_dt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_bid_end_dt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_opbd_dt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "pbct_opbd_plc_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "lowst_bid_prc_indct_cont": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "cltr_dodisp_dt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "pbct_cdtn_no": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "pbct_nsq": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "pbct_stat_cd": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "pbct_stat_nm": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "opened_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lowest_bid_price_krw": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "winning_bid_amount_krw": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "valid_bidder_count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "invalid_bidder_count": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "apsl_prc_ctrs_scfb_prc_rto": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "lowst_bid_ctrs_scfb_prc_rto": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "rtrcn_rsn_cont": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "afsb_rtrcn_rsn_cont": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
+              "media": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "properties": {
+                    "sha256": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "media_kind": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sequence": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "media_format": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "size_bytes": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rounds": {
+          "type": "array",
+          "description": "Open rounds, soonest-closing first",
+          "items": {
+            "type": "object",
+            "properties": {
+              "appraisal_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "apsl_prc_ctrs_lowst_bid_rto": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "attached_via": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "batc_bid_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_begins_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_div_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_ends_at": {
+                "type": "string"
+              },
+              "bid_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bid_prgn_nft": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "building_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "cltr_mng_no": {
+                "type": "string"
+              },
+              "collb_bid_psbl_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cptn_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cptn_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "crtn_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dsps_mthod_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dsps_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dtbt_rqr_edtm_cont": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "eltr_grpr_use_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "evc_rsby_trgt_cont": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fee_rate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "first_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "frst_ctrs_lowst_bid_prc_rto": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "item_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "land_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "location_emd_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "location_sido_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "location_sigungu_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lowest_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "lowest_bid_price_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "onbid_cltr_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "onbid_pbanc_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "org_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbct_cdtn_no": {
+                "type": "integer"
+              },
+              "pbct_no": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pbct_nsq": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbct_stat_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pbct_stat_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "photos": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "description": "The round's onbid media, content-addressed: the web builds each public URL from sha256 and media_format (root ADR-0296 §5)",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "media_format": {
+                      "type": "string",
+                      "enum": [
+                        "jpg",
+                        "png",
+                        "gif",
+                        "pdf"
+                      ]
+                    },
+                    "media_kind": {
+                      "type": "string",
+                      "enum": [
+                        "photo",
+                        "appraisal"
+                      ]
+                    },
+                    "sequence": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "size_bytes": {
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "media_format",
+                    "media_kind",
+                    "sha256",
+                    "size_bytes"
+                  ]
+                }
+              },
+              "provider_modified_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prpt_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "prpt_div_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pvct_trgt_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rent_mthod_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rent_perd_cont": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rqst_org_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "share_item_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "subt_bid_psbl_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "totalamt_unpc_div_cd": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "totalamt_unpc_div_nm": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "twtm_gthr_bid_psbl_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usbd_nft": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "usg_lcls_ctgr_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_lcls_ctgr_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_mcls_ctgr_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_mcls_ctgr_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_scls_ctgr_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usg_scls_ctgr_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "bid_ends_at",
+              "cltr_mng_no",
+              "pbct_cdtn_no"
+            ]
+          }
+        },
+        "source_datasets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "rounds",
+        "source_datasets"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "public_auction"
+  ]
+}

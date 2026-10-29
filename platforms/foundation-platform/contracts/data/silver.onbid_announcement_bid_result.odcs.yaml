@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_announcement_bid_result"
 name: "온비드 공고 입찰결과"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "공고 입찰결과목록(15157222)의 공고 회차마다 집행상태(개찰준비중·개찰중·개찰완료)가 바뀐 행을 쌓는다(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다."
+  purpose: "공고 입찰결과목록(15157222)의 공고 회차마다 집행상태(개찰준비중·개찰중·개찰완료)가 바뀐 행을 쌓는다(루트 ADR-0340 §6). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7)."
 team:
   name: "foundation-platform"
 servers:
@@ -118,7 +118,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-announcement-bid-result"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

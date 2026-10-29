@@ -617,11 +617,16 @@ class Registration(unittest.TestCase):
             gold, surface = node_id(kind.gold_table), f"{lane}-by-pnu-section-packs"
             # A section of its host panel is fed by the panel; a kind with its own producer by the
             # Silver it reads beside the anchor (root ADR-0287).
+            # Its first non-anchor input is the one its job is found by; every other input needs its
+            # edge too (root ADR-0340: the public auction kind reads seven Silver tables).
+            others = []
             if kind.follows_host_panel:
                 feeder = node_id(kind.host_panel)
             else:
                 required, _, anchor, _ = __import__(kind.producer).lane_inputs(lane)
-                (feeder,) = [node_id(name) for name in required if name != anchor]
+                feeder, *others = [node_id(name) for name in required if name != anchor]
+            missing += [f"{lane}: graph edge {other}-to-{gold}" for other in others
+                        if f"{other}-to-{gold}" not in edges]
             fed, served = f"{feeder}-to-{gold}", f"{gold}-to-{surface}"
             # A section kind is rebuilt in gold_kind_rebuild; an own-producer kind by its own job, which
             # runs the rebuild script for its lane (root ADR-0287).

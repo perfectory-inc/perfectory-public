@@ -34,9 +34,11 @@ class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_carries_lineage_optionally(self):
         required, optional, anchor, whole = job.lane_inputs("parcel-public-auction")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE}, "open rounds only: no bid results read")
+        # Root ADR-0340 §7: the item and announcement blocks read their own Silver, each whole and
+        # required (the Silver load creates every Onbid table, empty or not).
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, *job.DOCUMENT_SOURCES})
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
-        self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE})
+        self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE, *job.DOCUMENT_SOURCES})
 
     def test_declared_sources_names_every_pinned_input_so_the_harness_pins_match(self):
         required, optional, _anchor, _whole = job.lane_inputs("parcel-public-auction")
@@ -248,7 +250,10 @@ class DocumentSparkTest(unittest.TestCase):
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
         written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().public_auction_json), "public_auction")
         recorded = {p for p in by_pnu_kinds.document_record("parcel_public_auction_by_pnu") if p.startswith("public_auction.")}
-        self.assertEqual(written, recorded)
+        # Without blocks (no item or announcement facts) a document writes a subset; the full
+        # document's paths are held equal in BlocksSparkTest.
+        self.assertLessEqual(written, recorded)
+        self.assertIn("public_auction.rounds[].prpt_div_nm", written, "a round writes every field, null or not")
 
     def test_a_document_carries_a_round_s_media_in_array_order_with_all_fields(self):
         # document_rows serializes the round's photos array as given; photos_by_round is what orders it
@@ -310,8 +315,10 @@ class DocumentSparkTest(unittest.TestCase):
         rows = job.with_usage_names(self.rounds([
             round_row(f"R{day}", True, datetime(2099, 1, day)) for day in range(3, 9)]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        one = len(json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0].__repr__())
-        small = job.DOCUMENT_ENVELOPE_BYTES + 3 * (one + 200)
+        # A round's size as the ceiling counts it: its compact JSON and one separator.
+        first = json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]
+        one = len(json.dumps(first, ensure_ascii=False, separators=(",", ":"))) + 1
+        small = job.DOCUMENT_ENVELOPE_BYTES + 3 * one + one // 2
         body = json.loads(job.document_rows(placed, limit_bytes=small).first().public_auction_json)
         kept = [r["cltr_mng_no"] for r in body["rounds"]]
         self.assertTrue(0 < len(kept) < 6)
@@ -328,6 +335,138 @@ class DocumentSparkTest(unittest.TestCase):
         carried = rows.where(F.col("cltr_mng_no") == "CARRIED").withColumn("pnu", F.lit(SPLIT_A)).withColumn(
             "attached_via", F.lit("origin:split:confirmed"))
         self.assertEqual(job.document_rows(carried).first().attached_via, "origin:split:confirmed")
+
+
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class BlocksSparkTest(unittest.TestCase):
+    """Root ADR-0340 §7: each item and announcement round a served round names is carried once."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.spark = (SparkSession.builder.master("local[2]").appName("onbid-public-auction-blocks")
+                     .config("spark.sql.session.timeZone", "UTC").getOrCreate())
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def table(self, source, rows):
+        from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+        contract = load_lakehouse_contract(source)
+        schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
+        names = [c["name"] for c in contract["columns"]]
+        return self.spark.createDataFrame([tuple(row.get(n) for n in names) for row in rows], schema)
+
+    def frames(self, text="synthetic announcement text"):
+        import onbid_public_auction_document as document
+        from platform_contracts import load_lakehouse_contract
+
+        def every_list(source):
+            return {c["name"]: "[{}]" for c in load_lakehouse_contract(source)["columns"] if c["name"].endswith("_json")}
+
+        late = datetime(2099, 1, 10)
+        rounds = [{"cltr_mng_no": "K", "pbct_cdtn_no": n, "pnu": CURRENT, "item_name": "synthetic", "prpt_div_cd": "0007",
+                   "prpt_div_nm": "압류재산", "usg_lcls_ctgr_id": "10000", "cltr_usg_lcls_ctgr_nm": "토지",
+                   "onbid_pbanc_no": 7, "pbct_no": 70 + n, "org_name": "합성 기관", "bid_ends_at": datetime(2099, 1, 4 + n),
+                   "source_snapshot_id": "snap-1"} for n in (1, 2)]
+        lease = '[{"irstDivNm":"주거","bidGrteeAmt":1000000}]'
+        detail = {"cltr_mng_no": "K", "pbct_cdtn_no": 1, "icdl_cdtn_cont": "현 상태대로", **every_list(document.DETAIL_SOURCE),
+                  "leas_inf_list_json": lease, "paps_inf_json": '{"dlgtOrgNm":"합성 처분청"}', "source_snapshot_id": "s"}
+        bid_info = {"cltr_mng_no": "K", "pbct_tdps_cont": "최저입찰가의 10%", **every_list(document.BID_INFO_SOURCE),
+                    "source_snapshot_id": "s"}
+        result = {"cltr_mng_no": "K", "pbct_cdtn_no": 0, "pbct_stat_cd": "0011", "pbct_stat_nm": "유찰",
+                  "opened_at": datetime(2098, 12, 20), "valid_bidder_count": 0, "source_snapshot_id": "s"}
+        photos = [{"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "a" * 64, "media_kind": "photo", "sequence": 0,
+                   "media_format": "jpg", "size_bytes": 1, "source_snapshot_id": "s"},
+                  {"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "b" * 64, "media_kind": "location_map", "sequence": 0,
+                   "media_format": "png", "size_bytes": 2, "source_snapshot_id": "s"}]
+        announcements = [{"onbid_pbanc_no": 7, "pbct_no": 70 + n, "pbanc_mng_no": "209901-00007-00", "org_nm": "합성 기관",
+                          "source_snapshot_id": "s"} for n in (1, 2)]
+        opening = [{"onbid_pbanc_no": 7, "pbct_no": 71, "exct_stat_cd": "0001", "exct_stat_nm": "개찰준비중",
+                    "source_snapshot_id": "s"}]
+        announcement_detail = [{"pbanc_mng_no": "209901-00007-00", "pbct_no": 71, "onbid_pbanc_no": 7,
+                                "anncm_al_cont": text, **every_list(document.ANNOUNCEMENT_DETAIL_SOURCE),
+                                "atch_file_list_json": '[{"btbdAtchFileNm":"공고문.pdf","sha256":"' + "c" * 64 + '"}]',
+                                "source_snapshot_id": "s"}]
+        return {job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, rounds),
+                job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, photos),
+                document.DETAIL_SOURCE: self.table(document.DETAIL_SOURCE, [detail]),
+                document.BID_INFO_SOURCE: self.table(document.BID_INFO_SOURCE, [bid_info]),
+                document.RESULT_SOURCE: self.table(document.RESULT_SOURCE, [result]),
+                document.ANNOUNCEMENT_SOURCE: self.table(document.ANNOUNCEMENT_SOURCE, announcements),
+                document.ANNOUNCEMENT_RESULT_SOURCE: self.table(document.ANNOUNCEMENT_RESULT_SOURCE, opening),
+                document.ANNOUNCEMENT_DETAIL_SOURCE: self.table(document.ANNOUNCEMENT_DETAIL_SOURCE, announcement_detail),
+                job.PARCEL_SOURCE: self.spark.createDataFrame([(CURRENT,)], "pnu string")}
+
+    def document(self, frames):
+        import json
+        from platform_contracts import column_names, load_lakehouse_contract
+
+        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        how = job.Placement("2099-01-02T00:00:00Z")
+        [row] = job.gold_rows(job.placement(frames, how), how.as_of, "snap-p", columns, frames).collect()
+        return json.loads(row.public_auction_json)
+
+    def test_an_item_and_its_announcement_rounds_are_carried_once_beside_the_rounds(self):
+        body = self.document(self.frames())
+        self.assertEqual([r["pbct_cdtn_no"] for r in body["rounds"]], [1, 2])
+        [item] = body["items"]  # two rounds, one item
+        self.assertEqual(item["cltr_mng_no"], "K")
+        self.assertEqual(item["detail"]["icdl_cdtn_cont"], "현 상태대로")
+        # The provider's list in the document's case; the tenant's name never reached Silver.
+        self.assertEqual(item["detail"]["leas_inf_list"], [{"irst_div_nm": "주거", "bid_grtee_amt": "1000000",
+                                                            "mthr_amt": None, "conv_grtee_amt": None,
+                                                            "cfmtn_ymd": None, "mvin_ymd": None}])
+        self.assertEqual(item["detail"]["paps_inf"][0]["dlgt_org_nm"], "합성 처분청", "an object before V2 reads as one")
+        self.assertEqual(item["bid_info"]["pbct_tdps_cont"], "최저입찰가의 10%")
+        self.assertEqual([(h["pbct_stat_nm"], h["valid_bidder_count"]) for h in item["history"]], [("유찰", 0)])
+        self.assertEqual([m["media_kind"] for m in item["media"]], ["location_map"])
+        # A round's photos keep the kinds a revision-2 reader knows; maps are the item's media.
+        self.assertEqual([p["media_kind"] for p in body["rounds"][0]["photos"]], ["photo"])
+        self.assertEqual(body["rounds"][0]["usg_lcls_ctgr_name"], "토지", "the provider's own name")
+        self.assertEqual(body["rounds"][0]["prpt_div_nm"], "압류재산")
+        announced = {(a["onbid_pbanc_no"], a["pbct_no"]): a for a in body["announcements"]}
+        self.assertEqual(sorted(announced), [(7, 71), (7, 72)])
+        first = announced[(7, 71)]
+        self.assertEqual((first["org_nm"], first["exct_stat_nm"], first["anncm_al_cont"]),
+                         ("합성 기관", "개찰준비중", "synthetic announcement text"))
+        self.assertEqual(first["atch_file_list"][0]["sha256"], "c" * 64)
+        self.assertFalse(first["anncm_al_cont_omitted"])
+
+    def test_a_full_document_carries_exactly_the_registry_s_fields(self):
+        import by_pnu_kinds
+
+        written = by_pnu_kinds.json_paths(self.document(self.frames()), "public_auction")
+        recorded = {p for p in by_pnu_kinds.document_record("parcel_public_auction_by_pnu") if p.startswith("public_auction.")}
+        self.assertEqual(written, recorded)
+
+    def test_an_announcement_text_past_its_limit_is_not_served_and_says_so(self):
+        import onbid_public_auction_document as document
+
+        body = self.document(self.frames(text="가" * (document.ANNOUNCEMENT_TEXT_LIMIT + 1)))
+        first = next(a for a in body["announcements"] if a["pbct_no"] == 71)
+        self.assertIsNone(first["anncm_al_cont"])
+        self.assertTrue(first["anncm_al_cont_omitted"])
+
+    def test_a_change_of_an_item_or_announcement_block_touches_the_rounds_naming_it(self):
+        import onbid_public_auction_document as document
+
+        old = self.frames()
+        how = job.Placement("2099-01-02T00:00:00Z")
+        from platform_contracts import column_names, load_lakehouse_contract
+
+        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        gold = job.gold_rows(job.placement(old, how), how.as_of, "snap-p", columns, old)
+        for source, row in ((document.BID_INFO_SOURCE, {"cltr_mng_no": "K", "pbct_tdps_cont": "changed",
+                                                         "source_snapshot_id": "s2"}),
+                            (document.ANNOUNCEMENT_SOURCE, {"onbid_pbanc_no": 7, "pbct_no": 72, "org_nm": "changed",
+                                                            "source_snapshot_id": "s2"})):
+            new = {**old, source: old[source].unionByName(self.table(source, [row]))}
+            affected = job.affected_pnus(old, new, how, gold, how.as_of, [source])
+            self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT}, source)
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")

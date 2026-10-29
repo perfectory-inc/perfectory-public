@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_item_bid_info"
 name: "온비드 물건 입찰정보"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "물건상세 입찰정보(15157251)를 물건마다 내용이 바뀌면 쌓는다: 입찰보증금·잔대금·입찰성립기준·제한경쟁 자격·제출서류·평가방식·이전 회차 결과·회차별 일정(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다."
+  purpose: "물건상세 입찰정보(15157251)를 물건마다 내용이 바뀌면 쌓는다: 입찰보증금·잔대금·입찰성립기준·제한경쟁 자격·제출서류·평가방식·이전 회차 결과·회차별 일정(루트 ADR-0340 §6). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7)."
 team:
   name: "foundation-platform"
 servers:
@@ -254,7 +254,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-item-bid-info"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

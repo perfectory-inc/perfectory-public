@@ -1375,12 +1375,13 @@ mod tests {
             auction.document_schema_version,
             subject.current().schema_version
         );
-        // It expands every other string of its major: revision 1's.
+        // It expands every other string of its major: the legacy revision 2's (root ADR-0340 made
+        // revision 3, the first written as `.v1` with a schema_revision).
         assert_eq!(
             auction.document_schema_expands,
-            [format!("{}.v1", subject.subject)]
+            [format!("{}.v2", subject.subject)]
         );
-        assert_eq!(auction.document_schema_revision, None);
+        assert_eq!(auction.document_schema_revision, Some(3));
         let contract = written()?;
         let line = &contract["by_pnu_lanes"]["parcel-public-auction"];
         for field in [

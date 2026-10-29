@@ -56,6 +56,7 @@ MODULES = (
     "legal_dong_code_change_pairs",
     "vworld_parcel_number_change_history",
     "data_go_kr_onbid",
+    "onbid_public_auction_document",
     "address_pnu",
     "data_go_kr_registered_factory",
     "courtauction_go_kr",

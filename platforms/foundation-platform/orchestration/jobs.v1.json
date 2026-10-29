@@ -348,6 +348,7 @@
       "pipeline_graph_edges": [
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-result",
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-photo",
         "source-data-go-kr-onbid-to-silver-onbid-announcement",
         "source-data-go-kr-onbid-to-silver-onbid-announcement-bid-result",
         "source-data-go-kr-onbid-to-silver-onbid-announcement-detail",
@@ -380,6 +381,7 @@
       "pipeline_graph_edges": [
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-result",
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-photo",
         "source-data-go-kr-onbid-to-silver-onbid-announcement",
         "source-data-go-kr-onbid-to-silver-onbid-announcement-bid-result",
         "source-data-go-kr-onbid-to-silver-onbid-announcement-detail",
@@ -1077,7 +1079,14 @@
       "priority_weight": 2,
       "retries": 0,
       "pipeline_graph_edges": [
-        "silver-onbid-real-estate-item-to-gold-parcel-public-auction"
+        "silver-onbid-real-estate-item-to-gold-parcel-public-auction",
+        "silver-onbid-real-estate-item-photo-to-gold-parcel-public-auction",
+        "silver-onbid-item-bid-result-to-gold-parcel-public-auction",
+        "silver-onbid-announcement-to-gold-parcel-public-auction",
+        "silver-onbid-announcement-bid-result-to-gold-parcel-public-auction",
+        "silver-onbid-announcement-detail-to-gold-parcel-public-auction",
+        "silver-onbid-real-estate-item-detail-to-gold-parcel-public-auction",
+        "silver-onbid-item-bid-info-to-gold-parcel-public-auction"
       ],
       "enabled": true,
       "enabled_since": "2026-10-20T16:12:59Z"

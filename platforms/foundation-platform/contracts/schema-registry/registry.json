@@ -30,6 +30,13 @@
           "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v2.json",
           "decision": "docs/adr/0296-public-auction-serves-full-info-and-shares-one-content-addressed-media-store.md",
           "reason": "each round gains its media index (rounds[].photos[], content-addressed by sha256), an optional field: an expansion of revision 1 served under its own string before the registry existed"
+        },
+        {
+          "major": 1,
+          "revision": 3,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
+          "decision": "docs/adr/0340-every-onbid-field-is-carried-to-the-screen-or-says-why-not.md",
+          "reason": "every collected Onbid field a buyer reads, all optional: each round gains the rest of its list row (the provider's code names, bid conditions, organisations); the document gains items[] (detail with the 공매재산명세서, tenancy, occupancy, rights, areas, corrections and appraisals; bid information with earlier rounds and every round's schedule; closed rounds' results; maps) and announcements[] (text, attachments, organisation, opening), once each for the rounds that name them"
         }
       ],
       "consumers": [

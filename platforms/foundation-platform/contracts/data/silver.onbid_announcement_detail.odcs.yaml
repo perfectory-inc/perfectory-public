@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_announcement_detail"
 name: "온비드 공고상세"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "공고상세(15157218)를 공고관리번호·공매번호마다 내용이 바뀌면 쌓는다: 공고문 전문·첨부파일(내용해시)·참가자격·참가수수료·취소사유(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다."
+  purpose: "공고상세(15157218)를 공고관리번호·공매번호마다 내용이 바뀌면 쌓는다: 공고문 전문·첨부파일(내용해시)·참가자격·참가수수료·취소사유(루트 ADR-0340 §6). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7)."
 team:
   name: "foundation-platform"
 servers:
@@ -162,7 +162,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-announcement-detail"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

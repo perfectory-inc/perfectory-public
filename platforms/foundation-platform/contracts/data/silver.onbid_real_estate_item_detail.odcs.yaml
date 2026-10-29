@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.onbid_real_estate_item_detail"
 name: "온비드 물건상세"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "물건상세(15157247)를 물건마다 내용이 바뀌면 쌓는다(루트 ADR-0339, ADR-0340 §6): 부대조건·유의사항·공매재산명세서·임대차·점유·등기 주요정보·배분요구·면적·정정내역·감정평가 목록. 사인의 성명은 버린다(ADR-0340 §5). 읽는 소비자가 아직 없어 섬으로 둔다."
+  purpose: "물건상세(15157247)를 물건마다 내용이 바뀌면 쌓는다(루트 ADR-0339, ADR-0340 §6): 부대조건·유의사항·공매재산명세서·임대차·점유·등기 주요정보·배분요구·면적·정정내역·감정평가 목록. 사인의 성명은 버린다(ADR-0340 §5). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7)."
 team:
   name: "foundation-platform"
 servers:
@@ -130,7 +130,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-onbid-real-estate-item-detail"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

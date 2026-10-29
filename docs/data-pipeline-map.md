@@ -219,13 +219,6 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | `silver.court_auction_item` | 계약만 있음 | 물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.court_auction_sale_result` | 계약만 있음 | 매각결과 검색의 행(매각가 포함)을 내용이 바뀔 때만 쌓는다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
-| `silver.onbid_real_estate_item_photo` | 계약만 있음 | 물건 상세에서 받은 사진·감정평가서 첨부를 내용해시(sha256)로 색인해, 어느 회차(물건관리번호·공매조건번호)가 어떤 미디어 해시를 갖는지 쌓는다(루트 ADR-0298). 미디어 블롭은 content-addressed 저장소에 한 번만 쓴다. 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
-| `silver.onbid_item_bid_result` | 계약만 있음 | 목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
-| `silver.onbid_announcement` | 계약만 있음 | 공고목록(15157216)의 공고 회차(온비드공고번호·공매번호)마다 내용이 바뀐 행을 쌓는다(루트 ADR-0340 §6). 공고명·기관·담당부점·공고일·개찰일시. 읽는 소비자가 아직 없어 섬으로 둔다. |
-| `silver.onbid_announcement_bid_result` | 계약만 있음 | 공고 입찰결과목록(15157222)의 공고 회차마다 집행상태(개찰준비중·개찰중·개찰완료)가 바뀐 행을 쌓는다(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다. |
-| `silver.onbid_announcement_detail` | 계약만 있음 | 공고상세(15157218)를 공고관리번호·공매번호마다 내용이 바뀌면 쌓는다: 공고문 전문·첨부파일(내용해시)·참가자격·참가수수료·취소사유(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다. |
-| `silver.onbid_real_estate_item_detail` | 계약만 있음 | 물건상세(15157247)를 물건마다 내용이 바뀌면 쌓는다(루트 ADR-0339, ADR-0340 §6): 부대조건·유의사항·공매재산명세서·임대차·점유·등기 주요정보·배분요구·면적·정정내역·감정평가 목록. 사인의 성명은 버린다(ADR-0340 §5). 읽는 소비자가 아직 없어 섬으로 둔다. |
-| `silver.onbid_item_bid_info` | 계약만 있음 | 물건상세 입찰정보(15157251)를 물건마다 내용이 바뀌면 쌓는다: 입찰보증금·잔대금·입찰성립기준·제한경쟁 자격·제출서류·평가방식·이전 회차 결과·회차별 일정(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -366,6 +359,13 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 by-PNU 제공용 패널 → 필지 용도지역 판정 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 개별공시지가 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 온비드 부동산 물건 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py` |
+| 온비드 물건 사진 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
+| 온비드 물건 입찰결과 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
+| 온비드 공고 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
+| 온비드 공고 입찰결과 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
+| 온비드 공고상세 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
+| 온비드 물건상세 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
+| 온비드 물건 입찰정보 → 필지 공매 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py` |
 | 필지 by-PNU 제공용 패널 → 필지 토지특성 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 임야대장 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
 | 필지 by-PNU 제공용 패널 → 필지 토지이동이력 by-PNU 표 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py` |
