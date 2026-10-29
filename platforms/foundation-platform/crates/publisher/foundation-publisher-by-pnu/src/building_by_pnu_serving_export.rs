@@ -89,6 +89,11 @@ pub async fn run() -> anyhow::Result<()> {
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )
     .context("failed to build the Iceberg catalog client")?;
+    if let Some(pinned) = &config.expected_gold_snapshot {
+        let pins = crate::by_pnu_serving_pins::SnapshotPins::for_output(&config.output)?;
+        crate::by_pnu_serving_pins::pin_bake(&pins, LANE, GOLD_BUILDING_PANEL.table_name, pinned)
+            .await?;
+    }
     let snapshot = crate::by_pnu_serving_pins::load_baked_snapshot(
         &catalog,
         GOLD_BUILDING_PANEL.table_name,

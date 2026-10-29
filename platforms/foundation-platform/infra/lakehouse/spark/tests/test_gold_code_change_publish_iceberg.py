@@ -91,8 +91,12 @@ class CodeChangePublishIcebergTest(unittest.TestCase):
         self.assertEqual(self.rows(table), sorted(expected))
         recorded = incremental.recorded_changes(self.spark, table, before, head)
         self.assertEqual(sorted(r.pnu for r in recorded.collect()), sorted(changed))
-        refs = {r.name for r in self.spark.sql(f"SELECT name FROM {table}.refs").collect()}
-        self.assertEqual(refs, {"main"}, "the shadow branch is dropped once main has the result")
+        refs = {r.name: (r.type, str(r.snapshot_id))
+                for r in self.spark.sql(f"SELECT name, type, snapshot_id FROM {table}.refs").collect()}
+        self.assertEqual({name for name, (kind, _) in refs.items() if kind == "BRANCH"}, {"main"},
+                         "the shadow branch is dropped once main has the result")
+        # Root ADR-0338: the commit that records the pins carries the planner's reader pin.
+        self.assertEqual(refs.get(incremental.BUILD_TAG), ("TAG", str(head)))
         return summary
 
     def changed_build(self):

@@ -19,12 +19,11 @@ every table of the lakehouse contract artifact that exists in the catalog, the l
 maintained first, until the contract's deadline. A table it does not reach is taken first at the
 next run.
 
-Expiry never removes a snapshot this lakehouse's own readers read back out of the metadata
-(`protected_snapshots`): the Silver loaders decide what is already loaded from every ingest record
-in `main`'s ancestry, and the Gold rebuild plans from the newest source pins in it. Expiring those
-would make a loader load a release twice and a rebuild refuse to plan. Before it expires anything
-it also copies every ingest record past the window into a table property (root ADR-0332), so the
-record no longer depends on that protection; what still does is named in the ADR.
+Expiry keeps 30 days and whatever a tag names (root ADR-0338). A reader that needs an older
+snapshot pins it with a tag of its own, made where the data it depends on is committed and released
+by its own rule; the contract's `snapshot_expiry.reader_pins` names each tag and every code site
+that reads a snapshot by id. Before it expires anything the job copies every ingest record past the
+window into a table property (root ADR-0332), so no loader depends on an old snapshot's summary.
 
 No PySpark import at module scope: the lane that runs `infra/lakehouse/spark/tests` has none,
 and a module-level import would make every check that touches this file skip itself.
@@ -55,6 +54,8 @@ CONTRACT_SCHEMA_VERSION = 1
 MINIMUM_ORPHAN_SAFETY_HOURS = 24
 
 STEPS = ("compaction", "snapshot_expiry", "orphan_cleanup")
+# `reader_pins.tags.<tag>.required_on` for every table whose `main` records Gold source pins.
+GOLD_SOURCE_PIN_TABLES = "tables_recording_gold_source_pins"
 
 
 def load_maintenance_contract() -> dict[str, Any]:
@@ -108,6 +109,23 @@ def validate_maintenance_contract(contract: dict[str, Any]) -> None:
     if expiry["retain_days"] < 1:
         raise ValueError("snapshot_expiry.retain_days must leave at least a day of rollback")
 
+    tags = expiry["reader_pins"]["tags"]
+    for name, pin in tags.items():
+        if not all(str(pin.get(field, "")).strip() for field in ("made_by", "released_by", "reader")):
+            raise ValueError(f"snapshot_expiry.reader_pins.tags.{name} must say who makes it, what releases it "
+                             "and which reader needs it")
+        required = pin.get("required_on")
+        if pin.get("walks_main_back_to_it") and not (
+                required == GOLD_SOURCE_PIN_TABLES or isinstance(required, list) and required):
+            raise ValueError(f"snapshot_expiry.reader_pins.tags.{name} walks main back to its snapshot, so it must "
+                             f"name the tables that may not expire without it (required_on)")
+        if pin.get("walks_main_back_to_it") and pin.get("prefix"):
+            raise ValueError(f"snapshot_expiry.reader_pins.tags.{name}: an ancestry pin is one tag, not a prefix")
+    for reader in expiry["reader_pins"]["readers"]:
+        if reader["kept_by"] not in (*tags, "head", None) or not str(reader.get("reason", "")).strip():
+            raise ValueError(f"snapshot_expiry.reader_pins.readers: {reader!r} must be kept by a reader pin, "
+                             "be the head, or say why nothing keeps it")
+
     monthly = expiry["month_end_tag"]
     if "%Y" not in monthly["name_format"] or "%m" not in monthly["name_format"]:
         raise ValueError(
@@ -155,6 +173,11 @@ def parse_args() -> argparse.Namespace:
         help="Report what each step would do without deleting anything.",
     )
     parser.add_argument(
+        "--keep-snapshots",
+        help="JSON {snapshot id: why} of pins the catalog does not hold (an in-progress bake, a served "
+             "manifest); expiry refuses a table where one of them would go (root ADR-0338).",
+    )
+    parser.add_argument(
         "--skip",
         action="append",
         default=[],
@@ -185,33 +208,89 @@ def ancestry(snapshots: dict[int, dict[str, Any]], head: int | None) -> list[int
     return chain
 
 
-def protected_snapshots(snapshots: dict[int, dict[str, Any]], head: int | None) -> set[int]:
-    """The snapshots of `main` this lakehouse reads back out of the metadata.
+def ancestry_tags(expiry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The reader pins whose reader walks `main` from the head back to the tagged snapshot."""
+    return {name: pin for name, pin in expiry["reader_pins"]["tags"].items() if pin.get("walks_main_back_to_it")}
 
-    - Every snapshot recording an ingest (`lakehouse_ingest.INGEST_BATCH_OBJECTS_KEY`): the Silver
-      refresh and the loaders take the union of them as "already loaded"; a part lane's release is
-      loaded only while every part's record is still there (`decide_parts`). The record itself
-      now outlives its snapshot (`ingest_record_properties`, root ADR-0332); the protection stays
-      for what still reads these snapshots back (the Gold baselines and the FLOOR witness chain)
-      until those have rules of their own.
-    - The newest snapshot recording Gold source pins (`gold_rebuild.SOURCE_SNAPSHOTS_PROPERTY`):
-      the rebuild plans from it and refuses without it.
+
+def missing_reader_pins(table: str, snapshots: dict[int, dict[str, Any]], head: int | None,
+                        refs: dict[str, dict[str, Any]], expiry: dict[str, Any]) -> list[str]:
+    """The ancestry tags `table` must carry before anything of it expires, and does not (root ADR-0338).
+
+    A table that records Gold source pins has a planner walking back to the newest of them; until
+    the producer's next commit tags it, the table waits instead of losing the chain.
     """
-    chain = ancestry(snapshots, head)
-    protected = {sid for sid in chain if INGEST_BATCH_OBJECTS_KEY in snapshots[sid]["summary"]}
-    pinned = next((sid for sid in chain if SOURCE_SNAPSHOTS_PROPERTY in snapshots[sid]["summary"]), None)
-    if pinned is not None:
-        protected.add(pinned)
-    return protected
+    gold_pins = any(SOURCE_SNAPSHOTS_PROPERTY in snapshots[sid]["summary"] for sid in ancestry(snapshots, head))
+    missing = []
+    for name, pin in ancestry_tags(expiry).items():
+        required = pin["required_on"]
+        applies = gold_pins if required == GOLD_SOURCE_PIN_TABLES else table in required
+        if applies and name not in refs:
+            missing.append(name)
+    return missing
 
 
-def expiry_floor_millis(window_millis: int, snapshots: dict[int, dict[str, Any]], protected: set[int]) -> int:
-    """`older_than` for expiry: the window, moved back to the oldest protected snapshot.
+def expiry_floor_millis(window_millis: int, snapshots: dict[int, dict[str, Any]], head: int | None,
+                        refs: dict[str, dict[str, Any]], expiry: dict[str, Any]) -> int:
+    """`older_than` for expiry: the window, moved back to the oldest ancestry-tagged snapshot of `main`.
 
-    Iceberg expires a snapshot committed strictly before `older_than`, so a protected snapshot
-    committed exactly at the floor stays.
+    Iceberg keeps a tagged snapshot but not the commits between it and the head; a reader that walks
+    that chain needs them too. Iceberg expires a snapshot committed strictly before `older_than`, so
+    the tagged snapshot committed exactly at the floor stays as well.
     """
-    return min([window_millis, *(snapshots[sid]["committed_ms"] for sid in protected)])
+    chain = set(ancestry(snapshots, head))
+    tagged = [refs[name]["snapshot_id"] for name in ancestry_tags(expiry) if name in refs]
+    return min([window_millis, *(snapshots[sid]["committed_ms"] for sid in tagged if sid in chain)])
+
+
+def would_expire(snapshots: dict[int, dict[str, Any]], refs: dict[str, dict[str, Any]], older_than_ms: int,
+                 retain_last: int, now_ms: int) -> set[int]:
+    """The snapshots Iceberg's `expire_snapshots(older_than, retain_last)` removes (RemoveSnapshots).
+
+    Kept: every live reference's snapshot (a tag past its `max-ref-age-ms` is not live); along each
+    branch, its ancestors until both `retain_last` are kept and one is older than the floor (a branch
+    may carry its own limits); any other snapshot committed at or after the floor. The rest go. The
+    run logs this set before it calls the procedure and refuses one that holds a pinned snapshot.
+    """
+    kept: set[int] = set()
+    for ref in refs.values():
+        sid = ref["snapshot_id"]
+        if sid not in snapshots:
+            continue
+        age = ref.get("max_reference_age_in_ms")
+        if ref["type"] == "TAG":
+            if age is None or now_ms - snapshots[sid]["committed_ms"] <= age:
+                kept.add(sid)
+            continue
+        floor = older_than_ms if ref.get("max_snapshot_age_in_ms") is None else now_ms - ref["max_snapshot_age_in_ms"]
+        minimum = retain_last if ref.get("min_snapshots_to_keep") is None else ref["min_snapshots_to_keep"]
+        branch: list[int] = []
+        for ancestor in ancestry(snapshots, sid):
+            if len(branch) >= minimum and snapshots[ancestor]["committed_ms"] < floor:
+                break
+            branch.append(ancestor)
+        kept.update(branch)
+    in_branches = {sid for ref in refs.values() if ref["type"] == "BRANCH"
+                   for sid in ancestry(snapshots, ref["snapshot_id"])}
+    kept.update(sid for sid, s in snapshots.items() if sid not in in_branches and s["committed_ms"] >= older_than_ms)
+    return set(snapshots) - kept
+
+
+def held_by_pins(expiring: set[int], keep: dict[int, str]) -> dict[int, str]:
+    """Which of `expiring` a pin outside the catalog still needs: refused before anything is removed."""
+    return {sid: keep[sid] for sid in sorted(expiring & set(keep))}
+
+
+def read_keep_snapshots(path: str | None) -> dict[int, str]:
+    """`{snapshot id: why}`: the pins the host knows and the catalog may not (an in-progress bake's
+    pin, a served manifest's reflected snapshot), written by scripts/ops/lakehouse-maintenance.sh.
+    A file that cannot be read stops the run: expiring without it is the thing it guards."""
+    if path is None:
+        return {}
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not all(isinstance(why, str) for why in raw.values()):
+        raise ValueError(f"{path} must map snapshot ids to why they are kept")
+    return {int(sid): why for sid, why in raw.items()}
 
 
 def rotation_order(tables: list[str], last_maintained: dict[str, str]) -> list[str]:
@@ -316,8 +395,8 @@ def expire_snapshots_sql(catalog: str, table: str, cutoff: str, retain_last: int
     tag without `max-ref-age-ms`. The by-PNU publish tags the Gold snapshot each serving manifest
     reflects (`served-<lane>-...`, root ADR-0146 §2), so that snapshot outlives this call for as
     long as the manifest serves it; the month-end and year-end tags (root ADR-0237) are kept the
-    same way, until `run_snapshot_expiry` drops a month-end tag past its window. Nothing here may
-    pass options that drop references.
+    same way, until `run_snapshot_expiry` drops a month-end tag past its window, and so is every
+    reader pin (`reader_pins`, root ADR-0338). Nothing here may pass options that drop references.
     """
     return (
         f"CALL {catalog}.system.expire_snapshots(table => '{table}', "
@@ -335,13 +414,20 @@ def set_properties_sql(qualified: str, properties: dict[str, str]) -> str:
 
 
 def run_snapshot_expiry(
-    spark: Any, catalog: str, table: str, expiry: dict[str, Any], now: datetime, dry_run: bool
+    spark: Any, catalog: str, table: str, expiry: dict[str, Any], now: datetime, dry_run: bool,
+    keep: dict[int, str] | None = None,
 ) -> None:
     """Tag month and year ends, drop month-end tags past their window, then expire.
 
     The tags come first and in the same run: a month-end snapshot is pinned before the expiry
     that would otherwise remove it, so a month is lost only if this job does not run at all for
     `retain_days` after the month ends.
+
+    Everything older than `retain_days` that no tag names goes (root ADR-0338); a reader that needs
+    an older snapshot pins it with its own tag (`reader_pins`). The run logs which snapshots it
+    would expire, waits for a table that lacks a required reader pin, and refuses one where a pin
+    the catalog does not hold (`keep`: an in-progress bake, a served manifest) names an expiring
+    snapshot.
     """
     qualified = f"{catalog}.{table}"
     history = [
@@ -350,7 +436,15 @@ def run_snapshot_expiry(
             f"SELECT unix_millis(made_current_at) AS ms, snapshot_id FROM {qualified}.history"
         ).collect()
     ]
-    refs = {row.name: int(row.snapshot_id) for row in spark.sql(f"SELECT name, snapshot_id FROM {qualified}.refs").collect()}
+    refs = {
+        row.name: {"type": row.type, "snapshot_id": int(row.snapshot_id),
+                   "max_reference_age_in_ms": row.max_reference_age_in_ms,
+                   "min_snapshots_to_keep": row.min_snapshots_to_keep,
+                   "max_snapshot_age_in_ms": row.max_snapshot_age_in_ms}
+        for row in spark.sql(
+            f"SELECT name, type, snapshot_id, max_reference_age_in_ms, min_snapshots_to_keep, "
+            f"max_snapshot_age_in_ms FROM {qualified}.refs").collect()
+    }
     snapshots = {
         int(row.snapshot_id): {
             "parent_id": None if row.parent_id is None else int(row.parent_id),
@@ -387,19 +481,39 @@ def run_snapshot_expiry(
     from platform_contracts import table_properties  # noqa: PLC0415
 
     carried = ingest_record_properties(
-        snapshots, ancestry(snapshots, refs.get("main")), window, table_properties(spark, qualified))
+        snapshots, ancestry(snapshots, refs["main"]["snapshot_id"] if "main" in refs else None), window,
+        table_properties(spark, qualified))
     if carried and dry_run:
         print(f"maintenance-would step=ingest_record_properties count={len(carried)}", flush=True)
     elif carried:
         spark.sql(set_properties_sql(qualified, carried)).collect()
         print(f"maintenance-done step=ingest_record_properties count={len(carried)}", flush=True)
 
-    protected = protected_snapshots(snapshots, refs.get("main"))
-    cutoff = millis_text(expiry_floor_millis(window, snapshots, protected))
-    if cutoff != millis_text(window):
-        print(f"maintenance-floor step=snapshot_expiry protected={len(protected)} older_than={cutoff}", flush=True)
-    if dry_run:
-        print(f"maintenance-would step=snapshot_expiry older_than={cutoff}", flush=True)
+    # The references as they stand after the tags above (a dry run only pretends to make them).
+    for name, snapshot_id in create:
+        if snapshot_id in alive:
+            refs.setdefault(name, {"type": "TAG", "snapshot_id": snapshot_id})
+    for name in drop:
+        refs.pop(name, None)
+    head = refs["main"]["snapshot_id"] if "main" in refs else None
+    missing = missing_reader_pins(table, snapshots, head, refs, expiry)
+    if missing:
+        # A reader walks back to a snapshot nothing has tagged yet: wait for its tag (root ADR-0338).
+        print(f"maintenance-skip step=snapshot_expiry reason=reader_pin_missing tags={','.join(missing)}", flush=True)
+        return
+    floor = expiry_floor_millis(window, snapshots, head, refs, expiry)
+    cutoff = millis_text(floor)
+    if floor != window:
+        print(f"maintenance-floor step=snapshot_expiry older_than={cutoff} reason=ancestry_tag", flush=True)
+    expiring = would_expire(snapshots, refs, floor, expiry["retain_last"], int(now.timestamp() * 1000))
+    listed = ",".join(str(sid) for sid in sorted(expiring, key=lambda sid: snapshots[sid]["committed_ms"]))
+    print(f"maintenance-{'would' if dry_run else 'expiring'} step=snapshot_expiry table={table} "
+          f"snapshots={len(expiring)} of={len(snapshots)} older_than={cutoff} ids={listed or '-'}", flush=True)
+    held = held_by_pins(expiring, keep or {})
+    if held:
+        raise ValueError(f"refused to expire {table}: {held} would expire, and a pin outside the catalog "
+                         "still names them; tag them or end what pins them first (root ADR-0338)")
+    if dry_run or not expiring:
         return
     result = spark.sql(expire_snapshots_sql(catalog, table, cutoff, expiry["retain_last"])).collect()[0]
     print(
@@ -407,6 +521,12 @@ def run_snapshot_expiry(
         f"manifests={result[2]} older_than={cutoff}",
         flush=True,
     )
+    left = {int(row.snapshot_id) for row in spark.sql(f"SELECT snapshot_id FROM {qualified}.snapshots").collect()}
+    unforeseen = sorted(set(snapshots) - left - expiring)
+    if unforeseen:
+        # Iceberg removed what the logged list did not name (a commit raced the run, or the model
+        # of its rule is wrong): fail the table so the run says so.
+        raise ValueError(f"{table}: expiry removed {unforeseen}, which the run did not list before it expired")
 
 
 def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any], ordered: bool = False) -> str:
@@ -466,7 +586,8 @@ def should_compact(small_files: int, total_files: int, trigger_count: int) -> bo
 
 
 def maintain_table(
-    spark: Any, catalog: str, table: str, contract: dict[str, Any], skip: set[str], dry_run: bool
+    spark: Any, catalog: str, table: str, contract: dict[str, Any], skip: set[str], dry_run: bool,
+    keep: dict[int, str] | None = None,
 ) -> None:
     """One table, every step the caller and the contract leave in, in the contract's order."""
     qualified = f"{catalog}.{table}"
@@ -503,7 +624,7 @@ def maintain_table(
     if "snapshot_expiry" in skip:
         print("maintenance-skip step=snapshot_expiry", flush=True)
     else:
-        run_snapshot_expiry(spark, catalog, table, expiry, datetime.now(timezone.utc), dry_run)
+        run_snapshot_expiry(spark, catalog, table, expiry, datetime.now(timezone.utc), dry_run, keep)
 
     if "orphan_cleanup" in skip:
         print("maintenance-skip step=orphan_cleanup", flush=True)
@@ -568,6 +689,7 @@ def write_rotation(path: str | None, rotation: dict[str, str]) -> None:
 def main() -> int:
     args = parse_args()
     contract = load_maintenance_contract()
+    keep = read_keep_snapshots(args.keep_snapshots)
     started = datetime.now(timezone.utc)
 
     from pyspark.sql import SparkSession  # noqa: PLC0415 - deferred on purpose, see module docstring
@@ -578,7 +700,7 @@ def main() -> int:
     spark.sparkContext.setLogLevel("ERROR")
 
     if args.table is not None:
-        maintain_table(spark, args.catalog, args.table, contract, set(args.skip), args.dry_run)
+        maintain_table(spark, args.catalog, args.table, contract, set(args.skip), args.dry_run, keep)
         spark.stop()
         return 0
 
@@ -598,7 +720,7 @@ def main() -> int:
             print(f"maintenance-deferred table={table} reason=deadline", flush=True)
             continue
         try:
-            maintain_table(spark, args.catalog, table, contract, skip, args.dry_run)
+            maintain_table(spark, args.catalog, table, contract, skip, args.dry_run, keep)
         except Exception as error:  # noqa: BLE001 - one table's failure must not stop the others
             failed.append(table)
             print(f"maintenance-failed table={table} error={type(error).__name__}: {str(error)[:300]}", flush=True)

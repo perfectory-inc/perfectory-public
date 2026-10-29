@@ -435,6 +435,8 @@ pub async fn release_behind_live(store: &ByPnuServingStore, snapshot_pins: &Snap
     };
     let released = pins::release_older(snapshot_pins, lane, gold_table(lane), &live_tag).await;
     tracing::info!(tag = %live_tag, released = ?released, "the live manifest's Gold snapshot is pinned");
+    let bakes = pins::release_bake_pins(snapshot_pins, lane, gold_table(lane)).await;
+    tracing::info!(released = ?bakes, "the lane's bake pins are released (root ADR-0338)");
 }
 
 /// The oldest pin the live manifest names: the object lane's and the pack lane's reflected

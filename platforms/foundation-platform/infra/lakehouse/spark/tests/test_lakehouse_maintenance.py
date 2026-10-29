@@ -29,12 +29,14 @@ from lakehouse_maintenance import (  # noqa: E402
     create_tag_sql,
     drop_tag_sql,
     expiry_floor_millis,
+    held_by_pins,
     ingest_record_properties,
     millis_text,
     load_maintenance_contract,
     month_end_snapshots,
+    missing_reader_pins,
     month_of_tag,
-    protected_snapshots,
+    read_keep_snapshots,
     retention_tags,
     rewrite_data_files_sql,
     set_properties_sql,
@@ -43,6 +45,7 @@ from lakehouse_maintenance import (  # noqa: E402
     should_compact,
     timestamp_before,
     validate_maintenance_contract,
+    would_expire,
     write_rotation,
 )
 
@@ -56,7 +59,8 @@ def sound_contract() -> dict:
                        "partial_progress_max_commits": 10},
         "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
                             "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
-                            "year_end_tag": {"name_format": "yearly-%Y"}},
+                            "year_end_tag": {"name_format": "yearly-%Y"},
+                            "reader_pins": {"tags": {}, "readers": []}},
         "orphan_cleanup": {"safety_days": 3},
         "scheduled": {"deadline_minutes": 140, "skip": ["orphan_cleanup"],
                       "spark": {"master": "local[8,8]", "driver_memory": "16g"}},
@@ -266,34 +270,118 @@ def snapshot(parent: int | None, ms: int, **summary: str) -> dict:
     return {"parent_id": parent, "committed_ms": ms, "summary": summary}
 
 
-class ReadBackFloorTest(unittest.TestCase):
-    """만료는 이 레이크하우스가 메타데이터에서 다시 읽는 스냅숏을 지우지 않는다."""
+def tag(snapshot_id: int, age: int | None = None) -> dict:
+    return {"type": "TAG", "snapshot_id": snapshot_id, "max_reference_age_in_ms": age}
 
-    def test_every_ingest_record_in_main_is_protected(self) -> None:
-        """부분 레인은 모든 부분의 기록이 남아 있어야 적재됐다고 본다. 하나라도 지우면 그 부분이 두 번 적재된다."""
+
+def branch(snapshot_id: int) -> dict:
+    return {"type": "BRANCH", "snapshot_id": snapshot_id}
+
+
+def shipped_expiry() -> dict:
+    return load_maintenance_contract()["snapshot_expiry"]
+
+
+class ReaderPinTest(unittest.TestCase):
+    """30일이 지나면 태그가 없는 스냅숏은 만료된다. 옛 스냅숏을 읽는 독자는 자기 태그로 고정한다(root ADR-0338).
+
+    2026-10-29: 적재 기록 보호가 표 29개의 만료를 첫 적재 뒤로 막아, 30일 넘은 스냅숏 161개(데이터 약 24 GB)가
+    남아 있었다.
+    """
+
+    def test_an_ingest_record_no_longer_holds_its_snapshot(self) -> None:
+        """기록은 표 속성에 옮겨졌다(root ADR-0332). 기록이 있다는 이유만으로는 남지 않는다."""
         snapshots = {
             1: snapshot(None, 100, **{INGEST: "part-1"}),
             2: snapshot(1, 200, **{INGEST: "part-2"}),
             3: snapshot(2, 300, operation="replace"),
         }
+        refs = {"main": branch(3)}
 
-        self.assertEqual(protected_snapshots(snapshots, 3), {1, 2})
+        self.assertEqual(expiry_floor_millis(250, snapshots, 3, refs, shipped_expiry()), 250)
+        self.assertEqual(would_expire(snapshots, refs, 250, 1, 400), {1, 2})
 
-    def test_only_the_newest_gold_pins_are_protected(self) -> None:
-        """Gold 재구축은 가장 새 pin 만 읽는다. 옛 pin 스냅숏까지 묶으면 Gold 는 영영 만료되지 않는다."""
+    def test_the_gold_build_tag_keeps_the_chain_its_planner_walks(self) -> None:
+        """Gold 계획은 머리에서 가장 새 pin 커밋까지 걷는다. 태그는 그 커밋을, 바닥은 그 사이 압축 커밋을 지킨다."""
         snapshots = {
             1: snapshot(None, 100, **{PINS: "{}"}),
             2: snapshot(1, 200, **{PINS: "{}"}),
-            3: snapshot(2, 300),
+            3: snapshot(2, 300, operation="replace"),
+            4: snapshot(3, 400, operation="replace"),
         }
+        refs = {"main": branch(4), "foundation-gold-build": tag(2)}
+        floor = expiry_floor_millis(450, snapshots, 4, refs, shipped_expiry())
 
-        self.assertEqual(protected_snapshots(snapshots, 3), {2})
+        self.assertEqual(floor, 200)
+        self.assertEqual(would_expire(snapshots, refs, floor, 1, 500), {1})
 
-    def test_a_record_outside_main_is_not_protected(self) -> None:
-        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200), 9: snapshot(1, 150, **{INGEST: "staged"})}
+    def test_a_table_waits_for_the_reader_pin_it_needs(self) -> None:
+        """태그가 아직 없으면 그 표는 아무것도 만료하지 않는다. 다음 생산자 커밋이나 FLOOR 실행이 태그를 건다."""
+        expiry = shipped_expiry()
+        gold = {1: snapshot(None, 100, **{PINS: "{}"}), 2: snapshot(1, 200, operation="replace")}
+        plain = {1: snapshot(None, 100), 2: snapshot(1, 200)}
 
-        self.assertEqual(protected_snapshots(snapshots, 2), set())
+        self.assertEqual(missing_reader_pins("gold.parcel_panel", gold, 2, {"main": branch(2)}, expiry),
+                         ["foundation-gold-build"])
+        self.assertEqual(missing_reader_pins("gold.parcel_panel", gold, 2,
+                                             {"main": branch(2), "foundation-gold-build": tag(1)}, expiry), [])
+        self.assertEqual(missing_reader_pins("silver.building_register_floors", plain, 2, {"main": branch(2)}, expiry),
+                         ["foundation-floor-history-witness"])
+        self.assertEqual(missing_reader_pins("silver.land_use_plan", plain, 2, {"main": branch(2)}, expiry), [])
 
+    def test_a_tag_keeps_its_snapshot_and_a_tag_past_its_age_does_not(self) -> None:
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200), 3: snapshot(2, 300)}
+
+        self.assertEqual(would_expire(snapshots, {"main": branch(3), "served-x": tag(1)}, 250, 1, 400), {2})
+        self.assertEqual(would_expire(snapshots, {"main": branch(3), "old": tag(1, age=50)}, 250, 1, 400), {1, 2})
+
+    def test_a_snapshot_off_every_branch_is_kept_inside_the_window(self) -> None:
+        """Iceberg 는 어느 브랜치에도 없는 스냅숏을 창 안이면 남긴다(예: 지운 브랜치에 커밋한 것)."""
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200), 9: snapshot(1, 260), 8: snapshot(1, 150)}
+
+        self.assertEqual(would_expire(snapshots, {"main": branch(2)}, 250, 1, 400), {1, 8})
+
+    def test_retain_last_keeps_the_head_however_old(self) -> None:
+        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200)}
+
+        self.assertEqual(would_expire(snapshots, {"main": branch(2)}, 999, 1, 1000), {1})
+
+    def test_a_pin_outside_the_catalog_refuses_the_expiry(self) -> None:
+        """진행 중인 굽기의 고정값(in-progress.json)이 만료될 스냅숏이면 거부한다."""
+        self.assertEqual(held_by_pins({1, 2}, {2: "the bake pin", 7: "served"}), {2: "the bake pin"})
+        self.assertEqual(held_by_pins({1}, {2: "the bake pin"}), {})
+
+    def test_the_keep_file_maps_snapshot_ids_to_reasons(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "keep.json"
+            path.write_text('{"9999900000000000001": "the bake pin"}', encoding="utf-8")
+            self.assertEqual(read_keep_snapshots(str(path)), {9999900000000000001: "the bake pin"})
+            path.write_text('["9999900000000000001"]', encoding="utf-8")
+            with self.assertRaises(ValueError):
+                read_keep_snapshots(str(path))
+        self.assertEqual(read_keep_snapshots(None), {})
+
+    def test_a_reader_pin_says_who_makes_and_releases_it(self) -> None:
+        contract = sound_contract()
+        contract["snapshot_expiry"]["reader_pins"]["tags"] = {"x-": {"prefix": True, "made_by": "a", "reader": "c"}}
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+        contract["snapshot_expiry"]["reader_pins"]["tags"] = {
+            "x": {"made_by": "a", "released_by": "b", "reader": "c", "walks_main_back_to_it": True}}
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+    def test_a_reader_is_kept_by_a_declared_pin_or_says_why_not(self) -> None:
+        contract = sound_contract()
+        contract["snapshot_expiry"]["reader_pins"]["readers"] = [{"path": "p", "reads": 1, "kept_by": "nope", "reason": "r"}]
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+        contract["snapshot_expiry"]["reader_pins"]["readers"] = [{"path": "p", "reads": 1, "kept_by": None, "reason": ""}]
+        with self.assertRaises(ValueError):
+            validate_maintenance_contract(contract)
+
+
+class IngestRecordCopyTest(unittest.TestCase):
     def test_records_past_the_window_get_a_durable_copy_once(self) -> None:
         """창 밖의 적재 기록만, 아직 속성이 없는 것만 옮긴다(root ADR-0332). 창 안은 요약이 지킨다."""
         snapshots = {
@@ -312,13 +400,6 @@ class ReadBackFloorTest(unittest.TestCase):
         sql = set_properties_sql("cat.silver.t", {f"{INGEST}.7": "bronze/it's.zip"})
 
         self.assertEqual(sql, f"ALTER TABLE cat.silver.t SET TBLPROPERTIES ('{INGEST}.7' = 'bronze/it\\'s.zip')")
-
-    def test_the_floor_moves_the_window_back_to_the_oldest_protected_snapshot(self) -> None:
-        snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200)}
-
-        self.assertEqual(expiry_floor_millis(500, snapshots, {2}), 200)
-        self.assertEqual(expiry_floor_millis(500, snapshots, set()), 500)
-        self.assertEqual(expiry_floor_millis(150, snapshots, {2}), 150)
 
     def test_the_floor_is_written_to_the_millisecond(self) -> None:
         """Iceberg 는 older_than 보다 엄격히 이전인 스냅숏만 지운다. 초로 자르면 보호한 스냅숏이 지워진다."""

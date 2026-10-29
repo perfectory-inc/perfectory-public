@@ -359,9 +359,10 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 쓰기 토큰을 준다. 읽기 전용 토큰이면 발행은 manifest 를 움직이기 전에 `needs a token with catalog write permission` 으로
 거부된다.
 
-- 2026-10-04 기준 Gold 에는 스냅숏 만료가 걸려 있지 않다. 이 저장소의 만료(`lakehouse_maintenance.py`)는 Silver 적재
-  뒤에만 돈다. Gold 로 넓히거나 R2 관리형 만료를 켜기 전에, 관리형 만료가 태그를 존중하는지 먼저 확인한다(문서에
-  없다). Spark 의 `expire_snapshots` 는 존중한다(시험 `test_served_snapshot_pins_iceberg.py`).
+- 만료는 예약 정비 작업(`lakehouse_maintenance.py`, 모든 표)이 30일 창으로 한다(루트 ADR-0237·0338). 태그가 있는
+  스냅숏은 지우지 않는다: 발행의 `served-…`, 굽기의 `baking-…`(샤드마다 읽기 전에 걸고 레인의 다음 발행이 푼다).
+  R2 관리형 만료를 켜기 전에, 관리형 만료가 태그를 존중하는지 먼저 확인한다(문서에 없다). Spark 의
+  `expire_snapshots` 는 존중한다(시험 `test_served_snapshot_pins_iceberg.py`).
 
 검증 재기준 측정(2026-10-04, ai-server scratch, 운영 R2·Gold 읽기 전용, 릴리스 빌드, 건물 전량 굽기가 같은 호스트에서
 돌던 중). 표본은 `..._REBASE_SAMPLE_PREFIXES` 로 시군구 하나씩이며, 표본은 변경 집합을 쓰지 않는다.

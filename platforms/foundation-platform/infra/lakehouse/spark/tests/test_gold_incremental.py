@@ -170,6 +170,16 @@ class ProducerDecisions(unittest.TestCase):
         self.assertFalse(incremental.appended_span(chain, 10, 13), "the pin expired")
         self.assertFalse(incremental.appended_span({1: (2, "append"), 2: (1, "append")}, 3, 1), "a cycle")
 
+    def test_the_build_tag_names_the_commit_that_records_the_pins(self):
+        """Root ADR-0338: a compaction may land on top of the producer's commit before it is tagged;
+        the tag still goes on the commit the planner plans from."""
+        pins = {rebuild.SOURCE_SNAPSHOTS_PROPERTY: "{}"}
+        chain = {1: (None, pins), 2: (1, pins), 3: (2, {}), 9: (1, {})}
+        self.assertEqual(incremental.build_snapshot(chain, 3), 2)
+        self.assertEqual(incremental.build_snapshot(chain, 2), 2)
+        with self.assertRaises(ValueError):
+            incremental.build_snapshot({1: (None, {})}, 1)
+
     def test_stages_remove_a_dead_runs_directories_and_nothing_else(self):
         with tempfile.TemporaryDirectory() as local:
             dead = Path(local) / f"{incremental.STAGES_PREFIX}dead"
