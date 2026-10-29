@@ -32,7 +32,9 @@ use lakehouse_domain::{GOLD_BUILDING_PANEL, GOLD_PARCEL_PANEL};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::building_by_pnu_serving_export::building_document::BUILDING_DOCUMENT_SCHEMA_VERSION;
+use crate::building_by_pnu_serving_export::building_document::{
+    BUILDING_DOCUMENT_SCHEMA_EXPANDS, BUILDING_DOCUMENT_SCHEMA_VERSION,
+};
 use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
 use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_manifest::{
@@ -46,7 +48,9 @@ use crate::by_pnu_serving_store::{
     local_root, refuse_removed_switches, ByPnuServingStore, ManifestMoved,
 };
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
+use crate::parcel_by_pnu_serving_export::parcel_document::{
+    PARCEL_DOCUMENT_SCHEMA_EXPANDS, PARCEL_DOCUMENT_SCHEMA_VERSION,
+};
 use crate::r2_layout::by_pnu;
 
 /// Read-back sample bound: enough to catch a wrong bucket or a truncated bake, cheap enough to
@@ -62,6 +66,25 @@ pub fn document_schema_version(lane: ByPnuLane) -> &'static str {
         ByPnuLane::Building => BUILDING_DOCUMENT_SCHEMA_VERSION,
         ByPnuLane::Pack(lane) => &lane.document_schema_version,
     }
+}
+
+/// The document schemas a served state of the lane may hold and this release still serves and
+/// patches over (root ADR-0320): the one the export bakes, then the earlier versions it only adds
+/// optional fields to (expand/contract). A document of an earlier one stays served as it is until
+/// the next whole generation re-renders every document under the newest.
+pub fn readable_document_schema_versions(lane: ByPnuLane) -> Vec<&'static str> {
+    let expands: Vec<&'static str> = match lane {
+        ByPnuLane::Parcel => PARCEL_DOCUMENT_SCHEMA_EXPANDS.to_vec(),
+        ByPnuLane::Building => BUILDING_DOCUMENT_SCHEMA_EXPANDS.to_vec(),
+        ByPnuLane::Pack(lane) => lane
+            .document_schema_expands
+            .iter()
+            .map(String::as_str)
+            .collect(),
+    };
+    std::iter::once(document_schema_version(lane))
+        .chain(expands)
+        .collect()
 }
 
 /// The lane's Gold table.

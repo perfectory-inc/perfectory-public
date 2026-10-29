@@ -23,6 +23,7 @@ use crate::by_pnu_gateway_contract::ByPnuLane;
 mod analytics;
 mod bake;
 mod equality;
+mod expansion;
 mod gate;
 mod health;
 mod inspect;

@@ -906,6 +906,21 @@ async fn patched(
         .context("a pack patch needs published section packs")?;
     let (change, upserts, deletes) = change_set(config, current)?;
     let snapshot = config.expected_gold_snapshot.as_str();
+    // A patch is baked under this release's document schema; it may go over documents of another
+    // only when this one expands it (root ADR-0320), since those stay served beside it.
+    let baked = manifest_publish::document_schema_version(config.lane);
+    let readable = manifest_publish::readable_document_schema_versions(config.lane);
+    let unread = current
+        .served_document_schema_versions()
+        .into_iter()
+        .filter(|served| !readable.contains(served))
+        .collect::<Vec<_>>();
+    ensure!(
+        unread.is_empty(),
+        "the packs serve {unread:?} documents, which this release's {baked} does not expand \
+         (it reads {readable:?}); a schema change that expands nothing is a new generation (full \
+         bake), not a patch"
+    );
     ensure!(
         !(upserts.is_empty() && deletes.is_empty()),
         "an empty change set writes no patch"
@@ -975,6 +990,8 @@ async fn patched(
             upserted: u64::try_from(upserts.len())?,
             deleted: u64::try_from(deletes.len())?,
             units: units.unwrap_or_default().into_iter().collect(),
+            document_schema_version: (baked != current.document_schema_version)
+                .then(|| baked.to_owned()),
         },
     );
     next.reflected_gold_iceberg_snapshot_id = snapshot.to_owned();

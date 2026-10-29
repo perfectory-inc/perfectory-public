@@ -42,6 +42,7 @@ use super::super::{
     optional_env, parse_max_concurrency, read_pnu_allowlist, select_rows_by, write_summary,
     MAX_ROWS_PER_RUN,
 };
+use super::expansion::{self, ExpansionProbe, Probe};
 use super::sections::{self, PackDocument, PackProvenance, Renderer};
 use super::{gate, read};
 use crate::by_pnu_gateway_contract::ByPnuLane;
@@ -207,6 +208,10 @@ pub struct PackExportSummary {
     pub packs: Vec<PackEntry>,
     /// Gate (가) of this run: documents read back from their packs and compared, before writing.
     pub equality: Equality,
+    /// The first patch of a version that expands the served one: the unchanged documents it
+    /// sampled and found served with the content it renders (root ADR-0320).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expansion_probe: Option<ExpansionProbe>,
     /// Per section, the dongs this base bake cut into more than one part (root ADR-0163); empty
     /// for a patch, which follows the served generation's parts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -369,18 +374,36 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let lakehouse = LakehouseObjectReader::from_env()?;
     let store = ByPnuServingStore::open(lane, &config.output)?;
     let renderer = Renderer::load(lane).await?;
-    let (rows, gold_record_count, shard_read) = scan(&config, &lakehouse, &snapshot).await?;
+    // The first patch of a version that expands the served one also reads a sample of the rows
+    // it does not change, to hold them to what is served (root ADR-0320).
+    let probe = match &config.patch {
+        Some(_) => Probe::needed(lane, served_state(lane, &store).await?),
+        None => None,
+    };
+    let (rows, gold_record_count, shard_read) =
+        scan(&config, &lakehouse, &snapshot, probe.as_ref()).await?;
+    let provenance = snapshot_provenance(&snapshot);
+    // Before anything is written: a refused probe leaves no pack behind.
+    let expansion_probe = match &probe {
+        Some(probe) => Some(
+            expansion::run(
+                probe,
+                &store,
+                &provenance,
+                &renderer,
+                &rows,
+                config.upserts.as_ref(),
+                config.max_concurrency,
+            )
+            .await?,
+        ),
+        None => None,
+    };
     // A small lane draws its candidates at a rate that still yields gate (나)'s sample.
     config.sample_candidates_per_million = Some(gate::candidate_rate(gold_record_count)?);
-    let mut summary = bake(
-        &config,
-        &store,
-        &snapshot_provenance(&snapshot),
-        &rows,
-        &renderer,
-    )
-    .await?;
+    let mut summary = bake(&config, &store, &provenance, &rows, &renderer).await?;
     summary.gold_record_count = Some(gold_record_count);
+    summary.expansion_probe = expansion_probe;
     summary.read = Some(shard_read);
     write_summary(&config.summary_path, &summary)?;
     tracing::info!(
@@ -410,18 +433,21 @@ async fn scan(
     config: &BakeConfig,
     lakehouse: &LakehouseObjectReader,
     snapshot: &IcebergSnapshotManifestList,
+    probe: Option<&Probe>,
 ) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64, ShardRead)> {
     let rows = scan_snapshot_rows_kept(
         sections::gold_table(config.lane),
         lakehouse,
         snapshot,
         |row| match row.get("pnu").and_then(JsonValue::as_str) {
-            Some(pnu) => patch_export::keeps(
-                pnu,
-                config.pnu_prefix.as_deref(),
-                config.upserts.as_ref(),
-                config.patch.as_ref(),
-            ),
+            Some(pnu) => {
+                patch_export::keeps(
+                    pnu,
+                    config.pnu_prefix.as_deref(),
+                    config.upserts.as_ref(),
+                    config.patch.as_ref(),
+                ) || probe.is_some_and(|probe| probe.keeps(pnu))
+            }
             None => true,
         },
         Some(MAX_ROWS_PER_RUN),
@@ -785,6 +811,7 @@ pub async fn bake(
         totals,
         packs,
         equality,
+        expansion_probe: None,
         parts,
         paged_documents,
         withheld,
@@ -1183,7 +1210,7 @@ pub(super) fn check_round_trip(
             // The bake reads back what it just wrote, under this release's schema.
             Ok(read::Resolved::Document(fragments)) => read::joined_bytes(
                 lane,
-                crate::by_pnu_serving_manifest_publish::document_schema_version(lane),
+                &[crate::by_pnu_serving_manifest_publish::document_schema_version(lane)],
                 &fragments,
             )
             .ok(),

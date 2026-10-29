@@ -318,10 +318,11 @@ pub fn resolve(packs: &UnitPacks, pnu: &str) -> anyhow::Result<Resolved> {
 /// is another answer than the object's, and gate (가) must see it as one.
 ///
 /// # Errors
-/// Refuses fragments that do not join or are not a document of the lane.
+/// Refuses fragments that do not join or are not a document of the lane under one of `schemas`
+/// (the versions the answering state serves, root ADR-0320).
 pub fn joined_bytes(
     lane: ByPnuLane,
-    schema: &str,
+    schemas: &[&str],
     fragments: &[(String, Found)],
 ) -> anyhow::Result<Vec<u8>> {
     let mut parts = Vec::with_capacity(fragments.len());
@@ -331,7 +332,7 @@ pub fn joined_bytes(
         };
         parts.push((name.as_str(), bytes.as_slice()));
     }
-    sections::join(lane, schema, &parts)?;
+    sections::join_any(lane, schemas, &parts)?;
     let [(_, bytes)] = parts.as_slice() else {
         bail!(
             "a served document is one member, got {} fragments",

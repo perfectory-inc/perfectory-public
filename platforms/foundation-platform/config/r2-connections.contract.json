@@ -541,7 +541,8 @@
     "parcel-characteristics": {"host": "parcel_by_pnu_gateway", "kind": "characteristics", "section": "characteristics", "columns": ["characteristics_json"]},
     "parcel-forest-ledger": {"host": "parcel_by_pnu_gateway", "kind": "forest-ledger", "section": "forest_ledger", "columns": ["forest_ledger_json"],
       "document_schema_version": "foundation-platform.parcel_forest_ledger_by_pnu.v2",
-      "document_schema_version_reason": "forest_ledger gained ownership_kind_name (#746) without a new version, so the bake weighed the whole lane as a patch and its mass-change brake stopped it; v2 declares the whole-document change and the next bake writes a full generation (contracts/by-pnu-documents)"},
+      "document_schema_version_reason": "forest_ledger gained ownership_kind_name (#746) without a new version, so the bake weighed the whole lane as a patch and its mass-change brake stopped it; v2 declares the whole-document change and the next bake writes a full generation (contracts/by-pnu-documents)",
+      "document_schema_expands": ["foundation-platform.parcel_forest_ledger_by_pnu.v1"]},
     "parcel-transfer-history": {"host": "parcel_by_pnu_gateway", "kind": "transfer-history", "section": "transfer_history", "columns": ["transfer_history_json"]},
     "parcel-land-rights": {"host": "parcel_by_pnu_gateway", "kind": "land-rights", "section": "land_rights", "columns": ["land_rights_json", "land_right_total:long"]},
     "parcel-public-auction": {
@@ -552,7 +553,8 @@
       "producer": "onbid_public_auction_silver_to_gold",
       "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md",
       "document_schema_version": "foundation-platform.parcel_public_auction_by_pnu.v2",
-      "document_schema_version_reason": "회차 payload에 사진 색인(content-addressed sha256→공개 URL)을 더한다(ADR-0296 §5, v1 ADR-0287 확장). 형식 변경이므로 ADR-0286 규칙에 따라 새 버전 파일(contracts/by-pnu-documents)과 전량 재굽기; silver.onbid_real_estate_item_photo 를 회차별로 조인한다."
+      "document_schema_version_reason": "회차 payload에 사진 색인(content-addressed sha256→공개 URL)을 더한다(ADR-0296 §5, v1 ADR-0287 확장). 형식 변경이므로 ADR-0286 규칙에 따라 새 버전 파일(contracts/by-pnu-documents)과 전량 재굽기; silver.onbid_real_estate_item_photo 를 회차별로 조인한다.",
+      "document_schema_expands": ["foundation-platform.parcel_public_auction_by_pnu.v1"]
     },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
