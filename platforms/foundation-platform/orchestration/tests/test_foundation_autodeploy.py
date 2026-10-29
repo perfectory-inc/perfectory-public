@@ -681,7 +681,11 @@ class TheWholeDeploy(unittest.TestCase):
         (running / "orchestration/jobs.v1.json").write_text(json.dumps({"jobs": jobs}))
         # airflow-runtime.sh exec airflow-scheduler airflow <args>: record <args>; `dags list` answers
         # each DAG's state from what it was told (an enabled one starts unpaused, a disabled one paused).
+        # `exec airflow-scheduler python <script>` (owed_by_inputs.py) is recorded as `asked owed` and
+        # answers FIXTURE_OWED, the job ids an input changed for while their DAG was paused.
         (running / "scripts/deploy/airflow-runtime.sh").write_text(
+            'if [[ "$1 $3" == "exec python" ]]; then echo "asked owed" >> "$FIXTURE_ROOT/airflow.log"\n'
+            '  [[ -z "${FIXTURE_OWED_FAILS:-}" ]] || exit 1; printf "%s\\n" ${FIXTURE_OWED:-}; exit 0; fi\n'
             'if [[ "$1" == exec ]]; then shift 3; printf "%s\\n" "$*" >> "$FIXTURE_ROOT/airflow.log"\n'
             '  [[ "$*" != "dags list -o json" ]] || python3 "$FIXTURE_ROOT/dags_list.py"\n'
             '  [[ -z "${FIXTURE_AIRFLOW_FAILS:-}" || "$*" != *"$FIXTURE_AIRFLOW_FAILS"* ]]; fi\n')
@@ -1176,6 +1180,42 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertLess(log.index("dags unpause foundation_map_edit_fold_admin"),
                         log.index("dags trigger foundation_map_edit_fold_admin"))
         self.assertIn("started foundation_map_edit_fold_admin", result.stdout)
+
+    def test_a_job_that_missed_an_input_event_while_paused_is_started_once_every_dag_is_unpaused(self):
+        # Root ADR-0337, 2026-10-28: the deploy held the public-auction bake paused while the rebuild,
+        # given its schedule back, recorded asset event 3912; Airflow queued nothing for the paused bake
+        # and it waited 13 hours for its 10:45 fallback.
+        asks = self.root / "opt/foundation-platform/current/scripts/deploy/owed_by_inputs.py"
+        asks.write_text("# stands in; the fixture's airflow-runtime.sh answers FIXTURE_OWED\n")
+        deferred = self.root / "deferred"
+        deferred.mkdir()
+        (deferred / "map_edit_fold_admin").write_text("0\n")
+        deploy = self.root / "opt/foundation-platform/current/scripts/deploy"
+        (deploy / "job_units.py").write_bytes((PLATFORM / "scripts/deploy/job_units.py").read_bytes())
+        result = self.deploy(FIXTURE_OWED="outbox_publish map_edit_fold_admin",
+                             FOUNDATION_SCHEDULED_DEFERRED_DIR=str(deferred))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        log = (self.root / "airflow.log").read_text().splitlines()
+        # Asked once every DAG is unpaused (step 7), so an event from then on queues the job itself;
+        # a job already started as deferred is not started twice.
+        last_unpause = max(index for index, line in enumerate(log) if line.startswith("dags unpause"))
+        self.assertGreater(log.index("asked owed"), last_unpause)
+        self.assertEqual([line for line in log if line.startswith("dags trigger")],
+                         ["dags trigger foundation_map_edit_fold_admin", "dags trigger foundation_outbox_publish"])
+        self.assertIn("started foundation_outbox_publish: an input changed while its DAG was paused", result.stdout)
+
+    def test_an_owed_answer_that_fails_does_not_fail_the_deploy(self):
+        asks = self.root / "opt/foundation-platform/current/scripts/deploy/owed_by_inputs.py"
+        asks.write_text("# stands in\n")
+        result = self.deploy(FIXTURE_OWED_FAILS="1", FIXTURE_OWED="outbox_publish")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("dags trigger", (self.root / "airflow.log").read_text())
+        self.assertIn("could not ask which jobs missed an input event while paused", result.stderr)
+
+    def test_a_release_without_the_question_owes_nothing(self):
+        result = self.deploy(FIXTURE_OWED="outbox_publish")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("asked owed", (self.root / "airflow.log").read_text())
 
     def test_a_clean_deploy_ends_with_every_enabled_dag_unpaused(self):
         result = self.deploy()

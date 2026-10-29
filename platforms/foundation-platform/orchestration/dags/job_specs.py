@@ -12,6 +12,7 @@ Pure Python with no Airflow import, so the code the DAGs run is the code the tes
                        no second list of dependencies.
 """
 
+import datetime
 import itertools
 import json
 import pathlib
@@ -90,6 +91,7 @@ class JobSpec:
     started_by: str = "schedule"  # STARTED_BY
     producers: tuple = ()  # the other jobs whose outputs are among its inputs
     check_service: str | None = None  # decides, without a pool slot, whether the run has work
+    enabled_since: str | None = None  # jobs.v1.json `enabled_since` (root ADR-0239)
 
     @property
     def starting_inputs(self):
@@ -631,6 +633,44 @@ def unpause_order(jobs=None, graph=None):
     return sorted((job["id"] for job in enabled), key=lambda job_id: (chain(job_id), position[job_id]))
 
 
+def owed_by_inputs(specs, newest_event, newest_run, queued):
+    """The enabled `inputs` jobs owed a run: an input changed after the job last started, and
+    nothing has queued it (root ADR-0337). In job-list order.
+
+    Airflow queues an output event only for the DAGs scheduled on it that are not paused
+    (AssetManager.register_asset_change), and nothing replays it when the DAG is unpaused. On
+    2026-10-28 a deploy held by_pnu_public_auction_bake paused from 21:19 to 21:40 while it had given
+    gold_public_auction_rebuild its schedule back; the rebuild's 21:38 event (asset event 3912) queued
+    nothing and the bake waited 13 hours for its fallback schedule. Unpause order (root ADR-0179)
+    cannot prevent this while a deploy holds a reader and not its writers, or a writer's run is in
+    flight, so the deploy asks this after it unpauses: what the state is, not which events it missed.
+
+    - newest_event: asset name (asset_uri) -> when its newest event was recorded
+    - newest_run: DAG id -> when its newest run was queued, of any kind (a run started after the
+      change read it: the fallback schedule, an operator, or the event itself)
+    - queued: DAG ids Airflow holds an asset queue entry for (it will start them itself)
+
+    A job switched on later is owed nothing for a change before enabled_since (root ADR-0239).
+    """
+    owed = []
+    for spec in specs:
+        if not spec.enabled or spec.started_by != "inputs" or spec.dag_id in queued:
+            continue
+        changes = [newest_event[asset_uri(dataset)] for dataset in spec.starting_inputs
+                   if newest_event.get(asset_uri(dataset)) is not None]
+        if not changes:
+            continue
+        since = [moment for moment in (newest_run.get(spec.dag_id), _instant(spec.enabled_since)) if moment is not None]
+        if not since or max(changes) > max(since):
+            owed.append(spec.job_id)
+    return owed
+
+
+def _instant(text):
+    """A jobs.v1.json `YYYY-MM-DDTHH:MM:SSZ` as an aware UTC datetime, or None."""
+    return datetime.datetime.fromisoformat(text.replace("Z", "+00:00")) if text else None
+
+
 def load_specs(jobs=None, graph=None):
     jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
     graph = graph if graph is not None else json.loads(GRAPH.read_text(encoding="utf-8"))
@@ -724,6 +764,7 @@ def load_specs(jobs=None, graph=None):
                 started_by=start,
                 producers=tuple(feeders[job_id]),
                 check_service=check,
+                enabled_since=since,
             )
         )
     starvation = pool_starvation(jobs, graph)

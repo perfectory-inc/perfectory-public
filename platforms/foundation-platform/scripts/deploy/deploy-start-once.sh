@@ -10,6 +10,8 @@
 #                       `deferred` ids of enabled jobs owed a run: a release build kept them from
 #                       starting (root ADR-0260) or step 0 stopped them (root ADR-0308)
 #   release_root        the release tree root; deploy_step asks its current release's deploy_steps.py
+#   owed_by_inputs      the enabled job ids an input changed for while their DAG was paused, one per
+#                       line (scripts/deploy/owed_by_inputs.py in the scheduler, root ADR-0337)
 #
 # start_once_then_unpause <sha>   steps 6 and 7. Starts once, with the held DAGs still paused, each job the
 #     registry marks `started_once_after_deploy` whose step says it has work (it never succeeded here
@@ -145,13 +147,28 @@ deploy_unpause_enabled() {
   # A job that came due while the release built was not started; it is owed its run now (root
   # ADR-0260). Its record goes when it starts, so a trigger that fails is tried by the next deploy.
   local -a owed
+  local -A started=()
   mapfile -t owed < <(jobs_of deferred)
   for id in "${owed[@]}"; do
     [[ -n "${id}" ]] || continue
     if airflow dags trigger "foundation_${id}" >/dev/null; then
+      started["${id}"]=1
       echo "started foundation_${id}: it came due while the release built"
     else
       echo "foundation-deploy: could not start foundation_${id}, deferred while the release built; its next scheduled run starts it" >&2
+    fi
+  done
+  # Airflow queues no run for an input event that reaches a paused DAG, and does not replay it on
+  # unpause (root ADR-0337): 2026-10-28 the public-auction bake, held paused, missed the rebuild's
+  # 21:38 event and waited 13 hours for its fallback schedule. Asked after every DAG is unpaused, so
+  # an event from now on queues the job itself; an answer that fails owes nothing (the fallback stays).
+  mapfile -t owed < <(owed_by_inputs || echo "foundation-deploy: could not ask which jobs missed an input event while paused; their fallback schedules start them" >&2)
+  for id in "${owed[@]}"; do
+    [[ -n "${id}" && -z "${started["${id}"]-}" ]] || continue
+    if airflow dags trigger "foundation_${id}" >/dev/null; then
+      echo "started foundation_${id}: an input changed while its DAG was paused"
+    else
+      echo "foundation-deploy: could not start foundation_${id}, whose input changed while it was paused; its fallback schedule starts it" >&2
     fi
   done
 }
