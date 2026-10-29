@@ -87,12 +87,17 @@ services:
     user: "65534:65534"
     security_opt:
       - no-new-privileges:true
+    # The second directory is the scheduled jobs' own textfiles, which their unprivileged account
+    # writes (jobs.v1.json state_directories, made by the release before this mount): the Onbid
+    # collector's detail coverage for the FoundationOnbidDetailCoverage* rules (root ADR-0330 §4).
     command:
       - --collector.disable-defaults
       - --collector.textfile
       - --collector.textfile.directory=/textfile
+      - --collector.textfile.directory=/textfile-jobs
     volumes:
       - ${FOUNDATION_HOST_METRICS_DIR:-/var/lib/perfectory/metrics}:/textfile:ro
+      - ${FOUNDATION_JOB_METRICS_DIR:-/var/lib/foundation-jobs/metrics}:/textfile-jobs:ro
 
 volumes:
   prometheus_data:

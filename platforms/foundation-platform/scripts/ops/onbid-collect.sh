@@ -49,8 +49,9 @@ mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "onbid collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
-# 1. 수집
+# 1. 수집. 물건상세·미디어 커버리지는 node-exporter textfile 로 남긴다(루트 ADR-0330 §4; 이 작업의 state_paths).
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
+  "${COLLECT}_METRICS_DIR=/var/lib/foundation-jobs/metrics" \
   "${PUBLISHER_BIN}" collect-data-go-kr-onbid >> "${run_log}" 2>&1
 
 outcome="$(grep '^foundation-job-outcome ' "${run_log}" | tail -1)"

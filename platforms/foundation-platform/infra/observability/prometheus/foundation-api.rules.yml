@@ -240,6 +240,34 @@ groups:
         annotations:
           summary: 배포 상태 지표(node-exporter textfile)를 30분째 못 읽어요 — 배포가 DAG 을 오래 멈춰도 알림이 안 가요
           runbook: docs/runbooks/deploy-alerts.md
+      # 공매 물건상세·사진 커버리지 (root ADR-0330 §4). 2026-10-28: the collector succeeded every hour
+      # while the media cap silently skipped the photos of most conditions it had marked detailed —
+      # 622 of 72,188 listed conditions had a photo and nothing said so. The collector writes the
+      # share of open conditions whose detail and media all landed; a drop of more than 5 points
+      # from the last day's best that lasts three hourly runs is a regression, not a new pass's
+      # fresh conditions (those are asked first and settle within a run or two).
+      - alert: FoundationOnbidDetailCoverageRegressed
+        expr: >-
+          max_over_time(foundation_onbid_item_detail_coverage_ratio[1d])
+          - foundation_onbid_item_detail_coverage_ratio > 0.05
+        for: 3h
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '공매 물건상세·사진 커버리지가 하루 최고치보다 {{ $value | humanizePercentage }} 떨어졌어요 — 열린 회차의 상세·사진이 밀리고 있어요. onbid 수집 run.log 의 onbid-media-summary-json 을 보세요'
+          runbook: docs/runbooks/data-go-kr-onbid.md
+      - alert: FoundationOnbidDetailCoverageStale
+        # The collector runs hourly; three hours without a write means it stopped or cannot write,
+        # and the rule above cannot fire on numbers that no longer change.
+        expr: time() - foundation_onbid_item_detail_written_timestamp_seconds > 3 * 3600
+        for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 공매 물건상세 커버리지 지표가 3시간째 갱신되지 않아요 — onbid 수집이 멈췄거나 /var/lib/foundation-jobs/metrics 에 못 써요
+          runbook: docs/runbooks/data-go-kr-onbid.md
       - alert: FoundationSecurityTokenExpiring
         expr: foundation_security_token_expires_days < 14
         for: 1h

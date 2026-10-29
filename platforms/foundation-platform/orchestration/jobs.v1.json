@@ -29,6 +29,7 @@
     {"path": "/var/lib/foundation-platform/registered-factory/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/onbid", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/onbid/lakehouse", "mode": "0777"},
+    {"path": "/var/lib/foundation-jobs/metrics", "mode": "0755", "written_by": "the scheduled jobs' own Prometheus textfiles, each job one <name>.prom it replaces whole (root ADR-0330 §4); node-exporter reads the directory beside the deploy's (root ADR-0321 §5)"},
     {"path": "/var/lib/foundation-platform/legal-dong-code", "mode": "0755"},
     {"path": "/var/lib/foundation-jobs/switches", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the operator switches (root ADR-0282 §3); the gate and the runner only read them"},
     {"path": "/var/lib/foundation-jobs/switches/run-now.d", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the run-now requests (root ADR-0282 §4); foundation-run-now.path watches it and the gate reads it"},
@@ -330,11 +331,12 @@
       "full_tracked_by": "justified by root ADR-0275 (a removal marker needs a complete pass); its Silver load appends only changed rows",
       "interruptible": false,
       "commits": "at_end",
-      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_auction_silver finds what it owes in R2). No Spark.",
+      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). The 물건상세 of each open condition owed one (never complete, or its list row's mdfcnDt changed), open rounds and the earliest bid end first, with its photos and appraisals mirrored to the content-addressed media store; a condition is complete only once its media all landed, and the coverage is written to /var/lib/foundation-jobs/metrics for the FoundationOnbidDetailCoverage* alerts (root ADR-0330). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_auction_silver finds what it owes in R2). No Spark.",
       "systemd_service": "foundation-onbid-collect.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/onbid"
+        "/var/lib/foundation-platform/onbid",
+        "/var/lib/foundation-jobs/metrics"
       ],
       "schedule": "7 * * * *",
       "started_by": "schedule",
