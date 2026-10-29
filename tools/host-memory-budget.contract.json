@@ -19,6 +19,10 @@
         "why": "A systemd service, not a container, with MemoryMax=infinity. Models larger than the 8GB GPU spill into host memory; the largest pulled model is 23GB. Left uncapped by decision on 2026-10-01: loading a large model while Spark loads can exhaust the host, and nothing here prevents it."
       },
       {
+        "what": "martin-static, martin-complex",
+        "why": "Started by hand with docker run (September 2026), in no compose file and no script, so this guard cannot see them: no memory cap, no log cap, restart no, host network listening on 0.0.0.0:3110 and 3111 with a healthcheck on port 3000 that has always failed. Measured 2026-10-29: 16.7MiB and 5.5MiB (peaks 57MiB and 56MiB over 13 days), no open connection; map tiles are served from R2 by the Worker (root ADR-0111 §10). Removing them was decided in root ADR-0112 §10 and ADR-0133 with the owner's go at the time it is done; root ADR-0343 §5 asks for it. Not capped in place: capping means recreating a container nothing uses."
+      },
+      {
         "what": "the identity signed-OIDC smoke's containers",
         "script": "platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh",
         "why": "A disposable cross-repository smoke an operator runs by hand (no unit, timer or workflow starts it); it removes every container it starts on exit. Its Zitadel, Postgres and relays are not measured in this shape, so they are not capped here; it must not run beside the Spark loads."

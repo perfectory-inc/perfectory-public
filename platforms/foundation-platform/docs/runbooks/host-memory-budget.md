@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-03
+last_reviewed: 2026-10-29
 ---
 
 # ai-server 메모리 예산
@@ -47,7 +47,7 @@ Spark는 `compose run --rm`으로 작업할 때만 실행한다. 기본 명령�
 
 | 서비스 | 상한 | 근거 |
 |---|---|---|
-| Trino | 16g (힙 12.8GB, 질의당 8GB) | 보관된 질의 100개 중 가장 큰 것이 7.0GB(2026-09-25). 질의 한도는 `infra/lakehouse/trino/config.properties` |
+| Trino | 16g (힙 상한 12.8GB, 하한 1.6GB, 질의당 8GB) | 보관된 질의 100개 중 가장 큰 것이 7.0GB(2026-09-25). 질의 한도는 `infra/lakehouse/trino/config.properties`, 힙은 `infra/lakehouse/trino/jvm.config`. 하한이 상한과 같던 때는 쉬는 동안에도 12.9GiB 를 잡고 있었다(2026-10-29, [ADR-0343](../../../../docs/adr/0343-an-always-on-service-holds-only-what-it-is-using.md) §2) |
 | Spark | 20g (드라이버 힙 16g) | 아래 "Spark 측정" |
 | DataHub 7개 | 합계 7.1g (+ 업그레이드 작업 1g) | 실측 약 4.5GB. actions 는 137MB 를 써서 512m |
 | Airflow 5개 | 합계 2.8g (+ DB 이전 작업 1g) | 2026-10-01 실측 합계 약 0.75GB |
@@ -73,7 +73,7 @@ Spark는 `compose run --rm`으로 작업할 때만 실행한다. 기본 명령�
 | 무엇 | 상태 |
 |---|---|
 | `ollama.service` | systemd 서비스, `MemoryMax=infinity`. 8GB GPU 를 넘는 모델은 호스트 메모리로 넘친다(가장 큰 모델 23GB). 2026-10-01 그대로 두기로 결정 — 큰 모델과 Spark 적재가 겹치면 호스트가 바닥날 수 있고, 막는 장치는 없다 |
-| `martin-complex`, `martin-static` | compose 가 아니라 손으로 띄운 컨테이너. 상한이 없고 둘 다 unhealthy. 지도 서빙은 R2 정적 타일로 옮겨졌다(ADR-0110). 정리할지 compose 로 옮길지 결정이 남았다 |
+| `martin-complex`, `martin-static` | compose 가 아니라 손으로 띄운 컨테이너. 상한이 없고 둘 다 unhealthy, 0.0.0.0:3110·3111 에서 듣지만 연결 0(2026-10-29). 지도 서빙은 R2 정적 타일로 옮겨졌다(ADR-0110·0111). 지우기로 이미 정했고(ADR-0112 §10·ADR-0133, 실행 때 사장 확인) [ADR-0343](../../../../docs/adr/0343-an-always-on-service-holds-only-what-it-is-using.md) §5 가 그 실행을 요청한다. 계약의 `host.uncapped` 에 적혀 있다 |
 | `foundation-platform-runtime-redis-1` | 7월에 만들어진 뒤 compose 에서 이름이 `valkey` 로 바뀌어 남은 컨테이너. 읽는 코드가 없다 |
 
 ## 서버 반영
