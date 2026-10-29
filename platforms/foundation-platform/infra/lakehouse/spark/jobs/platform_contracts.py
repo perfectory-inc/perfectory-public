@@ -381,11 +381,14 @@ def rows_as_of(frame: Any, contract: dict[str, Any], release: str) -> Any:
     A table that appends only each release's changed keys and a removal marker per vanished key
     (root ADR-0275, ADR-0318), or stores editions as versions (a vintage, root ADR-0317), holds a
     key's row under the release that last changed it. So "the rows of release X" are ``current_rows``
-    over the versions at or before X (the SCD2 "as of" read), ordered by the first ``newest_first``
-    column (``source_snapshot_id``, or the edition); later releases and markers are not read, so the
-    answer never changes once X is loaded. ``frame`` needs only the key, those columns and the removal
-    column; a pinned snapshot older than the removal column has no marker. A table that does not mark
-    vanished keys cannot answer: an older row of a key the release dropped would still look current.
+    over the versions whose edition, the first ``newest_first`` column (a land release's
+    ``source_snapshot_id``, a vintage, a hub provider month), is at or before X (the SCD2 "as of"
+    read); ``release`` is that edition's value, and of an edition loaded twice the later load wins
+    (ADR-0328). Later editions and their markers are not read, so the answer never changes once X is
+    loaded. ``frame`` needs only the key, those columns and the removal column; a pinned snapshot
+    older than the removal column has no marker. A table that keeps no versions, or does not mark
+    vanished keys, is refused rather than read as its release's rows: an older row of a key the
+    release dropped would still look current (root ADR-0317 §3; ADR-0328 corrects ADR-0318 §5).
     """
 
     from pyspark.sql import functions as F

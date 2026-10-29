@@ -115,3 +115,7 @@ ADR-0311 은 토지 레인 다섯을 비교 후 추가로 옮기고, 아직 판 
 - 판이 이틀에 걸치면 main 은 그동안 앞 판이다. 하루 늦어질 수 있지만 반쪽 판은 보이지 않는다.
 - 남은 일: 가격 다리 append 레인과 `unit_official_price` 는 ADR-0317(V1). 묶음 비교의 운영 실측(묶음별 시간·읽은 바이트)은 첫 판이
   들어올 때 잰다. 압축이 changes branch 를 낡게 만드는 날이 잦으면 압축 창을 비교 창과 떼는 일을 따로 정한다.
+
+---
+
+2026-10-29 각주: §4 의 허브 대장 최신 순서(`source_snapshot_id`), §5 의 "버전이 없는 표는 그 판의 행을 그대로 읽는다", §7 의 전유부 다리 최신 순서(`vintage`)는 [ADR-0328](./0328-a-compared-silver-table-orders-versions-by-edition-then-commit-instant.md) 이 고쳤다: 비교로 쌓는 표는 `[판, ingested_at_utc]` 로 정렬하고, `rows_as_of` 는 버전 없는 표를 거부한다.

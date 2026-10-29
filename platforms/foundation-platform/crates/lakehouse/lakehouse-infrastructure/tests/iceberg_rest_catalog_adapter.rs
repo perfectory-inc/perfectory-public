@@ -477,6 +477,60 @@ async fn a_branch_is_published_as_main_in_one_commit_only_as_a_fast_forward(
     Ok(())
 }
 
+/// ADR-0328: an edition's record outlives its snapshot summary. Without it, `refuse_older_edition`
+/// stops refusing an older vintage 30 days after the newer one landed (root ADR-0237 expiry).
+#[tokio::test]
+async fn publishing_a_branch_records_its_new_editions_as_table_properties_in_the_same_commit(
+) -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00004.json",
+            "metadata": {
+                "current-snapshot-id": TAGGED,
+                "properties": {"foundation.edition.209908": "1"},
+                "refs": {
+                    "main": {"snapshot-id": TAGGED, "type": "branch"},
+                    "changes_fixture": {"snapshot-id": STAGED, "type": "branch"}
+                },
+                "snapshots": [
+                    {"snapshot-id": TAGGED, "summary": {"operation": "append", "foundation.edition": "209908"}},
+                    {"snapshot-id": STAGED, "parent-snapshot-id": TAGGED,
+                     "summary": {"operation": "append", "foundation.edition": "209911"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(GOLD_PATH))
+        .and(wiremock::matchers::body_json(serde_json::json!({
+            "requirements": [
+                {"type": "assert-ref-snapshot-id", "ref": "main", "snapshot-id": TAGGED},
+                {"type": "assert-ref-snapshot-id", "ref": "changes_fixture", "snapshot-id": STAGED}
+            ],
+            "updates": [
+                {"action": "set-snapshot-ref", "ref-name": "main", "type": "branch", "snapshot-id": STAGED},
+                {"action": "remove-snapshot-ref", "ref-name": "changes_fixture"},
+                {"action": "set-properties", "updates": {"foundation.edition.209911": STAGED.to_string()}}
+            ]
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    assert_eq!(
+        catalog
+            .publish_branch("gold.parcel_panel", "changes_fixture")
+            .await?,
+        STAGED
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_branch_main_moved_away_from_is_never_published_and_is_removed_as_stale(
 ) -> Result<(), Box<dyn Error>> {

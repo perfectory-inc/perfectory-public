@@ -327,11 +327,17 @@ def read_facts_before(spark: Any, table: str, from_date: str, pool: set[str]) ->
 def read_buildings(spark: Any, table: str, snapshot: str, sidos: str) -> dict[str, str]:
     """Each register's PNU in the titles as they stood at release `snapshot`: the table appends only a
     release's changed registers (root ADR-0318), so its titles are each register's newest row up to
-    that release (`rows_as_of`), not the rows that carry its id."""
+    that release's edition, its provider month (`rows_as_of`, ADR-0328), not the rows that carry its id."""
 
-    from platform_contracts import load_lakehouse_contract, rows_as_of  # noqa: PLC0415
+    from platform_contracts import current_row_latest, load_lakehouse_contract, rows_as_of  # noqa: PLC0415
 
-    titles = rows_as_of(spark.table(table), load_lakehouse_contract("silver.building_register_titles"), snapshot)
+    contract = load_lakehouse_contract("silver.building_register_titles")
+    frame = spark.table(table)
+    edition = current_row_latest(contract).newest_first[0]
+    month = frame.where(frame.source_snapshot_id == snapshot).selectExpr(f"CAST(max({edition}) AS STRING)").first()[0]
+    if month is None:
+        raise ValueError(f"{table} holds no title of release {snapshot}, so its month is unknown")
+    titles = rows_as_of(frame, contract, month)
     return {
         row["mgm_bldrgst_pk"]: row["pnu"]
         for row in titles.where(f"substr(pnu, 1, 2) IN ({sql_prefixes(sidos)})").select("mgm_bldrgst_pk", "pnu").collect()

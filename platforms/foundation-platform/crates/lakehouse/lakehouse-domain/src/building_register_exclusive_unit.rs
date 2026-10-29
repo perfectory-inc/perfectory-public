@@ -114,10 +114,11 @@ pub const SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT: LakehouseTableContract =
         serving_role: LakehouseServingRole::Canonical,
         current_row_predicate: None,
         // A monthly release appends only its changed units and a removal marker per vanished unit
-        // (root ADR-0275, ADR-0318); a unit's version is its newest vintage's row.
+        // (root ADR-0275, ADR-0318); a unit's version is its newest vintage's rows, and of a vintage
+        // loaded again, the later commit's (ADR-0328).
         current_row_latest: Some(LakehouseCurrentRowLatest {
             key: &["mgmt_key"],
-            newest_first: &["vintage"],
+            newest_first: &["vintage", "ingested_at_utc"],
             removal_column: Some("row_state"),
             keep_ties: true,
         }),

@@ -91,7 +91,10 @@ class SilverReadersCurrentRowsTest(unittest.TestCase):
         # Lot 2's newest version is of another year: under versions it no longer holds the attribute.
         self.table(name, once + [{**once[1], "base_year": "2025", "ingested_at_utc": NEW}])
         self.assertEqual(held(versioned(contract, ["pnu"])), [pnu(1), pnu(3)])
-        self.assertEqual(held(contract), [pnu(1), pnu(2), pnu(3)], "an unversioned table is read as it is")
+        # The table's own contract keeps versions (root ADR-0311); without a rule it is read as it is.
+        # Before ADR-0328 its rule tied these rows on a null release id and read them all, too.
+        unversioned = {**contract, "current_row_latest": None}
+        self.assertEqual(held(unversioned), [pnu(1), pnu(2), pnu(3)], "an unversioned table is read as it is")
 
     def test_the_lineage_binds_a_versioned_table_to_its_current_rows(self):
         import parcel_lineage_inputs as inputs_module

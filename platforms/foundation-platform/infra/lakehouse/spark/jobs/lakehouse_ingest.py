@@ -36,6 +36,11 @@ INGEST_BATCH_OBJECTS_KEY = "foundation.ingest-batch-objects"
 # The edition a commit of a versioned table loaded (root ADR-0317): an edition with no changed key
 # appends no row, so the commit, not the rows, says that it was loaded.
 EDITION_KEY = "foundation.edition"
+# The durable copy of that record (ADR-0328): a table property per edition, `<prefix><edition>` =
+# the snapshot that published it, which `publish_branch` (iceberg_rest_catalog.rs) sets in the same
+# catalog commit that moves main. Snapshot summaries expire after 30 days (root ADR-0237); a table
+# property does not.
+EDITION_PROPERTY_PREFIX = f"{EDITION_KEY}."
 
 # Iceberg's Spark writer strips this prefix and puts the rest into the snapshot summary.
 SNAPSHOT_PROPERTY_PREFIX = "snapshot-property."
@@ -153,14 +158,18 @@ def edition_property_option(edition: str) -> dict[str, str]:
 
 
 def read_editions(spark: Any, qualified_table: str, unquoted_table: str, ref: str = MAIN) -> set[str]:
-    """Every edition `ref`'s lineage records as loaded (`edition_property_option`); empty for a
-    table that does not exist. Read from the same snapshot summaries as `read_ingested_objects`."""
+    """Every edition `ref`'s lineage records as loaded (`edition_property_option`), and every edition
+    the table's durable record holds (`EDITION_PROPERTY_PREFIX`: published to main, so in the lineage
+    of any ref made from it); empty for a table that does not exist."""
     if not spark.catalog.tableExists(unquoted_table):
         return set()
     lineage = ref_lineage(spark, qualified_table, ref)
-    return {row.summary[EDITION_KEY]
-            for row in spark.sql(f"SELECT snapshot_id, summary FROM {qualified_table}.snapshots").collect()
-            if int(row.snapshot_id) in lineage and (row.summary or {}).get(EDITION_KEY)}
+    durable = {row[0][len(EDITION_PROPERTY_PREFIX):]
+               for row in spark.sql(f"SHOW TBLPROPERTIES {qualified_table}").collect()
+               if row[0].startswith(EDITION_PROPERTY_PREFIX)}
+    return durable | {row.summary[EDITION_KEY]
+                      for row in spark.sql(f"SELECT snapshot_id, summary FROM {qualified_table}.snapshots").collect()
+                      if int(row.snapshot_id) in lineage and (row.summary or {}).get(EDITION_KEY)}
 
 
 def table_holds_rows(spark: Any, qualified_table: str, unquoted_table: str, ref: str = MAIN) -> bool:

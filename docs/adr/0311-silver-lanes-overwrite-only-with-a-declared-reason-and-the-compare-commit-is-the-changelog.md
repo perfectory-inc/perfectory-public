@@ -105,3 +105,7 @@ ADR-0191 은 "적재 때 한 번 변경 기록을 만든다" 를 정했지만 `c
   - `land_use_plan`: 비교를 시도 단위로 나누거나 단위 상한을 정한다(배포 설정이라 이 ADR 밖).
   - 가격·전유부 다리(append 레인)와 `silver.parcel_number_change_history`(제공자가 파일 날짜만 바꿔도 같은 1,370,351 행을
     다시 append)도 판 전체를 쓴다. 덮어쓰기가 아니라 이 관문에 걸리지 않는다. 같은 비교 규칙을 넓히는 일은 따로 정한다.
+
+---
+
+2026-10-29 각주: 결정의 `newest_first: [source_snapshot_id]` 는 같은 판을 다시 실은 행과 삭제 표시를 옛 행과 비기게 했다(10-21 `land_transfer_history`). [ADR-0328](./0328-a-compared-silver-table-orders-versions-by-edition-then-commit-instant.md) 이 ADR-0275 §2 대로 `[source_snapshot_id, ingested_at_utc]` 로 고쳤다.

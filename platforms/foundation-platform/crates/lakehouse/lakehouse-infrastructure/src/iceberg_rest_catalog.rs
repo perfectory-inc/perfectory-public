@@ -555,6 +555,11 @@ impl IcebergRestCatalog {
     /// Publishes branch `branch` of `table_name` as `main` in one catalog commit and removes the
     /// branch (root ADR-0183): readers see every batch the branch staged at once, or none.
     ///
+    /// The same commit copies every edition the published lineage records
+    /// (`foundation.edition` in a snapshot summary, root ADR-0317) into a table property
+    /// `foundation.edition.<edition>` the table does not hold yet (ADR-0328): summaries expire
+    /// after 30 days (root ADR-0237), and an edition with no changed key has no row that says so.
+    ///
     /// Only a fast-forward is published: `main` must still be a snapshot in the branch's lineage,
     /// so nothing committed to `main` since the branch was made is lost. The commit asserts both
     /// references, so a commit racing it is refused rather than overwritten. A commit whose answer
@@ -587,6 +592,14 @@ impl IcebergRestCatalog {
                 )));
             }
         }
+        let mut updates = vec![
+            serde_json::json!({"action": "set-snapshot-ref", "ref-name": "main", "type": "branch", "snapshot-id": head}),
+            serde_json::json!({"action": "remove-snapshot-ref", "ref-name": branch}),
+        ];
+        let editions = unrecorded_editions(metadata, head);
+        if !editions.is_empty() {
+            updates.push(serde_json::json!({"action": "set-properties", "updates": editions}));
+        }
         let outcome = self
             .commit_table(
                 table_name,
@@ -595,10 +608,7 @@ impl IcebergRestCatalog {
                         {"type": "assert-ref-snapshot-id", "ref": "main", "snapshot-id": main},
                         {"type": "assert-ref-snapshot-id", "ref": branch, "snapshot-id": head}
                     ],
-                    "updates": [
-                        {"action": "set-snapshot-ref", "ref-name": "main", "type": "branch", "snapshot-id": head},
-                        {"action": "remove-snapshot-ref", "ref-name": branch}
-                    ]
+                    "updates": updates
                 }),
             )
             .await;
@@ -952,6 +962,8 @@ struct IcebergTableMetadata {
     snapshots: Vec<IcebergSnapshotMetadata>,
     #[serde(default)]
     refs: BTreeMap<String, IcebergRefMetadata>,
+    #[serde(default)]
+    properties: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -993,6 +1005,33 @@ fn ingested_batch_objects<'a>(
         .filter(|name| !name.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+/// The summary key a versioned table's commit records its edition under, and the table-property
+/// prefix of its durable copy (`lakehouse_ingest.py`: `EDITION_KEY`, `EDITION_PROPERTY_PREFIX`).
+const EDITION_KEY: &str = "foundation.edition";
+const EDITION_PROPERTY_PREFIX: &str = "foundation.edition.";
+
+/// The editions `head`'s lineage records that the table's properties do not hold yet, each as its
+/// property and the snapshot that recorded it (the newest, when several did).
+fn unrecorded_editions(metadata: &IcebergTableMetadata, head: i64) -> BTreeMap<String, String> {
+    let mut editions = BTreeMap::new();
+    for snapshot in lineage(metadata, Some(head)) {
+        let Some(edition) = snapshot
+            .summary
+            .get(EDITION_KEY)
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let property = format!("{EDITION_PROPERTY_PREFIX}{edition}");
+        if !edition.is_empty() && !metadata.properties.contains_key(&property) {
+            editions
+                .entry(property)
+                .or_insert_with(|| snapshot.snapshot_id.to_string());
+        }
+    }
+    editions
 }
 
 /// The manifest list of `snapshot_id` in a loaded table. `pinned`: the caller named the snapshot,

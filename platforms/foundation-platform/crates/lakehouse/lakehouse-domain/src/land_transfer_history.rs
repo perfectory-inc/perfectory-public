@@ -132,7 +132,8 @@ pub const SILVER_LAND_TRANSFER_HISTORY: LakehouseTableContract = LakehouseTableC
     // version is every row of its newest release: ordered by the release, all ties current.
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["pnu", "transfer_history_seq"],
-        newest_first: &["source_snapshot_id"],
+        // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
+        newest_first: &["source_snapshot_id", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),

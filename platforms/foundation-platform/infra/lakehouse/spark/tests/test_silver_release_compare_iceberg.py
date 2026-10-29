@@ -64,7 +64,8 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
 
     def frame(self, vintage, events):
         """One release's rows: `events` are (lot, seq, reason); every other content column is fixed."""
-        at = datetime(2099, int(vintage[4:6]), 1, tzinfo=timezone.utc)
+        # Loaded in the past: the compare refuses a table holding a row loaded after its own instant.
+        at = datetime(2020, int(vintage[4:6]), 1, tzinfo=timezone.utc)
         rows = [{"pnu": lot(n), "transfer_history_seq": seq, "reason": reason, "source_record_id": f"bronze/{vintage}.zip",
                  "source_snapshot_id": release(vintage), "ingested_at_utc": at, "data_reference_date": vintage}
                 for n, seq, reason in events]

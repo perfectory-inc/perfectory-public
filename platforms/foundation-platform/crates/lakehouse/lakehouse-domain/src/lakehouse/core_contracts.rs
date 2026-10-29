@@ -148,7 +148,8 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
     // (root ADR-0275, ADR-0318); a parcel's designations are every row of its newest release.
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["pnu"],
-        newest_first: &["source_snapshot_id"],
+        // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
+        newest_first: &["source_snapshot_id", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),
@@ -182,7 +183,8 @@ pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableC
     // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["pnu"],
-        newest_first: &["source_snapshot_id"],
+        // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
+        newest_first: &["source_snapshot_id", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),
@@ -284,10 +286,11 @@ pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTab
     current_row_predicate: None,
     // A monthly release appends only the rows of its changed registers and a removal marker per
     // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
-    // release. The run identity carries the provider month, so it orders the releases.
+    // release: the provider month (`valid_from_utc`), then the commit instant. The run identity's
+    // digest would order two loads of one month by their bytes, not their time (ADR-0328).
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk"],
-        newest_first: &["source_snapshot_id"],
+        newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),
@@ -320,10 +323,11 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     current_row_predicate: None,
     // A monthly release appends only the rows of its changed registers and a removal marker per
     // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
-    // release. The run identity carries the provider month, so it orders the releases.
+    // release: the provider month (`valid_from_utc`), then the commit instant. The run identity's
+    // digest would order two loads of one month by their bytes, not their time (ADR-0328).
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk"],
-        newest_first: &["source_snapshot_id"],
+        newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),
@@ -370,10 +374,11 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
     current_row_predicate: None,
     // A monthly release appends only the rows of its changed registers and a removal marker per
     // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
-    // release. The run identity carries the provider month, so it orders the releases.
+    // release: the provider month (`valid_from_utc`), then the commit instant. The run identity's
+    // digest would order two loads of one month by their bytes, not their time (ADR-0328).
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk"],
-        newest_first: &["source_snapshot_id"],
+        newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),
