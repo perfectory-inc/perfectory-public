@@ -133,23 +133,19 @@ class TheRealJobList(unittest.TestCase):
         # Root ADR-0301: a deploy stops interruptible jobs at step 0 instead of waiting hours for
         # them, so a long non-critical job never holds the deploy and pauses collection (2026-10-26:
         # the by-PNU bake held #867 for 1.5 h and collection sat paused 2 h). Every job must say so,
-        # and a collector that commits only at the end must not be interruptible — stopping it loses
-        # the whole run (the 2026-10-26 onbid timeout).
+        # and a job that commits only at the end must not be interruptible — stopping it loses the
+        # whole run (the 2026-10-26 onbid timeout). Which jobs commit at the end is each job's own
+        # declared `commits`, not a list kept here (ADR-0308 review): a new collector must say.
         jobs = real_inputs()[0]["jobs"]
-        commits_at_end = {
-            "onbid_public_auction_collect", "court_auction_collect", "legal_dong_code_changes",
-            "registered_factory", "vworld_parcel_edition", "parcel_number_change_history",
-            "parcel_registry",
-        }
         for job in jobs:
             with self.subTest(job["id"]):
                 self.assertIn("interruptible", job, "a job must declare interruptible (ADR-0301)")
                 self.assertIsInstance(job["interruptible"], bool, "interruptible must be a boolean")
-                if job["id"] in commits_at_end:
-                    self.assertFalse(
-                        job["interruptible"],
-                        "a collector that commits at the end must not be interruptible",
-                    )
+                self.assertIn(job.get("commits"), ("at_end", "as_it_goes"),
+                              "a job must declare when it commits: at_end or as_it_goes (jobs.v1.json commits_means)")
+                if job["commits"] == "at_end":
+                    self.assertFalse(job["interruptible"], "a job that commits at the end must not be interruptible")
+        self.assertTrue([job for job in jobs if job["commits"] == "at_end"], "the collectors that commit at the end say so")
 
     def test_floor_cycle_owns_one_complete_spark_job_and_only_its_real_edge(self):
         jobs, _ = real_inputs()

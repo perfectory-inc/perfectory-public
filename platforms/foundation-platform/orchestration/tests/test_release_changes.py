@@ -1,6 +1,7 @@
 """What a release changes and which jobs write it (scripts/deploy/release_changes.py, root ADR-0270 deploy D3)."""
 
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -16,6 +17,9 @@ GRAPH = {
     "nodes": [{"id": "src"}, {"id": "a", "table_name": "silver.a"}, {"id": "b", "table_name": "silver.b"}],
     "edges": [{"id": "src-to-a", "from": "src", "to": "a"}, {"id": "src-to-b", "from": "src", "to": "b"}],
 }
+STEPS = {"state_directory": "/var/lib/perfectory/deploy-steps", "steps": {"lakehouse-migrate": {
+    "inputs": ["infra/lakehouse/contracts", "infra/lakehouse/spark/jobs"],
+    "per_table": {"infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json": "contracts"}}}}
 JOBS = {"jobs": [{"id": "write_a", "pipeline_graph_edges": ["src-to-a"]},
                  {"id": "write_b", "pipeline_graph_edges": ["src-to-b"]},
                  {"id": "maintenance", "pipeline_graph_edges": []}]}
@@ -30,6 +34,8 @@ class ReleaseChanges(unittest.TestCase):
             self.write(root, "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json", {"contracts": CONTRACTS})
             self.write(root, "orchestration/jobs.v1.json", JOBS)
             self.write(root, "docs/catalog/pipeline-graph.v1.json", GRAPH)
+            self.write(root, "config/deploy-steps.contract.json", STEPS)
+            self.write(root, "infra/lakehouse/spark/jobs/migrate.py", "program")
             (root / "migrations").mkdir()
             (root / "migrations/0001_first.sql").write_text("select 1;\n")
 
@@ -82,11 +88,12 @@ class ReleaseChanges(unittest.TestCase):
                                                                 "jobs the deploy holds until the release is live: none"])
         copy = self.new
         shutil.rmtree(copy)
-        for relative in ("infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
-                         "orchestration/jobs.v1.json", "docs/catalog/pipeline-graph.v1.json"):
+        steps = json.loads((PLATFORM / "config/deploy-steps.contract.json").read_text(encoding="utf-8"))
+        for relative in ("orchestration/jobs.v1.json", "docs/catalog/pipeline-graph.v1.json",
+                         "config/deploy-steps.contract.json", "migrations",
+                         *steps["steps"]["lakehouse-migrate"]["inputs"]):
             (copy / relative).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(PLATFORM / relative, copy / relative)
-        shutil.copytree(PLATFORM / "migrations", copy / "migrations")
+            (shutil.copytree if (PLATFORM / relative).is_dir() else shutil.copy)(PLATFORM / relative, copy / relative)
         contracts = json.loads((copy / "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json").read_text(encoding="utf-8"))
         contracts["contracts"]["silver.building_register_floors"]["columns"].append(
             {"name": "added", "logical_type": "string", "required": False})
@@ -109,6 +116,40 @@ class ReleaseChanges(unittest.TestCase):
         self.assertEqual(held(), "maintenance\nwrite_b\n")
         (self.new / "migrations/0002_second.sql").write_text("select 2;\n")
         self.assertEqual(held(), "*\n", "a postgres migration holds every job")
+
+    # Root ADR-0308 review (2026-10-29): the hold read one file of the migration's inputs, so a change
+    # to its program or a backfill ran the migration over tables whose writers were not held.
+
+    def test_any_other_input_of_the_migration_holds_the_writers_of_every_table(self):
+        (self.new / "infra/lakehouse/spark/jobs/migrate.py").write_text("changed")
+        lines = self.run_script()
+        self.assertTrue(lines[0].startswith("lakehouse tables this release changes: every table (2): "
+                                            "infra/lakehouse/spark/jobs/migrate.py changed"), lines[0])
+        self.assertEqual(lines[-1], "jobs the deploy holds until the release is live: maintenance, write_a, write_b")
+
+    def test_a_new_input_file_is_a_change_and_a_readme_is_not(self):
+        (self.new / "infra/lakehouse/contracts/README.md").write_text("prose")
+        self.assertEqual(self.run_script()[0], "lakehouse tables this release changes: none")
+        self.write(self.new, "infra/lakehouse/contracts/lakehouse-known-drift.json", {"tables": []})
+        self.assertIn("every table", self.run_script()[0])
+
+    def host_run(self, host):
+        result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), str(self.running), str(self.new), "--host"],
+                                env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(host)},
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.splitlines()
+
+    def test_on_the_host_the_running_release_is_the_baseline_only_once_it_was_migrated_here(self):
+        host = self.running.parent / "host"
+        (host / "var/lib/perfectory").mkdir(parents=True)
+        (host / "var/lib/perfectory").chmod(0o755)
+        lines = self.host_run(host)
+        self.assertIn("every table (2): the running release is not what this host last migrated", lines[0])
+        subprocess.run([sys.executable, "-I", "-B", str(SCRIPT.parent / "deploy_steps.py"), "ran", str(self.running),
+                        "lakehouse-migrate"], env={**os.environ, "FOUNDATION_DEPLOY_STEPS_HOST_ROOT": str(host)},
+                       check=True, timeout=30)
+        self.assertEqual(self.host_run(host)[0], "lakehouse tables this release changes: none")
 
     def test_two_trees_are_its_arguments(self):
         result = subprocess.run([sys.executable, "-I", "-B", str(SCRIPT), str(self.new)], capture_output=True, text=True)

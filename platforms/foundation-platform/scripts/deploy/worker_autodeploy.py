@@ -206,18 +206,34 @@ def fingerprint(tree: pathlib.Path, inputs: list[str]) -> str:
     """The bytes a Worker is made of: every file under its inputs, by path. Markdown is prose about
     the Worker, not the Worker, so a README edit does not deploy it."""
 
+    return platform_fingerprint(tree / PLATFORM, inputs)
+
+
+def platform_fingerprint(platform: pathlib.Path, inputs: list[str]) -> str:
+    """The same digest over a Foundation Platform tree itself, as a release is (deploy_steps.py)."""
+
     digest = hashlib.sha256()
-    platform = tree / PLATFORM
+    for relative, file_digest in input_digests(platform, inputs):
+        digest.update(relative.encode() + b"\0")
+        digest.update(file_digest)
+    return digest.hexdigest()
+
+
+def input_digests(platform: pathlib.Path, inputs: list[str], missing_ok: bool = False) -> list[tuple[str, bytes]]:
+    """Each file under the inputs, by its path in the tree, with its sha256; the one definition of
+    which files an input is (release_changes.py compares two trees with it, missing_ok)."""
+
+    found = []
     for item in sorted(inputs):
         root = platform / item
         files = [root] if root.is_file() else sorted(
             path for path in root.rglob("*") if path.is_file() and path.suffix != ".md")
         if not files or not root.exists():
-            raise Refused(65, f"input {item} does not exist in the control checkout")
-        for path in files:
-            digest.update(path.relative_to(platform).as_posix().encode() + b"\0")
-            digest.update(hashlib.sha256(path.read_bytes()).digest())
-    return digest.hexdigest()
+            if missing_ok:
+                continue
+            raise Refused(65, f"input {item} does not exist in {platform}")
+        found += [(path.relative_to(platform).as_posix(), hashlib.sha256(path.read_bytes()).digest()) for path in files]
+    return found
 
 
 def credential_path(tree: pathlib.Path) -> pathlib.Path:

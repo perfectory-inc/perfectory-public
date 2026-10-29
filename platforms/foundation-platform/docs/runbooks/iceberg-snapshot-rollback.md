@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-29
 ---
 
 # Iceberg 스냅샷 롤백
@@ -27,6 +27,13 @@ last_reviewed: 2026-07-29
 3. 테이블에 대해 읽기 전용 검증을 실행한다.
 4. 복구한 스냅샷에서 파생 서빙 계층을 다시 만든다.
 5. 버전이 있는 포인터 또는 이벤트를 발행해 소비자가 오래된 읽기 모델을 무효화하게 한다.
+6. 배포의 레이크하우스 마이그레이션 기록을 무효로 만든다(root ADR-0308). 배포는 입력·카탈로그 설정·jar 가 그대로면 마이그레이션을
+   건너뛴다. 복원된 스냅샷의 스키마는 그 기록이 본 카탈로그와 다를 수 있다. 둘 중 하나를 한다.
+   - 지금 다시 맞춘다(권장): `sudo /opt/foundation-platform/current/scripts/deploy/foundation-release.sh migrate`.
+     손으로 돌리는 `migrate` 는 항상 돈다. 성공하면 새 기록을 남긴다.
+   - 다음 배포가 돌게 한다: `sudo python3 -I -B /opt/foundation-platform/current/scripts/deploy/deploy_steps.py forget /opt/foundation-platform/current lakehouse-migrate`.
+   - 둘 다 잊어도 `shape_ledger_check` 가 다음 캡처(매일)에서 계약 열이 빠진 표를 찾으면 다음 배포가 마이그레이션을 다시 돌린다.
+     그때까지 기다리지 않는다.
 
 ## 감사 기록 필수 항목
 
