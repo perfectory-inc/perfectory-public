@@ -21,6 +21,18 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 8760h
+    # A host unit that reports its successes as well as its failures
+    # (scripts/ops/notify-unit-failure.sh): one notice per unit when it starts failing, one when a
+    # run succeeds again, and a reminder a day while it keeps failing. 2026-10-28/29 the hourly
+    # by-PNU serving monitors sent a notice per lane every hour and buried the real failures.
+    - matchers:
+        - service = "unit-failure"
+      group_by:
+        - alertname
+        - unit
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 24h
     # The repository's open security advisories (root ADR-0278): one notice per advisory when it
     # opens and one when it is gone, the same way as the operations map's problems.
     - matchers:

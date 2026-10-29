@@ -1,0 +1,14 @@
+[Unit]
+Description=Report that %i succeeded, ending its failure alert in Alertmanager
+# A unit whose failure is one alert that resolves names this in OnSuccess= beside its OnFailure=
+# (scripts/ops/notify-unit-failure.sh). Silent unless the failure was announced.
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+ExecStart=/opt/foundation-platform/current/scripts/ops/notify-unit-failure.sh --recovered %i
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
