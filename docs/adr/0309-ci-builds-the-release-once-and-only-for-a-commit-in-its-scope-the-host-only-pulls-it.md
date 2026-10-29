@@ -113,3 +113,7 @@ Rust 코드의 `include_str!` 가 컴파일해 넣는 `infra/` 경로가 이것�
 | 범위 밖이면 빌드는 건너뛰되 서버는 직전 릴리스 산출물을 새 커밋 이름으로 재사용 | 서명 신원이 커밋 sha 에 묶여 있다(`--certificate-github-workflow-sha`). 다른 커밋의 서명으로 설치하면 ADR-0134 불변식 2 가 깨진다 |
 | 목록이 없을 때 서버 빌드로 대신 | 2 의 (a)–(c). 사장 결정(ADR-0276 §7) |
 | 직전 커밋 대신 "마지막으로 목록이 있는 커밋"과 비교해 빌드 판정 | CI 가 레지스트리를 읽어야 하고 경우가 늘어난다. 틈은 수동 실행 하나로 메워진다(3) |
+
+## 개정 기록
+
+- 2026-10-30: "받아들인 틈"(범위 안 커밋의 릴리스 빌드 실패 뒤 아무것도 배포되지 않음)은 이제 조용하지 않다. [ADR-0345](./0345-the-release-image-is-built-before-merge-and-a-host-behind-main-alerts-with-its-reason.md)의 `FoundationReleaseMissing`(90분)·`FoundationHostBehindMain`(6시간)이 이유와 함께 알린다. 2026-10-29 이 틈으로 11시간 아무것도 배포되지 않았다.

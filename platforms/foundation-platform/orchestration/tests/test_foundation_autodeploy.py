@@ -321,9 +321,10 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.state = root / "state"
         self.off = root / "autodeploy.off"
         text = SCRIPT.read_text()
+        self.metrics = root / "metrics/autodeploy.prom"
         for name, value in (("control_root", control), ("release_root", root / "opt"),
                             ("state", self.state), ("off_switch", self.off), ("api", "http://127.0.0.1:9"),
-                            ("mirror", root / "mirror.git")):
+                            ("mirror", root / "mirror.git"), ("metrics", self.metrics)):
             line = next(line for line in text.splitlines() if line.startswith(f"{name}="))
             text = text.replace(line, bash_assignment(name, value), 1)
         self.script = root / "foundation-autodeploy.sh"
@@ -649,6 +650,119 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         result = self.tick(FIXTURE_NO_HEAD="1")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self.deployed(), [])
+        self.assertEqual(self.series(), {'foundation_autodeploy_tick_timestamp_seconds{reason="main_unreadable"}': "now"})
+
+    # Root ADR-0345, from 2026-10-29: every release build on main failed from #939 on, each tick logged
+    # "no commit … has a published release yet", and the host stayed 11 hours on a879a889 unnoticed.
+
+    def series(self):
+        """The metrics file's series, the tick's own time read as "now"."""
+        lines = [line for line in self.metrics.read_text().splitlines() if line and not line.startswith("#")]
+        out = {}
+        for line in lines:
+            name, value = line.rsplit(" ", 1)
+            out[name] = "now" if name.startswith("foundation_autodeploy_tick_") and abs(int(value) - time.time()) < 60 else int(value)
+        return out
+
+    def main_with(self, *changes):
+        """A real mirror: the running release's commit, then one commit per (path, merged-at) pair,
+        oldest first, judged by the real release-build scope. Returns the new commits, newest first."""
+        control = self.root / "control"
+        repo = PLATFORM.parents[1]
+        for relative in ("scripts/ci/change_scope.py", "tools/ci/change-scope.json"):
+            (control / relative).parent.mkdir(parents=True, exist_ok=True)
+            (control / relative).write_bytes((repo / relative).read_bytes())
+        shutil.copytree(repo / ".github" / "workflows", control / ".github" / "workflows")
+        work = self.root / "work"
+        git = ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+        subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+        (work / "README.md").write_text("base\n")
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "base"], check=True)
+        commits = [subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()]
+        for index, (path, merged) in enumerate(changes):
+            (work / path).parent.mkdir(parents=True, exist_ok=True)
+            (work / path).write_text(f"change {index}\n")
+            subprocess.run([*git, "add", "-A"], check=True)
+            subprocess.run([*git, "commit", "-q", "-m", f"change {index}"], check=True,
+                           env={**os.environ, "GIT_COMMITTER_DATE": f"@{merged} +0000"})
+            commits.append(subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                                          text=True).stdout.strip())
+        subprocess.run(["git", "clone", "-q", "--bare", str(work), str(self.root / "mirror.git")], check=True)
+        (self.root / "opt/releases" / commits[0]).mkdir()
+        (self.root / "opt/current").unlink()
+        (self.root / "opt/current").symlink_to(self.root / "opt/releases" / commits[0])
+        return list(reversed(commits[1:]))
+
+    IN_SCOPE = "platforms/foundation-platform/crates/x/src/lib.rs"
+    WEB = "products/gongzzang/apps/web/page.tsx"
+
+    def test_no_release_says_since_which_commit_the_release_build_has_not_released(self):
+        newer, older = self.main_with((self.IN_SCOPE, 1_700_000_000), ("platforms/foundation-platform/a.rs", 1_700_000_600))
+        result = self.tick(head=newer, FIXTURE_RELEASED="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [])
+        self.assertEqual(self.series(), {
+            'foundation_autodeploy_tick_timestamp_seconds{reason="no_release"}': "now",
+            f'foundation_autodeploy_behind_since_timestamp_seconds{{reason="no_release",commit="{older[:12]}"}}': 1_700_000_000,
+            f'foundation_autodeploy_release_missing_since_timestamp_seconds{{commit="{older[:12]}"}}': 1_700_000_000,
+        })
+
+    def test_a_newer_commit_without_a_release_stays_missing_after_the_older_one_deploys(self):
+        newer, older = self.main_with((self.IN_SCOPE, 1_700_000_000), ("platforms/foundation-platform/a.rs", 1_700_000_600))
+        result = self.tick(head=newer, FIXTURE_RELEASED=older)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [older])
+        self.assertEqual(self.series(), {
+            'foundation_autodeploy_tick_timestamp_seconds{reason=""}': "now",
+            f'foundation_autodeploy_behind_since_timestamp_seconds{{reason="no_release",commit="{newer[:12]}"}}': 1_700_000_600,
+            f'foundation_autodeploy_release_missing_since_timestamp_seconds{{commit="{newer[:12]}"}}': 1_700_000_600,
+        })
+
+    def test_a_commit_outside_the_release_scope_is_never_missing_a_release(self):
+        # A web-only head gets no release build (root ADR-0309), so it must not read as a failing one.
+        web, released = self.main_with((self.IN_SCOPE, 1_700_000_000), (self.WEB, 1_700_000_600))
+        result = self.tick(head=web, FIXTURE_RELEASED=released)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.deployed(), [released])
+        self.assertEqual(self.series(), {'foundation_autodeploy_tick_timestamp_seconds{reason=""}': "now"})
+
+    def test_a_failing_deploy_says_so_and_the_host_stays_behind(self):
+        (head,) = self.main_with((self.IN_SCOPE, 1_700_000_000))
+        self.assertEqual(self.tick(head=head, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.assertEqual(self.series(), {
+            'foundation_autodeploy_tick_timestamp_seconds{reason="deploy_failed"}': "now",
+            f'foundation_autodeploy_behind_since_timestamp_seconds{{reason="deploy_failed",commit="{head[:12]}"}}': 1_700_000_000,
+        })
+        self.assertEqual(self.tick(head=head).returncode, 0)
+        self.assertEqual(list(self.series())[0], 'foundation_autodeploy_tick_timestamp_seconds{reason="every_newer_commit_refused_or_failed"}')
+
+    def test_a_host_on_main_reports_nothing_behind(self):
+        self.assertEqual(self.tick(head=CURRENT).returncode, 0)
+        self.assertEqual(self.series(), {'foundation_autodeploy_tick_timestamp_seconds{reason=""}': "now"})
+
+    def test_a_tick_that_waits_for_the_lock_leaves_the_deploying_ticks_word(self):
+        (head,) = self.main_with((self.IN_SCOPE, 1_700_000_000))
+        self.metrics.parent.mkdir(parents=True)
+        self.metrics.write_text('foundation_autodeploy_tick_timestamp_seconds{reason="deploying"} 1\n')
+        self.state.mkdir(parents=True, exist_ok=True)
+        import fcntl  # the tests run where the host does, on Linux
+
+        with open(self.state / "lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)  # the deploying tick
+            self.assertIn("already running", self.tick(head=head).stdout)
+        self.assertEqual(self.series(), {'foundation_autodeploy_tick_timestamp_seconds{reason="deploying"}': 1})
+
+    def test_the_rules_alert_on_each_series_with_bounds_from_the_measurements(self):
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        for alert, expression in (
+            ("FoundationReleaseMissing", "time() - foundation_autodeploy_release_missing_since_timestamp_seconds > 5400"),
+            ("FoundationHostBehindMain", "time() - foundation_autodeploy_behind_since_timestamp_seconds > 21600"),
+            ("FoundationAutodeployStopped", "time() - foundation_autodeploy_tick_timestamp_seconds > 1800"),
+        ):
+            with self.subTest(alert=alert):
+                self.assertIn(f"alert: {alert}", rules)
+                self.assertIn(expression, rules)
 
 
 class TheWholeDeploy(unittest.TestCase):

@@ -134,7 +134,7 @@ def keep_blob(source: Path, blobs: Path) -> tuple[str, int]:
 
 
 def build_image(release, name: str, dockerfile: str, context: str, args: dict, work: Path, blobs: Path,
-                cache_ref: str | None = None) -> tuple[dict, dict]:
+                cache_ref: str | None = None, cache_read_only: bool = False) -> tuple[dict, dict]:
     """One image as an archive: its OCI blobs kept, its manifest and config digests returned."""
     builder = f"foundation-release-{name}"
     archive = work / f"{name}.oci.tar"
@@ -146,9 +146,11 @@ def build_image(release, name: str, dockerfile: str, context: str, args: dict, w
             *(arg for key, value in args.items() for arg in ("--build-arg", f"{key}={value}")),
             # Every layer of every stage (mode=max), so cargo-chef's dependency layer survives the run;
             # a cache that cannot be read or written only costs a full build (root ADR-0276 §14).
-            *(("--cache-from", f"type=registry,ref={cache_ref}:buildcache-{name}",
-               "--cache-to", f"type=registry,ref={cache_ref}:buildcache-{name},mode=max,image-manifest=true,"
-               "oci-mediatypes=true,ignore-error=true") if cache_ref else ()),
+            *(("--cache-from", f"type=registry,ref={cache_ref}:buildcache-{name}") if cache_ref else ()),
+            # A pull request's dry run reads main's cache and never writes it (root ADR-0345): what a
+            # pull request built must not become a layer a signed release on main is made of.
+            *(("--cache-to", f"type=registry,ref={cache_ref}:buildcache-{name},mode=max,image-manifest=true,"
+               "oci-mediatypes=true,ignore-error=true") if cache_ref and not cache_read_only else ()),
             # The docker exporter writes the OCI layout (index.json, blobs/sha256) and Docker's
             # manifest.json in one archive: `docker load` reads it, and the blobs are the OCI ones.
             "--output", f"type=docker,dest={archive}", "-f", dockerfile, context)
@@ -229,6 +231,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--cache-ref", help="registry repository whose buildcache-<image> tags hold the build cache")
+    parser.add_argument("--cache-read-only", action="store_true",
+                        help="read the build cache and write none (a pull request's dry run, root ADR-0345)")
     arguments = parser.parse_args()
     out = arguments.out
     if out.exists() and any(out.iterdir()):
@@ -243,7 +247,7 @@ def main() -> int:
         work = Path(temporary)
         for name, dockerfile, context, args in image_builds(release):
             images[name], measured[name] = build_image(release, name, dockerfile, context, args, work, blobs,
-                                                         arguments.cache_ref)
+                                                         arguments.cache_ref, arguments.cache_read_only)
             print(f"release-build {name}: {measured[name]['seconds']}s peak_memory={measured[name]['peak_memory_bytes']} "
                   f"blob_bytes={measured[name]['blob_bytes']}", flush=True)
         binary = work / "foundation-outbox-publisher"

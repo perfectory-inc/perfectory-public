@@ -70,10 +70,18 @@ expect_accepted() {
 
 expect_rejected() {
   local label="$1" dir="$2" build_baseline="$3" read_baseline="$4"
-  if bash "$checker" "$dir" "$build_baseline" "$read_baseline" >/dev/null 2>&1; then
+  local output
+  if output="$(bash "$checker" "$dir" "$build_baseline" "$read_baseline" 2>&1)"; then
     echo "FAIL build-coupling-baseline-self-test: $label should have been rejected" >&2
     exit 1
   fi
+  # A crash is not a rejection: it would pass here and fail every real run.
+  case "$output" in
+    *Traceback*)
+      printf 'FAIL build-coupling-baseline-self-test: %s crashed the checker:\n%s\n' "$label" "$output" >&2
+      exit 1
+      ;;
+  esac
 }
 
 # On the baseline exactly.
@@ -103,5 +111,62 @@ expect_rejected "a baseline left high after the real count dropped" "$shrunk" 1 
 none="$test_root/none"
 make_fixture "$none" 0 0
 expect_accepted "no build scripts and no compile-time reads" "$none" 0 0
+
+# Every read an image compiles must be in that image (build-coupling-baseline.py). 2026-10-29 the
+# publisher image lacked contracts/: each release build on main failed for 11 hours, and the pull
+# requests, compiled from the checkout, all passed. A workspace whose `app` is built by a Dockerfile
+# that compose names; `lib` compiles in contracts/c.json, a test module and a feature-gated module
+# read files the image never gets.
+make_image_fixture() {
+  local dir="$1" copy_contracts="$2" ignore="$3" lib_features="$4"
+  mkdir -p "$dir/ws/app/src" "$dir/ws/lib/src" "$dir/ws/contracts" "$dir/ws/outside"
+  fixture_git "$dir" init -q
+  fixture_git "$dir" config user.email guard@example.invalid
+  fixture_git "$dir" config user.name guard
+  printf '[workspace]\nmembers = ["app", "lib"]\n' >"$dir/ws/Cargo.toml"
+  printf '[package]\nname = "app"\n\n[dependencies]\nlib = { path = "../lib"%s }\n\n[dev-dependencies]\nlib = { path = "../lib", features = ["fixtures"] }\n' \
+    "$lib_features" >"$dir/ws/app/Cargo.toml"
+  printf 'fn main() {}\n' >"$dir/ws/app/src/main.rs"
+  printf '[package]\nname = "lib"\n\n[features]\nfixtures = []\n' >"$dir/ws/lib/Cargo.toml"
+  {
+    printf '// A comment naming include_str!("../../outside/x.json") reads nothing.\n'
+    printf 'pub const C: &str = include_str!(\n    "../../contracts/c.json"\n);\n'
+    printf '#[cfg(feature = "fixtures")]\npub mod fixtures;\n'
+    printf '#[cfg(test)]\nmod tests;\n'
+    printf '#[cfg(test)]\nmod inline {\n    const X: &str = include_str!("../../outside/x.json");\n}\n'
+  } >"$dir/ws/lib/src/lib.rs"
+  printf 'const Y: &str = include_str!("../../outside/y.json");\n' >"$dir/ws/lib/src/fixtures.rs"
+  printf 'const X: &str = include_str!("../../outside/x.json");\n' >"$dir/ws/lib/src/tests.rs"
+  printf '{}\n' >"$dir/ws/contracts/c.json"
+  printf '{}\n' >"$dir/ws/outside/x.json"
+  printf '{}\n' >"$dir/ws/outside/y.json"
+  {
+    printf 'FROM rust:1 AS chef\nWORKDIR /w\n'
+    printf 'FROM chef AS build\nCOPY Cargo.toml /w/\nCOPY app /w/app\nCOPY lib /w/lib\n'
+    [ "$copy_contracts" = yes ] && printf 'COPY contracts /w/contracts\n'
+    printf 'RUN cargo build --locked --release \\\n    -p app\n'
+  } >"$dir/ws/Dockerfile"
+  printf 'services:\n  app:\n    build:\n      context: .\n      dockerfile: Dockerfile\n' >"$dir/ws/compose.yml"
+  [ -z "$ignore" ] || printf '%s\n' "$ignore" >"$dir/ws/.dockerignore"
+  fixture_git "$dir" add -A
+  fixture_git "$dir" -c commit.gpgsign=false commit -q -m fixture
+}
+
+# Five lines the count sees (it counts the comment too); the image check reads none of the comment.
+image_holds="$test_root/image-holds"
+make_image_fixture "$image_holds" yes "" ""
+expect_accepted "an image that holds what it compiles in; test and unused-feature reads left out" "$image_holds" 0 5
+
+image_lacks="$test_root/image-lacks"
+make_image_fixture "$image_lacks" no "" ""
+expect_rejected "an image whose build stage never copies a file it compiles in (2026-10-29)" "$image_lacks" 0 5
+
+image_ignores="$test_root/image-ignores"
+make_image_fixture "$image_ignores" yes "**/contracts" ""
+expect_rejected "a compiled-in file the .dockerignore keeps out of the context" "$image_ignores" 0 5
+
+image_feature="$test_root/image-feature"
+make_image_fixture "$image_feature" yes "" ', features = ["fixtures"]'
+expect_rejected "a feature a normal dependency switches on compiles a read the image lacks" "$image_feature" 0 5
 
 echo "OK build-coupling-baseline-self-test"

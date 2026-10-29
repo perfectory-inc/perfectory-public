@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Prevents: build-system coupling growing without anyone deciding to grow it.
+# Prevents: build-system coupling growing without anyone deciding to grow it; and (2026-10-29) an
+# image that compiles a crate without a file the crate compiles in — the publisher image lacked
+# contracts/, and no release was built for 11 hours (build-coupling-baseline.py, root ADR-0345).
 #
 # Two things decide what a move to a graph-based build system (Bazel, Buck2) would
 # cost, and both grow silently one commit at a time:
@@ -170,6 +172,7 @@ set -euo pipefail
 # 104 -> 105: the land-right projection proof also embeds the ADR-0093 unit-key
 # migration, so the disposable database exercises the exact six-column identity
 # this binary ships rather than the superseded two-column key.
+script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 # Build scripts 1 -> 6: root ADR-0201 has CI keep the workspace crates main built,
 # so a package is rebuilt only when cargo sees one of its inputs change. The five
@@ -333,7 +336,15 @@ report "build scripts" "$build_script_count" "$BUILD_SCRIPT_BASELINE" \
 report "compile-time file reads" "$compile_time_read_count" "$COMPILE_TIME_READ_BASELINE" \
   "Each site becomes an explicit data dependency the build system cannot infer."
 
+# The same reads, followed into each image that compiles them (build-coupling-baseline.py): every one
+# a Dockerfile's build compiles must be a file that image holds. 2026-10-29: the publisher image did
+# not copy contracts/, so every release build on main failed for 11 hours while pull requests, which
+# compile from the checkout, passed (root ADR-0345).
+if ! python3 "$script_dir/build-coupling-baseline.py" "$repo_root"; then
+  fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-  echo "OK build-coupling-baseline (build scripts=$build_script_count, compile-time reads=$compile_time_read_count)"
+  echo "OK build-coupling-baseline (build scripts=$build_script_count, compile-time reads=$compile_time_read_count, every image holds what it compiles in)"
 fi
 exit "$fail"

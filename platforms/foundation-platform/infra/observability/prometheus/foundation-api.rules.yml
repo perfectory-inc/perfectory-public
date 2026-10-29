@@ -240,6 +240,45 @@ groups:
         annotations:
           summary: 배포 상태 지표(node-exporter textfile)를 30분째 못 읽어요 — 배포가 DAG 을 오래 멈춰도 알림이 안 가요
           runbook: docs/runbooks/deploy-alerts.md
+      # Whether main reaches the host at all (root ADR-0345). 2026-10-29: from #939 every release
+      # build on main failed; the autodeploy logged "no commit … has a published release yet" every
+      # minute, the host stayed 11 hours on a879a889 and about 25 merged pull requests never reached
+      # it, and nothing here could see it — the deploy series above exist only while a deploy runs.
+      # foundation-autodeploy.sh writes autodeploy.prom every tick. Bounds from measurements:
+      # 140 release builds on main (2026-10-18 to 10-29) took p50 15 min, p99 60, longest 62, so a
+      # commit 90 minutes without a release has a build that failed or never ran; 288 deploys
+      # (10-07 to 10-29) left the host behind main p50 1.1 h, p95 4.2 h, p99 7.5 h (the long ones were
+      # bakes holding the deploy), so 6 hours is past every routine wait and before the 11 hours above.
+      - alert: FoundationReleaseMissing
+        expr: time() - foundation_autodeploy_release_missing_since_timestamp_seconds > 5400
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: 'main 의 {{ $labels.commit }} 부터 {{ humanizeDuration $value }}째 릴리스가 없어요 — 릴리스 빌드(foundation-release-build.yml)가 실패하고 있거나 돌지 않아요. 그동안 호스트는 아무것도 배포하지 못해요'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationHostBehindMain
+        expr: time() - foundation_autodeploy_behind_since_timestamp_seconds > 21600
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: '호스트가 main 보다 {{ humanizeDuration $value }} 뒤처져 있어요(가장 오래된 미배포 커밋 {{ $labels.commit }}) — 이유: {{ $labels.reason }}. 런북의 이유 표를 보세요'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationAutodeployStopped
+        # The two above are written by the autodeploy's ticks; without ticks they cannot fire. A deploy
+        # holds the tick lock while it runs, and FoundationDeployLong speaks for that time.
+        expr: >-
+          (time() - foundation_autodeploy_tick_timestamp_seconds > 1800
+            unless on() foundation_deploy_started_timestamp_seconds)
+          or absent(foundation_autodeploy_tick_timestamp_seconds)
+        for: 10m
+        labels:
+          severity: ticket
+          service: deploy
+        annotations:
+          summary: 자동 배포(foundation-autodeploy.timer)가 30분 넘게 결정을 남기지 않았어요 — main 이 앞서가도 알림이 안 가요. systemctl status foundation-autodeploy.timer 를 보세요
+          runbook: docs/runbooks/deploy-alerts.md
       # 공매 물건상세·사진 커버리지 (root ADR-0330 §4). 2026-10-28: the collector succeeded every hour
       # while the media cap silently skipped the photos of most conditions it had marked detailed —
       # 622 of 72,188 listed conditions had a photo and nothing said so. The collector writes the

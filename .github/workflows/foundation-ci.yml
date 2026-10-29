@@ -968,10 +968,36 @@ jobs:
           fi
           bash scripts/verify/foundation-spark-runtime.sh
 
+  # Root ADR-0345: the release build of .github/workflows/foundation-release-build.yml, built here as
+  # a dry run: every image, the executable and the jars from the same script, read from main's build
+  # cache, and nothing attested, pushed or uploaded (this job holds no write permission). It runs when
+  # merging would give main a release build (foundation_ci_scope.py RELEASE_JOB). 2026-10-29: #939
+  # compiled in a file the publisher image did not copy; every pull request passed, every release
+  # build on main failed, and the host deployed nothing for 11 hours.
+  release-image:
+    needs: [scope]
+    if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'release-image') }}
+    name: Release build dry run (no attestation, no push)
+    runs-on: ubuntu-24.04
+    # The release builds on main, 2026-10-18 to 10-29: p50 15 min, p99 60 min, longest 62 (140 runs).
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
+        with:
+          persist-credentials: false
+      - name: Room for the build
+        working-directory: ${{ github.workspace }}
+        run: bash scripts/ci/release-build-runner-room.sh
+      - name: Build the release, attest and publish nothing
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/deploy/foundation-release-build.py --out "$RUNNER_TEMP/release" --cache-ref "ghcr.io/$GITHUB_REPOSITORY_OWNER/foundation-release" --cache-read-only
+
   required:
     name: required/foundation
     if: ${{ always() && (needs.scope.result != 'success' || needs.scope.outputs.affected == 'true') }}
-    needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]
+    needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime, release-image]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -992,5 +1018,6 @@ jobs:
           REQUIRED_RESULT_COMPOSE_SMOKE: ${{ needs.compose-smoke.result }}
           REQUIRED_RESULT_BOUNDARY_SLICE: ${{ needs.boundary-slice.result }}
           REQUIRED_RESULT_SPARK_RUNTIME: ${{ needs.spark-runtime.result }}
+          REQUIRED_RESULT_RELEASE_IMAGE: ${{ needs.release-image.result }}
         working-directory: .
         run: bash scripts/ci/require-successful-needs.sh

@@ -143,6 +143,15 @@ RULES = {
 CRATE_JOBS = ("rust-quality", "postgres-integration")
 SUITE_JOB = "suites"
 SUPPLY_CHAIN_JOB = "supply-chain"
+# Root ADR-0345: the release build as a dry run (no attestation, no push). It has work exactly when
+# merging would give main a release build: the release workflow's own scope (root ADR-0309,
+# tools/ci/change-scope.json), asked of the same change. A pull request and the merge queue run it;
+# a push to main and the nightly run leave it to the release workflow, which builds main for real.
+# 2026-10-29: #939 compiled in a file the publisher image lacked; every pull request passed and
+# every release build on main failed for 11 hours.
+RELEASE_JOB = "release-image"
+RELEASE_WORKFLOW = "foundation-release-build.yml"
+RELEASE_EVENTS = frozenset({"pull_request", "merge_group", "workflow_dispatch"})
 WORKSPACE = "platforms/foundation-platform"
 # What cargo-deny and the SBOM read, besides every Cargo.toml of the workspace and any lock (run
 # all). Advisories change without a commit: the nightly full run and dependency-advisories.yml.
@@ -328,12 +337,28 @@ def supply_chain_selected(paths: Iterable[str] | None, crates_all: bool) -> bool
     return False
 
 
+def release_image_selected(event_name: str, paths: Iterable[str] | None) -> bool:
+    """Whether the change would get a release build on main (RELEASE_JOB); unknown paths: yes."""
+    if event_name not in RELEASE_EVENTS:
+        return False
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import change_scope
+
+    run, _ = change_scope.decide(
+        change_scope.load_contract(), RELEASE_WORKFLOW, event_name, None if paths is None else set(paths)
+    )
+    return run
+
+
 def skipped_jobs(
-    *, selected: set[str], paths: Iterable[str] | None, crates_answer: str, suites_answer: str
+    *, selected: set[str], paths: Iterable[str] | None, crates_answer: str, suites_answer: str,
+    event_name: str = "pull_request",
 ) -> list[str]:
     """The Foundation CI jobs with no work (root ADR-0324), from the gate selection and the crate
     and suite selectors' answers. An empty (unreadable) answer skips none of its jobs."""
     skipped = {gate for gate in GATES if gate not in selected}
+    if not release_image_selected(event_name, paths):
+        skipped.add(RELEASE_JOB)
     crate_lines = crates_answer.splitlines()
     crates_kind = crate_lines[0].split("\t", 1)[0] if crate_lines else ""
     if crates_kind == "some" and not any(line.startswith("affected\t") for line in crate_lines):
@@ -371,7 +396,8 @@ def skipped_jobs_main(args: argparse.Namespace) -> int:
             print(f"foundation-ci-scope: git comparison unavailable, every gate runs: {error}", file=sys.stderr)
             paths, selected = None, set(GATES)
         skipped = skipped_jobs(
-            selected=selected, paths=paths, crates_answer=_selector("crates"), suites_answer=_selector("suites")
+            selected=selected, paths=paths, crates_answer=_selector("crates"), suites_answer=_selector("suites"),
+            event_name=args.event_name,
         )
     print(json.dumps({"affected": args.affected, "skipped_jobs": skipped}, sort_keys=True))
     with args.github_output.open("a", encoding="utf-8", newline="\n") as output:

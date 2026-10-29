@@ -281,3 +281,4 @@ ghcr.io/<정본 조직>/foundation-release            (공개 패키지 하나, 
 ## 개정 기록
 
 - 2026-10-28: R1–R3 는 [ADR-0309](./0309-ci-builds-the-release-once-and-only-for-a-commit-in-its-scope-the-host-only-pulls-it.md)가 운영 결정으로 확정했다(§7 의 "CI 가 멈추면 기다린다" 포함). 같은 ADR 이 릴리스 빌드와 자동 배포를 `tools/ci/change-scope.json` 의 범위 안 커밋으로 좁혔다. R4 는 열려 있다.
+- 2026-10-30: §9 의 "PR 은 릴리스를 짓지 않는다"는 [ADR-0345](./0345-the-release-image-is-built-before-merge-and-a-host-behind-main-alerts-with-its-reason.md)가 바꿨다. 같은 스크립트로 PR·머지 큐에서 건조 실행(서명·push 없음, 캐시 읽기만)한다. 2026-10-29 릴리스 빌드가 11시간 실패한 사고에서.
