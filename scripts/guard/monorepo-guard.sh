@@ -30,8 +30,20 @@ bash "$legal_gate"
 # tools/ci/change-scope.json (root ADR-0207). On a pull request the selector keeps
 # the guards whose inputs changed; every other run is the whole list.
 guards="$(python3 "$root/scripts/ci/guard_scope.py" select)" || exit 1
+# An `always` guard runs on every pull request and merge group, so it declares what it may cost
+# (root ADR-0313): on 2026-10-28 the memory-cap guard took 8.5 minutes, six times per merge group.
+# Judged on CI runners only; a laptop shell is several times slower and would refuse a push.
+budgets="$(python3 "$root/scripts/ci/guard_scope.py" budgets)" || exit 1
 rc=0
 for g in $guards; do
+  started=$SECONDS
   bash "$dir/$g.sh" || rc=1
+  took=$((SECONDS - started))
+  echo "guard-time: $g ${took}s" >&2
+  budget="$(awk -v g="$g" '$1 == g { print $2 }' <<<"$budgets")"
+  if [ -n "$budget" ] && [ "${GITHUB_ACTIONS:-}" = true ] && [ "$took" -gt "$budget" ]; then
+    echo "FAIL guard-budget: $g took ${took}s, over its budget_seconds $budget in tools/ci/change-scope.json; give it \`paths\` or make it faster" >&2
+    rc=1
+  fi
 done
 exit "$rc"

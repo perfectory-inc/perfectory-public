@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
@@ -25,8 +26,13 @@ SELECTOR = "scripts/ci/change_scope.py"
 WORKFLOWS = ".github/workflows"
 # A change to how scope is decided can change every decision.
 RUN_ALL = frozenset({CONTRACT, SELECTOR})
-# The merge queue is the last gate before main: it runs everything, whatever the scope.
-ALWAYS_RUN_EVENTS = frozenset({"workflow_dispatch", "schedule", "merge_group"})
+# A manual run and the nightly schedule run everything: the safety net under every narrowed run. The
+# merge queue narrows like a pull request, against its base, the main tip it builds on (root
+# ADR-0313): its head is that base plus every queued change ahead of it and this one, so the
+# comparison holds every change not yet on main.
+ALWAYS_RUN_EVENTS = frozenset({"workflow_dispatch", "schedule"})
+# The events that narrow; a scoped workflow that takes one also keeps a schedule (checked).
+NARROWED_EVENTS = frozenset({"pull_request", "merge_group"})
 # The verification tool every area CI runs lives outside every area (ADR-0004, ADR-0010).
 XTASK_RUN = re.compile(r"cargo\s+.*xtask\s+(verify|integration)")
 XTASK_INPUTS = ("tools/xtask/**", ".cargo/config.toml", "rust-toolchain.toml")
@@ -121,6 +127,51 @@ def decide(
     return False, f"none of {len(changed)} changed paths is an input"
 
 
+def tree_of(root: Path, commit: str) -> str | None:
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", f"{commit}^{{tree}}"], check=True, capture_output=True, text=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return out or None
+
+
+def queue_runs(repository: str, workflow: str, token: str, api: str = "https://api.github.com") -> list[dict]:
+    """The latest successful merge-queue runs of one workflow, newest first."""
+    request = urllib.request.Request(
+        f"{api}/repos/{repository}/actions/workflows/{workflow}/runs?event=merge_group&status=success&per_page=50",
+        headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}", "User-Agent": "change-scope"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return json.load(response)["workflow_runs"]
+
+
+def queue_verified(event: str, tree: str | None, runs) -> str | None:
+    """On a push to main, the merge-queue run that passed on this exact tree, if any (root ADR-0313).
+    The queue tests the commit main is then moved to; running again on the push only repeated a
+    verdict already given (Foundation CI's median was 21 minutes after every merge). Keyed by the
+    tree, not the commit: the same tree is the same input to every job. Unreadable runs: None."""
+    if event != "push" or not tree:
+        return None
+    try:
+        found = next((run for run in runs() if (run.get("head_commit") or {}).get("tree_id") == tree), None)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"change-scope: merge-queue runs unreadable, running everything: {error}", file=sys.stderr)
+        return None
+    return str(found.get("html_url") or found.get("id")) if found else None
+
+
+def push_verified_by_queue(workflow: str) -> str | None:
+    """`queue_verified` for this run, from the GitHub environment; None outside Actions."""
+    repository, token = os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("GITHUB_TOKEN", "")
+    event, head = os.environ.get("CHANGE_SCOPE_EVENT", ""), os.environ.get("CHANGE_SCOPE_HEAD", "")
+    if event != "push" or not repository or not token or not head:
+        return None
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    return queue_verified(event, tree_of(ROOT, head), lambda: queue_runs(repository, workflow, token, api))
+
+
 def git_changed_paths(root: Path, base: str, head: str) -> set[str] | None:
     if not base or not head or set(base) == {"0"}:
         return None
@@ -161,6 +212,10 @@ def _triggers_pull_request(text: str) -> bool:
 def check_workflow(workflow: str, text: str) -> list[str]:
     errors = []
     on_block = text.split("\njobs:\n", 1)[0]
+    # The merge queue narrows (root ADR-0313); the nightly full run is what still sees an input no
+    # contract declares.
+    if re.search(r"^  merge_group:", on_block, re.MULTILINE) and not re.search(r"^  schedule:", on_block, re.MULTILINE):
+        errors.append(f"{workflow}: a scoped workflow the merge queue narrows keeps a `schedule:` full run")
     if re.search(r"^\s+paths(-ignore)?:", on_block, re.MULTILINE):
         errors.append(f"{workflow}: a scoped workflow keeps no `paths:` filter; its inputs live in {CONTRACT}")
     jobs = _jobs(text)
@@ -327,9 +382,9 @@ def unlisted_reads(root: Path, workflow: str, globs: list[str], tracked: list[st
 
 # --- crates: which workspace crates a pull request affects (root ADR-0269) ------------------------
 
-# Only a pull request narrows to crates. A push to main refills the build caches the next pull
-# request starts from, and the merge queue, the nightly run and a manual run are the full gate.
-CRATE_SELECT_EVENTS = frozenset({"pull_request"})
+# A pull request and the merge queue narrow to crates (root ADR-0313). A push to main the queue did
+# not verify, the nightly run and a manual run verify every crate.
+CRATE_SELECT_EVENTS = NARROWED_EVENTS
 
 
 def workspace_members(root: Path, workspace: str) -> dict[str, tuple[str, set[str]]]:
@@ -735,8 +790,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if errors else 0
 
     event = os.environ.get("CHANGE_SCOPE_EVENT", "")
-    changed = git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
-    run, reason = decide(load_contract(), args.workflow, event, changed)
+    verified = push_verified_by_queue(args.workflow)
+    if verified:
+        run, reason = False, f"the merge queue passed this tree: {verified}"
+    else:
+        changed = git_changed_paths(ROOT, os.environ.get("CHANGE_SCOPE_BASE", ""), os.environ.get("CHANGE_SCOPE_HEAD", ""))
+        run, reason = decide(load_contract(), args.workflow, event, changed)
     print(json.dumps({"workflow": args.workflow, "event": event, "run": run, "reason": reason}, ensure_ascii=False))
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
