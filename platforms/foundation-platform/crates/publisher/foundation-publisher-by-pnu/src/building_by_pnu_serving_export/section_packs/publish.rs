@@ -618,6 +618,22 @@ async fn base(
             // of a newer one when every section is re-baked (then no patch stays).
             let floor = current.newest_patch();
             let mut next = current.clone();
+            // Every summary is of the schema this release bakes (read_summaries). A whole
+            // generation replaces every document and folds every patch, so the state records that
+            // schema; a section re-baked alone leaves the others' documents, so it must be of the
+            // recorded one. Until 2026-10-29 the replaced generation's record was kept: parcel g6
+            // and public-auction g2 served v2 documents under a v1 record (2026-10-28).
+            let baked = manifest_publish::document_schema_version(config.lane);
+            if whole {
+                baked.clone_into(&mut next.document_schema_version);
+            } else {
+                ensure!(
+                    baked == current.document_schema_version,
+                    "a section re-baked alone under {baked} would serve beside {} documents; a new \
+                     schema re-bakes every section",
+                    current.document_schema_version
+                );
+            }
             for section in &mut next.sections {
                 if by_section.contains_key(&section.name) {
                     ensure!(

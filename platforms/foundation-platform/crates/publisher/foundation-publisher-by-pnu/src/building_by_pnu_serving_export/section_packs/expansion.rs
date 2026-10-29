@@ -109,8 +109,13 @@ pub(super) async fn run(
             .push(renderer.render(provenance, row)?);
     }
     let view = PackView::served(store, lane, &probe.state).await?;
-    let served = probe.state.served_document_schema_versions();
-    let schemas = served.iter().copied().collect::<Vec<_>>();
+    // Served answers are read as every reader reads them: under the recorded versions and the
+    // ones the contract lets the lane serve (a record that lags its documents, 2026-10-28).
+    let schemas = probe
+        .state
+        .servable_document_schema_versions(lane)
+        .into_iter()
+        .collect::<Vec<_>>();
     // Futures are built in a loop, as the bake's are (the command table's `Send` check).
     let mut jobs = Vec::with_capacity(by_dong.len());
     for (dong, documents) in &by_dong {
@@ -121,7 +126,12 @@ pub(super) async fn run(
         .try_collect::<Vec<_>>()
         .await?;
     let mut outcome = ExpansionProbe {
-        served_document_schema_versions: schemas.iter().map(|s| (*s).to_owned()).collect(),
+        served_document_schema_versions: probe
+            .state
+            .served_document_schema_versions()
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
         document_schema_version: document_schema_version(lane).to_owned(),
         ..ExpansionProbe::default()
     };
