@@ -1,10 +1,8 @@
-import { fileURLToPath } from "node:url";
 
-import { build } from "esbuild";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { startMiniflare } from "./miniflare";
+import { startGateway } from "./miniflare";
 
 // A pack-only lane of the contract's `by_pnu_lanes` (root ADR-0190): it never had objects, so a
 // manifest without section packs is an outage and an object at the base key is never read, whatever
@@ -15,7 +13,6 @@ const GATEWAY = connectionContract.by_pnu_lanes["unit-price"];
 // Root ADR-0204: a unit price document is one building of one PNU, requested as <pnu>/<building id>.
 const BUILDING = "00000000-0000-0000-0000-00000000000b";
 const URL_OF_PNU = `https://unit-prices.example.test${GATEWAY.request_path.prefix}${PNU}/${BUILDING}`;
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function envelope(): string {
   return `${JSON.stringify({
@@ -38,26 +35,7 @@ describe("foundation unit price gateway (pack-only)", () => {
   let runtime: Miniflare | undefined;
 
   async function start(): Promise<Miniflare> {
-    const bundle = await build({
-      entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("unit-price") },
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      write: false,
-      absWorkingDir: packageRoot,
-    });
-    const output = bundle.outputFiles[0];
-    if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = await startMiniflare({
-      compatibilityDate: "2026-04-26",
-      modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-      r2Buckets: [GATEWAY.r2_binding],
-      bindings: {
-        FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: "https://app.example.test",
-      },
-      cache: true,
-    });
+    const started = await startGateway("unit-price");
     const bucket = await started.getR2Bucket(GATEWAY.r2_binding);
     await bucket.put(GATEWAY.object_key.manifest_object, envelope());
     // An object where an object lane's base would hold one: a pack-only lane must never read it.

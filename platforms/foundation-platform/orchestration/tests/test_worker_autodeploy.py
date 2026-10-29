@@ -138,7 +138,9 @@ print(f"HTTP/2 {status}\nfoundation-worker-version: {serving}\n")
 
 FAKE_SYSTEMCTL = r'''#!/usr/bin/env bash
 printf '%s\n' "$*" >> "${FIXTURE_ROOT}/systemctl.log"
-if [[ "$1" == show && "$*" == *EnvironmentFiles* ]]; then
+if [[ "$1" == show && "$*" == *EnvironmentFiles* && "${!#}" == foundation-by-pnu-edge-probe.service ]]; then
+  printf '%s (ignore_errors=yes)\n' "${FIXTURE_ROOT}/parcel-serving-monitor.env"
+elif [[ "$1" == show && "$*" == *EnvironmentFiles* ]]; then
   printf '%s (ignore_errors=no)\n%s (ignore_errors=yes)\n' "${FIXTURE_ROOT}/recovery.env" "${FIXTURE_ROOT}/monitor-${!#}.env"
 fi
 '''
@@ -151,10 +153,20 @@ import json, os, pathlib, sys
 args = sys.argv[1:]
 root = pathlib.Path(os.environ["FIXTURE_ROOT"])
 line = " ".join(args)
+if "by-pnu-edge-probe.py" in line:
+    # The edge probe (root ADR-0327): FIXTURE_PROBE_FAILS hostnames answer a cache hit with 500.
+    host = args[args.index("--base-url") + 1].removeprefix("https://")
+    with open(root / "probe.log", "a") as out:
+        out.write(line + "\n")
+    with open(root / "smoke.log", "a") as out:
+        out.write(f"probe {host}\n")
+    sys.exit(1 if host in os.environ.get("FIXTURE_PROBE_FAILS", "").split() else 0)
 with open(root / "monitor.log", "a") as out:
     out.write(line + "\n")
 env = dict(args[i + 1].split("=", 1) for i, arg in enumerate(args) if arg == "-E")
 host = next(v for k, v in env.items() if k.endswith("_MONITOR_BASE_URL")).removeprefix("https://")
+with open(root / "smoke.log", "a") as out:
+    out.write(f"monitor {host}\n")
 if host in os.environ.get("FIXTURE_MONITOR_CRASH", "").split():
     sys.exit(1)
 counts = root / "monitor-reads.json"
@@ -358,6 +370,32 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         # A breach rolls the lane back like any other.
         self.change("unit-price-gateway")
         self.assertEqual(self.tick(FIXTURE_MONITOR_FAILS="unit-price"), 1)
+
+    def test_each_by_pnu_hostname_is_probed_with_get_before_its_monitor(self):
+        # Root ADR-0327: 2026-10-29 every cached photo answered 500 while a HEAD check passed.
+        self.assertEqual(self.tick(), 0)
+        parcel = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        smoke = (self.root / "smoke.log").read_text().splitlines()
+        for host in ("catalog-preview.perfectory.io", parcel):
+            self.assertLess(smoke.index(f"probe {host}"), smoke.index(f"monitor {host}"))
+        probes = (self.root / "probe.log").read_text().splitlines()
+        line = next(line for line in probes if f"--base-url https://{parcel} " in line)
+        self.assertTrue(line.endswith(" parcel"), line)
+        self.assertIn("User=foundation-platform", line)
+        self.assertNotIn("recovery.env", line, "the probe needs no secret")
+
+    def test_a_probe_that_fails_rolls_the_preview_back_and_never_reaches_production(self):
+        preview, production = self.names["parcel-gateway"]
+        self.assertEqual(self.tick(FIXTURE_PROBE_FAILS="catalog-preview.perfectory.io"), 1)
+        self.assertNotIn(production, self.acted_on("versions upload"))
+        self.assertTrue(self.cloud()[preview]["serving"].startswith("00000000-"), "the preview was not rolled back")
+        failed = json.loads((self.host.state / "failed/parcel-gateway.json").read_text())
+        self.assertIn("the edge probe of catalog-preview.perfectory.io failed", failed["error"])
+
+    def test_a_production_probe_that_fails_rolls_production_back(self):
+        parcel = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        self.assertEqual(self.tick(FIXTURE_PROBE_FAILS=parcel), 1)
+        self.assertTrue(self.cloud()["foundation-parcel-gateway"]["serving"].startswith("00000000-"), "not rolled back")
 
     def without(self, worker_id):
         cloud = self.cloud()

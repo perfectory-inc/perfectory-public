@@ -1,11 +1,9 @@
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
-import { build } from "esbuild";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { startMiniflare } from "./miniflare";
+import { startGateway } from "./miniflare";
 
 // The parcel lane reads section packs with the same code as the building lane (root ADR-0160);
 // these hold it to the parcel contract block: its pack root, its bindings, its manifest unit. The
@@ -19,7 +17,6 @@ const PACKS = GATEWAY.section_packs;
 const PACK_POLICY = connectionContract.by_pnu_section_packs;
 const R2_BINDING = GATEWAY.r2_binding;
 const fixtures = new URL("fixtures/section-packs/", import.meta.url);
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const packKey = (root: string) => `${root}/documents/g1/${UNIT}${PACK_POLICY.suffix}`;
 const url = (query = "") => `https://catalog.example.test${GATEWAY.request_path.prefix}${PNU_A}${query}`;
@@ -68,24 +65,7 @@ describe("foundation parcel gateway section packs (root ADR-0147, ADR-0160)", ()
   let documents: { base: Record<string, string> };
 
   async function start(bindings: Record<string, string> = {}, packRoot = PACKS.root): Promise<Miniflare> {
-    const bundle = await build({
-      entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("parcel") },
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      write: false,
-      absWorkingDir: packageRoot,
-    });
-    const output = bundle.outputFiles[0];
-    if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = await startMiniflare({
-      compatibilityDate: GATEWAY.compatibility_date,
-      modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-      r2Buckets: [R2_BINDING],
-      bindings: { [GATEWAY.allowed_origins_binding]: "https://app.example.test", ...bindings },
-      cache: true,
-    });
+    const started = await startGateway("parcel", { bindings });
     const bucket = await started.getR2Bucket(R2_BINDING);
     await bucket.put(packKey(packRoot), new Uint8Array(await readFile(new URL("g1-documents.pack", fixtures))));
     return started;

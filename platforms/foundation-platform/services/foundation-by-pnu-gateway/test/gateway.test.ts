@@ -1,12 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
-import { build } from "esbuild";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { MANIFEST_SCHEMA_VERSIONS, parseAllowedOrigins, parseManifest } from "../src/index";
-import { startMiniflare } from "./miniflare";
+import { startGateway } from "./miniflare";
 
 // The HTTP surface every lane's Worker shares, held for the building and the parcel lane on the
 // pack path, the only one they have (root ADR-0274). The packs are the publisher's golden packs
@@ -20,7 +18,6 @@ const SECOND_ALLOWED_ORIGIN = "https://admin.example.test";
 const PACK_POLICY = connectionContract.by_pnu_section_packs;
 const GATEWAY_PATCHES = connectionContract.by_pnu_serving_patches;
 const fixtures = new URL("fixtures/section-packs/", import.meta.url);
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const LANES = [
   {
@@ -90,25 +87,8 @@ describe.each(LANES)("foundation $lane gateway", ({ lane, gateway: GATEWAY, docu
       base: Record<string, string>;
     };
     body = documents.base[PNU] ?? "";
-    const bundle = await build({
-      entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify(lane) },
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      write: false,
-      absWorkingDir: packageRoot,
-    });
-    const output = bundle.outputFiles[0];
-    if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    runtime = await startMiniflare({
-      compatibilityDate: "2026-04-26",
-      modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-      r2Buckets: [R2_BINDING],
-      bindings: {
-        FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: `${ALLOWED_ORIGIN}, ${SECOND_ALLOWED_ORIGIN}`,
-      },
-      cache: true,
+    runtime = await startGateway(lane, {
+      bindings: { [GATEWAY.allowed_origins_binding]: `${ALLOWED_ORIGIN}, ${SECOND_ALLOWED_ORIGIN}` },
     });
     const bucket = await runtime.getR2Bucket(R2_BINDING);
     await bucket.put(MANIFEST_KEY, manifest());
