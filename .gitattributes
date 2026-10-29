@@ -11,5 +11,3 @@
 *.tar.gz binary
 *.woff binary
 *.woff2 binary
-*.parquet binary
-*.avro binary

@@ -39,7 +39,7 @@ def main() -> None:
     from pyspark.sql import SparkSession
 
     shutil.rmtree(WAREHOUSE, ignore_errors=True)
-    spark = (SparkSession.builder.master("local[1]")
+    spark = (SparkSession.builder.master("local[1,8]")
              .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
              .config("spark.sql.catalog.fixture", "org.apache.iceberg.spark.SparkCatalog")
              .config("spark.sql.catalog.fixture.type", "hadoop")
