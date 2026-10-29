@@ -40,7 +40,7 @@ PLATFORM = ROOT / "platforms" / "foundation-platform"
 SCHEMA = "foundation-platform.release_manifest.v1"
 # Compose files whose `build:` entries are images the runtime starts; an image two files build from
 # one Dockerfile (the publisher) is built once.
-COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml")
+COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml")
 FILE_MODES = {"foundation-outbox-publisher": "0555"}
 JAR_MODE = "0444"
 

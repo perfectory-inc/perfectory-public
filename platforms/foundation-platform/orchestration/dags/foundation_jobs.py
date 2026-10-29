@@ -30,6 +30,7 @@ from openlineage.client.event_v2 import Dataset
 
 from job_specs import (
     DEFAULT_POOL,
+    PUBLISH_TASK_ID,
     RETRY_DELAY_MINUTES,
     RUN_TASK_ID,
     WITHHOLDS_EVENTS,
@@ -203,7 +204,7 @@ for spec in load_specs():
         )
         if spec.outputs:
             publish = PublishOutputs(
-                task_id="publish_outputs",
+                task_id=PUBLISH_TASK_ID,
                 outlets=[asset(dataset) for dataset in spec.outputs],
                 retries=0,
             )

@@ -221,6 +221,32 @@ for crate, requirement in pins.items():
 PY
 )
 
+# Python packages a container image pins (python_requirement_pins, root ADR-0333 stage 0): every
+# `name==version` (extras allowed) in a tracked requirements*.in must equal the contract, so the
+# Dagster/airlift versions are stated once and the image's lock is compiled from them.
+while IFS=$'\t' read -r package version; do
+  [ -n "$package" ] || continue
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    value=$(printf '%s\n' "${line#*:*:}" | sed -n -E 's/^[^=<>!~]*==[[:space:]]*([^[:space:];#]+).*/\1/p')
+    if [ "$value" != "$version" ]; then
+      echo "FAIL technology-version: $package must be pinned ==$version (tools/technology-versions.contract.json):" >&2
+      echo "  $line" >&2
+      fail=1
+    fi
+  done < <(git grep -n -i -E "^[[:space:]]*${package}([[:space:]]*\[[^]]*\])?[[:space:]]*(==|>=|<=|~=|!=|$)" -- ':(glob)**/requirements*.in' | tr -d '\r' || true)
+done < <(python3 - "$version_pins_contract" <<'PY' | tr -d '\r'
+import json
+import sys
+
+pins = json.load(open(sys.argv[1], encoding="utf-8")).get("python_requirement_pins", {})
+for package, version in pins.items():
+    if not isinstance(version, str) or version.strip() == "":
+        raise SystemExit(f"python_requirement_pins.{package} must be a non-empty string")
+    print(f"{package}\t{version}")
+PY
+)
+
 if [ "$fail" -eq 0 ]; then
   echo 'OK technology-version-consistency'
 fi

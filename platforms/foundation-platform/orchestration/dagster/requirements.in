@@ -1,0 +1,14 @@
+# The Dagster code location's direct dependencies (root ADR-0333 stage 0). requirements.txt is the
+# lock with hashes, compiled from this file only:
+#   uv pip compile requirements.in --generate-hashes --python-version 3.14 --python-platform x86_64-manylinux_2_28 -o requirements.txt
+# Dagster's packages move in lockstep: dagster X.Y.Z with its integrations at 0.(Y+16).Z.
+dagster==1.13.27
+dagster-webserver==1.13.27
+dagster-postgres==0.29.27
+dagster-airlift[core]==0.29.27
+# The unit-price checks read the lakehouse through Trino's own client.
+trino==0.340.0
+# SQLAlchemy 2.1 made psycopg (3) the driver of a bare postgresql:// URL, which dagster-postgres
+# builds while installing psycopg2: on 2.1 the instance did not start (ModuleNotFoundError psycopg,
+# 2026-10-29). Lift this when dagster-postgres names its driver.
+sqlalchemy<2.1

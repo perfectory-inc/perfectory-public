@@ -1,0 +1,47 @@
+# The Dagster instance of root ADR-0333 stage 0: its own database and role on the platform's Postgres
+# (airflow-runtime.sh makes both), nothing else written outside /var/lib/dagster.
+storage:
+  postgres:
+    postgres_db:
+      hostname:
+        env: DAGSTER_PG_HOST
+      port:
+        env: DAGSTER_PG_PORT
+      db_name: dagster
+      username: dagster
+      password:
+        env: DAGSTER_PG_PASSWORD
+
+# Only asset-check runs exist in this stage (airlift's sensor asks for them); one at a time, so a
+# check run's process never doubles the daemon's memory.
+run_coordinator:
+  module: dagster._core.run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    max_concurrent_runs: 1
+
+run_monitoring:
+  enabled: true
+
+local_artifact_storage:
+  module: dagster._core.storage.root
+  class: LocalArtifactStorage
+  config:
+    base_dir: /var/lib/dagster/artifacts
+
+compute_logs:
+  module: dagster._core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /var/lib/dagster/compute-logs
+
+# The sensor ticks every 30 s; a tick that saw nothing is not worth keeping past a week.
+retention:
+  sensor:
+    purge_after_days:
+      skipped: 7
+      failure: 90
+      success: -1
+
+telemetry:
+  enabled: false
