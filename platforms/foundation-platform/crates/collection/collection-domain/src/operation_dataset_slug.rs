@@ -104,6 +104,9 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
         "getPbancList2" => Some("onbid_announcement"),
         "getPbancBidRsltList2" => Some("onbid_announcement_bid_result"),
         "getCltrBidRsltDtl2" => Some("onbid_item_bid_result"),
+        // 물건상세 입찰정보 (15157251) and 공고상세 (15157218), root ADR-0340 §3.
+        "getCltrBidInf2" => Some("onbid_item_bid_info"),
+        "getPbancDtlInf2" => Some("onbid_announcement_detail"),
         _ => None,
     }
 }

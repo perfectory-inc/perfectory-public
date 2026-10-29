@@ -189,6 +189,110 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: false
+      - name: "pbctsn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "prpt_div_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "dsps_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "bid_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cptn_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "totalamt_unpc_div_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "pbct_stat_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "bid_div_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "dtbt_rqr_edtm_cont"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "rent_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "rent_perd_cont"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "thnl_img_url_adr"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "crtn_yn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_lcls_ctgr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_mcls_ctgr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_scls_ctgr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "batc_bid_yn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "apsl_prc_ctrs_lowst_bid_rto"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
+      - name: "frst_ctrs_lowst_bid_prc_rto"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
+      - name: "rqst_org_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "eltr_grpr_use_yn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "collb_bid_psbl_yn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "twtm_gthr_bid_psbl_yn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "subt_bid_psbl_yn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "evc_rsby_trgt_cont"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "fee_rate"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
     quality:
       - type: "text"
         description: "append_only"

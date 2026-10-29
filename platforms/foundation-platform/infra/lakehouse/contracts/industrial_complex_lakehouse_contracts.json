@@ -4637,6 +4637,136 @@
           "name": "row_state",
           "logical_type": "string",
           "required": false
+        },
+        {
+          "name": "pbctsn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cptn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "totalamt_unpc_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbct_stat_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dtbt_rqr_edtm_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rent_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rent_perd_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "thnl_img_url_adr",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "crtn_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_lcls_ctgr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_mcls_ctgr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_scls_ctgr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "batc_bid_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "apsl_prc_ctrs_lowst_bid_rto",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "frst_ctrs_lowst_bid_prc_rto",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "rqst_org_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "eltr_grpr_use_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "collb_bid_psbl_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "twtm_gthr_bid_psbl_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "subt_bid_psbl_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "evc_rsby_trgt_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "fee_rate",
+          "logical_type": "double",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -4795,6 +4925,166 @@
           "name": "ingested_at_utc",
           "logical_type": "timestamp",
           "required": true
+        },
+        {
+          "name": "pbct_stat_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_lcls_ctgr_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_mcls_ctgr_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_scls_ctgr_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_lcls_ctgr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_mcls_ctgr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_usg_scls_ctgr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "onbid_cltr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbctsn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "org_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "onbid_pbanc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cptn_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cptn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "totalamt_unpc_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "totalamt_unpc_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "opbd_bgng_dt",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "opbd_cmptn_dt",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "apsl_prc_ctrs_scfb_prc_rto",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "lowst_bid_ctrs_scfb_prc_rto",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "pbct_tdps_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "afsb_rtrcn_rsn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rtrcn_rsn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "apsl_prc_ctrs_lowst_bid_rto",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "frst_ctrs_lowst_bid_prc_rto",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "fee_rate",
+          "logical_type": "double",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -5997,6 +6287,977 @@
       ],
       "load": {
         "unit": "derived"
+      }
+    },
+    "silver.onbid_announcement": {
+      "table_name": "silver.onbid_announcement",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "onbid_pbanc_no",
+          "pbct_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "onbid_pbanc_no",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "pbct_no",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "pbanc_mng_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_kind_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "onbid_pbanc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "org_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rspb_sbr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_ymd",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "pbct_nsq",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbctsn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_bid_bgng_dt",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "cltr_bid_end_dt",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "cltr_opbd_dt",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "bid_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "onbid_pbanc_no",
+        "pbct_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(onbid_pbanc_no, pbct_no, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.onbid_announcement_bid_result": {
+      "table_name": "silver.onbid_announcement_bid_result",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "onbid_pbanc_no",
+          "pbct_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "onbid_pbanc_no",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "pbct_no",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "pbanc_mng_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbct_nsq",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbctsn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_kind_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "onbid_pbanc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "org_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rspb_sbr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_ymd",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "cltr_opbd_dt",
+          "logical_type": "timestamp",
+          "required": false
+        },
+        {
+          "name": "exct_stat_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "exct_stat_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "onbid_pbanc_no",
+        "pbct_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(onbid_pbanc_no, pbct_no, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.onbid_real_estate_item_detail": {
+      "table_name": "silver.onbid_real_estate_item_detail",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "cltr_mng_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "cltr_mng_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pbct_cdtn_no",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "sqms_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "apsl_evl_clg_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "leas_inf_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rgst_prmr_inf_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dtbt_rqr_mtrs_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ocpy_rel_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "paps_inf_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zadr_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_radr",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "loc_vnty_pscd_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "icdl_cdtn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "utlz_pscd_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cltr_etc_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dspl_vld_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purr_qlfc_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pytn_mtrs_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "frst_pbanc_ymd",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "batc_bid_cltr_clg_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "crtn_lst_clg_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "cltr_mng_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(cltr_mng_no, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.onbid_item_bid_info": {
+      "table_name": "silver.onbid_item_bid_info",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "cltr_mng_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "cltr_mng_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pbct_cdtn_no",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "pbanc_mng_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "onbid_pbanc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tdps_sbtn_dcmt_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "nrnk_aply_psbl_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbct_tdps_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pcmt_pay_mtd_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pcmt_pay_term_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_ptct_aply_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_vld_crtr_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "smns_ip_dpcn_bid_blckt_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tdps_sbtn_dcmt_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tdps_sbtn_dcmt_sbmsn_term_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tdps_sbtn_dcmt_sbmsn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_ptct_aply_dcmt_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_ptct_aply_term_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_ptct_dcmt_sbmsn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_rltn_dcmt_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_rltn_dcmt_sbmsn_term_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_rltn_dcmt_sbmsn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "collb_mthod_dcmt_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "collb_dcmt_sbmsn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "collb_dcmt_sbmsn_term_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "subt_bid_dcmt_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "subt_bid_dcmt_sbmsn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "subt_bid_dcmt_sbmsn_term_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "qlfc_lmt_cdtn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rgn_lmt_cdtn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_lmt_cdtn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "evl_ptdb_clg_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "evl_perd_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pytn_mtrs_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_prc_asmc_calcw_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "min_esure_amt",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "min_esure_rate",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "crtr_amt",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "crtr_rate",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "rsv_prc_rng_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rsv_prc_chc_num",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "rsv_prc_etmt_num",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "tplm_crrt",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "rsnb_hghprc_cfct",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "crtr_amt_bid_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "opsn_cltr_bid_psbl_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_psbl_cltr_qnty",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "ptct_cmsn",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "prpsl_evl_item_clg_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prcn_nsq_bid_rslt_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prcn_nsq_lowst_bid_prc",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "prcn_bid_clg_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cseq_bid_inf_clg_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "cltr_mng_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(cltr_mng_no, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.onbid_announcement_detail": {
+      "table_name": "silver.onbid_announcement_detail",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "pbanc_mng_no",
+          "pbct_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "pbanc_mng_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pbct_no",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "onbid_pbanc_no",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "pbanc_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_kind_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "prpt_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dsps_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "onbid_pbanc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_org_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_ymd",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "bid_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cptn_mthod_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cptn_mthod_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "totalamt_unpc_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "totalamt_unpc_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_div_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_div_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_amt_rls_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_nsq_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pbanc_rtrcn_rsn_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rltn_pbanc_mng_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rltn_pbanc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ptct_cmsn",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "pbanc_ptct_qlfc_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "anncm_al_cont",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "atch_file_list_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pbanc_mng_no",
+        "pbct_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(pbanc_mng_no, pbct_no, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
       }
     }
   },

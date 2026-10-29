@@ -24,16 +24,18 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest as _, Sha256};
 
-use crate::data_go_kr_onbid_collect::{LineOutcome, MediaRef};
+use crate::data_go_kr_onbid_collect::{LineOutcome, MediaFields, MediaRef};
 
 /// Media objects never change once stored (the key is their content hash), so they cache forever.
 const MEDIA_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 const PHOTO_FIELD: &str = "potoUrlList";
+#[cfg(test)]
 const APPRAISAL_FIELD: &str = "apslEvlClgList";
 
 /// The media kinds in the order a run downloads them: every line's photos (what the screen shows,
 /// ~7% of the bytes) before any line's appraisals (root ADR-0339 footnote 2026-10-29).
+#[cfg(test)]
 const FIELDS_IN_ORDER: [&str; 2] = [PHOTO_FIELD, APPRAISAL_FIELD];
 
 /// The URLs of one media `field` (`potoUrlList` or `apslEvlClgList`) of one 물건상세 response, on
@@ -63,11 +65,44 @@ fn detail_items(detail: &JsonValue) -> Vec<&JsonValue> {
 fn field_urls(detail: &JsonValue, field: &str, host: &str) -> Vec<String> {
     detail_items(detail)
         .into_iter()
-        .filter_map(|entry| entry[field].as_array())
-        .flatten()
-        .filter_map(|element| element["urlAdr"].as_str())
+        .flat_map(|entry| urls_of(&entry[field]))
         .filter(|url| host_is(url, host))
-        .map(str::to_owned)
+        .collect()
+}
+
+/// The URLs a media field holds, in order: a `[{urlAdr}]` list (photos, appraisals, attachments), or
+/// a `|`-joined string or a list of strings (location and cadastral maps, 360-degree photos, video;
+/// root ADR-0340 §4).
+fn urls_of(value: &JsonValue) -> Vec<String> {
+    match value {
+        JsonValue::String(text) => text
+            .split('|')
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(str::to_owned)
+            .collect(),
+        JsonValue::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().or_else(|| item["urlAdr"].as_str()))
+            .map(|url| url.trim().to_owned())
+            .filter(|url| !url.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Every media field of `fields` in the order a run downloads them: photos first (what the screen
+/// shows), then the other lists and the maps (root ADR-0339 footnote, ADR-0340 §4).
+fn fields_in_order(fields: &MediaFields) -> Vec<&str> {
+    std::iter::once(PHOTO_FIELD)
+        .chain(
+            fields
+                .list
+                .keys()
+                .map(String::as_str)
+                .filter(|field| *field != PHOTO_FIELD),
+        )
+        .chain(fields.pipe.keys().map(String::as_str))
         .collect()
 }
 
@@ -177,6 +212,8 @@ pub(crate) struct MirrorSettings<'a> {
     pub(crate) concurrency: usize,
     /// No line's downloads start after this instant.
     pub(crate) deadline: Instant,
+    /// Which response fields are media (root ADR-0340 §4).
+    pub(crate) fields: &'a MediaFields,
 }
 
 /// What one run's media step came to.
@@ -259,14 +296,19 @@ pub(crate) async fn mirror_detail_lines(
         .collect::<Vec<_>>();
     // Per line: every URL of the kinds passed so far landed or was skipped for good.
     let mut landed = vec![true; detail_lines.len()];
-    for field in FIELDS_IN_ORDER {
+    for field in fields_in_order(settings.fields) {
         for (index, response) in responses.iter().enumerate() {
             let Some(response) = response else {
                 continue;
             };
             let cltr = detail_items(response)
                 .first()
-                .and_then(|item| item["cltrMngNo"].as_str())
+                // An announcement line (공고상세) has no item; its media are memoized under its number.
+                .and_then(|item| {
+                    item["cltrMngNo"]
+                        .as_str()
+                        .or_else(|| item["pbancMngNo"].as_str())
+                })
                 .unwrap_or_default()
                 .trim()
                 .to_owned();
@@ -360,7 +402,7 @@ pub(crate) async fn mirror_detail_lines(
     Mirrored {
         report,
         downloads_today: already_downloaded.saturating_add(attempts),
-        lines: rewrite_detail_lines(detail_lines, &resolved),
+        lines: rewrite_detail_lines(detail_lines, &resolved, settings.fields),
         outcomes,
     }
 }
@@ -380,15 +422,20 @@ fn line_response(line: &str) -> Option<JsonValue> {
 fn rewrite_detail_lines(
     detail_lines: &[String],
     resolved: &HashMap<String, StoredMedia>,
+    fields: &MediaFields,
 ) -> Vec<String> {
     detail_lines
         .iter()
-        .map(|line| rewrite_one_line(line, resolved).unwrap_or_else(|| line.clone()))
+        .map(|line| rewrite_one_line(line, resolved, fields).unwrap_or_else(|| line.clone()))
         .collect()
 }
 
 /// Returns the rewritten line, or `None` when nothing changed (so the caller keeps the original).
-fn rewrite_one_line(line: &str, resolved: &HashMap<String, StoredMedia>) -> Option<String> {
+fn rewrite_one_line(
+    line: &str,
+    resolved: &HashMap<String, StoredMedia>,
+    fields: &MediaFields,
+) -> Option<String> {
     let mut record = serde_json::from_str::<JsonValue>(line).ok()?;
     let body = record.get("body")?.as_str()?;
     let mut response = serde_json::from_str::<JsonValue>(body).ok()?;
@@ -400,10 +447,10 @@ fn rewrite_one_line(line: &str, resolved: &HashMap<String, StoredMedia>) -> Opti
     match item {
         JsonValue::Array(array) => {
             for entry in array.iter_mut() {
-                changed |= rewrite_item(entry, resolved);
+                changed |= rewrite_item(entry, resolved, fields);
             }
         }
-        JsonValue::Object(_) => changed |= rewrite_item(item, resolved),
+        JsonValue::Object(_) => changed |= rewrite_item(item, resolved, fields),
         _ => {}
     }
     if !changed {
@@ -417,10 +464,40 @@ fn rewrite_one_line(line: &str, resolved: &HashMap<String, StoredMedia>) -> Opti
 }
 
 /// Points each resolved media entry of one item at its stored blob; returns whether anything changed.
-fn rewrite_item(item: &mut JsonValue, resolved: &HashMap<String, StoredMedia>) -> bool {
+///
+/// A `|`-joined field keeps its text; beside it, `<field>Media` lists each resolved URL's blob in the
+/// field's order (`sequence` = its position), which the Silver media loader reads (root ADR-0340 §4).
+fn rewrite_item(
+    item: &mut JsonValue,
+    resolved: &HashMap<String, StoredMedia>,
+    fields: &MediaFields,
+) -> bool {
     let mut changed = false;
-    for field in ["potoUrlList", "apslEvlClgList"] {
-        let Some(list) = item.get_mut(field).and_then(JsonValue::as_array_mut) else {
+    for field in fields.pipe.keys() {
+        let stored = urls_of(&item[field.as_str()])
+            .iter()
+            .enumerate()
+            .filter_map(|(sequence, url)| {
+                resolved.get(url).map(|media| {
+                    serde_json::json!({
+                        "sequence": sequence,
+                        "sha256": media.sha256,
+                        "media_format": media.media_format,
+                        "size_bytes": media.size_bytes,
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        if let (false, Some(object)) = (stored.is_empty(), item.as_object_mut()) {
+            object.insert(format!("{field}Media"), JsonValue::Array(stored));
+            changed = true;
+        }
+    }
+    for field in fields.list.keys() {
+        let Some(list) = item
+            .get_mut(field.as_str())
+            .and_then(JsonValue::as_array_mut)
+        else {
             continue;
         };
         for entry in list.iter_mut() {
@@ -560,6 +637,67 @@ mod tests {
         json!({"body": {"items": {"item": item}}})
     }
 
+    /// The contract's media fields (root ADR-0340 §4).
+    fn fields() -> crate::data_go_kr_onbid_collect::MediaFields {
+        crate::data_go_kr_onbid_collect::source_contract()
+            .map(|contract| contract.media.fields)
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn the_maps_and_360_photos_are_media_too_and_land_beside_their_field() {
+        use super::{fields_in_order, rewrite_detail_lines, StoredMedia};
+        use std::collections::HashMap;
+
+        let item = json!({
+            "cltrMngNo": "A-1", "pbctCdtnNo": 1,
+            "lmapUrlAdrList": "https://www.onbid.co.kr/op/map.jpg|https://www.onbid.co.kr/op/map2.jpg",
+            "lrmUrlAdrList": ["https://www.onbid.co.kr/op/lrm.jpg"],
+            "poto360DgrUrlList": "",
+            "vdoUrlAdrList": "https://evil.example.test/v.mp4"
+        });
+        let media_fields = fields();
+        let order = fields_in_order(&media_fields);
+        assert_eq!(order.first(), Some(&"potoUrlList"), "photos first");
+        let urls = order
+            .iter()
+            .flat_map(|field| candidate_urls(&detail(item.clone()), field, "www.onbid.co.kr"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            urls,
+            vec![
+                "https://www.onbid.co.kr/op/map.jpg".to_owned(),
+                "https://www.onbid.co.kr/op/map2.jpg".to_owned(),
+                "https://www.onbid.co.kr/op/lrm.jpg".to_owned(),
+            ]
+        );
+        let hash = "c".repeat(64);
+        let resolved = HashMap::from([(
+            "https://www.onbid.co.kr/op/map2.jpg".to_owned(),
+            StoredMedia {
+                sha256: hash.clone(),
+                media_format: "jpg".to_owned(),
+                size_bytes: 5,
+            },
+        )]);
+        let line = json!({"body": detail(item).to_string()}).to_string();
+        let out = rewrite_detail_lines(&[line], &resolved, &fields());
+        let record: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
+        let response: serde_json::Value =
+            serde_json::from_str(record["body"].as_str().unwrap()).unwrap();
+        let rewritten = &response["body"]["items"]["item"];
+        // The text stays as received; the stored one is listed beside it at its position.
+        assert!(rewritten["lmapUrlAdrList"]
+            .as_str()
+            .unwrap()
+            .contains("map.jpg"));
+        assert_eq!(
+            rewritten["lmapUrlAdrListMedia"],
+            json!([{"sequence": 1, "sha256": hash, "media_format": "jpg", "size_bytes": 5}])
+        );
+        assert!(rewritten.get("lrmUrlAdrListMedia").is_none());
+    }
+
     #[test]
     fn picks_photo_and_appraisal_urls_on_the_allowed_host_only() {
         let d = detail(json!({
@@ -655,7 +793,7 @@ mod tests {
             },
         );
 
-        let out = rewrite_detail_lines(&[line], &resolved);
+        let out = rewrite_detail_lines(&[line], &resolved, &fields());
         let record: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
         let response: serde_json::Value =
             serde_json::from_str(record["body"].as_str().unwrap()).unwrap();
@@ -731,6 +869,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("onbid-media-{}", uuid::Uuid::new_v4()));
         let storage = foundation_outbox::FileObjectStorage::new(root)?;
         let http = reqwest::Client::new();
+        let media_fields = fields();
         let settings = |per_run_limit| MirrorSettings {
             object_prefix: "onbid/media",
             url_host: &host,
@@ -739,6 +878,7 @@ mod tests {
             per_run_limit,
             concurrency: 2,
             deadline: Instant::now() + Duration::from_secs(60),
+            fields: &media_fields,
         };
         let mut memo = BTreeMap::new();
         // A URL stored by an earlier run, for an item still open.
@@ -845,6 +985,7 @@ mod tests {
         let storage = foundation_outbox::FileObjectStorage::new(root)?;
         // Room for 9 downloads: one shared budget would have spent it on A, B and C whole and left D
         // without a photo; photos first spends 8 on every item's photos and 1 on A's appraisal.
+        let media_fields = fields();
         let settings = MirrorSettings {
             object_prefix: "onbid/media",
             url_host: &host,
@@ -853,6 +994,7 @@ mod tests {
             per_run_limit: 9,
             concurrency: 2,
             deadline: Instant::now() + Duration::from_secs(60),
+            fields: &media_fields,
         };
         let mirrored = mirror_detail_lines(
             &lines,

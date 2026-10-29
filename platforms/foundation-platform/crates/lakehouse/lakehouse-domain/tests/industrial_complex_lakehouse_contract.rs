@@ -13,7 +13,9 @@ use lakehouse_domain::{
     SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC,
     SILVER_LAND_FOREST_LEDGER, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_RIGHT_REGISTRATION,
     SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
-    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
+    SILVER_ONBID_ANNOUNCEMENT, SILVER_ONBID_ANNOUNCEMENT_BID_RESULT,
+    SILVER_ONBID_ANNOUNCEMENT_DETAIL, SILVER_ONBID_ITEM_BID_INFO, SILVER_ONBID_ITEM_BID_RESULT,
+    SILVER_ONBID_REAL_ESTATE_ITEM, SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL,
     SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
     SILVER_UNIT_OFFICIAL_PRICE_VERSIONS,
 };
@@ -329,7 +331,15 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 .is_some_and(|latest| latest.removal_column.is_none()));
         } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
+            || contract.table_name == SILVER_ONBID_ANNOUNCEMENT.table_name
+            || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_BID_RESULT.table_name
+            || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
+            || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL.table_name
+            || contract.table_name == SILVER_ONBID_ITEM_BID_INFO.table_name
         {
+            // Root ADR-0340: an Onbid announcement, detail or bid-info row is appended when its
+            // content changed; the newest is current, and none vanishes (the provider's windowed
+            // lists say nothing about an announcement or item they no longer list).
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
             assert_eq!(contract.current_row_predicate, None);

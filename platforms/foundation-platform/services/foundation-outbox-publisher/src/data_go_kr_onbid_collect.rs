@@ -74,16 +74,22 @@ pub(crate) enum Api {
     ItemBidResult,
     /// 물건상세 (getRlstDtlInf2): the open item conditions' full detail, incl. photo/attachment URLs.
     ItemDetail,
+    /// 물건상세 입찰정보 (getCltrBidInf2, root ADR-0340 §3): once per open item.
+    ItemBidInfo,
+    /// 공고상세 (getPbancDtlInf2, root ADR-0340 §3): once per listed announcement.
+    AnnouncementDetail,
 }
 
 impl Api {
     #[cfg(test)]
-    pub(crate) const ALL: [Self; 5] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::AnnouncementList,
         Self::AnnouncementBidResultList,
         Self::ItemList,
         Self::ItemBidResult,
         Self::ItemDetail,
+        Self::ItemBidInfo,
+        Self::AnnouncementDetail,
     ];
 
     pub(crate) const fn name(self) -> &'static str {
@@ -93,6 +99,8 @@ impl Api {
             Self::ItemList => "item_list",
             Self::ItemBidResult => "item_bid_result",
             Self::ItemDetail => "item_detail",
+            Self::ItemBidInfo => "item_bid_info",
+            Self::AnnouncementDetail => "announcement_detail",
         }
     }
 }
@@ -161,6 +169,17 @@ pub(crate) struct Media {
     /// No new condition's media is started once this many seconds of the media step have passed,
     /// so the step's wall time is bounded whatever the counts (root ADR-0330 §3).
     pub(crate) run_time_budget_seconds: u64,
+    /// Which response fields are media, and the `media_kind` each lands as (root ADR-0340 §4).
+    pub(crate) fields: MediaFields,
+}
+
+/// The media fields of the 물건상세 and 공고상세 responses, by shape (root ADR-0340 §4).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(crate) struct MediaFields {
+    /// `[{urlAdr}]` arrays: field → media_kind.
+    pub(crate) list: BTreeMap<String, String>,
+    /// `|`-joined URL strings: field → media_kind.
+    pub(crate) pipe: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -178,6 +197,8 @@ pub(crate) struct SourceContract {
     pub(crate) announcement_bid_result_list: Endpoint,
     pub(crate) item_bid_result: Endpoint,
     pub(crate) item_detail: Endpoint,
+    pub(crate) item_bid_info: Endpoint,
+    pub(crate) announcement_detail: Endpoint,
     pub(crate) media: Media,
 }
 
@@ -189,6 +210,8 @@ impl SourceContract {
             Api::ItemList => &self.item_list,
             Api::ItemBidResult => &self.item_bid_result,
             Api::ItemDetail => &self.item_detail,
+            Api::ItemBidInfo => &self.item_bid_info,
+            Api::AnnouncementDetail => &self.announcement_detail,
         }
     }
 
@@ -274,6 +297,15 @@ pub(crate) struct State {
     /// footnote 2026-10-29). Pruned like `items`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) photos_landed: BTreeMap<String, ItemMark>,
+    /// Open items whose 물건상세 입찰정보 was received (root ADR-0340 §3): the same unit and the same
+    /// "changed" rule as `items`, without media. Pruned each run to the still-listed items.
+    #[serde(default)]
+    pub(crate) bid_infos: BTreeMap<String, ItemMark>,
+    /// Announcements (`pbancMngNo`) whose 공고상세 was received and whose attachments all landed, with
+    /// the digest of the announcement-list row they were fetched at (root ADR-0340 §3). Pruned to the
+    /// announcements a complete announcement list still holds.
+    #[serde(default)]
+    pub(crate) announcements: BTreeMap<String, String>,
     /// Media URL → its stored blob, for the open items only: a URL already stored is not
     /// downloaded again (root ADR-0330 §3).
     #[serde(default)]
@@ -306,6 +338,10 @@ pub(crate) struct ItemMark {
     pub(crate) seen: BTreeSet<String>,
     /// Photos stored for it.
     pub(crate) photos: u32,
+    /// The media fields its detail was mirrored under (`coverage::MEDIA_FIELDS`); an item completed
+    /// under fewer is fetched once more, without re-downloading what is stored (root ADR-0340 §4).
+    #[serde(default)]
+    pub(crate) media_fields: u32,
 }
 
 /// A stored media file, as the detail Bronze line is rewritten to point at it.
@@ -713,10 +749,22 @@ pub(crate) struct RunReport {
     pub(crate) details_refreshed: usize,
     /// Of the details received, those whose media all landed (marked complete after the media step).
     pub(crate) details_completed: usize,
+    /// 물건상세 입찰정보 answers received, errored (isolated) and still owed (root ADR-0340 §3).
+    pub(crate) bid_infos_received: usize,
+    pub(crate) bid_infos_errored: usize,
+    pub(crate) bid_infos_owed: usize,
+    /// 공고상세 answers received, errored (isolated), still owed, and complete (attachments landed).
+    pub(crate) announcements_received: usize,
+    pub(crate) announcements_errored: usize,
+    pub(crate) announcements_owed: usize,
+    pub(crate) announcements_completed: usize,
     pub(crate) stopped_by_budget: Vec<String>,
     /// The details received, for the media step to settle; not part of the manifest.
     #[serde(skip)]
     pub(crate) fetched: Vec<Fetched>,
+    /// The announcement details received: (pbancMngNo, row digest, line), for the media step.
+    #[serde(skip)]
+    pub(crate) announcements_fetched: Vec<(String, String, usize)>,
 }
 
 /// Runs every due request. Mutates the state only in memory; the caller saves it.
@@ -729,6 +777,9 @@ pub(crate) async fn collect(
     state.roll_budget(now);
     let mut report = RunReport::default();
     let codes = contract.property_codes();
+    // The announcements this run's announcement list held (pbancMngNo → row digest), for the
+    // 공고상세 step; `None` when the list stopped before its end (root ADR-0340 §3).
+    let mut announcements: Option<BTreeMap<String, String>> = Some(BTreeMap::new());
 
     for api in [Api::AnnouncementList, Api::AnnouncementBidResultList] {
         let endpoint = contract.endpoint(api);
@@ -747,9 +798,25 @@ pub(crate) async fn collect(
                 ("opbdDtStart", window.0.clone()),
                 ("opbdDtEnd", window.1.clone()),
             ];
-            if fetcher.all_pages(state, api, &params, now).await?.is_none() {
-                report.stopped_by_budget.push(api.name().to_owned());
-                break;
+            match fetcher.all_pages(state, api, &params, now).await? {
+                Some(items) => {
+                    if let (Api::AnnouncementList, Some(held)) = (api, announcements.as_mut()) {
+                        for item in &items {
+                            if let Some(number) = item["pbancMngNo"].as_str().map(str::trim) {
+                                if !number.is_empty() {
+                                    held.insert(number.to_owned(), row_digest(item));
+                                }
+                            }
+                        }
+                    }
+                }
+                None => {
+                    if api == Api::AnnouncementList {
+                        announcements = None;
+                    }
+                    report.stopped_by_budget.push(api.name().to_owned());
+                    break;
+                }
             }
         }
     }
@@ -914,6 +981,13 @@ pub(crate) async fn collect(
         }
         // Not counting this run's; `run` adds back those whose media did not all land.
         report.details_owed = owed_total - report.details_received;
+
+        follow_ups::collect_bid_infos(contract, fetcher, state, &open, now, &mut report).await;
+    }
+
+    if let Some(held) = announcements {
+        follow_ups::collect_announcement_details(contract, fetcher, state, held, now, &mut report)
+            .await;
     }
 
     report.stopped_by_budget.dedup();
@@ -1222,6 +1296,7 @@ pub async fn run() -> anyhow::Result<()> {
 
     let mut objects = Vec::new();
     let mut media_report: Option<crate::onbid_media::MediaReport> = None;
+    let mut announcement_media_report: Option<crate::onbid_media::MediaReport> = None;
     if config.live_write {
         live_write_target_preflight().context("Onbid collection live-write preflight failed")?;
         let pool = PgPool::connect(&required_env_value("DATABASE_URL")?)
@@ -1237,12 +1312,23 @@ pub async fn run() -> anyhow::Result<()> {
         // detail Bronze object persisted below carries the sha256 refs the Silver photo loader reads.
         // Done BEFORE persist so those refs land in Bronze. The whole step is isolated — a client-build
         // or download failure is logged, leaves the detail lines unchanged, and never fails the run.
+        let http = reqwest::Client::builder()
+            .user_agent(contract.user_agent.clone())
+            .timeout(Duration::from_secs(contract.media.download_timeout_seconds))
+            .build();
+        let mut settings = crate::onbid_media::MirrorSettings {
+            object_prefix: &contract.media.object_prefix,
+            url_host: &contract.media.url_host,
+            max_file_bytes: contract.media.max_file_bytes,
+            daily_limit: contract.media.daily_download_limit,
+            per_run_limit: contract.media.per_run_limit,
+            concurrency: contract.media.concurrency,
+            deadline: std::time::Instant::now()
+                + Duration::from_secs(contract.media.run_time_budget_seconds),
+            fields: &contract.media.fields,
+        };
         if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail).cloned() {
-            match reqwest::Client::builder()
-                .user_agent(contract.user_agent.clone())
-                .timeout(Duration::from_secs(contract.media.download_timeout_seconds))
-                .build()
-            {
+            match &http {
                 Ok(http) => {
                     let mut revalidate = vec![false; detail_lines.len()];
                     for fetched in report.fetched.iter().filter(|fetched| fetched.refresh) {
@@ -1250,16 +1336,7 @@ pub async fn run() -> anyhow::Result<()> {
                             *flag = true;
                         }
                     }
-                    let settings = crate::onbid_media::MirrorSettings {
-                        object_prefix: &contract.media.object_prefix,
-                        url_host: &contract.media.url_host,
-                        max_file_bytes: contract.media.max_file_bytes,
-                        daily_limit: contract.media.daily_download_limit,
-                        per_run_limit: contract.media.per_run_limit,
-                        concurrency: contract.media.concurrency,
-                        deadline: std::time::Instant::now()
-                            + Duration::from_secs(contract.media.run_time_budget_seconds),
-                    };
+                    let before = state.budget.media_downloads;
                     let mirrored = crate::onbid_media::mirror_detail_lines(
                         &detail_lines,
                         &revalidate,
@@ -1267,10 +1344,14 @@ pub async fn run() -> anyhow::Result<()> {
                         &settings,
                         state.budget.media_downloads,
                         storage.as_ref(),
-                        &http,
+                        http,
                     )
                     .await;
                     state.budget.media_downloads = mirrored.downloads_today;
+                    // The announcements' attachments share this run's download cap.
+                    settings.per_run_limit = settings
+                        .per_run_limit
+                        .saturating_sub(mirrored.downloads_today.saturating_sub(before));
                     report.details_completed =
                         settle_details(&mut state, &report.fetched, &mirrored.outcomes);
                     report.details_owed += report.details_received - report.details_completed;
@@ -1281,6 +1362,34 @@ pub async fn run() -> anyhow::Result<()> {
                     tracing::warn!(error = %error, "onbid media HTTP client build failed; skipping media");
                 }
             }
+        }
+        // 공고상세 attachments (root ADR-0340 §4): the same store and rules, within what is left of
+        // this run's caps and time budget; an announcement is complete once its attachments landed.
+        if let (Some(lines), Ok(http)) =
+            (fetcher.lines.get(&Api::AnnouncementDetail).cloned(), &http)
+        {
+            let mirrored = crate::onbid_media::mirror_detail_lines(
+                &lines,
+                &vec![false; lines.len()],
+                &mut state.media,
+                &settings,
+                state.budget.media_downloads,
+                storage.as_ref(),
+                http,
+            )
+            .await;
+            state.budget.media_downloads = mirrored.downloads_today;
+            report.announcements_completed = settle_announcements(
+                &mut state,
+                &report.announcements_fetched,
+                &mirrored.outcomes,
+            );
+            report.announcements_owed +=
+                report.announcements_received - report.announcements_completed;
+            announcement_media_report = Some(mirrored.report);
+            fetcher
+                .lines
+                .insert(Api::AnnouncementDetail, mirrored.lines);
         }
         for (api, lines) in &fetcher.lines {
             objects.push(
@@ -1318,6 +1427,7 @@ pub async fn run() -> anyhow::Result<()> {
         "report": report,
         "calls": state.budget.calls,
         "media": media_report,
+        "announcement_media": announcement_media_report,
         "objects": objects,
     });
     write_json_file(&config.output_dir.join("manifest.json"), &manifest)?;
@@ -1364,10 +1474,15 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 mod coverage;
+mod follow_ups;
 #[cfg(test)]
-pub(crate) use coverage::{kst14, kst14_of};
+pub(crate) use coverage::{kst14, kst14_of, MEDIA_FIELDS};
 use coverage::{listed_of, prune_media_memo, write_metrics};
-pub(crate) use coverage::{owed_details, settle_details, Coverage, Fetched, LineOutcome, Owed};
+pub(crate) use coverage::{
+    owed_bid_infos, owed_details, settle_details, Coverage, Fetched, LineOutcome, Owed,
+};
+use follow_ups::row_digest;
+pub(crate) use follow_ups::settle_announcements;
 
 #[cfg(test)]
 mod tests;

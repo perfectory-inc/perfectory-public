@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import re
 import sys
 import tempfile
@@ -201,7 +202,7 @@ class PlanTest(unittest.TestCase):
     ITEM = "bronze/source=datagokr__onbid_real_estate_item/item-list-20990102t030405z.gz"
     RESULT = "bronze/source=datagokr__onbid_item_bid_result/item-bid-result-20990102t030405z.gz"
 
-    def write(self, root: Path, entries, schema: str = job.PLAN_SCHEMA) -> Path:
+    def write(self, root: Path, entries, schema: str = job.PLAN_SCHEMA, table: str | None = None) -> Path:
         objects = []
         for key, lines in entries:
             slug = key.split("/")[1].removeprefix("source=")
@@ -210,7 +211,9 @@ class PlanTest(unittest.TestCase):
             with gzip.open(root / local, "wt", encoding="utf-8") as out:
                 out.write("".join(json.dumps(line, ensure_ascii=False) + "\n" for line in lines))
             objects.append({"object_key": key, "source_slug": slug, "local_path": local, "size_bytes": 1})
-        (root / "plan.json").write_text(json.dumps({"schema_version": schema, "objects": objects}), encoding="utf-8")
+        plan = {"schema_version": schema, "objects": objects, **({"table": table} if table else {})}
+        root.mkdir(parents=True, exist_ok=True)
+        (root / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
         return root
 
     def test_a_plan_gives_rows_by_source_oldest_run_first(self) -> None:
@@ -232,11 +235,96 @@ class PlanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):
                 job.planned_objects([self.write(Path(tmp) / "a", [(self.ITEM, [])], schema="x.v1")], CONTRACT)
-            other = "bronze/source=datagokr__onbid_announcement/announcement-list-20990102t030405z.gz"
+            other = "bronze/source=datagokr__onbid_movable_item/movable-list-20990102t030405z.gz"
             with self.assertRaises(ValueError):
                 job.planned_objects([self.write(Path(tmp) / "b", [(other, [])])], CONTRACT)
+            # A plan for one table holding another table's source is refused.
+            mixed = self.write(Path(tmp) / "c", [(self.ITEM, [])], table=job.DETAIL_TABLE)
+            with self.assertRaises(ValueError):
+                job.planned_objects([mixed], CONTRACT)
             with self.assertRaises(ValueError):
                 job.snapshot_id("bronze/source=datagokr__onbid_real_estate_item/no-run-id.gz")
+
+    def test_the_item_detail_loads_into_the_table_its_plan_names(self) -> None:
+        detail = "bronze/source=datagokr__onbid_real_estate_item_detail/item-detail-20990102t030405z.gz"
+        with tempfile.TemporaryDirectory() as tmp:
+            photos = self.write(Path(tmp) / "p", [(detail, [])], table=job.PHOTO_TABLE)
+            details = self.write(Path(tmp) / "d", [(detail, [])], table=job.DETAIL_TABLE)
+            roles = [o["role"] for o in job.planned_objects([photos, details], CONTRACT)]
+            self.assertEqual(sorted(roles), ["item_detail", "item_photo"])
+
+
+class FieldInventoryTest(unittest.TestCase):
+    """Root ADR-0340: every column comes from the field the inventory maps to it."""
+
+    @staticmethod
+    def _detail(items, operation="getRlstDtlInf2"):
+        body = {"header": {"resultCode": "00"}, "body": {"items": {"item": items}}}
+        return {"operation": operation, "http_status": 200, "body": json.dumps(body, ensure_ascii=False)}
+
+    def test_every_new_table_column_is_built_and_back(self) -> None:
+        for role in job.COMPARED:
+            _, table, _ = job.ROLES[role]
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            built = set(job.build_row({}, role, CONTRACT)) | set(job.LOAD_COLUMNS[:4])
+            self.assertEqual(built, names, table)
+
+    def test_the_item_detail_keeps_lists_as_received_less_private_names(self) -> None:
+        it = {"cltrMngNo": "X-0001", "pbctCdtnNo": 7, "icdlCdtnCont": "현 상태대로 매각", "frstPbancYmd": "20990101",
+              "leasInfList": [{"irstDivNm": "주거", "cltrInprNm": "합성 이름", "bidGrteeAmt": 1000000}],
+              "papsInf": [{"dlgtOrgNm": "합성 처분청", "dtbtRqrEdtmYmd": "20990110"}],
+              "apslEvlClgList": [], "someNewField": "x"}
+        [row] = job.rows_of([self._detail([it])], lambda i: job.build_row(i, "item_detail", CONTRACT), "k", "s", NOW,
+                            key=job.table_key("item_detail"), strict=False)
+        self.assertEqual((row["cltr_mng_no"], row["pbct_cdtn_no"]), ("X-0001", 7))
+        self.assertEqual(row["icdl_cdtn_cont"], "현 상태대로 매각")
+        self.assertEqual(str(row["frst_pbanc_ymd"]), "2099-01-01")
+        leases = json.loads(row["leas_inf_list_json"])
+        self.assertEqual(leases, [{"bidGrteeAmt": 1000000, "irstDivNm": "주거"}])  # the tenant's name is gone
+        self.assertIn("합성 처분청", row["paps_inf_json"])
+        self.assertIsNone(row["apsl_evl_clg_list_json"])  # an empty list is no value
+        self.assertEqual(job.unrepresented([self._detail([it])], "item_detail"), ["someNewField"])
+
+    def test_a_row_without_its_key_is_skipped_in_a_new_table(self) -> None:
+        lines = [self._detail([{"onbidPbancNo": 1, "pbctNo": 2, "orgNm": "합성 기관"}, {"orgNm": "키 없음"}],
+                              "getPbancList2")]
+        rows = job.rows_of(lines, lambda i: job.build_row(i, "announcement", CONTRACT), "k", "s", NOW,
+                           key=job.table_key("announcement"), strict=False)
+        self.assertEqual([(r["onbid_pbanc_no"], r["pbct_no"], r["org_nm"]) for r in rows], [(1, 2, "합성 기관")])
+
+    def test_the_maps_land_in_the_media_index_by_their_kind(self) -> None:
+        a = "a" * 64
+        it = {"cltrMngNo": "X-1", "pbctCdtnNo": 1, "lmapUrlAdrList": "https://www.onbid.co.kr/op/m.jpg",
+              "lmapUrlAdrListMedia": [{"sequence": 0, "sha256": a, "media_format": "jpg", "size_bytes": 3}]}
+        [row] = job.photo_rows_of([self._detail([it])], "k", "s", NOW)
+        self.assertEqual((row["media_kind"], row["sha256"], row["sequence"]), ("location_map", a, 0))
+        self.assertEqual(job.unrepresented([self._detail([it])], "item_detail"), [])
+
+    def test_the_item_columns_are_the_ones_before_the_inventory(self) -> None:
+        row = job.item_row(item(prptDivNm="압류재산", cltrUsgSclsCtgrNm="대지", apslPrcCtrsLowstBidRto="90"), CONTRACT)
+        self.assertEqual((row["prpt_div_nm"], row["cltr_usg_scls_ctgr_nm"], row["apsl_prc_ctrs_lowst_bid_rto"]),
+                         ("압류재산", "대지", 90.0))
+        self.assertEqual((row["prpt_div_cd"], row["appraisal_amount_krw"]), ("0007", 31190000))
+
+
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class ChangedOnlySparkTest(unittest.TestCase):
+    """Root ADR-0311: a compared table appends only the keys that are new or whose content changed."""
+
+    def test_only_new_and_changed_keys_are_appended(self) -> None:
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.builder.master("local[1]").appName("onbid-changed-only").getOrCreate()
+        try:
+            schema = "onbid_pbanc_no bigint, pbct_no bigint, org_nm string, rspb_sbr_nm string"
+            current = spark.createDataFrame([(1, 1, "a", None), (1, 2, "b", "x"), (2, 1, "c", "")], schema)
+            staged = spark.createDataFrame([(1, 1, "a", None), (1, 2, "b", "y"), (2, 1, "c", None), (3, 1, "d", None)],
+                                           schema)
+            changed = job.changed_only(staged, current, ["onbid_pbanc_no", "pbct_no"], ["org_nm", "rspb_sbr_nm"])
+            self.assertEqual(sorted((r.onbid_pbanc_no, r.pbct_no) for r in changed.collect()),
+                             [(1, 2), (2, 1), (3, 1)])  # a null where an empty string was is a change
+        finally:
+            spark.stop()
 
 
 if __name__ == "__main__":

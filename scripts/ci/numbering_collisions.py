@@ -67,9 +67,12 @@ def collisions(mine: dict[str, str], main: list[str], others: dict[int, list[str
         if (key := number_of(path)) is not None:
             holders.setdefault(key, []).append(f"main ({path})")
     by_pr: dict[tuple[str, str], list[int]] = {}
+    # A pull request stacked on another carries its files: the same path in both is one file, not
+    # two numbers (2026-10-29: #943, stacked on #942, was refused for #942's own ADR).
+    same_file = {(number, path) for number, paths in others.items() for path in paths if path in mine}
     for number, paths in sorted(others.items()):
         for path in paths:
-            if (key := number_of(path)) is not None and number != me:
+            if (key := number_of(path)) is not None and number != me and (number, path) not in same_file:
                 by_pr.setdefault(key, []).append(number)
     taken: dict[str, set[str]] = {}
     for space, value in [*holders, *by_pr]:

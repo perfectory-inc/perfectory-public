@@ -32,6 +32,12 @@ class Adr(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertIn("#650", notes[0])
 
+    def test_a_pull_request_stacked_on_another_carries_its_adr_without_colliding(self):
+        # The same path in both is the same file; a different file on the number still collides.
+        self.assertEqual(run(["docs/adr/0259-mine.md"], {633: ["docs/adr/0259-mine.md"]}), ([], []))
+        failures, _ = run(["docs/adr/0259-mine.md"], {633: ["docs/adr/0259-mine.md"], 634: ["docs/adr/0259-x.md"]})
+        self.assertIn("#634", failures[0])
+
     def test_a_free_number_passes(self):
         self.assertEqual(run(["docs/adr/0259-mine.md"], {633: ["docs/adr/0260-theirs.md"]}), ([], []))
 

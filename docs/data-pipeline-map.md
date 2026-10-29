@@ -26,7 +26,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 10 endpoint | 수집 비활성 — 파일 수집과 중복되어 비활성화된 API이다. |
 | 산업입지정보 산업단지 | 3 endpoint | 일부 연결 — 목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다. |
 | 행정표준코드관리시스템 법정동 | 1 endpoint | 일부 연결 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 매일 받는 법정동 코드 변경의 원천이다(루트 ADR-0143). 코드변경안내 게시판은 원천이 아니다(ADR-0144). 수집 작업은 운영 감독 실행 전까지 꺼져 있다. |
-| 차세대 온비드 공매 (data.go.kr) | 5 endpoint | 일부 연결 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 돈다. 두 Silver 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
+| 차세대 온비드 공매 (data.go.kr) | 7 endpoint | 일부 연결 — 한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 돈다. 두 Silver 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
 | 법원경매정보 (courtauction.go.kr) | 2 endpoint | 수집 비활성 — 법원경매정보의 물건 검색·매각결과 검색 목록을 신원을 밝히고 천천히, 새벽에만, 거절당하면 멈추며 받는다(루트 ADR-0280, ADR-0281). 수집기와 적재가 있고, 연락처가 놓이고 첫 감독 밤이 끝날 때까지 작업이 꺼져 있다. |
 | data.go.kr 파일 데이터 | 1 endpoint | 일부 연결 — data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
@@ -152,6 +152,8 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축물대장 API | 건축물대장 지구지역구역 (`datagokr__building_register_district_zone`) | `disabled_api_duplicate` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건목록 (`datagokr__onbid_real_estate_item`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건상세 (`datagokr__onbid_real_estate_item_detail`) | `open_api_only` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 물건상세 입찰정보 (`datagokr__onbid_item_bid_info`) | `open_api_only` |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 공고상세 (`datagokr__onbid_announcement_detail`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 공고목록 (`datagokr__onbid_announcement`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 공고 입찰결과목록 (`datagokr__onbid_announcement_bid_result`) | `open_api_only` |
 | 차세대 온비드 공매 (data.go.kr) | 온비드 물건 입찰결과상세 (`datagokr__onbid_item_bid_result`) | `open_api_only` |
@@ -219,6 +221,11 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
 | `silver.onbid_real_estate_item_photo` | 계약만 있음 | 물건 상세에서 받은 사진·감정평가서 첨부를 내용해시(sha256)로 색인해, 어느 회차(물건관리번호·공매조건번호)가 어떤 미디어 해시를 갖는지 쌓는다(루트 ADR-0298). 미디어 블롭은 content-addressed 저장소에 한 번만 쓴다. 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
 | `silver.onbid_item_bid_result` | 계약만 있음 | 목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
+| `silver.onbid_announcement` | 계약만 있음 | 공고목록(15157216)의 공고 회차(온비드공고번호·공매번호)마다 내용이 바뀐 행을 쌓는다(루트 ADR-0340 §6). 공고명·기관·담당부점·공고일·개찰일시. 읽는 소비자가 아직 없어 섬으로 둔다. |
+| `silver.onbid_announcement_bid_result` | 계약만 있음 | 공고 입찰결과목록(15157222)의 공고 회차마다 집행상태(개찰준비중·개찰중·개찰완료)가 바뀐 행을 쌓는다(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다. |
+| `silver.onbid_announcement_detail` | 계약만 있음 | 공고상세(15157218)를 공고관리번호·공매번호마다 내용이 바뀌면 쌓는다: 공고문 전문·첨부파일(내용해시)·참가자격·참가수수료·취소사유(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다. |
+| `silver.onbid_real_estate_item_detail` | 계약만 있음 | 물건상세(15157247)를 물건마다 내용이 바뀌면 쌓는다(루트 ADR-0339, ADR-0340 §6): 부대조건·유의사항·공매재산명세서·임대차·점유·등기 주요정보·배분요구·면적·정정내역·감정평가 목록. 사인의 성명은 버린다(ADR-0340 §5). 읽는 소비자가 아직 없어 섬으로 둔다. |
+| `silver.onbid_item_bid_info` | 계약만 있음 | 물건상세 입찰정보(15157251)를 물건마다 내용이 바뀌면 쌓는다: 입찰보증금·잔대금·입찰성립기준·제한경쟁 자격·제출서류·평가방식·이전 회차 결과·회차별 일정(루트 ADR-0340 §6). 읽는 소비자가 아직 없어 섬으로 둔다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -427,6 +434,11 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 차세대 온비드 공매 (data.go.kr) → 온비드 부동산 물건 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py` |
 | 차세대 온비드 공매 (data.go.kr) → 온비드 물건 사진 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
 | 차세대 온비드 공매 (data.go.kr) → 온비드 물건 입찰결과 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 공고 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 공고 입찰결과 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 공고상세 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 물건상세 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 차세대 온비드 공매 (data.go.kr) → 온비드 물건 입찰정보 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
 | data.go.kr 파일 데이터 → 전국 등록공장 | `collect-data-go-kr-registered-factory`<br>`platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |
 | 법원경매정보 (courtauction.go.kr) → 법원경매 진행 물건 | `collect-courtauction-go-kr`<br>`platforms/foundation-platform/scripts/ops/court-auction-collect.sh`<br>`platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |
 | 법원경매정보 (courtauction.go.kr) → 법원경매 매각결과 | `collect-courtauction-go-kr`<br>`platforms/foundation-platform/scripts/ops/court-auction-collect.sh`<br>`platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |

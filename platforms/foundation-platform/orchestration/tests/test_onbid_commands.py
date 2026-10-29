@@ -3,7 +3,7 @@ root ADR-0280).
 
 The scripts run from an installed release layout (as in test_parcel_number_change_collect_command.py).
 The publisher and docker are stand-ins: the publisher answers the collect command with an outcome and
-the plan command with a plan of FAKE_OWED objects per table; docker records its arguments. What runs
+the plan command with a plan of FAKE_OWED objects per table (every table the Silver job names); docker records its arguments. What runs
 for real is the scripts: the collect passes its outcome on and keeps no copy, a missing key stops the
 run before anything reaches the provider, the load with nothing owed ends without starting Spark,
 and a load hands Spark one plan directory per table and removes the copies whether it succeeds or not.
@@ -50,7 +50,12 @@ prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
 assert {table: slug} in ({"silver.onbid_real_estate_item": "datagokr__onbid_real_estate_item"},
                          {"silver.onbid_item_bid_result": "datagokr__onbid_item_bid_result"},
-                         {"silver.onbid_real_estate_item_photo": "datagokr__onbid_real_estate_item_detail"}), (table, slug)
+                         {"silver.onbid_real_estate_item_photo": "datagokr__onbid_real_estate_item_detail"},
+                         {"silver.onbid_real_estate_item_detail": "datagokr__onbid_real_estate_item_detail"},
+                         {"silver.onbid_item_bid_info": "datagokr__onbid_item_bid_info"},
+                         {"silver.onbid_announcement": "datagokr__onbid_announcement"},
+                         {"silver.onbid_announcement_bid_result": "datagokr__onbid_announcement_bid_result"},
+                         {"silver.onbid_announcement_detail": "datagokr__onbid_announcement_detail"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "24")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
@@ -92,6 +97,10 @@ class OnbidCommands(unittest.TestCase):
         contracts.mkdir(parents=True)
         (contracts / "data-go-kr-onbid.contract.json").write_bytes(
             (PLATFORM / "infra/lakehouse/contracts/data-go-kr-onbid.contract.json").read_bytes())
+        # The load asks the Silver job which tables it plans (root ADR-0340 §6).
+        jobs = release / "infra/lakehouse/spark/jobs"
+        jobs.mkdir(parents=True)
+        (jobs / "data_go_kr_onbid.py").write_bytes((PLATFORM / "infra/lakehouse/spark/jobs/data_go_kr_onbid.py").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -161,7 +170,9 @@ class OnbidCommands(unittest.TestCase):
         self.assertEqual(self.copies(), [])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
-        self.assertEqual(plans, ["items", "results", "photos"])
+        self.assertEqual(plans, ["onbid_real_estate_item", "onbid_item_bid_result", "onbid_real_estate_item_photo",
+                                 "onbid_real_estate_item_detail", "onbid_item_bid_info", "onbid_announcement",
+                                 "onbid_announcement_bid_result", "onbid_announcement_detail"])
 
     def test_a_load_of_late_objects_loads_them_and_fails(self):
         # An object no load recorded for longer than the window means loads have been failing; it is
@@ -180,7 +191,7 @@ class OnbidCommands(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
         self.assertFalse((self.fake / "docker.log").exists())
-        self.assertEqual((self.fake / "calls.log").read_text().split(), ["plan-silver-load-objects"] * 3)
+        self.assertEqual((self.fake / "calls.log").read_text().split(), ["plan-silver-load-objects"] * 8)
 
 
 if __name__ == "__main__":
