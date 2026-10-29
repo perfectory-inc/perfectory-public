@@ -494,6 +494,19 @@
         "budget_seconds": 10
       },
       {
+        "name": "batch-containers-are-run-scoped-self-test",
+        "paths": []
+      },
+      {
+        "name": "batch-containers-are-run-scoped",
+        "paths": [
+          "tools/host-memory-budget.contract.json",
+          "platforms/foundation-platform/**/*compose*.yml",
+          "platforms/identity-platform/**/*compose*.yml",
+          "platforms/foundation-platform/scripts/ops/**"
+        ]
+      },
+      {
         "name": "runtime-secrets-contract-self-test",
         "paths": []
       },

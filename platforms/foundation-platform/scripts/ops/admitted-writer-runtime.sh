@@ -89,5 +89,19 @@ if [[ "${admitted_writer_require_current}" == yes && -n "${RUNTIME_DIRECTORY:-}"
   printf '%s\n' "${RELEASE_ROOT}" >"${RUNTIME_DIRECTORY%%:*}/release" ||
     admitted_writer_refuse 'cannot record the run release in RUNTIME_DIRECTORY'
 fi
+# One Spark run of a job from this release's compose.lakehouse.yml: the write check
+# (lakehouse-target-init), then the job, each its own one-off `run --rm --no-deps` container that
+# Compose names <project>-<service>-run-<id>, so jobs started together share no container. The check
+# used to start as Spark's dependency under one fixed name for every job, and the by-PNU bake failed
+# when the lakehouse migration had just created it (2026-10-29; guard
+# scripts/guard/batch-containers-are-run-scoped.sh). The caller's FOUNDATION_PLATFORM_LAKEHOUSE_*
+# assignments before the call reach both containers.
+#   lakehouse_spark_run <compose project> [run options] <service> <command...>
+lakehouse_spark_run() {
+  local compose=(docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml"
+    -p "$1" --profile lakehouse-batch run --rm --no-deps)
+  shift
+  "${compose[@]}" lakehouse-target-init && "${compose[@]}" "$@"
+}
 readonly RELEASE_ROOT RELEASE_ID ARTIFACT_ROOT PUBLISHER_BIN RELEASE_JARS_DIR SPARK_RELEASE_JARS
 unset admitted_writer_base admitted_writer_require_current admitted_writer_manifest

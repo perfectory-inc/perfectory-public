@@ -41,7 +41,11 @@ services:
     logging: *log-cap
     image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
     mem_limit: 32m
-    container_name: foundation-platform-lakehouse-target-init
+    # No container_name on a batch service, this check or Spark: each job runs it as its own
+    # one-off `run --rm --no-deps` container, which Compose names <project>-<service>-run-<id>.
+    # As a dependency with a fixed name it was one container for every job, and the by-PNU bake
+    # failed when the lakehouse migration created it first (2026-10-29, "container name already in
+    # use"; scripts/guard/batch-containers-are-run-scoped.sh).
     profiles:
       - lakehouse-batch
     user: "${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"
@@ -65,7 +69,6 @@ services:
     # the national parcel load (39,861,511 rows) peaked at 17.1GiB, the land-use load (247,584,668
     # rows) at 3.1GiB. The cap leaves about 3GB above the peak.
     mem_limit: 20g
-    container_name: foundation-platform-spark
     # Batch callers use compose run --rm. A sleeping standing container would sit beside every job.
     restart: "no"
     profiles:
@@ -111,7 +114,6 @@ services:
     logging: *log-cap
     image: apache/spark:3.5.6-scala2.12-java17-python3-ubuntu@sha256:702d82ecea50c6f8344d3df753ba26f05ffd9d1d052e180fed9c3d6c04f77730
     mem_limit: 2560m
-    container_name: foundation-platform-spark-small
     # Batch callers use compose run --rm. A sleeping standing container would sit beside every job.
     restart: "no"
     profiles:

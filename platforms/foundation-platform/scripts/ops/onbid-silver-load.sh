@@ -62,11 +62,9 @@ if [ "${owed_total}" = 0 ]; then
 fi
 chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
 
-docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-  -p foundation-platform-compute --profile lakehouse-batch run --rm \
+lakehouse_spark_run foundation-platform-compute \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
   spark-small spark-submit --master 'local[2,8]' --driver-memory 2g \

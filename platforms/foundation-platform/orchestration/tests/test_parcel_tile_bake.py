@@ -23,7 +23,7 @@ CONTAINER_ROOT = "/workspace/target/lakehouse"
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
 args = sys.argv[1:]
-if args[:1] == ["rm"]:
+if args[-1:] == ["lakehouse-target-init"]:  # the write check, its own run (lakehouse_spark_run)
     sys.exit(0)
 assert args[0] == "compose" and "spark-submit" in args, args
 submit = args[args.index("spark-submit"):]

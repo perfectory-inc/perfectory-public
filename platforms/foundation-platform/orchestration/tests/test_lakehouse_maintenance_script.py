@@ -30,7 +30,7 @@ INVOCATION = "c" * 32
 FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json, os, sys
 args = sys.argv[1:]
-if args[:1] == ["rm"]:
+if args[-1:] == ["lakehouse-target-init"]:  # the write check, its own run (lakehouse_spark_run)
     sys.exit(0)
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"args": args, "project": args[args.index("-p") + 1]}) + "\n")

@@ -20,12 +20,10 @@ run_id="${UNIT}-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "${STATE_ROOT}/${run_id}"
 # The Spark container runs as uid 185: its init step checks it can write the state root it mounts.
 chmod 0777 "${STATE_ROOT}" "${STATE_ROOT}/${run_id}"
-docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
 rc=0
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-  -p foundation-platform-compute --profile lakehouse-batch run --rm \
+lakehouse_spark_run foundation-platform-compute \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
   spark-small spark-submit --master 'local[4,8]' --driver-memory 1500m --jars "${SPARK_RELEASE_JARS}" \

@@ -701,6 +701,9 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
     let args = execute::spark_arguments(&runtime, &units, &SparkLoad::local(&units));
     let joined = args.join(" ");
     assert!(joined.contains(&format!("-p {}", runtime.project)));
+    // A one-off container: never the write check as a dependency under a name another job's run
+    // also creates (2026-10-29).
+    assert!(joined.contains("--profile lakehouse-batch run --rm --no-deps -v "));
     assert!(joined.contains("--master local[8,8] --driver-memory 16g"));
     assert!(joined.contains("--input /workspace/target/lakehouse/handoff --input-format parquet"));
     assert!(joined.contains("--contract silver.building_register_units"));

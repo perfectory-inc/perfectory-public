@@ -14,12 +14,10 @@ work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 chmod 0777 "${work}" # the Spark container writes as uid 185
 
-docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
 status=0
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${work}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-  -p foundation-platform-compute --profile lakehouse-batch run --rm -v "${SCRATCH}:/scratch" \
+lakehouse_spark_run foundation-platform-compute -v "${SCRATCH}:/scratch" \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
   spark spark-submit --master 'local[8,8]' --driver-memory 16g \

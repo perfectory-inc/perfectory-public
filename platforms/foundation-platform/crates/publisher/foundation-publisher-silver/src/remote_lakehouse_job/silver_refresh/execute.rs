@@ -418,14 +418,13 @@ pub(in crate::remote_lakehouse_job) fn compare_arguments(
     Ok(args)
 }
 
-/// `docker compose run ... spark-submit` up to the job's script: what every Spark job of a lane
-/// shares.
-fn submit_arguments(runtime: &Runtime, contract: &LaneContract, reads_r2: bool) -> Vec<String> {
+/// `docker compose run --rm --no-deps` in this invocation's project: a one-off container Compose
+/// names `<project>-<service>-run-<id>`, never a fixed name another job's run also creates
+/// (2026-10-29, scripts/guard/batch-containers-are-run-scoped.sh).
+fn compose_run(runtime: &Runtime) -> Vec<String> {
     let release = runtime.release_root.to_string_lossy().into_owned();
     let compose_file = format!("{release}/compose.lakehouse.yml");
-    let scratch = format!("{}:/scratch", runtime.scratch().to_string_lossy());
-    // The init service (a write check of the work directory) runs first, as for every Spark job.
-    let mut args: Vec<String> = [
+    [
         "compose",
         "--project-directory",
         release.as_str(),
@@ -437,11 +436,18 @@ fn submit_arguments(runtime: &Runtime, contract: &LaneContract, reads_r2: bool) 
         "lakehouse-batch",
         "run",
         "--rm",
-        "-v",
-        scratch.as_str(),
+        "--no-deps",
     ]
     .map(str::to_owned)
-    .to_vec();
+    .to_vec()
+}
+
+/// `docker compose run ... spark-submit` up to the job's script: what every Spark job of a lane
+/// shares.
+fn submit_arguments(runtime: &Runtime, contract: &LaneContract, reads_r2: bool) -> Vec<String> {
+    let scratch = format!("{}:/scratch", runtime.scratch().to_string_lossy());
+    let mut args = compose_run(runtime);
+    args.extend(["-v".to_owned(), scratch]);
     let mut names = vec![
         "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI",
         "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE",
@@ -524,24 +530,28 @@ fn run_spark(
     if summary_path.exists() {
         fs::remove_file(&summary_path)?;
     }
-    // The init container has a fixed name; a killed run of any job can leave it behind.
-    let _ = Command::new("docker")
-        .args(["rm", "foundation-platform-lakehouse-target-init"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let status = Command::new("docker")
-        .args(args)
-        .env("FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT", runtime.work())
-        .env("FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE", &runtime.jars_dir)
-        .env("FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE", "ro")
-        .env("FOUNDATION_PLATFORM_LAKEHOUSE_GID", &runtime.gid)
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .context("cannot start the Spark load")?;
+    let docker = |args: &[String]| {
+        Command::new("docker")
+            .args(args)
+            .env("FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT", runtime.work())
+            .env("FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE", &runtime.jars_dir)
+            .env("FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE", "ro")
+            .env("FOUNDATION_PLATFORM_LAKEHOUSE_GID", &runtime.gid)
+            .stdin(Stdio::null())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+    };
+    // The write check of the work directory first, as its own one-off container.
+    let mut init = compose_run(runtime);
+    init.push("lakehouse-target-init".to_owned());
+    let checked = docker(&init).context("cannot start the lakehouse write check")?;
+    ensure!(
+        checked.success(),
+        "the lakehouse write check of {} failed: {checked}",
+        contract.table
+    );
+    let status = docker(args).context("cannot start the Spark load")?;
     ensure!(
         status.success(),
         "the Spark load of {} failed: {status}",

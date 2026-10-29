@@ -23,7 +23,7 @@ FAKE_DOCKER = r'''#!/usr/bin/env python3
 import json, os, pathlib, sys
 args = sys.argv[1:]
 log = open(os.environ["FAKE_LOG"], "a")
-if args[:1] == ["rm"]:
+if args[-1:] == ["lakehouse-target-init"]:  # the write check, its own run (lakehouse_spark_run)
     sys.exit(0)
 if args[:1] == ["run"]:
     host = pathlib.Path(args[args.index("-v") + 1].rsplit(":/w", 1)[0])

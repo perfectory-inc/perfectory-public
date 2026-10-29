@@ -202,6 +202,10 @@ contract, `target/lakehouse` output 뿐이다. `.env.local`, `.git`, source tree
 Linux bind mount 는 host directory 가 root 소유로 자동 생성될 수 있다. `lakehouse-batch` profile 은
 `lakehouse-target-init` 을 먼저 실행해 `target/lakehouse` 를 Spark container uid/gid
 (`FOUNDATION_PLATFORM_LAKEHOUSE_UID`, `FOUNDATION_PLATFORM_LAKEHOUSE_GID`, 기본 `185:185`) 로 맞춘 뒤 Spark 를 시작한다.
+호스트의 등록 작업은 이것을 의존 컨테이너로 띄우지 않고 `scripts/ops/admitted-writer-runtime.sh` 의
+`lakehouse_spark_run` 으로 검사와 작업을 각각 `run --rm --no-deps` 일회성 컨테이너로 실행한다. 고정 이름
+검사 컨테이너를 두 작업이 함께 만들다 by-PNU bake 가 실패했다(2026-10-29,
+`scripts/guard/batch-containers-are-run-scoped.sh`).
 
 Bronze -> Silver 변환 contract smoke:
 
