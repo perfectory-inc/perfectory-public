@@ -332,13 +332,11 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 """
 
 
-# Docker's local-scope default address pools when the daemon names none (moby libnetwork ipamutils):
-# a /16 each of 172.17, 172.18 and 172.19, the /16s of 172.20/14, 172.24/14 and 172.28/14, and the
-# /20s of 192.168/16, so 31 bridge networks, the default bridge among them.
-DEFAULT_ADDRESS_POOLS = [{"Base": "172.17.0.0/16", "Size": 16}, {"Base": "172.18.0.0/16", "Size": 16},
-                         {"Base": "172.19.0.0/16", "Size": 16}, {"Base": "172.20.0.0/14", "Size": 16},
-                         {"Base": "172.24.0.0/14", "Size": 16}, {"Base": "172.28.0.0/14", "Size": 16},
-                         {"Base": "192.168.0.0/16", "Size": 20}]
+# How many bridge networks Docker's local-scope default address pools hold when the daemon names
+# none (moby libnetwork ipamutils): three single /16s, twelve /16s out of three /14s and sixteen /20s
+# out of one /16, the default bridge among them. Counted, not listed: the public repository refuses
+# private-network literals.
+DEFAULT_POOL_NETWORKS = 3 + 3 * 4 + 16
 NETWORKS_METRICS_NAME = "docker-networks.prom"
 NETWORKS_HELP = """# HELP foundation_docker_bridge_networks The host's Docker bridge networks, each holding one subnet of the address pools.
 # TYPE foundation_docker_bridge_networks gauge
@@ -353,9 +351,9 @@ def bridge_networks(run) -> str:
     every job's next Compose project fails to start ("could not find an available, non-overlapping
     IPv4 address pool"). `run` runs a docker command and returns its output."""
     taken = len(run(["docker", "network", "ls", "--quiet", "--filter", "driver=bridge"]).split())
-    pools = json.loads(run(["docker", "info", "--format", "{{json .DefaultAddressPools}}"]) or "null") \
-        or DEFAULT_ADDRESS_POOLS
-    held = sum(2 ** (pool["Size"] - ipaddress.ip_network(pool["Base"]).prefixlen) for pool in pools)
+    pools = json.loads(run(["docker", "info", "--format", "{{json .DefaultAddressPools}}"]) or "null")
+    held = (sum(2 ** (pool["Size"] - ipaddress.ip_network(pool["Base"]).prefixlen) for pool in pools)
+            if pools else DEFAULT_POOL_NETWORKS)
     return (NETWORKS_HELP + f"foundation_docker_bridge_networks {taken}\n"
             f"foundation_docker_address_pool_networks {held}\n")
 
