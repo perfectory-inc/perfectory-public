@@ -268,8 +268,8 @@ class Reconciler(unittest.TestCase):
         text = asset_reconcile.bridge_networks(docker("a\n" * 23, "null\n"))
         self.assertIn("foundation_docker_bridge_networks 23\n", text)
         self.assertIn("foundation_docker_address_pool_networks 31\n", text, "Docker's default pools")
-        configured = json.dumps([{"Base": "10.200.0.0/16", "Size": 24}])
-        self.assertIn("foundation_docker_address_pool_networks 256\n",
+        configured = json.dumps([{"Base": "198.51.100.0/24", "Size": 28}])  # RFC 5737
+        self.assertIn("foundation_docker_address_pool_networks 16\n",
                       asset_reconcile.bridge_networks(docker("", configured)))
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
         self.assertIn("alert: FoundationDockerAddressPoolNearlyFull", rules)

@@ -40,7 +40,8 @@ def cleanup_problems(read=lambda path: path.read_text(encoding="utf-8")):
 
 
 CLEANUP_RS = PLATFORM / "crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/invocation_cleanup.rs"
-PER_RUN_PROJECT = re.compile(r'-p "(foundation-[a-z-]+)-\$\{INVOCATION_ID\}"')
+# The project name as a script passes it (`-p "…"`, lakehouse_spark_run "…", a …_PROJECT="…").
+PER_RUN_PROJECT = re.compile(r'"(foundation-[a-z-]+)-\$\{INVOCATION_ID\}"')
 
 
 def per_run_project_problems(read=lambda path: path.read_text(encoding="utf-8")):
@@ -77,7 +78,8 @@ class EveryPerRunComposeProjectIsCleanedUp(unittest.TestCase):
         problems, _ = per_run_project_problems(lambda path: stripped if path == unit else path.read_text(encoding="utf-8"))
         self.assertEqual(len(problems), 1, problems)
         script = PLATFORM / "scripts/ops/lakehouse-maintenance.sh"
-        renamed = script.read_text(encoding="utf-8").replace('-p "foundation-lakehouse-maintenance-', '-p "foundation-other-')
+        renamed = script.read_text(encoding="utf-8").replace('"foundation-lakehouse-maintenance-${INVOCATION_ID}"',
+                                                            '"foundation-other-${INVOCATION_ID}"')
         problems, _ = per_run_project_problems(lambda path: renamed if path == script else path.read_text(encoding="utf-8"))
         self.assertEqual(len(problems), 1, problems)
 
