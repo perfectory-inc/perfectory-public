@@ -29,9 +29,11 @@
 #    - otherwise the change set decides. `by_pnu_panel_delta.py` compares row_digest between the
 #      reflected snapshot and the new one; it refuses when the comparison snapshot is gone (exit
 #      3), carries no row_digest (exit 5), or the change set is more than max_delta_fraction of the
-#      table (exit 4); each refusal is named in the log and the run summary, and nothing is
-#      published. An empty change set only advances the reflected snapshot ("reflect"); any other
-#      is a patch.
+#      table and no record explains it (exit 4); each refusal is named in the log and the run
+#      summary, and nothing is published. A change set over max_delta_fraction that a record the
+#      contract accepts explains (exit 6: recorded changed keys, a moved code version, the document
+#      schema revision this run states; root ADR-0346) is a full bake instead. An empty change set
+#      only advances the reflected snapshot ("reflect"); any other is a patch.
 #    - a verified re-base (FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE with a
 #      FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE_REASON; parcel lane only; root ADR-0146 §1) stands
 #      in for the change set when the reflected snapshot cannot be compared:
@@ -568,7 +570,9 @@ if [[ "${REBASE}" == true && -n "${mode}" ]]; then
 fi
 
 run_delta() {
-  local work="$1" container="/workspace/target/lakehouse/${1#"${STATE_ROOT}/"}" rc=0
+  local work="$1" container="/workspace/target/lakehouse/${1#"${STATE_ROOT}/"}" rc=0 revision=""
+  # A document schema revision is a record that explains a change set over max_delta_fraction (root ADR-0346).
+  [[ "${schemas}" != expands ]] || revision="${served_schema} -> ${schema_now}"
   mkdir -p "${work}"
   # Spark 컨테이너는 uid 185 로 쓴다. 그 init 단계는 마운트한 상태 루트 자체가 쓰기 가능한지 본다
   # (compose.lakehouse.yml lakehouse-target-init) — 실행 디렉터리만 열면 첫 운영 실행처럼 거부된다.
@@ -582,7 +586,7 @@ run_delta() {
     --jars "${SPARK_RELEASE_JARS}" \
     /workspace/infra/lakehouse/spark/jobs/by_pnu_panel_delta.py \
     --unit "${UNIT}" --baseline-snapshot-id "${reflected}" --current-snapshot-id "${gold}" \
-    --max-delta-fraction "${max_delta_fraction}" \
+    --max-delta-fraction "${max_delta_fraction}" --document-schema-revision "${revision}" \
     --upsert-output "${container}/upserts.txt" --delete-output "${container}/deletes.txt" \
     --summary-output "${container}/change-set.json" >"${work}/delta.log" 2>&1 || rc=$?
   return "${rc}"
@@ -595,6 +599,23 @@ refuse_change_set() {
   write_summary
   log "FAILED: $2"
   exit 1
+}
+# The evidence the change-set job wrote for a change set over max_delta_fraction: its counts, and the
+# records that explain it or, when none does, the ones it checked (root ADR-0346).
+large_change_evidence() {
+  python3 -I - "${delta}/change-set.json" <<'PY'
+import json, sys
+try:
+    found = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    print("the change-set job wrote no evidence")
+    sys.exit(0)
+counts = ", ".join(f"{name} {count}" for name, count in sorted(found.get("counts", {}).items()))
+explained = found.get("explained_by") or {}
+records = "; ".join(f"{name}: {why}" for name, why in sorted(explained.items())) if explained else \
+    "checked " + ", ".join(found.get("explanations_checked", [])) + ", none recorded"
+print(f"{counts}; {records}")
+PY
 }
 REBASE_OFFER="A verified re-base (FOUNDATION_BY_PNU_BAKE_VERIFIED_REBASE with a reason; parcel lane) or a full bake (FOUNDATION_BY_PNU_BAKE_FORCE_FULL with a reason) re-bases the lane"
 
@@ -670,7 +691,10 @@ elif [[ -z "${mode}" ]]; then
     5) tail -n 3 "${delta}/delta.log" >&2
        refuse_change_set comparison_snapshot_has_no_row_digest "the reflected snapshot ${reflected} has rows without row_digest (written before the ADR-0099 fingerprint), so it cannot be compared — that is not 'no change'. Nothing was published. ${REBASE_OFFER}" ;;
     4) tail -n 3 "${delta}/delta.log" >&2
-       refuse_change_set not_a_delta "the change set from ${reflected} to ${gold} is more than max_delta_fraction ${max_delta_fraction} of the table — not a delta; nothing was published (ADR-0141 §3)" ;;
+       refuse_change_set not_a_delta "the change set from ${reflected} to ${gold} is more than max_delta_fraction ${max_delta_fraction} of the table and no record explains it ($(large_change_evidence)) — possible corruption: a fingerprint drift or a wrong baseline. Nothing was published (ADR-0141 §3, ADR-0346). Once Gold is checked, FOUNDATION_BY_PNU_BAKE_FORCE_FULL with a reason re-bases the lane" ;;
+    6) # Explained by a record the contract accepts: past the break-even a full bake is cheaper (root ADR-0346).
+       summary[explained_by]="$(large_change_evidence)"
+       mode=full reason="the change set from ${reflected} to ${gold} is more than max_delta_fraction ${max_delta_fraction} of the table, explained: ${summary[explained_by]}; a full bake is cheaper past the break-even (root ADR-0274 §2, ADR-0346)" ;;
     *) tail -n 5 "${delta}/delta.log" >&2
        refuse_change_set change_set_job_failed "the change set job exited ${delta_rc}; nothing was published" ;;
   esac

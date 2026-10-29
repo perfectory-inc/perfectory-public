@@ -259,7 +259,8 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 | 익스포터의 문서 스키마 ≠ 기본 세대의 문서 스키마 | 전량 |
 | 기본 세대가 이미 `max_patches` 개 이상의 패치를 지님(한도를 낮춘 뒤 포함) | 전량(압축) |
 | 패치가 있고, 그 앞자리 길이가 계약의 `pnu_prefix_length` 와 다름 | 전량(압축) |
-| 변경 집합이 `max_delta_fraction` 초과 | **거부**, 발행 없음 |
+| 변경 집합이 `max_delta_fraction` 초과, 기록이 설명함(바뀐 키 기록·코드 판 변경·문서 판 변경, 계약 `over_max_delta_fraction`) | 전량([루트 ADR-0346](../../../../docs/adr/0346-a-change-set-over-the-delta-bound-goes-full-when-a-record-explains-it.md)) |
+| 변경 집합이 `max_delta_fraction` 초과, 설명 없음 | **거부**, 발행 없음 — 로그·요약이 수와 확인한 기록을 말한다. Gold 를 확인한 뒤 `FORCE_FULL` |
 | 비교할 스냅숏이 없음(지정 안 됨·만료·지문 없음) | **거부**, 발행 없음 — "변경 없음"이 아니다 |
 | 변경 없음 | `reflected_gold_iceberg_snapshot_id` 만 옮기는 발행(객체 쓰기 없음) |
 | 누적 변경(기존 패치 + 이번) > `max_cumulative_change_ratio` × `base_object_count` | 전량(압축) |
@@ -269,7 +270,8 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
   고친다: 같은 내용 Gold 의 비교 생략, 한 항목 레인의 비율 0.25, 되돌리기는 직전 묶음 세대. 각 구현 PR 이 이 절을 고친다.
 
 - 변경 집합은 `by_pnu_panel_delta.py` 가 마지막 반영 스냅숏과 새 스냅숏의 `row_digest` 를 PNU 로 맞대 낸다. 거부는
-  종료 코드로 구별한다(3 = 비교 스냅숏 없음, 4 = 델타 아님). 거부된 날은 운영자가 이유를 적어 전량을 강제한다.
+  종료 코드로 구별한다(3 = 비교 스냅숏 없음, 4 = 설명 없는 델타 아님, 5 = 지문 없음; 6 = 설명된 큰 변경 → 전량).
+  설명 없는 거부가 난 날은 운영자가 Gold 를 확인한 뒤 이유를 적어 전량을 강제한다.
 - Spark 는 측정한 작은 서비스 `spark-small`(2560m)에서 `local[4]`, driver 1500m 로 돈다. 굽기와 차례로 돌므로 작업의
   메모리 출처는 단위의 14G 와 `spark-small` 중 큰 것이다(`tools/host-memory-budget.contract.json`).
 - 패치의 익스포트는 변경 집합의 행만 남기므로 한 샤드(표 전체)로 시작하고, 행 상한을 넘으면 `1`…`9` 로 쪼갠다.
@@ -304,7 +306,8 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 |---:|---|---|
 | 3 | `no_comparison_snapshot` | Gold 에 반영 스냅숏이 없다(만료, 또는 처음부터 없음) |
 | 5 | `comparison_snapshot_has_no_row_digest` | 반영 스냅숏은 있지만 `row_digest` 가 없다(지문 이전 판) |
-| 4 | `not_a_delta` | 변경이 `max_delta_fraction` 초과 |
+| 4 | `not_a_delta` | 변경이 `max_delta_fraction` 초과, 설명하는 기록 없음 |
+| 6 | (거부 아님, `explained_by`) | 변경이 `max_delta_fraction` 초과, 기록이 설명함 → 전량 |
 
 둘 다(3·5) "변경 없음"이 아니다. 재기준 방법은 둘이다: 전량 굽기(`FORCE_FULL`, 약 81시간·쓰기 4천만), 또는 **검증
 재기준**(필지 레인만). 검증 재기준은 서빙 객체를 전부 읽어 지금 Gold 의 렌더와 `source` 를 뺀 내용으로 비교하고, 그

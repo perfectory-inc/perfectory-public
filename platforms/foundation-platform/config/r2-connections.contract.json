@@ -198,6 +198,11 @@
     "cumulative_change_break_even_ratio": 0.29,
     "max_cumulative_change_ratio_reason": "Root ADR-0274 §2, measured in the bake journal 2026-10-08..17: a full bake of a one-section lane runs at 7.8-9.1 thousand documents per second (parcel generation 3, 39,861,511 in 85m05s; transfer history generation 3, 39,802,785 in 72m54s); a patch at 2.6 thousand per second (forest ledger, 250,845 in 1m38s) to 4.7 thousand per second after a fixed 5m22s (parcel). The patch stops being cheaper at 11.4M-20.6M of a 40M lane, 29-52% of the base: cumulative_change_break_even_ratio is the low end, and the bound sits under it. Read cost is bounded by max_patches and the Worker's per-prefix patch skip, not by this ratio. On 2026-10-17 transfer history's 7,173,987 changes (18%) went full at 0.05 (73 minutes); at 0.25 they are a patch (25-46 minutes). Measured on lanes of one section; the contract refuses a lane of more sections until they are measured.",
     "max_delta_fraction": 0.5,
+    "over_max_delta_fraction": {
+      "decision": "docs/adr/0346-a-change-set-over-the-delta-bound-goes-full-when-a-record-explains-it.md",
+      "explained_by": ["recorded_change_set", "code_version", "document_schema"],
+      "reason": "Root ADR-0346: a change set over max_delta_fraction is past the measured break-even (cumulative_change_break_even_ratio), so a full bake is the cheaper way to publish it (building: 19 minutes, measured 2026-10-29). It goes full when a record explains it: every Gold commit between the two snapshots recorded its changed keys (ADR-0312), the code version both commits record differs (ADR-0321), or the bake states a document schema revision (ADR-0320; 2026-10-29 parcel-forest-ledger v1 -> v2, 39,715,931 of 39,703,956). Otherwise it is refused and the run names the counts and the records it checked: same code, same document schema and no recorded change set is a fingerprint drift or a wrong baseline (ADR-0099 §5). On 2026-10-29 the building lane was refused so: 5,946,006 of 5,945,309 differed between two whole overwrites that recorded nothing, 99.8% of it (measured in sido 41) source file-line ids in the documents (ADR-0331)."
+    },
     "pnu_prefix_length": 5,
     "tombstone_schema_version": "foundation-platform.by_pnu_serving_tombstone.v1",
     "tombstone_max_bytes": 512

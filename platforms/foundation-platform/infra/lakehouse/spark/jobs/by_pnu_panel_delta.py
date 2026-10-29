@@ -19,9 +19,14 @@ The comparison snapshot is the one the serving manifest last reflected
 * a snapshot whose rows lack `row_digest` (written before the fingerprint existed) — exit 5, for
   the same reason. The bake names the two apart: one is an expiry, the other a pre-ADR-0099
   snapshot (root ADR-0146).
-* a change set larger than the contract's `max_delta_fraction` of the current table — exit 4.
-  That shape means the fingerprint drifted or the baseline is wrong; re-baking everything as a
-  "patch" would hide it (ADR-0099 §5).
+* a change set larger than the contract's `max_delta_fraction` of the current table that no
+  record explains — exit 4. That shape means the fingerprint drifted or the baseline is wrong;
+  re-baking everything would hide it (ADR-0099 §5).
+* the same, explained by a record the contract accepts (`over_max_delta_fraction.explained_by`,
+  root ADR-0346): the Gold commits recorded their changed keys (ADR-0312), the producer's recorded
+  code version moved (ADR-0321), or the bake states a document schema revision (ADR-0320) — exit 6.
+  Past the break-even (ADR-0274 §2) a full bake is the cheaper way to publish it, so the bake goes
+  full. Either way the summary names the counts and the explanations it checked.
 
 Writes nothing to the lakehouse: two PNU lists and a run summary, all local files.
 """
@@ -40,7 +45,8 @@ R2_CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connecti
 # The parcel and building lanes, and every pack-only lane the R2 contract names (root ADR-0190; a
 # kind line's Gold is gold.<lane with - as _>, root ADR-0193): each lane's Gold panel is one row per
 # PNU with a row_digest, so one comparison serves them all.
-_LANES = json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8")).get("by_pnu_lanes", {})
+_CONTRACT = json.loads(R2_CONTRACT_PATH.read_text(encoding="utf-8"))
+_LANES = _CONTRACT.get("by_pnu_lanes", {})
 GOLD_TABLES = {"parcel": "gold.parcel_panel", "building": "gold.building_panel",
                **{name: lane.get("gold_table") or "gold." + name.replace("-", "_") for name, lane in _LANES.items()}}
 # A lane keyed narrower than a PNU (root ADR-0204) names the Gold column that follows the PNU in its
@@ -51,6 +57,19 @@ KEY_SUFFIX_COLUMNS = {name: lane["document_key_suffix"]["column"] for name, lane
 EXIT_NO_COMPARISON = 3
 EXIT_NOT_A_DELTA = 4
 EXIT_NO_DIGEST = 5
+EXIT_EXPLAINED_FULL = 6
+# The records that may explain a change set over max_delta_fraction (root ADR-0346).
+EXPLANATIONS = ("recorded_change_set", "code_version", "document_schema")
+
+
+def accepted_explanations(contract: dict[str, Any]) -> tuple[str, ...]:
+    """by_pnu_serving_patches.over_max_delta_fraction.explained_by, each a known explanation."""
+    rule = contract["by_pnu_serving_patches"]["over_max_delta_fraction"]
+    accepted = tuple(rule["explained_by"])
+    unknown = sorted(set(accepted) - set(EXPLANATIONS))
+    if unknown or not str(rule.get("reason", "")).strip():
+        raise ValueError(f"over_max_delta_fraction names unknown explanations {unknown} or no reason")
+    return accepted
 
 
 class Refusal(Exception):
@@ -59,6 +78,19 @@ class Refusal(Exception):
     def __init__(self, exit_code: int, message: str) -> None:
         super().__init__(message)
         self.exit_code = exit_code
+
+
+class NotADelta(Refusal):
+    """More than max_delta_fraction differs; `explain` makes it exit 6 when a record says why."""
+
+    def __init__(self, message: str, counts: dict[str, int]) -> None:
+        super().__init__(EXIT_NOT_A_DELTA, message)
+        self.counts = counts
+        self.explained_by: dict[str, str] = {}
+
+    def explain(self, found: dict[str, str]) -> None:
+        self.explained_by = found
+        self.exit_code = EXIT_EXPLAINED_FULL if found else EXIT_NOT_A_DELTA
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -75,6 +107,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         type=float,
         help="by_pnu_serving_patches.max_delta_fraction of config/r2-connections.contract.json.",
+    )
+    parser.add_argument(
+        "--document-schema-revision",
+        default="",
+        help="'<served> -> <baked>' when the bake re-renders the lane under another document schema (ADR-0320).",
     )
     parser.add_argument("--iceberg-catalog-name", default="r2")
     parser.add_argument("--upsert-output", required=True, help="One changed-or-new PNU per line.")
@@ -114,11 +151,10 @@ def judge(counts: dict[str, int], max_delta_fraction: float) -> dict[str, int]:
         raise Refusal(EXIT_NOT_A_DELTA, "the current snapshot is empty; that is not a delta")
     changes = changed + new + deleted
     if changes > current_total * max_delta_fraction:
-        raise Refusal(
-            EXIT_NOT_A_DELTA,
+        raise NotADelta(
             f"{changes} of {current_total} PNUs differ, more than the contract's "
-            f"max_delta_fraction {max_delta_fraction} — that is not a delta. The fingerprint "
-            "definition or the baseline is wrong; nothing is patched (ADR-0141 §3, ADR-0099 §5)",
+            f"max_delta_fraction {max_delta_fraction} — that is not a delta (ADR-0141 §3, ADR-0099 §5)",
+            {"changed": changed, "new": new, "deleted": deleted, "same": same},
         )
     return {
         "changed_count": changed,
@@ -129,6 +165,46 @@ def judge(counts: dict[str, int], max_delta_fraction: float) -> dict[str, int]:
         "upsert_count": changed + new,
         "delete_count": deleted,
     }
+
+
+def code_sha(value: str | None) -> str | None:
+    """The whole-code sha256 of a recorded build-source-sha256 value (JSON, root ADR-0321)."""
+    if not value:
+        return None
+    try:
+        return str(json.loads(value)["sha256"])
+    except (ValueError, KeyError, TypeError):
+        return value
+
+
+def explanations(recorded_keys: int | None, code_versions: tuple[str | None, str | None],
+                 schema_revision: str, accepted: tuple[str, ...]) -> dict[str, str]:
+    """Why the two snapshots differ, by the records the contract `accepted`; empty when none says.
+
+    Only records count, never the size or shape of the change: the producer's own change set, a
+    code version both commits carry and that differs (a commit before ADR-0321 carries none, which
+    says nothing), and the document schema revision the bake states."""
+    found = {}
+    if recorded_keys is not None:
+        found["recorded_change_set"] = (f"every Gold commit between the two snapshots recorded its changed keys "
+                                        f"({recorded_keys} PNUs, root ADR-0312)")
+    old, new = (code_sha(version) for version in code_versions)
+    if old and new and old != new:
+        found["code_version"] = f"the producer's code version moved {old[:12]} -> {new[:12]} (root ADR-0321)"
+    if schema_revision.strip():
+        found["document_schema"] = f"the documents move {schema_revision.strip()} (root ADR-0320)"
+    return {name: why for name, why in found.items() if name in accepted}
+
+
+def code_versions(spark: Any, table: str, baseline_id: str, current_id: str) -> tuple[str | None, str | None]:
+    """The code version each snapshot was built by: the one recorded beside its newest pins."""
+    import gold_rebuild
+
+    snapshots = [{"snapshot_id": str(r.snapshot_id), "parent_id": None if r.parent_id is None else str(r.parent_id),
+                  "summary": dict(r.summary or {})}
+                 for r in spark.sql(f"SELECT snapshot_id, parent_id, summary FROM {table}.snapshots").collect()]
+    return (gold_rebuild.recorded_code_version(snapshots, str(baseline_id)),
+            gold_rebuild.recorded_code_version(snapshots, str(current_id)))
 
 
 def classify(baseline: Any, current: Any) -> Any:
@@ -249,8 +325,9 @@ PUSHDOWN_PNUS = 200
 BROADCAST_PNUS = 500_000
 
 
-def recorded_pnus(spark: Any, args: argparse.Namespace, table: str) -> Any | None:
-    """The PNUs the Gold commits between the two snapshots recorded, or None (compare whole)."""
+def recorded_pnus(spark: Any, args: argparse.Namespace, table: str) -> tuple[Any | None, int | None]:
+    """The PNUs the Gold commits between the two snapshots recorded and how many, or None, None
+    (compare whole)."""
     from pyspark.sql import functions as F
 
     import gold_incremental
@@ -259,13 +336,13 @@ def recorded_pnus(spark: Any, args: argparse.Namespace, table: str) -> Any | Non
                                              args.baseline_snapshot_id, args.current_snapshot_id)
     if pnus is None:
         print(f"{JOB_NAME}-change-source diff: a commit between the snapshots recorded no change set")
-        return None
+        return None, None
     pnus = pnus.persist()
     count = pnus.count()
     print(f"{JOB_NAME}-change-source recorded pnus={count}")
     if count <= PUSHDOWN_PNUS:
-        return sorted(row.pnu for row in pnus.collect())
-    return F.broadcast(pnus) if count <= BROADCAST_PNUS else pnus
+        return sorted(row.pnu for row in pnus.collect()), count
+    return (F.broadcast(pnus) if count <= BROADCAST_PNUS else pnus), count
 
 
 def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
@@ -281,7 +358,7 @@ def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
         write_pnus(spark.createDataFrame([], "pnu string"), args.delete_output)
         return judge({"same": unchanged}, args.max_delta_fraction)
     suffix = KEY_SUFFIX_COLUMNS.get(args.unit)
-    pnus = recorded_pnus(spark, args, table)
+    pnus, recorded = recorded_pnus(spark, args, table)
     baseline = snapshot_frame(spark, args.iceberg_catalog_name, table, args.baseline_snapshot_id, suffix, pnus)
     current = snapshot_frame(spark, args.iceberg_catalog_name, table, args.current_snapshot_id, suffix, pnus)
     refuse_missing_digests(baseline, "baseline")
@@ -293,7 +370,15 @@ def compare(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
         # No commit between the two touched any other row, so the rest of the current rows are the same.
         counts["same"] = unchanged_rest(snapshot_rows(spark, f"`{args.iceberg_catalog_name}`.{table}",
                                                       args.current_snapshot_id), counts)
-    metrics = judge(counts, args.max_delta_fraction)
+    try:
+        metrics = judge(counts, args.max_delta_fraction)
+    except NotADelta as large:
+        classified.unpersist()
+        large.explain(explanations(
+            recorded, code_versions(spark, f"`{args.iceberg_catalog_name}`.{table}", args.baseline_snapshot_id,
+                                    args.current_snapshot_id),
+            args.document_schema_revision, accepted_explanations(_CONTRACT)))
+        raise
     metrics["change_source"] = "diff" if pnus is None else "recorded"
     write_pnus(classified.where(F.col("verdict").isin("changed", "new")).select("pnu"), args.upsert_output)
     write_pnus(classified.where(F.col("verdict") == "deleted").select("pnu"), args.delete_output)
@@ -306,6 +391,30 @@ def write_summary(path: str, summary: dict[str, Any]) -> None:
     with open(path, "w", encoding="utf-8", newline="") as handle:
         json.dump(summary, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
+
+
+def write_large_change(args: argparse.Namespace, large: NotADelta) -> None:
+    """The evidence of a change set over max_delta_fraction, for the bake's choice and its alert."""
+    verdict = "explained: the bake goes full" if large.explained_by else "unexplained: refused"
+    checked = list(accepted_explanations(_CONTRACT))
+    print(f"{JOB_NAME}-large-change {verdict}; counts={json.dumps(large.counts, sort_keys=True)} "
+          f"explained_by={json.dumps(large.explained_by, ensure_ascii=False)} checked={checked}")
+    write_summary(args.summary_output, {
+        "schema_version": RUN_SUMMARY_SCHEMA_VERSION,
+        "job_name": JOB_NAME,
+        "contract": GOLD_TABLES[args.unit],
+        "refused": "not_a_delta",
+        "counts": large.counts,
+        "explained_by": large.explained_by,
+        "explanations_checked": checked,
+        "input": {
+            "unit": args.unit,
+            "baseline_snapshot_id": args.baseline_snapshot_id,
+            "current_snapshot_id": args.current_snapshot_id,
+            "max_delta_fraction": args.max_delta_fraction,
+            "document_schema_revision": args.document_schema_revision,
+        },
+    })
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -333,6 +442,8 @@ def main(argv: list[str] | None = None) -> int:
         metrics = compare(spark, args)
     except Refusal as refusal:
         print(f"{JOB_NAME}-refused: {refusal}")
+        if isinstance(refusal, NotADelta):
+            write_large_change(args, refusal)
         spark.stop()
         return refusal.exit_code
 

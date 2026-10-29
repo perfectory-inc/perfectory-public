@@ -229,12 +229,18 @@ memory = args[args.index("--driver-memory") + 1]
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps({"command": "delta", "env": {}, "options": options,
                           "service": service, "driver_memory": memory}) + "\n")
+root = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT"]
+host = lambda path: root + path.removeprefix("/workspace/target/lakehouse")
 code = int(os.environ.get("FAKE_DELTA_EXIT", "0"))
 if code:
     print("by_pnu_panel_delta-refused: planted")
+    if code in (4, 6):
+        # Over max_delta_fraction: the evidence the bake names, explained (6) or not (4) (root ADR-0346).
+        with open(host(options["--summary-output"]), "w") as out:
+            json.dump({"refused": "not_a_delta", "counts": {"changed": 99, "new": 1, "deleted": 0, "same": 0},
+                       "explained_by": json.loads(os.environ.get("FAKE_DELTA_EXPLAINED", "{}")),
+                       "explanations_checked": ["recorded_change_set", "code_version", "document_schema"]}, out)
     sys.exit(code)
-root = os.environ["FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT"]
-host = lambda path: root + path.removeprefix("/workspace/target/lakehouse")
 upserts = json.loads(os.environ.get("FAKE_DELTA_UPSERTS", "[]"))
 deletes = json.loads(os.environ.get("FAKE_DELTA_DELETES", "[]"))
 for name, pnus in (("--upsert-output", upserts), ("--delete-output", deletes)):
@@ -906,12 +912,36 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual(self.run_summary("patch")["mode"], "patch")
 
-    def test_a_change_set_over_half_the_table_is_refused_not_baked(self):
+    def test_an_unexplained_change_set_over_half_the_table_is_refused_with_its_evidence(self):
+        # Root ADR-0346, the 2026-10-29 building refusal: 5,946,006 of 5,945,309 PNUs differed
+        # between two whole overwrites that recorded nothing. No record explains it, so it is not
+        # baked, and the failure names the counts and the records checked.
         result, calls = self.patch_bake(FAKE_DELTA_EXIT="4")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("not a delta; nothing was published", result.stdout)
+        self.assertIn("no record explains it (changed 99, deleted 0, new 1, same 0; checked "
+                      "recorded_change_set, code_version, document_schema, none recorded)", result.stdout)
+        self.assertIn("Nothing was published", result.stdout)
+        self.assertIn("FOUNDATION_BY_PNU_BAKE_FORCE_FULL", result.stdout)
+        self.assertEqual(self.refusal(), "not_a_delta")
         self.assertEqual(self.published(calls), [])
         self.assertEqual(self.exports(calls), [])
+        # The served documents hold the schema the export bakes: no revision is stated.
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual(delta["options"]["--document-schema-revision"], "")
+
+    def test_an_explained_change_set_over_half_the_table_is_a_full_bake(self):
+        # Root ADR-0346: a record explains it, and past the break-even a full bake is the cheaper one.
+        why = {"code_version": "the producer's code version moved aaaaaaaaaaaa -> bbbbbbbbbbbb (root ADR-0321)"}
+        result, calls = self.patch_bake(FAKE_DELTA_EXIT="6", FAKE_DELTA_EXPLAINED=json.dumps(why))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [publish] = self.published(calls)
+        self.assertEqual(publish["env"]["FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PUBLISH_FROM_LISTING"], "true")
+        self.assertNotIn("FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_TARGET_PATCH", publish["env"])
+        summary = self.run_summary("full")
+        self.assertIn("explained: changed 99, deleted 0, new 1, same 0; code_version: the producer's code "
+                      "version moved", summary["reason"])
+        self.assertIn("break-even", summary["reason"])
+        self.assertEqual(summary["target_generation"], 3)
 
     def refusal(self):
         return json.loads((self.state_root / "parcel/runs/202-delta/run-summary.json").read_text())["refused"]
@@ -1246,6 +1276,29 @@ class SectionPackBake(unittest.TestCase):
         summary = json.loads((pathlib.Path(publish["env"][self.PREFIX + "PACK_SUMMARY_DIR"]).parent
                               / "run-summary.json").read_text())
         self.assertEqual((summary["mode"], summary["document_schema_expansion"]), ("patch", "doc.v1 -> doc.v2"))
+
+    def test_an_expanding_version_that_changes_most_documents_bakes_a_new_generation(self):
+        # Root ADR-0346, the 2026-10-29 parcel-forest-ledger refusal: v1 -> v2 re-rendered
+        # 39,715,931 of 39,703,956 documents. The bake states the revision; the change-set job
+        # takes it as the record that explains the change, and the lane goes full, not refused.
+        why = {"document_schema": "the documents move doc.v1 -> doc.v2 (root ADR-0320)"}
+        result, calls = self.bake(FAKE_PACKS=packs_state(document_schema_version="doc.v1",
+                                                         served_document_schema_versions=["doc.v1"]),
+                                  FAKE_READABLE='["doc.v2", "doc.v1"]',
+                                  FAKE_DELTA_EXIT="6", FAKE_DELTA_EXPLAINED=json.dumps(why))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual(delta["options"]["--document-schema-revision"], "doc.v1 -> doc.v2")
+        exports = self.exports(calls)
+        self.assertTrue(exports)
+        for call in exports:
+            self.assertEqual(call["env"][self.PREFIX + "PACK_GENERATION"], "3")
+            self.assertNotIn(self.PREFIX + "TARGET_PATCH", call["env"])
+        [publish] = self.published(calls)
+        self.assertNotIn(self.PREFIX + "CHANGE_SET_SUMMARY_PATH", publish["env"])
+        self.assertIn("full — the change set from 150 to 202 is more than max_delta_fraction 0.5 of the table, "
+                      "explained: changed 99, deleted 0, new 1, same 0; document_schema: the documents move "
+                      "doc.v1 -> doc.v2", result.stdout)
 
     def test_an_expanding_version_still_compacts_at_the_patch_limit(self):
         result, calls = self.bake(FAKE_PACKS=packs_state(document_schema_version="doc.v1", max_live_patches=7,

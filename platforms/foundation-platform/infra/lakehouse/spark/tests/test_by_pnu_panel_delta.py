@@ -81,8 +81,10 @@ class Judge(unittest.TestCase):
         delta.judge({"changed": 50, "same": 50}, 0.5)
 
     def test_an_empty_current_table_is_refused(self):
-        with self.assertRaises(delta.Refusal):
+        with self.assertRaises(delta.Refusal) as refused:
             delta.judge({"deleted": 3}, 0.5)
+        # Not a large change a record could explain: an empty Gold is never baked.
+        self.assertNotIsInstance(refused.exception, delta.NotADelta)
 
     def test_an_identical_snapshot_pair_is_an_empty_change_set(self):
         metrics = delta.judge({"same": 10}, 0.5)
@@ -92,6 +94,74 @@ class Judge(unittest.TestCase):
         for value in (0, -0.1, 1.5):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 delta.check_delta_fraction(value)
+
+
+class LargeChange(unittest.TestCase):
+    """Root ADR-0346: over max_delta_fraction, a record that explains the change makes it a full bake
+    (exit 6); none is a refusal (exit 4). Named for the 2026-10-29 refusals of the building lane
+    (unexplained: two whole overwrites, no record) and parcel-forest-ledger (a v1 -> v2 schema)."""
+
+    ACCEPTED = delta.accepted_explanations(delta._CONTRACT)
+    CODE = '{"sha256": "%s", "parts": {}}'
+
+    def over(self):
+        with self.assertRaises(delta.NotADelta) as refused:
+            delta.judge({"changed": 5933490, "new": 6029, "deleted": 6487, "same": 5790}, 0.5)
+        return refused.exception
+
+    def test_the_contract_accepts_the_three_records_with_its_reason(self):
+        self.assertEqual(self.ACCEPTED, ("recorded_change_set", "code_version", "document_schema"))
+        for broken in ({"explained_by": ["the size of the change"], "reason": "x"},
+                       {"explained_by": ["code_version"], "reason": " "}):
+            with self.subTest(broken=broken), self.assertRaises(ValueError):
+                delta.accepted_explanations({"by_pnu_serving_patches": {"over_max_delta_fraction": broken}})
+
+    def test_the_building_refusal_of_2026_10_29_stays_a_refusal(self):
+        # Neither overwrite recorded its keys or a code version, and the documents kept their schema.
+        large = self.over()
+        large.explain(delta.explanations(None, (None, None), "", self.ACCEPTED))
+        self.assertEqual((large.exit_code, large.explained_by), (delta.EXIT_NOT_A_DELTA, {}))
+        self.assertEqual(large.counts, {"changed": 5933490, "new": 6029, "deleted": 6487, "same": 5790})
+
+    def test_a_document_schema_revision_explains_it(self):
+        # parcel-forest-ledger, 2026-10-29: v1 -> v2 re-rendered almost every document.
+        large = self.over()
+        large.explain(delta.explanations(None, (None, None), "doc.v1 -> doc.v2", self.ACCEPTED))
+        self.assertEqual(large.exit_code, delta.EXIT_EXPLAINED_FULL)
+        self.assertEqual(list(large.explained_by), ["document_schema"])
+
+    def test_recorded_keys_explain_it(self):
+        found = delta.explanations(5945309, (None, None), "", self.ACCEPTED)
+        self.assertEqual(list(found), ["recorded_change_set"])
+        self.assertIn("5945309", found["recorded_change_set"])
+
+    def test_only_a_code_version_both_commits_record_and_that_differs_explains_it(self):
+        old, new = self.CODE % ("a" * 64), self.CODE % ("b" * 64)
+        self.assertEqual(list(delta.explanations(None, (old, new), "", self.ACCEPTED)), ["code_version"])
+        # The same code, or a commit from before ADR-0321 that records none, says nothing.
+        for versions in ((old, old), (None, new), (old, None)):
+            with self.subTest(versions=versions):
+                self.assertEqual(delta.explanations(None, versions, "", self.ACCEPTED), {})
+        # The parts may differ in order; the whole sha256 decides.
+        self.assertEqual(delta.code_sha(self.CODE % ("c" * 64)), "c" * 64)
+
+    def test_an_explanation_the_contract_does_not_accept_is_not_used(self):
+        self.assertEqual(delta.explanations(1, (None, None), "doc.v1 -> doc.v2", ("code_version",)), {})
+
+    def test_the_evidence_is_written_for_the_bake(self):
+        large = self.over()
+        large.explain(delta.explanations(None, (None, None), "", self.ACCEPTED))
+        with tempfile.TemporaryDirectory() as work:
+            args = delta.parse_args([
+                "--unit", "building", "--baseline-snapshot-id", "101", "--current-snapshot-id", "202",
+                "--max-delta-fraction", "0.5", "--upsert-output", f"{work}/u", "--delete-output", f"{work}/d",
+                "--summary-output", f"{work}/s.json"])
+            delta.write_large_change(args, large)
+            import json
+            summary = json.loads(Path(work, "s.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary["refused"], "not_a_delta")
+        self.assertEqual(summary["counts"]["changed"], 5933490)
+        self.assertEqual((summary["explained_by"], summary["explanations_checked"]), ({}, list(self.ACCEPTED)))
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
