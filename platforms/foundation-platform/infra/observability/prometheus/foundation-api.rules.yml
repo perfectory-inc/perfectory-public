@@ -323,3 +323,36 @@ groups:
         annotations:
           summary: '자산 조정기가 {{ $labels.asset }} 의 판을 30분째 못 읽어요. 카탈로그 REST 나 by-PNU reads.jsonl 을 확인하세요'
           runbook: docs/runbooks/asset-reconcile.md
+
+  # Docker's address pools hold 31 bridge networks on the host (no default-address-pools in
+  # daemon.json), and every job's per-run Compose project takes one while it runs. On 2026-10-29 23
+  # were taken, 10 of them by per-run projects of gold_panel_rebuild and silver refresh runs that
+  # timed out between 10-20 and 10-28: their cleanup found the container Docker was already removing
+  # (`--rm`) and stopped before the network. At 31 every job's next project fails to start. The asset
+  # reconciler counts them every five minutes (docker-networks.prom).
+  - name: foundation-docker-networks
+    rules:
+      - record: docker_address_pool_used_ratio
+        expr: foundation_docker_bridge_networks / foundation_docker_address_pool_networks
+      - alert: FoundationDockerAddressPoolNearlyFull
+        # Above 80% (25 of 31): fewer than the six free that the spark and default pools' concurrent
+        # per-run projects can take at once.
+        expr: docker_address_pool_used_ratio > 0.8
+        for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 'Docker 브리지 네트워크가 주소 풀의 {{ $value | humanizePercentage }} 를 차지했어요. 다 차면 모든 작업의 Compose 프로젝트가 시작하지 못해요. 남은 일회성 네트워크를 지우세요'
+          runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationDockerNetworksUnread
+        expr: >-
+          time() - node_textfile_mtime_seconds{file=~".*/docker-networks.prom"} > 1800
+          or absent(foundation_docker_bridge_networks)
+        for: 10m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: Docker 브리지 네트워크 수를 30분 넘게 못 셌어요. journalctl -u foundation-asset-reconcile.service 를 보세요
+          runbook: docs/runbooks/asset-reconcile.md

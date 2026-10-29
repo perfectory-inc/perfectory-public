@@ -1073,6 +1073,11 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.returncode, 75, result.stdout)
         self.assertTrue(result.stdout.splitlines()[-1].startswith("foundation-job-outcome failed parcel"), result.stdout)
         self.assertEqual(job_specs.job_outcome(result.stdout), "failed")
+        # A lane of `all` that failed records it for the asset reconciler, which starts it again after a
+        # backoff (2026-10-29 07:41Z: the forest-ledger lane failed inside `all` and nothing ran it again).
+        last = json.loads((self.state_root / "parcel/reads.jsonl").read_text().splitlines()[-1])
+        self.assertEqual({key: last[key] for key in ("lane", "outcome", "exit_code")},
+                         {"lane": "parcel", "outcome": "failed", "exit_code": 75})
 
     def test_a_verified_rebase_over_half_the_table_is_not_a_delta(self):
         result, calls = self.patch_bake(FAKE_REBASE_FAIL="900 of 1000 PNUs differ: not a delta", **self.REBASE)

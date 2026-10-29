@@ -39,6 +39,51 @@ def cleanup_problems(read=lambda path: path.read_text(encoding="utf-8")):
     return problems
 
 
+CLEANUP_RS = PLATFORM / "crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job/invocation_cleanup.rs"
+# The project name as a script passes it (`-p "…"`, lakehouse_spark_run "…", a …_PROJECT="…").
+PER_RUN_PROJECT = re.compile(r'"(foundation-[a-z-]+)-\$\{INVOCATION_ID\}"')
+
+
+def per_run_project_problems(read=lambda path: path.read_text(encoding="utf-8")):
+    """Every Compose project a job script names after its systemd invocation is one the publisher's
+    invocation cleanup removes (its containers and its network), and every job unit running that
+    script has it as its ExecStopPost. 2026-10-20..28: ten per-run networks were left behind, of the
+    31 Docker's address pools hold; a project nothing cleans would leave one on every run."""
+    cleaned = set(re.findall(r'=> "(foundation-[a-z-]+)",', read(CLEANUP_RS)))
+    problems, scripts = [], set()
+    for script in sorted((PLATFORM / "scripts/ops").glob("*.sh")):
+        for prefix in PER_RUN_PROJECT.findall(read(script)):
+            scripts.add(script.name)
+            if prefix not in cleaned:
+                problems.append(f"{script.name}: project {prefix}-<invocation> is not one invocation_cleanup.rs removes")
+    services = {job["systemd_service"] for job in json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]}
+    for path in sorted({unit_file(service) for service in services}):
+        unit = read(path)
+        for script in re.findall(r"^ExecStart=\S*/scripts/ops/(\S+\.sh)", unit, flags=re.MULTILINE):
+            if script in scripts and f"ExecStopPost={PINNED} {script}" not in unit:
+                problems.append(f"{path.name}: runs {script}, whose per-run Compose project only its cleanup removes, "
+                                f"without ExecStopPost={PINNED} {script}")
+    return problems, scripts
+
+
+class EveryPerRunComposeProjectIsCleanedUp(unittest.TestCase):
+    def test_every_per_run_project_has_its_cleanup(self):
+        problems, scripts = per_run_project_problems()
+        self.assertEqual(problems, [])
+        self.assertTrue({"gold-panel-rebuild.sh", "lakehouse-maintenance.sh", "parcel-tile-bake.sh"} <= scripts, scripts)
+
+    def test_a_unit_without_the_cleanup_or_an_unknown_prefix_is_refused(self):
+        unit = UNITS / "foundation-gold-unit-price-rebuild.service"
+        stripped = re.sub(r"(?m)^ExecStopPost=.*\n", "", unit.read_text(encoding="utf-8"))
+        problems, _ = per_run_project_problems(lambda path: stripped if path == unit else path.read_text(encoding="utf-8"))
+        self.assertEqual(len(problems), 1, problems)
+        script = PLATFORM / "scripts/ops/lakehouse-maintenance.sh"
+        renamed = script.read_text(encoding="utf-8").replace('"foundation-lakehouse-maintenance-${INVOCATION_ID}"',
+                                                            '"foundation-other-${INVOCATION_ID}"')
+        problems, _ = per_run_project_problems(lambda path: renamed if path == script else path.read_text(encoding="utf-8"))
+        self.assertEqual(len(problems), 1, problems)
+
+
 class EveryJobCleansUpWithItsOwnRelease(unittest.TestCase):
     def test_no_job_unit_cleans_up_through_current(self):
         self.assertEqual(cleanup_problems(), [])

@@ -562,6 +562,15 @@ def job_nodes(jobs, graph):
     return found
 
 
+def by_pnu_lane_of(node_id):
+    """The by-PNU lane a pipeline-graph serving node belongs to (`<lane>-by-pnu-section-packs`, or the
+    parcel and building lanes' object serving `<lane>-by-pnu-serving`), or None."""
+    for suffix in ("-by-pnu-section-packs", "-by-pnu-serving"):
+        if node_id.endswith(suffix):
+            return node_id.removesuffix(suffix)
+    return None
+
+
 def writer_of(node_id, jobs=None, graph=None):
     """The job whose pipeline-graph edges end at `node_id`, or None (the job that makes that asset)."""
     jobs = jobs if jobs is not None else json.loads(JOBS.read_text(encoding="utf-8"))
@@ -796,7 +805,9 @@ def load_specs(jobs=None, graph=None):
             other = by_id[name]
             if started_by(other) != "inputs" or not other["enabled"] and job["enabled"]:
                 raise JobListError(f"{job_id}: reconciles {name}, which is not an enabled `inputs` job")
-            if len(found[name][1]) != 1:
+            # A by-PNU bake serving several lanes is the exception: each lane records its own reads.
+            made = found[name][1]
+            if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made):
                 raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
         if reconciles and (start != "schedule" or job["pool"] != DEFAULT_POOL):
             raise JobListError(f"{job_id}: a reconciler runs on its own schedule in {DEFAULT_POOL}, never on an event")

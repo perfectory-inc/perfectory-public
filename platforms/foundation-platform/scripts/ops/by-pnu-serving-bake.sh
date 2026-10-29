@@ -282,27 +282,37 @@ OWN_RUN=false LANE_WAITING=""
 if [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]]; then
   OWN_RUN=true
   BY_PNU_BAKE_PUBLISHED="$(mktemp)"
-  lane_outcome() {
-    local code=$?
-    if ((code)); then
-      echo "foundation-job-outcome failed the ${UNIT} lane exited ${code}"
-    elif [[ -n "${LANE_WAITING}" ]]; then
-      echo "foundation-job-outcome waiting ${LANE_WAITING}"
-    elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
-      echo "foundation-job-outcome changed"
-    else
-      echo "foundation-job-outcome unchanged"
-    fi
-    rm -f "${BY_PNU_BAKE_PUBLISHED}"
-  }
-  trap lane_outcome EXIT
 fi
+# Whichever way the lane exits past its lock, a failure is recorded for the asset reconciler (a lane
+# of `all` too: on 2026-10-29 07:41Z the forest-ledger lane failed inside `all` and nothing ran it
+# again for the day), and a lane run on its own prints its outcome line.
+lane_exit() {
+  local code=$?
+  if ((code)); then
+    record_failed "${code}" || true
+  fi
+  [[ "${OWN_RUN}" == true ]] || return 0
+  if ((code)); then
+    echo "foundation-job-outcome failed the ${UNIT} lane exited ${code}"
+  elif [[ -n "${LANE_WAITING}" ]]; then
+    echo "foundation-job-outcome waiting ${LANE_WAITING}"
+  elif [[ -s "${BY_PNU_BAKE_PUBLISHED}" ]]; then
+    echo "foundation-job-outcome changed"
+  else
+    echo "foundation-job-outcome unchanged"
+  fi
+  rm -f "${BY_PNU_BAKE_PUBLISHED}"
+}
+trap lane_exit EXIT
 # Root ADR-0333 §7: every run that leaves the lane serving a Gold snapshot records which one it read,
 # appended to the lane's reads.jsonl (never rewritten) and as a result line. The manifest is the
 # commit record; this is the asset reconciler's cheap view of it (scripts/ops/asset_reconcile.py),
 # which starts the lane again when its Gold moves past it. A run waiting for the lane its documents
-# follow records what it waits for, so the reconciler starts it again once that lane moves.
+# follow records what it waits for, so the reconciler starts it again once that lane moves. A run
+# that failed records that, with the snapshot the lane still serves (the last record's), so the
+# reconciler owes it a new start after a backoff instead of the one start per Gold snapshot.
 # record_read <served snapshot> [<gold snapshot it waits to bake> <followed lane> <followed snapshot>]
+# record_failed <exit code>
 record_read() {
   python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "$@" <<'PY'
 import datetime, json, sys
@@ -316,6 +326,22 @@ with open(path, "a", encoding="utf-8") as reads:
     reads.write(json.dumps(record, sort_keys=True) + "\n")
 PY
   echo "foundation-asset-read ${UNIT} gold=$1"
+}
+record_failed() {
+  python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "$1" <<'PY'
+import datetime, json, sys
+path, lane, code = sys.argv[1:]
+try:
+    with open(path, encoding="utf-8") as reads:
+        lines = [line for line in reads if line.strip()]
+    served = json.loads(lines[-1]).get("read_snapshot_id") if lines else None
+except FileNotFoundError:
+    served = None
+record = {"at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "lane": lane,
+          "read_snapshot_id": served, "outcome": "failed", "exit_code": int(code)}
+with open(path, "a", encoding="utf-8") as reads:
+    reads.write(json.dumps(record, sort_keys=True) + "\n")
+PY
 }
 
 # 1. What is there to do?

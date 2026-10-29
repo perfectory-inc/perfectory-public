@@ -9,6 +9,7 @@ use std::{
     io::Read as _,
     path::Path,
     process::{Command, Stdio},
+    time::{Duration, Instant},
 };
 
 use anyhow::{ensure, Context};
@@ -61,8 +62,16 @@ pub(super) fn project_id(
 
 pub(super) fn run(job: Job) -> anyhow::Result<()> {
     let project = project_id(job, &mut |name| std::env::var(name).ok())?;
-    cleanup_with(Path::new("docker"), &project)
+    cleanup_with(Path::new("docker"), &project, REMOVAL_WAIT)
 }
+
+/// How long the cleanup waits for a container Docker is already removing. A timed-out job's
+/// `compose run --rm` client dies while the daemon removes the container; `docker rm` then answers
+/// "removal ... already in progress". From 2026-10-20 to 10-28 the cleanup failed right there, ten
+/// times, before it reached the project's network, and left ten of the 31 networks Docker's address
+/// pools hold. Inside the units' 120-second stop bound, after `docker stop --time 30`.
+const REMOVAL_WAIT: Duration = Duration::from_secs(60);
+const REMOVAL_POLL: Duration = Duration::from_secs(1);
 
 fn container_ids(raw: &[u8]) -> anyhow::Result<Vec<String>> {
     ensure!(
@@ -140,8 +149,15 @@ fn list_ids(docker: &Path, arguments: &[&str]) -> anyhow::Result<Vec<String>> {
     container_ids(&bytes)
 }
 
-fn cleanup_with(docker: &Path, project: &str) -> anyhow::Result<()> {
-    cleanup_containers(docker, project)?;
+fn cleanup_with(docker: &Path, project: &str, wait: Duration) -> anyhow::Result<()> {
+    let containers = cleanup_containers(docker, project, wait);
+    // The network even when a container could not be removed: one that is gone by now frees its
+    // address pool, and one still attached is refused by Docker and reported below.
+    let networks = cleanup_networks(docker, project);
+    containers.and(networks)
+}
+
+fn cleanup_networks(docker: &Path, project: &str) -> anyhow::Result<()> {
     let ids = networks(docker, project)?;
     if ids.is_empty() {
         return Ok(());
@@ -162,7 +178,19 @@ fn cleanup_with(docker: &Path, project: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn cleanup_containers(docker: &Path, project: &str) -> anyhow::Result<()> {
+/// The project's one-off containers once none is left or `wait` has passed, whichever is first.
+fn settled(docker: &Path, project: &str, wait: Duration) -> anyhow::Result<Vec<String>> {
+    let deadline = Instant::now() + wait;
+    loop {
+        let ids = list(docker, project)?;
+        if ids.is_empty() || Instant::now() >= deadline {
+            return Ok(ids);
+        }
+        std::thread::sleep(REMOVAL_POLL);
+    }
+}
+
+fn cleanup_containers(docker: &Path, project: &str, wait: Duration) -> anyhow::Result<()> {
     let ids = list(docker, project)?;
     if ids.is_empty() {
         return Ok(());
@@ -193,7 +221,12 @@ fn cleanup_containers(docker: &Path, project: &str) -> anyhow::Result<()> {
         .stderr(Stdio::inherit())
         .status()
         .context("cannot remove job containers")?;
-    let after = list(docker, project)?;
+    // A container the daemon was already removing (`--rm`) is gone shortly after a failed `rm`.
+    let after = if removed.success() {
+        list(docker, project)?
+    } else {
+        settled(docker, project, wait)?
+    };
     ensure!(
         after.is_empty(),
         "job containers remain after cleanup (rm success={})",
@@ -266,7 +299,7 @@ mod tests {
             ))?;
             std::fs::set_permissions(&docker, std::fs::Permissions::from_mode(0o755))?;
             assert_eq!(
-                cleanup_with(&docker, "foundation-floor-test").is_ok(),
+                cleanup_with(&docker, "foundation-floor-test", Duration::ZERO).is_ok(),
                 removable
             );
             assert_eq!(marker.exists(), !removable);
@@ -337,17 +370,54 @@ mod tests {
                 (&floor_spark, &floor, "True"),
             ],
         )?;
-        cleanup_with(&docker, &project)?;
+        cleanup_with(&docker, &project, Duration::ZERO)?;
         let left = std::fs::read_to_string(directory.path().join("containers"))?;
         assert!(!left.contains(&leftover), "{left}");
         for kept in [&init, &sibling, &floor_spark] {
             assert!(left.contains(kept.as_str()), "{left}");
         }
-        // A container that survives removal fails the cleanup instead of passing quietly.
+        // A container that survives removal fails the cleanup instead of passing quietly, and the
+        // project's networks are still asked for.
         let stuck = fake_docker(directory.path(), &[(&leftover, &project, "True")])?;
-        let script = std::fs::read_to_string(&stuck)?.replace("rm)\n  shift", "rm)\n  exit 1");
+        let calls = directory.path().join("network-calls");
+        let quoted = super::super::shell_quote(&calls.to_string_lossy());
+        let script = std::fs::read_to_string(&stuck)?
+            .replace("rm)\n  shift", "rm)\n  exit 1")
+            .replace(
+                "network) ;;",
+                &format!("network) echo \"$2\" >> {quoted} ;;"),
+            );
         std::fs::write(&stuck, script)?;
-        assert!(cleanup_with(&stuck, &project).is_err());
+        assert!(cleanup_with(&stuck, &project, Duration::ZERO).is_err());
+        assert_eq!(std::fs::read_to_string(&calls)?, "ls\n");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_container_docker_was_already_removing_does_not_keep_the_network() -> anyhow::Result<()> {
+        // 2026-10-20..28: a timed-out run's `compose run --rm` container was being removed by the
+        // daemon; `docker rm` failed with "removal ... already in progress", the cleanup stopped
+        // there, and ten per-run networks were left of the 31 the address pools hold.
+        let directory = tempfile::tempdir()?;
+        let project = project_id(Job::GoldPanelRebuild, &mut |_| Some("c".repeat(32)))?;
+        let racing = fake_docker(directory.path(), &[(&"5".repeat(64), &project, "True")])?;
+        let calls = directory.path().join("network-calls");
+        let quoted = super::super::shell_quote(&calls.to_string_lossy());
+        // `rm` fails, but the container goes as the daemon finishes the removal it had begun.
+        let script = std::fs::read_to_string(&racing)?
+            .replace(
+                "    mv \"$table.next\" \"$table\"\n  done ;;",
+                "    mv \"$table.next\" \"$table\"\n  done\n  exit 1 ;;",
+            )
+            .replace(
+                "network) ;;",
+                &format!("network) echo \"$2\" >> {quoted} ;;"),
+            );
+        assert!(script.contains("done\n  exit 1 ;;"), "{script}");
+        std::fs::write(&racing, script)?;
+        cleanup_with(&racing, &project, Duration::from_secs(5))?;
+        assert_eq!(std::fs::read_to_string(&calls)?, "ls\n");
         Ok(())
     }
 }

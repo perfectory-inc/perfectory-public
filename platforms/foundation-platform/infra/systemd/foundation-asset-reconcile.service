@@ -14,13 +14,18 @@ WorkingDirectory=/opt/foundation-platform/current
 # no asset can be read: the run fails and its unit's failure notice says so.
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/asset_reconcile.py
-# The job list's time_limit_minutes (jobs.v1.json): a tick reads the metadata of six tables and asks
-# systemd which jobs run. Generated from the list, not hand-set: `cargo run -p foundation-jobs --
+# The job list's time_limit_minutes (jobs.v1.json): a tick reads the metadata of the Gold tables of
+# its assets' inputs (thirteen) and asks systemd which jobs run and Docker how many bridge networks it holds. Generated from the list, not hand-set: `cargo run -p foundation-jobs --
 # generate` (committed_units test).
 TimeoutStartSec=3m
 TimeoutStopSec=30
 # A Python process reading JSON; counted under host_reserved like the other default_pool jobs.
-MemoryMax=256M
+# 2026-10-29 12:00Z a tick of six tables peaked at the old 256M with 185M swapped; the panel bake's
+# eight lanes add their Gold tables' metadata.
+MemoryMax=512M
+# It counts the host's Docker bridge networks (docker-networks.prom); ProtectHome hides the service
+# user's ~/.docker, so the CLI keeps its config in the unit's private /tmp (as host retention does).
+Environment=DOCKER_CONFIG=/tmp/docker-config
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
