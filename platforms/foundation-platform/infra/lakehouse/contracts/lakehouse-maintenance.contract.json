@@ -30,6 +30,62 @@
     "year_end_tag": {
       "name_format": "yearly-%Y",
       "reason": "December's month-end snapshot is also tagged as the year end and kept forever: the tag has no `max-ref-age-ms`, so `expire_snapshots` never removes it, and the monthly window never reads its name as a month."
+    },
+    "reader_pins": {
+      "reason": "Root ADR-0338: whatever reads a snapshot older than the window pins it with an Iceberg tag of its own, made where the data it depends on is committed, released by its own rule; everything else gets the 30 days. Netflix and Iceberg's own documentation keep long-lived references the same way (tags, `max-ref-age-ms`). Expiry never removes a tagged snapshot. A tag marked `walks_main_back_to_it` also keeps every `main` snapshot from the head back to it, because its reader walks that chain; a table listed under `required_on` expires nothing until it carries the tag. `readers` is every code site that reads a snapshot by id, and what keeps that snapshot (test_snapshot_readers_are_pinned).",
+      "tags": {
+        "served-": {
+          "prefix": true,
+          "made_by": "crates/publisher/foundation-publisher-by-pnu/src/by_pnu_serving_pins.rs pin (every by-PNU publish, before its manifest is written)",
+          "released_by": "release_older, once a newer publish of the lane is live",
+          "reader": "by_pnu_panel_delta.py: the change set from the snapshot the served manifest reflects (root ADR-0146 §2)"
+        },
+        "baking-": {
+          "prefix": true,
+          "made_by": "by_pnu_serving_pins.rs pin_bake (every export shard, before it reads the snapshot the bake pinned)",
+          "released_by": "release_behind_live, at the lane's next publish: the generation is then served (and its snapshot holds a served- tag) or abandoned",
+          "reader": "the by-PNU exports finishing a generation at its pinned Gold snapshot (root ADR-0310)"
+        },
+        "foundation-gold-input-": {
+          "prefix": true,
+          "made_by": "gold_incremental.retain_input_snapshots, after each Gold producer commit, on every Silver input",
+          "released_by": "moved to the new pin by the Gold table's next successful commit; the snapshot it left then has the 30-day window as its grace",
+          "reader": "gold_incremental: the next incremental rebuild reads its inputs at the pins the current Gold was built from (root ADR-0180)"
+        },
+        "foundation-gold-build": {
+          "walks_main_back_to_it": true,
+          "required_on": "tables_recording_gold_source_pins",
+          "made_by": "gold_incremental.Outcome.commit, on the producer commit that records the Silver pins",
+          "released_by": "moved by the Gold table's next producer commit",
+          "reader": "gold_rebuild.recorded_pins and head_build_pins walk main from the head back to the newest commit that records the Silver pins; only compactions lie between"
+        },
+        "foundation-floor-history-witness": {
+          "walks_main_back_to_it": true,
+          "required_on": ["silver.building_register_floors"],
+          "made_by": "building_register_floor_history.pin_witness, once the FLOOR history check has authenticated the witness snapshot",
+          "released_by": "by hand, with the FLOOR history witness itself; the check reads it on every FLOOR run",
+          "reader": "building_register_floor_history.verify_append_descendant walks main from the head back to the witness through append commits only"
+        }
+      },
+      "readers": [
+        {"path": "crates/publisher/foundation-publisher-by-pnu/src/by_pnu_serving_pins.rs", "reads": 1, "kept_by": "baking-", "reason": "load_baked_snapshot: the snapshot a generation pinned; pin_bake tags it first"},
+        {"path": "infra/lakehouse/spark/jobs/lakehouse_snapshot_pins.py", "reads": 1, "kept_by": "foundation-gold-input-", "reason": "read_pinned_iceberg: the current pins (heads this run) and the previous pins an incremental rebuild compares against"},
+        {"path": "infra/lakehouse/spark/jobs/gold_incremental.py", "reads": 2, "kept_by": "foundation-gold-input-", "reason": "read_appended: the appends from the previous pin to the head; a chain with a gap is not an append span and the run compares the two snapshots instead"},
+        {"path": "infra/lakehouse/spark/jobs/by_pnu_panel_delta.py", "reads": 1, "kept_by": "served-", "reason": "snapshot_frame: the reflected snapshot and the current one; a missing one refuses the change set (exit 3)"},
+        {"path": "infra/lakehouse/spark/jobs/building_register_floor_history.py", "reads": 2, "kept_by": "foundation-floor-history-witness", "reason": "authenticate_history reads the witness snapshot; the other read is the head"},
+        {"path": "infra/lakehouse/spark/jobs/lakehouse_ingest.py", "reads": 3, "kept_by": null, "reason": "read_recorded_append: a retry authenticates the append it recorded; the FLOOR chain keeps the FLOOR's, and any other expired one is refused (\"recorded append snapshot is unavailable\", root ADR-0332), never re-appended"},
+        {"path": "infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py", "reads": 1, "kept_by": "head", "reason": "the host panel's head, which the plan named in this run"},
+        {"path": "infra/lakehouse/spark/jobs/by_pnu_kind_sizes.py", "reads": 1, "kept_by": "head", "reason": "main's head, read in the same run"},
+        {"path": "infra/lakehouse/spark/jobs/lakehouse_schema_migrate.py", "reads": 1, "kept_by": "head", "reason": "main's head, read in the same run"},
+        {"path": "infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py", "reads": 1, "kept_by": "head", "reason": "parcel_lineage's head, read in the same run"},
+        {"path": "infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py", "reads": 2, "kept_by": "head", "reason": "the Silver head and the Gold snapshot this run just wrote"},
+        {"path": "infra/lakehouse/spark/jobs/parcel_lineage_scheduled.py", "reads": 2, "kept_by": "head", "reason": "the heads this run pinned a moment before"},
+        {"path": "infra/lakehouse/spark/jobs/section_coverage.py", "reads": 1, "kept_by": "head", "reason": "the served Gold head the plan named in this run"},
+        {"path": "infra/lakehouse/spark/jobs/unit_official_price.py", "reads": 1, "kept_by": "head", "reason": "main's head; an operator's --price/--exclusive-snapshot-id names its own and fails if it expired"},
+        {"path": "infra/lakehouse/spark/jobs/changelog.py", "reads": 2, "kept_by": null, "reason": "changes_between has no production caller; a missing step returns None and the caller compares two snapshots"},
+        {"path": "scripts/ops/parcel-boundary-equality.py", "reads": 1, "kept_by": null, "reason": "an operator's one-off cutover proof (root ADR-0194) at a snapshot the operator names; an expired one fails the query"},
+        {"path": "services/foundation-outbox-publisher/src/unit_official_price_projection_load.rs", "reads": 2, "kept_by": null, "reason": "an operator command at the snapshots the operator names; an expired one fails Trino and nothing is promoted"}
+      ]
     }
   },
   "scheduled": {
@@ -41,7 +97,7 @@
   "tables": {
     "silver.building_register_floors": {
       "skip": ["compaction"],
-      "reason": "The FLOOR job authenticates its history by walking from the head back to a witness snapshot through `append` commits only (building_register_floor_history.py `verify_append_descendant`); a compaction commits a `replace` and the next FLOOR run would refuse. Its ingest records keep expiry from reaching that chain."
+      "reason": "The FLOOR job authenticates its history by walking from the head back to a witness snapshot through `append` commits only (building_register_floor_history.py `verify_append_descendant`); a compaction commits a `replace` and the next FLOOR run would refuse. Expiry keeps that chain by the `foundation-floor-history-witness` tag (snapshot_expiry.reader_pins, root ADR-0338)."
     }
   },
   "orphan_cleanup": {

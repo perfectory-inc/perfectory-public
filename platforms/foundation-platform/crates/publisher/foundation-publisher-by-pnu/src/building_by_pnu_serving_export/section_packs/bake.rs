@@ -365,6 +365,10 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let catalog = IcebergRestCatalog::new(
         LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
     )?;
+    if let Some(pinned) = &config.expected_gold_snapshot {
+        let pins = crate::by_pnu_serving_pins::SnapshotPins::for_output(&config.output)?;
+        crate::by_pnu_serving_pins::pin_bake(&pins, lane, table, pinned).await?;
+    }
     let snapshot = crate::by_pnu_serving_pins::load_baked_snapshot(
         &catalog,
         table,

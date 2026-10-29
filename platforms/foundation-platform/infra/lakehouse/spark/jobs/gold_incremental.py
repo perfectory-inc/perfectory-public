@@ -40,7 +40,9 @@ this module adds is the machinery around it:
    record (a full overwrite, a backfill) sends it back to that join.
 7. **Keeping the comparison point.** After a commit the producer tags each pinned Silver snapshot
    (`input_tag`), so snapshot expiry cannot remove the state the next incremental run compares
-   against. A pin that is gone anyway makes the planner choose the full rebuild.
+   against. A pin that is gone anyway makes the planner choose the full rebuild. The commit that
+   records the pins is tagged on the Gold table too (BUILD_TAG, `retain_build`, root ADR-0338): the
+   planner walks back to it, and expiry keeps it and the commits after it.
 8. **Publishing a code change by key** (root ADR-0321 §5). A producer code change recomputes every
    row, but `--publish-changed-keys` publishes the build Write-Audit-Publish style
    (`Outcome.publish_by_key`): written to a shadow branch, compared with main by `row_digest`, and
@@ -65,6 +67,8 @@ KEY = "pnu"
 DELETE_FLAG = "_foundation_delete"
 MERGE_SOURCE_VIEW = "foundation_gold_incremental_merge_source"
 INPUT_TAG_PREFIX = "foundation-gold-input-"
+# The Gold table's own reader pin (root ADR-0338): the commit that records the Silver pins.
+BUILD_TAG = "foundation-gold-build"
 STAGES_PREFIX = "gold-incremental-"
 # Iceberg's table properties for row-level commands. The bake refuses delete files.
 MERGE_MODE_PROPERTY = "write.merge.mode"
@@ -336,6 +340,12 @@ class Outcome:
     published: dict[str, Any] | None = None
 
     def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
+        """Commit (`commit_rows`), then tag the commit that records the pins (`retain_build`)."""
+        self.commit_rows(spark, table, pins, write_mode)
+        if pins:
+            retain_build(spark, table)
+
+    def commit_rows(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
         """Write the full Gold in `write_mode`, or merge the changed PNUs; one snapshot either way.
 
         Root ADR-0274 §1: a full build whose content fingerprint equals the current Gold's rewrites
@@ -800,6 +810,35 @@ def retain_input_snapshots(spark: Any, catalog: str, namespace: str, gold_table:
         spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE TAG `{tag}` AS OF VERSION {int(snapshot)}")
         tagged.append(name)
     return tagged
+
+
+def build_snapshot(snapshots: dict[int, tuple[int | None, dict[str, str]]], head: int) -> int:
+    """The newest commit in `head`'s ancestry that records the Silver pins (`snapshots`: id ->
+    (parent id, summary)). A compaction that landed after the producer's commit records none."""
+    from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY
+
+    current, seen = head, set()
+    while current is not None and current in snapshots and current not in seen:
+        seen.add(current)
+        parent, summary = snapshots[current]
+        if SOURCE_SNAPSHOTS_PROPERTY in summary:
+            return current
+        current = parent
+    raise ValueError(f"no commit in the ancestry of {head} records the Silver pins")
+
+
+def retain_build(spark: Any, table: str) -> int:
+    """Tag the commit the Gold planner plans from (BUILD_TAG, root ADR-0338): the newest one that
+    records the Silver pins. The planner walks `main` from the head back to it, so snapshot expiry
+    keeps it and every commit after it; one tag per table, moved on every producer commit."""
+    rows = spark.sql(f"SELECT snapshot_id, parent_id, summary FROM {table}.snapshots").collect()
+    snapshots = {int(r.snapshot_id): (None if r.parent_id is None else int(r.parent_id), dict(r.summary or {}))
+                 for r in rows}
+    head = spark.sql(f"SELECT snapshot_id FROM {table}.refs WHERE name = 'main'").first()[0]
+    build = build_snapshot(snapshots, int(head))
+    spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE TAG `{BUILD_TAG}` AS OF VERSION {build}")
+    print(f"gold-build-tagged table={table} snapshot={build}", flush=True)
+    return build
 
 
 def changes_table(table: str) -> str:

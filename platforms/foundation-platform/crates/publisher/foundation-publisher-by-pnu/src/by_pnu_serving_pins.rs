@@ -18,6 +18,9 @@
 //!   pin, which is the safe direction; the next publish releases it.
 //! - Creating a tag is an Iceberg table commit, so the catalog token must be allowed to write
 //!   the catalog; a token that may only read is refused naming that permission.
+//! - A bake pins the snapshot it reads the same way, `baking-{unit}-{snapshot}`, before every
+//!   shard reads it, and the lane's next publish releases those pins (root ADR-0338): a long
+//!   generation finishes at its pin (root ADR-0310) however old that snapshot is.
 //! - The production pins are tags in the Iceberg catalog. A local rehearsal store keeps the same
 //!   tags in a file beside its objects, so a rehearsal never touches the catalog.
 
@@ -237,6 +240,62 @@ pub async fn release_older(
     released
 }
 
+/// The prefix of the pins a running bake of `lane` makes (root ADR-0338); a publish of the lane
+/// releases them all.
+pub fn bake_tag_prefix(lane: ByPnuLane) -> String {
+    format!("baking-{}-", lane.unit())
+}
+
+/// Pins `snapshot` of `table`, the Gold snapshot a bake of `lane` reads, before it is read (root
+/// ADR-0338). A generation can take longer than the expiry window, and the window counts from the
+/// snapshot's commit, not from the bake's start: a snapshot committed 29 days before the bake began
+/// had one day left. Every shard pins again (the same name on the same snapshot is a re-run), so a
+/// pin released by a publish in between is made again before the next read. Returns the tag.
+///
+/// # Errors
+/// Refuses a snapshot id that is not a number and any refusal of [`SnapshotPins::create`]; an
+/// expired snapshot is refused with "no longer holds snapshot", which the bake script reads.
+pub async fn pin_bake(
+    pins: &SnapshotPins,
+    lane: ByPnuLane,
+    table: &str,
+    snapshot: &str,
+) -> anyhow::Result<String> {
+    let snapshot = parse_snapshot(snapshot)?;
+    let tag = format!("{}{snapshot}", bake_tag_prefix(lane));
+    pins.create(table, &tag, snapshot).await.with_context(|| {
+        format!("could not pin the baked Gold snapshot {snapshot} of {table} as {tag}")
+    })?;
+    Ok(tag)
+}
+
+/// Releases every bake pin of `lane` on `table` once a publish of the lane is live (root ADR-0338):
+/// the generation it pinned is then served, and its snapshot carries a `served-` pin, or it was left
+/// unserved and is never resumed. Returns the released tags; one that cannot be released stays
+/// until the next publish.
+pub async fn release_bake_pins(pins: &SnapshotPins, lane: ByPnuLane, table: &str) -> Vec<String> {
+    let tags = match pins.tags(table, &bake_tag_prefix(lane)).await {
+        Ok(tags) => tags,
+        Err(error) => {
+            tracing::warn!(table, error = %format!("{error:#}"), "bake pins not read; they stay until the next publish");
+            return Vec::new();
+        }
+    };
+    let mut released = Vec::new();
+    for (name, snapshot) in tags {
+        match pins.remove(table, &name, snapshot).await {
+            Ok(()) => released.push(name),
+            Err(error) => tracing::warn!(
+                table,
+                tag = %name,
+                error = %format!("{error:#}"),
+                "bake pin not released; it stays until the next publish"
+            ),
+        }
+    }
+    released
+}
+
 /// The Gold snapshot a bake shard reads: the one the bake pinned (`…_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID`)
 /// wherever the table is now, or the current one when the bake names none. A long bake finishes
 /// at its pin instead of stopping when Gold moves (root ADR-0310); an expired pin is refused with
@@ -291,7 +350,9 @@ fn write_local(path: &Path, tags: &LocalTags) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{pin, release_older, tag_name, tag_order, SnapshotPins};
+    use super::{
+        pin, pin_bake, release_bake_pins, release_older, tag_name, tag_order, SnapshotPins,
+    };
     use crate::by_pnu_gateway_contract::ByPnuLane;
     use uuid::Uuid;
 
@@ -375,6 +436,38 @@ mod tests {
             live,
             running,
         ];
+        expected.sort();
+        assert_eq!(left.keys().cloned().collect::<Vec<_>>(), expected);
+        Ok(())
+    }
+
+    /// Root ADR-0338: a bake pins the snapshot it reads under the lane's bake prefix, every shard
+    /// again, and a publish of the lane releases every bake pin and nothing else.
+    #[tokio::test]
+    async fn a_bake_pin_lasts_until_the_lanes_next_publish() -> anyhow::Result<()> {
+        let (pins, root) = pins("bake");
+        let tag = pin_bake(&pins, ByPnuLane::Parcel, TABLE, SNAPSHOT).await?;
+        assert_eq!(tag, format!("baking-parcel-by-pnu-{SNAPSHOT}"));
+        assert_eq!(
+            pin_bake(&pins, ByPnuLane::Parcel, TABLE, SNAPSHOT).await?,
+            tag
+        );
+        pins.create(TABLE, "baking-building-by-pnu-7", 7).await?;
+        let served = pin(
+            &pins,
+            ByPnuLane::Parcel,
+            TABLE,
+            SNAPSHOT,
+            "2026-01-01T00:00:00Z",
+        )
+        .await?;
+
+        let released = release_bake_pins(&pins, ByPnuLane::Parcel, TABLE).await;
+        let left = pins.tags(TABLE, "").await?;
+        std::fs::remove_dir_all(&root)?;
+
+        assert_eq!(released, vec![tag]);
+        let mut expected = vec!["baking-building-by-pnu-7".to_owned(), served];
         expected.sort();
         assert_eq!(left.keys().cloned().collect::<Vec<_>>(), expected);
         Ok(())

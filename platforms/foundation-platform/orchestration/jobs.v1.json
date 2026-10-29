@@ -1087,7 +1087,7 @@
       "full_tracked_by": "PR #896 (range-ordered Gold keeps its PNU ranges through MERGE and compaction)",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Expiry never removes a snapshot a Silver loader or the Gold rebuild reads back. It changes no rows, so it starts nothing downstream.",
+      "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Expiry keeps every snapshot a tag names; a reader that needs one older than 30 days pins it with its own tag (snapshot_expiry.reader_pins, root ADR-0338), and the run refuses a table where a bake pin or served state the host holds would expire. It changes no rows, so it starts nothing downstream.",
       "systemd_service": "foundation-lakehouse-maintenance.service",
       "systemd_timer": null,
       "state_paths": [],

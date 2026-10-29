@@ -118,23 +118,23 @@ class MonthEndTagsIceberg(unittest.TestCase):
         return {str(row.snapshot_id) for row in
                 self.spark.sql(f"SELECT snapshot_id FROM proof.{table}.snapshots").collect()}
 
-    def test_expiry_keeps_what_a_loader_or_the_gold_rebuild_reads_back(self):
-        """Past the window, an ingest record and the newest Gold pins survive; what nobody reads does not.
+    def test_expiry_keeps_what_a_reader_pins_and_nothing_else(self):
+        """Past the window only what a tag names survives (root ADR-0338).
 
-        A part lane counts its release loaded only while every part's record is in `main`
-        (silver_refresh `decide_parts`), and the Gold rebuild plans from the newest pins.
+        An ingest record no longer holds its snapshot: the run copies it into a table property
+        first (root ADR-0332). The Gold rebuild walks back to the newest pins, so a Gold table
+        waits until its producer has tagged them, then keeps the chain from that commit to the head.
         """
         expiry = maintenance.load_maintenance_contract()["snapshot_expiry"]
         later = maintenance.month_start(datetime.now(timezone.utc).year + 1, 6)
 
         silver = "silver.building_register_unit_areas"
         self.spark.sql(f"CREATE TABLE proof.{silver} (pnu STRING, row_digest STRING) USING iceberg")
-        unread = self.commit(silver, "a")
-        part_1 = self.commit(silver, "b", **{maintenance.INGEST_BATCH_OBJECTS_KEY: "part-1"})
+        self.commit(silver, "a")
+        self.commit(silver, "b", **{maintenance.INGEST_BATCH_OBJECTS_KEY: "part-1"})
         part_2 = self.commit(silver, "c", **{maintenance.INGEST_BATCH_OBJECTS_KEY: "part-2"})
         maintenance.run_snapshot_expiry(self.spark, "proof", silver, expiry, later, False)
-        self.assertNotIn(unread, self.ids(silver), "a snapshot nothing reads back outlived the window")
-        self.assertLessEqual({part_1, part_2}, self.ids(silver), "expiry removed an ingest record")
+        self.assertEqual(self.ids(silver), {part_2}, "an untagged snapshot outlived the window")
 
         self.spark.sql("CREATE NAMESPACE IF NOT EXISTS proof.gold")
         gold = "gold.building_panel"
@@ -143,14 +143,30 @@ class MonthEndTagsIceberg(unittest.TestCase):
         new_pins = self.commit(gold, "b", **{maintenance.SOURCE_SNAPSHOTS_PROPERTY: "{}"})
         after = self.commit(gold, "c")
         maintenance.run_snapshot_expiry(self.spark, "proof", gold, expiry, later, False)
-        self.assertNotIn(old_pins, self.ids(gold), "superseded Gold pins kept the table from expiring")
-        self.assertLessEqual({new_pins, after}, self.ids(gold), "expiry removed the pins the rebuild plans from")
+        self.assertEqual(self.ids(gold), {old_pins, new_pins, after}, "a Gold table expired before its pins were tagged")
+
+        self.spark.sql(f"ALTER TABLE proof.{gold} CREATE TAG `foundation-gold-build` AS OF VERSION {new_pins}")
+        maintenance.run_snapshot_expiry(self.spark, "proof", gold, expiry, later, False)
+        self.assertEqual(self.ids(gold), {new_pins, after}, "the build tag did not keep the chain, or kept more")
+
+    def test_a_pin_outside_the_catalog_refuses_the_expiry(self):
+        """An unfinished bake's pin (in-progress.json) is never expired under it (root ADR-0338)."""
+        expiry = maintenance.load_maintenance_contract()["snapshot_expiry"]
+        later = maintenance.month_start(datetime.now(timezone.utc).year + 1, 6)
+        table = "silver.land_use_plan"
+        self.spark.sql(f"CREATE TABLE proof.{table} (pnu STRING, row_digest STRING) USING iceberg")
+        baked = self.commit(table, "a")
+        self.commit(table, "b")
+        with self.assertRaisesRegex(ValueError, "refused to expire"):
+            maintenance.run_snapshot_expiry(self.spark, "proof", table, expiry, later, False,
+                                            {int(baked): "the bake pin"})
+        self.assertIn(baked, self.ids(table))
 
     def test_an_ingest_record_outlives_its_expired_snapshot(self):
         """The maintenance run copies a record past the window into a table property; once the
         snapshot that carried it is expired, the loaders still read the object as loaded (root ADR-0332).
 
-        The expiry here is Iceberg's own procedure with nothing protected, as any expiry would be.
+        The expiry here is Iceberg's own procedure, as any expiry would be.
         """
         import lakehouse_ingest as ingest  # noqa: PLC0415
 

@@ -77,6 +77,7 @@ class LakehouseMaintenance(unittest.TestCase):
             "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_LOG": str(self.log),
             "FOUNDATION_LAKEHOUSE_MAINTENANCE_STATE_ROOT": str(self.state),
             "FOUNDATION_LAKEHOUSE_MAINTENANCE_SCRATCH": str(self.root / "scratch"),
+            "FOUNDATION_BY_PNU_BAKE_STATE_ROOT": str(self.root / "by-pnu-bake"),
         }
 
     def run_script(self, *args, **env):
@@ -103,11 +104,35 @@ class LakehouseMaintenance(unittest.TestCase):
         self.assertEqual(submit[submit.index("--master") + 1], spark["master"])
         self.assertEqual(submit[submit.index("--driver-memory") + 1], spark["driver_memory"])
         job = submit.index("/workspace/infra/lakehouse/spark/jobs/lakehouse_maintenance.py")
-        self.assertEqual(submit[job + 1:], ["--all-tables", "--state-file", "/workspace/target/lakehouse/rotation.json"])
+        self.assertEqual(submit[job + 1:job + 5],
+                         ["--all-tables", "--state-file", "/workspace/target/lakehouse/rotation.json", "--keep-snapshots"])
+        self.assertRegex(submit[job + 5], r"^/workspace/target/lakehouse/runs/\d{8}T\d{6}Z/keep-snapshots\.json$")
+        self.assertEqual(len(submit), job + 6)
         # The job's own lines reach the unit's journal; Spark's noise stays in the run's log.
         self.assertIn("foundation-job-outcome unchanged\n", result.stdout)
         self.assertIn("maintenance-summary tables=2", result.stdout)
         self.assertNotIn("spark noise", result.stdout)
+
+    def test_the_pins_this_host_holds_outside_the_catalog_reach_the_job(self):
+        """Root ADR-0338: an unfinished bake's pin and the served state's reflected snapshot are kept.
+
+        The building lane's bake pinned 9999900000000000001 before any `baking-` tag existed; expiry
+        must refuse a table where it would go."""
+        bake = self.root / "by-pnu-bake"
+        (bake / "building").mkdir(parents=True)
+        (bake / "parcel").mkdir()
+        (bake / "building/in-progress-packs.json").write_text(json.dumps(
+            {"gold_iceberg_snapshot_id": "9999900000000000001", "mode": "full", "base_generation": 1, "target": 2}))
+        (bake / "parcel/state.json").write_text(json.dumps(
+            {"published": {"reflected_gold_iceberg_snapshot_id": "9999900000000000002"},
+             "section_packs": {"reflected_gold_iceberg_snapshot_id": "9999900000000000003"}}))
+        result, [call] = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        path = call["args"][call["args"].index("--keep-snapshots") + 1]
+        kept = json.loads((self.state / path.removeprefix("/workspace/target/lakehouse/")).read_text())
+        self.assertEqual(sorted(kept), ["9999900000000000001", "9999900000000000002", "9999900000000000003"])
+        self.assertIn("in-progress-packs.json", kept["9999900000000000001"])
+        self.assertIn("3 snapshots pinned outside the catalog", result.stdout)
 
     def test_a_rotation_file_the_container_owns_does_not_stop_the_run(self):
         """2026-10-15 05:04: rotation.json belonged to the container's uid 185; chmod-ing it failed the run."""

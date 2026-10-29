@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Authenticate retained FLOOR history before exporting recovered Bronze inputs.
 
-This gate only reads Iceberg. The fixed witness binds source content to an old name;
-the table's own snapshots remain the authority for whether its rows were committed.
+This gate reads Iceberg, and writes one thing: the tag that pins the witness snapshot once it is
+authenticated (`pin_witness`, root ADR-0338). The check walks `main` from the head back to that
+snapshot, so snapshot expiry keeps the snapshot and the chain while the tag is there. The fixed
+witness binds source content to an old name; the table's own snapshots remain the authority for
+whether its rows were committed.
 """
 from __future__ import annotations
 
@@ -30,6 +33,8 @@ OUTCOME_SCHEMA = "foundation-platform.floor-history-check.v1"
 MAX_RECEIPT_BYTES = 65536
 EXPORT_REQUIRED = 10
 LINEAGE_COLUMNS = ("source_snapshot_id", "bronze_object_key", "valid_from_utc", "ingested_at_utc")
+# The reader pin of the witness snapshot (lakehouse-maintenance.contract.json reader_pins).
+WITNESS_TAG = "foundation-floor-history-witness"
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -200,6 +205,24 @@ def verify_metadata(witness: dict, table_uuid: str, head: int, snapshots: list[d
     verify_append_descendant(head, pin, by_id)
 
 
+def witness_tag_sql(name: str, snapshot_id: str) -> str:
+    """Tags the authenticated witness snapshot; a tag already there is left for `pin_witness` to check."""
+    return f"ALTER TABLE {name} CREATE TAG IF NOT EXISTS `{WITNESS_TAG}` AS OF VERSION {int(snapshot_id)}"
+
+
+def pin_witness(spark: Any, name: str, witness: dict) -> None:
+    """Pin the witness snapshot this check has just authenticated (root ADR-0338).
+
+    Until the tag exists the maintenance job expires nothing of this table; with it, expiry keeps
+    the witness and every `main` commit after it, which `verify_append_descendant` walks. A tag
+    naming another snapshot is refused: the witness is fixed, and so is its pin.
+    """
+    spark.sql(witness_tag_sql(name, witness["snapshot_id"])).collect()
+    tagged = spark.sql(f"SELECT snapshot_id FROM {name}.refs WHERE name = '{WITNESS_TAG}'").collect()
+    if [str(row[0]) for row in tagged] != [witness["snapshot_id"]]:
+        raise ValueError(f"{name} tag {WITNESS_TAG} does not name the witness snapshot")
+
+
 def verify_append_descendant(head: int, pin: int, by_id: dict) -> None:
     visited = set()
     while head != pin:
@@ -274,6 +297,7 @@ def authenticate_registered_source(spark: Any, receipt: dict, witness: dict,
     table.refresh()
     if str(table.uuid()) != table_uuid or table.currentSnapshot().snapshotId() != head:
         raise ValueError("Iceberg head changed during append authentication; retry")
+    pin_witness(spark, name, witness)
     return result
 
 
@@ -314,6 +338,7 @@ def authenticate_history(spark: Any, witness: dict, catalog: str) -> int:
     table.refresh()
     if str(table.uuid()) != table_uuid or table.currentSnapshot().snapshotId() != head:
         raise ValueError("Iceberg head changed during historical authentication; retry")
+    pin_witness(spark, name, witness)
     return head
 
 
