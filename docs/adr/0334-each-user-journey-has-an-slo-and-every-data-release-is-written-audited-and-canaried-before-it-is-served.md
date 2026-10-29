@@ -2,7 +2,7 @@
 
 - Status: Proposed
 - Date: 2026-10-29
-- Builds on: [ADR-0306](./0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md)(서빙 신선도 예산), [ADR-0327](./0327-a-worker-deploy-and-a-quarter-hourly-probe-read-what-users-read-twice.md)(엣지 탐침), [ADR-0321](./0321-a-gold-commit-records-the-code-that-built-it.md)(Gold 의 WAP), [ADR-0157](./0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md)·[ADR-0196](./0196-a-worker-deploy-creates-a-new-worker-and-weighs-latency-against-the-serving-version.md)(Worker 카나리), [ADR-0242](./0242-a-superseded-pack-generation-is-deleted-a-week-after-its-successor-went-live.md)(옛 세대 보관), [ADR-0299](./0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md)(위생 B SLO), [ADR-0332](./0332-every-published-schema-lives-in-one-registry-and-ci-holds-every-consumer-to-it.md)(스키마 레지스트리), [ADR-0333](./0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md)(자산 파티션)
+- Builds on: [ADR-0306](./0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md)(서빙 신선도 예산), [ADR-0327](./0327-a-worker-deploy-and-a-quarter-hourly-probe-read-what-users-read-twice.md)(엣지 탐침), [ADR-0321](./0321-a-gold-commit-records-the-code-that-built-it.md)(Gold 의 WAP), [ADR-0157](./0157-a-canary-step-counts-its-own-answers-and-cpu-is-bound-by-measurement.md)·[ADR-0196](./0196-a-worker-deploy-creates-a-new-worker-and-weighs-latency-against-the-serving-version.md)(Worker 카나리), [ADR-0242](./0242-a-superseded-pack-generation-is-deleted-a-week-after-its-successor-went-live.md)(옛 세대 보관), [ADR-0299](./0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md)(위생 B SLO), [ADR-0336](./0336-every-published-schema-lives-in-one-registry-and-ci-holds-every-consumer-to-it.md)(스키마 레지스트리), [ADR-0333](./0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md)(자산 파티션)
 - 관련 사건: 사용자(소유자)가 먼저 찾은 버그 셋 — 2026-10-29 공매 사진 엑박(캐시 적중 GET 이 모두 500, #927), 2026-10-29 거래이력 영향 PNU 1,599개가 낡은 문서로 남음(ADR-0328), 2026-10-24~28 공매가 화면에 안 보임(서빙 10~12일 정지, ADR-0306). 세 번 모두 작업·모니터는 초록이었다.
 
 ## Context
@@ -37,7 +37,7 @@
    | 여정 | 밟는 것 | SLI | SLO(출시 전 시작값, 28일) |
    |---|---|---|---|
    | J1 지도 보기 | 타일 Worker | 타일 GET 성공률, p95 | 99.5%, 400ms |
-   | J2 필지 패널 | 필지 host + 종류 레인 6 | 문서 GET 성공·스키마 유효(ADR-0332) | 99.5% |
+   | J2 필지 패널 | 필지 host + 종류 레인 6 | 문서 GET 성공·스키마 유효(ADR-0336) | 99.5% |
    | J3 건물 패널 | 건물 레인(페이지 포함) | 같음 | 99.5% |
    | J4 공매 보기 | 공매 레인 + 필지 엣지 미디어 | 문서 성공 + **사진 바이트 해시 일치** | 99.5%, 사진 99.9% |
    | J5 단가 | 단가 레인 | 문서 성공 | 99.5% |
@@ -54,7 +54,7 @@
 4. **모든 데이터 발행은 WAP 다.** Gold(ADR-0321)와 타일에 이미 있는 것을 by-PNU 서빙·미디어로 넓힌다:
    - **Write**: 패치·전량 모두 새 manifest 를 `manifest.candidate` 로 쓴다. 문서·팩 객체는 이미 세대·내용 이름이라
      실서빙과 섞이지 않는다.
-   - **Audit**: (가) 레지스트리 스키마 검증(ADR-0332)을 바뀐 문서 표본에, (나) 수 불변식(바뀐 PNU 수 = 패치 수,
+   - **Audit**: (가) 레지스트리 스키마 검증(ADR-0336)을 바뀐 문서 표본에, (나) 수 불변식(바뀐 PNU 수 = 패치 수,
      ADR-0312), (다) **섀도 읽기** — 미리보기 Worker 가 후보 manifest 로 같은 표본을 읽고, 바뀌지 않은 PNU 는 실서빙과
      바이트 같음, 바뀐 PNU 는 Gold 와 같음. 지금 cut-over 게이트(ADR-0147 §6 가·나)를 **모든 발행**의 검사로 만든다.
    - **Publish**: 후보를 manifest 로 원자 교체. 되돌리기는 이전 manifest 로의 교체(옛 세대는 ADR-0242 대로 7일 보관).
