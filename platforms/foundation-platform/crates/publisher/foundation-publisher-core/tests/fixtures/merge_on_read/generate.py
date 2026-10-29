@@ -93,11 +93,19 @@ def main() -> None:
     target = HERE / "files"
     shutil.rmtree(target, ignore_errors=True)
     target.mkdir()
-    written = sorted(path for path in Path(WAREHOUSE).rglob("*") if path.suffix in (".avro", ".parquet"))
+    # A manifest list is named by its snapshot id, 19 digits the public fixture guard reads as a PNU.
+    # No file names one, so only the current ones are kept, under their short names alone.
+    current = {table["manifest_list"] for table in expected["tables"].values()}
+    written = sorted(path for path in Path(WAREHOUSE).rglob("*") if path.suffix in (".avro", ".parquet")
+                     and ("/snap-" not in str(path) or f"file:{path}" in current))
     expected["files"] = {}
     for index, path in enumerate(written):
-        shutil.copyfile(path, target / f"{index:02d}{path.suffix}")
-        expected["files"][f"file:{path}"] = f"{index:02d}{path.suffix}"
+        short = f"{index:02d}{path.suffix}"
+        shutil.copyfile(path, target / short)
+        expected["files"][short if f"file:{path}" in current else f"file:{path}"] = short
+        for table in expected["tables"].values():
+            if table["manifest_list"] == f"file:{path}":
+                table["manifest_list"] = short
     for name in TABLES:
         for row in spark.sql(f"SELECT file_path FROM fixture.gold.{name}.all_files").collect():
             if row.file_path not in expected["files"]:
