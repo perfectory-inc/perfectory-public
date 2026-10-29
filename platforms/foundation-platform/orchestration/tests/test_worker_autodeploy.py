@@ -130,6 +130,10 @@ with open(root / "curl.log", "a") as out:
 cloud = json.loads((root / "cloud.json").read_text())
 hosts = json.loads((root / "hosts.json").read_text())
 serving = cloud[hosts[host]["worker"]]["serving"]
+if "-D" not in sys.argv:
+    # A body read: the capabilities answer the fixture gives the host (can-i-deploy).
+    print(json.dumps(hosts[host].get("capabilities", {})))
+    sys.exit(0)
 status = hosts[host]["paths"].get("/" + path, 404)
 if host in os.environ.get("FIXTURE_BROKEN", "").split() and not serving.startswith("00000000-"):
     status = 500
@@ -197,6 +201,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         (platform / "config").mkdir(parents=True)
         for name in ("worker-deploys.contract.json", "r2-connections.contract.json"):
             shutil.copy(PLATFORM / "config" / name, platform / "config" / name)
+        shutil.copytree(PLATFORM / "contracts/schema-registry", platform / "contracts/schema-registry")
         (platform / "scripts/deploy").mkdir(parents=True)
         for name in autodeploy.TOOL_FILES:
             if (PLATFORM / name).is_dir():
@@ -350,6 +355,41 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertEqual(len(parcel), 2)
         self.assertIn("MONITOR_BASE_URL=https://catalog-preview.perfectory.io", parcel[0])
         self.assertIn(f"MONITOR_BASE_URL=https://{GATEWAYS['parcel_by_pnu_gateway']['public_hostname']}", parcel[1])
+
+    def set_capabilities(self, hostname, answer):
+        hosts = json.loads((self.root / "hosts.json").read_text())
+        hosts[hostname]["capabilities"] = answer
+        (self.root / "hosts.json").write_text(json.dumps(hosts))
+
+    def test_can_i_deploy_passes_a_version_that_reads_every_major_the_serving_one_reads(self):
+        # Root ADR-0336: the parcel Worker serves the public auction subject; its serving version
+        # names the majors it reads, and the new one (this tree's registry) reads the same.
+        subject = "foundation-platform.parcel_public_auction_by_pnu"
+        production = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        self.set_capabilities(production, {"document_schemas": {subject: [1]}})
+        self.assertEqual(self.tick(), 0)
+        self.assertIn("parcel-gateway: can-i-deploy: the new version reads every major", self.output.getvalue())
+
+    def test_can_i_deploy_does_not_compare_a_serving_version_built_before_the_registry(self):
+        self.assertEqual(self.tick(), 0)
+        self.assertIn("parcel-gateway: catalog.perfectory.io names no document schemas it reads", self.output.getvalue())
+
+    def test_can_i_deploy_refuses_a_version_that_drops_a_major_still_served_before_any_upload(self):
+        # 2026-10-29: a reader built against one version list was put in front of documents of
+        # another (the web preview refused the public auction's v2). Here the serving version reads a
+        # major this tree's registry does not list: the new version could not read what is served.
+        subject = "foundation-platform.parcel_public_auction_by_pnu"
+        production = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        self.set_capabilities(production, {"document_schemas": {subject: [1, 7]}})
+        self.assertEqual(self.tick(), 1)
+        preview, live = self.names["parcel-gateway"]
+        self.assertNotIn(preview, self.acted_on("versions upload"))
+        self.assertNotIn(live, self.acted_on("versions upload"))
+        failed = json.loads((self.host.state / "failed/parcel-gateway.json").read_text())
+        self.assertIn("can-i-deploy", failed["error"])
+        self.assertIn("not 7", failed["error"])
+        # The other Workers deployed all the same.
+        self.assertTrue((self.host.state / "workers/building-gateway.json").exists())
 
     def test_a_pack_only_lane_is_held_to_its_monitor_once_it_is_cut_over(self):
         # Before the cut-over the operator has written no monitor file: the smoke is capabilities only.

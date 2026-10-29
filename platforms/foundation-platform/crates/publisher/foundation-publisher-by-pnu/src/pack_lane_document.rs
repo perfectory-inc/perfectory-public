@@ -8,6 +8,9 @@
 //!
 //! `{"schema_version":…,"pnu":…,"source":{"table":…,"iceberg_snapshot_id":…},"units":[…]}`
 //!
+//! A lane whose subject the schema registry lists (root ADR-0336) writes `schema_revision` after
+//! `schema_version` once its current revision is one the registry made.
+//!
 //! It is a pure function of the snapshot and the row, so a re-bake writes the same bytes. No code
 //! is written per lane: a new kind of data is a Gold panel and a contract entry.
 
@@ -79,6 +82,10 @@ pub fn render(
     let mut document = Vec::with_capacity(256);
     document.extend_from_slice(b"{\"schema_version\":");
     serde_json::to_writer(&mut document, &lane.document_schema_version)?;
+    // A registered subject's revision rides beside its major (root ADR-0336): information only.
+    if let Some(revision) = lane.document_schema_revision {
+        document.extend_from_slice(format!(",\"schema_revision\":{revision}").as_bytes());
+    }
     document.extend_from_slice(b",\"pnu\":");
     serde_json::to_writer(&mut document, &pnu)?;
     document.extend_from_slice(b",\"source\":");

@@ -601,6 +601,8 @@ async fn base(
                 state.schema_version,
             )
             .await?;
+            manifest_publish::require_gateway_reads_documents(config.lane, gateway_base_url, [])
+                .await?;
             Ok(state)
         }
         Some(current) => {
@@ -625,6 +627,13 @@ async fn base(
             // and public-auction g2 served v2 documents under a v1 record (2026-10-28).
             let baked = manifest_publish::document_schema_version(config.lane);
             if whole {
+                // A registered subject's new major goes out only to a gateway that reads it.
+                manifest_publish::require_gateway_reads_documents(
+                    config.lane,
+                    gateway_base_url,
+                    current.served_document_schema_versions(),
+                )
+                .await?;
                 baked.clone_into(&mut next.document_schema_version);
             } else {
                 ensure!(

@@ -104,7 +104,6 @@ fn servable_schemas(
     state
         .servable_document_schema_versions(lane)
         .into_iter()
-        .map(ToOwned::to_owned)
         .collect()
 }
 

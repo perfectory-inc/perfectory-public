@@ -1272,6 +1272,10 @@ pub async fn rollback(
 struct GatewayCapabilities {
     unit: String,
     manifest_schema_versions: Vec<u32>,
+    /// The majors of each registered subject the gateway reads (root ADR-0336); a gateway built
+    /// before the registry names none.
+    #[serde(default)]
+    document_schemas: std::collections::BTreeMap<String, Vec<u32>>,
 }
 
 /// Refuses unless the lane's public gateway says it reads manifest `schema_version`.
@@ -1280,6 +1284,91 @@ pub async fn require_gateway_reads(
     gateway_base_url: &str,
     schema_version: u32,
 ) -> anyhow::Result<()> {
+    gateway_capabilities(
+        lane,
+        gateway_base_url,
+        |why| {
+            format!(
+                "{why}; a v{schema_version} manifest would turn every request into a 503 — deploy \
+                 the gateway first (root ADR-0141)"
+            )
+        },
+        |capabilities| {
+            (capabilities.unit != lane.unit()
+                || !capabilities
+                    .manifest_schema_versions
+                    .contains(&schema_version))
+            .then(|| {
+                format!(
+                    "reads {} manifests {:?}",
+                    capabilities.unit, capabilities.manifest_schema_versions
+                )
+            })
+        },
+    )
+    .await
+    .map(drop)
+}
+
+/// Can-i-deploy for a registered subject's documents (root ADR-0336, Pact's can-i-deploy over the
+/// deployed consumer): before a publish records a major that none of `recorded` (what the served
+/// state records) is of, the lane's public gateway must say it reads that major. A major the lane
+/// already serves was asked about when it first went out. A lane whose subject the registry does
+/// not list asks nothing.
+///
+/// # Errors
+/// Refuses when the gateway cannot be asked or does not read the major.
+pub async fn require_gateway_reads_documents<'a>(
+    lane: ByPnuLane,
+    gateway_base_url: &str,
+    recorded: impl IntoIterator<Item = &'a str>,
+) -> anyhow::Result<()> {
+    let Some(subject) = crate::schema_registry::subject_of_lane(lane.name())? else {
+        return Ok(());
+    };
+    let major = subject.major;
+    if recorded
+        .into_iter()
+        .any(|version| subject.major_of(version) == Some(major))
+    {
+        return Ok(());
+    }
+    gateway_capabilities(
+        lane,
+        gateway_base_url,
+        |why| {
+            format!(
+                "{why}; a {} major {major} document is one it cannot read — deploy the gateway \
+                 first (can-i-deploy, root ADR-0336)",
+                subject.subject
+            )
+        },
+        |capabilities| {
+            let reads = capabilities.document_schemas.get(&subject.subject);
+            (capabilities.unit != lane.unit()
+                || !reads.is_some_and(|majors| majors.contains(&major)))
+            .then(|| {
+                format!(
+                    "reads {} {} majors {:?}",
+                    capabilities.unit,
+                    subject.subject,
+                    reads.cloned().unwrap_or_default()
+                )
+            })
+        },
+    )
+    .await
+    .map(drop)
+}
+
+/// The lane's public gateway's capabilities answer, refused when `refused` says why; `refusal`
+/// words the error.
+async fn gateway_capabilities(
+    lane: ByPnuLane,
+    gateway_base_url: &str,
+    refusal: impl Fn(String) -> String,
+    refused: impl Fn(&GatewayCapabilities) -> Option<String>,
+) -> anyhow::Result<GatewayCapabilities> {
     let url = format!(
         "{}{}",
         gateway_base_url.trim_end_matches('/'),
@@ -1287,9 +1376,8 @@ pub async fn require_gateway_reads(
     );
     let refuse = |why: String| {
         anyhow::anyhow!(
-            "the {} gateway at {url} {why}; a v{schema_version} manifest would turn every request \
-             into a 503 — deploy the gateway first (root ADR-0141)",
-            lane.unit()
+            "{}",
+            refusal(format!("the {} gateway at {url} {why}", lane.unit()))
         )
     };
     let response = reqwest::Client::builder()
@@ -1309,17 +1397,10 @@ pub async fn require_gateway_reads(
             "answered something other than its capabilities ({error})"
         ))
     })?;
-    if capabilities.unit != lane.unit()
-        || !capabilities
-            .manifest_schema_versions
-            .contains(&schema_version)
-    {
-        return Err(refuse(format!(
-            "reads {} manifests {:?}",
-            capabilities.unit, capabilities.manifest_schema_versions
-        )));
+    if let Some(why) = refused(&capabilities) {
+        return Err(refuse(why));
     }
-    Ok(())
+    Ok(capabilities)
 }
 
 pub fn now() -> String {

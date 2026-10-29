@@ -1417,3 +1417,44 @@ async fn an_object_publish_never_drops_the_section_packs_block() -> anyhow::Resu
     )?;
     Ok(())
 }
+
+/// Can-i-deploy (root ADR-0336). 2026-10-29: an old web preview build refused the public auction's
+/// v2 because no one asked the deployed reader first. A registered subject's major that the served
+/// state has none of goes out only after the lane's gateway says it reads that major.
+#[tokio::test]
+async fn a_new_document_major_goes_out_only_to_a_gateway_that_reads_it() -> anyhow::Result<()> {
+    let lane = ByPnuLane::named("parcel-public-auction")?
+        .context("the contract names the public auction lane")?;
+    let subject = "foundation-platform.parcel_public_auction_by_pnu";
+    let gateway = MockServer::start().await;
+    let answer = |reads: serde_json::Value| {
+        Mock::given(method("GET"))
+            .and(path(
+                lane.policy()
+                    .map(|p| p.request_path.capabilities.clone())
+                    .unwrap_or_default(),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "unit": lane.unit(),
+                "manifest_schema_versions": [1, 2, 3, 4],
+                "document_schemas": reads,
+            })))
+    };
+    // A major the state already serves (the legacy v2 is major 1) asks no one: nothing answers.
+    let served = format!("{subject}.v2");
+    super::require_gateway_reads_documents(lane, &gateway.uri(), [served.as_str()]).await?;
+    // A first publish asks; a gateway built before the registry names no majors and is refused.
+    answer(serde_json::json!({})).mount(&gateway).await;
+    let refused = super::require_gateway_reads_documents(lane, &gateway.uri(), [])
+        .await
+        .expect_err("a gateway that names no majors reads none");
+    assert!(refused.to_string().contains("can-i-deploy"), "{refused}");
+    gateway.reset().await;
+    answer(serde_json::json!({ (subject): [1] }))
+        .mount(&gateway)
+        .await;
+    super::require_gateway_reads_documents(lane, &gateway.uri(), []).await?;
+    // A lane the registry does not list asks nothing.
+    super::require_gateway_reads_documents(ByPnuLane::Parcel, "http://127.0.0.1:9", []).await?;
+    Ok(())
+}

@@ -40,6 +40,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/contracts/schema-registry/registry.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -51,6 +52,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/contracts/schema-registry/registry.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -80,7 +82,9 @@
         "scripts/tiles/vector-tile-manifest.local.json",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/contracts/schema-registry/registry.json",
         "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
+        "platforms/foundation-platform/contracts/schema-registry/**",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
@@ -91,6 +95,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/contracts/schema-registry/registry.json",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
@@ -103,6 +108,7 @@
         "rust-toolchain.toml",
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
+        "platforms/foundation-platform/contracts/schema-registry/registry.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -771,6 +777,21 @@
         "paths": [
           "platforms/foundation-platform/contracts/by-pnu-documents/**"
         ]
+      },
+      {
+        "name": "schema-registry-self-test",
+        "paths": [
+          "platforms/foundation-platform/scripts/schema_registry.py",
+          "platforms/foundation-platform/orchestration/tests/test_schema_registry.py",
+          "platforms/foundation-platform/contracts/schema-registry/**",
+          "platforms/foundation-platform/contracts/by-pnu-documents/**",
+          "platforms/foundation-platform/config/r2-connections.contract.json"
+        ]
+      },
+      {
+        "name": "schema-registry",
+        "always": "Any tracked source file may spell a registered subject's versioned string by hand (root ADR-0336); the scan is one `git grep`, the rest reads the registry's few files.",
+        "budget_seconds": 15
       },
       {
         "name": "pipeline-graph-covers-every-dataset-self-test",

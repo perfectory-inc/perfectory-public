@@ -23,6 +23,7 @@ describe("public auction gallery", () => {
     renderCard([
       {
         item_name: "테스트 물건 1",
+        bid_ends_at: "2099-01-01T00:00:00.000Z",
         photos: [
           {
             sha256: sha("a"),
@@ -58,7 +59,7 @@ describe("public auction gallery", () => {
           },
         ],
       },
-      { item_name: "테스트 물건 2", photos: [] },
+      { item_name: "테스트 물건 2", bid_ends_at: "2099-01-01T00:00:00.000Z", photos: [] },
     ]);
 
     // Only the two photos are images, in the order the source gave them; title becomes alt,
@@ -81,7 +82,7 @@ describe("public auction gallery", () => {
   });
 
   it("renders no gallery when a round has no photos", () => {
-    renderCard([{ item_name: "테스트 물건", photos: [] }]);
+    renderCard([{ item_name: "테스트 물건", bid_ends_at: "2099-01-01T00:00:00.000Z", photos: [] }]);
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
   });

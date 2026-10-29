@@ -165,10 +165,29 @@ impl SectionPacksState {
     /// the generation it replaced, so parcel generation 6 and public-auction generation 2
     /// (2026-10-28) served v2 documents under a v1 record, and every hourly serving monitor run of
     /// both lanes failed "the documents fragment is not a ...v1 document".
-    pub fn servable_document_schema_versions(&self, lane: ByPnuLane) -> BTreeSet<&str> {
-        let mut schemas = self.served_document_schema_versions();
+    ///
+    /// A lane whose subject the schema registry lists (root ADR-0336) is read by its subject and
+    /// major alone: every string of every major the registry lists, whatever the state records,
+    /// and nothing else; a revision added to the same major changes neither.
+    pub fn servable_document_schema_versions(&self, lane: ByPnuLane) -> BTreeSet<String> {
+        // The registry is compiled in and read before any lane exists (resolve_lane_entry), so an
+        // unreadable one never reaches here.
+        if let Ok(Some(subject)) = crate::schema_registry::subject_of_lane(lane.name()) {
+            return subject
+                .majors()
+                .into_iter()
+                .flat_map(|major| subject.wire_versions(major))
+                .collect();
+        }
+        let mut schemas = self
+            .served_document_schema_versions()
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect::<BTreeSet<_>>();
         schemas.extend(
-            crate::by_pnu_serving_manifest_publish::readable_document_schema_versions(lane),
+            crate::by_pnu_serving_manifest_publish::readable_document_schema_versions(lane)
+                .into_iter()
+                .map(ToOwned::to_owned),
         );
         schemas
     }
@@ -397,6 +416,22 @@ pub mod tests {
             );
         }
         assert!(!servable.contains("doc.v0"));
+        Ok(())
+    }
+
+    /// Root ADR-0336: the public auction lane's readers take its subject and major from the
+    /// registry, never the state's record (which #929 found lying) nor a list of their own.
+    #[test]
+    fn a_registered_lane_is_read_by_its_subject_and_major_alone() -> anyhow::Result<()> {
+        let block = state(1)?;
+        let lane = ByPnuLane::named("parcel-public-auction")?
+            .ok_or_else(|| anyhow::anyhow!("the contract names the public auction lane"))?;
+        let servable = block.servable_document_schema_versions(lane);
+        let subject = "foundation-platform.parcel_public_auction_by_pnu";
+        assert_eq!(
+            servable.into_iter().collect::<Vec<_>>(),
+            [format!("{subject}.v1"), format!("{subject}.v2")]
+        );
         Ok(())
     }
 
