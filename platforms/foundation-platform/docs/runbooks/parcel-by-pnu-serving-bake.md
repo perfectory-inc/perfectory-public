@@ -474,7 +474,10 @@ foundation-by-pnu-serving-bake.service` 로 다시 재고, 14G 의 1.3배 여유
 [루트 ADR-0306](../../../../docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md).
 레인마다 매시 도는 `foundation-by-pnu-serving-monitor@<레인>` 이 서빙 manifest 의 `published_at_utc` 를 읽어,
 계약 `by_pnu_section_packs.freshness_budget_hours`(값은 그 파일) 보다 오래됐으면 실패하고 Slack 에
-`foundation-by-pnu-serving-monitor@<레인>.service 실패` 가 온다. 일지 마지막 줄은
+`FIRING FoundationUnitFailed` — `foundation-by-pnu-serving-monitor@<레인>.service 실패` 가 온다. 레인마다
+Alertmanager 알림 하나라, 계속 실패하면 매시가 아니라 하루 한 번 다시 오고 다음 성공 실행에 `RESOLVED` 가 온다
+(`scripts/ops/notify-unit-failure.sh`, 유닛의 `OnSuccess=foundation-unit-recovered@%n.service`). 지금 무엇이
+열려 있는지: `curl -s '127.0.0.1:19093/api/v2/alerts?filter=service%3D%22unit-failure%22'`. 일지 마지막 줄은
 `the <레인> lane serves a manifest published <시각> (<N> h ago), past its freshness budget` 이다.
 
 **뜻**: 사용자가 받는 문서가 그 시간 동안 한 번도 새로 발행되지 않았다. 작업이 성공·`unchanged` 라고 말해도

@@ -42,7 +42,7 @@ platforms/foundation-platform/scripts/ops/legal-dong-code-validate.sh,69,true,sy
 platforms/foundation-platform/scripts/ops/lineage-stewardship-cycle.sh,172,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/map-edit-fold.sh,153,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/measure-building-section-packs.sh,124,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
-platforms/foundation-platform/scripts/ops/notify-unit-failure.sh,32,false,systemd-job,keep,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/notify-unit-failure.sh,90,true,systemd-job,keep,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh,126,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh,95,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh,243,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook

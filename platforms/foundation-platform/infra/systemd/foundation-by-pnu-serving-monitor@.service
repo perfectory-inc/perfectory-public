@@ -5,6 +5,9 @@ Documentation=file:///opt/foundation-platform/current/docs/runbooks/parcel-by-pn
 After=network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service
+# A lane that stays broken is one alert from its first failed run to its next good one, not a
+# notice an hour (2026-10-28/29: ten lanes failed every hour; notify-unit-failure.sh).
+OnSuccess=foundation-unit-recovered@%n.service
 
 [Service]
 Type=oneshot
