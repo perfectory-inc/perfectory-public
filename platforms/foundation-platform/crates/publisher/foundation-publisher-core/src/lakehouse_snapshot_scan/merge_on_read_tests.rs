@@ -51,8 +51,10 @@ const FIXTURE: LakehouseTableContract = LakehouseTableContract {
     load: LakehouseLoadUnit::Derived,
 };
 
+/// Read when the test runs, from the crate directory cargo runs it in (as the production shape
+/// ledger is), not compiled in.
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/merge_on_read")
+    PathBuf::from("tests/fixtures/merge_on_read")
 }
 
 /// Serves the committed fixture: each location Spark wrote is the file `expected.json` names for
