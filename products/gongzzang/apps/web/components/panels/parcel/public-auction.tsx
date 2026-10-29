@@ -2,8 +2,10 @@
 "use client";
 import { partition } from "es-toolkit";
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import { onbidMediaSrc, type PublicAuctionRound } from "@/lib/api/public-auction";
 import { formatAreaM2, formatPriceKrw } from "@/lib/listings/format";
+import { RoundDetails, shown } from "./public-auction-details";
 
 /** The parcel's on-bid public auctions as a category page, one card per auction round. */
 export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound[] }) {
@@ -43,12 +45,14 @@ export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound
                 </div>
               ))}
             </dl>
-            {r.share_item_yn === "Y" && (
-              <span className="mt-2 inline-block rounded border border-[var(--color-hairline)] px-1.5 text-[length:var(--text-caption)] text-[var(--color-muted)]">
-                {t("share")}
-              </span>
-            )}
+            <div className="mt-2 flex flex-wrap gap-1">
+              {r.share_item_yn === "Y" && <Badge>{t("share")}</Badge>}
+              {FLAGS.filter((flag) => r[flag] === "Y").map((flag) => (
+                <Badge key={flag}>{t(`fields.round.${flag}`)}</Badge>
+              ))}
+            </div>
             <RoundMedia t={t} photos={r.photos} />
+            <RoundDetails t={t} round={r} />
           </li>
         ))}
       </ul>
@@ -121,7 +125,57 @@ function rowsOf(t: Translate, r: PublicAuctionRound): [string, string][] {
   if (area.length > 0) rows.push([t("area"), area.join(" · ")]);
   const usage = r.usg_scls_ctgr_name ?? r.usg_mcls_ctgr_name ?? r.usg_lcls_ctgr_name;
   if (usage) rows.push([t("usage"), usage]);
+  // Root ADR-0340 §8: the rest of the round as the provider gives it, under its own item names.
+  for (const key of ROUND_ROWS) {
+    const value = shown(key, r[key]);
+    if (value != null) rows.push([t(`fields.round.${key}`), value]);
+  }
+  const rate = r.apsl_prc_ctrs_lowst_bid_rto;
+  if (rate != null) rows.push([t("fields.round.apsl_prc_ctrs_lowst_bid_rto"), `${rate}%`]);
+  const fromFirst = r.frst_ctrs_lowst_bid_prc_rto;
+  if (fromFirst != null)
+    rows.push([t("fields.round.frst_ctrs_lowst_bid_prc_rto"), `${fromFirst}%`]);
+  if (r.fee_rate != null) rows.push([t("fields.round.fee_rate"), `${r.fee_rate}%`]);
   return rows;
+}
+
+// The round's values a buyer reads beside the money and the window, in the provider's words.
+const ROUND_ROWS = [
+  "prpt_div_nm",
+  "dsps_mthod_nm",
+  "cptn_mthod_nm",
+  "bid_mthod_nm",
+  "bid_div_nm",
+  "pbct_stat_nm",
+  "usbd_nft",
+  "first_bid_price_krw",
+  "org_name",
+  "rqst_org_nm",
+  "dtbt_rqr_edtm_cont",
+  "evc_rsby_trgt_cont",
+  "rent_mthod_nm",
+  "rent_perd_cont",
+  "totalamt_unpc_div_nm",
+  "bid_prgn_nft",
+  "cltr_mng_no",
+] as const;
+// The provider's Y/N conditions shown as a tag when they hold.
+const FLAGS = [
+  "pvct_trgt_yn",
+  "batc_bid_yn",
+  "crtn_yn",
+  "eltr_grpr_use_yn",
+  "collb_bid_psbl_yn",
+  "subt_bid_psbl_yn",
+  "twtm_gthr_bid_psbl_yn",
+] as const;
+
+function Badge({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-block rounded border border-[var(--color-hairline)] px-1.5 text-[length:var(--text-caption)] text-[var(--color-muted)]">
+      {children}
+    </span>
+  );
 }
 
 // 입찰 일시는 UTC(Z)로 발행되므로 한국 시간으로 보여준다.

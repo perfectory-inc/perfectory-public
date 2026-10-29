@@ -814,7 +814,7 @@
           "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
           "platforms/foundation-platform/contracts/schema-registry/**",
           "platforms/foundation-platform/scripts/schema_registry.py",
-          "products/gongzzang/apps/web/components/panels/parcel/public-auction.tsx"
+          "products/gongzzang/apps/web/components/panels/parcel/public-auction*.tsx"
         ]
       },
       {
@@ -825,7 +825,7 @@
           "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
           "platforms/foundation-platform/contracts/schema-registry/**",
           "platforms/foundation-platform/scripts/schema_registry.py",
-          "products/gongzzang/apps/web/components/panels/parcel/public-auction.tsx"
+          "products/gongzzang/apps/web/components/panels/parcel/public-auction*.tsx"
         ]
       },
       {

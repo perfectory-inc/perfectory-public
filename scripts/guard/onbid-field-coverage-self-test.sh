@@ -18,7 +18,7 @@ inventory = json.loads(cov.INVENTORY.read_text(encoding="utf-8"))
 source = json.loads(cov.SOURCE.read_text(encoding="utf-8"))
 lakehouse = json.loads(cov.LAKEHOUSE.read_text(encoding="utf-8"))
 record, reads = cov.registry_view()
-panel = cov.PANEL.read_text(encoding="utf-8")
+panel = cov.panel_text()
 
 def run(inv=inventory, lh=lakehouse, rec=record, w=reads, p=panel):
     return cov.check(inv, source, lh, rec, w, p)

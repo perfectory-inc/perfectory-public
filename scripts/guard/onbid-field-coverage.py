@@ -36,7 +36,15 @@ INVENTORY = FP / "infra" / "lakehouse" / "contracts" / "data-go-kr-onbid.fields.
 SOURCE = FP / "infra" / "lakehouse" / "contracts" / "data-go-kr-onbid.contract.json"
 LAKEHOUSE = FP / "infra" / "lakehouse" / "contracts" / "industrial_complex_lakehouse_contracts.json"
 SUBJECT = "foundation-platform.parcel_public_auction_by_pnu"
-PANEL = ROOT / "products" / "gongzzang" / "apps" / "web" / "components" / "panels" / "parcel" / "public-auction.tsx"
+PANELS = ROOT / "products" / "gongzzang" / "apps" / "web" / "components" / "panels" / "parcel"
+PANEL_GLOB = "public-auction*.tsx"
+
+
+def panel_text() -> str:
+    """The 공매 panel's source: the card and the components it shows a round with."""
+    return "\n".join(path.read_text(encoding="utf-8") for path in sorted(PANELS.glob(PANEL_GLOB)))
+
+
 LOAD_COLUMNS = {"source_record_id", "source_line_number", "source_snapshot_id", "ingested_at_utc", "row_state"}
 SERVED = "public_auction."
 # The document's frame, which no provider field fills.
@@ -189,7 +197,7 @@ def main(argv: list[str]) -> int:
         json.loads(LAKEHOUSE.read_text(encoding="utf-8")),
         record,
         web_reads,
-        PANEL.read_text(encoding="utf-8"),
+        panel_text(),
     )
     for failure in failures:
         print(f"  {failure}", file=sys.stderr)

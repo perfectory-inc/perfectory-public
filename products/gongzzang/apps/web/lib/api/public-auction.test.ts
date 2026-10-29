@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPublicAuction, onbidMediaSrc, PublicAuctionDocumentSchema } from "./public-auction";
+import {
+  fetchPublicAuction,
+  joinBlocks,
+  onbidMediaSrc,
+  PublicAuctionDocumentSchema,
+} from "./public-auction";
 
 vi.mock("@/lib/env", () => ({
   env: { NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: "https://catalog.example.test" },
@@ -15,6 +20,9 @@ const document = () => ({
   public_auction: {
     rounds: [
       {
+        cltr_mng_no: "X-0001",
+        onbid_pbanc_no: 1,
+        pbct_no: 11,
         item_name: "테스트 물건 1",
         appraisal_amount_krw: 100000000,
         lowest_bid_price_krw: 70000000,
@@ -97,9 +105,14 @@ describe("public auction media", () => {
   it("parses a round's photos in source order and defaults a round with no photos field to []", () => {
     const bid_ends_at = "2026-01-05T08:00:00.000Z";
     const parsed = parse([
-      { item_name: "테스트 물건 1", bid_ends_at, photos: [photo, appraisal] },
+      {
+        cltr_mng_no: "X-0001",
+        item_name: "테스트 물건 1",
+        bid_ends_at,
+        photos: [photo, appraisal],
+      },
       // A revision-1 round: no `photos`, read as [].
-      { item_name: "테스트 물건 2", bid_ends_at },
+      { cltr_mng_no: "X-0002", item_name: "테스트 물건 2", bid_ends_at },
     ]);
     expect(parsed.public_auction.rounds.map((r) => r.photos.map((p) => p.media_kind))).toEqual([
       ["photo", "appraisal"],
@@ -130,6 +143,7 @@ describe("public auction media", () => {
     expect(() =>
       parse([
         {
+          cltr_mng_no: "X-0001",
           item_name: "테스트 물건",
           bid_ends_at: "2026-01-05T08:00:00.000Z",
           photos: [{ ...photo, sha256: "../../etc/passwd" }],
@@ -145,5 +159,44 @@ describe("public auction media", () => {
     expect(onbidMediaSrc({ sha256: appraisalSha, media_format: "pdf" })).toBe(
       `https://catalog.example.test/onbid/media/sha256/${appraisalSha}.pdf`,
     );
+  });
+});
+
+// Root ADR-0340 §7: a revision-3 document carries each item and announcement round once, beside the
+// rounds; the web joins them back onto every round that names them.
+describe("public auction blocks", () => {
+  it("joins each round to its item and announcement round, and leaves an older round alone", async () => {
+    const base = document();
+    const revision3 = {
+      ...base,
+      schema_revision: 3,
+      public_auction: {
+        rounds: [
+          base.public_auction.rounds[0],
+          { ...base.public_auction.rounds[0], pbct_no: 12, pbct_nsq: "002" },
+          { ...base.public_auction.rounds[0], cltr_mng_no: "X-0002", onbid_pbanc_no: null },
+        ],
+        items: [
+          {
+            cltr_mng_no: "X-0001",
+            detail: { icdl_cdtn_cont: "현 상태대로", leas_inf_list: [{ irst_div_nm: "주거" }] },
+            history: [{ pbct_stat_nm: "유찰", valid_bidder_count: 0 }],
+            media: [],
+          },
+        ],
+        announcements: [{ onbid_pbanc_no: 1, pbct_no: 11, org_nm: "합성 기관" }],
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(revision3)));
+    const rounds = await fetchPublicAuction(pnu);
+    expect(rounds.map((r) => r.item?.detail?.icdl_cdtn_cont ?? null)).toEqual([
+      "현 상태대로",
+      "현 상태대로",
+      null,
+    ]);
+    expect(rounds.map((r) => r.announcement?.org_nm ?? null)).toEqual(["합성 기관", null, null]);
+    expect(
+      joinBlocks(PublicAuctionDocumentSchema.parse(base).public_auction)[0]?.item,
+    ).toBeUndefined();
   });
 });
