@@ -19,6 +19,11 @@
 //! and a local copy of its bytes under `objects/` (the manifest names it relative to itself), which
 //! the handoff and the Spark load read and check against the sha256. A dry run (no
 //! `..._LIVE_WRITE=1`) writes the same files and commits nothing.
+//!
+//! With `..._CHANGED_SINCE=<YYYY-MM-DD>` the run is the changed-since probe instead (root
+//! ADR-0322 §2): the same form narrowed by the site's 변경기간 filter to the codes created or
+//! abolished from that day on, about 70 KB instead of 58 MB. A probe is always a dry run (its
+//! manifest role is `changed_since_probe`); the job decides from it whether the table is needed.
 
 use std::{
     collections::BTreeMap,
@@ -27,7 +32,7 @@ use std::{
 };
 
 use anyhow::{ensure, Context};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_application::{
     plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
@@ -67,6 +72,8 @@ pub(crate) const OPERATION: &str = "regCodeL";
 const DATASET_NAME: &str = "행정표준코드 법정동 전체 표";
 /// The manifest's name for the object, which the handoff reads.
 const MANIFEST_ROLE: &str = "full_table";
+/// The manifest's name for a changed-since probe's response (root ADR-0322 §2).
+const PROBE_MANIFEST_ROLE: &str = "changed_since_probe";
 
 #[derive(Deserialize)]
 struct SourceContract {
@@ -83,6 +90,16 @@ struct FormEndpoint {
     warmup_path: Option<String>,
     path: String,
     form: BTreeMap<String, String>,
+    #[serde(default)]
+    changed_since_probe: Option<ChangedSinceProbe>,
+}
+
+/// `full_table.changed_since_probe`: the 변경기간 fields the probe adds to the table form.
+#[derive(Deserialize)]
+struct ChangedSinceProbe {
+    start_field: String,
+    end_field: String,
+    window_end: String,
 }
 
 fn source_contract() -> anyhow::Result<SourceContract> {
@@ -94,6 +111,8 @@ struct CollectConfig {
     request_spacing: ProviderRequestSpacing,
     live_write: bool,
     output_dir: PathBuf,
+    /// The probe's first day (`..._CHANGED_SINCE`), or `None` for the full table.
+    changed_since: Option<NaiveDate>,
 }
 
 /// The table response, before it is committed.
@@ -117,7 +136,8 @@ pub async fn run() -> anyhow::Result<()> {
     std::fs::create_dir_all(&config.output_dir)
         .with_context(|| format!("failed to create {}", config.output_dir.display()))?;
 
-    let fetched = fetch_table(&contract, &config, started_at).await?;
+    let form = request_form(&contract.full_table, config.changed_since)?;
+    let fetched = fetch_table(&contract, &config, &form, started_at).await?;
     let object = if config.live_write {
         live_write_target_preflight()
             .context("code.go.kr legal-dong collection live-write target preflight failed")?;
@@ -165,8 +185,40 @@ impl CollectConfig {
                 Some("1" | "true" | "yes")
             ),
             output_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?),
+            changed_since: optional_env_value(&format!("{PREFIX}_CHANGED_SINCE"))?
+                .map(|value| NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d"))
+                .transpose()
+                .with_context(|| format!("{PREFIX}_CHANGED_SINCE must be a YYYY-MM-DD day"))?,
+        })
+        .and_then(|config| {
+            ensure!(
+                !(config.live_write && config.changed_since.is_some()),
+                "a changed-since probe is never stored: unset {PREFIX}_LIVE_WRITE"
+            );
+            Ok(config)
         })
     }
+}
+
+/// The form a run posts: the full table's, or (`changed_since`) the same form narrowed to the
+/// codes created or abolished from that day on through the contract's 변경기간 fields.
+fn request_form(
+    table: &FormEndpoint,
+    changed_since: Option<NaiveDate>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let mut form = table.form.clone();
+    if let Some(since) = changed_since {
+        let probe = table
+            .changed_since_probe
+            .as_ref()
+            .context("the contract's full_table has no changed_since_probe")?;
+        form.insert(
+            probe.start_field.clone(),
+            since.format("%Y-%m-%d").to_string(),
+        );
+        form.insert(probe.end_field.clone(), probe.window_end.clone());
+    }
+    Ok(form.into_iter().collect())
 }
 
 /// The contract's spacing, or a slower configured one; never faster.
@@ -187,10 +239,16 @@ pub(crate) fn dated_file_id(at: DateTime<Utc>) -> String {
     format!("regcode-{}", at.format("%Y%m%dT%H%M%SZ"))
 }
 
+/// The provider file id of a changed-since probe: never a Bronze object, named apart from the table.
+pub(crate) fn probe_file_id(at: DateTime<Utc>) -> String {
+    format!("regcode-probe-{}", at.format("%Y%m%dT%H%M%SZ"))
+}
+
 /// GET the form page for its session cookie, then POST the table form with it.
 async fn fetch_table(
     contract: &SourceContract,
     config: &CollectConfig,
+    form: &[(String, String)],
     started_at: DateTime<Utc>,
 ) -> anyhow::Result<Fetched> {
     let table = &contract.full_table;
@@ -225,15 +283,10 @@ async fn fetch_table(
         .join("; ");
 
     config.request_spacing.wait_before_request(1).await;
-    let form = table
-        .form
-        .iter()
-        .map(|(name, value)| (name.clone(), value.clone()))
-        .collect::<Vec<_>>();
     let mut request = http
         .post(url(&table.path))
         .header(REFERER, url(warmup))
-        .form(&form);
+        .form(form);
     if !cookie.is_empty() {
         request = request.header(COOKIE, cookie);
     }
@@ -263,7 +316,11 @@ async fn fetch_table(
         "code.go.kr {} answered with an empty body",
         table.path
     );
-    let id = dated_file_id(started_at);
+    let id = if config.changed_since.is_some() {
+        probe_file_id(started_at)
+    } else {
+        dated_file_id(started_at)
+    };
     Ok(Fetched {
         provider_file_name: format!("{id}.html"),
         provider_file_id: id,
@@ -498,8 +555,9 @@ fn manifest_json(
         "base_uri": config.base_uri,
         "user_agent": contract.user_agent,
         "request_spacing_ms": config.request_spacing.interval_millis(),
+        "changed_since": config.changed_since.map(|day| day.to_string()),
         "objects": [json!({
-            "role": MANIFEST_ROLE,
+            "role": if config.changed_since.is_some() { PROBE_MANIFEST_ROLE } else { MANIFEST_ROLE },
             "object_key": object.object_key,
             "checksum_sha256": object.checksum_sha256,
             "size_bytes": object.size_bytes,

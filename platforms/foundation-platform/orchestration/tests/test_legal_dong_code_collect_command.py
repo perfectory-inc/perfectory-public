@@ -85,35 +85,39 @@ class StewardCommand(unittest.TestCase):
 
 
 # The collector stand-in: writes the table and its manifest as collect-code-go-kr-legal-dong does, and
-# logs whether the run stored it (`live`) or only fetched it (`dry`).
+# logs whether the run stored it (`live`), only fetched it (`dry`), or asked the changed-since probe
+# (`probe`, root ADR-0322 §2: ..._CHANGED_SINCE set, never stored).
 FAKE_COLLECTOR = r"""#!/usr/bin/env python3
 import hashlib, json, os, pathlib, sys
 assert sys.argv[1] == "collect-code-go-kr-legal-dong", sys.argv
 prefix = "FOUNDATION_PLATFORM_CODE_GO_KR_LEGAL_DONG"
 out = pathlib.Path(os.environ[prefix + "_OUTPUT_DIR"])
 live = os.environ.get(prefix + "_LIVE_WRITE") == "1"
+since = os.environ.get(prefix + "_CHANGED_SINCE")
+assert not (live and since), "a probe is never stored"
 calls = pathlib.Path(os.environ["FAKE_CALLS"])
 name = "regcode-2099070%dT051500Z" % len(calls.read_text().split())
 with calls.open("a") as log:
-    log.write(("live" if live else "dry") + "\n")
-raw = pathlib.Path(os.environ["FAKE_TABLE"]).read_bytes()
+    log.write(("probe" if since else "live" if live else "dry") + "\n")
+raw = pathlib.Path(os.environ["FAKE_PROBE" if since else "FAKE_TABLE"]).read_bytes()
 (out / "objects").mkdir(parents=True, exist_ok=True)
 (out / "objects" / (name + ".html")).write_bytes(raw)
-(out / "manifest.json").write_text(json.dumps({"collection_date": "2099-07-02", "objects": [{
-    "role": "full_table", "object_key": "bronze/source=codegokr__legal_dong_code_table/" + name + ".html",
+(out / "manifest.json").write_text(json.dumps({"collection_date": "2099-07-02", "changed_since": since, "objects": [{
+    "role": "changed_since_probe" if since else "full_table",
+    "object_key": "bronze/source=codegokr__legal_dong_code_table/" + name + ".html",
     "local_path": "objects/" + name + ".html", "checksum_sha256": hashlib.sha256(raw).hexdigest(),
     "size_bytes": len(raw), "written": live}]}))
 """
 
 
-def synthetic_table(rows):
-    """A page the parser reads: the contract's headers and `rows` synthetic 시도 97 codes."""
+def synthetic_table(rows, first=0):
+    """A page the parser reads: the contract's headers and synthetic 시도 97 codes `first`..`rows`."""
 
     headers = json.loads((PLATFORM / CONTRACTS / "code-go-kr-legal-dong.contract.json").read_text(encoding="utf-8"))
     head = "".join(f"<td>{h}</td>" for h in headers["full_table"]["headers"])
     body = "".join(f"<tr><td>97{i:08d}</td><td>합성 {i}동</td><td>현존</td><td>9700000000</td><td>01</td>"
                    f"<td>20000101</td><td>&nbsp</td><td>&nbsp</td><td>{i}동</td><td>97{i:08d}</td><td>97{i:08d}</td>"
-                   for i in range(rows))
+                   for i in range(first, rows))
     return f"<html><body><table><thead><tr>{head}</tr></thead>{body}</table></body></html>"
 
 
@@ -132,15 +136,19 @@ class DailyCollection(unittest.TestCase):
         manifest["files"]["foundation-outbox-publisher"] = hashlib.sha256(publisher.read_bytes()).hexdigest()
         build.write_text(json.dumps(manifest))
         self.table = pathlib.Path(self.temp.name) / "table.html"
+        self.probe = pathlib.Path(self.temp.name) / "probe.html"
         self.calls = pathlib.Path(self.temp.name) / "calls.log"
         self.calls.write_text("")
         self.env.update({"DATABASE_URL": "postgres://fixture/fixture", "FAKE_TABLE": str(self.table),
-                         "FAKE_CALLS": str(self.calls)})
+                         "FAKE_PROBE": str(self.probe), "FAKE_CALLS": str(self.calls)})
         self.min_rows = json.loads((PLATFORM / CONTRACTS / "code-go-kr-legal-dong.contract.json")
                                    .read_text(encoding="utf-8"))["full_table"]["bounds"]["min_rows"]
 
-    def collect(self, rows):
+    def collect(self, rows, probe_rows=2):
+        """One run against a table of `rows` codes whose probe window lists the last `probe_rows`."""
+
         self.table.write_text(synthetic_table(rows), encoding="utf-8")
+        self.probe.write_text(synthetic_table(rows, first=rows - probe_rows), encoding="utf-8")
         before = self.calls.read_text().split()
         result = subprocess.run(["bash", str(self.script)], env=self.env, capture_output=True, text=True, timeout=300)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
@@ -149,19 +157,46 @@ class DailyCollection(unittest.TestCase):
     def pending(self):
         return sorted(p.name for p in (self.state / "pending").iterdir())
 
-    def test_an_unchanged_table_is_fetched_and_checked_but_stores_nothing(self):
-        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome changed", ["dry", "live"]))
+    def accepted(self):
+        return json.loads((self.state / "accepted.json").read_text())
+
+    def test_an_unchanged_table_is_confirmed_by_the_probe_and_stores_nothing(self):
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome changed", ["probe", "dry", "live"]))
         [first] = self.pending()
-        checked = json.loads((self.state / "accepted.json").read_text())["checked_at_utc"]
+        anchored = self.accepted()
+        self.assertEqual(anchored["confirmed_by"], "full")
+        self.assertIn("since", anchored["probe"])
 
-        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome unchanged", ["dry"]))
+        # The 2026-10 runs fetched 58 MB about ten times a day; the probe answers instead (ADR-0322 §2).
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome unchanged", ["probe"]))
         self.assertEqual(self.pending(), [first])
-        accepted = json.loads((self.state / "accepted.json").read_text())
-        self.assertGreaterEqual(accepted["checked_at_utc"], checked, "the hub's freshness check still sees it")
-        self.assertEqual(list((self.state / "runs").glob("*/fetch")), [], "the dry-run copy is not kept")
+        accepted = self.accepted()
+        self.assertGreaterEqual(accepted["checked_at_utc"], anchored["checked_at_utc"], "the hub's freshness check still sees it")
+        self.assertEqual((accepted["confirmed_by"], accepted["probe"]), ("probe", anchored["probe"]))
+        self.assertEqual(list((self.state / "runs").glob("*/probe")), [], "the probe's copy is not kept")
 
-        self.assertEqual(self.collect(self.min_rows + 1), ("foundation-job-outcome changed", ["dry", "live"]))
+        # A code the site dates inside the window: the table is fetched, stored and the window re-anchored.
+        self.assertEqual(self.collect(self.min_rows + 1), ("foundation-job-outcome changed", ["probe", "dry", "live"]))
         self.assertEqual(len(self.pending()), 2)
+        self.assertNotEqual(self.accepted()["probe"]["digest"], anchored["probe"]["digest"])
+
+    def test_the_full_table_is_still_read_when_the_reconcile_interval_passed(self):
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome changed", ["probe", "dry", "live"]))
+        stale = self.accepted()
+        stale["full_checked_at_utc"] = "2000-01-01T00:00:00+00:00"
+        (self.state / "accepted.json").write_text(json.dumps(stale))
+        # A change the probe cannot see (no new date) is caught here; an equal table stores nothing.
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome unchanged", ["probe", "dry"]))
+        self.assertEqual(self.accepted()["confirmed_by"], "full")
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome unchanged", ["probe"]))
+
+    def test_a_table_accepted_before_the_probe_is_read_whole_once_to_anchor_it(self):
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome changed", ["probe", "dry", "live"]))
+        legacy = {k: v for k, v in self.accepted().items() if k in ("table_digest", "row_count", "table_object_key",
+                                                                       "handoff", "checked_at_utc")}
+        (self.state / "accepted.json").write_text(json.dumps(legacy))
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome unchanged", ["probe", "dry"]))
+        self.assertEqual(self.collect(self.min_rows), ("foundation-job-outcome unchanged", ["probe"]))
 
 
 if __name__ == "__main__":

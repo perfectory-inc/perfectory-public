@@ -7,6 +7,10 @@
 #                                            스튜어드 결정 한 건을 파일로 남긴다(다음 짝 맞추기가 반영)
 #
 # 매일 수집:
+#   0. 물어보기 — 표 전체(58 MB) 앞에서, 사이트의 변경기간 검색으로 since 이후 생성·폐지된 코드만 받는다
+#             (약 70 KB, root ADR-0322 §2). 직전 전체 실행이 고정한 창(accepted.json probe)과 같은 행이고
+#             전체 대조가 밀리지 않았으면(full_reconcile_days) 확인 시각만 남기고 unchanged 로 끝난다.
+#             아니면 아래 1–3 을 그대로 하고, 이 물어보기를 다음 실행들의 창으로 고정한다.
 #   1. 받기 — 법정동 전체 표(코드·상위코드·생성일·폐지일)를 받기만 한다(collect-code-go-kr-legal-dong 의
 #             dry run: Bronze 에 쓰지 않는다). 원천은 내려받은 데이터뿐이다. 코드변경안내 게시판은 읽지 않는다(ADR-0144).
 #   2. 검사 — 표의 형식이 계약과 같은지, 직전에 넘긴 표보다 계약의 한계 넘게 줄지 않았는지, 행이 바뀌었는지
@@ -52,7 +56,7 @@ fi
 
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
-mkdir -p "${work}/fetch" "${work}/collect"
+mkdir -p "${work}/probe" "${work}/fetch" "${work}/collect"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "legal-dong-code collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
@@ -65,16 +69,30 @@ print(next(json.loads(line[len(prefix):])["status"] for line in sys.stdin if lin
 ' <<<"$1"
 }
 
+# 0. 물어보기 (root ADR-0322 §2: the site's own changed-since filter, about 70 KB; never stored)
+since="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" probe-window --state-dir "${STATE_ROOT}")"
+env "${COLLECT}_OUTPUT_DIR=${work}/probe" "${COLLECT}_CHANGED_SINCE=${since}" \
+  "${PUBLISHER_BIN}" collect-code-go-kr-legal-dong >> "${run_log}" 2>&1
+result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" probe --probe-dir "${work}/probe" \
+  --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
+if [ "$(stage_status "${result}")" = unchanged ]; then
+  rm -rf "${work}/probe"
+  job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"
+  printf 'foundation-job-outcome unchanged\n'
+  exit 0
+fi
+
 # 1. 받기 (dry run: nothing is stored)
 env "${COLLECT}_OUTPUT_DIR=${work}/fetch" \
   "${PUBLISHER_BIN}" collect-code-go-kr-legal-dong >> "${run_log}" 2>&1
 
-# 2. 검사
+# 2. 검사 (a confirmed table anchors this run's probe as the next runs' window)
 result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" check --collect-dir "${work}/fetch" \
-  --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
+  --state-dir "${STATE_ROOT}" --probe-dir "${work}/probe" | tee -a "${run_log}")"
 # The dry-run copy is scratch once checked; a run that failed the check keeps it for the diagnosis.
 rm -rf "${work}/fetch"
 if [ "$(stage_status "${result}")" = unchanged ]; then
+  rm -rf "${work}/probe"
   job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
@@ -85,7 +103,8 @@ fi
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
   "${PUBLISHER_BIN}" collect-code-go-kr-legal-dong >> "${run_log}" 2>&1
 result="$("${PY[@]}" "${JOBS}/code_go_kr_legal_dong.py" stage-handoff --collect-dir "${work}/collect" \
-  --state-dir "${STATE_ROOT}" | tee -a "${run_log}")"
+  --state-dir "${STATE_ROOT}" --probe-dir "${work}/probe" | tee -a "${run_log}")"
+rm -rf "${work}/probe"
 job_journal "${journal}" "legal-dong-code collect ok run=${run_id} ${result}"
 # The run's last line says whether it handed anything new to the load (root ADR-0171, ADR-0260).
 if [ "$(stage_status "${result}")" = staged ]; then

@@ -25,7 +25,7 @@ import json
 import re
 import shutil
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -924,8 +924,89 @@ def _manifest_object(manifest: Mapping[str, Any], base: Path, role: str) -> tupl
     return found[0], raw
 
 
+# --- changed-since probe (root ADR-0322 §2) ------------------------------------------------------
+
+KST = timezone(timedelta(hours=9))
+
+
+def _rows_digest(rows: Sequence[Mapping[str, str]]) -> str:
+    return hashlib.sha256(json.dumps(list(rows), ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _read_accepted(state_dir: Path) -> dict[str, Any] | None:
+    path = state_dir / "accepted.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+
+def _full_reconcile_due(accepted: Mapping[str, Any], contract: Mapping[str, Any], now: datetime) -> bool:
+    """Whether the full table is owed whatever the probe says: no full run confirmed the table within
+    `full_reconcile_days` (a run before the probe existed recorded none)."""
+
+    full = accepted.get("full_checked_at_utc")
+    days = contract["full_table"]["changed_since_probe"]["full_reconcile_days"]
+    return not full or now - datetime.fromisoformat(full) >= timedelta(days=days)
+
+
+def probe_window(state_dir: Path, contract: Mapping[str, Any], now: datetime) -> str:
+    """The first day (YYYY-MM-DD) this run's probe asks about.
+
+    The anchored window (`accepted.json` `probe.since`) while it can still confirm the table: a full
+    run anchored it, no full run is owed, and it is not more than `full_reconcile_days` older than a
+    fresh one. Otherwise a fresh one, today on the site's calendar (KST) minus `lookback_days`: the
+    run then reads the full table and anchors that window.
+    """
+
+    probe = contract["full_table"]["changed_since_probe"]
+    fresh = now.astimezone(KST).date() - timedelta(days=probe["lookback_days"])
+    accepted = _read_accepted(state_dir)
+    anchored = (accepted or {}).get("probe") or {}
+    if accepted and anchored.get("since") and not _full_reconcile_due(accepted, contract, now):
+        since = date.fromisoformat(anchored["since"])
+        if (fresh - since).days <= probe["full_reconcile_days"]:
+            return since.isoformat()
+    return fresh.isoformat()
+
+
+def _probe_anchor(probe_dir: Path, contract: Mapping[str, Any]) -> dict[str, Any]:
+    """The probe's window and the digest of the rows the site returned for it."""
+
+    manifest = json.loads((probe_dir / "manifest.json").read_text(encoding="utf-8"))
+    since = manifest.get("changed_since")
+    if not since:
+        raise SourceFormatError(f"{probe_dir}/manifest.json names no changed_since window")
+    _, raw = _manifest_object(manifest, probe_dir, "changed_since_probe")
+    rows = parse_full_table_html(raw.decode("utf-8"), contract)
+    return {"since": since, "digest": _rows_digest(rows), "row_count": len(rows)}
+
+
+def check_probe(probe_dir: Path, state_dir: Path, contract: Mapping[str, Any], now: datetime) -> dict[str, Any]:
+    """Whether the probe alone confirms the accepted table (root ADR-0322 §2).
+
+    `unchanged` when a full run anchored this same window, the site returns the same rows for it,
+    and no full run is owed: the run records the confirmation (`checked_at_utc`, which the hub
+    exports' freshness check reads, with `confirmed_by: probe`) and fetches nothing more. Otherwise
+    `check` with the reason: the job then fetches the full table as before and anchors this probe.
+    """
+
+    anchor = _probe_anchor(probe_dir, contract)
+    result = {"probe_since": anchor["since"], "probe_digest": anchor["digest"], "probe_row_count": anchor["row_count"]}
+    accepted = _read_accepted(state_dir)
+    if not accepted:
+        return {"status": "check", "reason": "no accepted table", **result}
+    held = accepted.get("probe") or {}
+    if (held.get("since"), held.get("digest")) != (anchor["since"], anchor["digest"]):
+        reason = "no anchored window" if not held else (
+            "window moved" if held.get("since") != anchor["since"] else "the site lists other changes")
+        return {"status": "check", "reason": reason, **result}
+    if _full_reconcile_due(accepted, contract, now):
+        return {"status": "check", "reason": "full reconcile due", **result}
+    _write_accepted(state_dir, {**accepted, "checked_at_utc": now.isoformat(), "confirmed_by": "probe"})
+    return {"status": "unchanged", "confirmed_by": "probe", "table_digest": accepted["table_digest"],
+            "row_count": accepted["row_count"], **result}
+
+
 def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any], now: datetime,
-                  stage: bool = True) -> dict[str, Any]:
+                  stage: bool = True, probe_dir: Path | None = None) -> dict[str, Any]:
     """Validates a collection run without Spark and hands a changed table to the loader.
 
     Reads the collector manifest in `collect_dir`, refuses a full table whose shape changed
@@ -941,6 +1022,10 @@ def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any
     With `stage=False` (`check`, run on a dry-run fetch before anything is stored) a changed table
     writes nothing and says `changed`: the job then commits the table to Bronze and stages it. Only
     a table that differs from the accepted one is stored (2026-10: 283 identical 58 MB objects).
+
+    `probe_dir` is the changed-since probe this run made before the table (root ADR-0322 §2): a run
+    that confirms or stages the table anchors that probe's window and rows, and records the full
+    confirmation that the probe's reconcile interval counts from.
     """
 
     manifest = json.loads((collect_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -949,11 +1034,15 @@ def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any
     accepted_path = state_dir / "accepted.json"
     accepted = json.loads(accepted_path.read_text(encoding="utf-8")) if accepted_path.exists() else None
     check_table_size(len(rows), accepted["row_count"] if accepted else None, contract)
-    digest = hashlib.sha256(json.dumps(rows, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    digest = _rows_digest(rows)
+    confirmed = {"checked_at_utc": now.isoformat(), "confirmed_by": "full", "full_checked_at_utc": now.isoformat()}
+    if probe_dir is not None:
+        anchor = _probe_anchor(probe_dir, contract)
+        confirmed["probe"] = {"since": anchor["since"], "digest": anchor["digest"]}
     result = {"table_object_key": table_obj["object_key"], "row_count": len(rows), "table_digest": digest,
               "previous_row_count": accepted["row_count"] if accepted else None}
     if accepted and accepted["table_digest"] == digest:
-        _write_accepted(state_dir, {**accepted, "checked_at_utc": now.isoformat()})
+        _write_accepted(state_dir, {**accepted, **confirmed})
         return {"status": "unchanged", **result}
     if not stage:
         return {"status": "changed", **result}
@@ -970,7 +1059,7 @@ def stage_handoff(collect_dir: Path, state_dir: Path, contract: Mapping[str, Any
     (staging / "handoff.json").write_text(json.dumps(handoff, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     staging.rename(pending)
     _write_accepted(state_dir, {"table_digest": digest, "row_count": len(rows), "table_object_key": table_obj["object_key"],
-                                "handoff": name, "checked_at_utc": now.isoformat()})
+                                "handoff": name, **confirmed})
     return {"status": "staged", "handoff": name, **result}
 
 
@@ -987,7 +1076,9 @@ def _write_accepted(state_dir: Path, accepted: Mapping[str, Any]) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """The collection job's native step (no Spark): `stage-handoff` validates the run and writes a
-    pending-load handoff when the table changed (`stage_handoff`); `check` only says whether it did."""
+    pending-load handoff when the table changed (`stage_handoff`); `check` only says whether it did;
+    `probe-window` prints the day the changed-since probe asks from, and `probe` says whether that
+    probe alone confirms the table (root ADR-0322 §2)."""
 
     import argparse  # noqa: PLC0415
 
@@ -997,9 +1088,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         command = commands.add_parser(name)
         command.add_argument("--collect-dir", required=True, help="The collector's output directory (manifest.json).")
         command.add_argument("--state-dir", required=True, help="Holds accepted.json and pending/.")
+        command.add_argument("--probe-dir", help="This run's changed-since probe, anchored when the table is confirmed.")
+    command = commands.add_parser("probe")
+    command.add_argument("--probe-dir", required=True, help="The probe's output directory (manifest.json).")
+    command.add_argument("--state-dir", required=True, help="Holds accepted.json.")
+    commands.add_parser("probe-window").add_argument("--state-dir", required=True, help="Holds accepted.json.")
     args = parser.parse_args(argv)
-    result = stage_handoff(Path(args.collect_dir), Path(args.state_dir), load_source_contract(), datetime.now().astimezone(),
-                           stage=args.command == "stage-handoff")
+    contract, now = load_source_contract(), datetime.now().astimezone()
+    if args.command == "probe-window":
+        print(probe_window(Path(args.state_dir), contract, now))
+        return 0
+    if args.command == "probe":
+        result = check_probe(Path(args.probe_dir), Path(args.state_dir), contract, now)
+    else:
+        result = stage_handoff(Path(args.collect_dir), Path(args.state_dir), contract, now,
+                               stage=args.command == "stage-handoff",
+                               probe_dir=Path(args.probe_dir) if args.probe_dir else None)
     print("legal-dong-code-stage-json " + json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 

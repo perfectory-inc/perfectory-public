@@ -212,12 +212,9 @@
     },
     {
       "id": "legal_dong_code_changes",
-      "scope": "full",
-      "full_reason": "It downloads the whole code table on every run, about ten times a day, and the table is almost always unchanged.",
-      "full_cost": "audit 2026-10-28: about 55 MB a download, about 10 downloads a day.",
-      "full_tracked_by": "collection asks the source whether it changed before downloading (root ADR-0314 §4)",
+      "scope": "skip-if-unchanged",
       "interruptible": false,
-      "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
+      "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: first ask the site's own change-period filter which codes were created or abolished inside the window the last full run anchored (about 70 KB, root ADR-0322 §2); when it lists the same rows and no full reconcile is owed (code-go-kr-legal-dong.contract.json full_table.changed_since_probe), record the confirmation and stop. Otherwise land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
       "systemd_service": "foundation-legal-dong-code.service",
       "systemd_timer": null,
       "state_paths": [
