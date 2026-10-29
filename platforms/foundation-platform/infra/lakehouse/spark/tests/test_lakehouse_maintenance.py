@@ -29,6 +29,7 @@ from lakehouse_maintenance import (  # noqa: E402
     create_tag_sql,
     drop_tag_sql,
     expiry_floor_millis,
+    ingest_record_properties,
     millis_text,
     load_maintenance_contract,
     month_end_snapshots,
@@ -36,6 +37,7 @@ from lakehouse_maintenance import (  # noqa: E402
     protected_snapshots,
     retention_tags,
     rewrite_data_files_sql,
+    set_properties_sql,
     read_rotation,
     rotation_order,
     should_compact,
@@ -291,6 +293,25 @@ class ReadBackFloorTest(unittest.TestCase):
         snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200), 9: snapshot(1, 150, **{INGEST: "staged"})}
 
         self.assertEqual(protected_snapshots(snapshots, 2), set())
+
+    def test_records_past_the_window_get_a_durable_copy_once(self) -> None:
+        """창 밖의 적재 기록만, 아직 속성이 없는 것만 옮긴다(root ADR-0332). 창 안은 요약이 지킨다."""
+        snapshots = {
+            1: snapshot(None, 100, **{INGEST: "a.zip,b.zip"}),
+            2: snapshot(1, 200, **{INGEST: "c.zip"}),
+            3: snapshot(2, 300, **{INGEST: "d.zip"}),
+            4: snapshot(3, 400, operation="replace"),
+        }
+        held = {f"{INGEST}.2": "c.zip"}
+
+        self.assertEqual(ingest_record_properties(snapshots, [4, 3, 2, 1], 350, held),
+                         {f"{INGEST}.1": "a.zip,b.zip", f"{INGEST}.3": "d.zip"})
+        self.assertEqual(ingest_record_properties(snapshots, [4, 3, 2, 1], 50, held), {})
+
+    def test_property_values_are_quoted_as_spark_literals(self) -> None:
+        sql = set_properties_sql("cat.silver.t", {f"{INGEST}.7": "bronze/it's.zip"})
+
+        self.assertEqual(sql, f"ALTER TABLE cat.silver.t SET TBLPROPERTIES ('{INGEST}.7' = 'bronze/it\\'s.zip')")
 
     def test_the_floor_moves_the_window_back_to_the_oldest_protected_snapshot(self) -> None:
         snapshots = {1: snapshot(None, 100), 2: snapshot(1, 200)}

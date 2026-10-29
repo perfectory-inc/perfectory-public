@@ -83,7 +83,9 @@ class FakeSpark:
         return self._frame
 
     def sql(self, query: str):  # noqa: ANN201
-        if query.startswith("SELECT snapshot_id FROM") and ".refs" in query:
+        if query.startswith("SHOW TBLPROPERTIES"):
+            self._pending = []
+        elif query.startswith("SELECT snapshot_id FROM") and ".refs" in query:
             # The table's one lineage: snapshot 1, the head of main.
             self._pending = [FakeRow({"snapshot_id": 1})]
         elif "parent_id" in query:

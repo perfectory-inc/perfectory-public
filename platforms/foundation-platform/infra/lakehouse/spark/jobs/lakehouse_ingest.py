@@ -33,6 +33,11 @@ from platform_contracts import load_identity_from_value, load_unit
 # reading `<table>.snapshots`; `OBJECTS` is what the skip decision actually reads.
 INGEST_BATCH_TOKEN_KEY = "foundation.ingest-batch-token"
 INGEST_BATCH_OBJECTS_KEY = "foundation.ingest-batch-objects"
+# The durable copy of that record (root ADR-0332): a table property per ingest commit,
+# `<prefix><snapshot id>` = the commit's summary value. The maintenance job writes it for every
+# record of main older than the expiry window before it expires anything
+# (`ingest_record_properties`), so a record is always in a summary, a property, or both.
+INGEST_OBJECTS_PROPERTY_PREFIX = f"{INGEST_BATCH_OBJECTS_KEY}."
 # The edition a commit of a versioned table loaded (root ADR-0317): an edition with no changed key
 # appends no row, so the commit, not the rows, says that it was loaded.
 EDITION_KEY = "foundation.edition"
@@ -129,10 +134,10 @@ def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str,
     that holds the rows. `main` is what readers see; a load staged on its branch is recorded only
     on that branch until it is published (root ADR-0183), so a retry asks the branch and "is this
     release loaded" asks main. The Rust reader (`load_ingested_batch_objects`) asks main the same
-    way. Iceberg drops summaries when snapshots expire, so a retention window shorter than a load
-    leaves an appended object looking un-appended; keep the snapshots a load produced until the
-    load is finished. Iceberg's Flink documentation carries the same warning about expiring the
-    snapshots its committer reads back.
+    way. Iceberg drops summaries when snapshots expire, so the table's durable copy
+    (`INGEST_OBJECTS_PROPERTY_PREFIX`, root ADR-0332) is read as well: a record of main is in the
+    lineage of any ref made from it, and its snapshot may be gone. Delta Lake's checkpoints carry
+    its `txn` idempotency records forward the same way before the log they came from is cleaned.
     """
     if not spark.catalog.tableExists(unquoted_table):
         return {}
@@ -147,7 +152,31 @@ def read_ingested_objects(spark: Any, qualified_table: str, unquoted_table: str,
             continue
         for name in recorded.split(OBJECT_NAME_SEPARATOR):
             ingested.setdefault(name, int(row.snapshot_id))
+    for key, recorded in spark.sql(f"SHOW TBLPROPERTIES {qualified_table}").collect():
+        if key.startswith(INGEST_OBJECTS_PROPERTY_PREFIX) and recorded:
+            for name in recorded.split(OBJECT_NAME_SEPARATOR):
+                ingested.setdefault(name, int(key[len(INGEST_OBJECTS_PROPERTY_PREFIX):]))
     return ingested
+
+
+def ingest_record_properties(
+    snapshots: dict[int, dict[str, Any]], lineage: Sequence[int], before_ms: int, properties: dict[str, str]
+) -> dict[str, str]:
+    """The table properties that make main's older ingest records durable (root ADR-0332).
+
+    `snapshots` maps an id to its `committed_ms` and `summary`; `lineage` is main's. Every record
+    committed before `before_ms` (the expiry window) whose property the table does not hold yet.
+    The maintenance job sets these in a commit before it expires anything, so no expiry can take a
+    record's summary while the record has no other copy.
+    """
+    carried = {}
+    for snapshot_id in lineage:
+        snapshot = snapshots[snapshot_id]
+        recorded = snapshot["summary"].get(INGEST_BATCH_OBJECTS_KEY)
+        key = f"{INGEST_OBJECTS_PROPERTY_PREFIX}{snapshot_id}"
+        if recorded and snapshot["committed_ms"] < before_ms and key not in properties:
+            carried[key] = recorded
+    return carried
 
 
 def edition_property_option(edition: str) -> dict[str, str]:
