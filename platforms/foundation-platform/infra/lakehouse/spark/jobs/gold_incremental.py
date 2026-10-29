@@ -28,11 +28,12 @@ this module adds is the machinery around it:
    pass; their rows must equal the current Gold's content. A disagreement means the current Gold is
    not what the build makes of its pinned inputs (the producer's code changed, or the difference
    missed a change), and the run falls back to the full rebuild.
-5. **Merge.** Only PNUs whose content actually changed are merged, in one copy-on-write `MERGE
-   INTO` whose snapshot records the new Silver pins (root ADR-0139). Rows of other PNUs keep
-   their bytes, `source_snapshot_id` and `published_at_utc`; a data file that holds none of the
-   merged PNUs is not rewritten. A table set to merge-on-read is refused: the by-PNU bake reads row
-   data files only and refuses delete files.
+5. **Merge.** Only PNUs whose content actually changed are merged, in one `MERGE INTO` whose
+   snapshot records the new Silver pins (root ADR-0139). Rows of other PNUs keep their bytes,
+   `source_snapshot_id` and `published_at_utc`. The merge is merge-on-read, as the Gold rebuild
+   contract's `merge.mode` says (root ADR-0344): it writes the merged rows as new data files and a
+   position delete file per data file it touched, and rewrites no data file; compaction folds the
+   deletes in on a cadence (lakehouse_maintenance).
 6. **Recording the change.** Every commit that changes rows by a known set appends that set to
    `gold.<t>__changes` (root ADR-0191 §4, ADR-0312 §1): the merged PNUs under the commit's
    (parent, head) step, plus one NULL marker so a step that changed nothing is recorded too. The
@@ -50,6 +51,7 @@ PySpark is imported inside the functions: the CI runner has no PySpark and tests
 """
 from __future__ import annotations
 
+import json
 import math
 import shutil
 import time
@@ -66,9 +68,10 @@ DELETE_FLAG = "_foundation_delete"
 MERGE_SOURCE_VIEW = "foundation_gold_incremental_merge_source"
 INPUT_TAG_PREFIX = "foundation-gold-input-"
 STAGES_PREFIX = "gold-incremental-"
-# Iceberg's table properties for row-level commands. The bake refuses delete files.
-MERGE_MODE_PROPERTY = "write.merge.mode"
-COPY_ON_WRITE = "copy-on-write"
+# Iceberg's table properties for row-level commands, all set to the Gold rebuild contract's
+# `merge.mode` (root ADR-0344): a MERGE that updates or deletes writes by the first.
+ROW_LEVEL_MODE_PROPERTIES = ("write.merge.mode", "write.update.mode", "write.delete.mode")
+ROW_LEVEL_MODES = ("copy-on-write", "merge-on-read")
 HASH_SPACE = 2**32
 # The keys a commit changed, on the commit itself: the shape-ledger check weighs the bytes it
 # rewrote against them (root ADR-0314 §4).
@@ -698,17 +701,31 @@ def current_fingerprint(spark: Any, table: str) -> str | None:
     return gold_fingerprint.recorded_for_rows(spark, table, head)
 
 
-def table_property(spark: Any, table: str, name: str) -> str | None:
-    rows = spark.sql(f"SHOW TBLPROPERTIES {table}").collect()
-    return next((row["value"] for row in rows if row["key"] == name), None)
+def row_level_mode(contract: dict[str, Any]) -> str:
+    """The Gold rebuild contract's `merge.mode`: how an incremental merge writes (root ADR-0344)."""
+    mode = (contract.get("merge") or {}).get("mode")
+    if mode not in ROW_LEVEL_MODES:
+        raise ValueError(f"the gold rebuild contract's merge.mode is {mode!r}; expected one of {list(ROW_LEVEL_MODES)}")
+    return mode
 
 
-def refuse_merge_on_read(spark: Any, table: str) -> None:
-    mode = table_property(spark, table, MERGE_MODE_PROPERTY) or COPY_ON_WRITE
-    if mode != COPY_ON_WRITE:
-        raise ValueError(
-            f"{table} sets {MERGE_MODE_PROPERTY}={mode}; the by-PNU bake reads row data files only "
-            "and refuses delete files, so the incremental merge needs copy-on-write")
+def apply_row_level_mode(spark: Any, table: str, mode: str) -> bool:
+    """Set `table`'s row-level write mode to `mode` where it differs, in one metadata commit (no data
+    file is written). Returns whether it changed the table."""
+    from platform_contracts import table_properties
+
+    live = table_properties(spark, table)
+    drifted = [name for name in ROW_LEVEL_MODE_PROPERTIES if live.get(name) != mode]
+    if drifted:
+        pairs = ", ".join(f"'{name}' = '{mode}'" for name in drifted)
+        spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ({pairs})")
+    return bool(drifted)
+
+
+def contract_row_level_mode() -> str:
+    from gold_rebuild import CONTRACT_PATH
+
+    return row_level_mode(json.loads(CONTRACT_PATH.read_text(encoding="utf-8")))
 
 
 def with_commit_properties(spark: Any, properties: dict[str, str], action: Callable[[], Any]) -> None:
@@ -767,7 +784,7 @@ def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, s
     `unchanged_properties`, what stays true of unchanged content), so the Gold records that it
     reflects the new Silver pins and the next plan starts from them.
     """
-    refuse_merge_on_read(spark, table)
+    apply_row_level_mode(spark, table, contract_row_level_mode())
     if source.limit(1).count() == 0:
         empty = spark.table(table).limit(0)
         writer = empty.writeTo(table)

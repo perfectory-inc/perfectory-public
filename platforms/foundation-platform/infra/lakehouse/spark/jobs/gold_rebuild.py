@@ -62,6 +62,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import gold_code_version
+import gold_incremental
 import section_coverage
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 
@@ -147,6 +148,7 @@ def load_contract(path: Path = CONTRACT_PATH, kinds: dict[str, Any] | None = Non
                 tables[name]["section_coverage"] = coverage
     try:
         gold_code_version.settings(contract)
+        gold_incremental.row_level_mode(contract)
     except ValueError as error:
         raise PlanError(str(error)) from None
     for name, table in tables.items():

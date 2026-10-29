@@ -53,7 +53,11 @@ def sound_contract() -> dict:
         "order": ["compaction", "snapshot_expiry", "orphan_cleanup"],
         "compaction": {"target_file_bytes": 1, "min_input_files": 2,
                        "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25,
-                       "partial_progress_max_commits": 10},
+                       "partial_progress_max_commits": 10,
+                       "fold_deletes": {"max_deleted_row_ratio": 0.01, "max_deleted_row_ratio_reason": "r",
+                                        "max_delete_byte_ratio": 0.002, "max_delete_byte_ratio_reason": "r",
+                                        "max_delete_bytes": 16777216, "max_delete_bytes_reason": "r",
+                                        "after_days": 7}},
         "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
                             "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
                             "year_end_tag": {"name_format": "yearly-%Y"}},
@@ -407,6 +411,94 @@ class R2ResetsTest(unittest.TestCase):
         sql = rewrite_data_files_sql("r2", "gold.parcel_panel", sound_contract()["compaction"], ordered=True)
         self.assertIn("strategy => 'sort'", sql)
         self.assertIn("'partial-progress.enabled','true'", sql)
+
+    def test_each_reason_adds_only_its_own_options(self):
+        """Root ADR-0344 §5: deletes fold only the files carrying them; out of order rewrites every file."""
+        import lakehouse_maintenance as maintenance
+
+        compaction = sound_contract()["compaction"]
+        small = rewrite_data_files_sql("r2", "gold.t", compaction, True)
+        self.assertNotIn("delete-file-threshold", small)
+        self.assertNotIn("rewrite-all", small)
+        fold = rewrite_data_files_sql("r2", "gold.t", compaction, True, (maintenance.FOLD_DELETES,))
+        self.assertIn("'delete-file-threshold','1'", fold)
+        self.assertIn("'remove-dangling-deletes','true'", fold)
+        self.assertNotIn("rewrite-all", fold)
+        whole = rewrite_data_files_sql("r2", "gold.t", compaction, True, (maintenance.OUT_OF_ORDER,))
+        self.assertIn("'rewrite-all','true'", whole)
+
+
+def shape(position_deletes=48_477, delete_bytes=400_000, oldest_days=1.0):
+    """gold.parcel_panel after one national vintage merged on read (2026-10-26's counts)."""
+    return {"records": 39_861_511, "position_deletes": position_deletes, "data_bytes": 4_061_289_766,
+            "delete_bytes": delete_bytes, "oldest_days": oldest_days}
+
+
+class CompactionReasonTest(unittest.TestCase):
+    """Root ADR-0344 §5: small files, deletes past any fold bound, or files out of order."""
+
+    def reasons(self, small=0, deletes=None, share=None):
+        import lakehouse_maintenance as maintenance
+
+        return maintenance.compaction_reasons(small, 14, sound_contract()["compaction"], deletes, share)
+
+    def test_a_healthy_table_with_one_vintage_of_deletes_is_left_alone(self):
+        self.assertEqual(self.reasons(small=3, deletes=shape(), share=0.3), ())
+        self.assertEqual(self.reasons(), ())
+
+    def test_each_reason_is_named_when_it_holds(self):
+        import lakehouse_maintenance as maintenance
+
+        self.assertEqual(self.reasons(small=10), (maintenance.SMALL_FILES,))
+        self.assertEqual(self.reasons(deletes=shape(oldest_days=7.0)), (maintenance.FOLD_DELETES,))
+        # The three Gold tables the shape-ledger check failed on 2026-10-29 read 100% per region.
+        self.assertEqual(self.reasons(share=1.0), (maintenance.OUT_OF_ORDER,))
+        self.assertEqual(self.reasons(small=12, deletes=shape(oldest_days=30), share=0.71),
+                         (maintenance.SMALL_FILES, maintenance.FOLD_DELETES, maintenance.OUT_OF_ORDER))
+
+    def test_any_one_fold_bound_folds_and_names_itself(self):
+        import lakehouse_maintenance as maintenance
+
+        fold = sound_contract()["compaction"]["fold_deletes"]
+        self.assertEqual(maintenance.fold_due(shape(), fold), [])
+        self.assertEqual(maintenance.fold_due(shape(position_deletes=400_000), fold), ["deleted_row_ratio"])
+        self.assertEqual(maintenance.fold_due(shape(delete_bytes=9_000_000), fold), ["delete_byte_ratio"])
+        small_table = {**shape(position_deletes=0, delete_bytes=17_000_000), "data_bytes": 10**13}
+        self.assertEqual(maintenance.fold_due(small_table, fold), ["delete_bytes"])
+        self.assertEqual(maintenance.fold_due(shape(oldest_days=8), fold), ["age"])
+        self.assertEqual(maintenance.fold_due(None, fold), [])
+
+    def test_a_fold_cadence_past_the_expiry_window_is_refused(self):
+        for days in (None, 0, 8):
+            contract = sound_contract()
+            contract["compaction"]["fold_deletes"]["after_days"] = days
+            with self.assertRaises(ValueError, msg=days):
+                validate_maintenance_contract(contract)
+
+    def test_a_fold_bound_without_its_value_or_reason_is_refused(self):
+        for bound in ("max_deleted_row_ratio", "max_delete_byte_ratio", "max_delete_bytes"):
+            for broken in ({bound: 0}, {f"{bound}_reason": ""}):
+                contract = sound_contract()
+                contract["compaction"]["fold_deletes"].update(broken)
+                with self.assertRaises(ValueError, msg=(bound, broken)):
+                    validate_maintenance_contract(contract)
+
+
+class DeleteMetricsTest(unittest.TestCase):
+    """Root ADR-0344 §5: both ratios per table, for tuning the bounds; an unreached table keeps its last."""
+
+    def test_the_textfile_carries_both_ratios_and_keeps_tables_this_run_did_not_reach(self):
+        import lakehouse_maintenance as maintenance
+
+        log = ["noise", maintenance.delete_metric_line("gold.a", shape()), maintenance.delete_metric_line("gold.b", None)]
+        previous = {"gold.c": {"records": 10, "position_deletes": 1, "data_bytes": 100, "delete_bytes": 5}}
+        state, text = maintenance.render_delete_metrics(log, previous)
+        self.assertEqual(sorted(state), ["gold.a", "gold.b", "gold.c"])
+        self.assertIn('foundation_lakehouse_deleted_row_ratio{table="gold.a"} 0.00121614', text)
+        self.assertIn('foundation_lakehouse_delete_byte_ratio{table="gold.a"} 9.84909e-05', text)
+        self.assertIn('foundation_lakehouse_deleted_row_ratio{table="gold.b"} 0', text)
+        self.assertIn('foundation_lakehouse_delete_byte_ratio{table="gold.c"} 0.05', text)
+        self.assertTrue(text.endswith("\n"))
 
 
 class CompactionTriggerTest(unittest.TestCase):

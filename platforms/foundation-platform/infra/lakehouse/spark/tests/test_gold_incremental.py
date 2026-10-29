@@ -305,5 +305,33 @@ class KeysChanged(unittest.TestCase):
         self.assertEqual(incremental.KEYS_CHANGED_PROPERTY, "foundation.keys-changed")
 
 
+class RowLevelMode(unittest.TestCase):
+    """Root ADR-0344: the contract says how a merge writes, and the table is brought to it before the MERGE."""
+
+    class Spark:
+        def __init__(self, live):
+            self.live, self.statements = live, []
+
+        def sql(self, statement):
+            self.statements.append(statement)
+            rows = list(self.live.items()) if statement.startswith("SHOW TBLPROPERTIES") else []
+            return SimpleNamespace(collect=lambda: rows)
+
+    def test_the_contract_merges_on_read_and_names_no_other_mode(self):
+        self.assertEqual(incremental.contract_row_level_mode(), "merge-on-read")
+        for contract in ({}, {"merge": {"mode": "merge-on-write"}}):
+            with self.assertRaises(ValueError):
+                incremental.row_level_mode(contract)
+
+    def test_only_the_properties_that_differ_are_set_and_a_table_already_there_is_left_alone(self):
+        spark = self.Spark({"write.merge.mode": "merge-on-read", "write.delete.mode": "copy-on-write"})
+        self.assertTrue(incremental.apply_row_level_mode(spark, "g.t", "merge-on-read"))
+        self.assertEqual(spark.statements[-1], "ALTER TABLE g.t SET TBLPROPERTIES "
+                                               "('write.update.mode' = 'merge-on-read', 'write.delete.mode' = 'merge-on-read')")
+        settled = self.Spark({name: "merge-on-read" for name in incremental.ROW_LEVEL_MODE_PROPERTIES})
+        self.assertFalse(incremental.apply_row_level_mode(settled, "g.t", "merge-on-read"))
+        self.assertEqual(len(settled.statements), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

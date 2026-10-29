@@ -88,6 +88,18 @@ def validate_maintenance_contract(contract: dict[str, Any]) -> None:
         )
     if contract["compaction"]["partial_progress_max_commits"] < 1:
         raise ValueError("compaction.partial_progress_max_commits must allow at least one commit")
+    fold = contract["compaction"].get("fold_deletes") or {}
+    days = fold.get("after_days")
+    if type(days) not in (int, float) or not 0 < days <= contract["snapshot_expiry"]["retain_days"]:
+        raise ValueError(
+            f"compaction.fold_deletes.after_days={days!r} must be a positive number of days within "
+            "snapshot_expiry.retain_days: a delete older than the window counts as that old, so a longer "
+            "cadence is never reached and the deletes are never folded (root ADR-0344)")
+    for bound in ("max_deleted_row_ratio", "max_delete_byte_ratio", "max_delete_bytes"):
+        value = fold.get(bound)
+        limit = 1 if bound != "max_delete_bytes" else float("inf")
+        if type(value) not in (int, float) or not 0 < value <= limit or not str(fold.get(f"{bound}_reason", "")).strip():
+            raise ValueError(f"compaction.fold_deletes.{bound}={value!r} must be a positive bound with its reason")
     order = contract.get("order")
     if order != ["compaction", "snapshot_expiry", "orphan_cleanup"]:
         raise ValueError(
@@ -409,7 +421,20 @@ def run_snapshot_expiry(
     )
 
 
-def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any], ordered: bool = False) -> str:
+# Why a table is compacted, each with the `rewrite_data_files` options it adds (root ADR-0344 §5).
+# Small files: Iceberg's own size selection. Deletes: every data file carrying a position delete is
+# rewritten without its deleted rows, and a delete no live file needs any more goes with it. Out of
+# order: every file, so the sort reaches the whole table.
+SMALL_FILES, FOLD_DELETES, OUT_OF_ORDER = "small_files", "fold_deletes", "out_of_order"
+REASON_OPTIONS = {
+    SMALL_FILES: {},
+    FOLD_DELETES: {"delete-file-threshold": 1, "remove-dangling-deletes": "true"},
+    OUT_OF_ORDER: {"rewrite-all": "true"},
+}
+
+
+def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any], ordered: bool = False,
+                           reasons: tuple[str, ...] = (SMALL_FILES,)) -> str:
     """The compaction call. Each file group commits on its own (`partial-progress.enabled`): a
     group that fails to read leaves the groups already rewritten in place instead of discarding them
     all, and the next run takes what is left (2026-10-15: one R2 connection reset discarded the
@@ -418,13 +443,17 @@ def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any],
     `ordered`: the table has an Iceberg sort order (a range-distributed contract, root ADR-0164).
     It is then rewritten with the `sort` strategy, which sorts by that order; the default bin-pack
     concatenates files as they come and turned gold.parcel_panel's 34 PNU-range files into 9 files
-    that each span the whole country (2026-10-26, root ADR-0307)."""
+    that each span the whole country (2026-10-26, root ADR-0307).
+
+    `reasons` add their `REASON_OPTIONS`."""
     options = {
         "min-input-files": compaction["min_input_files"],
         "target-file-size-bytes": compaction["target_file_bytes"],
         "partial-progress.enabled": "true",
         "partial-progress.max-commits": compaction["partial_progress_max_commits"],
     }
+    for reason in reasons:
+        options.update(REASON_OPTIONS[reason])
     pairs = ",".join(f"'{key}','{value}'" for key, value in options.items())
     strategy = "strategy => 'sort', " if ordered else ""
     return f"CALL {catalog}.system.rewrite_data_files(table => '{table}', {strategy}options => map({pairs}))"
@@ -432,9 +461,124 @@ def rewrite_data_files_sql(catalog: str, table: str, compaction: dict[str, Any],
 
 def has_sort_order(spark: Any, qualified: str) -> bool:
     """Whether the live table carries an Iceberg sort order (Iceberg reports it as `sort-order`)."""
+    return leading_sort_column(spark, qualified) is not None
+
+
+def leading_sort_column(spark: Any, qualified: str) -> str | None:
+    """The first column of the live table's Iceberg sort order (`pnu ASC NULLS FIRST, ...`), or None."""
     from platform_contracts import SORT_ORDER_PROPERTY, table_properties  # noqa: PLC0415
 
-    return bool(table_properties(spark, qualified).get(SORT_ORDER_PROPERTY, "").strip())
+    fields = table_properties(spark, qualified).get(SORT_ORDER_PROPERTY, "").split(",")[0].split()
+    return fields[0].strip("`") if fields else None
+
+
+def delete_shape(spark: Any, qualified: str, now: datetime) -> dict[str, float] | None:
+    """What a merge-on-read table's live deletes weigh (root ADR-0344 §5), or None without one: the
+    current snapshot's records and position deletes (its summary), the data and delete files' bytes
+    (the manifests; no data file is opened) and the oldest delete's age."""
+    age = oldest_delete_age_days(spark, qualified, now)
+    if age is None:
+        return None
+    summary = spark.sql(f"SELECT s.summary FROM {qualified}.snapshots s JOIN {qualified}.refs r "
+                        "ON r.snapshot_id = s.snapshot_id WHERE r.name = 'main'").collect()[0][0]
+    sizes = spark.sql("SELECT coalesce(sum(CASE WHEN content = 0 THEN file_size_in_bytes END), 0) AS data, "
+                      "coalesce(sum(CASE WHEN content > 0 THEN file_size_in_bytes END), 0) AS deletes "
+                      f"FROM {qualified}.files").collect()[0]
+    return {"records": int(summary.get("total-records", 0)),
+            "position_deletes": int(summary.get("total-position-deletes", 0)),
+            "data_bytes": int(sizes.data), "delete_bytes": int(sizes.deletes), "oldest_days": age}
+
+
+def delete_ratios(shape: dict[str, float]) -> tuple[float, float]:
+    """(deleted rows / records, delete bytes / data bytes) of one `delete_shape`."""
+    rows = shape["position_deletes"] / shape["records"] if shape["records"] else 0.0
+    return rows, (shape["delete_bytes"] / shape["data_bytes"] if shape["data_bytes"] else 0.0)
+
+
+def fold_due(shape: dict[str, float] | None, fold: dict[str, Any]) -> list[str]:
+    """Which of the contract's fold bounds the table's deletes pass; empty when none (or no delete)."""
+    if shape is None:
+        return []
+    rows, bytes_ = delete_ratios(shape)
+    passed = {"deleted_row_ratio": rows >= fold["max_deleted_row_ratio"],
+              "delete_byte_ratio": bytes_ >= fold["max_delete_byte_ratio"],
+              "delete_bytes": shape["delete_bytes"] >= fold["max_delete_bytes"],
+              "age": shape["oldest_days"] >= fold["after_days"]}
+    return [name for name, over in passed.items() if over]
+
+
+METRIC_PREFIX = "maintenance-deletes"
+
+
+def delete_metric_line(table: str, shape: dict[str, float] | None) -> str:
+    """The run-log line the maintenance script turns into the textfile (`render_delete_metrics`)."""
+    shape = shape or {"records": 0, "position_deletes": 0, "data_bytes": 0, "delete_bytes": 0}
+    return (f"{METRIC_PREFIX} table={table} records={shape['records']} position_deletes={shape['position_deletes']} "
+            f"data_bytes={shape['data_bytes']} delete_bytes={shape['delete_bytes']}")
+
+
+def render_delete_metrics(log_lines: list[str], state: dict[str, dict[str, int]]) -> tuple[dict, str]:
+    """Fold this run's `maintenance-deletes` lines into the per-table state (a table this run did not
+    reach keeps its last measurement) and render node-exporter's textfile from it."""
+    state = dict(state)
+    for line in log_lines:
+        if line.startswith(METRIC_PREFIX + " "):
+            fields = dict(part.split("=", 1) for part in line.split()[1:])
+            table = fields.pop("table")
+            state[table] = {key: int(value) for key, value in fields.items()}
+    lines = ["# HELP foundation_lakehouse_deleted_row_ratio Position deletes over records of the table's current snapshot (root ADR-0344).",
+             "# TYPE foundation_lakehouse_deleted_row_ratio gauge",
+             "# HELP foundation_lakehouse_delete_byte_ratio Live delete-file bytes over data-file bytes (root ADR-0344).",
+             "# TYPE foundation_lakehouse_delete_byte_ratio gauge",
+             "# HELP foundation_lakehouse_delete_bytes Live delete-file bytes (root ADR-0344).",
+             "# TYPE foundation_lakehouse_delete_bytes gauge"]
+    for table, shape in sorted(state.items()):
+        rows, bytes_ = delete_ratios(shape)
+        lines += [f'foundation_lakehouse_deleted_row_ratio{{table="{table}"}} {rows:.6g}',
+                  f'foundation_lakehouse_delete_byte_ratio{{table="{table}"}} {bytes_:.6g}',
+                  f'foundation_lakehouse_delete_bytes{{table="{table}"}} {shape["delete_bytes"]}']
+    return state, "\n".join(lines) + "\n"
+
+
+def oldest_delete_age_days(spark: Any, qualified: str, now: datetime) -> float | None:
+    """Days since the oldest live delete file was committed, or None without one. A delete file whose
+    commit has expired from the snapshot log is older than the expiry window, so it counts as that old."""
+    row = spark.sql(
+        f"SELECT count(*) AS n, min(coalesce(s.committed_at, TIMESTAMP '1970-01-01 00:00:00')) AS at "
+        f"FROM {qualified}.entries e LEFT JOIN {qualified}.snapshots s ON e.snapshot_id = s.snapshot_id "
+        "WHERE e.status < 2 AND e.data_file.content > 0").collect()[0]
+    if not row.n:
+        return None
+    return (now - row.at.replace(tzinfo=timezone.utc)).total_seconds() / 86400
+
+
+def region_read_share(spark: Any, qualified: str, column: str) -> float | None:
+    """The shape-ledger check's layout measure (table_layout) over the live data files' bounds of the
+    cluster key `column`, or None when the measure has no region for that key."""
+    import table_layout  # noqa: PLC0415
+
+    if column not in table_layout.REGION_DIGITS:
+        return None
+    rows = spark.sql(f"SELECT readable_metrics.`{column}`.lower_bound AS lo, readable_metrics.`{column}`.upper_bound AS hi "
+                     f"FROM {qualified}.files WHERE content = 0").collect()
+    bounds = [(row.lo, row.hi) for row in rows if row.lo is not None and row.hi is not None]
+    return table_layout.region_read_share(bounds, table_layout.REGION_DIGITS[column])
+
+
+def compaction_reasons(small_files: int, total_files: int, compaction: dict[str, Any],
+                       deletes: dict[str, float] | None, read_share: float | None) -> tuple[str, ...]:
+    """Why to compact now: enough small files (`should_compact`), deletes past any of the contract's
+    fold bounds (`fold_due`), or data files the shape-ledger check would call out of order."""
+    import table_layout  # noqa: PLC0415
+
+    reasons = []
+    if should_compact(small_files, total_files, compaction["trigger_small_file_count"]):
+        reasons.append(SMALL_FILES)
+    if fold_due(deletes, compaction["fold_deletes"]):
+        reasons.append(FOLD_DELETES)
+    if read_share is not None and read_share > table_layout.REGION_READ_SHARE_LIMIT:
+        reasons.append(OUT_OF_ORDER)
+    return tuple(reasons)
 
 
 def file_shape(spark: Any, qualified: str) -> tuple[int, int]:
@@ -450,8 +594,10 @@ def small_file_count(spark: Any, qualified: str, target_bytes: int, fraction: fl
     without opening a single data file.
     """
     threshold = int(target_bytes * fraction)
+    # Data files only: a merge-on-read table's position delete files are small by nature and are
+    # folded on their own cadence (root ADR-0344 §5).
     row = spark.sql(
-        f"SELECT count(*) c FROM {qualified}.files WHERE file_size_in_bytes < {threshold}"
+        f"SELECT count(*) c FROM {qualified}.files WHERE content = 0 AND file_size_in_bytes < {threshold}"
     ).collect()[0]
     return int(row.c)
 
@@ -487,18 +633,25 @@ def maintain_table(
 
     if "compaction" in skip:
         print("maintenance-skip step=compaction", flush=True)
-    elif not should_compact(small, before_files, compaction["trigger_small_file_count"]):
-        print(
-            f"maintenance-skip step=compaction reason=below_trigger "
-            f"small_files={small} trigger={compaction['trigger_small_file_count']}",
-            flush=True,
-        )
-    elif dry_run:
-        print(f"maintenance-would step=compaction small_files={small}", flush=True)
+        reasons: tuple[str, ...] = ()
     else:
-        ordered = has_sort_order(spark, qualified)
-        result = spark.sql(rewrite_data_files_sql(catalog, table, compaction, ordered)).collect()[0]
-        print(f"maintenance-done step=compaction read={result[0]} wrote={result[1]} sorted={ordered}", flush=True)
+        column = leading_sort_column(spark, qualified)
+        deletes = delete_shape(spark, qualified, datetime.now(timezone.utc))
+        print(delete_metric_line(table, deletes), flush=True)
+        share = None if column is None else region_read_share(spark, qualified, column)
+        reasons = compaction_reasons(small, before_files, compaction, deletes, share)
+        measured = (f"small_files={small} trigger={compaction['trigger_small_file_count']} "
+                    f"fold_due={','.join(fold_due(deletes, compaction['fold_deletes'])) or 'none'} "
+                    f"region_read_share={'none' if share is None else f'{share:.2f}'}")
+        if not reasons:
+            print(f"maintenance-skip step=compaction reason=below_trigger {measured}", flush=True)
+        elif dry_run:
+            print(f"maintenance-would step=compaction reasons={','.join(reasons)} {measured}", flush=True)
+        else:
+            ordered = column is not None
+            result = spark.sql(rewrite_data_files_sql(catalog, table, compaction, ordered, reasons)).collect()[0]
+            print(f"maintenance-done step=compaction reasons={','.join(reasons)} read={result[0]} "
+                  f"wrote={result[1]} sorted={ordered} {measured}", flush=True)
 
     if "snapshot_expiry" in skip:
         print("maintenance-skip step=snapshot_expiry", flush=True)
