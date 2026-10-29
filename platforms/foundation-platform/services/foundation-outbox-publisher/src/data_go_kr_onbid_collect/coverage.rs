@@ -97,10 +97,44 @@ pub(crate) fn owed_details(
     now: DateTime<Utc>,
 ) -> Vec<Owed> {
     adopt_round_marks(state);
+    owed_items(
+        &mut state.items,
+        &state.listed,
+        Some(&state.photos_landed),
+        open,
+        now,
+        MEDIA_FIELDS,
+    )
+}
+
+/// The open items whose 물건상세 입찰정보 is owed (root ADR-0340 §3): the same unit, order and
+/// "changed" rule as the detail, with no media.
+pub(crate) fn owed_bid_infos(
+    state: &mut State,
+    open: &BTreeSet<ItemKey>,
+    now: DateTime<Utc>,
+) -> Vec<Owed> {
+    owed_items(&mut state.bid_infos, &state.listed, None, open, now, 0)
+}
+
+/// The media fields the collector mirrors (`media.fields`): 1 since root ADR-0340 §4 added the
+/// location map, cadastral map, 360-degree photo and video to the photos and appraisals. An item
+/// completed under a lower number is fetched once more; that refetch is not a refresh, so the
+/// media it already stored are not downloaded again.
+pub(crate) const MEDIA_FIELDS: u32 = 1;
+
+fn owed_items(
+    marks: &mut BTreeMap<String, ItemMark>,
+    listed_rounds: &BTreeMap<ItemKey, super::Listed>,
+    photos_landed: Option<&BTreeMap<String, ItemMark>>,
+    open: &BTreeSet<ItemKey>,
+    now: DateTime<Utc>,
+    media_fields: u32,
+) -> Vec<Owed> {
     let now = kst14_of(now);
     let mut rounds: BTreeMap<&str, Vec<_>> = BTreeMap::new();
     for key in open {
-        let listed = state.listed.get(key);
+        let listed = listed_rounds.get(key);
         let ends = listed.and_then(|listed| listed.bid_ends_kst.clone());
         let ended = ends.as_deref().is_some_and(|ends| ends < now.as_str());
         rounds.entry(key.cltr_mng_no.as_str()).or_default().push((
@@ -116,21 +150,23 @@ pub(crate) fn owed_details(
             .iter()
             .filter_map(|(_, _, digest)| digest.clone())
             .collect::<BTreeSet<_>>();
-        let refresh = match state.items.get_mut(cltr) {
-            None => false,
+        // Never complete, or complete under fewer media fields: owed, and not a refresh.
+        let refresh = match marks.get_mut(cltr) {
             // A mark made before the item list was read adopts the list's digests instead of a refetch.
-            Some(mark) if mark.seen.is_empty() => {
+            Some(mark) if mark.media_fields >= media_fields && mark.seen.is_empty() => {
                 mark.seen = seen;
                 continue;
             }
-            Some(mark) if seen.is_subset(&mark.seen) => continue,
-            Some(_) => true,
+            Some(mark) if mark.media_fields >= media_fields && seen.is_subset(&mark.seen) => {
+                continue
+            }
+            Some(mark) => mark.media_fields >= media_fields,
+            None => false,
         };
         // Its photos landed at the digests it shows now: only its appraisals are owed, so it waits
         // behind every item still without photos (root ADR-0339 footnote 2026-10-29).
-        let photos_landed = state
-            .photos_landed
-            .get(cltr)
+        let photos_landed = photos_landed
+            .and_then(|landed| landed.get(cltr))
             .is_some_and(|mark| seen.is_subset(&mark.seen));
         let ((ended, unknown, ends), key, _) = item_rounds.swap_remove(0);
         owed.push((
@@ -186,6 +222,7 @@ pub(crate) fn settle_details(
         let mark = ItemMark {
             seen: fetched.seen.clone(),
             photos: outcome.photos,
+            media_fields: MEDIA_FIELDS,
         };
         if outcome.complete {
             state.photos_landed.remove(cltr);

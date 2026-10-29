@@ -27,15 +27,16 @@ work="${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "onbid silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
-trap 'rm -rf "${work}/items" "${work}/results" "${work}/photos"' EXIT
+trap 'rm -rf "${work}/plans"' EXIT
 
-read -r window_days max_objects item_slug result_slug photo_slug < <(python3 -I -c '
+read -r window_days max_objects < <(python3 -I -c '
 import json, sys
 c = json.load(open(sys.argv[1], encoding="utf-8"))
-print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"],
-      "datagokr__" + c["item_list"]["dataset_slug"], "datagokr__" + c["item_bid_result"]["dataset_slug"],
-      "datagokr__" + c["item_detail"]["dataset_slug"])
+print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"])
 ' "${CONTRACT}")
+# Each table and the source it loads (root ADR-0340 §6): the item detail feeds both the media index
+# and the detail table, each recording its own loads.
+mapfile -t loads < <(python3 -I "${RELEASE_ROOT}/infra/lakehouse/spark/jobs/data_go_kr_onbid.py" tables)
 
 plan() { # <table> <source slug> <dir>
   env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE="$1" FOUNDATION_PLATFORM_SILVER_LOAD_SOURCE_SLUGS="$2" \
@@ -45,10 +46,16 @@ plan() { # <table> <source slug> <dir>
     "${PUBLISHER_BIN}" plan-silver-load-objects >> "${run_log}" 2>&1
   python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["objects"]))' "$3/plan.json"
 }
-owed_items="$(plan silver.onbid_real_estate_item "${item_slug}" "${work}/items")"
-owed_results="$(plan silver.onbid_item_bid_result "${result_slug}" "${work}/results")"
-owed_photos="$(plan silver.onbid_real_estate_item_photo "${photo_slug}" "${work}/photos")"
-if [ "${owed_items}" = 0 ] && [ "${owed_results}" = 0 ] && [ "${owed_photos}" = 0 ]; then
+owed_total=0
+plan_args=()
+for load in "${loads[@]}"; do
+  read -r table slug <<<"${load}"
+  dir="${work}/plans/${table#silver.}"
+  owed="$(plan "${table}" "${slug}" "${dir}")"
+  owed_total=$((owed_total + owed))
+  plan_args+=(--plan-dir "/workspace/target/lakehouse/runs/${run_id}/plans/${table#silver.}")
+done
+if [ "${owed_total}" = 0 ]; then
   job_journal "${journal}" "onbid silver load: nothing owed run=${run_id}"
   printf 'foundation-job-outcome unchanged\n'
   exit 0
@@ -65,20 +72,18 @@ docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose
   spark-small spark-submit --master 'local[2,8]' --driver-memory 2g \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/data_go_kr_onbid.py load \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/items" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/results" \
-  --plan-dir "/workspace/target/lakehouse/runs/${run_id}/photos" \
+  "${plan_args[@]}" \
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^data-go-kr-onbid-summary-json ' "${run_log}" | tail -1)"
 late="$(python3 -I -c '
 import json, sys
 print(sum(len(json.load(open(p, encoding="utf-8"))["selection"].get("late", [])) for p in sys.argv[1:]))
-' "${work}/items/plan.json" "${work}/results/plan.json" "${work}/photos/plan.json")"
+' "${work}"/plans/*/plan.json)"
 if [ "${late}" != 0 ]; then
   job_journal "${journal}" "onbid silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2
   echo "onbid silver load: ${late} Bronze object(s) waited more than ${window_days} days unloaded; they are loaded now, and this run fails so the gap is seen (run.log names them)" >&2
   exit 1
 fi
-job_journal "${journal}" "onbid silver load ok run=${run_id} owed=${owed_items}+${owed_results}+${owed_photos} ${summary}"
+job_journal "${journal}" "onbid silver load ok run=${run_id} owed=${owed_total} ${summary}"
 printf 'foundation-job-outcome changed\n'

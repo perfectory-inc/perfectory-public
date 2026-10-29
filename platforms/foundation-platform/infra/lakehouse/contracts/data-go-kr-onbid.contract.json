@@ -17,7 +17,9 @@
     "announcement_list": 20000,
     "announcement_bid_result_list": 20000,
     "item_bid_result": 20000,
-    "item_detail": 20000
+    "item_detail": 20000,
+    "item_bid_info": 20000,
+    "announcement_detail": 20000
   },
   "property_division_codes": {
     "$comment": "prptDivCd, a mandatory parameter of every list API (the provider's own meanings, swagger 2026-03-20). Every code is asked: a code with no open items costs one call and answers 03.",
@@ -83,9 +85,33 @@
     "bid_end_field": "cltrBidEndDt",
     "$coverage": "루트 ADR-0330. 한 회차는 상세를 받고 그 미디어가 전부 저장(또는 영구 제외: 형식 불명·상한 초과·4xx)된 뒤에야 state.details 에 '완료'로 남는다 — 상한·시간·일시 오류로 미디어가 덜 받힌 회차는 다음 run 이 상세를 다시 받는다(2026-10-28: 상세 50건 중 사진 50장 상한 밖의 회차는 '받음'으로 표시돼 사진이 영영 안 받혔다, 살아 있는 회차 72,188 중 사진 622). 받을 순서: 아직 안 받은 회차 → 목록 행이 바뀐 회차, 각각 입찰 마감(bid_end_field)이 지나지 않은 것 먼저·마감 이른 순. '바뀜' = refresh_on_list_fields 값의 다이제스트가 완료 때와 다름; mdfcnDt(제공자 수정일시)만 쓴다 — 실측(Silver 2026-10-26~29, 바뀐 판 20,793): 상태코드 13,038·유찰횟수 9,574 는 사진과 무관한 회차 상태라 목록에서 이미 Silver 로 가고, 제공자가 기록 수정을 알린 것은 1,836(하루 ~525). per_run_limit 600 = 0.5s 간격 × 600 ≈ 6분; 하루 24 run = 14,400 ≤ daily 20,000.",
     "$per_item": "루트 ADR-0339(ADR-0330 개정). 사진·감정평가서는 회차가 아니라 물건(cltrMngNo)의 것이다 — 실측(Silver 2026-10-29): 회차가 둘 이상인 물건 중 사진 94/94·감정평가서 13/13 이 모든 회차에서 같은 파일(해시·순서·제목까지)이었고, 여러 run 에 걸쳐 받은 물건 13 도 0 건 바뀜. 그래서 상세는 물건마다 한 번, 그 물건의 입찰 마감이 지나지 않은 회차 중 마감 이른 회차로 묻는다. per_run_limit 은 물건 수다. 완료는 물건 단위(state.items; ADR-0330 의 회차 표시는 한 번 접어 넣는다). 다시 묻는 것은 그 물건의 어떤 회차가 완료 때 보지 못한 refresh_on_list_fields 다이제스트를 보일 때뿐이다 — 회차의 mdfcnDt 가 바뀌었거나, 새 회차가 다른 회차들에 없던 수정일시를 들고 왔을 때. 같은 수정일시의 새 회차(물건당 ~5.8 회차, 하루 ~1,300)는 다시 묻지 않는다. 열린 회차 50,363·물건 8,722(10-29 실측) → 백필 상세 ~8,700 번 한 번, 이후 하루 ~350(10-20~28 실측: 새 물건 ~200 + 새 수정일시를 보인 물건 ~150, 최대 ~750; 회차 단위였을 때 ~1,800).",
+    "$media_fields": "루트 ADR-0340 §4. 위치도·지적도·360도 사진·동영상(media.fields 의 pipe 필드)을 미디어에 더한 뒤로, 그 전에 완료된 물건은 상세를 한 번 다시 받는다(state.items 의 media_fields 가 수집기의 판보다 낮은 물건; 다시 받기는 refresh 가 아니라 이미 저장된 사진을 다시 받지 않는다). 백필 = 열린 물건 ~8,700 번 한 번(per_run_limit 600 으로 ~15 run), 새 다운로드 = 물건당 위치도·지적도 1~2 장.",
+    "every_hours": 1
+  },
+  "item_bid_info": {
+    "$comment": "루트 ADR-0340 §3. 물건상세 입찰정보(data.go.kr 15157251, getCltrBidInf2; 활용가이드 07). 입찰보증금·잔대금 납부·입찰성립기준·제한경쟁 자격·제출서류·평가방식·이전 회차 입찰결과(prcnBidClgList)·회차별 일정과 개찰장소(cseqBidInfClgList)는 다른 API 에 없다. 물건관리번호·공매조건번호로 묻고, 회차별 목록이 한 응답에 다 들어 있으므로 물건마다 한 번(ADR-0339 와 같은 단위·같은 순서·같은 '바뀜' = refresh_on_list_fields 다이제스트). 미디어 없음. 실패는 물건상세처럼 격리(run 을 깨지 않는다). path 는 공급자 스펙(swagger host OnbidCltrBidDtlSrvc2)이고 운영 키로 아직 부르지 않았다: 활용신청 전이면 게이트웨이 오류 코드로 격리 실패가 run 마다 한 번 남는다. per_run_limit 300 = 0.5s × 300 ≈ 2.5분; 백필 열린 물건 ~8,700 ≈ 29 run(약 1.2 일), 이후 하루 ~350(물건상세와 같은 비율).",
+    "dataset_slug": "onbid_item_bid_info",
+    "operation": "getCltrBidInf2",
+    "path": "/OnbidCltrBidDtlSrvc2/getCltrBidInf2",
+    "per_run_limit": 300,
+    "refresh_on_list_fields": ["mdfcnDt"],
+    "bid_end_field": "cltrBidEndDt",
+    "every_hours": 1
+  },
+  "announcement_detail": {
+    "$comment": "루트 ADR-0340 §3. 공고상세(data.go.kr 15157218, getPbancDtlInf2; 활용가이드 11). 공고문 전문(anncmAlCont)·첨부파일(atchFileList[], 미디어로 미러)·참가자격·참가수수료·취소사유·관련공고·입찰금액 공개여부는 다른 API 에 없다. 공고관리번호(pbancMngNo)로 묻는다: 이번 run 의 공고목록이 내놓은 공고 중 아직 받지 않았거나 목록 행의 다이제스트가 완료 때와 다른 것, 공고관리번호 순으로 per_run_limit 까지. 완료는 첨부가 다 저장(또는 영구 제외)된 뒤(ADR-0330 §1 과 같은 규칙). path 는 공급자 스펙 그대로다(swagger host·활용가이드 모두 'OnbidPbancDtlnfSrvc2' — Inf 가 아니라 lnf 로 표기); 운영 키로 아직 부르지 않았으므로 게이트웨이가 code 12 를 주면 격리 실패로 보이고 path 를 고친다(#859 의 교훈). per_run_limit 200 ≈ 100초.",
+    "dataset_slug": "onbid_announcement_detail",
+    "operation": "getPbancDtlInf2",
+    "path": "/OnbidPbancDtlnfSrvc2/getPbancDtlInf2",
+    "per_run_limit": 200,
     "every_hours": 1
   },
   "media": {
+    "fields": {
+      "$comment": "루트 ADR-0340 §4. 어느 응답 필드가 미디어인지와 그 media_kind(Silver 미디어 색인의 값). list: [{urlAdr}] 배열(받은 원소에 sha256·media_format·size_bytes 를 더하고 urlAdr 를 sha256:<해시> 로 바꾼다), pipe: '|' 로 이은 URL 문자열(원문은 두고 옆에 <필드>Media 배열로 받은 것을 적는다). 받는 규칙(호스트·바이트 판정·크기 상한)은 모두 같다; 판정되지 않는 형식(예: 동영상)은 저장하지 않고 서빙하지 않는다.",
+      "list": {"potoUrlList": "photo", "apslEvlClgList": "appraisal", "atchFileList": "announcement_attachment"},
+      "pipe": {"lmapUrlAdrList": "location_map", "lrmUrlAdrList": "cadastral_map", "poto360DgrUrlList": "photo_360", "vdoUrlAdrList": "video"}
+    },
     "$comment": "물건상세의 사진·감정평가서 바이너리를 KAMCO(url_host) 공개 URL 에서 받아 공용 content-addressed 저장소(ADR-0290 §7 / ADR-0296 §2, foundation-shared-kernel media.rs)에 object_prefix 아래 sha256/<해시>.<확장자> 로 한 번만 담는다(onbid_media.rs). 실물(2026-10-26): 사진=potoUrlList[].urlAdr, 감정평가서=apslEvlClgList[].urlAdr, 둘 다 www.onbid.co.kr. url_host 외 호스트는 받지 않는다(응답 변조·예상외 호스트로 임의 fetch 방지). 형식은 바이트 매직으로 판정하며(만료 링크의 HTML 오류 페이지는 걸러짐) 판정 실패는 미저장. daily_download_limit 는 '첫 수집 실측 먼저'를 위해 작게 시작하고, 용량을 잰 PR 이 올린다(루트 selection_archive_new_bytes_budget 0 시작 선례와 같은 방식). max_file_bytes 는 비정상적으로 큰 단일 파일이 적재를 깨지 않게 하는 안전밸브(루트: 5.89GB 단일 PUT 사고). 다운로드/저장 실패는 격리되어 수집 run 을 깨지 않는다. **1c 상향(2026-10-26 실측 반영)**: 10-26 15:08 UTC run 실측 = 20 시도 중 downloaded 18·deduplicated 1·skipped_unknown_format 1·errored 0, bytes 3,507,256(~190KB/장). R2 `read_object_sha256` 가 404(객체 없음)를 Err 로 보던 결함(#867)을 고친 뒤 저장이 정상화됐다(그 전엔 errored 20·downloaded 0). 이제 **per_run_limit(한 run 당 다운로드 상한) + daily_download_limit 상향**으로 ADR-0300 H(모든 수집 작업은 run당 상한을 선언)에 맞춘다: per_run_limit 가 한 run 의 벽시계를 bound(최악 = per_run_limit × download_timeout_seconds = 50×20s=1000s < 작업 40분 한도)하고, daily_download_limit 는 하루 총량을 bound 해 백로그를 여러 run 에 나눠 뺀다. 전량 backfill 은 실측을 더 쌓은 뒤 추가 상향/전용 경로로.",
     "object_prefix": "onbid/media",
     "url_host": "www.onbid.co.kr",

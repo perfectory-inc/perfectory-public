@@ -16,7 +16,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::{
     close_vanished, collect, item_key, item_pass_due, kst14, kst14_of, kst_date, listed_of,
     owed_details, persist, prune_media_memo, read_answer, settle_details, source_contract, Answer,
-    Api, Coverage, DetailMark, Fetcher, ItemKey, ItemMark, LineOutcome, Listed, MediaRef, State,
+    Api, Coverage, Fetcher, ItemKey, ItemMark, LineOutcome, Listed, MediaRef, State, MEDIA_FIELDS,
     PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
@@ -389,18 +389,108 @@ fn listed(digest: &str, ends: Option<&str>) -> Listed {
     }
 }
 
-fn mark(digest: &str, photos: u32) -> DetailMark {
-    DetailMark {
-        digest: digest.to_owned(),
-        photos,
-    }
-}
-
 fn item_mark(seen: &[&str], photos: u32) -> ItemMark {
     ItemMark {
         seen: seen.iter().map(|digest| (*digest).to_owned()).collect(),
         photos,
+        media_fields: MEDIA_FIELDS,
     }
+}
+
+#[test]
+fn an_item_completed_before_the_maps_were_media_is_fetched_once_more_without_a_refresh() {
+    let mut state = State::default();
+    let open = BTreeSet::from([key("A-1", 1)]);
+    state
+        .listed
+        .insert(key("A-1", 1), listed("d1", Some("20990110100000")));
+    state.items.insert(
+        "A-1".to_owned(),
+        ItemMark {
+            media_fields: 0,
+            ..item_mark(&["d1"], 3)
+        },
+    );
+    let owed = owed_details(&mut state, &open, at("2099-01-01T00:00:00Z"));
+    assert_eq!(owed.len(), 1);
+    // Not a refresh: the photos it already stored are not downloaded again.
+    assert!(!owed[0].refresh);
+    state.items.insert("A-1".to_owned(), item_mark(&["d1"], 3));
+    assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
+}
+
+#[tokio::test]
+async fn bid_info_is_asked_once_per_item_and_announcement_details_once_per_announcement(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(contract.item_list.path.clone()))
+        .and(query_param("prptDivCd", "0007"))
+        .and(query_param("pvctTrgtYn", "N"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rows(&[
+            listed_item("A-1", 1, "20990101090000", "209901101000"),
+            listed_item("A-1", 2, "20990101090000", "209901201000"),
+        ])))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(contract.announcement_list.path.clone()))
+        .and(query_param("prptDivCd", "0007"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(rows(&[
+            json!({"pbancMngNo": "209901-00001-00", "onbidPbancNo": 1, "pbctNo": 1}),
+        ])))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(no_data()))
+        .with_priority(10)
+        .mount(&server)
+        .await;
+
+    let mut state = State::default();
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(
+        &contract,
+        &mut fetcher,
+        &mut state,
+        at("2099-01-01T00:00:00Z"),
+    )
+    .await?;
+    // One item with two rounds: one bid-info call, through its earliest-closing round.
+    assert_eq!(report.bid_infos_received, 1);
+    assert!(state.bid_infos.contains_key("A-1"));
+    let asked = fetcher
+        .lines
+        .get(&Api::ItemBidInfo)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(asked.len(), 1);
+    assert!(asked[0].contains("\"pbctCdtnNo\":\"1\""));
+    // The listed announcement is asked once; it is complete only after its attachments settle.
+    assert_eq!(report.announcements_received, 1);
+    assert!(state.announcements.is_empty());
+    assert_eq!(
+        super::settle_announcements(&mut state, &report.announcements_fetched, &[complete(0)]),
+        1
+    );
+
+    // An hour later nothing changed: neither is asked again.
+    let mut fetcher = Fetcher::new(&contract, &server.uri(), KEY, spacing()?)?;
+    let report = collect(
+        &contract,
+        &mut fetcher,
+        &mut state,
+        at("2099-01-01T01:00:00Z"),
+    )
+    .await?;
+    assert_eq!(report.bid_infos_received, 0);
+    assert_eq!(report.announcements_received, 0);
+    assert!(!fetcher.lines.contains_key(&Api::ItemBidInfo));
+    assert!(!fetcher.lines.contains_key(&Api::AnnouncementDetail));
+    Ok(())
 }
 
 fn owed_keys(
@@ -505,9 +595,19 @@ fn the_per_round_marks_of_adr_0330_fold_into_their_items() -> anyhow::Result<()>
     let open = BTreeSet::from([key("A", 1), key("A", 2)]);
     state.listed.insert(key("A", 1), listed("m1", None));
     state.listed.insert(key("A", 2), listed("m1", None));
-    assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
+    // Folded at the media fields of its time (none of root ADR-0340's maps): asked once more, and
+    // not as a refresh, so the photos it stored are not downloaded again.
+    let owed = owed_details(&mut state, &open, at("2099-01-01T00:00:00Z"));
+    assert_eq!(owed.len(), 1);
+    assert!(!owed[0].refresh);
     assert!(state.details.is_empty());
-    assert_eq!(state.items["A"], item_mark(&["m1"], 2));
+    assert_eq!(
+        state.items["A"],
+        ItemMark {
+            media_fields: 0,
+            ..item_mark(&["m1"], 2)
+        }
+    );
     // The folded state no longer writes the per-round field.
     assert!(!serde_json::to_string(&state)?.contains("\"details\""));
     Ok(())
@@ -542,8 +642,10 @@ fn details_are_owed_open_before_ended_new_before_changed_earliest_end_first() {
     state
         .listed
         .insert(key("SAME", 1), listed("d", Some("20990105100000")));
-    state.details.insert(key("CHANGED", 1), mark("old", 1));
-    state.details.insert(key("SAME", 1), mark("d", 1));
+    state
+        .items
+        .insert("CHANGED".to_owned(), item_mark(&["old"], 1));
+    state.items.insert("SAME".to_owned(), item_mark(&["d"], 1));
 
     let owed = owed_details(&mut state, &open, now);
     let order = owed
@@ -610,7 +712,7 @@ fn an_item_owed_only_appraisals_waits_behind_every_item_still_owed_photos() {
 #[test]
 fn a_mark_made_before_the_list_was_read_adopts_its_digest_instead_of_a_refetch() {
     let mut state = State::default();
-    state.details.insert(key("A", 1), mark("", 0));
+    state.items.insert("A".to_owned(), item_mark(&[], 0));
     let open = BTreeSet::from([key("A", 1)]);
     assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
     state.listed.insert(key("A", 1), listed("d", None));

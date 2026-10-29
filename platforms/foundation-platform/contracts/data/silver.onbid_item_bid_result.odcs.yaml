@@ -117,6 +117,134 @@ schema:
         physicalType: "timestamp"
         logicalType: "timestamp"
         required: true
+      - name: "pbct_stat_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "prpt_div_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "dsps_mthod_cd"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "dsps_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_lcls_ctgr_id"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_mcls_ctgr_id"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_scls_ctgr_id"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_lcls_ctgr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_mcls_ctgr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cltr_usg_scls_ctgr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "onbid_cltr_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "pbctsn"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "org_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "onbid_pbanc_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "bid_mthod_cd"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "bid_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cptn_mthod_cd"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "cptn_mthod_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "totalamt_unpc_div_cd"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "totalamt_unpc_div_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "opbd_bgng_dt"
+        physicalType: "timestamp"
+        logicalType: "timestamp"
+        required: false
+      - name: "opbd_cmptn_dt"
+        physicalType: "timestamp"
+        logicalType: "timestamp"
+        required: false
+      - name: "apsl_prc_ctrs_scfb_prc_rto"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
+      - name: "lowst_bid_ctrs_scfb_prc_rto"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
+      - name: "pbct_tdps_cont"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "bid_div_cd"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "bid_div_nm"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "afsb_rtrcn_rsn_cont"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "rtrcn_rsn_cont"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "apsl_prc_ctrs_lowst_bid_rto"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
+      - name: "frst_ctrs_lowst_bid_prc_rto"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
+      - name: "fee_rate"
+        physicalType: "double"
+        logicalType: "number"
+        required: false
     quality:
       - type: "text"
         description: "append_only"

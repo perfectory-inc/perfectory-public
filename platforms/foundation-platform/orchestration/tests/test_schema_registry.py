@@ -68,14 +68,19 @@ class Fixture:
     def schema(self, revision: int) -> dict:
         return json.loads((self.platform / f"contracts/schema-registry/parcel_public_auction_by_pnu/1/{revision}.schema.json").read_text(encoding="utf-8"))
 
+    def current(self) -> int:
+        """The subject's newest revision number (the one the next is registered after)."""
+        return registry_tool.current(self.registry()["subjects"][0])["revision"]
+
     def register(self, schema: dict, **revision) -> None:
-        """Adds revision 3 of the subject: `schema` under the canonical string unless told otherwise."""
+        """Adds the subject's next revision: `schema` under the canonical string unless told otherwise."""
         registry = self.registry()
         entry = registry["subjects"][0]
-        entry["revisions"].append({"major": 1, "revision": 3, "schema_version": f"{SUBJECT}.v1",
+        number = self.current() + 1
+        entry["revisions"].append({"major": 1, "revision": number, "schema_version": f"{SUBJECT}.v1",
                                    "decision": "docs/adr/0336-x.md", "reason": "a test revision", **revision})
         self.write("contracts/schema-registry/registry.json", registry)
-        self.write(f"contracts/schema-registry/parcel_public_auction_by_pnu/{entry['revisions'][-1]['major']}/3.schema.json", schema)
+        self.write(f"contracts/schema-registry/parcel_public_auction_by_pnu/{entry['revisions'][-1]['major']}/{number}.schema.json", schema)
 
     def check(self, base: str | None = None) -> list[str]:
         return registry_tool.check(self.platform, base)
@@ -85,7 +90,7 @@ class Fixture:
 
 
 def revision_three(schema: dict) -> dict:
-    """Revision 2 re-registered as 3: the same fields plus the optional schema_revision."""
+    """The current revision re-registered as the next: the same fields plus the optional schema_revision."""
     schema = copy.deepcopy(schema)
     schema["properties"]["schema_revision"] = {"type": "integer"}
     return schema
@@ -103,7 +108,7 @@ class TheRegistryOnMain(unittest.TestCase):
         # The legacy revisions are the field records the publisher's test held the documents to.
         registry = registry_tool.load(PLATFORM)
         entry = next(e for e in registry["subjects"] if e["subject"] == SUBJECT)
-        for revision in entry["revisions"]:
+        for revision in (r for r in entry["revisions"] if r.get("legacy")):
             record = json.loads((PLATFORM / revision["record"]).read_text(encoding="utf-8"))
             self.assertEqual(registry_tool.record_of(registry_tool.schema_of(PLATFORM, SUBJECT, revision)),
                              sorted(record, key=lambda e: e["path"]))
@@ -112,7 +117,7 @@ class TheRegistryOnMain(unittest.TestCase):
         entry = next(e for e in registry_tool.load(PLATFORM)["subjects"] if e["subject"] == SUBJECT)
         self.assertEqual(entry["major"], 1)
         self.assertEqual(registry_tool.identities(entry, 1), [f"{SUBJECT}.v1", f"{SUBJECT}.v2"])
-        self.assertEqual(registry_tool.current(entry)["revision"], 2)
+        self.assertGreaterEqual(registry_tool.current(entry)["revision"], 2)
 
 
 class Compatibility(unittest.TestCase):
@@ -120,7 +125,8 @@ class Compatibility(unittest.TestCase):
 
     def setUp(self):
         self.fixture = Fixture()
-        self.v2 = self.fixture.schema(2)
+        # The newest revision, which the next one is held to (named v2 when revision 2 was the newest).
+        self.v2 = self.fixture.schema(self.fixture.current())
 
     def tearDown(self):
         self.fixture.close()
@@ -177,15 +183,18 @@ class Compatibility(unittest.TestCase):
         self.assertRefused(self.fixture.check(), "schema_version must be", f"{SUBJECT}.v1")
 
     def test_a_registered_revision_declares_its_optional_schema_revision(self):
-        self.fixture.register(copy.deepcopy(self.v2))
+        schema = copy.deepcopy(self.v2)
+        schema["properties"].pop("schema_revision", None)
+        self.fixture.register(schema)
         self.assertRefused(self.fixture.check(), "schema_revision")
 
     def test_no_legacy_revision_after_a_registered_one(self):
         self.fixture.register(revision_three(self.v2))
         registry = self.fixture.registry()
-        registry["subjects"][0]["revisions"].append({**registry["subjects"][0]["revisions"][1], "revision": 4})
+        number = self.fixture.current() + 1
+        registry["subjects"][0]["revisions"].append({**registry["subjects"][0]["revisions"][1], "revision": number})
         self.fixture.write("contracts/schema-registry/registry.json", registry)
-        self.fixture.write("contracts/schema-registry/parcel_public_auction_by_pnu/1/4.schema.json", self.v2)
+        self.fixture.write(f"contracts/schema-registry/parcel_public_auction_by_pnu/1/{number}.schema.json", self.v2)
         self.assertRefused(self.fixture.check(), "legacy revision follows")
 
     def test_a_new_major_may_not_take_a_legacy_string(self):
@@ -193,12 +202,13 @@ class Compatibility(unittest.TestCase):
         registry = self.fixture.registry()
         entry = registry["subjects"][0]
         entry["major"] = 2
-        entry["revisions"].append({"major": 2, "revision": 3, "schema_version": f"{SUBJECT}.v2",
+        number = registry_tool.current({**entry, "major": 1})["revision"] + 1
+        entry["revisions"].append({"major": 2, "revision": number, "schema_version": f"{SUBJECT}.v2",
                                    "decision": "docs/adr/0336-x.md", "reason": "a breaking change"})
         self.fixture.write("contracts/schema-registry/registry.json", registry)
         schema = revision_three(self.v2)
         schema["properties"]["schema_version"]["enum"] = [f"{SUBJECT}.v2"]
-        self.fixture.write("contracts/schema-registry/parcel_public_auction_by_pnu/2/3.schema.json", schema)
+        self.fixture.write(f"contracts/schema-registry/parcel_public_auction_by_pnu/2/{number}.schema.json", schema)
         self.assertRefused(self.fixture.check(), "is a legacy string of major 1")
 
     def test_a_keyword_outside_the_subset_fails(self):
@@ -232,7 +242,7 @@ class AppendOnly(unittest.TestCase):
         self.fixture.close()
 
     def test_a_new_revision_passes(self):
-        self.fixture.register(revision_three(self.fixture.schema(2)))
+        self.fixture.register(revision_three(self.fixture.schema(self.fixture.current())))
         self.fixture.commit()
         self.assertEqual(self.fixture.check(self.base), [])
 
@@ -251,7 +261,7 @@ class AppendOnly(unittest.TestCase):
         self.assertTrue(any("merged revision changed" in f for f in self.fixture.check(self.base)))
 
     def test_a_revision_added_as_legacy_fails(self):
-        self.fixture.register(revision_three(self.fixture.schema(2)), legacy=True)
+        self.fixture.register(revision_three(self.fixture.schema(self.fixture.current())), legacy=True)
         self.fixture.commit()
         self.assertTrue(any("added as legacy" in f for f in self.fixture.check(self.base)))
 
