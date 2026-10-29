@@ -456,7 +456,11 @@ if [[ "${OWN_RUN}" == true && "${UNIT}" != parcel && "${UNIT}" != building ]]; t
   if [[ -n "${follows}" ]]; then
     followed_state="${STATE_ROOT}/follows-${follows}.json"
     rm -f "${followed_state}"
-    FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${followed_state}" \
+    # The followed lane's own store setting: the publisher reads it under that lane's prefix, and
+    # unset it is the local driver, which refused for want of a root (2026-10-29 07:19Z and 07:40Z,
+    # every by_pnu_unit_price_bake run failed with "the local driver requires an output root").
+    env FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${followed_state}" \
+      "FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${follows}")_BY_PNU_SERVING_OUTPUT_STORAGE_DRIVER=${FOUNDATION_BY_PNU_BAKE_STORAGE_DRIVER:-r2}" \
       "${PUBLISHER_BIN}" "show-${follows}-by-pnu-serving-state"
     gate="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/lane_follow_gate.py" "${UNIT}" "${gold}" "${followed_state}")" \
       || { log "refused: cannot tell whether the ${follows} lane serves what Gold snapshot ${gold} was built from"; exit 65; }

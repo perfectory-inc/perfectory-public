@@ -764,7 +764,10 @@ class ByPnuServingBake(unittest.TestCase):
                         "print('building' if sys.argv[2:] == ['--follows'] else os.environ['FAKE_GATE'])\n")
         result, calls = self.bake("unit-price", FAKE_GATE="waiting 101 the building lane serves another register build")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("show-building-by-pnu-serving-state", [call["command"] for call in calls])
+        # The followed lane's state is read from R2 under its own prefix: 2026-10-29 07:19Z and 07:40Z
+        # every unit price run failed reading it with the default local driver ("requires an output root").
+        [shown] = [call for call in calls if call["command"] == "show-building-by-pnu-serving-state"]
+        self.assertEqual(shown["env"].get("FOUNDATION_PLATFORM_BUILDING_BY_PNU_SERVING_OUTPUT_STORAGE_DRIVER"), "r2")
         self.assertEqual(self.published(calls), [])
         self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome waiting the building lane it follows "
                          "does not serve what Gold snapshot 202 was built from")
