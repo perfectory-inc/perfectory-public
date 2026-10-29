@@ -223,14 +223,21 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
       KAFKA_PROCESS_ROLES: "controller, broker"
       KAFKA_ZOOKEEPER_CONNECT: ""
+    # The probe starts a whole JVM (about 1.1 CPU-seconds). Every 5 s for good that was 90% of the
+    # broker's CPU: 6.1 CPU-s per 30 s with the broker itself at 0.6, 0.2 of a core for 13 days at
+    # idle, about a sixth of the host's CPU on a quiet day (measured on ai-server 2026-10-29).
+    # It probes every 5 s only until the first success, which is all that system-update's
+    # service_healthy waits for, and every 5 min after that. Docker never restarts a container for
+    # failing it, so the steady probe only reports.
     healthcheck:
       test:
         - CMD-SHELL
         - "kafka-broker-api-versions --bootstrap-server broker:29092 >/dev/null 2>&1"
       timeout: 10s
-      interval: 5s
-      retries: 12
-      start_period: 1m0s
+      start_interval: 5s
+      start_period: 5m0s
+      interval: 5m0s
+      retries: 3
     mem_limit: 1g
     # Same defect as opensearch below, smaller: the broker is PID 1 and left exited healthcheck
     # processes unreaped too. Docker's init reaps them.
