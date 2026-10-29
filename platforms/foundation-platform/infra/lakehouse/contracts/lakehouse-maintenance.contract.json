@@ -16,8 +16,17 @@
     "trigger_small_file_fraction": 0.25,
     "partial_progress_max_commits": 10,
     "partial_progress_reason": "A compaction commits its file groups in up to this many commits instead of one, so a group that fails (an R2 connection reset, 2026-10-15) keeps the groups already rewritten; the next run takes the rest.",
-    "fold_deletes_after_days": 7,
-    "fold_deletes_reason": "Root ADR-0344: an incremental Gold MERGE is merge-on-read and leaves a position delete file per data file it touched. Every reader applies them, and each by-PNU bake shard reads all of them whole, so they are folded back into the data files on a cadence, not after every write: once a table's oldest live delete file is this many days old, compaction rewrites every data file that carries one (delete-file-threshold 1, remove-dangling-deletes). Weekly is the plan's cadence (tracking PR #951): a national vintage then costs one rewrite of the files it touched per week instead of one per commit (2026-10-26: 4.266 GB for a 0.12% change).",
+    "fold_deletes": {
+      "max_deleted_row_ratio": 0.01,
+      "max_deleted_row_ratio_reason": "Deleted rows over the table's records (the current snapshot's total-position-deletes / total-records). Every reader decodes or skips each deleted row, and the Rust snapshot scan holds every deleted position in memory (about 20-40 B each), so at 1% gold.parcel_panel (39.9M rows) holds about 400 thousand, some 16 MB per bake shard. A national vintage changes 0.12% (48,477 PNUs, 2026-10-26), so about eight vintages fit; Iceberg's own per-file default (delete-ratio-threshold 0.3) is for one file, not a table every shard reads.",
+      "max_delete_byte_ratio": 0.002,
+      "max_delete_byte_ratio_reason": "Live delete-file bytes over data-file bytes. Every by-PNU bake shard reads every live delete file whole (root ADR-0344 §3), while it reads only its own share of the data: a shard holds at most 900,000 rows (MAX_ROWS_PER_RUN), 2.3% of gold.parcel_panel. Keeping the delete files every shard re-reads under a tenth of a full shard's own read gives 0.1 x 2.3% = 0.23%, rounded down to 0.2% (8.1 MB of parcel_panel's 4.06 GB).",
+      "max_delete_bytes": 16777216,
+      "max_delete_bytes_reason": "The same bound in bytes for any table: 16 MiB, one ranged-read window of the scan (RANGE_WINDOW_BYTES), so no shard of any table downloads more than one window of deletes on top of its own read, whatever the table's size.",
+      "after_days": 7,
+      "after_days_reason": "The backstop: a delete that never reaches either ratio is still folded within a week, so no reader carries an old delete forever.",
+      "reason": "Root ADR-0344 §5: an incremental Gold MERGE is merge-on-read and leaves a position delete file per data file it touched. They are folded back into the data files when any of the four bounds above is passed, not after every write and not on a calendar alone, as Databricks auto-optimize, Snowflake automatic clustering and Iceberg's own delete-file-threshold trigger on what the table holds. The fold rewrites every data file that carries a delete (delete-file-threshold 1, remove-dangling-deletes). The job reports both ratios per table (lakehouse-maintenance.prom); the values are first estimates, to be retuned from two weeks of those numbers in production."
+    },
     "trigger_reason": "Compaction rewrites every byte it touches, so running it on a healthy table costs real money for no gain. Run when at least 10 files sit under a quarter of the target size. Apache Amoro triggers at 40 fragments; ours is lower because our tables are smaller and our loads are less frequent."
   },
   "snapshot_expiry": {

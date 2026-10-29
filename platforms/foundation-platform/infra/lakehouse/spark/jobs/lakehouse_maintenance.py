@@ -88,12 +88,18 @@ def validate_maintenance_contract(contract: dict[str, Any]) -> None:
         )
     if contract["compaction"]["partial_progress_max_commits"] < 1:
         raise ValueError("compaction.partial_progress_max_commits must allow at least one commit")
-    fold = contract["compaction"].get("fold_deletes_after_days")
-    if type(fold) not in (int, float) or not 0 < fold <= contract["snapshot_expiry"]["retain_days"]:
+    fold = contract["compaction"].get("fold_deletes") or {}
+    days = fold.get("after_days")
+    if type(days) not in (int, float) or not 0 < days <= contract["snapshot_expiry"]["retain_days"]:
         raise ValueError(
-            f"compaction.fold_deletes_after_days={fold!r} must be a positive number of days within "
+            f"compaction.fold_deletes.after_days={days!r} must be a positive number of days within "
             "snapshot_expiry.retain_days: a delete older than the window counts as that old, so a longer "
             "cadence is never reached and the deletes are never folded (root ADR-0344)")
+    for bound in ("max_deleted_row_ratio", "max_delete_byte_ratio", "max_delete_bytes"):
+        value = fold.get(bound)
+        limit = 1 if bound != "max_delete_bytes" else float("inf")
+        if type(value) not in (int, float) or not 0 < value <= limit or not str(fold.get(f"{bound}_reason", "")).strip():
+            raise ValueError(f"compaction.fold_deletes.{bound}={value!r} must be a positive bound with its reason")
     order = contract.get("order")
     if order != ["compaction", "snapshot_expiry", "orphan_cleanup"]:
         raise ValueError(
@@ -466,6 +472,74 @@ def leading_sort_column(spark: Any, qualified: str) -> str | None:
     return fields[0].strip("`") if fields else None
 
 
+def delete_shape(spark: Any, qualified: str, now: datetime) -> dict[str, float] | None:
+    """What a merge-on-read table's live deletes weigh (root ADR-0344 §5), or None without one: the
+    current snapshot's records and position deletes (its summary), the data and delete files' bytes
+    (the manifests; no data file is opened) and the oldest delete's age."""
+    age = oldest_delete_age_days(spark, qualified, now)
+    if age is None:
+        return None
+    summary = spark.sql(f"SELECT s.summary FROM {qualified}.snapshots s JOIN {qualified}.refs r "
+                        "ON r.snapshot_id = s.snapshot_id WHERE r.name = 'main'").collect()[0][0]
+    sizes = spark.sql("SELECT coalesce(sum(CASE WHEN content = 0 THEN file_size_in_bytes END), 0) AS data, "
+                      "coalesce(sum(CASE WHEN content > 0 THEN file_size_in_bytes END), 0) AS deletes "
+                      f"FROM {qualified}.files").collect()[0]
+    return {"records": int(summary.get("total-records", 0)),
+            "position_deletes": int(summary.get("total-position-deletes", 0)),
+            "data_bytes": int(sizes.data), "delete_bytes": int(sizes.deletes), "oldest_days": age}
+
+
+def delete_ratios(shape: dict[str, float]) -> tuple[float, float]:
+    """(deleted rows / records, delete bytes / data bytes) of one `delete_shape`."""
+    rows = shape["position_deletes"] / shape["records"] if shape["records"] else 0.0
+    return rows, (shape["delete_bytes"] / shape["data_bytes"] if shape["data_bytes"] else 0.0)
+
+
+def fold_due(shape: dict[str, float] | None, fold: dict[str, Any]) -> list[str]:
+    """Which of the contract's fold bounds the table's deletes pass; empty when none (or no delete)."""
+    if shape is None:
+        return []
+    rows, bytes_ = delete_ratios(shape)
+    passed = {"deleted_row_ratio": rows >= fold["max_deleted_row_ratio"],
+              "delete_byte_ratio": bytes_ >= fold["max_delete_byte_ratio"],
+              "delete_bytes": shape["delete_bytes"] >= fold["max_delete_bytes"],
+              "age": shape["oldest_days"] >= fold["after_days"]}
+    return [name for name, over in passed.items() if over]
+
+
+METRIC_PREFIX = "maintenance-deletes"
+
+
+def delete_metric_line(table: str, shape: dict[str, float] | None) -> str:
+    """The run-log line the maintenance script turns into the textfile (`render_delete_metrics`)."""
+    shape = shape or {"records": 0, "position_deletes": 0, "data_bytes": 0, "delete_bytes": 0}
+    return (f"{METRIC_PREFIX} table={table} records={shape['records']} position_deletes={shape['position_deletes']} "
+            f"data_bytes={shape['data_bytes']} delete_bytes={shape['delete_bytes']}")
+
+
+def render_delete_metrics(log_lines: list[str], state: dict[str, dict[str, int]]) -> tuple[dict, str]:
+    """Fold this run's `maintenance-deletes` lines into the per-table state (a table this run did not
+    reach keeps its last measurement) and render node-exporter's textfile from it."""
+    state = dict(state)
+    for line in log_lines:
+        if line.startswith(METRIC_PREFIX + " "):
+            fields = dict(part.split("=", 1) for part in line.split()[1:])
+            table = fields.pop("table")
+            state[table] = {key: int(value) for key, value in fields.items()}
+    lines = ["# HELP foundation_lakehouse_deleted_row_ratio Position deletes over records of the table's current snapshot (root ADR-0344).",
+             "# TYPE foundation_lakehouse_deleted_row_ratio gauge",
+             "# HELP foundation_lakehouse_delete_byte_ratio Live delete-file bytes over data-file bytes (root ADR-0344).",
+             "# TYPE foundation_lakehouse_delete_byte_ratio gauge",
+             "# HELP foundation_lakehouse_delete_bytes Live delete-file bytes (root ADR-0344).",
+             "# TYPE foundation_lakehouse_delete_bytes gauge"]
+    for table, shape in sorted(state.items()):
+        rows, bytes_ = delete_ratios(shape)
+        lines += [f'foundation_lakehouse_deleted_row_ratio{{table="{table}"}} {rows:.6g}',
+                  f'foundation_lakehouse_delete_byte_ratio{{table="{table}"}} {bytes_:.6g}',
+                  f'foundation_lakehouse_delete_bytes{{table="{table}"}} {shape["delete_bytes"]}']
+    return state, "\n".join(lines) + "\n"
+
+
 def oldest_delete_age_days(spark: Any, qualified: str, now: datetime) -> float | None:
     """Days since the oldest live delete file was committed, or None without one. A delete file whose
     commit has expired from the snapshot log is older than the expiry window, so it counts as that old."""
@@ -492,15 +566,15 @@ def region_read_share(spark: Any, qualified: str, column: str) -> float | None:
 
 
 def compaction_reasons(small_files: int, total_files: int, compaction: dict[str, Any],
-                       delete_age_days: float | None, read_share: float | None) -> tuple[str, ...]:
-    """Why to compact now: enough small files (`should_compact`), a delete older than the contract's
-    fold cadence, or data files the shape-ledger check would call out of order. Nothing else does."""
+                       deletes: dict[str, float] | None, read_share: float | None) -> tuple[str, ...]:
+    """Why to compact now: enough small files (`should_compact`), deletes past any of the contract's
+    fold bounds (`fold_due`), or data files the shape-ledger check would call out of order."""
     import table_layout  # noqa: PLC0415
 
     reasons = []
     if should_compact(small_files, total_files, compaction["trigger_small_file_count"]):
         reasons.append(SMALL_FILES)
-    if delete_age_days is not None and delete_age_days >= compaction["fold_deletes_after_days"]:
+    if fold_due(deletes, compaction["fold_deletes"]):
         reasons.append(FOLD_DELETES)
     if read_share is not None and read_share > table_layout.REGION_READ_SHARE_LIMIT:
         reasons.append(OUT_OF_ORDER)
@@ -562,11 +636,12 @@ def maintain_table(
         reasons: tuple[str, ...] = ()
     else:
         column = leading_sort_column(spark, qualified)
-        delete_age = oldest_delete_age_days(spark, qualified, datetime.now(timezone.utc))
+        deletes = delete_shape(spark, qualified, datetime.now(timezone.utc))
+        print(delete_metric_line(table, deletes), flush=True)
         share = None if column is None else region_read_share(spark, qualified, column)
-        reasons = compaction_reasons(small, before_files, compaction, delete_age, share)
+        reasons = compaction_reasons(small, before_files, compaction, deletes, share)
         measured = (f"small_files={small} trigger={compaction['trigger_small_file_count']} "
-                    f"oldest_delete_days={'none' if delete_age is None else f'{delete_age:.1f}'} "
+                    f"fold_due={','.join(fold_due(deletes, compaction['fold_deletes'])) or 'none'} "
                     f"region_read_share={'none' if share is None else f'{share:.2f}'}")
         if not reasons:
             print(f"maintenance-skip step=compaction reason=below_trigger {measured}", flush=True)

@@ -39,3 +39,5 @@ ProtectSystem=strict
 # writes them as uid 185, so the script opens the directory to it. Spark's spill goes to the data
 # disk (/data/foundation-platform/lakehouse/spark-scratch, written by the container), never here.
 StateDirectory=foundation-lakehouse-maintenance
+# Each Gold table's deleted-row and delete-byte ratios, for node-exporter (root ADR-0344 §5).
+ReadWritePaths=/var/lib/foundation-jobs/metrics

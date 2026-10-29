@@ -137,18 +137,22 @@ class GoldRangeLayoutIcebergTest(unittest.TestCase):
         self.assertTrue(ordered)
         before = len(self.bounds())
         # The reasons the scheduled job would read off this table a week later (root ADR-0344 §5).
-        week_later = datetime.now(timezone.utc) + timedelta(days=compaction["fold_deletes_after_days"])
-        age = lakehouse_maintenance.oldest_delete_age_days(self.spark, self.TABLE, week_later)
+        week_later = datetime.now(timezone.utc) + timedelta(days=compaction["fold_deletes"]["after_days"])
+        deletes = lakehouse_maintenance.delete_shape(self.spark, self.TABLE, week_later)
+        # Every row was replaced: the deleted-row bound and the age backstop both pass.
+        self.assertEqual(deletes["position_deletes"], ROWS)
+        self.assertGreater(deletes["delete_bytes"], 0)
+        self.assertIn("deleted_row_ratio", lakehouse_maintenance.fold_due(deletes, compaction["fold_deletes"]))
         share = lakehouse_maintenance.region_read_share(self.spark, self.TABLE, "pnu")
         self.assertGreater(share, 0.5, "the interleaved append must read as out of order")
-        reasons = lakehouse_maintenance.compaction_reasons(0, before, compaction, age, share)
+        reasons = lakehouse_maintenance.compaction_reasons(0, before, compaction, deletes, share)
         self.assertEqual(reasons, (lakehouse_maintenance.FOLD_DELETES, lakehouse_maintenance.OUT_OF_ORDER))
         self.spark.sql(lakehouse_maintenance.rewrite_data_files_sql(
             "proof", "gold.layout_probe", compaction, ordered, reasons)).collect()
         self.assertLess(len(self.bounds()), before, "the compaction did not merge the small files")
         self.assert_disjoint("compaction")
         self.assertEqual(self.delete_files(), 0, "the compaction left position deletes behind")
-        self.assertIsNone(lakehouse_maintenance.oldest_delete_age_days(self.spark, self.TABLE, week_later))
+        self.assertIsNone(lakehouse_maintenance.delete_shape(self.spark, self.TABLE, week_later))
         self.assertEqual(self.spark.table(self.TABLE).count(), 2 * ROWS)
 
 

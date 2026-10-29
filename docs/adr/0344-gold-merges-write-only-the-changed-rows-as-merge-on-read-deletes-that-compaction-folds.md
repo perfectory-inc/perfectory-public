@@ -60,11 +60,24 @@ copy-on-write 로 100% 쓰기다.
    `expected.json` 은 Spark 가 읽은 행이다. `merge_on_read_tests.rs` 는 Rust 스캔이 두 표 모두에서 Spark 와
    **PNU 마다 같은 행**을 돌려주고, 조각 접두사마다도 같음을 확인한다. 픽스처는 `generate.py` 로 다시 만든다.
    이 관문이 main 에 들어가기 전에는 어떤 표도 1 로 바꾸지 않는다.
-5. **합치기가 삭제를 접어 넣는다 — 쓸 때마다가 아니라 주기로.** `lakehouse_maintenance` 는 표의 가장 오래된
-   살아 있는 삭제 파일이 계약의 날수(7일)를 넘으면 삭제를 가진 데이터 파일만 정렬 전략으로 다시 쓴다
-   (`delete-file-threshold = 1`, `remove-dangling-deletes`). 정렬 순서를 가진 표의 파일 PNU 범위가 shape
-   ledger 와 같은 잣대(한 시도 읽기가 파일의 50% 넘게 연다)로 흩어져 있으면 표 전체를 정렬해 다시 쓴다.
-   잣대는 한 벌만 둔다(구현 PR).
+5. **합치기가 삭제를 접어 넣는다 — 쓸 때마다가 아니라 문턱을 넘을 때.** 달력이 아니라 표가 쥔 삭제의 양이
+   부른다(Databricks auto-optimize, Snowflake automatic clustering, Iceberg `delete-file-threshold` 와 같은 방식).
+   `lakehouse_maintenance` 는 아래 중 **하나라도** 넘으면 삭제를 가진 데이터 파일만 정렬 전략으로 다시 쓴다
+   (`delete-file-threshold = 1`, `remove-dangling-deletes`). 값과 이유는 `lakehouse-maintenance.contract.json`
+   `compaction.fold_deletes` 에 있다.
+
+   | 문턱 | 처음 값 | 근거 |
+   |---|---:|---|
+   | 지운 행 / 표의 행 (`total-position-deletes` / `total-records`) | 1% | Rust 스캔이 지운 위치를 모두 메모리에 쥔다. parcel_panel 1% ≈ 40만 위치 ≈ 조각마다 16 MB. 전국 판(0.12%) 약 8번 |
+   | 살아 있는 삭제 파일 바이트 / 데이터 바이트 | 0.2% | 조각마다 삭제 파일 전부를 읽는다. 조각 상한 90만 행 = parcel_panel 의 2.3%; 그 조각 자체 읽기의 1/10 이하 → 0.23% |
+   | 살아 있는 삭제 파일 바이트 | 16 MiB | 표 크기와 상관없이 조각이 더 받는 양을 스캔의 범위 읽기 창 하나로 묶는다 |
+   | 가장 오래된 삭제의 나이 | 7일 | 뒷받침: 어느 비율에도 못 미친 삭제도 한 주 안에 접는다 |
+
+   이 값들은 첫 추정이다. 작업이 표마다 두 비율을 node-exporter textfile
+   (`/var/lib/foundation-jobs/metrics/lakehouse-maintenance.prom`, `foundation_lakehouse_deleted_row_ratio`,
+   `foundation_lakehouse_delete_byte_ratio`, `foundation_lakehouse_delete_bytes`)로 내고, 운영 첫 2주의 수치로 다시
+   맞춘다. 정렬 순서를 가진 표의 파일 PNU 범위가 shape ledger 와 같은 잣대(한 시도 읽기가 파일의 50% 넘게
+   연다)로 흩어져 있으면 표 전체를 정렬해 다시 쓴다. 잣대는 한 벌만 둔다(`table_layout.py`).
 6. **측정.** ADR-0314 §4 의 쓰기 증폭(커밋이 더한 바이트 / 표 바이트)은 바뀐 키 비율과 삭제 파일 몫 근처로
    떨어져야 한다. 운영에서 그렇게 잰 뒤에 `gold_panel_rebuild`·`gold_kind_rebuild` 가 `changed-keys` 가 되고
    `tools/ci/full-scope-jobs.baseline.json` 에서 빠진다.
@@ -89,9 +102,9 @@ copy-on-write 로 100% 쓰기다.
   | gold.parcel_forest_ledger | 46.7 | 48,477 | 1.855 GB | 약 2.7 MB |
   | gold.parcel_transfer_history | 81.8 | 52,780 | 3.256 GB | 약 4.7 MB |
 
-  주기 합치기는 삭제를 가진 파일만 다시 쓴다. 전국 판이면 그것이 표 전체(parcel_panel 약 4.06 GB)지만 커밋마다가
-  아니라 7일에 한 번이다.
-- 굽기 조각은 이제 살아 있는 위치 삭제 파일을 모두 통째로 읽는다(작다: 위치 하나에 몇 바이트). 7일 주기가 그
+  합치기는 삭제를 가진 파일만 다시 쓴다. 전국 판이면 그것이 표 전체(parcel_panel 약 4.06 GB)지만 커밋마다가
+  아니라 문턱을 넘을 때 한 번이다(parcel_panel: 삭제 바이트 0.2% 나 7일 중 먼저 오는 것).
+- 굽기 조각은 이제 살아 있는 위치 삭제 파일을 모두 통째로 읽는다(작다: 위치 하나에 몇 바이트). 5 의 문턱이 그
   수와 크기를 묶는다. 늘면 삭제 파일의 `referenced_data_file` 로 읽을 파일만 고르는 것이 다음 단계다.
 - 합치기 전까지 Iceberg 요약의 `total-records` 는 삭제된 행을 센다. 행 수가 판정에 쓰이는 곳은 살아 있는 행
   수로 바꿨다(3, 2 의 델타). `gold_rebuild` 의 비용 추정·shape ledger 의 키 비율 분모는 근삿값이라 그대로 둔다.

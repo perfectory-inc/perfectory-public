@@ -1092,7 +1092,9 @@
       "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Compaction takes only the small files writes left since the last compaction (a table under the contract's trigger is skipped, and Iceberg leaves files already near the target alone); expiry and the file counts read metadata only (2026-10-29: 48 tables, compaction ran in three of them and read 15, 278 and 0 files). Its volume is therefore what the writers wrote: on 2026-10-26 it rewrote all of gold.parcel_panel because a copy-on-write MERGE had just rewritten all of it (PR #951). Expiry never removes a snapshot a Silver loader or the Gold rebuild reads back. It changes no rows, so it starts nothing downstream.",
       "systemd_service": "foundation-lakehouse-maintenance.service",
       "systemd_timer": null,
-      "state_paths": [],
+      "state_paths": [
+        "/var/lib/foundation-jobs/metrics"
+      ],
       "schedule": "30 4 * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 5,

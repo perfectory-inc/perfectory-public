@@ -20,7 +20,7 @@
       "incremental": {
         "max_changed_key_fraction": 0.3,
         "parity_sample_keys": 20000,
-        "reason": "Root ADR-0180. Past 30% of the 39.9M PNUs recomputing them costs most of a full rebuild, and a merge-on-read merge (root ADR-0344) would leave position deletes for that share of the rows to every reader until the weekly fold, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.05%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
+        "reason": "Root ADR-0180. Past 30% of the 39.9M PNUs recomputing them costs most of a full rebuild, and a merge-on-read merge (root ADR-0344) would leave position deletes for that share of the rows to every reader until the next fold, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.05%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },
@@ -33,7 +33,7 @@
       "incremental": {
         "max_changed_key_fraction": 0.3,
         "parity_sample_keys": 20000,
-        "reason": "Root ADR-0180. Past 30% of the 5.95M PNUs recomputing them costs most of a full rebuild, and a merge-on-read merge (root ADR-0344) would leave position deletes for that share of the rows to every reader until the weekly fold, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.3%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
+        "reason": "Root ADR-0180. Past 30% of the 5.95M PNUs recomputing them costs most of a full rebuild, and a merge-on-read merge (root ADR-0344) would leave position deletes for that share of the rows to every reader until the next fold, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.3%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },

@@ -92,6 +92,28 @@ lakehouse_spark_run "foundation-lakehouse-maintenance-${INVOCATION_ID}" -v "${SC
   --state-file /workspace/target/lakehouse/rotation.json ${DRY_RUN[@]+"${DRY_RUN[@]}"} \
   >"${work}/lakehouse_maintenance.log" 2>&1 || status=$?
 grep -a -E '^maintenance-(done|floor|failed|deferred|summary)|^foundation-job-outcome' "${work}/lakehouse_maintenance.log" || true
+# Each table's deleted-row and delete-byte ratios for node-exporter (root ADR-0344 §5), kept per table
+# in the state root so a table this run did not reach keeps its last measurement. A metrics write that
+# fails is logged and does not fail the maintenance.
+METRICS_DIR="${FOUNDATION_LAKEHOUSE_MAINTENANCE_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
+python3 -I - "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${work}/lakehouse_maintenance.log" \
+  "${STATE_ROOT}/delete-shape.json" "${METRICS_DIR}/lakehouse-maintenance.prom" <<'PY' || log "delete metrics not written"
+import json, os, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import lakehouse_maintenance
+log, state_path, prom = sys.argv[2:5]
+try:
+    state = json.load(open(state_path, encoding="utf-8"))
+except (OSError, ValueError):
+    state = {}
+lines = open(log, encoding="utf-8", errors="replace").read().splitlines()
+state, text = lakehouse_maintenance.render_delete_metrics(lines, state)
+for path, body in ((state_path, json.dumps(state, indent=2, sort_keys=True) + "\n"), (prom, text)):
+    with open(path + ".tmp", "w", encoding="utf-8") as handle:
+        handle.write(body)
+    os.replace(path + ".tmp", path)
+PY
 if ((status)); then
   grep -a -E 'Error|Exception' "${work}/lakehouse_maintenance.log" | grep -v '^\s*at ' | tail -5 >&2 || true
   log "FAILED (exit ${status}; log ${work}/lakehouse_maintenance.log)"
