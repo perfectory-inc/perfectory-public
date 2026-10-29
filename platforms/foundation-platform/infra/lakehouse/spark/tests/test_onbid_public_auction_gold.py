@@ -432,7 +432,9 @@ class IncrementalParitySparkTest(unittest.TestCase):
                  "sequence": 0, "media_format": "jpg", "size_bytes": 10, "source_snapshot_id": "snap-2"}
         parcels = self.spark.createDataFrame([(p,) for p in (one, two, other)], "pnu string")
         how = job.Placement("2099-01-02T00:00:00Z")
-        columns = ("pnu", *job.GOLD_CONTENT, "source_snapshot_id", "published_at_utc", "row_digest")
+        from platform_contracts import column_names, load_lakehouse_contract
+
+        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
         old = {job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, items), job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, []),
                job.PARCEL_SOURCE: parcels}
         new = {**old, job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, [photo])}
