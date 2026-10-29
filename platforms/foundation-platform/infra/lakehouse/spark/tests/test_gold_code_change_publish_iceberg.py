@@ -110,8 +110,9 @@ class CodeChangePublishIcebergTest(unittest.TestCase):
         outcome = self.publish(table, rows, 0.5)
         summary = self.assert_published(table, before, rows, changed)
         self.assertEqual(summary[incremental.KEYS_CHANGED_PROPERTY], str(len(changed)))
-        # Copy-on-write rewrote the file holding PNUs 0-1 only; the other three range files stayed.
-        self.assertIn(int(summary.get("deleted-data-files", "0")), range(1, int(prior["total-data-files"])))
+        # Merge-on-read (root ADR-0344): no data file rewritten, the two replaced rows deleted by position.
+        self.assertEqual(summary.get("deleted-data-files", "0"), "0")
+        self.assertEqual(summary.get("added-position-deletes"), "2")
         self.assertEqual(outcome.report()["publish"], {"to": "changed_keys", "by": "merge"})
         self.assertEqual(outcome.report()["counts"]["affected_pnus"], len(changed))
 

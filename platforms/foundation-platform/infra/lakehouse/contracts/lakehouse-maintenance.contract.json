@@ -16,6 +16,8 @@
     "trigger_small_file_fraction": 0.25,
     "partial_progress_max_commits": 10,
     "partial_progress_reason": "A compaction commits its file groups in up to this many commits instead of one, so a group that fails (an R2 connection reset, 2026-10-15) keeps the groups already rewritten; the next run takes the rest.",
+    "fold_deletes_after_days": 7,
+    "fold_deletes_reason": "Root ADR-0344: an incremental Gold MERGE is merge-on-read and leaves a position delete file per data file it touched. Every reader applies them, and each by-PNU bake shard reads all of them whole, so they are folded back into the data files on a cadence, not after every write: once a table's oldest live delete file is this many days old, compaction rewrites every data file that carries one (delete-file-threshold 1, remove-dangling-deletes). Weekly is the plan's cadence (tracking PR #951): a national vintage then costs one rewrite of the files it touched per week instead of one per commit (2026-10-26: 4.266 GB for a 0.12% change).",
     "trigger_reason": "Compaction rewrites every byte it touches, so running it on a healthy table costs real money for no gain. Run when at least 10 files sit under a quarter of the target size. Apache Amoro triggers at 40 fragments; ours is lower because our tables are smaller and our loads are less frequent."
   },
   "snapshot_expiry": {

@@ -2,6 +2,11 @@
   "schema_version": 1,
   "decision": "docs/adr/0139-panel-gold-is-rebuilt-when-a-silver-input-changes.md",
   "purpose": "The by-PNU panel Gold tables (and the unit price history, root ADR-0190) the scheduled job foundation-gold-panel-rebuild.service rebuilds (orchestration/jobs.v1.json gold_panel_rebuild), in the order it rebuilds them, with each table's producer, the producer flags the job passes, the Spark size it runs at, and how many rows a rebuild may lose against the current snapshot before it is refused. The Silver inputs are the producer's own constants (root ADR-0130), not listed here. infra/lakehouse/spark/jobs/gold_rebuild.py reads this file; scripts/ops/gold-panel-rebuild.sh reads the spark sizes. `incremental` (root ADR-0180) lets a rebuild recompute only the PNUs whose inputs changed and merge them, up to max_changed_key_fraction of the Gold, after a parity sample of parity_sample_keys unchanged PNUs agrees; past it, the rebuild is full. Every table declares `incremental` or a `full_reason` saying why it rebuilds whole (a kind under `kind_tables.overrides.<lane>.full_reason`), or gold_rebuild.load_contract refuses the contract (root ADR-0312). A producer's optional input (the parcel lineage) that does not exist or holds no rows refuses the plan, unless the table names it under `absent_inputs_accepted` with its reason; that entry is refused once the input exists.",
+  "merge": {
+    "mode": "merge-on-read",
+    "decision": "docs/adr/0344-gold-merges-write-only-the-changed-rows-as-merge-on-read-deletes-that-compaction-folds.md",
+    "reason": "How every incremental merge of these tables writes (gold_incremental.merge_into_gold sets write.merge.mode, write.update.mode and write.delete.mode to it before the MERGE). Copy-on-write rewrote every data file holding a changed PNU, and a national vintage puts about 1,400 changed PNUs in every file: on 2026-10-26 a 48,477-PNU change (0.12%) wrote all 4.266 GB of gold.parcel_panel. Merge-on-read writes the changed rows and one position delete file per touched data file (about 5 MB for that change). Every Gold reader applies position deletes (the Rust snapshot scan since root ADR-0344's gate, Spark, Trino); lakehouse_maintenance folds them back into the data files on the maintenance contract's cadence."
+  },
   "tables": {
     "gold.parcel_panel": {
       "unit": "parcel",
@@ -15,7 +20,7 @@
       "incremental": {
         "max_changed_key_fraction": 0.3,
         "parity_sample_keys": 20000,
-        "reason": "Root ADR-0180. Past 30% of the 39.9M PNUs recomputing them costs most of a full rebuild and the copy-on-write merge still copies the untouched rows of every file it touches, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.05%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
+        "reason": "Root ADR-0180. Past 30% of the 39.9M PNUs recomputing them costs most of a full rebuild, and a merge-on-read merge (root ADR-0344) would leave position deletes for that share of the rows to every reader until the weekly fold, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.05%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },
@@ -28,7 +33,7 @@
       "incremental": {
         "max_changed_key_fraction": 0.3,
         "parity_sample_keys": 20000,
-        "reason": "Root ADR-0180. Past 30% of the 5.95M PNUs recomputing them costs most of a full rebuild and the copy-on-write merge still copies the untouched rows of every file it touches, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.3%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
+        "reason": "Root ADR-0180. Past 30% of the 5.95M PNUs recomputing them costs most of a full rebuild, and a merge-on-read merge (root ADR-0344) would leave position deletes for that share of the rows to every reader until the weekly fold, so the full rebuild is the cheaper commit. 20,000 unchanged PNUs (0.3%) rebuilt beside the changed ones prove the current Gold is what the build makes of its pins; they ride the same input scan."
       },
       "spark": {"master": "local[8,8]", "driver_memory": "16g"}
     },

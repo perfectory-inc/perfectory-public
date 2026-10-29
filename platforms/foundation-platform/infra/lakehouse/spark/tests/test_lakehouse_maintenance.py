@@ -53,7 +53,7 @@ def sound_contract() -> dict:
         "order": ["compaction", "snapshot_expiry", "orphan_cleanup"],
         "compaction": {"target_file_bytes": 1, "min_input_files": 2,
                        "trigger_small_file_count": 10, "trigger_small_file_fraction": 0.25,
-                       "partial_progress_max_commits": 10},
+                       "partial_progress_max_commits": 10, "fold_deletes_after_days": 7},
         "snapshot_expiry": {"retain_days": 7, "retain_last": 1,
                             "month_end_tag": {"name_format": "monthly-%Y-%m", "keep_months": 12},
                             "year_end_tag": {"name_format": "yearly-%Y"}},
@@ -407,6 +407,50 @@ class R2ResetsTest(unittest.TestCase):
         sql = rewrite_data_files_sql("r2", "gold.parcel_panel", sound_contract()["compaction"], ordered=True)
         self.assertIn("strategy => 'sort'", sql)
         self.assertIn("'partial-progress.enabled','true'", sql)
+
+    def test_each_reason_adds_only_its_own_options(self):
+        """Root ADR-0344 §5: deletes fold only the files carrying them; out of order rewrites every file."""
+        import lakehouse_maintenance as maintenance
+
+        compaction = sound_contract()["compaction"]
+        small = rewrite_data_files_sql("r2", "gold.t", compaction, True)
+        self.assertNotIn("delete-file-threshold", small)
+        self.assertNotIn("rewrite-all", small)
+        fold = rewrite_data_files_sql("r2", "gold.t", compaction, True, (maintenance.FOLD_DELETES,))
+        self.assertIn("'delete-file-threshold','1'", fold)
+        self.assertIn("'remove-dangling-deletes','true'", fold)
+        self.assertNotIn("rewrite-all", fold)
+        whole = rewrite_data_files_sql("r2", "gold.t", compaction, True, (maintenance.OUT_OF_ORDER,))
+        self.assertIn("'rewrite-all','true'", whole)
+
+
+class CompactionReasonTest(unittest.TestCase):
+    """Root ADR-0344 §5: small files, a delete past the fold cadence, or files out of order."""
+
+    def reasons(self, small=0, deletes=None, share=None):
+        import lakehouse_maintenance as maintenance
+
+        return maintenance.compaction_reasons(small, 14, sound_contract()["compaction"], deletes, share)
+
+    def test_a_healthy_table_with_fresh_deletes_is_left_alone(self):
+        self.assertEqual(self.reasons(small=3, deletes=6.9, share=0.3), ())
+
+    def test_each_reason_is_named_when_it_holds(self):
+        import lakehouse_maintenance as maintenance
+
+        self.assertEqual(self.reasons(small=10), (maintenance.SMALL_FILES,))
+        self.assertEqual(self.reasons(deletes=7.0), (maintenance.FOLD_DELETES,))
+        # The three Gold tables the shape-ledger check failed on 2026-10-29 read 100% per region.
+        self.assertEqual(self.reasons(share=1.0), (maintenance.OUT_OF_ORDER,))
+        self.assertEqual(self.reasons(small=12, deletes=30, share=0.71),
+                         (maintenance.SMALL_FILES, maintenance.FOLD_DELETES, maintenance.OUT_OF_ORDER))
+
+    def test_a_fold_cadence_past_the_expiry_window_is_refused(self):
+        for days in (None, 0, 8):
+            contract = sound_contract()
+            contract["compaction"]["fold_deletes_after_days"] = days
+            with self.assertRaises(ValueError, msg=days):
+                validate_maintenance_contract(contract)
 
 
 class CompactionTriggerTest(unittest.TestCase):
