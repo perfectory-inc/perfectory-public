@@ -48,7 +48,7 @@ if [ -n "${SCCACHE_R2_ENDPOINT:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n 
       sccache_settings+=("RUSTC_WRAPPER=sccache")
       for setting in "${sccache_settings[@]}"; do printf '%s\n' "$setting" >>"$GITHUB_ENV"; done
       echo "sccache-setup: on (read-write), bucket perfectory-sccache, key prefix ${channel}"
-      sccache --show-stats 2>&1 | sed 's/^/  /' | head -n 20 || true
+      sccache --show-stats 2>&1 | sed 's/^/  /' | sed -n 1,20p || true
     else
       echo "sccache-setup: could not run a probe compile; building without the shared cache. Reason:" >&2
       sed 's/^/  sccache: /' "$tmp/sccache-probe.log" >&2 || true

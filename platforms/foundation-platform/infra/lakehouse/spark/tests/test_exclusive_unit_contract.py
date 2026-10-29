@@ -37,7 +37,7 @@ class ExclusiveUnitContractTest(unittest.TestCase):
         columns = {c["name"]: c for c in contract["columns"]}
         assert set(columns) == set(source["columns"]) | {
             "pnu", "raw_columns", "vintage", "source_record_id", "source_part_id",
-            "source_line_number", "source_snapshot_id", "ingested_at_utc",
+            "source_line_number", "source_snapshot_id", "ingested_at_utc", "row_state",
         }
         assert all(columns[name]["logical_type"] == "string" for name in source["columns"])
         assert columns["raw_columns"] == {"name": "raw_columns", "logical_type": "array<string>", "required": True}

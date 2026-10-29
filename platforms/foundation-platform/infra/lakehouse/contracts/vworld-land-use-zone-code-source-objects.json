@@ -9,7 +9,7 @@
   "handoff_suffix": ".jsonl.gz",
   "handoff_suffix_reason": "The converter names the object and the loader must derive the same name; .gz also tells the converter to compress and Spark to decompress.",
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@land-use-zone-code.service 의 실행 값(root ADR-0169 §3 ③). gold.parcel_panel 은 토지 표마다 source_snapshot_id 하나만 읽으므로 새 판은 표를 바꿔 쓴다: 첫 적재 묶음이 overwrite, 나머지는 append. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다(손 적재가 쓴 값과 같다).",
+    "$comment": "foundation-silver-refresh@land-use-zone-code.service 의 실행 값(root ADR-0169 §3 ③). 판은 load branch 에 통째로 올린 뒤 main 에 발행하지 않고, compare 가 main 의 현재 행과 ucode 마다 비교해 바뀐 코드의 행과 사라진 코드의 삭제 표시만 changes branch 를 거쳐 main 에 올린다(ADR-0275, ADR-0318). source_snapshot_id 는 판 날짜가 아니라 파일 이름·체크섬이라 키의 최신은 적재 시각(ingested_at_utc)으로 고른다.",
     "table": "silver.land_use_zone_code",
     "source": "vworldkr__land_use_zone_code",
     "member_name": "^LART_LMISZONE\\.csv$",
@@ -23,6 +23,27 @@
       "driver_memory": "4g",
       "iceberg_write_mode": "overwrite",
       "input_file_batch_size": 1
+    },
+    "compare": {
+      "content_columns": [
+        "uname",
+        "division_name",
+        "law_name",
+        "area_kind",
+        "law_code",
+        "annex_flag",
+        "enforcement_date",
+        "article_no",
+        "article_sub_no",
+        "record_seqno",
+        "parent_ucode",
+        "deleted_date",
+        "deleted_text",
+        "terms_no",
+        "first_registered_date",
+        "last_updated_date"
+      ],
+      "bucket_prefix_length": 0
     }
   }
 }

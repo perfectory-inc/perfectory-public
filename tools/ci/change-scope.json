@@ -681,6 +681,28 @@
         ]
       },
       {
+        "name": "file-line-limit-self-test",
+        "paths": []
+      },
+      {
+        "name": "file-line-limit",
+        "always": "Any tracked source or document file can grow past the line limit; the scan is one `git ls-files` and a newline count."
+      },
+      {
+        "name": "every-job-declares-its-scope-self-test",
+        "paths": [
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "tools/ci/full-scope-jobs.baseline.json"
+        ]
+      },
+      {
+        "name": "every-job-declares-its-scope",
+        "paths": [
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "tools/ci/full-scope-jobs.baseline.json"
+        ]
+      },
+      {
         "name": "by-pnu-document-records-are-append-only-self-test",
         "paths": []
       },
@@ -889,6 +911,16 @@
         "paths": [
           "**/*.sh",
           ".github/workflows/**"
+        ]
+      },
+      {
+        "name": "a-pipefail-pipe-has-no-early-exit-reader-self-test",
+        "paths": []
+      },
+      {
+        "name": "a-pipefail-pipe-has-no-early-exit-reader",
+        "paths": [
+          "**/*.sh"
         ]
       },
       {

@@ -35,7 +35,7 @@ else
   # of the checker's messages verbatim; rewording either would have left the guard passing while
   # checking for text nobody writes any more. What matters is the shape: every refusal sits
   # before the comparison, so no unanswered question can reach it.
-  comparison_line="$(grep -n 'comm -23' "${checker}" | head -1 | cut -d: -f1)"
+  comparison_line="$(grep -n 'comm -23' "${checker}" | sed -n 1p | cut -d: -f1)"
   if [[ -z "${comparison_line}" ]]; then
     report "the check never compares what is shipped against what is applied"
   else

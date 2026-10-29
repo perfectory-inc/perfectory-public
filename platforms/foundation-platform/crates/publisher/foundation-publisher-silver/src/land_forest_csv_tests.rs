@@ -81,6 +81,7 @@ async fn land_forest_csv_preserves_every_named_field_and_numeric_values() -> any
             .columns
             .iter()
             .map(|c| c.name)
+            .filter(|name| *name != "row_state")
             .collect()
     );
     Ok(())

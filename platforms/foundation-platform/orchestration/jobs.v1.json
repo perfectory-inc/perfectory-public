@@ -16,6 +16,7 @@
   "state_paths_means": "Where a job writes and keeps state across runs, as absolute paths (root ADR-0266). The crate foundation-jobs renders them into the ReadWritePaths= line of the job's ProtectSystem=strict systemd unit and its test refuses a unit that says anything else, and jobs that share a unit with other paths (root ADR-0270 §1). orchestration/dags/job_specs.py refuses a job script whose state root comes from an EnvironmentFile or defaults outside these paths.",
   "state_directories_means": "Every directory the host makes for the jobs, with its mode and owner (account and group of that name; foundation-platform when not stated) (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group. No job writes /var/lib/foundation-platform/lakehouse-ivy: every Spark run mounts its release's frozen jars read-only as its Ivy cache (root ADR-0134), so that path is no state path and the release no longer makes it (2026-10-18; the folder is left on the host).",
   "commits_means": "When a run commits what it writes (root ADR-0301, ADR-0308). at_end: one commit when the run finishes, so a run stopped midway loses all its work (the onbid collector, 2026-10-26: a timed-out run committed nothing); such a job is never interruptible. as_it_goes: it commits file by file, table by table or pack by pack, or writes nothing a stop could lose, so a stopped run loses at most the unit in progress and its next run continues. Every job states it, so a new collector cannot reach production without saying which; orchestration/tests/test_job_specs.py refuses a job that does not, and an at_end job that is interruptible.",
+  "scope_means": "What one run of the job processes when it has work (root ADR-0314): `changed-keys` only the keys whose content changed since the run before; `new-objects` only the source objects no earlier run recorded; `skip-if-unchanged` one indivisible input (a file, a release, a round, a table snapshot), and nothing when it is unchanged; `full` everything on every run, an exception that states full_reason (why), full_cost (what it measurably costs, dated) and full_tracked_by (the change that makes it partial, or why full is the right unit). scripts/guard/every-job-declares-its-scope.sh refuses a job without a scope, a full job without those three, and a full job tools/ci/full-scope-jobs.baseline.json does not list; that list only shrinks.",
   "interruptible_means": "Whether a deploy may stop this job mid-run instead of waiting for it to finish (root ADR-0301). true: the job is append-only/resumable and a partial run is safe (a bake, rebuild, silver load, map-edit fold, boundary release, lakehouse maintenance, lineage, or a per-file-commit source sweep), so a deploy whose release holds it stops it at step 0, records it as owed a run and starts it when it gives the schedule back (root ADR-0308). false: stopping loses a run or leaves a half-written canonical result, so the deploy waits for it; every job whose `commits` is at_end is one (the collectors that commit at the end; they are short), and a few others. Every job states it; orchestration/tests/test_job_specs.py refuses a job that does not.",
   "state_directories": [
     {"path": "/var/lib/foundation-platform/map-edit-fold", "mode": "0755"},
@@ -47,6 +48,10 @@
   "jobs": [
     {
       "id": "building_register_floor",
+      "scope": "full",
+      "full_reason": "Each run reloads the newest complete FLOOR release whole, not only the floors whose content changed.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.building_register_floors 2026-10-20 appended 21,189,570 rows, 1.065 GB, half of its 2.138 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "최신 complete Bronze FLOOR/title pair를 매일 재확인하고 FLOOR Silver 적재를 재시도한다. source_sweep의 신규 수집 건수와 독립적이다.",
@@ -69,6 +74,7 @@
     },
     {
       "id": "source_sweep",
+      "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Daily source sweep: re-plan the hub.go.kr list and the VWorld datasets the endpoint catalog marks source_sweep, skip files already held, land every new one in Bronze; a stopped run resumes (root ADR-0077, ADR-0168, ADR-0172).",
@@ -93,6 +99,7 @@
     },
     {
       "id": "outbox_publish",
+      "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Outbox publish tick: deliver pending catalog events to their receivers (root ADR-0079).",
@@ -116,6 +123,7 @@
     },
     {
       "id": "map_edit_fold_admin",
+      "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Fold staff polygon edits into the administrative boundary tiles (root ADR-0112).",
@@ -143,6 +151,7 @@
     },
     {
       "id": "map_edit_fold_complex",
+      "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Fold staff polygon edits into the industrial complex tiles (root ADR-0112).",
@@ -170,6 +179,10 @@
     },
     {
       "id": "lineage_stewardship",
+      "scope": "full",
+      "full_reason": "Pending handoffs load as new objects, but every cycle rebuilds the whole review queue.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: gold.lineage_review_queue 2026-10-20 rewrote all 857 rows.",
+      "full_tracked_by": "justified while the queue is under 10,000 rows: rebuilding it costs less than tracking its changes",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs.",
@@ -206,6 +219,10 @@
     },
     {
       "id": "legal_dong_code_changes",
+      "scope": "full",
+      "full_reason": "It downloads the whole code table on every run, about ten times a day, and the table is almost always unchanged.",
+      "full_cost": "audit 2026-10-28: about 55 MB a download, about 10 downloads a day.",
+      "full_tracked_by": "collection asks the source whether it changed before downloading (root ADR-0314 §4)",
       "interruptible": false,
       "commits": "at_end",
       "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
@@ -229,6 +246,10 @@
     },
     {
       "id": "court_auction_collect",
+      "scope": "full",
+      "full_reason": "Every night it walks every list search page by page: the site offers no changed-since query.",
+      "full_cost": "not measured: the job is disabled.",
+      "full_tracked_by": "root ADR-0304 (PR #840): the recrawl frontier is computed each run from the lakehouse",
       "interruptible": false,
       "commits": "at_end",
       "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified by our product name, only between 01:00 and 06:00 KST unless an operator overrides that window for a bounded time (switches/court_auction_collect.window, root ADR-0282), and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Hands nothing on: court_auction_silver finds what it owes in R2. No Spark.",
@@ -253,6 +274,7 @@
     },
     {
       "id": "court_auction_silver",
+      "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver load of 법원경매정보 (root ADR-0280; infra/lakehouse/spark/jobs/courtauction_go_kr.py): the objects of each search that no commit of its table records (plan-silver-load-objects, R2 alone), oldest first, give every row the PNU its address resolves to and appends to silver.court_auction_item the rows whose content changed and, for a complete item search, a removal marker per 물건 that left it, and to silver.court_auction_sale_result the rows whose content changed. 06:30 KST, after the night's collection; `unchanged` without Spark when nothing is owed.",
@@ -279,6 +301,7 @@
     },
     {
       "id": "registered_factory",
+      "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",
       "description": "한국산업단지공단 전국등록공장현황 from data.go.kr (root ADR-0280 §4; scripts/ops/registered-factory-cycle.sh): ask the portal once which file is current and, only when it is not the last one landed, land the zip in Bronze, check its member against the source contract (name, CP949, header, row bounds), give each row the PNU its address resolves to (jibun address through the 법정동 code table and silver.parcel_boundaries, else road address through silver.building_register_titles) and append the edition to silver.registered_factory with its match rate. `unchanged` without Spark on the days the file is the same (the provider publishes about once a year).",
@@ -304,6 +327,10 @@
     },
     {
       "id": "onbid_public_auction_collect",
+      "scope": "full",
+      "full_reason": "Every three hours it reads the whole open-item list: a condition that left the list is known only from a complete pass (root ADR-0275).",
+      "full_cost": "not measured: list calls stay inside the API's daily call limit (data-go-kr-onbid.contract.json).",
+      "full_tracked_by": "justified by root ADR-0275 (a removal marker needs a complete pass); its Silver load appends only changed rows",
       "interruptible": false,
       "commits": "at_end",
       "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_auction_silver finds what it owes in R2). No Spark.",
@@ -327,6 +354,7 @@
     },
     {
       "id": "onbid_public_auction_silver",
+      "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver load of 차세대 온비드 public sale (root ADR-0280; infra/lakehouse/spark/jobs/data_go_kr_onbid.py): the Bronze objects no commit of their table records (plan-silver-load-objects, R2 alone), oldest first, each in its own commit, append to silver.onbid_real_estate_item the item conditions whose content changed and, when the pass was complete, a removal marker for each condition that left the list (root ADR-0275), and to silver.onbid_item_bid_result each result answer. Hourly, after the collector (minute 7, at most 40 minutes); `unchanged` without starting Spark when nothing is owed.",
@@ -353,6 +381,7 @@
     },
     {
       "id": "vworld_parcel_edition",
+      "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",
       "description": "VWorld cadastral parcel editions (연속지적도, MK/30563; root ADR-0148): check the provider's newest edition against the source contract (vworld-parcel-source-objects.json); when it is new, collect its directly downloadable files into Bronze, measure each ZIP's members by ranged read, and propose the contract entry. No Spark: the Silver load runs from a release whose contract holds the edition (runbook vworld-parcel-editions.md). Exit 3 means an edition awaits the contract, not a fault: the job posts 'new edition waiting for contract entry' itself, and is not retried (a retry would only download and propose the same edition again).",
@@ -376,6 +405,7 @@
     },
     {
       "id": "parcel_number_change_history",
+      "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",
       "description": "VWorld 필지고유번호변동연혁 (MK/30527; root ADR-0144 §4, ADR-0145), the collection half: list the dataset's 시도 files, and only when a file's provider update date changed (the provider reuses file numbers), land it in Bronze, read it back with the reader key, refuse a file whose shape changed, that shrank past the contract's bound or whose dateless rows exceed it, and write a pending-load handoff. No Spark: lineage_stewardship loads the handoff into silver.parcel_number_change_history under its spark slots and the 법정동 code pairing reads the window's links as its official step.",
@@ -398,6 +428,7 @@
     },
     {
       "id": "data_quality",
+      "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result to the data catalog (root ADR-0117 §6, ADR-0123).",
@@ -418,6 +449,10 @@
     },
     {
       "id": "shape_ledger_check",
+      "scope": "full",
+      "full_reason": "It reads the catalog metadata and the $files and $snapshots metadata tables of every table, no data file.",
+      "full_cost": "measured from the 2026-10-27 journal: about 30 s a run, no data file read.",
+      "full_tracked_by": "justified: a production shape is a whole-catalog fact, and metadata costs no row",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
@@ -438,6 +473,10 @@
     },
     {
       "id": "silver_refresh_building_register_titles",
+      "scope": "full",
+      "full_reason": "A new hub.go.kr release replaces the whole table.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.building_register_titles 2026-10-20 overwrote 8,064,354 rows, 0.668 GB, 100%.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 표제부 lane `building-register-titles` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_titles already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -464,6 +503,10 @@
     },
     {
       "id": "silver_refresh_building_register_units",
+      "scope": "full",
+      "full_reason": "A new hub.go.kr release replaces the whole table.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.building_register_units 2026-10-20 overwrote 19,860,453 rows, 1.393 GB, 100%.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 전유부 lane `building-register-units` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_units already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -490,6 +533,10 @@
     },
     {
       "id": "silver_refresh_building_register_unit_areas",
+      "scope": "full",
+      "full_reason": "A new hub.go.kr release replaces the whole table.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.building_register_unit_areas 2026-10-20 overwrote 114,461,830 rows, 8.383 GB, 100%.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 전유공용면적 lane `building-register-unit-areas` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_unit_areas already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -516,6 +563,10 @@
     },
     {
       "id": "silver_refresh_building_register_apartment_price",
+      "scope": "full",
+      "full_reason": "A new release appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.building_register_apartment_price 2026-10-20 appended 2,058,239 rows, 0.065 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -542,6 +593,10 @@
     },
     {
       "id": "silver_refresh_building_register_exclusive_unit",
+      "scope": "full",
+      "full_reason": "A new release appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.building_register_exclusive_unit 2026-10-20 appended 19,860,453 rows, 1.477 GB, a third of its 4.389 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -568,6 +623,10 @@
     },
     {
       "id": "silver_refresh_land_characteristic",
+      "scope": "full",
+      "full_reason": "A new vintage appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_characteristic 2026-09-06 appended 2,956,709 rows, 0.030 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 토지특성 lane `land-characteristic` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_characteristic already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -594,6 +653,10 @@
     },
     {
       "id": "silver_refresh_land_forest_ledger",
+      "scope": "full",
+      "full_reason": "A new vintage appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_forest_ledger 2026-10-26 appended 12,375,681 rows, 0.125 GB, 30% of the table.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 임야대장 lane `land-forest-ledger` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_forest_ledger already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -620,6 +683,10 @@
     },
     {
       "id": "silver_refresh_land_individual_price",
+      "scope": "full",
+      "full_reason": "A new vintage appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_individual_price 2026-09-05 appended 2,956,709 rows, 0.021 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 개별공시지가 lane `land-individual-price` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_individual_price already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -646,6 +713,10 @@
     },
     {
       "id": "silver_refresh_land_right_registration",
+      "scope": "full",
+      "full_reason": "A new vintage appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_right_registration 2026-10-15 appended 3,410,340 rows, 0.010 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 대지권등록 lane `land-right-registration` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_right_registration already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -672,6 +743,10 @@
     },
     {
       "id": "silver_refresh_land_transfer_history",
+      "scope": "full",
+      "full_reason": "A new vintage appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_transfer_history 2026-10-21 appended 203,061 rows, 0.008 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 토지이동이력 lane `land-transfer-history` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_transfer_history already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -698,6 +773,10 @@
     },
     {
       "id": "silver_refresh_land_use_plan",
+      "scope": "full",
+      "full_reason": "A new vintage appends every row of it, changed or not.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_use_plan 2026-09-05 appended 20,105,799 rows, 0.196 GB.",
+      "full_tracked_by": "Silver partial load (root ADR-0314 §4: lane contracts declare content_columns and append only changed rows)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 토지이용계획 lane `land-use-plan` (root ADR-0169 ③): pick the newest vintage whose objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_plan already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -724,6 +803,10 @@
     },
     {
       "id": "silver_refresh_land_use_zone_code",
+      "scope": "full",
+      "full_reason": "A new code table replaces the whole table.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: silver.land_use_zone_code 2026-10-14 overwrote 1,270 rows.",
+      "full_tracked_by": "justified: a 1,270-row code table whose unit is the published table",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Silver refresh of the 용도지역 코드표 lane `land-use-zone-code` (root ADR-0169 ③): pick the newest national object, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_code already records it or a newer one (`unchanged`), export each object, load the release over the previous one and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
@@ -750,6 +833,10 @@
     },
     {
       "id": "gold_panel_rebuild",
+      "scope": "full",
+      "full_reason": "Each rebuild rewrites every file of the panel it writes: on 2026-10-26 a 0.12% change (48,477 PNUs) rewrote all 39,861,511 rows of gold.parcel_panel.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: gold.parcel_panel 2026-10-26 added 4.266 GB of 4.266 GB (100%); gold.building_panel 2026-10-20 1.972 GB of 1.972 GB (100%).",
+      "full_tracked_by": "Gold partial write (root ADR-0314 §4: the Gold contract load declares incremental, and PR #896 keeps the PNU range order through MERGE and compaction)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Rebuild gold.parcel_panel, then gold.building_panel, then gold.unit_price (root ADR-0190), with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet.",
@@ -793,6 +880,7 @@
     },
     {
       "id": "admin_boundary_release",
+      "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the admin tiles (root ADR-0236; scripts/ops/admin-boundary-release.sh): read the round from the members of the boundary ZIPs the daily sweep collects, and unless silver.administrative_boundaries already holds it (`unchanged`), convert that round's ZIPs, merge them against the official code list, append the snapshot (a renumbered dong keeps its id), publish the admin place-id release and rebake the admin tiles with the hourly fold's own script. A round missing a sido is waited for (`unchanged`), not failed. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
@@ -822,6 +910,7 @@
     },
     {
       "id": "parcel_registry",
+      "scope": "changed-keys",
       "interruptible": false,
       "commits": "at_end",
       "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
@@ -847,6 +936,7 @@
     },
     {
       "id": "complex_boundary_release",
+      "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Load the newest industrial-complex boundary file into Silver and fold it into the complex tiles (root ADR-0240; scripts/ops/complex-boundary-release.sh): take the boundary ZIP the daily sweep landed last, turn its shapefile into Silver rows (export-industrial-complex-boundary-silver-handoff) and append them beside the earlier version unless the table's ingest record already holds that ZIP (`unchanged`); the readers take the newest version. When it changed, rebake the complex tiles with the hourly fold's own script. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
@@ -873,6 +963,10 @@
     },
     {
       "id": "parcel_served_gold",
+      "scope": "full",
+      "full_reason": "A new cadastral edition rebuilds the national served Gold and its matching gate over every 시도.",
+      "full_cost": "not measured: the job is disabled.",
+      "full_tracked_by": "none yet: a per-시도 edition diff (root ADR-0314 follow-up)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. Nothing reads PostGIS.",
@@ -900,6 +994,10 @@
     },
     {
       "id": "parcel_tile_bake",
+      "scope": "full",
+      "full_reason": "Map tiles have no tombstones, so a release replaces the whole tile set (FP-ADR-0004).",
+      "full_cost": "not measured: the job is disabled.",
+      "full_tracked_by": "justified by FP-ADR-0004 until tiles carry tombstones",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "The second half of the national parcel tile bake (root ADR-0133 §7, ADR-0253): take the served Gold run parcel_served_gold made ready and bake, gate and promote it with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh bake): GDAL and tippecanoe in their capped containers, the maxzoom id gate, the first-release equivalence gate against the active release (ADR-0133 §4, ADR-0135, ADR-0251), the create-only upload and the promotion. Started when the Gold half reports a ready run, and daily as the fallback; with none waiting, nothing to do. Nothing reads PostGIS.",
@@ -925,6 +1023,10 @@
     },
     {
       "id": "gold_public_auction_rebuild",
+      "scope": "full",
+      "full_reason": "Each daily build overwrites the whole 공매 Gold.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: gold.parcel_public_auction 2026-10-28 overwrote 4,613 rows, 0.001 GB, 100%.",
+      "full_tracked_by": "Gold partial write (root ADR-0314 §4: the Gold contract load declares incremental, and PR #896 keeps the PNU range order through MERGE and compaction)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-auction): gold.parcel_public_auction from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs (lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
@@ -948,6 +1050,10 @@
     },
     {
       "id": "gold_kind_rebuild",
+      "scope": "full",
+      "full_reason": "Each kind's Gold is overwritten whole after a panel rebuild, whatever changed.",
+      "full_cost": "measured 2026-10-28 from the table's $snapshots, last non-compaction commit: 100% of each kind's bytes on its last commit, 9.76 GB together (parcel_transfer_history 3.256 GB on 2026-10-23, parcel_forest_ledger 1.855 GB on 2026-10-26; zoning 1.496, characteristics 1.680, price 1.403 and land_rights 0.070 GB on 2026-10-17).",
+      "full_tracked_by": "Gold partial write (root ADR-0314 §4: the Gold contract load declares incremental, and PR #896 keeps the PNU range order through MERGE and compaction)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
@@ -976,6 +1082,10 @@
     },
     {
       "id": "lakehouse_maintenance",
+      "scope": "full",
+      "full_reason": "Compaction rewrites a table's files whole when they are out of order: on 2026-10-26 it rewrote all of gold.parcel_panel.",
+      "full_cost": "measured 2026-10-28 from gold.parcel_panel$snapshots: the 2026-10-26 05:01 replace commit added 4.061 GB, the whole table.",
+      "full_tracked_by": "PR #896 (range-ordered Gold keeps its PNU ranges through MERGE and compaction)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Compact and expire every table of the lakehouse contract artifact under the snapshot retention of root ADR-0237 (30 days, 12 month ends, every year end), the least recently maintained first, in one Spark run (infra/lakehouse/spark/jobs/lakehouse_maintenance.py --all-tables, root ADR-0238). It starts no table after the maintenance contract's deadline; a table it does not reach is first at the next run. Expiry never removes a snapshot a Silver loader or the Gold rebuild reads back. It changes no rows, so it starts nothing downstream.",
@@ -998,6 +1108,7 @@
     },
     {
       "id": "by_pnu_serving_bake",
+      "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, then each pack-only lane's Gold panel (config/r2-connections.contract.json by_pnu_lanes, root ADR-0190), in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start.",
@@ -1040,6 +1151,7 @@
     },
     {
       "id": "by_pnu_public_auction_bake",
+      "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Reflect each new Gold snapshot of gold.parcel_public_auction (the own-producer public-auction kind, root ADR-0287) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-public-auction), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job so it bakes concurrently with the panel/parcel bake instead of waiting behind it in `by_pnu_serving_bake all` (root ADR-0303): a slow national parcel re-bake no longer holds public-auction serving for hours (2026-10-28). Own-producer because its servability is resolved at Gold: servable() keeps only the PNUs the served parcel edition carries, which the Gold build reads from Silver (root ADR-0292); the bake reads no parcel lane state, so a PNU of a parcel edition not served yet may 404 until the parcel lane catches up (accepted, root ADR-0303 §2). Started when gold_public_auction_rebuild commits a new snapshot, and at 10:45 as the fallback (root ADR-0171), apart from the panel bake's 10:15 so the two clock starts never share the fixed-name lakehouse-target-init container. It does not take turns: one slot for at most two hours, which the folds run beside and FLOOR waits out within the pool's starvation bound. One slot and MemoryMax=5G, so it runs beside the panel bake inside the host memory budget (root ADR-0138).",

@@ -66,7 +66,7 @@ unset_output="$(
 unset_status=$?
 set -e
 if [ "$unset_status" -eq 0 ] \
-  || ! printf '%s\n' "$unset_output" | grep -q 'immutable identity is unset'; then
+  || ! grep -q 'immutable identity is unset' <<<"$unset_output"; then
   echo "FAIL repository-identity-policy-self-test: strict wrapper accepted unset fixture" >&2
   printf '%s\n' "$unset_output" >&2
   exit 1
@@ -82,7 +82,7 @@ canonical_output="$(
 canonical_status=$?
 set -e
 if [ "$canonical_status" -eq 0 ] \
-  || ! printf '%s\n' "$canonical_output" | grep -q 'immutable identity is unset'; then
+  || ! grep -q 'immutable identity is unset' <<<"$canonical_output"; then
   echo "FAIL repository-identity-policy-self-test: canonical CI accepted unset fixture" >&2
   printf '%s\n' "$canonical_output" >&2
   exit 1
@@ -109,8 +109,7 @@ missing_runtime_output="$(
 missing_runtime_status=$?
 set -e
 if [ "$missing_runtime_status" -eq 0 ] \
-  || ! printf '%s\n' "$missing_runtime_output" \
-    | grep -q 'canonical CI requires immutable runtime repository and owner IDs'; then
+  || ! grep -q 'canonical CI requires immutable runtime repository and owner IDs' <<<"$missing_runtime_output"; then
   echo "FAIL repository-identity-policy-self-test: canonical CI accepted missing runtime IDs" >&2
   printf '%s\n' "$missing_runtime_output" >&2
   exit 1
@@ -134,7 +133,7 @@ for mismatch in repository owner; do
   mismatch_status=$?
   set -e
   if [ "$mismatch_status" -eq 0 ] \
-    || ! printf '%s\n' "$mismatch_output" | grep -q 'runtime immutable identity drift'; then
+    || ! grep -q 'runtime immutable identity drift' <<<"$mismatch_output"; then
     echo "FAIL repository-identity-policy-self-test: canonical CI accepted mismatched $mismatch ID" >&2
     printf '%s\n' "$mismatch_output" >&2
     exit 1
@@ -157,7 +156,7 @@ cwd_output="$(
 cwd_status=$?
 set -e
 if [ "$cwd_status" -eq 0 ] \
-  || ! printf '%s\n' "$cwd_output" | grep -q 'immutable identity is unset'; then
+  || ! grep -q 'immutable identity is unset' <<<"$cwd_output"; then
   echo "FAIL repository-identity-policy-self-test: hostile CWD replaced identity policy" >&2
   printf '%s\n' "$cwd_output" >&2
   exit 1
@@ -267,8 +266,8 @@ prepare_output="$(
 prepare_status=$?
 set -e
 if [ "$prepare_status" -eq 0 ] \
-  || ! printf '%s\n' "$prepare_output" | grep -q 'immutable identity is unset' \
-  || printf '%s\n' "$prepare_output" | grep -q 'OK workflow-policy' \
+  || ! grep -q 'immutable identity is unset' <<<"$prepare_output" \
+  || grep -q 'OK workflow-policy' <<<"$prepare_output" \
   || [ ! -d "$destination" ]; then
   echo "FAIL repository-identity-policy-self-test: cloned unset identity bypassed strict validation" >&2
   printf '%s\n' "$prepare_output" >&2

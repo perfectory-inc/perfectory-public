@@ -31,6 +31,7 @@ last_reviewed: 2026-07-29
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
 - [호스트 디스크 배치 — OS 는 시스템 디스크, Docker·containerd 는 데이터 디스크](./host-layout.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
+- [배포 경보 — 드레인·배포·DAG 멈춤이 길 때](./deploy-alerts.md)
 
 ## 주제별 런북
 

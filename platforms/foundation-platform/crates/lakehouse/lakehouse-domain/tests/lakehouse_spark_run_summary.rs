@@ -315,6 +315,31 @@ fn spark_run_summary_validates_against_silver_contract() -> TestResult {
     Ok(())
 }
 
+/// What a run read and wrote and the keys it changed (root ADR-0314 §4): a summary carries them,
+/// and one from a writer that does not measure them yet still parses and says nothing.
+#[test]
+fn spark_run_summary_carries_its_read_and_write_amplification() -> TestResult {
+    let mut value = valid_summary_value();
+    value["bytes_read"] = json!(4_265_500_804_u64);
+    value["bytes_written"] = json!(4_265_500_804_u64);
+    value["keys_changed"] = json!(48_477);
+    let summary = parse_summary(value)?;
+    summary.validate_for_contract(&SILVER_INDUSTRIAL_COMPLEXES)?;
+    assert_eq!(summary.bytes_read, Some(4_265_500_804));
+    assert_eq!(summary.bytes_written, Some(4_265_500_804));
+    assert_eq!(summary.keys_changed, Some(48_477));
+    let written = serde_json::to_value(&summary)?;
+    assert_eq!(written["keys_changed"], json!(48_477));
+
+    let silent = parse_summary(valid_summary_value())?;
+    assert_eq!(
+        (silent.bytes_read, silent.bytes_written, silent.keys_changed),
+        (None, None, None)
+    );
+    assert!(serde_json::to_value(&silent)?.get("bytes_read").is_none());
+    Ok(())
+}
+
 #[test]
 fn spark_run_summary_accepts_silver_handoff_input_for_parcel_boundaries() -> TestResult {
     let summary = parse_summary(valid_parcel_boundary_summary_value())?;

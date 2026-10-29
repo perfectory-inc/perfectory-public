@@ -283,7 +283,12 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 142 -> 143: collection-domain's court auction test embeds courtauction-go-kr.contract.json and holds
 # its `collection` section to the rules' own types, so the contract values and the rules cannot drift
 # (root ADR-0289/0290).
-COMPILE_TIME_READ_BASELINE="${3:-143}"
+# 143 -> 144: the parcel tile bake embeds r2-connections.contract.json for `vector_tile_gateway.patches`,
+# the one policy the tile Worker serves patches by, so the bake and the Worker cannot read two (root ADR-0323).
+# 144 -> 145: the Silver refresh's lane test embeds infra/systemd/foundation-silver-refresh@.service
+# and holds the compare's last-bucket deadline under the unit's TimeoutStartSec, so a shorter unit
+# limit cannot kill a bucket that the deadline let start (root ADR-0318).
+COMPILE_TIME_READ_BASELINE="${3:-145}"
 
 cd "$repo_root"
 

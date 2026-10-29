@@ -11,8 +11,9 @@ mkdir -p "${evidence_dir}"
 "${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup check
 
 backup_type=diff
-if ! "${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup info --output=json \
-    | grep -q '"backup"[[:space:]]*:[[:space:]]*\[[^]]'; then
+# Not `info | grep -q`: grep -q exits at the first match and pipefail turns the writer's SIGPIPE into "no backup".
+if ! grep -q '"backup"[[:space:]]*:[[:space:]]*\[[^]]' \
+    < <("${compose[@]}" run --rm -T --interactive=false --no-deps foundation-backup pgbackrest-backup info --output=json); then
     backup_type=full
 elif [[ "$(date -u +%u)" == "7" ]]; then
     backup_type=full

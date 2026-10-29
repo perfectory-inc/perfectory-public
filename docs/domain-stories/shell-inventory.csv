@@ -42,7 +42,7 @@ platforms/foundation-platform/scripts/ops/legal-dong-code-validate.sh,69,true,sy
 platforms/foundation-platform/scripts/ops/lineage-stewardship-cycle.sh,172,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/map-edit-fold.sh,153,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/measure-building-section-packs.sh,124,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
-platforms/foundation-platform/scripts/ops/notify-unit-failure.sh,28,false,systemd-job,keep,Started by a systemd unit per jobs.v1.json/runbook
+platforms/foundation-platform/scripts/ops/notify-unit-failure.sh,32,false,systemd-job,keep,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/parcel-number-change-collect.sh,126,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh,95,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh,243,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
@@ -56,6 +56,7 @@ platforms/foundation-platform/scripts/ops/vworld-login.sh,30,true,systemd-job,ru
 platforms/foundation-platform/scripts/ops/vworld-parcel-edition-collect.sh,161,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/ops/vworld-sweep-lane.sh,24,true,systemd-job,runner,Started by a systemd unit per jobs.v1.json/runbook
 platforms/foundation-platform/scripts/recovery/check-identity-backup-freshness.sh,28,true,systemd-job,runner,Backup/restore drill started by a systemd unit
+platforms/foundation-platform/scripts/recovery/check-postgres-backup-freshness.sh,28,true,systemd-job,runner,Backup/restore drill started by a systemd unit
 platforms/foundation-platform/scripts/recovery/identity-backup-lib.sh,53,true,systemd-job,runner,Backup/restore drill started by a systemd unit
 platforms/foundation-platform/scripts/recovery/identity-restore-drill.sh,130,true,systemd-job,runner,Backup/restore drill started by a systemd unit
 platforms/foundation-platform/scripts/recovery/postgres-restore-drill.sh,82,true,systemd-job,runner,Backup/restore drill started by a systemd unit
@@ -119,6 +120,8 @@ scripts/github/validate-legal-publication.sh,48,true,ci,xtask,Helper called from
 scripts/github/validate-public-repository-identity.sh,39,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
 scripts/guard/a-deploy-verifies-the-schema-it-left-self-test.sh,103,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/a-deploy-verifies-the-schema-it-left.sh,84,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/a-pipefail-pipe-has-no-early-exit-reader-self-test.sh,50,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/a-pipefail-pipe-has-no-early-exit-reader.sh,93,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/actions-cache-controls-self-test.sh,90,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/area-ci-input-coverage-self-test.sh,124,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/area-ci-input-coverage.sh,119,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)

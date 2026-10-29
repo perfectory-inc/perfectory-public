@@ -16,7 +16,7 @@ SQLX_BIN="${SQLX_BIN:-sqlx}"
 
 # 1. All 3 roles exist
 for r in gongzzang_app_writer gongzzang_app_reader gongzzang_audit_archiver; do
-  if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_roles where rolname='$r';" | grep -q '^1$'; then
+  if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_roles where rolname='$r';"); then
     echo "FAIL: role $r missing" >&2; exit 1
   fi
 done
@@ -68,7 +68,7 @@ if [ "$ARC_INS" != "f" ]; then
 fi
 
 # 5. Trigger function + 2 triggers exist
-if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_proc where proname='reject_audit_mutation';" | grep -q '^1$'; then
+if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_proc where proname='reject_audit_mutation';"); then
   echo "FAIL: function reject_audit_mutation() missing" >&2; exit 1
 fi
 TRIG_COUNT=$(psql "$DATABASE_URL" -t -A -c "select count(*) from pg_trigger where tgrelid='audit_log'::regclass and tgname like 'trg_audit_no_%';")
@@ -82,14 +82,14 @@ psql "$DATABASE_URL" -c "insert into audit_log(id, action, resource_kind, resour
 
 # Try UPDATE — should fail with SQLSTATE 45000 (i18n-stable; message text may change)
 UPDATE_OUTPUT=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c "update audit_log set action='hacked' where id='aud_test12345678901234567890AB';" 2>&1 || true)
-if ! echo "$UPDATE_OUTPUT" | grep -qE 'SQLSTATE 45000|is immutable'; then
+if ! grep -qE 'SQLSTATE 45000|is immutable' <<<"$UPDATE_OUTPUT"; then
   echo "FAIL: UPDATE on audit_log did not raise SQLSTATE 45000. Output: $UPDATE_OUTPUT" >&2
   exit 1
 fi
 
 # Try DELETE — should also fail
 DELETE_OUTPUT=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c "delete from audit_log where id='aud_test12345678901234567890AB';" 2>&1 || true)
-if ! echo "$DELETE_OUTPUT" | grep -qE 'SQLSTATE 45000|is immutable'; then
+if ! grep -qE 'SQLSTATE 45000|is immutable' <<<"$DELETE_OUTPUT"; then
   echo "FAIL: DELETE on audit_log did not raise SQLSTATE 45000. Output: $DELETE_OUTPUT" >&2
   exit 1
 fi
@@ -98,7 +98,7 @@ fi
 psql "$DATABASE_URL" -c "grant delete on audit_log to gongzzang_audit_archiver;"
 EXEMPT_OUTPUT=$(psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c "set role gongzzang_audit_archiver; delete from audit_log where id='aud_test12345678901234567890AB';" 2>&1 || true)
 psql "$DATABASE_URL" -c "revoke delete on audit_log from gongzzang_audit_archiver;"
-if ! echo "$EXEMPT_OUTPUT" | grep -qE 'SQLSTATE 45000|is immutable'; then
+if ! grep -qE 'SQLSTATE 45000|is immutable' <<<"$EXEMPT_OUTPUT"; then
   echo "FAIL: audit_archiver DELETE was not refused by the trigger. Output: $EXEMPT_OUTPUT" >&2; exit 1
 fi
 REMAINING=$(psql "$DATABASE_URL" -t -A -c "select count(*) from audit_log where id='aud_test12345678901234567890AB';")

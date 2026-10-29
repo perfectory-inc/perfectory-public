@@ -3,7 +3,7 @@
 //!
 //! Synthetic PNUs only: every value starts with the reserved `99999` region.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 use apache_avro::{types::Value as AvroValue, Schema, Writer};
 use arrow_array::{ArrayRef, RecordBatch, StringArray};
@@ -92,18 +92,36 @@ struct FixtureFile {
 }
 
 /// Serves the fixture objects, and fails any read of an object it was not given — a skipped
-/// file is left out, so opening it fails the scan.
+/// file is left out, so opening it fails the scan. A data file is served by range only: reading
+/// one whole fails the scan (root ADR-0319).
 struct FixtureReader {
     objects: BTreeMap<String, Vec<u8>>,
+}
+
+impl FixtureReader {
+    fn object(&self, location: &str) -> anyhow::Result<&Vec<u8>> {
+        self.objects
+            .get(location)
+            .ok_or_else(|| anyhow::anyhow!("unexpected object read: {location}"))
+    }
 }
 
 #[async_trait]
 impl LakehouseByteReader for FixtureReader {
     async fn read(&self, location: &str) -> anyhow::Result<Vec<u8>> {
-        self.objects
-            .get(location)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("unexpected object read: {location}"))
+        anyhow::ensure!(
+            !location.ends_with(".parquet"),
+            "a data file was read whole: {location}"
+        );
+        self.object(location).cloned()
+    }
+
+    async fn read_range(&self, location: &str, range: Range<u64>) -> anyhow::Result<Vec<u8>> {
+        let object = self.object(location)?;
+        Ok(object
+            .get(usize::try_from(range.start)?..usize::try_from(range.end)?)
+            .ok_or_else(|| anyhow::anyhow!("range {range:?} is past the end of {location}"))?
+            .to_vec())
     }
 }
 
@@ -170,7 +188,10 @@ fn manifest(files: &[FixtureFile]) -> anyhow::Result<Vec<u8>> {
                         "record_count".to_owned(),
                         AvroValue::Long(i64::try_from(file.pnus.len())?),
                     ),
-                    ("file_size_in_bytes".to_owned(), AvroValue::Long(1_024)),
+                    (
+                        "file_size_in_bytes".to_owned(),
+                        AvroValue::Long(i64::try_from(parquet(file.pnus)?.len())?),
+                    ),
                     ("null_value_counts".to_owned(), nulls),
                     ("lower_bounds".to_owned(), lower),
                     ("upper_bounds".to_owned(), upper),
@@ -274,6 +295,9 @@ async fn a_shard_skips_only_the_files_whose_bounds_exclude_its_prefix() -> anyho
     assert_eq!(scanned.skipped_data_file_count, 2);
     assert_eq!(scanned.skipped_record_count, 4);
     assert_eq!(scanned.read_record_count, 3);
+    // Only the two files read (`c` and `d`) count toward what the shard cost, at their manifest sizes.
+    let read_sizes = parquet(ORDERED[2].pnus)?.len() + parquet(ORDERED[3].pnus)?.len();
+    assert_eq!(scanned.read_file_bytes, u64::try_from(read_sizes)?);
     // The files read are decoded, or skipped a row group at a time where its statistics allow.
     assert_eq!(
         scanned.decoded_row_count + scanned.skipped_row_group_record_count,
@@ -440,6 +464,9 @@ fn a_scan_that_does_not_account_for_every_row_is_refused() {
         read_record_count: 6,
         decoded_row_count: 6,
         skipped_row_group_record_count: 0,
+        read_file_bytes: 0,
+        fetched_bytes: 0,
+        range_requests: 0,
         keep_limit_exceeded: false,
     };
     assert!(complete().ensure_complete().is_ok());

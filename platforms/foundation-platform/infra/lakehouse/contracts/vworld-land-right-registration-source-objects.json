@@ -10,7 +10,7 @@
   "handoff_prefix": "silver-handoff/vworldkr__land_right_registration",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@land-right-registration.service 의 실행 값(root ADR-0169 §3 ③). gold.parcel_panel 은 토지 표마다 source_snapshot_id 하나만 읽으므로 새 판은 표를 바꿔 쓴다: 첫 적재 묶음이 overwrite, 나머지는 append. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다(손 적재가 쓴 값과 같다).",
+    "$comment": "foundation-silver-refresh@land-right-registration.service 의 실행 값(root ADR-0169 §3 ③). 판은 load branch 에 통째로 올린 뒤(첫 묶음 overwrite, 나머지 append, ADR-0183) main 에 발행하지 않고, compare 가 main 의 현재 행과 키마다 비교해 바뀐 키의 행 전부와 사라진 키의 삭제 표시만 main 에 append 한다(ADR-0275, ADR-0311). content_columns 는 판마다 바뀌는 열(data_reference_date, 적재 열)을 넣지 않는다. source_snapshot_id 는 source 의 slug 를 하이픈으로 쓴 것, ':' 와 판이다(손 적재가 쓴 값과 같다).",
     "table": "silver.land_right_registration",
     "source": "vworldkr__land_right_registration",
     "member_name": "^AL_D006_(?P<region>[0-9]{2})_(?P<vintage>[0-9]{8})\\.csv$",
@@ -24,6 +24,26 @@
       "driver_memory": "16g",
       "iceberg_write_mode": "overwrite",
       "input_file_batch_size": 4
+    },
+    "compare": {
+      "content_columns": [
+        "legal_dong_code",
+        "legal_dong_name",
+        "jibun",
+        "ledger_kind_code",
+        "ledger_kind_name",
+        "building_name",
+        "dong_name",
+        "floor_name",
+        "ho_name",
+        "room_name",
+        "right_ratio",
+        "closure_kind_code",
+        "closure_kind_name",
+        "related_parcel_code",
+        "source_sigungu_code"
+      ],
+      "bucket_prefix_length": 2
     }
   }
 }

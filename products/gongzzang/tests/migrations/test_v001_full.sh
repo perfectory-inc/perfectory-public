@@ -53,7 +53,7 @@ EXPECTED_TABLES=(
 )
 
 for t in "${EXPECTED_TABLES[@]}"; do
-  if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_tables where schemaname='public' and tablename='$t';" | grep -q '^1$'; then
+  if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_tables where schemaname='public' and tablename='$t';"); then
     echo "FAIL: missing table $t" >&2
     exit 1
   fi
@@ -67,7 +67,7 @@ FORBIDDEN_TABLES=(
 )
 
 for t in "${FORBIDDEN_TABLES[@]}"; do
-  if psql "$DATABASE_URL" -t -A -c "select 1 from pg_tables where schemaname='public' and tablename='$t';" | grep -q '^1$'; then
+  if grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_tables where schemaname='public' and tablename='$t';"); then
     echo "FAIL: Foundation-owned table must not exist in the Gongzzang database: $t" >&2
     exit 1
   fi
@@ -82,7 +82,7 @@ if [ "$COUNT" != "$EXPECTED_COUNT" ]; then
   exit 1
 fi
 
-if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_extension where extname='postgis';" | grep -q '^1$'; then
+if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_extension where extname='postgis';"); then
   echo "FAIL: postgis extension not loaded" >&2
   exit 1
 fi
@@ -105,7 +105,7 @@ if [ "$GEOM_INDEX_COUNT" != "0" ]; then
   exit 1
 fi
 
-if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_constraint where conrelid='listing'::regclass and conname='listing_transaction_fields_chk';" | grep -q '^1$'; then
+if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_constraint where conrelid='listing'::regclass and conname='listing_transaction_fields_chk';"); then
   echo "FAIL: listing_transaction_fields_chk missing (V003_01)" >&2
   exit 1
 fi
@@ -124,12 +124,12 @@ for tbl in business_verification_queue listing_review_queue; do
   fi
 done
 
-if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_constraint where conrelid='featured_content'::regclass and conname='featured_content_time_bound_chk';" | grep -q '^1$'; then
+if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_constraint where conrelid='featured_content'::regclass and conname='featured_content_time_bound_chk';"); then
   echo "FAIL: featured_content_time_bound_chk missing (V003_03)" >&2
   exit 1
 fi
 
-if ! psql "$DATABASE_URL" -t -A -c "select 1 from pg_constraint where conrelid='\"user\"'::regclass and conname='user_roles_valid_chk';" | grep -q '^1$'; then
+if ! grep -q '^1$' < <(psql "$DATABASE_URL" -t -A -c "select 1 from pg_constraint where conrelid='\"user\"'::regclass and conname='user_roles_valid_chk';"); then
   echo "FAIL: user_roles_valid_chk missing (V003_05)" >&2
   exit 1
 fi

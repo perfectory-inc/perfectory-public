@@ -112,6 +112,15 @@ class WriteOrder(unittest.TestCase):
                                           actual_properties=properties)
                 self.assertIs(plan["write_order"], expected)
 
+    def test_a_range_table_missing_a_contract_partition_is_planned(self) -> None:
+        """silver.parcel_boundaries: two editions in one unpartitioned spec (root ADR-0316)."""
+        declared = {**self.ranged(), "partition_spec": ["source_snapshot_id"]}
+        for partitions, expected in (((), True), (("source_snapshot_id",), False), (None, False)):
+            with self.subTest(partitions=partitions):
+                plan = migrate.plan_table(declared, ("pnu", "b"), True, "gold.t",
+                                          actual_properties=self.ORDERED, actual_partitions=partitions)
+                self.assertIs(plan["write_order"], expected)
+
     def test_a_hash_table_is_left_to_its_writer(self) -> None:
         plan = migrate.plan_table(self.ranged("hash"), ("pnu", "b"), True, "gold.t", actual_properties={})
         self.assertFalse(plan["write_order"])
@@ -322,6 +331,17 @@ class BackfillKeepsThePins(unittest.TestCase):
     def test_a_head_that_is_no_producer_commit_carries_nothing(self):
         hand = self.snapshot("90", None, "overwrite")
         self.assertEqual(migrate.carried_properties([hand], "90"), {})
+
+    def test_the_backfill_carries_the_code_version_beside_the_pins(self):
+        # Root ADR-0321: without it a backfilled Gold reads as built by the current code.
+        import gold_code_version
+        import gold_rebuild as rebuild
+
+        pins = rebuild.pins_property_value({"silver.a": "11"})
+        built = self.snapshot("90", None, "overwrite", **{rebuild.SOURCE_SNAPSHOTS_PROPERTY: pins,
+                                                         gold_code_version.PROPERTY: "V1"})
+        self.assertEqual(migrate.carried_properties([built], "90"),
+                         {rebuild.SOURCE_SNAPSHOTS_PROPERTY: pins, gold_code_version.PROPERTY: "V1"})
 
 
 if __name__ == "__main__":

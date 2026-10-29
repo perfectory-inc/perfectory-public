@@ -1,7 +1,11 @@
-import { Compression, PMTiles, ResolvedValueCache, TileType, type RangeResponse, type Source } from "pmtiles";
+import {
+  Compression, findTile, PMTiles, ResolvedValueCache, TileType, zxyToTileId, type RangeResponse, type Source,
+} from "pmtiles";
 import connectionContract from "../../../config/r2-connections.contract.json";
 
 const policy = connectionContract.vector_tile_gateway;
+// Root ADR-0323: a unit listed here serves its base archive plus the patch its manifest names.
+const patches = policy.patches;
 const connection = connectionContract.connections[policy.connection as keyof typeof connectionContract.connections];
 const expectedValues: Readonly<Record<string, string>> = connection.expected_values;
 const objectRoot = expectedValues[policy.object_key.root.expected_value];
@@ -40,6 +44,75 @@ class R2Source implements Source {
     }
     return { data: await object.arrayBuffer(), etag: object.etag };
   }
+}
+
+interface PatchState {
+  generation: number;
+  patchGeneration: number | null;
+}
+
+// The manifest is the one mutable object; each isolate rereads it after manifest_cache_seconds.
+const manifestCache = new Map<string, { at: number; state: PatchState | null }>();
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+async function patchState(bucket: Pick<R2Bucket, "get">, sourceId: string): Promise<PatchState | null> {
+  const key = `${objectRoot}/${sourceId}${patches.manifest_suffix}`;
+  const now = Date.now();
+  const hit = manifestCache.get(key);
+  if (hit !== undefined && now - hit.at < patches.manifest_cache_seconds * 1000) return hit.state;
+  const object = await bucket.get(key);
+  let state: PatchState | null = null;
+  if (object !== null) {
+    if (!("body" in object)) throw new Error("Patch manifest has no body");
+    const manifest = JSON.parse(new TextDecoder().decode(await object.arrayBuffer())) as Record<string, unknown>;
+    const patch = manifest.patch as Record<string, unknown> | null;
+    if (
+      manifest.schema_version !== patches.manifest_schema_version || manifest.base_source_id !== sourceId ||
+      !positiveInteger(manifest.generation) ||
+      (patch !== null && (typeof patch !== "object" || !positiveInteger(patch.generation) ||
+        patch.generation > manifest.generation))
+    ) {
+      throw new Error("Patch manifest is not one the bake publishes");
+    }
+    state = { generation: manifest.generation, patchGeneration: patch === null ? null : patch.generation as number };
+  }
+  manifestCache.delete(key);
+  manifestCache.set(key, { at: now, state });
+  if (manifestCache.size > 64) manifestCache.delete(manifestCache.keys().next().value as string);
+  return state;
+}
+
+// Whether the patch archive holds z/x/y, read from its (cached) directories without the tile bytes,
+// so an edge-cache hit costs no tile read.
+async function patchHolds(source: R2Source, z: number, x: number, y: number): Promise<boolean> {
+  try {
+    const header = await archiveCache.getHeader(source);
+    if (z < header.minZoom || z > header.maxZoom) return false;
+    const tileId = zxyToTileId(z, x, y);
+    let [offset, length] = [header.rootDirectoryOffset, header.rootDirectoryLength];
+    for (let depth = 0; depth < 4; depth++) {
+      const entry = findTile(await archiveCache.getDirectory(source, offset, length, header), tileId);
+      if (entry === null) return false;
+      if (entry.runLength > 0) return true;
+      [offset, length] = [header.leafDirectoryOffset + entry.offset, entry.length];
+    }
+  } catch (error) {
+    // A manifest naming an absent patch is a broken publish, not an absent tile.
+    throw error instanceof MissingArchive ? new Error("Patch archive missing") : error;
+  }
+  throw new Error("Patch directories nest too deep");
+}
+
+// The tile tombstone (ADR-0111 §3): an empty MVT, which a patch writes where a dirty tile lost every feature.
+async function isEmptyTile(bytes: ArrayBuffer, compression: Compression): Promise<boolean> {
+  if (bytes.byteLength === 0) return true;
+  if (compression !== Compression.Gzip || bytes.byteLength > 64) return false;
+  const body = new Response(bytes).body;
+  if (body === null) return true;
+  return (await new Response(body.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer()).byteLength === 0;
 }
 
 function canonicalTile(url: URL): TileAddress | null {
@@ -155,11 +228,24 @@ async function fetchTile(request: Request, env: Env, ctx: ExecutionContext): Pro
     return new Response(null, { status: 204, headers });
   }
 
-  const cacheRequest = new Request(request.url);
+  let key = `${objectRoot}/${tile.sourceId}${policy.object_key.suffix}`;
+  const patched = patches.units.includes(tile.sourceId.slice(0, tile.sourceId.indexOf("-")));
+  let cacheUrl = request.url;
+  if (patched) {
+    const state = await patchState(bucket, tile.sourceId);
+    if (state?.patchGeneration != null) {
+      const patchKey = `${objectRoot}/${tile.sourceId}${patches.patch_infix}${state.patchGeneration}${policy.object_key.suffix}`;
+      if (await patchHolds(new R2Source(bucket, patchKey), tile.z, tile.x, tile.y)) {
+        key = patchKey;
+        // A patched tile is cached per patch generation; base tiles keep their cache entries.
+        cacheUrl = `${request.url}?patch=${state.patchGeneration}`;
+      }
+    }
+  }
+  const cacheRequest = new Request(cacheUrl);
   const cached = await caches.default.match(cacheRequest);
   if (cached !== undefined) return clientResponse(cached, request, origin, allowed);
 
-  const key = `${objectRoot}/${tile.sourceId}${policy.object_key.suffix}`;
   // Directory decompression remains in archiveCache. Only tile bytes pass through unchanged.
   const archive = new PMTiles(new R2Source(bucket, key), archiveCache, async (bytes) => bytes);
   const header = await archive.getHeader();
@@ -167,9 +253,13 @@ async function fetchTile(request: Request, env: Env, ctx: ExecutionContext): Pro
     ![Compression.None, Compression.Gzip].includes(header.tileCompression) || header.etag === undefined) {
     return new Response(null, { status: 500 });
   }
-  const data = await archive.getZxy(tile.z, tile.x, tile.y);
+  let data = await archive.getZxy(tile.z, tile.x, tile.y);
+  if (data !== undefined && cacheUrl !== request.url && await isEmptyTile(data.data, header.tileCompression)) {
+    data = undefined;
+  }
   const headers = new Headers({
-    "Cache-Control": policy.cache_control,
+    // A patched unit's tiles change under the same URL, so browsers revalidate (ADR-0323 §5).
+    "Cache-Control": patched ? patches.cache_control : policy.cache_control,
     "Content-Type": policy.content_type,
     ETag: `"${header.etag}-${tile.z}-${tile.x}-${tile.y}"`,
     "X-Content-Type-Options": "nosniff",

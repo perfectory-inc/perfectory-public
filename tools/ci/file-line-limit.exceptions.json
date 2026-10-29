@@ -1,0 +1,14 @@
+{
+  "$comment": "Files allowed past the line limit, read by scripts/guard/file-line-limit.sh. `lines` is a ceiling the file may only shrink under; delete the entry once the file is back under `limit`. A new entry needs a reason a reviewer can accept: the guard exists because files grew past the rule one commit at a time. `generated` files are not counted: their size belongs to their source.",
+  "limit": 1500,
+  "generated": [
+    "*.generated.ts",
+    "*.d.ts"
+  ],
+  "exceptions": {
+    "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py": {
+      "lines": 1696,
+      "reason": "Over the limit before the guard (2026-10-28); 1696 is its size once #902, merged ahead of this guard, adds the kind-scoped lineage filter; no split started yet."
+    }
+  }
+}

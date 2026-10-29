@@ -116,8 +116,8 @@ verify_automated_security_fixes() {
   status="$(printf '%s\n' "$response" | sed -n '1s#^HTTP/[0-9.]* \([0-9][0-9][0-9]\).*#\1#p')"
   # GitHub.com returns either a 404 (legacy behavior) or a 200 JSON body with
   # {"enabled":false}; both are valid disabled states.
-  if [ "$exit_code" -eq 0 ] && printf '%s\n' "$response" \
-    | tail -n 1 | grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false'; then
+  if [ "$exit_code" -eq 0 ] \
+    && grep -Eq '"enabled"[[:space:]]*:[[:space:]]*false' < <(tail -n 1 <<<"$response"); then
     return
   fi
   if [ "$exit_code" -eq 0 ] || [ "$status" != 404 ]; then
@@ -324,8 +324,8 @@ require_published_root() {
   local refs sha head_sha parent_count matching_refs
   refs="$("$git_transport" --no-repository ls-remote "$remote_url")"
   if [ "$(printf '%s\n' "$refs" | sed '/^$/d' | wc -l | tr -d ' ')" -ne 2 ] \
-    || ! printf '%s\n' "$refs" | grep -q $'refs/heads/main$' \
-    || ! printf '%s\n' "$refs" | grep -q $'HEAD$'; then
+    || ! grep -q $'refs/heads/main$' <<<"$refs" \
+    || ! grep -q $'HEAD$' <<<"$refs"; then
     echo "FAIL public-repository-config: lock requires only HEAD and refs/heads/main" >&2
     return 1
   fi
@@ -390,7 +390,7 @@ require_green_contexts() {
     return 1
   fi
   while IFS= read -r context; do
-    printf '%s\n' "$context" | grep -Eq '^required/[A-Za-z0-9._/-]+$' || {
+    grep -Eq '^required/[A-Za-z0-9._/-]+$' <<<"$context" || {
       echo "FAIL public-repository-config: unsafe required context '$context'" >&2
       return 1
     }
@@ -412,8 +412,7 @@ verify_repository_identity
 "$budget_checker" "$budget_policy"
 case "$mode" in
   lock|activate|protect)
-    if ! printf '%s\n' "${PERFECTORY_EXPECTED_PUBLIC_ROOT:-}" \
-      | grep -Eq '^[0-9a-f]{40}$'; then
+    if ! grep -Eq '^[0-9a-f]{40}$' <<<"${PERFECTORY_EXPECTED_PUBLIC_ROOT:-}"; then
       echo "FAIL public-repository-config: lock/activate/protect require the audited root SHA" >&2
       exit 1
     fi

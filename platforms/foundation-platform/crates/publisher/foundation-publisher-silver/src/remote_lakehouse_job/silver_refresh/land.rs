@@ -708,14 +708,17 @@ pub(in crate::remote_lakehouse_job) fn export_side_by_side<T: Sync, R: Send>(
     Ok(done)
 }
 
-/// Exports and loads a release `decide` found the table lacks; returns the rows the loads hold.
+/// Exports and loads a release `decide` found the table lacks; returns the rows the loads hold and
+/// whether `main` holds the release now (false: a compare stopped at `deadline` with buckets left,
+/// which the next run resumes, root ADR-0318).
 pub(in crate::remote_lakehouse_job) async fn load(
     contract: &LaneContract,
     rule: &LandRule,
     release: &LandRelease,
     runtime: &Runtime,
     catalog: &IcebergRestCatalog,
-) -> anyhow::Result<u64> {
+    deadline: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<(u64, bool)> {
     let ExportKind::Land { env_prefix } = contract.kind else {
         bail!("a land release runs a land export");
     };
@@ -801,54 +804,26 @@ pub(in crate::remote_lakehouse_job) async fn load(
         .map(|(region, _)| format!("export-summary-{region}.json"))
         .collect();
     execute::keep_files(runtime, &evidence_name, &summaries)?;
-    match &contract.compare_content {
+    let published = match &contract.compare_content {
         Some(content) => {
-            append_changes(
-                contract, runtime, catalog, &branch, &identity, release, content,
-            )
-            .await?;
+            let compare = execute::ReleaseCompare {
+                branch: branch.clone(),
+                changes_branch: execute::changes_branch(&identity),
+                source_snapshot_id: identity.clone(),
+                objects: release.object_keys(),
+                content_columns: content.clone(),
+                bucket_prefix_length: contract.compare_bucket_prefix_length,
+                deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            };
+            super::append_changes(contract, runtime, catalog, &compare).await?
         }
         None => {
             super::publish_load(catalog, &contract.table, &branch, &release.object_keys()).await?;
+            true
         }
+    };
+    if published {
+        runtime.reset_work()?;
     }
-    runtime.reset_work()?;
-    Ok(rows)
-}
-
-/// Appends the staged release's changes to `main` instead of publishing the branch, then drops
-/// the branch (root ADR-0275): `main` keeps every row it held. A table that had no snapshot when
-/// the load began was written on `main` directly, whole; there is nothing to compare.
-async fn append_changes(
-    contract: &LaneContract,
-    runtime: &Runtime,
-    catalog: &IcebergRestCatalog,
-    branch: &str,
-    identity: &str,
-    release: &LandRelease,
-    content: &[String],
-) -> anyhow::Result<()> {
-    let table = &contract.table;
-    let objects = release.object_keys();
-    let staged = catalog
-        .load_snapshot_refs(table)
-        .await?
-        .is_some_and(|refs| refs.refs.contains_key(branch));
-    if staged {
-        let compare = execute::ReleaseCompare {
-            branch: branch.to_owned(),
-            source_snapshot_id: identity.to_owned(),
-            objects: objects.clone(),
-            content_columns: content.to_vec(),
-        };
-        let summary = execute::compare(runtime, contract, &compare)?;
-        println!(
-            "silver-refresh {table}: appended the changes staged on {branch} to main: {summary}"
-        );
-        // main moved past the branch's base with that append, so the branch is stale now.
-        if catalog.remove_stale_branch(table, branch).await? {
-            println!("silver-refresh {table}: dropped branch {branch}");
-        }
-    }
-    super::confirm_recorded(catalog, table, &objects).await
+    Ok((rows, published))
 }

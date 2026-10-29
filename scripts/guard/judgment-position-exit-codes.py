@@ -23,7 +23,9 @@ a broken command produces no output, the filter finds nothing, and the assertion
 message misleads but the result does not. Widening this guard to cover them would trade a real
 defect class for thirty rewrites and a worse signal-to-noise ratio, and a guard that cries wolf gets
 switched off. That distinction is the guard's whole scope, so it is stated here rather than left for
-someone to rediscover.
+someone to rediscover. Under `set -o pipefail` that shape has a second, different defect — `grep -q`
+exits at its first match, the writer takes SIGPIPE, and the match reads as a miss — which
+a-pipefail-pipe-has-no-early-exit-reader refuses (2026-10-28).
 
 An audited exception carries `# verification-judgment: reviewed-pipeline` on the same line.
 """

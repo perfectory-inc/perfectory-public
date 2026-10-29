@@ -73,7 +73,7 @@ expect_rejected() {
   if output="$(bash "$guard" "$test_root/$label" 2>&1)"; then
     fail "accepted planted bypass: $label"
   fi
-  printf '%s\n' "$output" | grep -Fq -- "$expected" \
+  grep -Fq -- "$expected" <<<"$output" \
     || fail "$label was rejected for the wrong reason: $output"
 }
 

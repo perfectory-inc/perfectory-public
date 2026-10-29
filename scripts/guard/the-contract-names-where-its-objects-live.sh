@@ -53,7 +53,7 @@ for prefix in "${prefixes[@]}"; do
 
     case "$file" in
       *.rs)
-        tests_at="$(grep -n '^mod tests\|^[[:space:]]*mod tests' "$file" | head -1 | cut -d: -f1)"
+        tests_at="$(grep -n '^mod tests\|^[[:space:]]*mod tests' "$file" | sed -n 1p | cut -d: -f1)"
         if [ -n "$tests_at" ] && [ "$line" -ge "$tests_at" ]; then
           continue
         fi

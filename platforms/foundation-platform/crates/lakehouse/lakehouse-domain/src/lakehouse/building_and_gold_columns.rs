@@ -280,6 +280,12 @@ pub(super) const SILVER_BUILDING_REGISTER_TITLES_COLUMNS: &[LakehouseColumn] = &
         logical_type: "string",
         required: true,
     },
+    // `removed` on a removal marker (root ADR-0275, ADR-0318); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 pub(super) const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
@@ -437,6 +443,12 @@ pub(super) const SILVER_BUILDING_REGISTER_UNITS_COLUMNS: &[LakehouseColumn] = &[
         name: "row_checksum_sha256",
         logical_type: "string",
         required: true,
+    },
+    // `removed` on a removal marker (root ADR-0275, ADR-0318); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
     },
 ];
 
@@ -600,6 +612,12 @@ pub(super) const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn]
         name: "row_checksum_sha256",
         logical_type: "string",
         required: true,
+    },
+    // `removed` on a removal marker (root ADR-0275, ADR-0318); null on every row the source holds.
+    LakehouseColumn {
+        name: "row_state",
+        logical_type: "string",
+        required: false,
     },
 ];
 

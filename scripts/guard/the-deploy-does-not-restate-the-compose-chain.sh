@@ -96,7 +96,7 @@ for link in "${chain[@]}"; do
   # intermediate link appearing in a command at all means the deploy is walking the
   # chain by hand — the invocation shape does not matter and trying to match it was
   # how the first two versions of this check let the violation through.
-  if printf %s "${commands}" | grep -qF -- "${link}"; then
+  if grep -qF -- "${link}" <<<"${commands}"; then
     printf 'FAIL %s: the deploy runs %s directly instead of requiring %s\n' \
       "${name}" "${link}" "${terminal}" >&2
     printf '  compose already orders it; naming it here is that order written twice\n' >&2

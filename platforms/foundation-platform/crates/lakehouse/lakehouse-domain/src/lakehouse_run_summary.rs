@@ -141,6 +141,17 @@ pub struct SparkRunSummary {
     pub source_snapshot_ids: Vec<String>,
     /// Whether `source_snapshot_ids` was truncated by the execution engine.
     pub source_snapshot_truncated: bool,
+    /// Bytes of data files the run read (root ADR-0314 §4); absent from a writer that does not
+    /// measure it yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_read: Option<u64>,
+    /// Bytes of data files the run's commit added (root ADR-0314 §4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_written: Option<u64>,
+    /// Keys whose content the run changed; with `bytes_written` it is the run's write
+    /// amplification (root ADR-0314 §4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys_changed: Option<u64>,
 }
 
 impl SparkRunSummary {

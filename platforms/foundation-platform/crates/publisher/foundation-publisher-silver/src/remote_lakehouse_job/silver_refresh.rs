@@ -53,6 +53,15 @@ const LANE_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_LANE";
 const STATE_ROOT_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_STATE_ROOT";
 /// `silver-refresh.sh <lane> --plan`: decide, report, and do nothing else.
 const PLAN_ENV: &str = "FOUNDATION_PLATFORM_SILVER_REFRESH_PLAN";
+/// `TimeoutStartSec` of `infra/systemd/foundation-silver-refresh@.service` (a test reads the unit).
+pub(super) const UNIT_TIME_LIMIT_MINUTES: i64 = 150;
+/// No compare bucket starts later than this into a run (root ADR-0318). The largest bucket of the
+/// largest compared table, 시도 41 of `silver.land_use_plan` (46,842,275 of 247,584,668 rows,
+/// measured 2026-10-28), is about 31 minutes at the 2026-10-21 rate (131,664,668 rows in 87 minutes),
+/// so the 40 minutes left hold it and the publish.
+pub(super) const LAST_BUCKET_START_MINUTES: i64 = UNIT_TIME_LIMIT_MINUTES - LARGEST_BUCKET_MINUTES;
+/// What the deadline leaves for the bucket that starts last and the publish (see above).
+const LARGEST_BUCKET_MINUTES: i64 = 40;
 
 /// What the run found, and what it reports on its last line.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,6 +72,9 @@ pub(super) enum Decision {
     ExportAndLoad,
     /// A part lane's complete handoff exists in R2 and some of its parts are not in the table.
     LoadOnly,
+    /// The release is staged and part of its compare is done; the run's time ran out before the
+    /// rest, and `main` is unchanged until the next run finishes it (root ADR-0318).
+    CompareInProgress,
 }
 
 /// `ExecStopPost`: remove the Spark container a killed run left (the Compose project of this
@@ -80,10 +92,11 @@ pub(super) async fn run() -> anyhow::Result<()> {
         .await
         .context("cannot connect to the Bronze ledger")?;
     let plan = super::optional_bool_lookup(&mut lookup, PLAN_ENV)?.unwrap_or(false);
+    let deadline = chrono::Utc::now() + chrono::Duration::minutes(LAST_BUCKET_START_MINUTES);
     if let Some(rule) = &contract.land {
         let measured = land::read_measured(&pool, &rule.source).await;
         pool.close().await;
-        let line = refresh_land(&contract, rule, &measured?, &runtime, plan).await?;
+        let line = refresh_land(&contract, rule, &measured?, &runtime, plan, deadline).await?;
         println!("{}", if plan { as_plan(&line) } else { line });
         return Ok(());
     }
@@ -103,9 +116,15 @@ pub(super) async fn run() -> anyhow::Result<()> {
         .await?
         .unwrap_or_default();
     let (decision, identity, rows) = if contract.kind.loads_as_one_run() {
-        refresh_run(&contract, &release, &runtime, &catalog, &ingested, plan).await?
+        refresh_run(
+            &contract, &release, &runtime, &catalog, &ingested, plan, deadline,
+        )
+        .await?
     } else {
-        refresh_parts(&contract, &release, &runtime, &catalog, &ingested, plan).await?
+        refresh_parts(
+            &contract, &release, &runtime, &catalog, &ingested, plan, deadline,
+        )
+        .await?
     };
     let line = outcome_line(lane, &release.vintage(), &decision, &identity, rows);
     println!("{}", if plan { as_plan(&line) } else { line });
@@ -127,6 +146,7 @@ async fn refresh_land(
     measured: &[land::MeasuredObject],
     runtime: &Runtime,
     plan: bool,
+    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<String> {
     let lane = contract.lane.id();
     let export = crate::land_use_silver_export::export_command(&contract.export)
@@ -155,9 +175,14 @@ async fn refresh_land(
         .load_ingested_batch_objects(&contract.table)
         .await?
         .unwrap_or_default();
-    let decision = land::decide(&release, &candidates.found, &ingested);
+    let mut decision = land::decide(&release, &candidates.found, &ingested);
     let rows = if decision == Decision::ExportAndLoad && !plan {
-        Some(land::load(contract, rule, &release, runtime, &catalog).await?)
+        let (rows, published) =
+            land::load(contract, rule, &release, runtime, &catalog, deadline).await?;
+        if !published {
+            decision = Decision::CompareInProgress;
+        }
+        Some(rows)
     } else {
         None
     };
@@ -229,6 +254,7 @@ pub(super) fn outcome_line(
         Decision::Unchanged(reason) => ("unchanged", *reason),
         Decision::ExportAndLoad => ("changed", "exported_and_loaded"),
         Decision::LoadOnly => ("changed", "loaded_existing_handoff"),
+        Decision::CompareInProgress => ("unchanged", "compare_resumes_next_run"),
     };
     format!(
         "silver-refresh-outcome lane={} outcome={outcome} reason={reason} release={release} identity={identity} rows={}",
@@ -260,28 +286,129 @@ async fn refresh_run(
     catalog: &IcebergRestCatalog,
     ingested: &BTreeSet<String>,
     plan: bool,
+    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(Decision, String, Option<u64>)> {
     let identity = release.run_identity(contract.lane.id());
     let decision = decide_run(contract.lane, release, ingested);
     if decision != Decision::ExportAndLoad || plan {
         return Ok((decision, identity, None));
     }
-    println!(
-        "silver-refresh lane={} release={} identity={identity}: exporting",
-        contract.lane.id(),
-        release.vintage()
-    );
+    let mut load = SparkLoad::local(contract);
+    // A comparing lane stages the release on its load branch and appends only its changes to
+    // main (root ADR-0275, ADR-0318); a run that stopped after staging it does not export again.
+    let mut staged = false;
+    if contract.compare_content.is_some() {
+        let branch = stage_load(catalog, &contract.table, &identity).await?;
+        staged = catalog
+            .load_staged_batch_objects(&contract.table, &branch)
+            .await?
+            .contains(&identity);
+        load.branch = Some(branch);
+    }
+    let mut rows = None;
+    if staged {
+        println!(
+            "silver-refresh lane={} release={} identity={identity}: already staged; comparing",
+            contract.lane.id(),
+            release.vintage()
+        );
+    } else {
+        println!(
+            "silver-refresh lane={} release={} identity={identity}: exporting",
+            contract.lane.id(),
+            release.vintage()
+        );
+        runtime.reset_work()?;
+        let work = runtime.work();
+        execute::stage(release, &work).await?;
+        let environment = execute::export_environment(contract, release, &identity, &work)?;
+        execute::export(runtime, contract, &environment)?;
+        let summary = execute::spark(runtime, contract, &load)?;
+        let evidence = execute::keep_evidence(runtime, &identity, 0)?;
+        println!("silver-refresh evidence={}", evidence.display());
+        rows = summary.persisted_row_count;
+    }
+    let published = match (&contract.compare_content, load.branch) {
+        (Some(content), Some(branch)) => {
+            let compare = execute::ReleaseCompare {
+                branch,
+                changes_branch: execute::changes_branch(&identity),
+                source_snapshot_id: identity.clone(),
+                objects: vec![identity.clone()],
+                content_columns: content.clone(),
+                bucket_prefix_length: contract.compare_bucket_prefix_length,
+                deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            };
+            append_changes(contract, runtime, catalog, &compare).await?
+        }
+        _ => {
+            confirm_recorded(catalog, &contract.table, std::slice::from_ref(&identity)).await?;
+            true
+        }
+    };
+    if !published {
+        return Ok((Decision::CompareInProgress, identity, rows));
+    }
     runtime.reset_work()?;
-    let work = runtime.work();
-    execute::stage(release, &work).await?;
-    let environment = execute::export_environment(contract, release, &identity, &work)?;
-    execute::export(runtime, contract, &environment)?;
-    let summary = execute::spark(runtime, contract, &SparkLoad::local(contract))?;
-    let evidence = execute::keep_evidence(runtime, &identity, 0)?;
-    println!("silver-refresh evidence={}", evidence.display());
-    confirm_recorded(catalog, &contract.table, std::slice::from_ref(&identity)).await?;
-    runtime.reset_work()?;
-    Ok((decision, identity, summary.persisted_row_count))
+    Ok((decision, identity, rows))
+}
+
+/// Appends a staged release's changes to `main` instead of publishing its load branch (root
+/// ADR-0275): the compare stages them on the changes branch bucket by bucket, and that branch is
+/// published as `main` in one fast-forward once every bucket is in (root ADR-0318), so `main` keeps
+/// every row it held and a reader never sees half a release. Returns whether `main` holds the
+/// release; false when the run's time ran out with buckets left, which the next run compares. A
+/// table that had no snapshot when the load began was written on `main` directly, whole; there is
+/// nothing to compare.
+async fn append_changes(
+    contract: &LaneContract,
+    runtime: &Runtime,
+    catalog: &IcebergRestCatalog,
+    compare: &execute::ReleaseCompare,
+) -> anyhow::Result<bool> {
+    let table = &contract.table;
+    let staged = catalog
+        .load_snapshot_refs(table)
+        .await?
+        .is_some_and(|refs| refs.refs.contains_key(&compare.branch));
+    if staged {
+        // Buckets compared against an older main would be published over it: start them again.
+        if catalog
+            .remove_stale_branch(table, &compare.changes_branch)
+            .await?
+        {
+            println!(
+                "silver-refresh {table}: branch {} no longer follows main; comparing again",
+                compare.changes_branch
+            );
+        }
+        let (outcome, summary) = execute::compare(runtime, contract, compare)?;
+        println!(
+            "silver-refresh {table}: compared the release staged on {}: {summary}",
+            compare.branch
+        );
+        match outcome {
+            execute::CompareOutcome::Deadline => return Ok(false),
+            execute::CompareOutcome::Staged => {
+                let head = catalog
+                    .publish_branch(table, &compare.changes_branch)
+                    .await?;
+                println!(
+                    "silver-refresh {table}: published branch {} as main (snapshot {head})",
+                    compare.changes_branch
+                );
+            }
+            execute::CompareOutcome::AlreadyAppended => {}
+        }
+        // main moved past both branches' base, so whatever is left of them is stale now.
+        for branch in [&compare.branch, &compare.changes_branch] {
+            if catalog.remove_stale_branch(table, branch).await? {
+                println!("silver-refresh {table}: dropped branch {branch}");
+            }
+        }
+    }
+    confirm_recorded(catalog, table, &compare.objects).await?;
+    Ok(true)
 }
 
 /// The R2 manifest the hub export publishes after its last part (root ADR-0092).
@@ -431,6 +558,7 @@ async fn refresh_parts(
     catalog: &IcebergRestCatalog,
     ingested: &BTreeSet<String>,
     plan: bool,
+    deadline: chrono::DateTime<chrono::Utc>,
 ) -> anyhow::Result<(Decision, String, Option<u64>)> {
     let prefix = contract
         .handoff_prefix
@@ -511,7 +639,23 @@ async fn refresh_parts(
         .iter()
         .map(|part| part.object_key.clone())
         .collect();
-    publish_load(catalog, &contract.table, &branch, &parts).await?;
+    if let Some(content) = &contract.compare_content {
+        // The parts are the release; main gets only its changed keys (root ADR-0318).
+        let compare = execute::ReleaseCompare {
+            branch: branch.clone(),
+            changes_branch: execute::changes_branch(&evidence_name),
+            source_snapshot_id: evidence_name.clone(),
+            objects: parts,
+            content_columns: content.clone(),
+            bucket_prefix_length: contract.compare_bucket_prefix_length,
+            deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+        };
+        if !append_changes(contract, runtime, catalog, &compare).await? {
+            return Ok((Decision::CompareInProgress, key, Some(rows)));
+        }
+    } else {
+        publish_load(catalog, &contract.table, &branch, &parts).await?;
+    }
     runtime.reset_work()?;
     Ok((decision, key, Some(rows)))
 }

@@ -97,7 +97,8 @@ class HostFixture(unittest.TestCase):
                     "FOUNDATION_RELEASE_ADMISSION": str(bin_dir / "admission"),
                     "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred),
                     "FOUNDATION_JOB_SWITCHES_DIR": str(self.root / "switches"),
-                    "FOUNDATION_SCHEDULED_CONSUMED_DIR": str(self.root / "consumed")}
+                    "FOUNDATION_SCHEDULED_CONSUMED_DIR": str(self.root / "consumed"),
+                    "FOUNDATION_OPERATOR_STOPS_DIR": str(self.root / "stopped")}
         (self.root / "switches/run-now.d").mkdir(parents=True)
 
     def start(self, job, **env):
@@ -232,6 +233,18 @@ class TheOperatorsSwitches(HostFixture):
             with self.subTest(request=malformed):
                 result, asked = self.start(malformed)
                 self.assertEqual((result.returncode, asked), (64, ""), result.stdout)
+
+    def test_a_run_an_operator_stopped_says_who_stopped_it(self):
+        # foundation-run-now marks the invocation it stopped (the fixture's runs are `new`).
+        (self.root / "stopped").mkdir()
+        (self.root / "stopped" / self.REQUEST).write_text("invocation=new\nactor=staff-a\n")
+        (self.root / "stopped" / "other").write_text("invocation=\nactor=staff-b\n")
+        result, _ = self.start("floor", FIXTURE_RESULT="signal")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("foundation-job-outcome failed stopped by staff-a", result.stdout)
+        (self.root / "stopped" / self.REQUEST).unlink()
+        result, _ = self.start("floor", FIXTURE_RESULT="signal")
+        self.assertIn("foundation-job-outcome failed systemd result=signal", result.stdout)
 
     def test_a_run_now_starts_a_job_that_is_off(self):
         # `paused` is listed with enabled false: Airflow never starts it, an operator's run-now may.

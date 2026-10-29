@@ -45,6 +45,36 @@ class ChainTest(unittest.TestCase):
         self.assertIsNone(changelog.chain(looped, [], 9, 1))
 
 
+class ChangeRecordTest(unittest.TestCase):
+    """The release compare's commit is the change record (root ADR-0311): steps come from summaries."""
+
+    def marked(self, snapshot_id, parent, operation="append"):
+        return {**snap(snapshot_id, parent, operation),
+                "summary": {changelog.CHANGE_RECORD_KEY: changelog.CHANGE_RECORD_RELEASE_COMPARE}}
+
+    def test_a_compare_commit_is_a_step_from_its_parent(self):
+        main = [snap(1, None), self.marked(2, 1), snap(3, 2, "replace"), self.marked(4, 3)]
+        steps = changelog.recorded_steps(main)
+        self.assertEqual(steps, [("1", "2"), ("3", "4")])
+        self.assertEqual(changelog.chain(main, steps, 1, 4), [("1", "2"), ("3", "4")])
+
+    def test_an_unmarked_load_between_falls_back(self):
+        # The first load, or a lane that still overwrites: no record, so the consumer diffs snapshots.
+        main = [snap(1, None), self.marked(2, 1), snap(3, 2, "overwrite"), self.marked(4, 3)]
+        self.assertIsNone(changelog.chain(main, changelog.recorded_steps(main), 1, 4))
+
+    def test_only_an_append_can_be_a_record(self):
+        main = [snap(1, None), self.marked(2, 1, "overwrite")]
+        self.assertEqual(changelog.recorded_steps(main), [])
+
+    def test_the_options_land_in_the_summary_under_the_keys_the_reader_asks(self):
+        options = changelog.change_record_options(4, 1)
+        summary = {k.removeprefix("snapshot-property."): v for k, v in options.items()}
+        self.assertEqual(summary[changelog.CHANGE_RECORD_KEY], changelog.CHANGE_RECORD_RELEASE_COMPARE)
+        self.assertEqual((summary[changelog.CHANGED_KEY_ROWS_KEY], summary[changelog.REMOVED_KEYS_KEY]), ("4", "1"))
+        self.assertEqual(changelog.recorded_steps([{**snap(2, 1), "summary": summary}]), [("1", "2")])
+
+
 class ClosureTest(unittest.TestCase):
     def test_changes_that_take_old_to_new_close(self):
         self.assertIsNone(changelog.closure_verdict(Totals(3, 30), Totals(4, 47), Totals(1, 17)))
@@ -70,6 +100,24 @@ class ColumnsTest(unittest.TestCase):
 
     def test_the_changes_table_sits_beside_its_table(self):
         self.assertEqual(changelog.changes_table("silver.example"), "silver.example__changes")
+
+
+class ReleasedVersionsTest(unittest.TestCase):
+    """ADR-0318: a sealed compare records its release's version, read along one lineage."""
+
+    def test_only_the_seals_on_the_lineage_name_versions(self):
+        import changelog
+
+        snapshots = [
+            {"snapshot_id": 1, "parent_id": None, "summary": {}},
+            {"snapshot_id": 2, "parent_id": 1, "summary": {changelog.RELEASE_VERSION_KEY: "209909"}},
+            {"snapshot_id": 3, "parent_id": 2, "summary": None},
+            {"snapshot_id": 4, "parent_id": 2, "summary": {changelog.RELEASE_VERSION_KEY: "209910"}},
+        ]
+        lineage = changelog.snapshot_lineage(snapshots, 3)
+        self.assertEqual(lineage, {1, 2, 3})
+        self.assertEqual(changelog.released_versions(snapshots, lineage), {"209909"})
+        self.assertEqual(changelog.snapshot_lineage(snapshots, None), set())
 
 
 if __name__ == "__main__":

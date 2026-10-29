@@ -24,18 +24,18 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 
 | 레인 (유닛 인스턴스) | Silver 표 | 원천 | 쓰기 |
 | --- | --- | --- | --- |
-| `building-register-titles` | `silver.building_register_titles` | 표제부 | 한 묶음 overwrite |
-| `building-register-units` | `silver.building_register_units` | 전유부 + 같은 날 표제부·기본개요 | 한 묶음 overwrite |
-| `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | 한 묶음 overwrite |
+| `building-register-titles` | `silver.building_register_titles` | 표제부 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`, ADR-0318) |
+| `building-register-units` | `silver.building_register_units` | 전유부 + 같은 날 표제부·기본개요 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
+| `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
 | `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
-| `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 첫 4 객체 overwrite, 나머지 4개씩 append |
+| `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275, ADR-0311) |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |
 | `land-individual-price` | `silver.land_individual_price` | 개별공시지가 `AL_D151` 시도 전부 | 같음 |
 | `land-right-registration` | `silver.land_right_registration` | 대지권등록 `AL_D006` 시도 전부 | 같음 |
-| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275) |
-| `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 전부 | 같음 |
-| `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | 한 객체 overwrite |
+| `land-transfer-history` | `silver.land_transfer_history` | 토지이동이력 `AL_D157` 시도 전부 | 같음 |
+| `land-use-plan` | `silver.land_use_plan` | 토지이용계획 `AL_D155` 시도 전부 | load branch 에 첫 4 객체 overwrite, 나머지 4개씩 append; 비교는 시도마다 (`compare`, ADR-0318) |
+| `land-use-zone-code` | `silver.land_use_zone_code` | 용도지역 코드표 `LART_LMISZONE` 전국 1 | load branch 에 한 객체 overwrite, 바뀐 코드만 main 에 (`compare`) |
 
 ## 1. 한 번의 실행
 
@@ -181,12 +181,23 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
 읽기 때문이다. 중간에 끊기면 다음 실행이 기록에 없는 첫 묶음부터 잇는다. 그 사이 표는 판의 일부만 갖는다. Gold
 재생성은 같은 `spark` 풀이라 레인과 겹치지 않고, 잃는 행이 많은 Gold 는 거부한다.
 
-**바뀐 키만 쌓는 레인(ADR-0275).** 계약에 `compare` 가 있는 레인(지금은 토지이동이력)은 묶음을 판의 load branch 에
-올린 뒤 branch 를 발행하지 않는다. `silver_release_compare.py` 가 main 의 현재 행과 키마다 비교해, 바뀌거나 새로 생긴
-키의 행 전부와 사라진 키마다 삭제 표시 행(`row_state = removed`) 하나를 main 에 한 커밋으로 append 하고, branch 는
-지운다. main 의 행은 고치지도 지우지도 않는다. 로그의 `appended the changes staged on load_<…> to main` 줄에 바뀐 키의
-행 수(`changed_key_rows`)와 삭제 표시 수(`removed_keys`)가 있다. 비교 전에 끊기면 다음 실행이 같은 branch 에서
-잇고, 커밋 뒤라면 `already_loaded` 다.
+**바뀐 키만 쌓는 레인(ADR-0275, ADR-0318).** 덮어쓰는 레인은 모두 계약에 `compare` 가 있다. 판을 load branch 에
+올린 뒤 그 branch 를 발행하지 않는다. `silver_release_compare.py` 가 main 의 현재 행과 키마다 비교해, 바뀌거나 새로
+생긴 키의 행 전부와 사라진 키마다 삭제 표시 행(`row_state = removed`) 하나를 **changes branch**(`changes_<…>`)에
+키 묶음(`compare.bucket_prefix_length`: 토지는 PNU 시도, 대장은 PK 앞 두 자리)마다 한 커밋으로 붙인다. 묶음이 다
+들어가면 판의 객체를 기록하는 빈 커밋을 하나 더 붙이고, 레인이 changes branch 를 main 으로 fast-forward 한 뒤 두
+branch 를 지운다. main 의 행은 고치지도 지우지도 않는다. 로그의 `compared the release staged on load_<…>` 줄에 묶음 수
+(`buckets`, `buckets_done`), 바뀐 키의 행 수(`changed_key_rows`)와 삭제 표시 수(`removed_keys`)가 있다.
+
+실행 시작 110분 뒤에는 새 묶음을 시작하지 않는다(`deadline`). 그 실행은 `outcome=unchanged
+reason=compare_resumes_next_run` 으로 끝나고 main 은 앞 판 그대로다. 다음 실행은 export 를 건너뛰고 기록되지 않은
+묶음만 비교한다. 그사이 main 이 움직였으면(압축 등) changes branch 를 지우고 처음부터 비교한다. 커밋 뒤라면
+`already_loaded` 다.
+
+**덮어쓰기는 이유가 있어야 한다(ADR-0311).** `overwrite` 레인 계약은 `compare` 나 `full_reason { reason,
+measured_cost }` 하나를 적는다. 없으면 레인 계약 파서와 `append_batch_once` 가 쓰기 전에 거부한다. 비교 레인은
+main 을 덮어쓰지 못한다. 비교 커밋은 요약에 `foundation.change-record = silver-release-compare` 를 남겨 그 판의 변경
+기록이 된다. 소비자는 `changelog.changes_between` 으로 그 행만 읽는다.
 
 ### 첫 감독 실행 (레인마다)
 

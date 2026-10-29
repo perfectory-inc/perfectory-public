@@ -20,7 +20,12 @@ home (ADR-0145 §1); the pairing never reads the parcel lineage (ADR-0145 §2).
     vworld_parcel_number_change_history.py stage-handoff --inventory I --evidence E --download-dir D --state-dir S
     vworld_parcel_number_change_history.py load --handoff-dir H [--validate-only]
 
-One file is one load: loading the same Bronze object twice is refused by the ingest registry.
+One file is one load: loading the same Bronze object twice is refused by the ingest registry. A
+file the provider uploads again repeats nearly every row the table already holds (1,370,351 rows
+appended again whole, 2026-10); only the rows the table does not hold yet (`EVENT_COLUMNS`, compared
+null-safe) are appended, and the object is recorded in the same commit even when none is
+(`append_source_object`, root ADR-0318). The table stays an append-only record of every link the
+provider ever published, as before: a link a later file leaves out is not removed.
 """
 
 from __future__ import annotations
@@ -40,6 +45,10 @@ JOB_NAME = "vworld_parcel_number_change_history"
 TABLE_CONTRACT = "silver.parcel_number_change_history"
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "vworld-parcel-number-change-history.contract.json"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# What a row says, as opposed to where in which upload it was read (line, repeats, file, load): a row
+# the table holds with these values is not appended again (root ADR-0318).
+EVENT_COLUMNS = ("old_pnu", "new_pnu", "is_dong_level", "reason_code", "changed_on", "changed_on_raw",
+                 "quarantine_reason", "source_sigungu_code", "source_region_code")
 
 
 class SourceFormatError(ValueError):
@@ -483,12 +492,13 @@ def _load(argv: Sequence[str]) -> int:
     }
     if not args.validate_only:
         from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
-        from lakehouse_ingest import append_batch_once  # noqa: PLC0415
+        from lakehouse_ingest import append_source_object  # noqa: PLC0415
         from platform_contracts import (  # noqa: PLC0415
             column_names, create_table_columns_sql, evolve_iceberg_table_to_contract, load_lakehouse_contract,
             partition_clause_sql, spark_sql_type,
         )
         from pyspark.sql import SparkSession  # noqa: PLC0415
+        from pyspark.sql import functions as F  # noqa: PLC0415
 
         assert_catalog_env()
         contract = load_lakehouse_contract(TABLE_CONTRACT)
@@ -502,16 +512,32 @@ def _load(argv: Sequence[str]) -> int:
                       f"{partition_clause_sql(contract)} TBLPROPERTIES ('format-version' = '2', 'write.parquet.compression-codec' = 'zstd')")
             evolve_iceberg_table_to_contract(spark, table, contract)
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
-            for _, rows in loads:  # one Bronze object is one load unit
+            held = spark.table(table).select(*EVENT_COLUMNS).distinct()
+            summary["appended_rows"] = 0
+            for obj, rows in loads:  # one Bronze object is one load unit
                 frame = spark.createDataFrame([tuple(row.get(name) for name in columns) for row in rows], schema=schema)
-                if append_batch_once(spark, frame, columns, table, TABLE_CONTRACT)["appended"]:
+                fresh = unheld_rows(frame, held, F)
+                count = fresh.count()
+                if append_source_object(spark, fresh, columns, table, obj["object_key"]):
                     summary["appended_files"] += 1
+                    summary["appended_rows"] += count
         finally:
             spark.stop()
     if args.summary_output:
         Path(args.summary_output).write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print("parcel-number-change-history-summary-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True))
     return 0
+
+
+def unheld_rows(frame: Any, held: Any, F: Any) -> Any:
+    """The rows of `frame` whose `EVENT_COLUMNS` the table does not hold, compared null-safe: a
+    quarantined row has no date and an ordinary one no reason, and a plain join never matches a null."""
+
+    same = None
+    for column in EVENT_COLUMNS:
+        match = frame[column].eqNullSafe(held[column])
+        same = match if same is None else same & match
+    return frame.join(held, same, "left_anti")
 
 
 COMMANDS = {

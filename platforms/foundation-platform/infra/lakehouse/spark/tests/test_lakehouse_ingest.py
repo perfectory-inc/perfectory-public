@@ -27,11 +27,14 @@ from lakehouse_ingest import (  # noqa: E402
     INGEST_BATCH_OBJECTS_KEY,
     INGEST_BATCH_TOKEN_KEY,
     SNAPSHOT_PROPERTY_PREFIX,
+    COMPARE,
+    FULL_REASON,
     append_batch_once,
     append_source_object,
     decide_whether_to_append,
     identities_under_derivation,
     ingest_batch_token,
+    overwrite_declaration,
     read_ingested_objects,
     snapshot_property_options,
     table_holds_rows,
@@ -209,19 +212,28 @@ class EmptyRegistryTest(unittest.TestCase):
         self.assertTrue(result["appended"])
         self.assertTrue(frame.appended)
 
-    def test_overwrite_is_not_refused(self) -> None:
-        """덮어쓰기는 자기가 쓰는 것을 대체한다. 두 번 들어가는 물음이 생기지 않는다."""
-        spark = FakeAnsweringSpark(registry=[], total_records=1_442)
-        frame = FakeBatchFrame(["a.zip"])
+    def test_a_declared_overwrite_is_not_refused(self) -> None:
+        """덮어쓰기는 자기가 쓰는 것을 대체한다. 두 번 들어가는 물음이 생기지 않는다.
 
-        result = append_batch_once(
-            spark,
-            frame,
-            ["source_record_id"],
-            "`c`.`s`.`t`",
-            "silver.parcel_boundaries",
-            write_mode="overwrite",
-        )
+        레인 계약이 이유와 잰 비용(full_reason)을 적은 표만 그렇다(root ADR-0311). 2026-10-28 부터 저장소의
+        레인은 모두 비교하므로(ADR-0318) 그런 계약 하나를 심는다.
+        """
+        from unittest import mock
+
+        import lakehouse_ingest
+
+        spark = FakeAnsweringSpark(registry=[], total_records=8_064_354)
+        frame = FakeBatchFrame(["hubgokr-building-register-main:20260901"], column="source_snapshot_id")
+
+        with mock.patch.object(lakehouse_ingest, "overwrite_declaration", return_value=FULL_REASON):
+            result = append_batch_once(
+                spark,
+                frame,
+                ["source_record_id"],
+                "`c`.`s`.`t`",
+                "silver.building_register_titles",
+                write_mode="overwrite",
+            )
 
         self.assertTrue(result["appended"])
 
@@ -716,3 +728,82 @@ class DerivationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UndeclaredOverwriteTest(unittest.TestCase):
+    """덮어쓰기는 레인 계약이 답할 때만 한다 (root ADR-0311).
+
+    `silver.land_forest_ledger` 는 매주 3,990만 행을 통째로 다시 썼다. 바뀐 것은 약 5천 행이었고,
+    계약 어디에도 그렇다는 말이 없었다. 덮어쓰려면 레인이 `compare.content_columns`(바뀐 키만
+    main 에 쌓는다, root ADR-0275)나 잰 비용이 붙은 `full_reason` 을 적어야 한다.
+    """
+
+    def test_an_overwrite_no_lane_declares_is_refused_before_anything_is_written(self) -> None:
+        spark = FakeAnsweringSpark(registry=[], total_records=1_442)
+        frame = FakeBatchFrame(["a.zip"])
+
+        with self.assertRaises(ValueError) as caught:
+            append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t`", "silver.parcel_boundaries",
+                              write_mode="overwrite")
+
+        self.assertIn("ADR-0311", str(caught.exception))
+        self.assertFalse(frame.appended)
+
+    def test_a_smoke_copy_is_a_disposable_proof_table(self) -> None:
+        spark = FakeAnsweringSpark(registry=[], total_records=1_442)
+        frame = FakeBatchFrame(["a.zip"])
+
+        result = append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t_smoke`",
+                                   "silver.parcel_boundaries", write_mode="overwrite")
+
+        self.assertTrue(result["appended"])
+
+    def test_a_comparing_lane_never_overwrites_main(self) -> None:
+        """비교하는 레인은 load branch 만 덮어쓴다. main 에는 바뀐 키만 append 된다."""
+        spark = FakeAnsweringSpark(registry=[], total_records=39_917_568)
+        frame = FakeBatchFrame(["a.zip"])
+
+        with self.assertRaises(ValueError) as caught:
+            append_batch_once(spark, frame, ["source_record_id"], "`c`.`s`.`t`", "silver.land_forest_ledger",
+                              write_mode="overwrite")
+
+        self.assertIn("on main", str(caught.exception))
+        self.assertFalse(frame.appended)
+
+    def test_every_lane_contract_answers_for_its_overwrite(self) -> None:
+        """레인 계약 열두 개 모두: 덮어쓰는 레인은 compare 나 full_reason 하나, 붙이는 레인은 둘 다 없다."""
+        import json
+        from lakehouse_ingest import LANE_CONTRACTS_DIR
+
+        lanes = {}
+        for path in sorted(LANE_CONTRACTS_DIR.glob("*-source-objects.json")):
+            block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh")
+            if block is not None:
+                lanes[block["table"]] = block
+        self.assertEqual(len(lanes), 12)
+        for table, block in lanes.items():
+            if block["spark"]["iceberg_write_mode"] == "overwrite":
+                self.assertIn(overwrite_declaration(table), (COMPARE, FULL_REASON), table)
+                self.assertNotEqual(COMPARE in block, FULL_REASON in block, table)
+            else:
+                # An appending lane may compare its staged parts (ADR-0318); it never excuses a full write.
+                self.assertNotIn(FULL_REASON, block, table)
+        compared = sorted(t for t, b in lanes.items() if COMPARE in b)
+        # Every overwriting lane compares, and so does the exclusive-unit part lane (ADR-0318).
+        self.assertEqual(compared, ["silver.building_register_exclusive_unit",
+                                    "silver.building_register_titles", "silver.building_register_unit_areas",
+                                    "silver.building_register_units", "silver.land_characteristic",
+                                    "silver.land_forest_ledger", "silver.land_individual_price",
+                                    "silver.land_right_registration", "silver.land_transfer_history",
+                                    "silver.land_use_plan", "silver.land_use_zone_code"])
+
+    def test_a_reason_without_a_measured_cost_is_no_declaration(self) -> None:
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            lanes = Path(directory)
+            (lanes / "x-source-objects.json").write_text(json.dumps({"silver_refresh": {
+                "table": "silver.x", "full_reason": {"reason": "big", "measured_cost": " "}}}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                overwrite_declaration("silver.x", lanes)

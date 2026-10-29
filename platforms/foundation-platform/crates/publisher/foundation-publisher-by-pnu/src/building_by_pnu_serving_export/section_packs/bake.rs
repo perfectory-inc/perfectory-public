@@ -197,6 +197,10 @@ pub struct PackExportSummary {
     /// Every live row of the Gold snapshot, by its manifests' record counts; not only the shard's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gold_record_count: Option<u64>,
+    /// What the shard's scan of the Gold read (root ADR-0314 §4); the bake's run summary adds the
+    /// shards up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read: Option<ShardRead>,
     pub exported_row_count: u64,
     pub tombstone_count: u64,
     pub totals: BTreeMap<String, SectionTotals>,
@@ -207,7 +211,21 @@ pub struct PackExportSummary {
     /// for a patch, which follows the served generation's parts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub parts: BTreeMap<String, BTreeMap<String, u32>>,
+    /// Documents past one request, served as pages (root ADR-0325).
+    #[serde(default)]
+    pub paged_documents: u64,
+    /// Documents no cut into pages fits, each answered by a page that says so (root ADR-0325 §4):
+    /// the lane still publishes, and the bake script fails its run afterwards so it alerts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub withheld: Vec<WithheldDocument>,
     pub elapsed_seconds: f64,
+}
+
+/// A document the bake withheld, and why (root ADR-0325 §4).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WithheldDocument {
+    pub key: String,
+    pub reason: String,
 }
 
 impl PackExportSummary {
@@ -218,6 +236,18 @@ impl PackExportSummary {
             .copied()
             .unwrap_or(self.generation)
     }
+}
+
+/// What one shard's scan of the Gold read: all its data files is a shard that pruned nothing
+/// (on 2026-10-28 every shard read all 4 GB of gold.parcel_panel, root ADR-0314).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ShardRead {
+    /// Data files of the Gold snapshot, read or skipped.
+    pub data_files: u64,
+    /// Data files the scan skipped because their bounds exclude the shard's prefix.
+    pub skipped_data_files: u64,
+    /// Bytes of the data files it read.
+    pub bytes_read: u64,
 }
 
 /// What a run compared before writing, and the sample candidates it drew (base runs only).
@@ -339,7 +369,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     let lakehouse = LakehouseObjectReader::from_env()?;
     let store = ByPnuServingStore::open(lane, &config.output)?;
     let renderer = Renderer::load(lane).await?;
-    let (rows, gold_record_count) = scan(&config, &lakehouse, &snapshot).await?;
+    let (rows, gold_record_count, shard_read) = scan(&config, &lakehouse, &snapshot).await?;
     // A small lane draws its candidates at a rate that still yields gate (나)'s sample.
     config.sample_candidates_per_million = Some(gate::candidate_rate(gold_record_count)?);
     let mut summary = bake(
@@ -351,6 +381,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     )
     .await?;
     summary.gold_record_count = Some(gold_record_count);
+    summary.read = Some(shard_read);
     write_summary(&config.summary_path, &summary)?;
     tracing::info!(
         generation = summary.generation,
@@ -374,12 +405,12 @@ fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> PackProvenance
     }
 }
 
-/// The kept rows, and the snapshot's whole row count by its manifests.
+/// The kept rows, the snapshot's whole row count by its manifests, and what the scan read.
 async fn scan(
     config: &BakeConfig,
     lakehouse: &LakehouseObjectReader,
     snapshot: &IcebergSnapshotManifestList,
-) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64)> {
+) -> anyhow::Result<(Vec<JsonMap<String, JsonValue>>, u64, ShardRead)> {
     let rows = scan_snapshot_rows_kept(
         sections::gold_table(config.lane),
         lakehouse,
@@ -412,7 +443,12 @@ async fn scan(
             .iter()
             .filter_map(|row| row.get("pnu").and_then(JsonValue::as_str)),
     )?;
-    Ok((rows.rows, rows.manifest_record_count))
+    let read = ShardRead {
+        data_files: rows.data_file_count,
+        skipped_data_files: rows.skipped_data_file_count,
+        bytes_read: rows.read_file_bytes,
+    };
+    Ok((rows.rows, rows.manifest_record_count, read))
 }
 
 /// Where each baked section goes, and what a section re-baked alone is joined with.
@@ -669,6 +705,7 @@ pub async fn bake(
         ..Equality::default()
     };
     let mut parts: BTreeMap<String, BTreeMap<String, u32>> = BTreeMap::new();
+    let (mut paged_documents, mut withheld) = (0, Vec::new());
     for (unit_packs, check, cut) in written {
         packs.extend(unit_packs);
         for (section, (dong, count)) in cut {
@@ -677,6 +714,17 @@ pub async fn bake(
         equality.compared += check.compared;
         equality.equal += check.equal;
         equality.sample_candidates.extend(check.candidates);
+        paged_documents += check.paged;
+        withheld.extend(check.withheld);
+    }
+    withheld.sort_by(|a: &WithheldDocument, b| a.key.cmp(&b.key));
+    for document in &withheld {
+        tracing::warn!(
+            key = document.key,
+            reason = document.reason,
+            lane = config.lane.unit(),
+            "document withheld: no cut into pages fits one request (root ADR-0325 §4)"
+        );
     }
     packs.sort_by(|a, b| (&a.section, &a.unit).cmp(&(&b.section, &b.unit)));
     equality.sample_candidates.sort_unstable();
@@ -731,12 +779,15 @@ pub async fn bake(
         sections: config.sections.clone(),
         pnu_prefix: config.pnu_prefix.clone(),
         gold_record_count: None,
+        read: None,
         exported_row_count: exported,
         tombstone_count: deleted,
         totals,
         packs,
         equality,
         parts,
+        paged_documents,
+        withheld,
         elapsed_seconds: started.elapsed().as_secs_f64(),
     })
 }
@@ -776,6 +827,9 @@ pub(super) struct UnitCheck {
     /// The first PNUs that did not answer as they must.
     pub(super) differing: Vec<String>,
     pub(super) candidates: Vec<String>,
+    /// Documents of the dong served as pages, and the ones withheld (root ADR-0325).
+    pub(super) paged: u64,
+    pub(super) withheld: Vec<WithheldDocument>,
 }
 
 impl UnitCheck {
@@ -861,7 +915,7 @@ async fn write_unit(
         }
         None => Vec::new(),
     };
-    let check = check_round_trip(
+    let mut check = check_round_trip(
         run.config.lane,
         &laid_out,
         &served,
@@ -871,6 +925,15 @@ async fn write_unit(
         run.config.sample_candidates_per_million,
     )?;
     check.require_equal(dong)?;
+    for document in &documents {
+        check.paged += u64::from(!document.more_pages.is_empty());
+        if let Some(reason) = &document.withheld {
+            check.withheld.push(WithheldDocument {
+                key: document.pnu.clone(),
+                reason: reason.clone(),
+            });
+        }
+    }
     let mut packs = Vec::with_capacity(laid_out.len());
     for pack in laid_out {
         packs.push(write_pack(run, pack).await?);
@@ -965,7 +1028,15 @@ pub(super) fn lay_out_pack(
     })?;
     for (pnu, document) in entries(documents, deleted) {
         match document {
-            Some(document) => writer.push_document(pnu, &sections::fragment(document, section)?)?,
+            Some(document) if document.more_pages.is_empty() => {
+                writer.push_document(pnu, &sections::fragment(document, section)?)?;
+            }
+            // A document past one request goes in as its pages (root ADR-0325).
+            Some(document) => {
+                let mut pages = vec![sections::fragment(document, section)?];
+                pages.extend(document.more_pages.iter().cloned());
+                writer.push_pages(pnu, &pages)?;
+            }
             None => writer.push_tombstone(pnu)?,
         }
     }
@@ -1026,6 +1097,23 @@ pub(super) fn check_round_trip(
                 laid.unit,
                 document.pnu
             );
+            // Every page of a paged document reads back, and no other (root ADR-0325).
+            ensure!(
+                pack.page_count(entry) == 1 + document.more_pages.len(),
+                "the {section} pack {} holds {} pages of {}, not {}",
+                laid.unit,
+                pack.page_count(entry),
+                document.pnu,
+                1 + document.more_pages.len()
+            );
+            for (page, bytes) in (2..).zip(&document.more_pages) {
+                ensure!(
+                    pack.page(entry, page)?.as_ref() == Some(bytes),
+                    "the {section} pack {} does not read back page {page} of {}",
+                    laid.unit,
+                    document.pnu
+                );
+            }
         }
         ensure!(
             pack.entries.len() == laid.documents.len() + laid.deleted.len(),

@@ -54,7 +54,7 @@ for case in dirty dev-dirty empty; do
 done
 
 # 인자 없이 다른 디렉터리에서 실행해도 저장소의 Intelligence 매니페스트를 읽는다.
-if ! (cd "$WORK" && bash "$GUARD") | grep -Eq 'manifests=[1-9]'; then
+if ! guard_output="$(cd "$WORK" && bash "$GUARD")" || ! grep -Eq 'manifests=[1-9]' <<<"$guard_output"; then
   echo "SELF-TEST FAIL: guard did not read the repository manifests from another directory" >&2
   exit 1
 fi

@@ -149,7 +149,7 @@ fsck_output="$("$git_transport" --repository "$snapshot" fsck --full --strict --
   printf '%s\n' "$fsck_output" >&2
   exit 1
 }
-if printf '%s\n' "$fsck_output" | grep -Eq '(^| )((unreachable|dangling) )'; then
+if grep -Eq '(^| )((unreachable|dangling) )' <<<"$fsck_output"; then
   echo "FAIL public-root-publisher: prepared snapshot contains unreachable objects" >&2
   exit 1
 fi

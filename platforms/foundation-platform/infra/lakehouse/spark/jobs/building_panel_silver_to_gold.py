@@ -60,8 +60,10 @@ BUILD_COLUMNS = {
     UNIT_SOURCE: ("pnu", "mgm_bldrgst_pk", "building_mgm_bldrgst_pk", "dong_join_name", "dong_name_raw",
                   "unit_label_ko", "unit_name_raw", "floor_number", "floor_kind",
                   *evidence_policy()["columns"]),
-    AREA_SOURCE: ("area_row_id", "mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw",
-                  "structure_name_raw", "floor_kind"),
+    # Not area_row_id: it names the release object and line (OPN<yyyymm…>.zip#line-N), so every row of
+    # every monthly release differs by it while 0.13% of registers changed content (2026-10, root
+    # ADR-0326), and no Gold column reads it.
+    AREA_SOURCE: ("mgm_bldrgst_pk", "area_kind", "area_m2", "usage_name_raw", "structure_name_raw", "floor_kind"),
     PRICE_SOURCE: ("mgm_bldrgst_pk", "base_date", "price_won"),
 }
 # Inputs whose change the incremental rebuild cannot map to PNUs; a change to one rebuilds whole.
@@ -184,6 +186,11 @@ def read_source(spark, args, name, pins, after=None, batches=None):
 
 
 def assert_single_snapshot(frame, name):
+    if current_row_latest(load_lakehouse_contract(name)) is not None:
+        # A register that appends only each release's changed keys holds the current rows of several
+        # releases by design (root ADR-0318); `frame` is its current rows, and the newest is named.
+        # The Iceberg pin beside it (source_iceberg_snapshots_by_dataset) is exact.
+        return frame.agg(F.max("source_snapshot_id")).first()[0]
     values = [r.source_snapshot_id for r in frame.select("source_snapshot_id").distinct().limit(3).collect()]
     if len(values) != 1 or not values[0]:
         raise ValueError(f"{name} must carry exactly one non-empty source_snapshot_id: {values}")
@@ -241,8 +248,9 @@ def unit_areas(areas):
     exclusive = areas.where(F.col("area_kind") == "exclusive")
     # Decimal accumulation avoids floating-point shuffle-order drift in exact JSON bytes.
     sums = exclusive.groupBy("mgm_bldrgst_pk").agg(F.sum(F.col("area_m2").cast("decimal(38,6)")).cast("double").alias("exclusive_area_m2"))
+    # Rows tied on all three give the same usage and structure, so no further tie-break is needed.
     order = Window.partitionBy("mgm_bldrgst_pk").orderBy(F.col("area_m2").desc_nulls_last(),
-             F.col("usage_name_raw").asc_nulls_last(), F.col("structure_name_raw").asc_nulls_last(), "area_row_id")
+             F.col("usage_name_raw").asc_nulls_last(), F.col("structure_name_raw").asc_nulls_last())
     top = exclusive.withColumn("_rank", F.row_number().over(order)).where("_rank = 1").select(
         "mgm_bldrgst_pk", F.col("usage_name_raw").alias("usage_name"), F.col("structure_name_raw").alias("structure_name"))
     return sums.join(top, "mgm_bldrgst_pk")
@@ -298,10 +306,10 @@ def build_gold_panel_frame(frames, source_snapshot_id, published_at_utc, counter
     titles = valid_pnus(frames[TITLE_SOURCE], TITLE_SOURCE, counters)
     units = valid_pnus(frames[UNIT_SOURCE], UNIT_SOURCE, counters)
     areas, floors = frames[AREA_SOURCE], frames[FLOOR_SOURCE]
+    # Area rows are checked unique where they are read (read_inputs): the build does not read their id.
     for frame, keys, name in ((titles, ["mgm_bldrgst_pk"], TITLE_SOURCE),
                              (units, ["mgm_bldrgst_pk"], UNIT_SOURCE),
-                             (floors, ["floor_row_id"], FLOOR_SOURCE),
-                             (areas, ["area_row_id"], AREA_SOURCE)):
+                             (floors, ["floor_row_id"], FLOOR_SOURCE)):
         assert_unique(frame, keys, name)
     for frame, columns in ((titles, ["floor_area_m2"]), (areas, ["area_m2"])):
         for column in columns:
@@ -455,6 +463,9 @@ def read_inputs(spark, args, pins, snapshots=None):
         frame = read_source(spark, args, name, pins)
         if snapshots is not None:
             snapshots[name] = assert_single_snapshot(frame, name)
+            if name == AREA_SOURCE:
+                # A row loaded twice would count its area twice; its id is outside BUILD_COLUMNS.
+                assert_unique(frame, ["area_row_id"], name)
         prefix = args.pnu_prefix or args.region_prefix
         if prefix and "pnu" in frame.columns:
             frame = frame.where(F.col("pnu").startswith(prefix))
@@ -478,9 +489,11 @@ def appended_changes(spark, args, previous, pins, snapshots, new, appended):
 
     Every input is read as one batch (`assert_single_snapshot`). The same batch at both pins: the
     change set is exactly the rows the appends added to it, and the old rows are among the new.
-    The batch read switched (a new unit price vintage): the rows of both batches at the new pin, a
-    superset of the difference that holds every old and new row the mapping needs, since an append
-    leaves the old batch untouched. Read by batch id, not compared row by row.
+    The batch read switched (a new floor generation, a new unit price vintage): an append leaves the
+    old batch untouched, so both batches are read at the new pin and the change set is their row
+    difference (root ADR-0326), the rows of both the mapping reads. Mapping every row of both
+    batches instead made the 2026-10-20 floor generation, a national reload, reach every PNU of the
+    Gold; the 2026-10-28 rebuild spent 117 minutes learning that and timed out in the full rebuild.
     """
     result = {}
     for name in appended:
@@ -490,9 +503,10 @@ def appended_changes(spark, args, previous, pins, snapshots, new, appended):
             change = incremental.project_build_inputs({name: added}, BUILD_COLUMNS)[name]
             result[name] = (change, new[name])
         else:
-            both = read_source(spark, args, name, pins, batches=(old_batch, new_batch))
-            change = incremental.project_build_inputs({name: both}, BUILD_COLUMNS)[name]
-            result[name] = (change, change)
+            old = incremental.project_build_inputs(
+                {name: read_source(spark, args, name, pins, batches=(old_batch,))}, BUILD_COLUMNS)[name]
+            change = incremental.changed_rows(old, new[name], _register_keys(new[name]))
+            result[name] = (change, old.unionByName(new[name]))
     return result
 
 
@@ -608,7 +622,10 @@ def run(spark, args, pins):
         affected=lambda changed, appended: affected_pnus(
             read_inputs(spark, args, previous), frames, changed,
             appended_changes(spark, args, previous, pins, snapshots, frames, appended)),
-        append_inputs={name: iceberg_table(args, name) for name in ALL_SOURCES},
+        # A versioned input's appends are new versions of its keys, not rows beside one batch: its
+        # change is the difference of its current rows (root ADR-0180), never `read_appended`.
+        append_inputs={name: iceberg_table(args, name) for name in ALL_SOURCES
+                       if current_row_latest(load_lakehouse_contract(name)) is None},
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         validate=lambda gold: validate_gold_frame(gold, None))
     outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, target_table,

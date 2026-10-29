@@ -78,6 +78,7 @@ DRIVER = textwrap.dedent("""
     spark() { printf '%s\\n' "$1" >> "${CALLS}"; python3 "${SPARK_STUB}" "${work}" "${container_work}" "$@"; }
     source "${LOAD}"
     load_legal_dong_code_handoffs
+    echo "wrote=${legal_dong_code_wrote}"
 """)
 
 
@@ -178,6 +179,7 @@ class PairingOwed(Harness):
         run2 = [line for line in self.journal_lines() if line.endswith("run=run2")]
         self.assertTrue(any("pairing owed since run1" in line for line in run2), run2)
         self.assertTrue(any("re-paired (pairing owed) on 20990701" in line for line in run2), run2)
+        self.assertEqual(repaired.stdout.splitlines()[-1], "wrote=1", "the cycle's evidence of a write")
 
         self.run_cycle()
         self.assertEqual(self.jobs(), [])
@@ -205,6 +207,7 @@ class PairingOwed(Harness):
         self.assertEqual(paid["paid"]["handoffs"], {"legal_dong_code": ["table-20990701"],
                                                     "parcel_number_change": ["pnch-20990702T000000Z"]})
         self.assertTrue((self.legal / "loaded/table-20990701").is_dir())
+        self.assertEqual(result.stdout.splitlines()[-1], "wrote=1")
 
     def test_nothing_owed_runs_nothing(self):
         self.latest_snapshot()
@@ -219,6 +222,8 @@ class PairingOwed(Harness):
         self.assertIn("legal-dong-code no pending handoff run=run1", self.journal_lines()[0])
         # The unit's journal carries the same line (root ADR-0174).
         self.assertIn("legal-dong-code no pending handoff run=run1", result.stdout.splitlines())
+        # Nothing loaded or paired: the cycle has no write to report (lineage-stewardship-cycle.sh).
+        self.assertEqual(result.stdout.splitlines()[-1], "wrote=0")
 
     def test_an_empty_host_owes_nothing(self):
         result = self.run_cycle()

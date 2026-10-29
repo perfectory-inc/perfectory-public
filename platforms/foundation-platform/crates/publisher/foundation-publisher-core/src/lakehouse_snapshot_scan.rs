@@ -10,7 +10,12 @@ pub mod iceberg_scan;
 mod production_shape_tests;
 #[cfg(test)]
 mod pruning_tests;
+mod ranged_parquet;
+#[cfg(test)]
+mod ranged_parquet_tests;
 pub mod shard_plan;
+
+use std::ops::Range;
 
 use anyhow::{ensure, Context};
 use async_trait::async_trait;
@@ -53,7 +58,16 @@ impl LakehouseObjectReader {
 pub trait LakehouseByteReader: Send + Sync {
     /// Reads one object named by an Iceberg storage location.
     async fn read(&self, location: &str) -> anyhow::Result<Vec<u8>>;
+
+    /// Reads bytes `range` (end exclusive) of one object: a Parquet data file is read a footer and
+    /// a set of column chunks at a time, never whole (root ADR-0319).
+    async fn read_range(&self, location: &str, range: Range<u64>) -> anyhow::Result<Vec<u8>>;
 }
+
+/// The longest range one request reads. A body that breaks off midway is asked for again whole
+/// (root ADR-0102), so a long column chunk is read in windows of the size a whole-object read
+/// already uses, each retried on its own.
+const RANGE_WINDOW_BYTES: u64 = 16 * 1024 * 1024;
 
 #[async_trait]
 impl LakehouseByteReader for LakehouseObjectReader {
@@ -66,6 +80,30 @@ impl LakehouseByteReader for LakehouseObjectReader {
             .get_object_bytes_range_retried(key.as_str())
             .await
             .with_context(|| format!("failed to read lakehouse object {location}"))
+    }
+
+    async fn read_range(&self, location: &str, range: Range<u64>) -> anyhow::Result<Vec<u8>> {
+        let key = lakehouse_object_key(location, self.bucket_name.as_str())?;
+        let mut body = Vec::with_capacity(usize::try_from(range.end.saturating_sub(range.start))?);
+        let mut start = range.start;
+        while start < range.end {
+            let end = range.end.min(start.saturating_add(RANGE_WINDOW_BYTES));
+            let window = self
+                .storage
+                .get_object_range(key.as_str(), start, end - 1)
+                .await
+                .with_context(|| {
+                    format!("failed to read bytes {start}..{end} of lakehouse object {location}")
+                })?;
+            ensure!(
+                u64::try_from(window.len()).ok() == Some(end - start),
+                "lakehouse object {location} answered bytes {start}..{end} with {} bytes",
+                window.len()
+            );
+            body.extend_from_slice(&window);
+            start = end;
+        }
+        Ok(body)
     }
 }
 
@@ -91,6 +129,14 @@ pub struct ScannedRows {
     /// Rows of the files read that sat in row groups whose Parquet statistics prove they hold
     /// none of the scan's prefix, so they were not decoded.
     pub skipped_row_group_record_count: u64,
+    /// Bytes the manifests declared for the data files the scan read: what reading each of them
+    /// whole would have downloaded.
+    pub read_file_bytes: u64,
+    /// Bytes the scan downloaded from those files — footers, and the column chunks or pages of
+    /// the row groups it decoded (root ADR-0319).
+    pub fetched_bytes: u64,
+    /// Range requests the scan made to the data files it read.
+    pub range_requests: u64,
     /// The scan stopped because more rows passed the keep-filter than the caller's limit. The
     /// read and decoded counts then cover only the files read so far, and `rows` holds exactly
     /// the limit.
@@ -270,6 +316,9 @@ pub async fn scan_snapshot_rows_kept(
         read_record_count: 0,
         skipped_row_group_record_count: 0,
         decoded_row_count: 0,
+        read_file_bytes: 0,
+        fetched_bytes: 0,
+        range_requests: 0,
         keep_limit_exceeded: false,
     };
     let mut read = Vec::with_capacity(data_files.len());
@@ -308,30 +357,52 @@ pub async fn scan_snapshot_rows_kept(
             .read_record_count
             .checked_add(data_file.record_count)
             .context("read record count overflow")?;
+        scanned.read_file_bytes = scanned
+            .read_file_bytes
+            .checked_add(data_file.file_size_in_bytes)
+            .context("read file byte count overflow")?;
         let rows = &mut scanned.rows;
         let mut past_limit = false;
-        let (decoded, skipped) = iceberg_scan::decode_rows_under(
+        let file = ranged_parquet::decode_rows_under(
             contract,
-            bytes_of(lakehouse, data_file).await?,
+            lakehouse,
+            data_file,
             prefix.map(|prefix| (prefix.column, prefix.prefix)),
             |row| {
                 past_limit = keep_row(rows, row, keep, max_kept);
                 !past_limit
             },
-        )?;
+        )
+        .await?;
         scanned.decoded_row_count = scanned
             .decoded_row_count
-            .checked_add(decoded)
+            .checked_add(file.decoded)
             .context("decoded row count overflow")?;
         scanned.skipped_row_group_record_count = scanned
             .skipped_row_group_record_count
-            .checked_add(skipped)
+            .checked_add(file.skipped)
             .context("skipped row group count overflow")?;
+        scanned.fetched_bytes = scanned
+            .fetched_bytes
+            .checked_add(file.fetched_bytes)
+            .context("fetched byte count overflow")?;
+        scanned.range_requests = scanned
+            .range_requests
+            .checked_add(file.range_requests)
+            .context("range request count overflow")?;
         if past_limit {
             scanned.keep_limit_exceeded = true;
             return Ok(scanned);
         }
     }
+    tracing::info!(
+        table = snapshot.table_name.as_str(),
+        read_data_files = scanned.data_file_count - scanned.skipped_data_file_count,
+        read_file_bytes = scanned.read_file_bytes,
+        fetched_bytes = scanned.fetched_bytes,
+        range_requests = scanned.range_requests,
+        "read the data files by byte range"
+    );
     Ok(scanned)
 }
 
@@ -352,13 +423,6 @@ fn keep_row(
     }
     rows.push(row);
     false
-}
-
-async fn bytes_of(
-    lakehouse: &impl LakehouseByteReader,
-    data_file: &iceberg_scan::ScannedDataFile,
-) -> anyhow::Result<Vec<u8>> {
-    lakehouse.read(data_file.file_path.as_str()).await
 }
 
 async fn snapshot_data_files(
@@ -450,6 +514,14 @@ mod tests {
                 .get(location)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("unexpected object read: {location}"))
+        }
+
+        async fn read_range(
+            &self,
+            location: &str,
+            _range: std::ops::Range<u64>,
+        ) -> anyhow::Result<Vec<u8>> {
+            anyhow::bail!("an inventory reads no data file, yet {location} was read")
         }
     }
 

@@ -73,6 +73,27 @@ services:
       timeout: 5s
       retries: 12
 
+  # The host's own state as series (root ADR-0321 §5): only the textfile collector, which serves
+  # the files a host script writes, the way Prometheus documents for batch jobs. The deploy writes
+  # what it is doing and since when (scripts/deploy/deploy-start-once.sh deploy_metric_*); the
+  # FoundationDeploy* rules alert on how long a drain, a deploy or a pause lasts. The host
+  # collectors (disk, memory) are root ADR-0299 C-host's to add here.
+  node-exporter:
+    logging: *log-cap
+    image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
+    mem_limit: 64m
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - --collector.disable-defaults
+      - --collector.textfile
+      - --collector.textfile.directory=/textfile
+    volumes:
+      - ${FOUNDATION_HOST_METRICS_DIR:-/var/lib/perfectory/metrics}:/textfile:ro
+
 volumes:
   prometheus_data:
   alertmanager_data:

@@ -40,7 +40,7 @@ print(" ".join(sorted(name for name, need in (service.get("depends_on") or {}).i
     # docker returns the exit code of a container that has exited as well as of one still running.
     local oneshot container status
     for oneshot in ${oneshots}; do
-      container="$("${runtime}" ps -a -q "${oneshot}" | head -1)"
+      container="$("${runtime}" ps -a -q "${oneshot}" | sed -n 1p)"
       [[ -n "${container}" ]] || { code=70; break; }
       status="$(docker wait "${container}")" || { code=70; break; }
       ((status == 0)) || { code="${status}"; break; }

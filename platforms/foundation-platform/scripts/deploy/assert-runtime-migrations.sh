@@ -44,7 +44,7 @@ shipped_count="$(printf '%s\n' "${shipped}" | grep -c '[0-9]')"
 # being down. Collapsing them sends someone to restart a container that was never stopped.
 wrapper_error="$("${runtime_script}" ps -q postgres 2>&1 >/dev/null)"
 wrapper_status=$?
-container="$("${runtime_script}" ps -q postgres 2>/dev/null | head -1)"
+container="$("${runtime_script}" ps -q postgres 2>/dev/null | sed -n 1p)"
 if [[ "${wrapper_status}" -ne 0 ]]; then
   fail "could not ask the runtime what is running: ${wrapper_error}"
 fi

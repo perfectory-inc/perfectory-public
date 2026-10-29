@@ -175,6 +175,17 @@ journalctl -u foundation-postgres-backup.service --since today
 
 timer를 운영 상태로 인정하기 전에 첫 서비스 실행이 성공적으로 끝나야 한다.
 
+백업 자체 외에 호스트 timer 하나가 더 붙는다. 백업이 아예 돌지 않은 두 달(2026-07-26 → 10-02)이
+아무에게도 알려지지 않았기 때문이다. 릴리스가 설치·활성화한다(`scripts/deploy/foundation-release.sh`).
+
+| 유닛(timer) | 언제 | 하는 일 |
+|---|---|---|
+| `foundation-postgres-backup-freshness` | 6시간마다 | pgBackRest 저장소에서 가장 새 백업이 26시간보다 오래됐으면 실패한다. 라이브 DB 가 아니라 저장소를 읽기 전용 키로 읽으므로 Postgres 가 떠 있을 필요가 없다. 백업 유닛이 아예 돌지 않은 경우도 여기서 잡는다. |
+
+실패하면 `foundation-unit-failed@` 가 알린다. 운영 백업의 주간 자동 복원 드릴은 아직 없다. 아래
+"복구 리허설"의 `postgres-restore-drill.sh` 는 빈 저장소 prefix 로 백업부터 만드는 합성 리허설이라,
+운영 저장소에 타이머로 걸면 안 된다.
+
 ### 신원 DB 백업 (로그인에 필요한 두 DB)
 
 로그인에는 DB 두 개가 필요하다. Zitadel(compose project `zitadel-platform` 의 `zitadel-db`)과 신원

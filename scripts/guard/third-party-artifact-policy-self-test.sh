@@ -34,10 +34,8 @@ for text_artifact in \
   products/gongzzang/apps/web/public/fonts/pretendardvariable-dynamic-subset.css \
   products/gongzzang/apps/web/public/fonts/pretendard-v1.3.9.sha256; do
   attributes="$(git -C "$attribute_root" check-attr text eol -- "$text_artifact")"
-  if ! printf '%s\n' "$attributes" \
-    | grep -Fq "$text_artifact: text: auto" \
-    || ! printf '%s\n' "$attributes" \
-      | grep -Fq "$text_artifact: eol: lf"; then
+  if ! grep -Fq "$text_artifact: text: auto" <<<"$attributes" \
+    || ! grep -Fq "$text_artifact: eol: lf" <<<"$attributes"; then
     echo "FAIL third-party-artifact-policy-self-test: exact-hashed text lacks LF checkout contract: $text_artifact" >&2
     printf '%s\n' "$attributes" >&2
     exit 1
@@ -48,10 +46,8 @@ for windows_script in \
   products/gongzzang/fixture.cmd products/gongzzang/FIXTURE.CMD \
   products/gongzzang/fixture.bat products/gongzzang/FIXTURE.BAT; do
   attributes="$(git -C "$attribute_root" check-attr text eol -- "$windows_script")"
-  if ! printf '%s\n' "$attributes" \
-    | grep -Fq "$windows_script: text: set" \
-    || ! printf '%s\n' "$attributes" \
-      | grep -Fq "$windows_script: eol: crlf"; then
+  if ! grep -Fq "$windows_script: text: set" <<<"$attributes" \
+    || ! grep -Fq "$windows_script: eol: crlf" <<<"$attributes"; then
     echo "FAIL third-party-artifact-policy-self-test: Windows script lacks CRLF checkout contract: $windows_script" >&2
     printf '%s\n' "$attributes" >&2
     exit 1
@@ -59,8 +55,7 @@ for windows_script in \
 done
 font_sample="products/gongzzang/apps/web/public/fonts/woff2-dynamic-subset/fixture.woff2"
 font_attributes="$(git -C "$attribute_root" check-attr text -- "$font_sample")"
-if ! printf '%s\n' "$font_attributes" \
-    | grep -Fq "$font_sample: text: unset"; then
+if ! grep -Fq "$font_sample: text: unset" <<<"$font_attributes"; then
   echo "FAIL third-party-artifact-policy-self-test: WOFF2 assets lack binary checkout contract" >&2
   printf '%s\n' "$font_attributes" >&2
   exit 1

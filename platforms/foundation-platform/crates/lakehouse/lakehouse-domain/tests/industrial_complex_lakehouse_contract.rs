@@ -5,13 +5,15 @@ use std::{collections::BTreeSet, error::Error, io};
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, LakehouseColumn, LakehouseCurrentRowLatest,
     LakehouseLayer, LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, SILVER_BUILDING_REGISTER_FLOORS,
+    LakehouseWriteDistribution, GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR,
+    SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES, SILVER_BUILDING_REGISTER_UNITS,
     SILVER_BUILDING_REGISTER_UNIT_AREAS, SILVER_COMPLEX_PARCEL_MEMBERSHIPS,
     SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
-    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_TRANSFER_HISTORY,
-    SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
-    SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_RIGHT_REGISTRATION, SILVER_LAND_TRANSFER_HISTORY,
+    SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES, SILVER_ONBID_ITEM_BID_RESULT,
+    SILVER_ONBID_REAL_ESTATE_ITEM, SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -193,7 +195,7 @@ fn a_table_that_fits_in_one_file_declares_no_partitions() -> TestResult {
 }
 
 #[test]
-fn parcel_boundary_contract_is_canonical_geoparquet_and_unpartitioned() {
+fn parcel_boundary_contract_is_canonical_geoparquet_partitioned_by_edition() {
     let contract = SILVER_PARCEL_BOUNDARIES;
 
     assert_eq!(contract.table_name, "silver.parcel_boundaries");
@@ -216,21 +218,30 @@ fn parcel_boundary_contract_is_canonical_geoparquet_and_unpartitioned() {
     assert!(has_column(&contract, "bbox_max_x"));
     assert!(has_column(&contract, "bbox_max_y"));
     assert!(has_column(&contract, "geometry_checksum_sha256"));
-    // Unpartitioned, and the sort order is what prunes. ADR-0063 dropped the `pnu` bucket from
-    // beside `sigungu_code`; ADR-0066 dropped sigungu too, once measuring showed 257 partitions
-    // capping files at 29 MB against a 512 MB target while every consumer read the table whole.
+    // Every reader takes one edition of the several the table holds side by side (root ADR-0148),
+    // so the edition may be the partition and PNU ranges are what files split on (root ADR-0316).
+    // ADR-0063 dropped the `pnu` bucket and ADR-0066 sigungu: a region partition only caps file
+    // size, since a PNU's leading digits already are the region.
     //
     // Asserted as a property rather than as a copy of the spec. Three tests in this file pinned
     // the literal partition spec and all three had to be edited to make an intended change — an
     // assertion that mirrors the contract catches the accident and blocks the decision equally.
     assert!(
-        contract.partition_spec.is_empty(),
-        "parcel boundaries are read whole by every consumer; a partition here only caps file size"
+        contract
+            .partition_spec
+            .iter()
+            .all(|field| *field == "source_snapshot_id"),
+        "a parcel partition other than the edition only caps file size: {:?}",
+        contract.partition_spec
+    );
+    assert_eq!(
+        contract.write_distribution,
+        LakehouseWriteDistribution::Range
     );
     assert_eq!(
         contract.sort_order.first(),
         Some(&"pnu"),
-        "with no partitions the sort order is the only thing left to prune on, and PNU is what \
+        "within an edition the sort order is the only thing left to prune on, and PNU is what \
          the consumers key by"
     );
 }
@@ -287,10 +298,20 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 })
             );
         } else if contract.table_name == SILVER_LAND_TRANSFER_HISTORY.table_name
+            || contract.table_name == SILVER_LAND_CHARACTERISTIC.table_name
+            || contract.table_name == SILVER_LAND_FOREST_LEDGER.table_name
+            || contract.table_name == SILVER_LAND_INDIVIDUAL_PRICE.table_name
+            || contract.table_name == SILVER_LAND_RIGHT_REGISTRATION.table_name
+            || contract.table_name == SILVER_LAND_USE_PLAN.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_TITLES.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_UNITS.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_UNIT_AREAS.table_name
+            || contract.table_name == SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT.table_name
+            || contract.table_name == SILVER_LAND_USE_ZONE_CODES.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
         {
-            // A lane that appends its changes marks vanished keys (root ADR-0275).
+            // A lane that appends its changes marks vanished keys (root ADR-0275, ADR-0311, ADR-0318).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest

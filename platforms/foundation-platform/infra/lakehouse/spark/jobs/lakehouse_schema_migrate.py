@@ -18,7 +18,8 @@ the release's schema. For each contract table the lakehouse holds:
    function is the build's own, so the rows are still what the build makes of those pins, and the
    next Gold rebuild plans from them instead of rebuilding whole.
 4. A table the contract declares range distributed is given the contract's sort order as its
-   Iceberg write order (`WRITE ORDERED BY`, root ADR-0164). A metadata commit: rows already
+   Iceberg write order (`WRITE ORDERED BY`, root ADR-0164) and any contract partition field its
+   live spec lacks (`ADD PARTITION FIELD`, root ADR-0316). Metadata commits: rows already
    written stay where they are, and the next write lays them out in order.
 
 A table the lakehouse does not hold yet is left to the load that creates it. Prints one line per
@@ -46,6 +47,7 @@ from platform_contracts import (
     iceberg_table_columns,
     load_lakehouse_artifact,
     spark_sql_type,
+    table_partition_fields,
     table_properties,
     write_order_drift,
 )
@@ -136,6 +138,7 @@ def plan_table(
     actual_types: dict[str, str] | None = None, needs_backfill: tuple[str, ...] = (),
     actual_nullability: dict[str, bool] | None = None,
     actual_properties: dict[str, str] | None = None,
+    actual_partitions: tuple[str, ...] | None = None,
 ) -> dict:
     """What bringing one table to its contract means, or why it cannot be done automatically."""
     effective = migration_contract(contract, actual, table_name)
@@ -164,7 +167,8 @@ def plan_table(
             f"{table_name} would gain required columns {unregistered} with no registered backfill; "
             "register the build's function in lakehouse_schema_migrate.BACKFILLS"
         )
-    write_order = actual_properties is not None and write_order_drift(contract, actual_properties)
+    write_order = actual_properties is not None and write_order_drift(
+        contract, actual_properties, actual_partitions)
     plan = {"add": missing, "backfill": backfills, "reorder": reorder, "write_order": write_order}
     retained = [name for name in expected if name not in column_names(contract)]
     if retained:
@@ -244,11 +248,17 @@ def reorder_to_contract(spark: SparkSession, quoted: str, contract: dict, actual
 def carried_properties(snapshots: list[dict], head: str) -> dict[str, str]:
     """The snapshot summary a backfill of `head` keeps: the source pins of the producer commit its
     rows are (only compactions after it), so the Gold planner sees no content change (root ADR-0312
-    §3). A head that is no producer commit (a hand write) has none to carry, and the planner rebuilds."""
-    from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, head_build_pins, pins_property_value
+    §3), and the code version recorded beside them (root ADR-0321), so a backfill is not read as a
+    Gold built by the current code. A head that is no producer commit (a hand write) has none to
+    carry, and the planner rebuilds."""
+    import gold_code_version
+    from gold_rebuild import SOURCE_SNAPSHOTS_PROPERTY, head_build_pins, pins_property_value, recorded_code_version
 
     pins = head_build_pins(snapshots, str(head))
-    return {} if pins is None else {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins)}
+    if pins is None:
+        return {}
+    code = recorded_code_version(snapshots, str(head))
+    return {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins), **({} if code is None else {gold_code_version.PROPERTY: code})}
 
 
 def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict, columns: list[str]) -> dict:
@@ -322,7 +332,8 @@ def inspect_table(spark: SparkSession, quoted: str, contract: dict, table_name: 
                        and frame.where(empty_value(contract, column["name"])).limit(1).count())
     return plan_table(contract, actual, has_rows, table_name, actual_types=types,
                       actual_nullability=nullable, needs_backfill=incomplete,
-                      actual_properties=properties)
+                      actual_properties=properties,
+                      actual_partitions=table_partition_fields(spark, quoted))
 
 
 def apply_table(spark: SparkSession, catalog: str, table_name: str, contract: dict, plan: dict) -> dict:

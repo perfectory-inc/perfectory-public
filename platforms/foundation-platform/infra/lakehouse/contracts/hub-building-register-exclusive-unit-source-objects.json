@@ -61,7 +61,7 @@
   "rows_per_part": 1000000,
   "max_row_bytes": 1048576,
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@building-register-exclusive-unit.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다.",
+    "$comment": "foundation-silver-refresh@building-register-exclusive-unit.service 의 실행 값(root ADR-0169 §3). 판은 장부가 정하고, 이미 적재된 부분은 표의 스냅숏 요약(append_batch_once)이 건너뛴다. 부분은 판의 load branch 에 쌓고 main 에 발행하지 않는다. compare 가 main 의 현재 행과 mgmt_key 마다 비교해 바뀐 호의 행과 사라진 호의 삭제 표시만 changes branch 에 키 앞 두 자리 묶음마다 커밋하고, 다 되면 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). 판마다 바뀌는 vintage·적재 열은 content_columns 에 넣지 않는다.",
     "table": "silver.building_register_exclusive_unit",
     "roles": {
       "source": "hubgokr__building_register_exclusive_unit"
@@ -72,6 +72,7 @@
       "driver_memory": "16g",
       "iceberg_write_mode": "append",
       "input_file_batch_size": 40
-    }
+    },
+    "compare": {"content_columns": ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "dong_name", "ho_name", "floor_kind", "floor_no", "pnu", "raw_columns"], "bucket_prefix_length": 2}
   }
 }

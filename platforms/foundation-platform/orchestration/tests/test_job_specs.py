@@ -39,6 +39,13 @@ def reports_outcome(text):
     return any("foundation-job-outcome" in line and not line.lstrip().startswith("#") for line in text.splitlines())
 
 
+def changed_without_unchanged(text):
+    """Whether a program can print `foundation-job-outcome changed` but has no `unchanged` to print."""
+    code = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
+    return (any("foundation-job-outcome changed" in line for line in code)
+            and not any("foundation-job-outcome unchanged" in line for line in code))
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -678,6 +685,22 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
         self.assertFalse(reports_outcome("# ends with `foundation-job-outcome changed`\nexec run\n"))
         self.assertFalse(reports_outcome("exec run\n"))
 
+    def test_a_program_that_can_say_changed_can_also_say_unchanged(self):
+        # `changed` starts the readers, so it has to rest on evidence of a write. A program with no
+        # `unchanged` branch says `changed` on every no-op: 2026-10-27 the floor job did on
+        # `already_retained ... persisted_row_count=0`, as did the outbox tick and the lineage cycle.
+        for spec in job_specs.load_specs():
+            program = job_specs.PLATFORM_ROOT / entry_script(spec)[len(job_specs.RELEASE_PREFIX):]
+            with self.subTest(spec.job_id):
+                self.assertFalse(changed_without_unchanged(program.read_text(encoding="utf-8")),
+                                 f"{program.name} can say `changed` but never `unchanged`")
+
+    def test_a_program_that_always_says_changed_is_refused(self):
+        self.assertTrue(changed_without_unchanged("run\nprintf 'foundation-job-outcome changed\\n'\n"))
+        self.assertFalse(changed_without_unchanged(
+            "[ \"$n\" = 0 ] && echo foundation-job-outcome unchanged && exit 0\necho foundation-job-outcome changed\n"))
+        self.assertFalse(changed_without_unchanged("# foundation-job-outcome changed\necho foundation-job-outcome failed x\n"))
+
 
 class TheRunOutcome(unittest.TestCase):
     """A run's last `foundation-job-outcome` line decides whether its outputs start anything."""
@@ -854,6 +877,41 @@ class EveryDatasetSaysHowItIsMade(unittest.TestCase):
                 self.assertIn(expected, problems[0])
 
 
+class FloorCycleOutcome(unittest.TestCase):
+    """`changed` needs evidence of a write: the cycle's persisted rows (2026-10-27: the floor job said
+    `changed` on `action=already_retained ... persisted_row_count=0`, and could start Gold for nothing)."""
+
+    def run_cycle(self, printed):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            script, release = FloorCycleAdapter().release_wrapper(root, "#!/bin/sh\nprintf '%s\\n' '" + printed + "'\n")
+            env = {
+                "PATH": os.environ["PATH"], "DATABASE_URL": "postgres://fixture/fixture",
+                "FOUNDATION_PLATFORM_REMOTE_LAKEHOUSE_ROOT": str(release),
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_FLOOR_HISTORY_PATH": "/fixture/history.json",
+                "FOUNDATION_PLATFORM_LAKEHOUSE_CONTROL_IMAGE": "sha256:" + "a" * 64,
+                "FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT": "/fixture/state",
+                "FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE": "/fixture/ivy",
+            }
+            result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout.splitlines()[-1]
+
+    def test_an_already_retained_edition_is_unchanged(self):
+        self.assertEqual(self.run_cycle(
+            "remote-lakehouse-job-ok job=building_register_floors_pipeline_full action=already_retained "
+            "retained_row_count=21 persisted_row_count=0 audit_recorded=false"), "foundation-job-outcome unchanged")
+
+    def test_persisted_rows_are_a_change(self):
+        self.assertEqual(self.run_cycle(
+            "remote-lakehouse-job-ok job=building_register_floors_pipeline_full contract=floor row_count=21 "
+            "persisted_row_count=21"), "foundation-job-outcome changed")
+
+    def test_no_job_line_is_not_a_change(self):
+        self.assertEqual(self.run_cycle("ran"),
+                         "foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line")
+
+
 class FloorCycleAdapter(unittest.TestCase):
     # The host layout (root ADR-0134): the read-only source under releases/<sha>, its trusted
     # build output under artifacts/<sha>, and FLOOR's configuration under config/<sha>.
@@ -972,9 +1030,10 @@ class FloorCycleAdapter(unittest.TestCase):
             }
             result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0260).
+            # The cycle's own output, then the run's outcome once it exited 0 (root ADR-0260); this
+            # stand-in reports no job, which is not taken for a change (FloorCycleOutcome).
             self.assertEqual(result.stdout.splitlines(), [
-                source_url.replace("postgres:5433", "127.0.0.1:15439"), "foundation-job-outcome changed"])
+                source_url.replace("postgres:5433", "127.0.0.1:15439"), "foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line"])
             self.assertEqual(result.stderr, "")
             # A failed Compose command must not be masked by a successful JSON consumer.
             docker.write_text(docker.read_text() + "exit 19\n")
@@ -1005,7 +1064,7 @@ class FloorCycleAdapter(unittest.TestCase):
                 "PUBLISHER_BIN": str(stale),
             }
             script = root / "current/scripts/ops/building-register-floor-cycle.sh"
-            for args, lines in [([], ["run-building-register-floor-cycle", "foundation-job-outcome changed"]),
+            for args, lines in [([], ["run-building-register-floor-cycle", "foundation-job-outcome failed the cycle printed no remote-lakehouse-job-ok line"]),
                                 (["cleanup"], ["stop-building-register-floor-cycle"])]:
                 result = subprocess.run(["bash", str(script), *args], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
