@@ -113,7 +113,7 @@ class TheUnpauseOrder(unittest.TestCase):
 
 
 class AnEventAPausedReaderMissedIsOwed(unittest.TestCase):
-    """Root ADR-0336, 2026-10-28: a deploy held by_pnu_public_auction_bake paused 21:19-21:40 while
+    """Root ADR-0337, 2026-10-28: a deploy held by_pnu_public_auction_bake paused 21:19-21:40 while
     gold_public_auction_rebuild ran; Airflow queued nothing for its 21:38 event (asset event 3912), and
     the bake waited 13 hours for its 10:45 fallback. The deploy asks owed_by_inputs once every DAG is
     unpaused; this pins that it answers for every reader the job list starts by its inputs."""

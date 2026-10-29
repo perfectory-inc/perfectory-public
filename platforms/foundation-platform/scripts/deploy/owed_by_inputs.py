@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The enabled jobs owed a run because an input changed while their DAG was paused (root ADR-0336).
+"""The enabled jobs owed a run because an input changed while their DAG was paused (root ADR-0337).
 
     python -I -B owed_by_inputs.py
 

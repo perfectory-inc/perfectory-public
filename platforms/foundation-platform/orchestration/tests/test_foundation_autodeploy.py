@@ -1182,7 +1182,7 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("started foundation_map_edit_fold_admin", result.stdout)
 
     def test_a_job_that_missed_an_input_event_while_paused_is_started_once_every_dag_is_unpaused(self):
-        # Root ADR-0336, 2026-10-28: the deploy held the public-auction bake paused while the rebuild,
+        # Root ADR-0337, 2026-10-28: the deploy held the public-auction bake paused while the rebuild,
         # given its schedule back, recorded asset event 3912; Airflow queued nothing for the paused bake
         # and it waited 13 hours for its 10:45 fallback.
         asks = self.root / "opt/foundation-platform/current/scripts/deploy/owed_by_inputs.py"

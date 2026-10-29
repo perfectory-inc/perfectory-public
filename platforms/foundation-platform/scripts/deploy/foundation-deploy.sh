@@ -53,7 +53,7 @@ repository="https://github.com/$(python3 -c 'import json,sys; print(json.load(op
 log() { printf '\n==== %s\n' "$*"; }
 as_deployer() { sudo -u "${deployer}" -H "$@"; }
 airflow() { as_deployer bash "${release_root}/current/scripts/deploy/airflow-runtime.sh" exec airflow-scheduler airflow "$@"; }
-# Which jobs missed an input event while paused (root ADR-0336), asked in the scheduler, which mounts
+# Which jobs missed an input event while paused (root ADR-0337), asked in the scheduler, which mounts
 # the release at the same path; a release from before it has nothing to ask with and owes nothing.
 owed_by_inputs() {
   local asks="${release_root}/current/scripts/deploy/owed_by_inputs.py"

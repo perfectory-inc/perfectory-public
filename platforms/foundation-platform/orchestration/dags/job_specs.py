@@ -635,7 +635,7 @@ def unpause_order(jobs=None, graph=None):
 
 def owed_by_inputs(specs, newest_event, newest_run, queued):
     """The enabled `inputs` jobs owed a run: an input changed after the job last started, and
-    nothing has queued it (root ADR-0336). In job-list order.
+    nothing has queued it (root ADR-0337). In job-list order.
 
     Airflow queues an output event only for the DAGs scheduled on it that are not paused
     (AssetManager.register_asset_change), and nothing replays it when the DAG is unpaused. On
