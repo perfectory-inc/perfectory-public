@@ -1,7 +1,7 @@
 {
  "schema_version": "foundation-platform.lakehouse_production_shape.v1",
  "decision": "docs/adr/0259-ci-migrates-the-production-table-shape.md",
- "captured_at": "2026-10-28T21:00:28Z",
+ "captured_at": "2026-10-29T06:36:47Z",
  "captured_by": "platforms/foundation-platform/scripts/ops/lakehouse-production-shape.py",
  "tables": {
   "gold.administrative_boundary_served": {
@@ -459,10 +459,13 @@
     [15, "source_part_id", "string", true],
     [16, "source_line_number", "long", true],
     [17, "source_snapshot_id", "string", true],
-    [18, "ingested_at_utc", "timestamp", true]
+    [18, "ingested_at_utc", "timestamp", true],
+    [20, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+   ]
   },
   "silver.building_register_floors": {
    "has_rows": true,
@@ -527,10 +530,13 @@
     [31, "source_line_number", "long", true],
     [32, "valid_from_utc", "timestamp", true],
     [33, "ingested_at_utc", "timestamp", true],
-    [34, "row_checksum_sha256", "string", true]
+    [34, "row_checksum_sha256", "string", true],
+    [35, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34]
+   ]
   },
   "silver.building_register_unit_areas": {
    "has_rows": true,
@@ -566,10 +572,13 @@
     [29, "valid_from_utc", "timestamp", true],
     [30, "ingested_at_utc", "timestamp", true],
     [31, "row_checksum_sha256", "string", true],
-    [32, "source_record_id", "string", true]
+    [32, "source_record_id", "string", true],
+    [33, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 32, 26, 27, 28, 29, 30, 31],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 32, 26, 27, 28, 29, 30, 31, 33],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]
+   ]
   },
   "silver.building_register_units": {
    "has_rows": true,
@@ -604,10 +613,13 @@
     [28, "unit_designation_normalized", "string", true],
     [29, "building_link_source_record_id", "string", true],
     [30, "building_link_input_sha256", "string", true],
-    [31, "building_link_reason", "string", true]
+    [31, "building_link_reason", "string", true],
+    [32, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 26, 4, 5, 6, 7, 22, 23, 28, 8, 9, 10, 11, 12, 29, 30, 31, 24, 25, 13, 14, 21, 27, 15, 16, 17, 18, 19, 20],
-   "earlier": []
+   "columns": [1, 2, 3, 26, 4, 5, 6, 7, 22, 23, 28, 8, 9, 10, 11, 12, 29, 30, 31, 24, 25, 13, 14, 21, 27, 15, 16, 17, 18, 19, 20, 32],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+   ]
   },
   "silver.building_register_units_smoke": {
    "has_rows": true,
@@ -987,10 +999,13 @@
     [15, "remark", "string", true],
     [16, "source_record_id", "string", true],
     [17, "source_snapshot_id", "string", true],
-    [18, "ingested_at_utc", "timestamp", true]
+    [18, "ingested_at_utc", "timestamp", true],
+    [19, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+   ]
   },
   "silver.land_use_zone_code": {
    "has_rows": true,
@@ -1014,10 +1029,13 @@
     [17, "last_updated_date", "string", true],
     [18, "source_record_id", "string", true],
     [19, "source_snapshot_id", "string", true],
-    [20, "ingested_at_utc", "timestamp", true]
+    [20, "ingested_at_utc", "timestamp", true],
+    [21, "row_state", "string", true]
    ],
-   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20],
-   "earlier": []
+   "columns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21],
+   "earlier": [
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+   ]
   },
   "silver.map_edit_ledger": {
    "has_rows": false,
