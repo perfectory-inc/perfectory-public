@@ -128,20 +128,24 @@ impl BuildingRegisterBasisIndex {
         use sha2::{Digest, Sha256};
         use std::fmt::Write as _;
 
-        let fact = |pk: &str| match self.entries.get(pk) {
-            None => format!("{pk}\u{1f}absent"),
-            Some(entry) => format!(
-                "{pk}\u{1f}{}\u{1f}{}\u{1f}{}",
-                entry.parent_pk.as_deref().unwrap_or_default(),
-                entry.kind,
-                entry.conflicting
-            ),
+        let fact = |pk: &str| {
+            self.entries.get(pk).map_or_else(
+                || format!("{pk}\u{1f}absent"),
+                |entry| {
+                    format!(
+                        "{pk}\u{1f}{}\u{1f}{}\u{1f}{}",
+                        entry.parent_pk.as_deref().unwrap_or_default(),
+                        entry.kind,
+                        entry.conflicting
+                    )
+                },
+            )
         };
         let parent = self
             .entries
             .get(unit_pk)
             .and_then(|entry| entry.parent_pk.as_deref())
-            .map_or_else(String::new, &fact);
+            .map_or_else(String::new, fact);
         let payload = format!(
             "building-link-evidence:v1\u{1f}{}\u{1f}{parent}",
             fact(unit_pk)

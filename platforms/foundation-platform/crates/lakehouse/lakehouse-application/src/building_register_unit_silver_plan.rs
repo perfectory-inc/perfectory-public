@@ -907,8 +907,11 @@ mod tests {
             )?;
             Ok(rows[0].unit_row_id.clone())
         };
-        let september = id_in("bronze/source=x/OPN202609.zip", 17)?;
-        assert_eq!(september, id_in("bronze/source=x/OPN202610.zip", 90_210)?);
+        let september = id_in("bronze/source=x/OPN209911300000000003.zip", 17)?;
+        assert_eq!(
+            september,
+            id_in("bronze/source=x/OPN209912310000000003.zip", 90_210)?
+        );
         assert_eq!(
             september,
             natural_row_identity("building-register-unit", &["1002129933"], 1)
