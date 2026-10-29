@@ -181,3 +181,35 @@
 (d) 가 Airflow 3.3.2 에서 되지 않으므로 §3 에 따라 파티션 자산의 엔진은 Dagster(`dagster-airlift` 로 레인 하나씩, 같은
 계약에서 정의 생성)다. 이 조각은 그 이행을 시작하지 않았다: 1단계의 자산은 파티션이 없고, 조정기는 Airflow 에서 돈다.
 3단계(첫 `sido` 파티션) 전에 이행 순서를 정한다.
+
+### 2026-10-29 — Dagster 0단계(observe)
+
+시험 (d)(파티션 단위 검사가 실패를 남기고 하류를 막음)가 Airflow 3.3.2 에서 실패했다(#940 의 기록). §3 에 따라 Dagster
+로의 이행을 `dagster-airlift` 의 이행 안내(peer → observe → migrate) 첫 단계로 시작했다. **실행은 하나도 옮기지 않았다:**
+Airflow 가 모든 작업을 그대로 돌리고, Dagster 는 보기만 한다.
+
+- **버전**: Dagster 1.13.27, dagster-airlift 0.29.27(둘 다 2026-10-29 최신), 이미지 `python:3.14.10-slim-trixie`.
+  `tools/technology-versions.contract.json` 의 `python_requirement_pins` 가 정본이고, 이미지의 해시 잠금
+  (`orchestration/dagster/requirements.txt`)은 거기서 컴파일된다.
+- **정의는 생성된다**: 그래프 노드 142개가 자산 142개, 간선이 의존이다. 작업의 `publish_outputs` 과제(Airflow 가 출력
+  자산 사건을 기록하는 그 과제)가 그 작업이 쓰는 노드에 매핑된다(`orchestration/dagster/observe_assets.py`,
+  `job_specs.load_specs` 재사용). 그래프의 순환 하나(계보 관리 → silver·reference 되먹임)는 의존이 아닌 메타데이터로
+  두고, 그 밖의 순환은 생성기가 거부한다.
+- **airlift 는 Airflow 3 를 아직 지원하지 않는다**(0.29.27 은 `/api/v1`·basic auth, 자체 시험도 Airflow 3 를 건너뜀).
+  공개 확장점(`AirflowAuthBackend`)에 얇은 어댑터(`airflow3.py`: `/api/v2`, `POST /auth/token` 토큰, 논리 날짜가 없는
+  실행의 `run_after`)를 두었다. 로컬 Airflow 3.3.2(운영 다이제스트)에 대고 확인했고, 운영자가 시작 전에 성공 처리한
+  실행이 센서를 영구히 멈추는 결함도 거기서 찾아 막았다.
+- **동등성 시험**: 운영의 2026-10-28 하루(작업 DAG 실행 177, `publish_outputs` 성공 77, 자산 사건 190)를 기록해
+  airlift 의 센서에 되돌려 넣으면 Dagster 의 materialization 이 Airflow 의 자산 사건과 실행 단위로 정확히 같다
+  (`orchestration/tests/test_dagster_observe.py`, CI `dagster-observe` 레인이 이미지 안에서 돌린다).
+- **단가 검사(보고만)**: `iceberg/gold/unit_price` 의 `rows_valid_per_sido`(키 중복·PNU 형식·`published_at_utc`,
+  시도별로 세고 실패 시도를 이름으로 남김)와 단가 레인의 `serves_the_newest_gold`(§7 의 지연을 Dagster 의 사건 기록에서
+  계산, 예산은 `by_pnu_section_packs.freshness_budget_hours`). 둘 다 `blocking=False`·WARN 이다.
+- **배치**: `compose.orchestration.yml` 의 `dagster-observe` 프로필(웹서버 352m·데몬 544m, 측정한 익명 메모리 최고
+  271·410 MiB × 1.3), 저장소는 airflow-db 안의 자기 데이터베이스·역할, UI 는 `127.0.0.1:19085`. 이미지는 릴리스와
+  같은 서명 공급망으로 오고(`OPTIONAL_COMPOSE_IMAGES`), 스위치는 `orchestration/jobs.v1.json`
+  `observers.dagster.enabled`(기본 꺼짐)이며 켜고 끄는 것은 배포가 부르는 `airflow-runtime.sh` 다. 호스트 메모리 예산
+  61.02g → 61.89g / 62g.
+- **다음**: 스위치를 켜 일주일 동안 observe 가 깨끗하면(센서 오류 0, 동등성 유지) 레인 하나씩 migrate 한다. 첫 레인은
+  단가(`gold.unit_price` → 단가 레인): 1단계(#940)가 이미 자기 작업 둘로 떼었고, 검사가 붙어 있으며, 작고, (d) 의 피해
+  자산이다.

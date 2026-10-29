@@ -69,6 +69,13 @@ class FoundationCiScopeTest(unittest.TestCase):
                 "platforms/foundation-platform/crates/publisher/foundation-publisher-tiles/src/static_release_toolchain.rs",
                 "platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs",
             ),
+            "dagster-observe": (
+                "scripts/verify/foundation-dagster-observe.sh",
+                "platforms/foundation-platform/orchestration/dagster/Dockerfile",
+                "platforms/foundation-platform/orchestration/jobs.v1.json",
+                "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+                "platforms/foundation-platform/orchestration/tests/fixtures/airflow-recorded-day.json",
+            ),
         }
 
         self.assertEqual(set(witnesses), set(scope.GATES))
@@ -161,7 +168,7 @@ class FoundationCiScopeTest(unittest.TestCase):
         )
         self.assertEqual(
             skipped,
-            ["boundary-slice", "compose-smoke", "spark-runtime", "static-release-toolchain-windows",
+            ["boundary-slice", "compose-smoke", "dagster-observe", "spark-runtime", "static-release-toolchain-windows",
              "suites", "supply-chain"],
         )
         # A document: no crate, so neither Rust job runs.
@@ -242,6 +249,16 @@ class FoundationCiScopeTest(unittest.TestCase):
                 "static-release-toolchain-windows",
                 "exact",
                 "platforms/foundation-platform/config/static-release-toolchain.contract.json",
+            ),
+            (
+                "dagster-observe",
+                "prefixes",
+                "platforms/foundation-platform/orchestration/dagster/",
+            ),
+            (
+                "dagster-observe",
+                "exact",
+                "platforms/foundation-platform/orchestration/jobs.v1.json",
             ),
         )
         for gate, kind, route in mutations:
@@ -341,14 +358,14 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.workflow = FOUNDATION_WORKFLOW.read_text(encoding="utf-8")
 
-    def test_required_foundation_aggregates_the_scope_and_nine_jobs(self) -> None:
+    def test_required_foundation_aggregates_the_scope_and_ten_jobs(self) -> None:
         self.assertIn(
             "needs: [scope, rust-quality, suites, static-release-toolchain-windows, supply-chain, "
-            "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime]",
+            "postgres-integration, kafka-integration, compose-smoke, boundary-slice, spark-runtime, dagster-observe]",
             self.workflow,
         )
-        # The nine gates and the area scope job (root ADR-0313).
-        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 10)
+        # The ten gates and the area scope job (root ADR-0313).
+        self.assertEqual(self.workflow.count("REQUIRED_RESULT_"), 11)
         # Root ADR-0324: the scope job names the jobs with no work; each gate and the result read it.
         self.assertIn("--skipped-jobs", self._job_section("scope"))
         self.assertIn("CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}", self.workflow)

@@ -53,7 +53,8 @@
     {
       "name": "airflow",
       "files": ["platforms/foundation-platform/compose.orchestration.yml"],
-      "profiles": []
+      "profiles": ["dagster-observe"],
+      "profiles_why": "dagster-observe (root ADR-0333 stage 0) is off until orchestration/jobs.v1.json observers.dagster.enabled turns it on; it is counted as on, so switching it on needs no budget decision of its own."
     },
     {
       "name": "identity-platform-runtime",

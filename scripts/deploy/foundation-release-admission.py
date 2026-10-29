@@ -258,14 +258,14 @@ def seal_artifacts(release_id: str, target: Path, images: dict[str, str],
     if not jars or set(files) != {"foundation-outbox-publisher", *jars}:
         raise ValueError("unexpected build output; a publisher and resolved jars are required")
     own = {name for name, _, _, _ in RELEASE_IMAGES}
-    if set(images) not in (own, own | set(COMPOSE_IMAGES)) or not all(
+    if set(images) - set(OPTIONAL_COMPOSE_IMAGES) not in (own, own | set(COMPOSE_IMAGES)) or not all(
             re.fullmatch(r"sha256:[0-9a-f]{64}", image) for image in images.values()):
         raise ValueError("every release image needs an immutable image ID")
     manifest = {"source": release_id, "files": files}
     for name, tag_of, _, _ in RELEASE_IMAGES:
         manifest[f"{name}_image"] = images[name]
         manifest[f"{name}_tag"] = tag_of(release_id)
-    for name in set(COMPOSE_IMAGES) & set(images):
+    for name in set(COMPOSE_IMAGES + OPTIONAL_COMPOSE_IMAGES) & set(images):
         manifest[f"{name}_image"] = images[name]
     for name, index in (caches or {}).items():
         if index is not None and not re.fullmatch(r"[0-9a-f]{64}", index):
@@ -352,6 +352,10 @@ RELEASE_IMAGES = (
 # not tagged here: foundation-release.sh tags them as compose names them when it migrates (root
 # ADR-0276 §13), so the server builds none of them.
 COMPOSE_IMAGES = ("foundation-platform-runtime", "foundation-postgres-recovery")
+# Compose images a release may carry or not: a release built before one existed is still admitted
+# (a rollback), and what it does not carry is not tagged. The Dagster observer's (root ADR-0333 stage
+# 0) starts only when its image is there (airflow-runtime.sh); nothing else waits on it.
+OPTIONAL_COMPOSE_IMAGES = ("foundation-platform-dagster",)
 
 
 def require_release_images(release_id: str, artifacts: Path) -> None:
@@ -698,7 +702,8 @@ def registry_files(manifest: dict, settings: dict[str, str], token: str, output:
 def registry_images(release_id: str, manifest: dict, settings: dict[str, str], tag: bool) -> dict[str, str]:
     """Each image admission runs, pulled by digest; its ID must be the signed config. Tagged only to install."""
     images = {}
-    for name, tag_of in [(name, tag_of) for name, tag_of, _, _ in RELEASE_IMAGES] + [(name, None) for name in COMPOSE_IMAGES]:
+    optional = [(name, None) for name in OPTIONAL_COMPOSE_IMAGES if name in manifest["images"]]
+    for name, tag_of in [(name, tag_of) for name, tag_of, _, _ in RELEASE_IMAGES] + [(name, None) for name in COMPOSE_IMAGES] + optional:
         entry = manifest["images"][name]
         reference = f"{REGISTRY_HOST}/{settings['repository']}@{entry['oci_manifest']}"
         subprocess.check_output(["/usr/bin/docker", "pull", "--quiet", reference], env=control_environment(), stderr=subprocess.PIPE)
@@ -730,7 +735,7 @@ def tag_compose_images(release_id: str) -> int:
     artifacts = ARTIFACT_ROOT / release_id
     verify_artifacts(release_id, artifacts)
     build = json.loads((artifacts / "build.json").read_text(encoding="utf-8"))
-    recorded = [name for name in COMPOSE_IMAGES if f"{name}_image" in build]
+    recorded = [name for name in COMPOSE_IMAGES + OPTIONAL_COMPOSE_IMAGES if f"{name}_image" in build]
     for name in recorded:
         subprocess.check_output(["/usr/bin/docker", "tag", build[f"{name}_image"], f"{name}:local"],
                                 env=control_environment(), stderr=subprocess.PIPE)

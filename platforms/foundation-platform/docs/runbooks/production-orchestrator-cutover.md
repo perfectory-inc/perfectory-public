@@ -84,3 +84,16 @@ journalctl -u foundation-outbox-publish.service -n 20 # Airflow 가 시작한 �
 
 `jobs.v1.json` 의 `enabled` 를 `false` 로, 타이머 파일과 `timers` 목록을 되살린 변경을 배포한다. `timers` 가 타이머를
 다시 켜고 허용 목록에서 그 서비스를 뺀다. Airflow 는 다음 `up` 에서 DAG 를 멈춘다.
+
+## Dagster 관찰자 (0단계, observe)
+
+[루트 ADR-0333](../../../../docs/adr/0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md)
+이행 기록. Dagster 는 Airflow 의 실행을 자산 materialization 으로 비출 뿐 작업을 하나도 돌리지 않는다.
+
+- 켜기·끄기: `jobs.v1.json` 의 `observers.dagster.enabled` 를 바꾼 변경을 배포한다. 배포 5단계의
+  `airflow-runtime.sh up -d` 가 프로필 `dagster-observe` 를 켜고 airflow-db 안에 데이터베이스·역할 `dagster`, Airflow
+  Viewer 계정 `foundation-dagster-observe` 를 만든 뒤 다시 시작한다. 끄면 컨테이너 둘만 지우고 데이터베이스는 남긴다.
+  Dagster 가 뜨지 않아도 배포는 실패하지 않고 `WARN dagster:` 줄을 남긴다.
+- 보기: `ssh -L 19085:127.0.0.1:19085 ai-server` 뒤 `http://127.0.0.1:19085`. 자산 142개(그래프 노드), 센서
+  `foundation_airflow__airflow_dag_status_sensor`(30초), 단가 검사 둘(WARN, 막지 않음).
+- 깨끗한지: 센서 틱에 오류가 없고, Airflow 의 그날 자산 사건 수와 Dagster 의 materialization 수가 같다.
