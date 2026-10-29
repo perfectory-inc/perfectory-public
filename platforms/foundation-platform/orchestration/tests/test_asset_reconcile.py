@@ -46,7 +46,10 @@ class Reconciler(unittest.TestCase):
     def setUpClass(cls):
         jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
         graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
-        cls.assets = {asset.job: asset for asset in asset_reconcile.assets(jobs, graph, asset_reconcile.gold_rebuild.load_contract())}
+        found = asset_reconcile.assets(jobs, graph, asset_reconcile.gold_rebuild.load_contract())
+        # The panel bake serves several lanes, each its own asset; the other jobs make one each.
+        cls.lanes = {asset.lane: asset for asset in found if asset.job == "by_pnu_serving_bake"}
+        cls.assets = {asset.job: asset for asset in found if asset.job != "by_pnu_serving_bake"}
         cls.jobs = jobs
 
     def setUp(self):
@@ -64,13 +67,24 @@ class Reconciler(unittest.TestCase):
                       "building": {"read_snapshot_id": "201", "outcome": "served"}}
         self.running, self.full = set(), set()
 
-    def tick(self, now_minutes=40, state=None):
-        return asset_reconcile.tick(T0 + 60 * now_minutes, list(self.assets.values()), self.catalog.__getitem__,
+    def tick(self, now_minutes=40, state=None, panel=False):
+        found = list(self.assets.values()) + (list(self.lanes.values()) if panel else [])
+        return asset_reconcile.tick(T0 + 60 * now_minutes, found, self.catalog.__getitem__,
                                     self.reads.get, lambda service: service in self.running,
                                     lambda job: "full" if job in self.full else "", state or {})
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake"})
+        # Every lane the panel bake serves is an asset of its own, fed from its one Gold table; inside
+        # the one unit the kinds follow the parcel lane by run order, so none follows across jobs.
+        self.assertEqual({lane: (asset.lane_table, asset.follows, asset.uri) for lane, asset in self.lanes.items()},
+                         {lane: (table, None, f"perfectory://{lane}-by-pnu-section-packs") for lane, table in {
+                             "parcel": "gold.parcel_panel", "building": "gold.building_panel",
+                             "parcel-zoning": "gold.parcel_zoning", "parcel-price": "gold.parcel_price",
+                             "parcel-characteristics": "gold.parcel_characteristics",
+                             "parcel-forest-ledger": "gold.parcel_forest_ledger",
+                             "parcel-transfer-history": "gold.parcel_transfer_history",
+                             "parcel-land-rights": "gold.parcel_land_rights"}.items()})
         price = self.assets["gold_unit_price_rebuild"]
         self.assertEqual(price.uri, "iceberg://gold.unit_price")
         self.assertEqual(price.inputs, ("silver.building_register_titles", "silver.building_register_units",
@@ -165,6 +179,101 @@ class Reconciler(unittest.TestCase):
         self.assertIn('foundation_asset_reconcile_error{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 1',
                       metrics)
         self.assertTrue(metrics[-1].startswith("foundation_asset_reconcile_timestamp_seconds "))
+
+    def panel_caught_up(self):
+        for lane, asset in self.lanes.items():
+            self.catalog[asset.lane_table] = table(snap(f"5{len(lane)}", None, 0))
+            self.reads[lane] = {"read_snapshot_id": f"5{len(lane)}", "outcome": "served"}
+        self.catalog["gold.building_panel"] = table(snap("201", None, 0, operation="overwrite",
+                                                         pins={"silver.building_register_titles": "11",
+                                                               "silver.building_register_units": "21"}))
+        self.reads["building"] = {"read_snapshot_id": "201", "outcome": "served"}
+
+    def panel_owed(self, owed):
+        return [line for line in owed if line.startswith("foundation-asset-owed by_pnu_serving_bake ")]
+
+    def test_2026_10_29_the_failed_forest_ledger_lane_is_owed_a_start_of_the_panel_bake(self):
+        # 07:41Z: the lane failed inside `all` (a container name collision) and recorded no read; the
+        # 10:15 start was deferred by takes_turns and ended unchanged. Its Gold is ahead of what it serves.
+        self.panel_caught_up()
+        self.reads["parcel-forest-ledger"] = None
+        owed, metrics, _, errors = self.tick(panel=True)
+        self.assertEqual(errors, [])
+        [line] = self.panel_owed(owed)
+        self.assertIn('foundation_asset_owed{asset="perfectory://parcel-forest-ledger-by-pnu-section-packs",'
+                      'job="by_pnu_serving_bake"} 1', metrics)
+        self.assertIn('foundation_asset_owed{asset="perfectory://parcel-zoning-by-pnu-section-packs",'
+                      'job="by_pnu_serving_bake"} 0', metrics)
+        # A second owed lane is the same one start, under a key of both lanes' versions.
+        self.catalog["gold.parcel_zoning"] = table(*self.catalog["gold.parcel_zoning"]["snapshots"],
+                                                   snap("777", self.catalog["gold.parcel_zoning"]["head"], 20))
+        owed, _, _, _ = self.tick(panel=True)
+        [both] = self.panel_owed(owed)
+        self.assertNotEqual(both, line)
+        # While the bake runs it is not started again; the lane lock and the pool stay the bake's.
+        self.running = {"foundation-by-pnu-serving-bake.service"}
+        owed, _, _, _ = self.tick(panel=True)
+        self.assertEqual(self.panel_owed(owed), [])
+
+    def test_a_failed_lane_is_owed_again_after_its_backoff_under_a_new_key(self):
+        # 2026-10-29 07:19Z and 07:40Z the unit price bake failed; every tick after owed the key already
+        # started, so the trigger skipped it as existing. A failure is now a version of its own.
+        self.catalog["gold.unit_price"] = table(*self.catalog["gold.unit_price"]["snapshots"], snap("302", "301", 20))
+        owed, _, _, _ = self.tick(30)
+        [before] = [line for line in owed if " by_pnu_unit_price_bake " in line]
+        self.reads["unit-price"] = {"read_snapshot_id": "301", "outcome": "failed", "at": at(32)[:19] + "Z",
+                                    "consecutive_failures": 1}
+        owed, metrics, state, _ = self.tick(35)
+        self.assertFalse(any(" by_pnu_unit_price_bake " in line for line in owed), "inside its ten-minute backoff")
+        self.assertNotIn("unscheduled_since", state["perfectory://unit-price-by-pnu-section-packs"])
+        owed, _, _, _ = self.tick(43)
+        [first] = [line for line in owed if " by_pnu_unit_price_bake " in line]
+        self.assertNotEqual(first, before)
+        # The second failure in a row waits twenty minutes, and owes another key.
+        self.reads["unit-price"] = {**self.reads["unit-price"], "at": at(50)[:19] + "Z", "consecutive_failures": 2}
+        owed, _, _, _ = self.tick(65)
+        self.assertFalse(any(" by_pnu_unit_price_bake " in line for line in owed))
+        owed, _, _, _ = self.tick(71)
+        [second] = [line for line in owed if " by_pnu_unit_price_bake " in line]
+        self.assertNotIn(second, (before, first))
+        self.assertEqual(asset_reconcile.failure_backoff(9), 4 * 3600)
+
+    def test_a_bake_finished_at_its_pin_is_owed_the_patch_forward(self):
+        # Root ADR-0310: a full bake finishes at the snapshot it pinned and the next run patches it to
+        # the head; the read moved, so the versions owed did, though the head did not.
+        self.catalog["gold.parcel_public_auction"] = table(*self.catalog["gold.parcel_public_auction"]["snapshots"],
+                                                           snap("103", "102", 35))
+        owed, _, _, _ = self.tick()
+        self.reads["parcel-public-auction"]["read_snapshot_id"] = "102"
+        forward, _, _, _ = self.tick()
+        self.assertEqual(len(forward), 1)
+        self.assertNotEqual(forward, owed)
+
+    def test_the_lane_reads_count_the_failures_in_a_row(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as root:
+            lane = pathlib.Path(root, "parcel-forest-ledger")
+            lane.mkdir()
+            lines = [{"outcome": "failed"}, {"outcome": "served", "read_snapshot_id": "1"},
+                     {"outcome": "failed", "read_snapshot_id": "1"}, {"outcome": "failed", "read_snapshot_id": "1"}]
+            (lane / "reads.jsonl").write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+            read = asset_reconcile.last_read(pathlib.Path(root))
+            self.assertEqual(read("parcel-forest-ledger")["consecutive_failures"], 2)
+            self.assertIsNone(read("parcel-zoning"))
+
+    def test_the_bridge_networks_are_counted_against_the_address_pools(self):
+        # 2026-10-29: 23 of 31 taken, 10 by per-run Compose projects whose cleanup failed.
+        def docker(networks, pools):
+            return lambda command: pools if "info" in command else networks
+        text = asset_reconcile.bridge_networks(docker("a\n" * 23, "null\n"))
+        self.assertIn("foundation_docker_bridge_networks 23\n", text)
+        self.assertIn("foundation_docker_address_pool_networks 31\n", text, "Docker's default pools")
+        configured = json.dumps([{"Base": "10.200.0.0/16", "Size": 24}])
+        self.assertIn("foundation_docker_address_pool_networks 256\n",
+                      asset_reconcile.bridge_networks(docker("", configured)))
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn("alert: FoundationDockerAddressPoolNearlyFull", rules)
+        self.assertIn('node_textfile_mtime_seconds{file=~".*/docker-networks.prom"}', rules)
 
     def test_the_unscheduled_alert_waits_three_reconcile_periods(self):
         # Root ADR-0333 §7: the alert fires past three times the reconciler's period.

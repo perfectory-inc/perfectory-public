@@ -8,7 +8,7 @@ serves it was never queued: Airflow drops an event for a paused DAG and a deploy
 (root ADR-0337). Nothing measured it; the screen would have waited 13 hours for the 10:45 fallback.
 An event is a fast path that can be lost. This compares state, as a Kubernetes controller or Dagster's
 declarative automation does: for each job of the reconciler's `reconciles` (orchestration/jobs.v1.json)
-it makes one asset, and
+it makes one asset (one per lane for a bake that serves several, by_pnu_serving_bake), and
 
 - the versions the asset's inputs are at now: a Gold input's `main` head, read from the catalog over
   REST (iceberg_metadata.py); for an input the Gold contract pins to another Gold's build
@@ -25,7 +25,8 @@ is waiting for that lane, which has not moved since. Each owed asset is printed
 
     foundation-asset-owed <job id> <key>
 
-with a key of the versions it owes, and the reconciler's DAG starts the job once per key unless a run
+once per job, with a key of the versions its owed assets owe (a lane's read snapshot and, after a
+failed run, its failures in a row, started again after a backoff: lane_verdict), and the reconciler's DAG starts the job once per key unless a run
 of it is queued or running (orchestration/dags/foundation_jobs.py): a repeated tick or a lost event
 never starts it twice, and the start waits for the job's pool like any other.
 
@@ -33,7 +34,9 @@ It writes, for node-exporter's textfile collector (/var/lib/foundation-jobs/metr
 foundation_asset_lag_seconds (the newest unread input change less the read version's commit time, 0
 when caught up), foundation_asset_unscheduled_since_timestamp_seconds (while an owed asset is not
 running, not waiting and its pool has room: since the later of its first unread change and the last
-tick that saw it running or its pool full) and foundation_asset_reconcile_timestamp_seconds. The
+tick that saw it running or its pool full) and foundation_asset_reconcile_timestamp_seconds; and
+beside it docker-networks.prom, the host's bridge networks against what Docker's address pools hold,
+which every job's Compose project draws from (bridge_networks). The
 FoundationAsset* rules turn them into asset_lag_seconds and asset_unscheduled_seconds and alert. The
 idle-since times are kept under the job's state path between ticks. It changes no data: its outcome
 is `unchanged`, or `failed` when no asset could be read.
@@ -42,11 +45,14 @@ is `unchanged`, or `failed` when no asset could be read.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 # The unit runs this file itself: no bytecode beside the release (2026-10 the deploy's imports did).
@@ -70,6 +76,9 @@ METRICS_DIR = "/var/lib/foundation-jobs/metrics"
 READS = "reads.jsonl"
 # The by-PNU serving surface of a lane is this node of the pipeline graph (`<lane>-by-pnu-section-packs`).
 PACKS_SUFFIX = "-by-pnu-section-packs"
+# A failed lane is started again after this, doubling per failure in a row up to the cap (lane_verdict).
+FAILURE_BACKOFF_BASE = 600.0
+FAILURE_BACKOFF_CAP = 4 * 3600.0
 
 
 @dataclass(frozen=True)
@@ -94,42 +103,57 @@ class Verdict:
     waiting: str | None = None
     note: str = ""
 
-    def key(self) -> str:
-        return hashlib.sha256(json.dumps(self.versions, sort_keys=True).encode()).hexdigest()[:16]
-
 
 def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
-    """The asset of every job the reconciler reconciles, from the job list, the graph and the contracts."""
+    """The assets of every job the reconciler reconciles, from the job list, the graph and the contracts:
+    a Gold job's one table, or each lane a by-PNU bake serves (by_pnu_serving_bake serves several, one
+    after the other in one unit; each lane records its own reads, so each is its own asset)."""
     listing = {job["id"]: job for job in jobs["jobs"]}
     nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {edge["id"]: edge for edge in graph["edges"]}
     carried = job_specs.job_nodes(jobs, graph)
     found = []
     for job_id in listing[RECONCILER]["reconciles"]:
-        inputs, (output,) = carried[job_id]
-        node = nodes[output]
-        uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
+        inputs, outputs = carried[job_id]
         service = listing[job_id]["systemd_service"]
-        tables = [nodes[name]["table_name"] for name in inputs if nodes[name].get("table_name")]
-        if node.get("table_name"):
+        if len(outputs) == 1 and nodes[outputs[0]].get("table_name"):
+            node = nodes[outputs[0]]
+            uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
+            tables = [nodes[name]["table_name"] for name in inputs if nodes[name].get("table_name")]
             entry = contract["tables"][node["table_name"]]
             pins_from = entry.get("pins_from")
             pinning = pins_from["gold_table"] if pins_from else None
             found.append(Asset(job_id, uri, service, gold=node["table_name"],
                                inputs=tuple(sorted(t for t in tables if t != pinning)), pins_from=pins_from))
-        elif output.endswith(PACKS_SUFFIX):
-            lane = output.removesuffix(PACKS_SUFFIX)
-            fields = by_pnu_kinds.lane_fields(lane)
-            (table,) = tables
-            if table != fields["gold_table"]:
-                raise ValueError(f"{job_id}: the graph feeds {output} from {table}, the contract from {fields['gold_table']}")
-            # The lane whose served documents this lane's must match (the unit price lane's building
-            # lane), as the bake's own gate reads it; only across jobs: inside one bake the lanes run in order.
-            follows = lane_follow_gate.followed_lane(lane) or None
-            if follows and job_specs.writer_of(f"{follows}{PACKS_SUFFIX}", jobs, graph) == job_id:
-                follows = None
+            continue
+        # The Gold tables each lane is fed from; a lane's object serving node and its packs are one lane.
+        feeds: dict[str, set] = {}
+        for edge_id in listing[job_id]["pipeline_graph_edges"]:
+            edge = edges[edge_id]
+            lane = job_specs.by_pnu_lane_of(edge["to"])
+            if lane is None:
+                raise ValueError(f"{job_id}: makes {edge['to']}, neither a Gold table nor a by-PNU lane's serving")
+            if nodes[edge["from"]].get("table_name"):
+                feeds.setdefault(lane, set()).add(nodes[edge["from"]]["table_name"])
+        # The parcel and building lanes are the hosts; every other lane is a contract `by_pnu_lanes` lane.
+        contract_lanes = json.loads(by_pnu_kinds.CONTRACT_PATH.read_text(encoding="utf-8"))["by_pnu_lanes"]
+        for lane in sorted(feeds):
+            if len(feeds[lane]) != 1:
+                raise ValueError(f"{job_id}: the {lane} lane is fed from {sorted(feeds[lane])}, not one Gold table")
+            (table,) = feeds[lane]
+            node = nodes[f"{lane}{PACKS_SUFFIX}"]
+            uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
+            follows = None
+            if lane in contract_lanes:
+                fields = by_pnu_kinds.lane_fields(lane)
+                if table != fields["gold_table"]:
+                    raise ValueError(f"{job_id}: the graph feeds {lane} from {table}, the contract from {fields['gold_table']}")
+                # The lane whose served documents this lane's must match (the unit price lane's building
+                # lane), as the bake's own gate reads it; only across jobs: inside one bake the lanes run in order.
+                follows = lane_follow_gate.followed_lane(lane) or None
+                if follows and job_specs.writer_of(f"{follows}{PACKS_SUFFIX}", jobs, graph) == job_id:
+                    follows = None
             found.append(Asset(job_id, uri, service, lane=lane, lane_table=table, follows=follows))
-        else:
-            raise ValueError(f"{job_id}: makes {output}, neither a Gold table nor a by-PNU lane's packs")
     return found
 
 
@@ -195,12 +219,27 @@ def gold_verdict(asset: Asset, table) -> Verdict:
     return verdict
 
 
-def lane_verdict(asset: Asset, table, reads) -> Verdict:
-    """Owed when the lane's Gold moved past the snapshot its last run left served."""
+def failure_backoff(failures: int) -> float:
+    """Seconds after its n-th failure in a row before a lane is started again: doubling from ten
+    minutes to four hours, as a Kubernetes workqueue's exponential failure rate limiter requeues."""
+    return min(FAILURE_BACKOFF_BASE * 2 ** (failures - 1), FAILURE_BACKOFF_CAP)
+
+
+def lane_verdict(asset: Asset, table, reads, now: float) -> Verdict:
+    """Owed when the lane's Gold moved past the snapshot its last run left served.
+
+    The versions owed name the snapshot read too, so a run that moved the lane but not to the head (a
+    full bake finished at its ADR-0310 pin) is owed the next start; and after a failed run the number
+    of failures in a row, so a failure is owed a new start once its backoff has passed, where the same
+    key would have started it once only (2026-10-29: the unit price bake failed at 07:19Z and 07:40Z,
+    and every tick owed the key already started)."""
     gold = table(asset.lane_table)
     last = reads(asset.lane)
     read = None if last is None else last.get("read_snapshot_id")
-    versions = {asset.lane_table: gold["head"]}
+    versions = {asset.lane_table: gold["head"], "read": read}
+    failures = (last or {}).get("consecutive_failures", 0) if (last or {}).get("outcome") == "failed" else 0
+    if failures:
+        versions["failures"] = failures
     followed = None
     if asset.follows:
         followed = (reads(asset.follows) or {}).get("read_snapshot_id")
@@ -219,6 +258,11 @@ def lane_verdict(asset: Asset, table, reads) -> Verdict:
         base = read_time(gold, read)
         verdict.lag = new - (base if base is not None else old)
         verdict.owed_since = old
+    if failures:
+        retry_at = datetime.fromisoformat(last["at"].replace("Z", "+00:00")).timestamp() + failure_backoff(failures)
+        if now < retry_at:
+            verdict.waiting = f"failed {failures} times in a row, last at {last['at']}; started again from {retry_at:.0f}"
+        return verdict
     waiting = last.get("waiting_on")
     # It waited for the lane it follows at this very Gold, and that lane serves what it served then.
     if (last.get("outcome") == "waiting" and isinstance(waiting, dict) and waiting.get("lane") == asset.follows
@@ -230,12 +274,12 @@ def lane_verdict(asset: Asset, table, reads) -> Verdict:
 
 def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict):
     """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables."""
-    owed_lines, metrics, errors, next_state = [], [], [], {}
+    owed_by_job, metrics, errors, next_state = {}, [], [], {}
     for asset in found:
         labels = f'asset="{asset.uri}",job="{asset.job}"'
         kept = dict(state.get(asset.uri, {}))
         try:
-            verdict = gold_verdict(asset, table) if asset.gold else lane_verdict(asset, table, reads)
+            verdict = gold_verdict(asset, table) if asset.gold else lane_verdict(asset, table, reads, now)
             busy = running(asset.service)
             full = "" if busy else pool_full(asset.job)
         except Exception as error:  # noqa: BLE001 -- one asset that cannot be read does not stop the others
@@ -251,7 +295,7 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
         if busy or full:
             kept["busy_at"] = now
         if verdict.owed and not busy and not verdict.waiting:
-            owed_lines.append(f"foundation-asset-owed {asset.job} {verdict.key()}")
+            owed_by_job.setdefault(asset.job, {})[asset.uri] = verdict.versions
         if verdict.owed and not busy and not full and not verdict.waiting:
             since = kept.get("unscheduled_since") or max(verdict.owed_since or now, kept.get("busy_at", 0.0))
             kept["unscheduled_since"] = min(since, now)
@@ -264,7 +308,15 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
               f", lag {verdict.lag:.0f}s{f'; {why}' if why else ''}")
         next_state[asset.uri] = kept
     metrics.append(f"foundation_asset_reconcile_timestamp_seconds {now:.0f}")
+    # One start per job: a job serving several lanes owes one run for all its owed lanes' versions.
+    owed_lines = [f"foundation-asset-owed {job} {versions_key(owed)}" for job, owed in owed_by_job.items()]
     return owed_lines, metrics, next_state, errors
+
+
+def versions_key(owed: dict) -> str:
+    """The key of a job's owed versions: one asset's versions alone, several by asset."""
+    keyed = next(iter(owed.values())) if len(owed) == 1 else owed
+    return hashlib.sha256(json.dumps(keyed, sort_keys=True).encode()).hexdigest()[:16]
 
 
 HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less the read version's commit time (root ADR-0333).
@@ -278,6 +330,34 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
 """
+
+
+# Docker's local-scope default address pools when the daemon names none (moby libnetwork ipamutils):
+# a /16 each of 172.17, 172.18 and 172.19, the /16s of 172.20/14, 172.24/14 and 172.28/14, and the
+# /20s of 192.168/16, so 31 bridge networks, the default bridge among them.
+DEFAULT_ADDRESS_POOLS = [{"Base": "172.17.0.0/16", "Size": 16}, {"Base": "172.18.0.0/16", "Size": 16},
+                         {"Base": "172.19.0.0/16", "Size": 16}, {"Base": "172.20.0.0/14", "Size": 16},
+                         {"Base": "172.24.0.0/14", "Size": 16}, {"Base": "172.28.0.0/14", "Size": 16},
+                         {"Base": "192.168.0.0/16", "Size": 20}]
+NETWORKS_METRICS_NAME = "docker-networks.prom"
+NETWORKS_HELP = """# HELP foundation_docker_bridge_networks The host's Docker bridge networks, each holding one subnet of the address pools.
+# TYPE foundation_docker_bridge_networks gauge
+# HELP foundation_docker_address_pool_networks How many bridge networks the daemon's address pools hold.
+# TYPE foundation_docker_address_pool_networks gauge
+"""
+
+
+def bridge_networks(run) -> str:
+    """The textfile of the host's bridge networks against what the address pools hold. On 2026-10-29
+    23 of 31 were taken, 10 of them left by per-run Compose projects whose cleanup failed; at 31
+    every job's next Compose project fails to start ("could not find an available, non-overlapping
+    IPv4 address pool"). `run` runs a docker command and returns its output."""
+    taken = len(run(["docker", "network", "ls", "--quiet", "--filter", "driver=bridge"]).split())
+    pools = json.loads(run(["docker", "info", "--format", "{{json .DefaultAddressPools}}"]) or "null") \
+        or DEFAULT_ADDRESS_POOLS
+    held = sum(2 ** (pool["Size"] - ipaddress.ip_network(pool["Base"]).prefixlen) for pool in pools)
+    return (NETWORKS_HELP + f"foundation_docker_bridge_networks {taken}\n"
+            f"foundation_docker_address_pool_networks {held}\n")
 
 
 def write_replacing(path: Path, text: str) -> None:
@@ -296,7 +376,17 @@ def last_read(bake_root: Path):
             lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         except FileNotFoundError:
             return None
-        return json.loads(lines[-1]) if lines else None
+        if not lines:
+            return None
+        records = [json.loads(line) for line in lines]
+        last = records[-1]
+        # The failures in a row at the end, for the failed lane's backoff (lane_verdict).
+        failures = 0
+        for record in reversed(records):
+            if record.get("outcome") != "failed":
+                break
+            failures += 1
+        return {**last, "consecutive_failures": failures}
     return read
 
 
@@ -332,6 +422,15 @@ def main() -> int:
     owed, metrics, state, errors = tick(time.time(), found, table, last_read(bake_root), running, pool_full, state)
     write_replacing(state_dir / STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
+    # The pools every job's Compose project draws from; a probe that fails stops nothing, and the
+    # FoundationDockerNetworksUnread rule says the series went stale.
+    def docker(command):
+        return subprocess.run(command, check=True, capture_output=True, text=True, timeout=30).stdout
+
+    try:
+        write_replacing(metrics_file.with_name(NETWORKS_METRICS_NAME), bridge_networks(docker))
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+        print(f"asset_reconcile: could not count the Docker bridge networks: {error}", file=sys.stderr)
     for line in owed:
         print(line)
     for error in errors:

@@ -284,9 +284,14 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         [cls.spec] = [spec for spec in job_specs.load_specs() if spec.reconciles]
         cls.tasks = {task.task_id: task for task in cls.dags[cls.spec.dag_id].tasks}
 
-    def test_it_covers_the_public_auction_bake_and_the_unit_price_assets(self):
+    def test_it_covers_every_by_pnu_bake_and_the_unit_price_assets(self):
         self.assertEqual(set(self.spec.reconciles),
-                         {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake"})
+                         {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
+                          "by_pnu_serving_bake"})
+        # Every job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
+        lanes = {spec.job_id for spec in job_specs.load_specs()
+                 if any(job_specs.by_pnu_lane_of(name) for _, name in spec.outputs)}
+        self.assertLessEqual(lanes, set(self.spec.reconciles))
         start = self.tasks["start"]
         self.assertEqual(start.expanded, ("XComArg", "select"))
         self.assertIs(start.kwargs["skip_when_already_exists"], True)
