@@ -1,14 +1,12 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { build } from "esbuild";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { findEntry, parseHead, parseSectionPacks } from "../src/packs";
-import { startMiniflare } from "./miniflare";
+import { startGateway } from "./miniflare";
 
 // The golden packs and documents are written by the publisher's own tests
 // (`foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/tests.rs`), so
@@ -26,7 +24,6 @@ const R2_BINDING = GATEWAY.r2_binding;
 const MANIFEST_KEY = GATEWAY.object_key.manifest_object;
 const ALLOWED_ORIGIN = "https://app.example.test";
 const fixtures = new URL("fixtures/section-packs/", import.meta.url);
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const url = (pnu: string, query = "") => `https://buildings.example.test${GATEWAY.request_path.prefix}${pnu}${query}`;
 const packKey = (section: string, patch: number | null) =>
@@ -89,24 +86,11 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
   async function start(
     bindings: Record<string, string | { id: string; tag: string }> = {},
     cachePersist?: string,
+    without?: string[],
   ): Promise<Miniflare> {
-    const bundle = await build({
-      entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("building") },
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      write: false,
-      absWorkingDir: packageRoot,
-    });
-    const output = bundle.outputFiles[0];
-    if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    const started = await startMiniflare({
-      compatibilityDate: "2026-04-26",
-      modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-      r2Buckets: [R2_BINDING],
-      bindings: { FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: ALLOWED_ORIGIN, ...bindings },
-      cache: true,
+    const started = await startGateway("building", {
+      bindings: { [GATEWAY.allowed_origins_binding]: ALLOWED_ORIGIN, ...bindings },
+      ...(without === undefined ? {} : { without }),
       ...(cachePersist === undefined ? {} : { cachePersist }),
     });
     const bucket = await started.getR2Bucket(R2_BINDING);
@@ -229,8 +213,10 @@ describe("foundation building gateway section packs (root ADR-0147)", () => {
     const VERSION = "22222222-2222-4222-8222-222222222222";
     const named = (response: { headers: { get(name: string): string | null } }) =>
       response.headers.get(GATEWAY.version_header);
+    // A runtime left without the version metadata binding, by name: nothing is named, nothing guessed.
+    await runtime?.dispose();
+    runtime = await start({}, undefined, [GATEWAY.version_metadata_binding]);
     await serve(sectionPacks([]));
-    // The default runtime has no version metadata binding: nothing is named, nothing guessed.
     expect(named(await get(PNU_A, "", { "Accept-Encoding": "gzip" }))).toBeNull();
 
     await runtime?.dispose();

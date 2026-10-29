@@ -19,7 +19,9 @@ deployed a commit and on every tick that finds the host already on main's head. 
   preview Worker (when the gateway has one) and then production: upload a version, refuse it unless
   it carries every variable and secret the version serving now has (keep_vars inherits them from the
   latest upload, which need not be the one serving), move 100% to it, apply the config's routes,
-  and hold it to the smoke; a smoke that fails moves 100% back to the version that served before.
+  and hold it to the smoke (for a by-PNU Worker: capabilities, the edge probe's GET-twice reads of
+  every lane it serves and its media, root ADR-0327, then the lane's serving monitor); a smoke that
+  fails moves 100% back to the version that served before.
   A listed Worker the account lacks is first created by `wrangler deploy` in its turn (root
   ADR-0196); a monitor whose only breach is its p95 is weighed against the other hostname on the
   same sample instead of blocking outright (held_to_monitor).
@@ -64,6 +66,7 @@ WRANGLER = pathlib.Path(__file__).resolve().parent / "worker-wrangler.sh"
 # monitor's fix (#803) changed neither the Worker's inputs nor the deployer, so nothing retried.
 TOOL_FILES = ("scripts/deploy/worker_autodeploy.py", "scripts/deploy/worker-wrangler.sh",
               "config/worker-deploys.contract.json", "scripts/ops/by-pnu-serving-monitor.sh",
+              "scripts/ops/by-pnu-edge-probe.py",
               "crates/publisher/foundation-publisher-by-pnu/src", "crates/publisher/foundation-publisher-core/src")
 
 
@@ -308,6 +311,21 @@ def command(args: list[str], check: bool = True) -> subprocess.CompletedProcess[
     return result
 
 
+# The edge probe's unit: its environment files name each lane's gate sample, and nothing secret.
+PROBE_UNIT = "foundation-by-pnu-edge-probe.service"
+
+
+def unit_environment(unit: str) -> list[str]:
+    """`-p EnvironmentFile=...` for each file the installed unit loads, an optional one marked so."""
+
+    shown = command(["systemctl", "show", "-p", "EnvironmentFiles", "--value", unit]).stdout
+    files = [("" if ignore == "no" else "-") + path
+             for path, ignore in re.findall(r"(/\S+) \(ignore_errors=(yes|no)\)", shown)]
+    if not files:
+        raise Failed(f"{unit} names no environment files; is it installed?")
+    return [item for path in files for item in ("-p", f"EnvironmentFile={path}")]
+
+
 class Deploy:
     """One Worker's deploy from one workspace."""
 
@@ -458,6 +476,7 @@ class Deploy:
             self.wait_for(url, lambda status, headers: status == 200 and headers.get(header) == version,
                           f"200 from {version}")
             if self.worker.monitor:
+                self.probed(smoke["lane"], target)
                 self.held_to_monitor(smoke["lane"], target)
         else:
             url = f"https://{target.hostname}{smoke['path']}"
@@ -494,22 +513,31 @@ class Deploy:
             f"bound of {bound:.0f} ms, but read again it is {again['latency_ms']['p95']:.0f} ms against "
             f"{reference.hostname}'s {baseline['latency_ms']['p95']:.0f} ms on the same sample: not this version's doing")
 
+    def probed(self, lane: str, target: Target) -> None:
+        """The quarter-hourly edge probe (root ADR-0327) pointed at this hostname: every lane the
+        Worker serves read with GET twice, a document each and, on the parcel edge, a blob. HEAD and
+        a single read miss the edge copy's path: 2026-10-29 every cached photo answered 500."""
+
+        result = command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
+                          "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
+                          *unit_environment(PROBE_UNIT), "python3", "-I",
+                          str(self.host.release_root / "current/scripts/ops/by-pnu-edge-probe.py"),
+                          "--base-url", f"https://{target.hostname}", lane], check=False)
+        if result.returncode != 0:
+            tail = (result.stdout + result.stderr).strip().splitlines()[-20:]
+            raise Failed(f"the edge probe of {target.hostname} failed (exit {result.returncode}):\n  " + "\n  ".join(tail))
+        log(f"{self.worker.id}: {target.label} {target.name} passed the edge probe")
+
     def monitor(self, lane: str, hostname: str) -> dict[str, Any]:
         """The lane's hourly serving monitor, pointed at this hostname, with its unit's files; its report."""
 
-        unit = f"foundation-by-pnu-serving-monitor@{lane}.service"
-        shown = command(["systemctl", "show", "-p", "EnvironmentFiles", "--value", unit]).stdout
-        files = [("" if ignore == "no" else "-") + path
-                 for path, ignore in re.findall(r"(/\S+) \(ignore_errors=(yes|no)\)", shown)]
-        if not files:
-            raise Failed(f"{unit} names no environment files; is it installed?")
         prefix = f"FOUNDATION_PLATFORM_{lane.upper().replace('-', '_')}_BY_PNU_SERVING"
         with tempfile.TemporaryDirectory(prefix="worker-autodeploy-monitor-") as directory:
             command(["chown", "foundation-platform", directory])
             report = pathlib.Path(directory) / "report.json"
             result = command(["systemd-run", "--wait", "--collect", "--pipe", "--quiet", "-p", "User=foundation-platform",
                               "-p", f"WorkingDirectory={self.host.release_root / 'current'}",
-                              *[item for path in files for item in ("-p", f"EnvironmentFile={path}")],
+                              *unit_environment(f"foundation-by-pnu-serving-monitor@{lane}.service"),
                               "-E", f"{prefix}_MONITOR_BASE_URL=https://{hostname}",
                               "-E", f"{prefix}_MONITOR_REPORT_PATH={report}",
                               str(self.host.release_root / "current/scripts/ops/by-pnu-serving-monitor.sh"), lane],

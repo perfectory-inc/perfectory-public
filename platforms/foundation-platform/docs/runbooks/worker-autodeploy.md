@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-29
 ---
 
 # Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인
@@ -78,7 +78,27 @@ Slack 한 번), 그 뒤로는 Worker 의 입력이나 배포기 파일(`worker_a
 서빙 버전이 맞는 값을 갖고 있음을 확인한 뒤, 손으로 서빙 버전의 값으로 한 번 업로드·배포하고(`versions upload
 --var <이름>:<값>` → `versions deploy <새>@100%`) 위의 `failed/<id>.json` 을 지운다.
 
-## 4. 손 배포
+## 4. 엣지 탐침 (by-PNU, 15분마다와 배포 스모크)
+
+[루트 ADR-0327](../../../../docs/adr/0327-a-worker-deploy-and-a-quarter-hourly-probe-read-what-users-read-twice.md).
+`scripts/ops/by-pnu-edge-probe.py` 가 사용자가 읽는 대로 GET 으로 두 번 읽는다: by-PNU Worker 가 서빙하는 레인마다
+게이트 표본에서 404 가 아닌 첫 문서, 필지 엣지에서는 공매 문서가 이름한 첫 사진(내용해시 대조). 두 번째 읽기는 늘
+엣지 사본(캐시 적중)이다 — 2026-10-29 캐시된 공매 사진이 모두 500 이었고 HEAD 확인은 통과했다.
+
+| 언제 | 무엇이 | 실패하면 |
+|---|---|---|
+| by-PNU Worker 배포마다, 미리보기·운영 각각 | `worker_autodeploy.py` 의 스모크(capabilities 다음, 감시 앞) | 그 대상을 옛 버전으로 되돌리고 유닛 실패로 Slack |
+| `foundation-by-pnu-edge-probe.timer` (매시 07·22·37·52분) | 계약의 by-PNU Worker 셋의 운영 호스트명 | `foundation-unit-failed@` 가 Slack 에 알린다(런북: 이 절) |
+
+| 저널 줄 (`journalctl -u foundation-by-pnu-edge-probe.service -n 80`) | 뜻·첫 확인 |
+|---|---|
+| `FAILED GET … (read 2 of 2) answered 500` | 엣지 사본에서 읽은 답이 깨졌다. `wrangler tail` 로 그 Worker 의 예외를 본다. 직전 배포가 원인이면 `wrangler versions deploy <옛>@100%` |
+| `answered content type …` / `not a JSON document` / `hash to …` | 다른 것을 서빙한다. 같은 URL 을 `curl -sD- -o /dev/null` 로 두 번 확인 |
+| `none of the first 20 entries of its gate sample is served` | 표본 PNU 가 하나도 서빙되지 않는다: 레인 장애 또는 표본이 낡았다(그 레인의 전환 런북 monitor-sample) |
+| `… is not set, the lane is not cut over; skipped` | 그 레인의 감시 표본 파일이 아직 없다. 실패가 아니다 |
+| `no lane was probed` | 어느 레인의 표본도 없다. 감시 파일(`/etc/foundation-platform/*-serving-monitor.env`)을 확인 |
+
+## 5. 손 배포
 
 토큰 파일이 없는 동안, 또는 비상시에는 각 게이트웨이 README 의 배포 절차를 그대로 쓴다. 손으로 배포한 뒤에는
 기록이 바뀌지 않으므로, 다음 자동 실행은 입력이 바뀐 Worker 만 다시 올린다.

@@ -1,12 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
-import { build } from "esbuild";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { LANES, resolveLane } from "../src/lane";
-import { startMiniflare } from "./miniflare";
+import { startGateway } from "./miniflare";
 
 // A lane written as a host and a kind (root ADR-0193 §4) is served by its host's Worker under its
 // own paths: its own manifest, pack root, capabilities and edge copies. The pack bytes are the
@@ -19,7 +17,6 @@ const PACK_POLICY = connectionContract.by_pnu_section_packs;
 const RULE = connectionContract.by_pnu_lane_rule;
 const ZONING = LANES.find((lane) => lane.name === "parcel-zoning");
 const fixtures = new URL("fixtures/section-packs/", import.meta.url);
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
 function manifest(unit: string, withPacks: boolean): string {
   return `${JSON.stringify({
@@ -62,27 +59,7 @@ describe("a kind lane on the parcel host (root ADR-0193 §4)", () => {
   });
 
   async function start(preview = false): Promise<Miniflare> {
-    const bundle = await build({
-      entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-      define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify("parcel") },
-      bundle: true,
-      format: "esm",
-      platform: "browser",
-      write: false,
-      absWorkingDir: packageRoot,
-    });
-    const output = bundle.outputFiles[0];
-    if (output === undefined) throw new Error("esbuild emitted no Worker module");
-    return startMiniflare({
-      compatibilityDate: PARCEL.compatibility_date,
-      modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-      r2Buckets: [PARCEL.r2_binding],
-      bindings: {
-        [PARCEL.allowed_origins_binding]: "https://app.example.test",
-        ...(preview ? { [PARCEL.section_packs.preview_binding]: "true" } : {}),
-      },
-      cache: true,
-    });
+    return startGateway("parcel", preview ? { env: "preview" } : {});
   }
 
   async function put(key: string, body: string | Uint8Array): Promise<void> {

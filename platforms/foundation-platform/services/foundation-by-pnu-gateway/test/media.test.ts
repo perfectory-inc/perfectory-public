@@ -1,10 +1,7 @@
-import { fileURLToPath } from "node:url";
-
-import { build } from "esbuild";
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
-import { startMiniflare } from "./miniflare";
+import { startGateway, TEST_WORKER_VERSION } from "./miniflare";
 
 // The parcel edge serves content-addressed auction media by its hash path (root ADR-0296 §5 /
 // ADR-0297 §5): the URL path is the R2 key under the lakehouse bucket the lane already binds, the
@@ -15,34 +12,12 @@ const BINDING = MEDIA.r2_binding;
 const HASH = "a".repeat(64);
 const KEY = `onbid/media/sha256/${HASH}.jpg`;
 const BYTES = new Uint8Array([0xff, 0xd8, 0xff, 0x01]);
-const packageRoot = fileURLToPath(new URL("..", import.meta.url));
-
-async function worker(lane: string, bindings: Record<string, unknown> = {}): Promise<Miniflare> {
-  const bundle = await build({
-    entryPoints: [fileURLToPath(new URL("../src/index.ts", import.meta.url))],
-    define: { __FOUNDATION_BY_PNU_LANE__: JSON.stringify(lane) },
-    bundle: true,
-    format: "esm",
-    platform: "browser",
-    write: false,
-    absWorkingDir: packageRoot,
-  });
-  const output = bundle.outputFiles[0];
-  if (output === undefined) throw new Error("esbuild emitted no Worker module");
-  return startMiniflare({
-    compatibilityDate: "2026-04-26",
-    modules: [{ type: "ESModule", path: "index.mjs", contents: output.text }],
-    r2Buckets: [BINDING],
-    bindings: { FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS: "https://app.example.test", ...bindings },
-    cache: true,
-  });
-}
 
 describe("the parcel edge serves content-addressed media", () => {
   let runtime: Miniflare | undefined;
 
   beforeEach(async () => {
-    runtime = await worker("parcel");
+    runtime = await startGateway("parcel");
     const bucket = await runtime.getR2Bucket(BINDING);
     await bucket.put(KEY, BYTES, {
       httpMetadata: { contentType: "image/jpeg", cacheControl: "public, max-age=31536000, immutable" },
@@ -89,17 +64,16 @@ describe("the parcel edge serves content-addressed media", () => {
 
 it("serves a cached blob again with the Worker version header (cache hits have immutable headers)", async () => {
   // 2026-10-28: the second GET of every photo answered 500 — the cache hit's headers are immutable and
-  // the version header was set on them. Production binds version metadata, so this test does too.
-  const runtime = await worker("parcel", {
-    FOUNDATION_PLATFORM_WORKER_VERSION: { id: "v-test", tag: "", timestamp: "" },
-  });
+  // the version header was set on them. Production binds version metadata, and so does every test
+  // runtime (startGateway, root ADR-0327 §3).
+  const runtime = await startGateway("parcel");
   try {
     const bucket = await runtime.getR2Bucket(BINDING);
     await bucket.put(KEY, BYTES, { httpMetadata: { contentType: "image/jpeg" } });
     for (const pass of ["miss", "hit"]) {
       const response = await runtime.dispatchFetch(`https://catalog.example.test/${KEY}`);
       expect(response.status, pass).toBe(200);
-      expect(response.headers.get("foundation-worker-version"), pass).toBe("v-test");
+      expect(response.headers.get("foundation-worker-version"), pass).toBe(TEST_WORKER_VERSION);
       expect(new Uint8Array(await response.arrayBuffer()), pass).toEqual(BYTES);
     }
   } finally {
@@ -108,7 +82,7 @@ it("serves a cached blob again with the Worker version header (cache hits have i
 });
 
 it("the building lane does not serve media (only the parcel edge does)", async () => {
-  const runtime = await worker("building");
+  const runtime = await startGateway("building");
   try {
     const bucket = await runtime.getR2Bucket(BINDING);
     await bucket.put(KEY, BYTES, { httpMetadata: { contentType: "image/jpeg" } });

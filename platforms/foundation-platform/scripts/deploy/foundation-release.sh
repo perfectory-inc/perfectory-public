@@ -1196,8 +1196,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The identity databases' backup, its age check and its weekly restore drill: host infrastructure too.
     systemctl enable --now foundation-identity-backup.timer foundation-identity-backup-freshness.timer \
       foundation-identity-restore-drill.timer
-    # Like the backup, the root disk's retention is host infrastructure (root ADR-0198).
-    systemctl enable --now foundation-host-retention.timer
+    # Like the backup, the root disk's retention (root ADR-0198) and the by-PNU edge probe (ADR-0327) are host infrastructure.
+    systemctl enable --now foundation-host-retention.timer foundation-by-pnu-edge-probe.timer
     # The operations map's service checks (root ADR-0209): a host check too.
     systemctl enable --now foundation-service-checks.timer
     # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).

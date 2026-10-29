@@ -1,0 +1,29 @@
+[Unit]
+Description=Foundation Platform by-PNU edge probe: GET each live by-PNU hostname's documents and the parcel edge's media twice, as a user does (root ADR-0327)
+# What a failure means and the first checks; notify-unit-failure.sh puts it in the Slack notice.
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/worker-autodeploy.md
+After=network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# Each lane's gate sample path, written at its cut-over, and nothing secret: the probe reads only
+# public hostnames. A lane whose file or line is absent is not cut over and is skipped.
+EnvironmentFile=-/etc/foundation-platform/building-serving-monitor.env
+EnvironmentFile=-/etc/foundation-platform/parcel-serving-monitor.env
+EnvironmentFile=-/etc/foundation-platform/unit-price-serving-monitor.env
+EnvironmentFile=-/etc/foundation-platform/by-pnu-kind-serving-monitor.env
+ExecStart=/usr/bin/python3 -I /opt/foundation-platform/current/scripts/ops/by-pnu-edge-probe.py
+# About 40 reads of at most 20 s each; a hung edge fails the run well before the next one starts.
+TimeoutStartSec=10m
+# The standard library and one document or blob at a time.
+MemoryMax=128M
+MemorySwapMax=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
