@@ -59,7 +59,8 @@ class UnitPriceHistorySparkTest(unittest.TestCase):
         ], "area_row_id string,mgm_bldrgst_pk string,area_kind string,area_m2 double,"
            "usage_name_raw string,structure_name_raw string,floor_kind string")
         cls.floors = cls.spark.createDataFrame([
-            ("BLDG-1", "FLOOR-1", "above_ground", 1, 1, "1층"),
+            # The natural floor id (root ADR-0331): BLDG-1, 지상(20), 1층, first occurrence.
+            ("BLDG-1", "building-register-floor:nk1:8fa16ea5e062fe48024599c8114e720c", "above_ground", 1, 1, "1층"),
         ], "mgm_bldrgst_pk string,floor_row_id string,floor_kind string,floor_number int,"
            "floor_index int,floor_display_ko string")
 

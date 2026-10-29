@@ -51,7 +51,7 @@ Silver handoff는 원본값과 정규화값을 같이 보존합니다.
 
 | 필드 | 의미 |
 |---|---|
-| `floor_row_id` | row 단위 안정 식별자 |
+| `floor_row_id` | row 단위 안정 식별자: 자연 키 `(mgm_bldrgst_pk, 층구분, 층번호)` + 같은 키 안의 순번의 SHA-256 앞 128비트(`building-register-floor:nk1:<32hex>`, 루트 ADR-0331). 원천 파일·줄이 아니다; 이 규칙 전에 실린 배치는 옛 위치 id(`…#line-N`)를 그대로 가진다 |
 | `mgm_bldrgst_pk` | 원본 건축물대장 관리 PK |
 | `floor_type_code_raw` | 원본 `flrGbCd` |
 | `floor_type_name_raw` | 원본 `flrGbCdNm` |

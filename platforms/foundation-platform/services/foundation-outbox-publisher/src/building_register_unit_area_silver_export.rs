@@ -14,10 +14,11 @@ use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
 use foundation_publisher_silver::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
+use lakehouse_application::building_register_row_identity::natural_key_occurrences;
 use lakehouse_application::{
     building_register_unit_area_silver_row_to_jsonl,
     normalize_building_register_unit_area_silver_rows,
-    parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via,
+    parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via, unit_area_key_rank,
     BuildingRegisterUnitAreaSilverRow, BuildingRegisterUnitAreaSilverRowsInput,
 };
 use parquet_row_writer::ParquetUnitAreaRowWriter;
@@ -94,6 +95,10 @@ fn export_handoff_via(
     let mut reason_counts = BTreeMap::<String, u64>::new();
     let mut area_kind_counts = BTreeMap::<String, u64>::new();
 
+    // Pass 1 ranks every row's natural key over the whole release (root ADR-0331): a unit's rows
+    // are not always adjacent (718,460 of 19,855,147 registers in the 2026-10 file), so a row's
+    // occurrence among the rows sharing its identity needs the whole file. 20 bytes a row.
+    let mut ranks = Vec::new();
     decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
         let record = parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
             sigungu_crosswalk,
@@ -102,6 +107,27 @@ fn export_handoff_via(
             line_number,
         )
         .with_context(|| format!("failed to parse 전유공용면적 line {line_number}"))?;
+        let index = u32::try_from(ranks.len()).context("전유공용면적 release exceeds u32 rows")?;
+        ranks.push(unit_area_key_rank(&record, index));
+        Ok(())
+    })?;
+    let occurrences = natural_key_occurrences(ranks);
+    let mut next_row = 0usize;
+
+    decode_zip_lines(&object_path, config.max_rows, |line, line_number| {
+        let mut record = parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via(
+            sigungu_crosswalk,
+            line,
+            &bronze_object_key,
+            line_number,
+        )
+        .with_context(|| format!("failed to parse 전유공용면적 line {line_number}"))?;
+        record.key_occurrence = Some(
+            *occurrences
+                .get(next_row)
+                .context("전유공용면적 Bronze object changed between its two reads")?,
+        );
+        next_row += 1;
         sido_tally.observe(&record.register_parcel_key);
         let rows = normalize_building_register_unit_area_silver_rows(
             &BuildingRegisterUnitAreaSilverRowsInput {
@@ -128,6 +154,9 @@ fn export_handoff_via(
         }
         Ok(())
     })?;
+    if next_row != occurrences.len() {
+        bail!("전유공용면적 Bronze object changed between its two reads");
+    }
     output_writer
         .flush()
         .context("failed to flush 전유공용면적 Silver handoff")?;

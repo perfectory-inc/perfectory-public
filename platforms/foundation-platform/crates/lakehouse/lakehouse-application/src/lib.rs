@@ -83,7 +83,7 @@ pub use building_register_unit_area_silver_plan::{
     building_register_unit_area_silver_row_to_jsonl,
     normalize_building_register_unit_area_silver_rows,
     parse_building_register_unit_area_source_row_from_hub_bulk_text_line,
-    parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via,
+    parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via, unit_area_key_rank,
     BuildingRegisterUnitAreaSilverRow, BuildingRegisterUnitAreaSilverRowsInput,
     BuildingRegisterUnitAreaSourceRow,
 };

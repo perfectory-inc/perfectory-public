@@ -444,12 +444,7 @@ async fn contiguous_zip_keeps_full_input_jsonl_bytes_and_sha() -> anyhow::Result
     // Captured from the fixed three-row synthetic CLI fixture at frozen v4.
     // Its canonical row/context serializers match baseline46; no baseline
     // binary was executed to obtain these literals.
-    assert_eq!(actual.len(), 2741);
     assert_eq!(std::str::from_utf8(&actual)?.lines().count(), 3);
-    assert_eq!(
-        format!("{:x}", Sha256::digest(&actual)),
-        "1afb1aa3f25f082d5cea81f7c77b71f34b2500cfe25e9e4979694ddb31545832"
-    );
     let actual_proposal = fs::read(
         config
             .proposal_input_path
@@ -457,11 +452,22 @@ async fn contiguous_zip_keeps_full_input_jsonl_bytes_and_sha() -> anyhow::Result
             .ok_or_else(|| anyhow::anyhow!("proposal path"))?,
     )?;
     assert_eq!(actual_proposal, expected_proposals.jsonl.as_bytes());
-    assert_eq!(actual_proposal.len(), 3983);
     assert_eq!(std::str::from_utf8(&actual_proposal)?.lines().count(), 1);
+    // One assertion for all four literals, so a deliberate change (the natural floor id, root
+    // ADR-0331) shows every new value in one run.
     assert_eq!(
-        format!("{:x}", Sha256::digest(&actual_proposal)),
-        "37567da8b8752dd5b74f1b9291eee76a64dc574ecd3c7da7ab22e8e4f366077d"
+        (
+            actual.len(),
+            format!("{:x}", Sha256::digest(&actual)),
+            actual_proposal.len(),
+            format!("{:x}", Sha256::digest(&actual_proposal)),
+        ),
+        (
+            2585,
+            "053520ad322fdc195f346fd037d803614d315fbe03e4e77130e0d89acc7914d9".to_owned(),
+            3827,
+            "ddbc336ac456a18f87e2252c11c361094281ce0b6c578928eaa8a47107c7b850".to_owned(),
+        )
     );
     Ok(())
 }
