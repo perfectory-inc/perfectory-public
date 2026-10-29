@@ -124,3 +124,5 @@ manifest 로 되돌리면 된다. 7일이 지난 뒤의 되돌리기는 정본�
 상태를 미리보기로 읽어 통과했다. 객체는 지우지 않았다.
 
 개정 각주(2026-10-28): 결정 2 의 "문서 스키마 변경 시 전량은 그대로다"는 [ADR-0320](./0320-a-document-schema-bump-bakes-only-the-documents-it-changes.md) 이 고친다. 선택 필드만 더하는 판은 서빙 중인 문서 위에 패치로 얹고, 다음 전량 세대가 수축한다.
+
+개정 각주(2026-10-29): 결정 2 의 `max_delta_fraction`(0.5)은 [ADR-0346](./0346-a-change-set-over-the-delta-bound-goes-full-when-a-record-explains-it.md) 부터 비용 문턱이 아니라 "설명이 필요한 크기" 문턱이다. 넘는 변경은 손익분기 위이므로, 기록이 설명하면 전량으로 굽고 설명이 없을 때만 거부한다.

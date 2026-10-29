@@ -109,4 +109,5 @@ ADR-0099는 "매일은 바뀐 필지만 굽는다"고 정했다. 방법(§3)은 
 
 ## 개정 기록
 
+- 2026-10-29: §3 의 "절반을 넘으면 거부"는 [ADR-0346](./0346-a-change-set-over-the-delta-bound-goes-full-when-a-record-explains-it.md) 이 고친다. 기록(바뀐 키·코드 판·문서 판)이 설명하는 변경은 전량으로 굽고, 설명이 없을 때만 증거와 함께 거부한다.
 - 2026-10-04: 패치의 단위가 객체에서 묶음으로 바뀌었다([ADR-0147](./0147-by-pnu-documents-are-served-from-section-packs.md)). 세대·패치·툼스톤·manifest 규칙은 그대로 묶음에 적용한다. 위 결정 본문은 고치지 않았다.
