@@ -146,11 +146,9 @@ on_error() {
 trap 'on_error ${LINENO}' ERR
 
 spark() {
-  docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${lakehouse_root}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-  docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-    -p "foundation-parcel-tile-bake-${INVOCATION_ID}" --profile lakehouse-batch run --rm -v "${scratch}:/scratch" \
+  lakehouse_spark_run "foundation-parcel-tile-bake-${INVOCATION_ID}" -v "${scratch}:/scratch" \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark spark-submit --master 'local[8,8]' --driver-memory 16g \

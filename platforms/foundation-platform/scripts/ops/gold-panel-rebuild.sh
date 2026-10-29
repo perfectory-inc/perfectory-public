@@ -205,11 +205,9 @@ mkdir -p "${work}"
 chmod 0777 "${STATE_ROOT}" "${work}"
 
 spark() {
-  docker rm foundation-platform-lakehouse-target-init >/dev/null 2>&1 || true
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
-  docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml" \
-    -p "foundation-gold-rebuild-${INVOCATION_ID}" --profile lakehouse-batch run --rm -v "${SCRATCH}:/scratch" \
+  lakehouse_spark_run "foundation-gold-rebuild-${INVOCATION_ID}" -v "${SCRATCH}:/scratch" \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
     spark spark-submit --master "${master}" --driver-memory "${driver_memory}" \
