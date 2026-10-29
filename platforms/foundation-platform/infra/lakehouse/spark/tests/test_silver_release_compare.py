@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 import silver_release_compare as job  # noqa: E402
 from platform_contracts import load_lakehouse_contract  # noqa: E402
 
+LANES = Path(__file__).resolve().parents[2] / "contracts"
 ARGS = ["--contract", "silver.land_transfer_history", "--branch", "load_0123456789abcdef",
         "--source-snapshot-id", "vworldkr-land-transfer-history:20990901", "--objects", "a.zip",
         "--content-columns", "reason", "--changes-branch", "changes_0123456789abcdef"]
@@ -43,6 +44,58 @@ class CompareRuleTest(unittest.TestCase):
             with self.subTest(branch=branch):
                 with self.assertRaises(ValueError):
                     job.parse_args([*ARGS[:-1], branch])
+
+
+class VersionOrderTest(unittest.TestCase):
+    """A compared table orders a key's versions by the edition, then the commit's instant (ADR-0328)."""
+
+    def test_every_compared_lane_orders_its_versions_by_edition_then_instant(self):
+        import json
+
+        from platform_contracts import current_row_latest
+
+        editions = {}
+        for path in sorted(LANES.glob("*-source-objects.json")):
+            block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh") or {}
+            if "compare" in block:
+                latest = current_row_latest(load_lakehouse_contract(block["table"]))
+                editions[block["table"]] = job.edition_column(latest)
+        self.assertEqual(editions, {
+            "silver.building_register_exclusive_unit": "vintage",
+            "silver.building_register_titles": "valid_from_utc",
+            "silver.building_register_unit_areas": "valid_from_utc",
+            "silver.building_register_units": "valid_from_utc",
+            "silver.land_characteristic": "source_snapshot_id",
+            "silver.land_forest_ledger": "source_snapshot_id",
+            "silver.land_individual_price": "source_snapshot_id",
+            "silver.land_right_registration": "source_snapshot_id",
+            "silver.land_transfer_history": "source_snapshot_id",
+            "silver.land_use_plan": "source_snapshot_id",
+            "silver.land_use_zone_code": None,
+        })
+
+    def test_an_order_a_release_loaded_again_would_tie_on_is_refused(self):
+        # 2026-10-21: land_transfer_history ordered by the release id alone; vintage 20260930 loaded
+        # again, and its 1,585 removal markers tied with the rows they removed.
+        from platform_contracts import CurrentRowLatest
+
+        for order in (("source_snapshot_id",), ("vintage",), ("ingested_at_utc", "vintage"),
+                      ("vintage", "valid_from_utc", "ingested_at_utc")):
+            with self.subTest(order=order):
+                with self.assertRaisesRegex(ValueError, "edition, ingested_at_utc"):
+                    job.edition_column(CurrentRowLatest(key=("k",), newest_first=order, removal_column="row_state"))
+
+    def test_the_edition_is_not_content(self):
+        contract = load_lakehouse_contract("silver.building_register_exclusive_unit")
+        with self.assertRaisesRegex(ValueError, "content columns"):
+            job.compare_rule(contract, ["ho_name", "vintage"])
+
+    def test_a_release_names_its_objects(self):
+        # An empty list read as sealed (`all([])`): the run reported "staged" having compared nothing.
+        for objects in ("", ",", ",,"):
+            with self.subTest(objects=objects):
+                with self.assertRaisesRegex(ValueError, "--objects"):
+                    job.parse_args([*ARGS[:6], "--objects", objects, *ARGS[8:]])
 
 
 class BucketTest(unittest.TestCase):

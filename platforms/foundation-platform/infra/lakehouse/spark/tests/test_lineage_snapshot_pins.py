@@ -202,11 +202,13 @@ class LineageInputTest(unittest.TestCase):
         # The titles as they stood at the release are read from the pinned relation (ADR-0318).
         import platform_contracts
 
+        # Read as of release "old"'s provider month, the titles' edition (ADR-0328).
+        spark.table.return_value.where.return_value.selectExpr.return_value.first.return_value = ("2099-06-01 00:00:00",)
         with mock.patch.object(platform_contracts, "rows_as_of") as as_of:
             as_of.return_value.where.return_value.select.return_value.collect.return_value = []
             job.read_buildings(spark, "`pinned_buildings`", "old", "99")
         spark.table.assert_called_once_with("`pinned_buildings`")
-        self.assertEqual(as_of.call_args.args[2], "old")
+        self.assertEqual(as_of.call_args.args[2], "2099-06-01 00:00:00")
 
     def test_main_reuses_the_plan_after_files_change_and_reports_consumed_inputs(self):
         for buildings in [False, True]:

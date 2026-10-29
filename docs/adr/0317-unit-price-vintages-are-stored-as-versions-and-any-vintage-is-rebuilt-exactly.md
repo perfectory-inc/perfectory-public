@@ -133,3 +133,7 @@
 - **merge-on-read 삭제 파일**: 굽기의 스냅숏 스캔이 delete 파일을 거부한다(ADR-0180).
 - **Iceberg 스냅숏을 판의 이력으로 쓰기**: 30일이면 만료된다(ADR-0237). 판은 업무 시간이다.
 - **판 사이 차이만 쌓고 첫 판도 차이로**: 첫 판이 곧 전체다. 같은 것이다.
+
+---
+
+2026-10-29 각주: §2 의 판 기록(`foundation.edition` 스냅숏 요약)은 만료되므로 [ADR-0328](./0328-a-compared-silver-table-orders-versions-by-edition-then-commit-instant.md) 이 발행 커밋의 표 속성 `foundation.edition.<판>` 과 행의 최댓값을 더했다. `commit_stamp` 는 이제 모든 비교 레인에 판과 커밋 시각을 찍는다(토지 레인 포함).

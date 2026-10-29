@@ -30,9 +30,11 @@ Every commit is also part of the release's change record (root ADR-0191 as amend
 its summary names it one (`changelog.change_record_options`), so a consumer reads only these rows
 (`changelog.changes_between`) instead of diffing two snapshots of the table.
 
-A table whose versions are ordered by an edition (a vintage, root ADR-0317) gets the release's
-edition and one commit instant on every appended row (`commit_stamp`), the commit records the
-edition (`read_editions`), and a release older than an edition already held is refused.
+A key's versions are ordered by the release's edition, then the commit's instant (ADR-0328): every
+appended row, changed or marker, gets both (`commit_stamp`), so a release loaded again outranks its
+earlier load and a removal marker outranks the row it removes. The commit records the edition
+(`read_editions`), and a release older than an edition already held (by a commit, by the table's
+durable record, or by a row) is refused.
 
 The last stdout line, and `--summary-output`, is `silver-release-compare {json}`.
 """
@@ -89,6 +91,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
     parser.add_argument("--summary-output")
     args = parser.parse_args(argv)
+    if not [o for o in args.objects.split(",") if o]:
+        # `all([])` would read an empty seal as a sealed release and report it staged, unread.
+        raise ValueError("--objects names at least one Bronze object of the release")
     checked_ref(args.branch)
     checked_ref(args.changes_branch)
     if MAIN in (args.branch, args.changes_branch) or args.branch == args.changes_branch:
@@ -150,15 +155,34 @@ def recorded_buckets(snapshots: list[dict[str, Any]], lineage: set[int], source_
             and COMPARE_BUCKET_KEY in s["summary"]}
 
 
+def edition_column(latest: CurrentRowLatest) -> str | None:
+    """The column a release's edition is in, or None for a table ordered by its load instant alone.
+
+    A compared table orders a key's versions by `[edition, ingested_at_utc]` or `[ingested_at_utc]`
+    (ADR-0328), and the compare stamps both on every row it appends. Without the instant, a release
+    loaded again ties with its earlier load: on 2026-10-21 `silver.land_transfer_history` appended
+    vintage 20260930 a second time, its 1,585 removal markers tied with the rows they removed, and
+    those keys stayed current (with 19 stale rows beside their new ones).
+    """
+
+    *editions, last = latest.newest_first
+    if last != "ingested_at_utc" or len(editions) > 1 or "ingested_at_utc" in editions:
+        raise ValueError(f"a compared table orders its versions by [edition, ingested_at_utc] or "
+                         f"[ingested_at_utc], not {list(latest.newest_first)}")
+    return editions[0] if editions else None
+
+
 def compare_rule(contract: dict[str, Any], content: list[str]) -> tuple[tuple[str, ...], str]:
-    """The table's row key and removal column; refuses content columns the comparison cannot use."""
+    """The table's row key and removal column; refuses content columns the comparison cannot use,
+    and an order of versions the compare's stamp cannot make strict (`edition_column`)."""
 
     table = contract.get("table_name")
     latest = current_row_latest(contract)
     if latest is None or latest.removal_column is None:
         raise ValueError(f"{table} declares no current_row_latest with a removal_column to append changes under")
+    edition_column(latest)
     names = set(column_names(contract))
-    excluded = {*latest.key, *LOAD_COLUMNS, latest.removal_column}
+    excluded = {*latest.key, *LOAD_COLUMNS, *latest.newest_first, latest.removal_column}
     unknown = sorted(set(content) - names)
     loaded = sorted(set(content) & excluded)
     if not content or unknown or loaded:
@@ -167,18 +191,8 @@ def compare_rule(contract: dict[str, Any], content: list[str]) -> tuple[tuple[st
     return latest.key, latest.removal_column
 
 
-def release_versions(staged: Any, newest_first: tuple[str, ...]) -> dict[str, Any]:
-    """The release's value of each `newest_first` column the load does not stamp itself (a vintage):
-    read once for the whole release, since a bucket that only lost keys has no staged row to read."""
-    from pyspark.sql import functions as F  # noqa: PLC0415
-
-    stamped = {"source_snapshot_id", "ingested_at_utc"}
-    return {c: staged.agg(F.max(c)).first()[0] for c in newest_first if c not in stamped}
-
-
 def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content: list[str], removal: str,
                     source_snapshot_id: str, ingested_at: Any, columns: list[str],
-                    versions: dict[str, Any] | None = None,
                     stamp: dict[str, Any] | None = None) -> Any:
     """The rows to append: every staged row of a key that is new or whose rows changed, and one
     removal marker per key with current rows and none staged.
@@ -186,10 +200,10 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
     A key's release is a set of rows (the source repeats a key, root ADR-0090), so a key is compared
     by the multiset of its rows' content fingerprints, repeats counted. Keys match null-safe: a
     source row may lack a key column (a price line without a management key) and is still one key.
-    A marker carries the release's `source_snapshot_id`, this run's `ingested_at_utc` and the
-    release's `versions` (`release_versions`): a marker that kept the vanished row's vintage would
-    tie with it and leave it current (ADR-0318). `stamp` then sets columns on every appended row,
-    changed and marker alike (`commit_stamp`, ADR-0317).
+    A marker carries the release's `source_snapshot_id` and this run's `ingested_at_utc`. `stamp` then
+    sets columns on every appended row, changed and marker alike, each cast to its column's type
+    (`commit_stamp`): the release's edition and the commit's instant, so a marker outranks the row
+    it removes (ADR-0328).
     """
 
     from pyspark.sql import Window  # noqa: PLC0415
@@ -224,55 +238,58 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
                .withColumn(removal, F.lit(REMOVED))
                .withColumn("source_snapshot_id", F.lit(source_snapshot_id))
                .withColumn("ingested_at_utc", ingested_at))
-    for column, version in (versions or {}).items():
-        if version is None:
-            raise ValueError(f"the release carries no {column}, so a removal marker could not outrank the row it removes")
-        removed = removed.withColumn(column, F.lit(version).cast(current.schema[column].dataType))
     for column, value in (stamp or {}).items():
-        changed, removed = changed.withColumn(column, value), removed.withColumn(column, value)
+        typed = value.cast(current.schema[column].dataType)
+        changed, removed = changed.withColumn(column, typed), removed.withColumn(column, typed)
     return changed.select(*columns).unionByName(removed.select(*columns))
 
 
 def commit_stamp(latest: CurrentRowLatest, edition: str | None, ingested_at: Any) -> tuple[dict[str, Any], str | None]:
     """The values that order this commit's rows after every version they replace, and the edition column.
 
-    `current_rows` ranks a key's versions by `newest_first`. A release ordered by its source id
-    (the land lanes) already carries it on every row. A table ordered by an edition (a vintage) and
-    the commit's instant (root ADR-0317) gets both on every appended row: the release's edition, and
-    one instant for the commit, so a key's staged rows that loaded in different batches stay one
-    version, and an edition loaded again (a full load after a partial one, root ADR-0185) wins.
+    `current_rows` ranks a key's versions by `newest_first`: the edition (a vintage, a provider
+    month, a release's source id), then the commit's instant (`edition_column`, ADR-0328). Every
+    appended row gets the release's edition and one instant for the commit, so a key's staged rows
+    that loaded in different batches stay one version, an edition loaded again (a full load after a
+    partial one, root ADR-0185; a re-collected file) wins, and a removal marker outranks the row it
+    removes.
     """
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    stamp: dict[str, Any] = {}
-    edition_column = None
-    for column in latest.newest_first:
-        if column == "ingested_at_utc":
-            stamp[column] = ingested_at
-        elif column in LOAD_COLUMNS:
-            continue
-        elif edition_column is None:
-            edition_column = column
-        else:
-            raise ValueError(f"versions are ordered by one edition column, not {list(latest.newest_first)}")
-    if edition_column is not None:
+    column = edition_column(latest)
+    stamp: dict[str, Any] = {"ingested_at_utc": ingested_at}
+    if column is not None:
         if not edition:
-            raise ValueError(f"a release of a table ordered by {edition_column} names its edition")
-        stamp[edition_column] = F.lit(edition)
-    return stamp, edition_column
+            raise ValueError(f"a release of a table ordered by {column} names its edition")
+        stamp[column] = F.lit(edition)
+    return stamp, column
 
 
 def release_edition(staged: Any, latest: CurrentRowLatest | None) -> str | None:
-    """The one edition a staged release is, when its table is ordered by one; None otherwise."""
+    """The one edition a staged release is, as text, when its table is ordered by one; None otherwise.
+    Read as Spark casts it (a timestamp in the session's zone), so the stamp casts it back exactly."""
 
-    columns = [c for c in (latest.newest_first if latest else ()) if c not in LOAD_COLUMNS]
-    if not columns:
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    column = edition_column(latest) if latest else None
+    if column is None:
         return None
-    values = [row[0] for row in staged.select(columns[0]).distinct().limit(2).collect()]
+    values = [row[0] for row in staged.select(F.col(column).cast("string")).distinct().limit(2).collect()]
     if len(values) != 1 or not values[0]:
-        raise ValueError(f"a staged release is one {columns[0]}, not {values}")
-    return str(values[0])
+        raise ValueError(f"a staged release is one {column}, not {values}")
+    return values[0]
+
+
+def held_editions(spark: Any, main: Any, qualified: str, unquoted: str, column: str) -> set[str]:
+    """Every edition `main` holds: those its commits record (`read_editions`, which also reads the
+    table's durable record), and the newest its rows carry. Snapshot summaries expire (root
+    ADR-0237); the durable record and the rows do not."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    newest = main.agg(F.max(column).cast("string")).first()[0]
+    return read_editions(spark, qualified, unquoted, MAIN) | ({newest} if newest else set())
 
 
 def refuse_older_edition(edition: str, held: set[str]) -> None:
@@ -331,13 +348,17 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
     done = recorded_buckets(snapshots, ref_lineage(spark, qualified, args.changes_branch), args.source_snapshot_id)
     pending = [b for b in every if bucket_label(b) not in done]
     latest = current_row_latest(contract)
-    versions = release_versions(staged, latest.newest_first)
     edition = release_edition(staged, latest)
-    # One instant for the run: the markers and, for a table ordered by it, every row (ADR-0317).
-    instant = F.lit(datetime.now(timezone.utc)).cast("timestamp")
-    stamp, edition_column = commit_stamp(latest, edition, instant)
-    if edition_column is not None:
-        refuse_older_edition(edition, read_editions(spark, qualified, unquoted, MAIN))
+    # One instant for the run, on every appended row (ADR-0328). A resumed run stamps its own: a
+    # key's rows are all in one bucket, so each key is still one version.
+    run_at = datetime.now(timezone.utc)
+    instant = F.lit(run_at).cast("timestamp")
+    stamp, edition_at = commit_stamp(latest, edition, instant)
+    if main.where(F.col("ingested_at_utc") >= instant).limit(1).count():
+        raise ValueError(f"{args.contract} holds a row loaded at or after this run's instant {run_at.isoformat()}; "
+                         "its rows would not outrank it")
+    if edition_at is not None:
+        refuse_older_edition(edition, held_editions(spark, main, qualified, unquoted, edition_at))
         report["edition"] = edition
     totals = {"changed_key_rows": 0, "removed_keys": 0}
     progress = {"buckets": len(every), "buckets_done": len(every) - len(pending)}
@@ -354,7 +375,7 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
         changes = release_changes(staged_part, current, key=key, content=content, removal=removal,
                                   source_snapshot_id=args.source_snapshot_id,
                                   ingested_at=instant, columns=columns,
-                                  versions=versions, stamp=stamp).persist(StorageLevel.DISK_ONLY)
+                                  stamp=stamp).persist(StorageLevel.DISK_ONLY)
         counts = changes.groupBy(F.col(removal) == F.lit(REMOVED)).count().collect()
         removed = sum(row["count"] for row in counts if row[0])
         appended = sum(row["count"] for row in counts if not row[0])
@@ -368,14 +389,12 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
         totals["removed_keys"] += removed
         progress["buckets_done"] += 1
     # The seal: an empty commit that records the release's objects, so the published main says it is
-    # loaded, and the version the release carries, which a release that changed nothing has no row of.
+    # loaded, and the version the release carries, which a release that changed nothing has no row of:
+    # its edition, or for a table ordered by its instant alone, the instant its rows got.
+    version = edition if edition_at is not None else str(run_at.replace(tzinfo=None))
     seal = {**snapshot_property_options(objects, ingest_batch_token(objects)), **change_record_options(0, 0),
-            **(edition_property_option(edition) if edition_column is not None else {})}
-    if len(latest.newest_first) == 1:
-        version = (versions.get(latest.newest_first[0]) if latest.newest_first[0] in versions
-                   else staged.agg(F.max(latest.newest_first[0])).first()[0])
-        if version is not None:
-            seal[f"{SNAPSHOT_PROPERTY_PREFIX}{RELEASE_VERSION_KEY}"] = str(version)
+            **(edition_property_option(edition) if edition_at is not None else {}),
+            f"{SNAPSHOT_PROPERTY_PREFIX}{RELEASE_VERSION_KEY}": version}
     write(staged.limit(0), target, seal)
     return {**report, "outcome": "staged", "resumed": False, "staged_rows": staged.count(), **progress, **totals}
 

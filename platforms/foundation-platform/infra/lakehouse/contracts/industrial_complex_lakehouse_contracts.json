@@ -11,7 +11,8 @@
           "mgmt_key"
         ],
         "newest_first": [
-          "vintage"
+          "vintage",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -710,7 +711,8 @@
           "pnu"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -978,7 +980,8 @@
           "pnu"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -1227,7 +1230,8 @@
           "mgm_bldrgst_pk"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "valid_from_utc",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -1438,7 +1442,8 @@
           "mgm_bldrgst_pk"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "valid_from_utc",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -1639,7 +1644,8 @@
           "mgm_bldrgst_pk"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "valid_from_utc",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -2767,7 +2773,8 @@
           "pnu"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -2946,7 +2953,8 @@
           "pnu"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -3081,7 +3089,8 @@
           "transfer_history_seq"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true
@@ -3226,7 +3235,8 @@
           "right_serial_no"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "ingested_at_utc"
         ],
         "removal_column": "row_state",
         "keep_ties": true

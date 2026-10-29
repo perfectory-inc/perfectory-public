@@ -131,7 +131,8 @@ pub const SILVER_LAND_RIGHT_REGISTRATION: LakehouseTableContract = LakehouseTabl
     // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
     current_row_latest: Some(LakehouseCurrentRowLatest {
         key: &["pnu", "right_serial_no"],
-        newest_first: &["source_snapshot_id"],
+        // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
+        newest_first: &["source_snapshot_id", "ingested_at_utc"],
         removal_column: Some("row_state"),
         keep_ties: true,
     }),

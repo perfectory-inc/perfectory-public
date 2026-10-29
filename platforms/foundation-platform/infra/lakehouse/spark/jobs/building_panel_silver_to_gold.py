@@ -186,11 +186,13 @@ def read_source(spark, args, name, pins, after=None, batches=None):
 
 
 def assert_single_snapshot(frame, name):
-    if current_row_latest(load_lakehouse_contract(name)) is not None:
+    latest = current_row_latest(load_lakehouse_contract(name))
+    if latest is not None:
         # A register that appends only each release's changed keys holds the current rows of several
-        # releases by design (root ADR-0318); `frame` is its current rows, and the newest is named.
-        # The Iceberg pin beside it (source_iceberg_snapshots_by_dataset) is exact.
-        return frame.agg(F.max("source_snapshot_id")).first()[0]
+        # releases by design (root ADR-0318); `frame` is its current rows, and the newest by the
+        # contract's order is named, not the largest id (ADR-0328). The Iceberg pin beside it
+        # (source_iceberg_snapshots_by_dataset) is exact.
+        return frame.agg(F.max_by("source_snapshot_id", F.struct(*latest.newest_first))).first()[0]
     values = [r.source_snapshot_id for r in frame.select("source_snapshot_id").distinct().limit(3).collect()]
     if len(values) != 1 or not values[0]:
         raise ValueError(f"{name} must carry exactly one non-empty source_snapshot_id: {values}")
