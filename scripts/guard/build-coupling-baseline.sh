@@ -288,7 +288,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 144 -> 145: the Silver refresh's lane test embeds infra/systemd/foundation-silver-refresh@.service
 # and holds the compare's last-bucket deadline under the unit's TimeoutStartSec, so a shorter unit
 # limit cannot kill a bucket that the deadline let start (root ADR-0318).
-COMPILE_TIME_READ_BASELINE="${3:-145}"
+# 145 -> 147: foundation-publisher-core embeds contracts/schema-registry/registry.json, the one place a
+# registered subject's versions live, so the publisher, the monitor and the manifest record read the
+# subject's major from the file the Worker and the web read too (root ADR-0336).
+COMPILE_TIME_READ_BASELINE="${3:-147}"
 
 cd "$repo_root"
 
