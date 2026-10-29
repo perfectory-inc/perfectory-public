@@ -178,6 +178,7 @@ async fn ranged(
         reader,
         &data_file(&reader.bytes)?,
         prefix.map(|prefix| ("pnu", prefix)),
+        &std::collections::BTreeSet::new(),
         |row| {
             rows.push(row);
             rows.len() < limit

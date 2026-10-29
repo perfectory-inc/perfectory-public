@@ -428,7 +428,8 @@ fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> PackProvenance
     }
 }
 
-/// The kept rows, the snapshot's whole row count by its manifests, and what the scan read.
+/// The kept rows, the rows the whole snapshot holds (position deletes applied), and what the scan
+/// read.
 async fn scan(
     config: &BakeConfig,
     lakehouse: &LakehouseObjectReader,
@@ -474,7 +475,8 @@ async fn scan(
         skipped_data_files: rows.skipped_data_file_count,
         bytes_read: rows.read_file_bytes,
     };
-    Ok((rows.rows, rows.manifest_record_count, read))
+    let live = rows.live_record_count();
+    Ok((rows.rows, live, read))
 }
 
 /// Where each baked section goes, and what a section re-baked alone is joined with.

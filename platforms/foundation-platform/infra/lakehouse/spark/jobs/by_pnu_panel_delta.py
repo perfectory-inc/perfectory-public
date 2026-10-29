@@ -223,12 +223,23 @@ def unchanged_rest(current_rows: int, counts: dict[str, int]) -> int:
 
 
 def snapshot_rows(spark: Any, table: str, snapshot_id: str) -> int:
-    """The row count the snapshot's summary records."""
-    row = spark.sql(f"SELECT summary['total-records'] AS rows FROM {table}.snapshots "
+    """The rows the snapshot holds, by its summary: its data files' records less its position deletes
+    (a merge-on-read commit's, root ADR-0344). Iceberg's `total-records` counts a deleted row until
+    compaction folds the delete in."""
+    row = spark.sql(f"SELECT summary['total-records'] AS rows, summary['total-position-deletes'] AS deletes, "
+                    f"summary['total-equality-deletes'] AS equality FROM {table}.snapshots "
                     f"WHERE snapshot_id = {int(snapshot_id)}").first()
     if row is None or row.rows is None:
         raise Refusal(EXIT_NO_COMPARISON, f"{table} snapshot {snapshot_id} records no row count")
-    return int(row.rows)
+    return live_rows(row.rows, row.deletes, row.equality)
+
+
+def live_rows(records: str, position_deletes: str | None, equality_deletes: str | None) -> int:
+    """A snapshot summary's row count: `total-records` less `total-position-deletes`. Equality deletes
+    are refused: no Gold writer makes them, and their count is not a count of rows (root ADR-0344)."""
+    if int(equality_deletes or 0):
+        raise ValueError(f"the snapshot carries {equality_deletes} equality deletes; only position deletes are read")
+    return int(records) - int(position_deletes or 0)
 
 
 # Up to this many recorded PNUs are a filter Iceberg prunes data files with (its metrics evaluators
