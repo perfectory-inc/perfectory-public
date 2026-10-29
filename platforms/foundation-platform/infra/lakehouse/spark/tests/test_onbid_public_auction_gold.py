@@ -273,19 +273,35 @@ class DocumentSparkTest(unittest.TestCase):
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
         self.assertEqual(json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"], [])
 
-    def test_photos_by_round_groups_sorts_and_with_photos_fills_absent_rounds(self):
+    def test_photos_by_item_groups_sorts_and_every_round_of_the_item_carries_them(self):
         photo_schema = ("cltr_mng_no string, pbct_cdtn_no long, sha256 string, media_kind string, "
                         "sequence int, title string, media_format string, size_bytes bigint")
         photo_rows = self.spark.createDataFrame([
             ("A", 1, "b" * 64, "photo", 1, None, "jpg", 10), ("A", 1, "a" * 64, "photo", 0, "f", "png", 20),
             ("B", 1, "c" * 64, "appraisal", 0, "g", "pdf", 30)], photo_schema)
-        grouped = job.photos_by_round(photo_rows)
-        by_round = {(r.cltr_mng_no, r.pbct_cdtn_no): [p.sha256[0] for p in r.photos] for r in grouped.collect()}
-        self.assertEqual(by_round[("A", 1)], ["a", "b"])  # one row per round, ordered by sequence
-        rounds = self.spark.createDataFrame([("Z", 1), ("A", 1)], "cltr_mng_no string, pbct_cdtn_no long")
-        filled = {r.cltr_mng_no: r.photos for r in job.with_photos(rounds, grouped).collect()}
-        self.assertEqual(filled["Z"], [], "a round with no media gets an empty array, never null")
-        self.assertEqual([p.sha256[0] for p in filled["A"]], ["a", "b"])
+        grouped = job.photos_by_item(photo_rows)
+        by_item = {r.cltr_mng_no: [p.sha256[0] for p in r.photos] for r in grouped.collect()}
+        self.assertEqual(by_item["A"], ["a", "b"])  # one row per item, ordered by sequence
+        # Root ADR-0339: the detail was asked through round 1; round 2 of the same item carries it too.
+        rounds = self.spark.createDataFrame([("Z", 1), ("A", 1), ("A", 2)], "cltr_mng_no string, pbct_cdtn_no long")
+        filled = {(r.cltr_mng_no, r.pbct_cdtn_no): r.photos for r in job.with_photos(rounds, grouped).collect()}
+        self.assertEqual(filled[("Z", 1)], [], "a round with no media gets an empty array, never null")
+        self.assertEqual([p.sha256[0] for p in filled[("A", 1)]], ["a", "b"])
+        self.assertEqual(filled[("A", 2)], filled[("A", 1)])
+
+    def test_the_current_media_are_one_row_per_item_and_hash(self):
+        from platform_contracts import current_rows, load_lakehouse_contract
+
+        # Before root ADR-0339 one run could fetch two rounds of an item: the same file on two lines.
+        photo_schema = ("cltr_mng_no string, pbct_cdtn_no long, sha256 string, media_kind string, "
+                        "sequence int, title string, media_format string, size_bytes bigint, "
+                        "source_snapshot_id string, source_line_number int")
+        rows = self.spark.createDataFrame([
+            ("A", 1, "a" * 64, "photo", 0, None, "jpg", 10, "snap-1", 1),
+            ("A", 2, "a" * 64, "photo", 0, None, "jpg", 10, "snap-1", 2),
+            ("A", 3, "a" * 64, "photo", 0, None, "jpg", 10, "snap-0", 1)], photo_schema)
+        current = current_rows(rows, load_lakehouse_contract(job.PHOTO_SOURCE)).collect()
+        self.assertEqual([(r.pbct_cdtn_no, r.source_snapshot_id) for r in current], [(2, "snap-1")])
 
     def test_a_document_over_the_ceiling_keeps_the_soonest_closing_rounds(self):
         import json
@@ -404,6 +420,34 @@ class IncrementalParitySparkTest(unittest.TestCase):
             self.assertEqual({r.pnu for r in full.collect()}, {a, b_new, e, f, *quiet})
         finally:
             plan["stages"].remove()
+
+    def test_a_media_change_touches_every_round_of_its_item(self):
+        """Root ADR-0339: the detail answered through one round, but every round of the item serves
+        the media, so a new media row of the item reaches the PNUs of all its rounds."""
+        one, two, other = pnu(51), pnu(52), pnu(53)
+        late = datetime(2099, 1, 10)
+        items = [self.item("M", one, late, "snap-1"), {**self.item("M", two, late, "snap-1"), "pbct_cdtn_no": 2},
+                 self.item("N", other, late, "snap-1")]
+        photo = {"cltr_mng_no": "M", "pbct_cdtn_no": 1, "sha256": "m" * 64, "media_kind": "photo",
+                 "sequence": 0, "media_format": "jpg", "size_bytes": 10, "source_snapshot_id": "snap-2"}
+        parcels = self.spark.createDataFrame([(p,) for p in (one, two, other)], "pnu string")
+        how = job.Placement("2099-01-02T00:00:00Z")
+        columns = ("pnu", *job.GOLD_CONTENT, "source_snapshot_id", "published_at_utc", "row_digest")
+        old = {job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, items), job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, []),
+               job.PARCEL_SOURCE: parcels}
+        new = {**old, job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, [photo])}
+        gold_v1 = job.gold_rows(job.placement(old, how), how.as_of, "snap-p", columns)
+        affected = job.affected_pnus(old, new, how, gold_v1, how.as_of, [job.PHOTO_SOURCE])
+        self.assertEqual({r.pnu for r in affected.collect()}, {one, two})
+        restricted = job.restrict_inputs(new, affected, how)
+        self.assertEqual(restricted[job.PHOTO_SOURCE].count(), 1, "the item's media follow its rounds")
+        import json
+
+        served = {r.pnu: json.loads(r.public_auction_json)["rounds"][0]["photos"]
+                  for r in job.gold_rows(job.placement(new, how), how.as_of, "snap-p", columns).collect()}
+        self.assertEqual(len(served[one]), 1)
+        self.assertEqual(served[two], served[one])
+        self.assertEqual(served[other], [])
 
     def test_the_parcels_read_are_only_those_a_sale_or_its_lineage_names(self):
         parcels = self.spark.createDataFrame([(p,) for p in (CURRENT, SPLIT_A, SPLIT_B, pnu(99))], "pnu string")

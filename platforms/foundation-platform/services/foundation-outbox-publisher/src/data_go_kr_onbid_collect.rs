@@ -260,12 +260,15 @@ pub(crate) struct State {
     /// What the last complete item pass said about each open condition (root ADR-0330 §2).
     #[serde(default, with = "keyed")]
     pub(crate) listed: BTreeMap<ItemKey, Listed>,
-    /// Open conditions whose 물건상세 was fetched AND whose media all landed (root ADR-0330 §1), with
-    /// the list digest they were fetched at. Pruned each run to the still-open set. (The earlier
-    /// `detailed` set marked a condition at fetch even when the media cap skipped its photos; it is
-    /// no longer read, so those conditions are fetched again.)
-    #[serde(default, with = "keyed")]
+    /// Root ADR-0330's per-round marks, read only to be folded into `items` (root ADR-0339 §1) and
+    /// then empty. (The earlier `detailed` set is not read at all.)
+    #[serde(default, with = "keyed", skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) details: BTreeMap<ItemKey, DetailMark>,
+    /// Open items (`cltrMngNo`) whose 물건상세 was fetched AND whose media all landed (root ADR-0330
+    /// §1, per item by root ADR-0339 §1): the media belong to the item, so one detail serves every
+    /// round of it. Pruned each run to the still-listed items.
+    #[serde(default)]
+    pub(crate) items: BTreeMap<String, ItemMark>,
     /// Media URL → its stored blob, for the open items only: a URL already stored is not
     /// downloaded again (root ADR-0330 §3).
     #[serde(default)]
@@ -281,11 +284,21 @@ pub(crate) struct Listed {
     pub(crate) digest: String,
 }
 
-/// A condition whose detail and media are complete.
+/// A condition whose detail and media were complete (root ADR-0330's per-round mark).
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct DetailMark {
     /// The list digest it was fetched at; empty when fetched before the item list was read.
     pub(crate) digest: String,
+    /// Photos stored for it.
+    pub(crate) photos: u32,
+}
+
+/// An item whose detail and media are complete (root ADR-0339 §1).
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ItemMark {
+    /// The list digests its rounds showed when it was fetched; empty when fetched before the item
+    /// list was read. A round showing a digest outside this set makes the item owed again.
+    pub(crate) seen: BTreeSet<String>,
     /// Photos stored for it.
     pub(crate) photos: u32,
 }
@@ -685,13 +698,13 @@ pub(crate) struct RunReport {
     pub(crate) results_received: usize,
     pub(crate) results_not_yet: usize,
     pub(crate) results_owed: usize,
-    /// 물건상세 responses received this run (00 or 03 — both mark the condition detailed).
+    /// 물건상세 responses received this run, one per item (root ADR-0339; 00 or 03).
     pub(crate) details_received: usize,
-    /// Open conditions still owed a 물건상세 after this run (budget or an isolated error stopped it).
+    /// Open items still owed a 물건상세 after this run (budget or an isolated error stopped it).
     pub(crate) details_owed: usize,
     /// 물건상세 requests that errored this run; isolated so they never fail the run.
     pub(crate) details_errored: usize,
-    /// Of the details received, those asked again because the provider changed the list row.
+    /// Of the details received, those asked again because a round showed a new list digest.
     pub(crate) details_refreshed: usize,
     /// Of the details received, those whose media all landed (marked complete after the media step).
     pub(crate) details_completed: usize,
@@ -829,14 +842,22 @@ pub(crate) async fn collect(
     state.pending_results = kept;
     report.results_owed = state.pending_results.len();
 
-    // 물건상세 (getRlstDtlInf2, ADR-0296 §1 / ADR-0297): the full detail of each open item condition
-    // owed one (never complete, or the provider changed its list row), in the order of root ADR-0330
-    // §2, within the item-detail daily budget. The response's media is mirrored by `run` after this;
-    // a condition is marked complete only once its media all landed (`settle_details`). A detail
-    // failure is isolated — counted and the loop stops, but the run still succeeds — so a detail
-    // problem (a wrong path, a provider hiccup) never breaks item-list or result collection.
+    // 물건상세 (getRlstDtlInf2, ADR-0296 §1 / ADR-0297): the full detail of each open ITEM owed one
+    // (never complete, or a round shows a list digest it was not complete at), asked once through its
+    // earliest-closing round, in the order of root ADR-0330 §2 (per item: root ADR-0339 §1), within the
+    // item-detail daily budget. The response's media is mirrored by `run` after this; an item is
+    // marked complete only once its media all landed (`settle_details`). A detail failure is isolated
+    // — counted and the loop stops, but the run still succeeds — so a detail problem (a wrong path, a
+    // provider hiccup) never breaks item-list or result collection.
     if let Some(open) = state.open_items.clone() {
         state.details.retain(|key, _| open.contains(key));
+        let listed_items = open
+            .iter()
+            .map(|key| key.cltr_mng_no.as_str())
+            .collect::<BTreeSet<_>>();
+        state
+            .items
+            .retain(|cltr, _| listed_items.contains(cltr.as_str()));
         // Only a bounded slice of the owed details per run, so the run finishes within the job's
         // time limit (the full backfill is spread over many runs). Without this the loop walks every
         // open item in one run and the job times out before persisting anything (incident 2026-10-26).
@@ -846,12 +867,7 @@ pub(crate) async fn collect(
             .map_or(usize::MAX, |limit| limit as usize);
         let owed = owed_details(state, &open, now);
         let owed_total = owed.len();
-        for Owed {
-            key,
-            digest,
-            refresh,
-        } in owed.into_iter().take(per_run)
-        {
+        for Owed { key, seen, refresh } in owed.into_iter().take(per_run) {
             let params = [
                 ("cltrMngNo", key.cltr_mng_no.clone()),
                 ("pbctCdtnNo", key.pbct_cdtn_no.to_string()),
@@ -874,7 +890,7 @@ pub(crate) async fn collect(
                     report.details_refreshed += usize::from(refresh);
                     report.fetched.push(Fetched {
                         key,
-                        digest,
+                        seen,
                         refresh,
                         line,
                     });

@@ -16,7 +16,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::{
     close_vanished, collect, item_key, item_pass_due, kst14, kst14_of, kst_date, listed_of,
     owed_details, persist, prune_media_memo, read_answer, settle_details, source_contract, Answer,
-    Api, Coverage, DetailMark, Fetcher, ItemKey, LineOutcome, Listed, MediaRef, State, PREFIX,
+    Api, Coverage, DetailMark, Fetcher, ItemKey, ItemMark, LineOutcome, Listed, MediaRef, State,
+    PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -311,7 +312,7 @@ async fn an_open_item_is_detailed_until_its_media_landed_and_again_when_the_prov
     assert_eq!(report.fetched.len(), 1);
     assert!(!report.fetched[0].refresh);
     // Received is not complete: nothing is marked until the media step says its media landed.
-    assert!(state.details.is_empty());
+    assert!(state.items.is_empty());
     let detail_lines = fetcher
         .lines
         .get(&Api::ItemDetail)
@@ -341,7 +342,7 @@ async fn an_open_item_is_detailed_until_its_media_landed_and_again_when_the_prov
         settle_details(&mut state, &report.fetched, &[complete(2)]),
         1
     );
-    assert_eq!(state.details[&key("A-1", 1)].photos, 2);
+    assert_eq!(state.items["A-1"].photos, 2);
 
     // Three hours later the item list is due again with the same row: detail is not re-asked.
     let later = at("2099-01-01T03:00:00Z");
@@ -392,6 +393,123 @@ fn mark(digest: &str, photos: u32) -> DetailMark {
         digest: digest.to_owned(),
         photos,
     }
+}
+
+fn item_mark(seen: &[&str], photos: u32) -> ItemMark {
+    ItemMark {
+        seen: seen.iter().map(|digest| (*digest).to_owned()).collect(),
+        photos,
+    }
+}
+
+fn owed_keys(
+    state: &mut State,
+    open: &BTreeSet<ItemKey>,
+    now: DateTime<Utc>,
+) -> Vec<(ItemKey, bool)> {
+    owed_details(state, open, now)
+        .into_iter()
+        .map(|owed| (owed.key, owed.refresh))
+        .collect()
+}
+
+#[test]
+fn one_detail_serves_every_round_of_an_item_until_a_round_shows_a_new_stamp() {
+    // 2099-01-05 00:00 UTC = 09:00 KST. A has three rounds (one ended), B one.
+    let now = at("2099-01-05T00:00:00Z");
+    let mut state = State::default();
+    let mut open = BTreeSet::from([key("A", 1), key("A", 2), key("A", 3), key("B", 1)]);
+    state
+        .listed
+        .insert(key("A", 1), listed("m1", Some("20990301100000")));
+    state
+        .listed
+        .insert(key("A", 2), listed("m1", Some("20990201100000")));
+    state
+        .listed
+        .insert(key("A", 3), listed("m1", Some("20990104100000")));
+    state
+        .listed
+        .insert(key("B", 1), listed("m1", Some("20990401100000")));
+
+    // One detail per item, asked through its earliest-closing round whose bid has not ended.
+    assert_eq!(
+        owed_keys(&mut state, &open, now),
+        [(key("A", 2), false), (key("B", 1), false)]
+    );
+    let owed = owed_details(&mut state, &open, now);
+    let fetched = owed
+        .iter()
+        .enumerate()
+        .map(|(line, owed)| super::Fetched {
+            key: owed.key.clone(),
+            seen: owed.seen.clone(),
+            refresh: owed.refresh,
+            line,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        settle_details(&mut state, &fetched, &[complete(3), LineOutcome::default()]),
+        1
+    );
+    // A is complete for all three rounds; B's media did not land, so B alone is owed.
+    assert_eq!(owed_keys(&mut state, &open, now), [(key("B", 1), false)]);
+    assert_eq!(
+        Coverage::of(
+            &State {
+                open_items: Some(open.clone()),
+                ..state.clone()
+            },
+            now
+        )
+        .covered,
+        2,
+        "A's two rounds whose bid has not ended"
+    );
+
+    // A new round with a stamp A was complete at is not a reason to ask again.
+    open.insert(key("A", 4));
+    state
+        .listed
+        .insert(key("A", 4), listed("m1", Some("20990501100000")));
+    assert_eq!(owed_keys(&mut state, &open, now), [(key("B", 1), false)]);
+    // A new round with a new stamp is, and so is an existing round whose stamp changed.
+    for (round, digest) in [(5, "m1"), (1, "m2")] {
+        let mut changed = state.clone();
+        let mut open = open.clone();
+        open.insert(key("A", round));
+        changed
+            .listed
+            .insert(key("A", round), listed(digest, Some("20990601100000")));
+        let expect_a = digest != "m1";
+        let owed = owed_keys(&mut changed, &open, now);
+        assert_eq!(
+            owed.iter()
+                .any(|(owed, refresh)| owed.cltr_mng_no == "A" && *refresh),
+            expect_a,
+            "round {round} at {digest}"
+        );
+    }
+    // A round that closes (leaves the list) asks nothing.
+    open.remove(&key("A", 1));
+    assert_eq!(owed_keys(&mut state, &open, now), [(key("B", 1), false)]);
+}
+
+#[test]
+fn the_per_round_marks_of_adr_0330_fold_into_their_items() -> anyhow::Result<()> {
+    let old: State = serde_json::from_value(json!({
+        "details": [[{"cltr_mng_no": "A", "pbct_cdtn_no": 1}, {"digest": "m1", "photos": 2}]]
+    }))?;
+    let mut state = old;
+    let open = BTreeSet::from([key("A", 1), key("A", 2)]);
+    state.listed.insert(key("A", 1), listed("m1", None));
+    state.listed.insert(key("A", 2), listed("m1", None));
+    assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
+    assert!(state.details.is_empty());
+    assert_eq!(state.items["A"], item_mark(&["m1"], 2));
+    // The folded state no longer writes the per-round field.
+    assert!(!serde_json::to_string(&state)?.contains("\"details\""));
+    Ok(())
 }
 
 #[test]
@@ -445,7 +563,7 @@ fn a_mark_made_before_the_list_was_read_adopts_its_digest_instead_of_a_refetch()
     assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
     state.listed.insert(key("A", 1), listed("d", None));
     assert!(owed_details(&mut state, &open, at("2099-01-01T00:00:00Z")).is_empty());
-    assert_eq!(state.details[&key("A", 1)].digest, "d");
+    assert_eq!(state.items["A"].seen, BTreeSet::from(["d".to_owned()]));
 }
 
 #[test]
@@ -489,9 +607,9 @@ fn coverage_counts_the_conditions_whose_bid_has_not_ended() {
     state
         .listed
         .insert(key("D", 1), listed("d", Some("20990101000000")));
-    state.details.insert(key("A", 1), mark("d", 3));
-    state.details.insert(key("B", 1), mark("d", 0));
-    state.details.insert(key("D", 1), mark("d", 3));
+    state.items.insert("A".to_owned(), item_mark(&["d"], 3));
+    state.items.insert("B".to_owned(), item_mark(&["d"], 0));
+    state.items.insert("D".to_owned(), item_mark(&["d"], 3));
     let coverage = Coverage::of(&state, now);
     assert_eq!(
         (coverage.open, coverage.covered, coverage.with_photos),
@@ -523,7 +641,7 @@ fn the_media_memo_keeps_the_open_items_only_and_the_state_round_trips() -> anyho
     state
         .media
         .insert("https://www.onbid.co.kr/b.jpg".to_owned(), known("GONE"));
-    state.details.insert(key("A", 1), mark("d", 1));
+    state.items.insert("A".to_owned(), item_mark(&["d"], 1));
     state
         .listed
         .insert(key("A", 1), listed("d", Some("20990101000000")));

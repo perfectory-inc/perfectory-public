@@ -4822,11 +4822,11 @@
       "current_row_latest": {
         "key": [
           "cltr_mng_no",
-          "pbct_cdtn_no",
           "sha256"
         ],
         "newest_first": [
-          "source_snapshot_id"
+          "source_snapshot_id",
+          "source_line_number"
         ],
         "removal_column": null,
         "keep_ties": false

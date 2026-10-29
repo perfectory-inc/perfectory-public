@@ -95,3 +95,7 @@
   돈다 — Gold 뒤 화면 반영이 ~13시간 늦다. 별도로 고친다.
 - 시험: `data_go_kr_onbid_collect/tests.rs`(완료 전 재요청·`mdfcnDt` 로만 refresh·순서·다이제스트·커버리지·메모 정리·옛 상태
   호환), `onbid_media.rs`(회차 단위 정착·메모 재사용·4xx 영구 제외·503 재시도·상한에서 회차 경계 정지·refresh 재확인).
+
+개정 각주(2026-10-29): 상세와 완료의 단위는 [ADR-0339](./0339-a-public-auction-item-is-detailed-once-for-all-its-rounds.md)가
+회차에서 물건(`cltrMngNo`)으로 바꿨다 — 미디어는 물건의 것이라 상세를 물건마다 한 번 받고 그 물건의 모든 회차가 쓴다.
+§1·§2·§3(미디어 하루 상한)과 Consequences 의 "약 4일"은 그 ADR 이 고친다.

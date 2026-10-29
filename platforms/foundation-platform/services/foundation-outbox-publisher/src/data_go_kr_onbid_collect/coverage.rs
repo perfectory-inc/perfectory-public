@@ -1,7 +1,7 @@
-//! Which open 공매 rounds are owed a 물건상세, when a round counts as complete, and the coverage
-//! the collector reports (root ADR-0330).
+//! Which open 공매 items are owed a 물건상세, when an item counts as complete, and the coverage the
+//! collector reports per round (root ADR-0330; per item by root ADR-0339).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::Context as _;
@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value as JsonValue;
 
-use super::{DetailMark, Endpoint, ItemKey, Listed, State, KST_HOURS};
+use super::{Endpoint, ItemKey, ItemMark, Listed, State, KST_HOURS};
 
 /// The node-exporter textfile the coverage series land in (root ADR-0330 §4).
 const METRICS_FILE: &str = "onbid-item-detail.prom";
@@ -61,65 +61,90 @@ pub(crate) fn listed_of(endpoint: &Endpoint, item: &JsonValue) -> Listed {
     }
 }
 
-/// One open condition whose detail is owed.
+/// One open item whose detail is owed, asked through one of its rounds (root ADR-0339 §1).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Owed {
+    /// The round asked: the item's earliest-closing round whose bid has not ended.
     pub(crate) key: ItemKey,
-    pub(crate) digest: String,
-    /// It was complete at another digest: the provider changed the row.
+    /// The list digests its rounds show now; kept on the item's mark once its media landed.
+    pub(crate) seen: BTreeSet<String>,
+    /// It was complete, and a round now shows a digest it was not complete at.
     pub(crate) refresh: bool,
 }
 
-/// The open conditions whose detail is owed, in the order they are asked (root ADR-0330 §2): those
-/// whose bid has not ended before those whose has, never-fetched before changed, the earliest bid end
-/// first (unknown last), then by key.
+/// Folds the per-round marks of root ADR-0330 into per-item marks (root ADR-0339 §1): a round's
+/// media were its item's (measured 2026-10-29: every item's rounds held the same files), so a
+/// complete round makes its item complete at that round's digest.
+fn adopt_round_marks(state: &mut State) {
+    for (key, mark) in std::mem::take(&mut state.details) {
+        let item = state.items.entry(key.cltr_mng_no).or_default();
+        if !mark.digest.is_empty() {
+            item.seen.insert(mark.digest);
+        }
+        item.photos = item.photos.max(mark.photos);
+    }
+}
+
+/// The open items whose detail is owed, in the order they are asked (root ADR-0330 §2 per item,
+/// root ADR-0339 §1): items with a round whose bid has not ended before the rest, never-fetched before
+/// changed, the earliest such bid end first (unknown last), then by key. An item is owed again when
+/// one of its rounds shows a list digest the item was not complete at — a round whose `mdfcnDt`
+/// changed, or a new round with a stamp none of the others had; a new round with a known stamp is not.
 pub(crate) fn owed_details(
     state: &mut State,
     open: &BTreeSet<ItemKey>,
     now: DateTime<Utc>,
 ) -> Vec<Owed> {
-    // A mark made before the item list was read adopts the list's digest instead of being re-asked.
-    for (key, mark) in &mut state.details {
-        if mark.digest.is_empty() {
-            if let Some(listed) = state.listed.get(key) {
-                mark.digest.clone_from(&listed.digest);
-            }
-        }
-    }
+    adopt_round_marks(state);
     let now = kst14_of(now);
-    let mut owed = open
-        .iter()
-        .filter_map(|key| {
-            let listed = state.listed.get(key);
-            let digest = listed
-                .map(|listed| listed.digest.clone())
-                .unwrap_or_default();
-            let refresh = match state.details.get(key) {
-                None => false,
-                Some(mark) if listed.is_none() || mark.digest == digest => return None,
-                Some(_) => true,
-            };
-            let ends = listed.and_then(|listed| listed.bid_ends_kst.clone());
-            let ended = ends.as_deref().is_some_and(|ends| ends < now.as_str());
-            Some((
-                (ended, refresh, ends.is_none(), ends),
-                Owed {
-                    key: key.clone(),
-                    digest,
-                    refresh,
-                },
-            ))
-        })
-        .collect::<Vec<_>>();
+    let mut rounds: BTreeMap<&str, Vec<_>> = BTreeMap::new();
+    for key in open {
+        let listed = state.listed.get(key);
+        let ends = listed.and_then(|listed| listed.bid_ends_kst.clone());
+        let ended = ends.as_deref().is_some_and(|ends| ends < now.as_str());
+        rounds.entry(key.cltr_mng_no.as_str()).or_default().push((
+            (ended, ends.is_none(), ends),
+            key,
+            listed.map(|listed| listed.digest.clone()),
+        ));
+    }
+    let mut owed = Vec::new();
+    for (cltr, mut item_rounds) in rounds {
+        item_rounds.sort();
+        let seen = item_rounds
+            .iter()
+            .filter_map(|(_, _, digest)| digest.clone())
+            .collect::<BTreeSet<_>>();
+        let refresh = match state.items.get_mut(cltr) {
+            None => false,
+            // A mark made before the item list was read adopts the list's digests instead of a refetch.
+            Some(mark) if mark.seen.is_empty() => {
+                mark.seen = seen;
+                continue;
+            }
+            Some(mark) if seen.is_subset(&mark.seen) => continue,
+            Some(_) => true,
+        };
+        let ((ended, unknown, ends), key, _) = item_rounds.swap_remove(0);
+        owed.push((
+            (ended, refresh, unknown, ends),
+            Owed {
+                key: key.clone(),
+                seen,
+                refresh,
+            },
+        ));
+    }
     owed.sort_by(|(left, a), (right, b)| left.cmp(right).then_with(|| a.key.cmp(&b.key)));
     owed.into_iter().map(|(_, owed)| owed).collect()
 }
 
-/// A detail fetched this run: which condition, at which list digest, and its Bronze line.
+/// A detail fetched this run: which item (through which round), at which list digests, and its
+/// Bronze line.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Fetched {
     pub(crate) key: ItemKey,
-    pub(crate) digest: String,
+    pub(crate) seen: BTreeSet<String>,
     pub(crate) refresh: bool,
     /// Index of its line in `Fetcher::lines[ItemDetail]`.
     pub(crate) line: usize,
@@ -134,8 +159,8 @@ pub(crate) struct LineOutcome {
     pub(crate) photos: u32,
 }
 
-/// Marks complete the conditions whose media all landed; the rest stay owed and are fetched again
-/// by a later run (root ADR-0330 §1). Returns how many were marked.
+/// Marks complete the items whose media all landed; the rest stay owed and are fetched again by a
+/// later run (root ADR-0330 §1, per item by root ADR-0339 §1). Returns how many were marked.
 pub(crate) fn settle_details(
     state: &mut State,
     fetched: &[Fetched],
@@ -147,10 +172,10 @@ pub(crate) fn settle_details(
             .get(fetched.line)
             .filter(|outcome| outcome.complete)
         {
-            state.details.insert(
-                fetched.key.clone(),
-                DetailMark {
-                    digest: fetched.digest.clone(),
+            state.items.insert(
+                fetched.key.cltr_mng_no.clone(),
+                ItemMark {
+                    seen: fetched.seen.clone(),
                     photos: outcome.photos,
                 },
             );
@@ -181,7 +206,8 @@ impl Coverage {
                 continue;
             }
             coverage.open += 1;
-            if let Some(mark) = state.details.get(key) {
+            // A round is covered when its item is: the media belong to the item (root ADR-0339).
+            if let Some(mark) = state.items.get(&key.cltr_mng_no) {
                 coverage.covered += 1;
                 coverage.with_photos += usize::from(mark.photos > 0);
             }
