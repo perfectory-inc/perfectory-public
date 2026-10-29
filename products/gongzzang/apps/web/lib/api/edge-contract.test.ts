@@ -16,6 +16,15 @@ const lanes = JSON.parse(
 ).by_pnu_lanes;
 const lane = lanes["unit-price"];
 const publicAuction = lanes["parcel-public-auction"];
+const registry = JSON.parse(
+  readFileSync(resolve(FOUNDATION, "contracts/schema-registry/registry.json"), "utf8"),
+) as {
+  subjects: {
+    subject: string;
+    owner: { lane: string };
+    revisions: { major: number; schema_version: string }[];
+  }[];
+};
 const buildingVersion = readFileSync(
   resolve(FOUNDATION, "crates/foundation-contracts/src/building_panel.rs"),
   "utf8",
@@ -34,14 +43,19 @@ describe("the web reads what the foundation publishes", () => {
   });
 
   // 2026-10-29: a web build that refused the public auction v2 document showed no auction at all.
-  // A lane serves its current version and every version it expands (root ADR-0320 §5), so the web
-  // must take each of them.
+  // The lane's versions live in the schema registry (root ADR-0336), never on its contract line: the
+  // web takes every string of every major the registry lists for the lane's subject.
   it("accepts every public auction document version the lane can serve", () => {
-    const servable = [
-      publicAuction.document_schema_version,
-      ...(publicAuction.document_schema_expands ?? []),
-    ];
-    expect(servable[0]).toBeDefined();
+    expect(publicAuction.document_schema_version).toBeUndefined();
+    const entry = registry.subjects.find(
+      (subject) => subject.owner.lane === "parcel-public-auction",
+    );
+    expect(entry).toBeDefined();
+    const servable = new Set<string>();
+    for (const revision of entry?.revisions ?? []) {
+      servable.add(`${entry?.subject}.v${revision.major}`);
+      servable.add(revision.schema_version);
+    }
     for (const version of servable) {
       expect(PublicAuctionDocumentSchema.shape.schema_version.options).toContain(version);
     }
