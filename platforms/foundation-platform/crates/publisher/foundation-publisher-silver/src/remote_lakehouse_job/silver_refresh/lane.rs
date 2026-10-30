@@ -35,7 +35,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 14] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 15] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
