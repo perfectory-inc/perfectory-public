@@ -52,6 +52,8 @@ def value(column, kind, n, vintage):
         return float(n)
     if kind == "array<string>":
         return [f"{column}-{n}-{vintage}"]
+    if kind == "binary":  # a WKB geometry (root ADR-0362)
+        return bytearray(f"{column}-{n}-{vintage}".encode())
     if kind == "date":
         return date(2099, 1, 1)
     if kind == "timestamp":
