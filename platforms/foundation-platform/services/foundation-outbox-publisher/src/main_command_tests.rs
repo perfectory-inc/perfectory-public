@@ -388,39 +388,15 @@ fn run_national_data_collection_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn rt_molit_real_transaction_export_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "ingest-rt-molit-real-transaction-export"
-        ])?,
-        Command::IngestRtMolitRealTransactionExport
-    );
-    Ok(())
-}
-
-#[test]
-fn plan_rt_molit_real_transaction_export_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "plan-rt-molit-real-transaction-exports"
-        ])?,
-        Command::PlanRtMolitRealTransactionExports
-    );
-    Ok(())
-}
-
-#[test]
-fn execute_rt_molit_real_transaction_export_plan_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "execute-rt-molit-real-transaction-export-plan"
-        ])?,
-        Command::ExecuteRtMolitRealTransactionExportPlan
-    );
-    Ok(())
+fn rt_molit_export_commands_are_gone() {
+    // root ADR-0348: rt.molit.go.kr forbids automated access; its CSV export path was removed.
+    for name in [
+        "ingest-rt-molit-real-transaction-export",
+        "plan-rt-molit-real-transaction-exports",
+        "execute-rt-molit-real-transaction-export-plan",
+    ] {
+        assert!(parse_command(["foundation-outbox-publisher", name]).is_err());
+    }
 }
 
 #[test]

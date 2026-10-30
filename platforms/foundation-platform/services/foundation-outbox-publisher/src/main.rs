@@ -173,8 +173,6 @@ mod r2_inventory_audit;
 use foundation_publisher_collection::real_transaction_ingest;
 use foundation_publisher_core::r2_layout;
 mod regional_data_serving_load_check;
-use foundation_publisher_collection::rt_molit_real_transaction_export_collection_plan;
-use foundation_publisher_collection::rt_molit_real_transaction_export_ingest;
 use foundation_publisher_core::runtime_environment;
 use foundation_publisher_silver::remote_lakehouse_job;
 mod serving_source_lineage_register;
@@ -256,14 +254,12 @@ enum Command {
     ExportLandRightRegistrationSilverHandoff,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
-    ExecuteRtMolitRealTransactionExportPlan,
     ExecuteSilverGoldNationalPromotion,
     EvaluateLakehouseQualityRules,
     IngestBuildingHubBulkCollection,
     IngestBuildingHubBulkFile,
     PlanBuildingHubBulkCollection,
     PlanProviderAcquisitionJobs,
-    PlanRtMolitRealTransactionExports,
     PlanVWorldDatasetCollection,
     CheckBoundedLiveIngestionGate,
     CheckR2RuntimeTarget,
@@ -334,7 +330,6 @@ enum Command {
     LoadIndustrialComplexCanonical,
     IngestBuildingRegister,
     IngestRealTransaction,
-    IngestRtMolitRealTransactionExport,
     IngestVWorldCadastral,
     IngestVWorldDatasetFiles,
     IngestVWorldLandRegister,
@@ -564,9 +559,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExecuteNationalDataCollectionLedger => {
             Box::pin(async { national_data_collection_ledger_execute::run() })
         }
-        Command::ExecuteRtMolitRealTransactionExportPlan => {
-            Box::pin(rt_molit_real_transaction_export_collection_plan::run_execute())
-        }
         Command::ExecuteSilverGoldNationalPromotion => {
             Box::pin(async { silver_gold_national_promotion_execution::run_execute() })
         }
@@ -588,9 +580,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(building_hub_bulk_collection_plan::run())
         }
         Command::PlanProviderAcquisitionJobs => Box::pin(provider_acquisition_plan::run()),
-        Command::PlanRtMolitRealTransactionExports => {
-            Box::pin(async { rt_molit_real_transaction_export_collection_plan::run() })
-        }
         Command::PlanVWorldDatasetCollection => Box::pin(vworld_dataset_collection_plan::run()),
         Command::CheckNationalDataCollectionCoverageLedger => {
             Box::pin(async { national_data_collection_coverage_ledger_check::run() })
@@ -796,9 +785,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(async { building_register_local_bronze_proof::run() })
         }
         Command::IngestRealTransaction => Box::pin(real_transaction_ingest::run()),
-        Command::IngestRtMolitRealTransactionExport => {
-            Box::pin(rt_molit_real_transaction_export_ingest::run())
-        }
         Command::IngestVWorldCadastral => Box::pin(vworld_cadastral_ingest::run()),
         Command::IngestVWorldDatasetFiles => Box::pin(vworld_dataset_file_ingest::run()),
         Command::IngestVWorldLandRegister => Box::pin(vworld_land_register_ingest::run()),
@@ -877,18 +863,12 @@ where
         Some("ingest-building-hub-bulk-collection") => Ok(Command::IngestBuildingHubBulkCollection),
         Some("ingest-building-hub-bulk-file") => Ok(Command::IngestBuildingHubBulkFile),
         Some("plan-building-hub-bulk-collection") => Ok(Command::PlanBuildingHubBulkCollection),
-        Some("plan-rt-molit-real-transaction-exports") => {
-            Ok(Command::PlanRtMolitRealTransactionExports)
-        }
         Some("plan-vworld-dataset-collection") => Ok(Command::PlanVWorldDatasetCollection),
         Some("check-national-data-collection-coverage-ledger") => {
             Ok(Command::CheckNationalDataCollectionCoverageLedger)
         }
         Some("execute-national-data-collection-ledger") => {
             Ok(Command::ExecuteNationalDataCollectionLedger)
-        }
-        Some("execute-rt-molit-real-transaction-export-plan") => {
-            Ok(Command::ExecuteRtMolitRealTransactionExportPlan)
         }
         Some("execute-silver-gold-national-promotion") => {
             Ok(Command::ExecuteSilverGoldNationalPromotion)
@@ -1029,9 +1009,6 @@ where
         Some("plan-provider-acquisition-jobs") => Ok(Command::PlanProviderAcquisitionJobs),
         Some("inventory-vworld-dataset-files") => Ok(Command::InventoryVWorldDatasetFiles),
         Some("ingest-real-transaction") => Ok(Command::IngestRealTransaction),
-        Some("ingest-rt-molit-real-transaction-export") => {
-            Ok(Command::IngestRtMolitRealTransactionExport)
-        }
         Some("probe-building-register-page-count") => Ok(Command::ProbeBuildingRegisterPageCount),
         Some("probe-building-register-page-count-batch") => {
             Ok(Command::ProbeBuildingRegisterPageCountBatch)

@@ -1,6 +1,6 @@
 # ADR 0020 - 실거래 Bronze 원천 전략
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0348](../../../../docs/adr/0348-real-transactions-come-from-the-data-go-kr-api-and-recent-months-are-asked-again.md)
 - **Date:** 2026-06-30
 - **Relates:** [ADR 0016](./0016-bronze-commit-protocol.md),
   [ADR 0017](./0017-bronze-collection-protocol.md),

@@ -27,8 +27,6 @@ pub mod public_data_bronze_plan;
 pub mod public_data_bulk_plan;
 /// Planning helpers for data.go.kr real-transaction Bronze ingestion pages.
 pub mod real_transaction_bronze_plan;
-/// Planning helpers for `rt.molit.go.kr` real-transaction CSV export Bronze files.
-pub mod rt_molit_real_transaction_export_plan;
 /// Planning helpers for data.go.kr 행정표준코드 (`getStanReginCdList`) Bronze snapshot pages.
 pub mod standard_code_bronze_plan;
 /// Planning helpers for `VWorld` cadastral Bronze ingestion pages.
@@ -91,11 +89,6 @@ pub use real_transaction_bronze_plan::{
     build_real_transaction_bronze_object_key, plan_real_transaction_bronze_page,
     RealTransactionBronzePagePlan, RealTransactionBronzePagePlanInput,
     RealTransactionBronzePlanError, RealTransactionPageRequest, RealTransactionSchemaObservation,
-};
-pub use rt_molit_real_transaction_export_plan::{
-    plan_rt_molit_real_transaction_export, RtMolitExportScope, RtMolitRealTransactionExportPlan,
-    RtMolitRealTransactionExportPlanError, RtMolitRealTransactionExportPlanInput,
-    RtMolitRealTransactionExportRequest,
 };
 pub use standard_code_bronze_plan::{
     build_standard_code_bronze_object_key, plan_standard_code_bronze_page,

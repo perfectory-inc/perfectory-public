@@ -27,7 +27,6 @@ const FORBIDDEN_APPLICATION_MODULES: &[&str] = &[
     "pub mod public_data_bronze_plan;",
     "pub mod public_data_bulk_plan;",
     "pub mod real_transaction_bronze_plan;",
-    "pub mod rt_molit_real_transaction_export_plan;",
     "pub mod vworld_cadastral_bronze_plan;",
     "pub mod vworld_dataset_collection_plan;",
     "pub mod vworld_land_register_bronze_plan;",

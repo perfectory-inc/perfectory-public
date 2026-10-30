@@ -113,7 +113,7 @@ es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필�
 
 | 역할/소유자 | local | CI | staging | production | 상태 |
 |---|---|---|---|---|---|
-| 공공 source HTTP / Foundation | `reqwest` + rustls로 VWorld/data.go.kr/hub.go.kr/rt.molit 호출 | mock/fixture 또는 보호된 live smoke | 같은 HTTP adapter + staging credentials | 같은 HTTP adapter + production credentials/quota | 실행 중. provider credential은 환경별 |
+| 공공 source HTTP / Foundation | `reqwest` + rustls로 VWorld/data.go.kr/hub.go.kr 호출 | mock/fixture 또는 보호된 live smoke | 같은 HTTP adapter + staging credentials | 같은 HTTP adapter + production credentials/quota | 실행 중. provider credential은 환경별 |
 | Bronze raw bytes / Foundation | 기준은 원격 dev R2지만 출시 전 private 설정은 production R2 공유 | 보호된 live smoke는 전용 CI R2, credential-free smoke는 logging adapter | 전용 staging R2 bucket | 전용 production R2 bucket | 실행 중. `FOUNDATION_PLATFORM_RUNTIME_ENV`와 bucket guard가 강제 |
 | Bronze ledger / Foundation | PostgreSQL 17 + SQLx | ephemeral PostgreSQL | staging PostgreSQL 17 | production PostgreSQL 17 | 실행 중. DB endpoint만 변경 |
 | outbox/event ledger / Foundation | PostgreSQL outbox + 선택형 Kafka 전달기 + 기존 웹훅/로그 전달기 | 고정 Redpanda/Karapace 실브로커 + Postgres round-trip + outage 계약 테스트 | 관리형 Kafka 호스트와 인증정보 필요 | 관리형 Kafka와 주제/권한 운영 필요 | Kafka는 명시적으로 켤 때만 사용하며 Postgres outbox가 원장; 운영 전 `kafka-integration` 게이트 필수 |

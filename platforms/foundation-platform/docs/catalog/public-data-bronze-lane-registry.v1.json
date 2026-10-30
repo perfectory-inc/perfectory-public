@@ -55,7 +55,7 @@
         "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EXECUTE": "1",
         "FOUNDATION_PLATFORM_NATIONAL_ASYNC_CONFIRM_PUBLIC_API_QUOTA_IMPACT": "1"
       },
-      "planned_blocker": "legacy data.go.kr API executor is disabled by the bulk-only national policy; use rt.molit.go.kr CSV export for national Bronze when it covers the same provider facts",
+      "planned_blocker": "superseded by the dedicated collector of root ADR-0348 (data-go-kr-rtms.contract.json): this generic page-per-object executor stays off for real transactions; rt.molit.go.kr forbids automated access, so there is no bulk channel",
       "completion_claim_allowed": false,
       "national_rollout_allowed": false
     },
