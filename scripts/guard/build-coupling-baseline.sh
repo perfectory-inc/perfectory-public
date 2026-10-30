@@ -294,7 +294,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 145 -> 147: foundation-publisher-core embeds contracts/schema-registry/registry.json, the one place a
 # registered subject's versions live, so the publisher, the monitor and the manifest record read the
 # subject's major from the file the Worker and the web read too (root ADR-0336).
-COMPILE_TIME_READ_BASELINE="${3:-147}"
+# 147 -> 148: the 실거래가 collector embeds data-go-kr-rtms.contract.json (the datasets, call bounds and
+# refresh tiers the Silver load reads beside it), as the Onbid collector embeds its own (root ADR-0348).
+COMPILE_TIME_READ_BASELINE="${3:-148}"
 
 cd "$repo_root"
 
