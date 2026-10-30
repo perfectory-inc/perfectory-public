@@ -169,12 +169,67 @@ fn months_span_whole_calendar_months() {
     );
 }
 
+fn export(month: &str, rows: &[&str]) -> Vec<u8> {
+    let mut text = format!(
+        "\"□ 안내\"
+\"계약일자 : {month}\"
+\"실거래구분 : 합성(매매)\"
+\"NO\",\"시군구\"
+"
+    );
+    for row in rows {
+        text.push_str(row);
+        text.push_str(
+            "
+",
+        );
+    }
+    let (bytes, _, _) = encoding_rs::EUC_KR.encode(&text);
+    bytes.into_owned()
+}
+
+fn june() -> RtMolitRealTransactionExportRequest {
+    request_for(
+        &contract_with(&[("real_transaction_land_trade", "2006-01")]),
+        &WorkItem {
+            stage: Stage::Backfill,
+            priority: 0,
+            newest_first: 0,
+            dataset: "real_transaction_land_trade".to_owned(),
+            month: month_index("2098-06").unwrap(),
+        },
+    )
+    .unwrap()
+}
+
 #[test]
-fn data_rows_are_the_lines_after_the_header() {
-    let export = "\"□ 안내\"\r\n\"□ 검색조건\"\r\n\"NO\",\"시군구\"\r\n\"1\",\"합성도 합성시\"\r\n\"2\",\"합성도 합성시\"\r\n\r\n";
-    assert_eq!(csv_data_rows(export.as_bytes()), Some(2));
-    assert_eq!(csv_data_rows(b"\"NO\",\"x\"\n"), Some(0));
-    assert_eq!(csv_data_rows(b"<html></html>"), None);
+fn an_export_is_believed_only_when_it_holds_what_was_asked() {
+    // root ADR-0364: the 2026-10-30 export carried another export's rows after its own.
+    let request = june();
+    let good = export(
+        "2098-06-01 ~ 2098-06-30",
+        &["\"1\",\"합성도\"", "\"2\",\"합성도\""],
+    );
+    assert_eq!(export_problem(&good, 2, &request), None);
+    assert!(export_problem(&good, 3, &request)
+        .unwrap()
+        .contains("count check"));
+    let mixed = export(
+        "2098-06-01 ~ 2098-06-30",
+        &[
+            "\"1\",\"합성도\"",
+            "\"2\",\"합성도\"",
+            "\"1\",\"다른 내보내기\"",
+        ],
+    );
+    assert!(export_problem(&mixed, 2, &request)
+        .unwrap()
+        .contains("numbered"));
+    let other_month = export("2098-05-01 ~ 2098-05-31", &["\"1\",\"합성도\""]);
+    assert!(export_problem(&other_month, 1, &request)
+        .unwrap()
+        .contains("preamble"));
+    assert!(export_problem(b"<html></html>", 0, &request).is_some());
 }
 
 #[test]

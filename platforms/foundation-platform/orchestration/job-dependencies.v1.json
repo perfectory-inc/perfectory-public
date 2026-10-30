@@ -676,6 +676,14 @@
           "title": "실거래가",
           "kind": "silver_table",
           "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.real_transaction_rejected",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction_rejected,PROD)",
+          "node_id": "silver-real-transaction-rejected",
+          "title": "실거래가 적재 거부 줄",
+          "kind": "silver_table",
+          "surface_kind": null
         }
       ]
     },
@@ -1211,6 +1219,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.real_transaction_rejected",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction_rejected,PROD)",
+          "node_id": "silver-real-transaction-rejected",
+          "title": "실거래가 적재 거부 줄",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.registered_factory",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.registered_factory,PROD)",
           "node_id": "silver-registered-factory",
@@ -1713,6 +1729,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
           "node_id": "silver-real-transaction",
           "title": "실거래가",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.real_transaction_rejected",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction_rejected,PROD)",
+          "node_id": "silver-real-transaction-rejected",
+          "title": "실거래가 적재 거부 줄",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -3123,6 +3147,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
           "node_id": "silver-real-transaction",
           "title": "실거래가",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.real_transaction_rejected",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction_rejected,PROD)",
+          "node_id": "silver-real-transaction-rejected",
+          "title": "실거래가 적재 거부 줄",
           "kind": "silver_table",
           "surface_kind": null
         },

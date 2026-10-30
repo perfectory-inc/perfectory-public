@@ -33,14 +33,21 @@ def factory(no=1, jibun="12-3", amount="146,500", cancel="-", month="209812", da
             amount, "", "법인", "개인", month, day_, "", "2007", cancel, "중개거래", "-"]
 
 
-def export(*rows, header=HEADER) -> bytes:
+def export(*rows, header=HEADER, month="209812") -> bytes:
     lines = ['"□ 본 서비스에서 제공하는 정보는 법적인 효력이 없으므로 참고용으로만 활용하시기 바랍니다."', '""',
+             f'"계약일자 : {month[:4]}-{month[4:]}-01 ~ {month[:4]}-{month[4:]}-28"',
              ",".join(f'"{h}"' for h in header)]
     lines += [",".join(f'"{c}"' for c in row) for row in rows]
     return ("\r\n".join(lines) + "\r\n").encode("cp949")
 
 
 def rows_of(data: bytes, month="209812"):
+    rows, unknown, rejected = job.rows_of(data, DATASET, month, "k", "20990102T030405Z", NOW, CSV)
+    assert not rejected, rejected
+    return rows, unknown
+
+
+def rows_and_rejected(data: bytes, month="209812"):
     return job.rows_of(data, DATASET, month, "k", "20990102T030405Z", NOW, CSV)
 
 
@@ -57,7 +64,7 @@ class ReadsExports(unittest.TestCase):
         self.assertIsNone(row["estate_agent_sgg_nm"])  # the provider's `-` is no value
         self.assertFalse(row["cancelled"])
         self.assertNotIn("NO", json.loads(row["provider_fields_json"]))
-        self.assertEqual(row["source_line_number"], 4)
+        self.assertEqual(row["source_line_number"], 5)
 
     def test_every_contract_column_is_known_to_the_row(self):
         contract = load_lakehouse_contract(job.TABLE)
@@ -73,7 +80,7 @@ class ReadsExports(unittest.TestCase):
         """ADR-0349 §2: NO is per export; 해제 is filled in later; two equal deals keep their names."""
 
         before, _ = rows_of(export(factory(no=1), factory(no=2)))
-        after, _ = rows_of(export(factory(no=7, cancel="20990101"), factory(no=9)))
+        after, _ = rows_of(export(factory(no=1), factory(no=2, cancel="20990101")))
         self.assertEqual(sorted(r["row_key"] for r in before), sorted(r["row_key"] for r in after))
         cancelled = [r for r in after if r["cancelled"]]
         self.assertEqual(len(cancelled), 1)
@@ -90,20 +97,47 @@ class ReadsExports(unittest.TestCase):
                   "지분구분", "해제사유발생일", "거래유형", "중개사소재지"]
         row = ["1", "합성도 합성시 합성면 가상리", "3**", "전", "계획관리", "-", "209812", "1", "330", "1,000", "", "-",
                "직거래", "-"]
-        rows, unknown = job.rows_of(export(row, header=header), "real_transaction_land_trade", "209812", "k", "s",
-                                    NOW, CSV)
+        rows, unknown, _ = job.rows_of(export(row, header=header), "real_transaction_land_trade", "209812", "k",
+                                       "s", NOW, CSV)
         self.assertEqual(unknown, [])
         self.assertEqual((rows[0]["land_area_m2"], rows[0]["land_area_kind"]), (330.0, "deal"))
         self.assertTrue(rows[0]["jibun_masked"])
 
-    def test_a_broken_export_is_refused(self):
+    def test_an_export_that_is_not_the_months_csv_is_refused_whole(self):
         with self.assertRaises(ValueError):
-            rows_of(b"<html><body>blocked</body></html>")
-        short = factory()[:-1]
+            rows_and_rejected(b"<html><body>blocked</body></html>")
         with self.assertRaises(ValueError):
-            rows_of(export(short))
-        with self.assertRaises(ValueError):
-            rows_of(export(factory(month="209811")))
+            rows_and_rejected(export(factory(), month="209811"))
+        entry = {"path": None, "dataset": DATASET, "month": "209812", "object_key": "k", "source_snapshot_id": "s"}
+
+        class Bytes:
+            def read_bytes(self):
+                return b"<html></html>"
+
+        entry["path"] = Bytes()
+        rows, _, rejected, refused = job.read_export(entry, CSV, NOW)
+        self.assertEqual((rows, refused, rejected[0].line), ([], True, 0))
+
+    def test_bad_lines_are_rejected_with_their_raw_text_and_the_rest_loads(self):
+        """ADR-0364: the 2026-10-30 export carried another export's 14-column rows after its own; one
+        line split by a form feed inside a field stays one record."""
+
+        land = ["1", "합성도 합성시 가상리", "3**", "전", "계획관리", "-", "209812", "1", "330", "1,000", "", "-", "직거래", "-"]
+        broken = factory(no=3)
+        broken[1] = "합성도 합성시\x0c합성면 가상리"
+        data = export(factory(no=1), factory(no=2), broken, factory(no=4, amount="99,000"), land,
+                      factory(no=5, month="209811"))
+        rows, _, rejected = rows_and_rejected(data)
+        self.assertEqual(sorted(r["source_line_number"] for r in rows), [5, 6, 7, 8])
+        reasons = [(r.line, r.reason) for r in rejected]
+        self.assertEqual(reasons, [(9, "cells_14_of_21"), (10, "deal_month_outside_export")])
+        self.assertIn("가상리", rejected[0].raw)
+        self.assertEqual(job.rejected_share(len(rows), len(rejected)), 2 / 6)
+
+    def test_a_second_exports_rows_after_the_first_are_rejected(self):
+        rows, _, rejected = rows_and_rejected(export(factory(no=1), factory(no=2), factory(no=1, amount="7")))
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([r.reason for r in rejected], ["row_number_1_where_3"])
 
     def test_an_unknown_column_is_counted(self):
         _, unknown = rows_of(export(factory() + ["x"], header=HEADER + ["새칸"]))

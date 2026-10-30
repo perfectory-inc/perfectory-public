@@ -435,7 +435,8 @@
       "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-rt-molit-bulk-to-silver-real-transaction"
+        "source-rt-molit-bulk-to-silver-real-transaction",
+        "source-rt-molit-bulk-to-silver-real-transaction-rejected"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T15:00:00Z"

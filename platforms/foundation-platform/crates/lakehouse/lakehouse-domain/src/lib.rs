@@ -22,6 +22,7 @@ mod onbid_public_auction;
 mod parcel_number_change_history;
 mod parcel_panel;
 mod real_transaction;
+mod real_transaction_rejected;
 mod registered_factory;
 mod unit_official_price;
 mod unit_price_panel;
@@ -79,7 +80,7 @@ pub use lakehouse::{
     SILVER_ONBID_REAL_ESTATE_ITEM, SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL,
     SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES, SILVER_PARCEL_LINEAGE,
     SILVER_PARCEL_NUMBER_CHANGE_HISTORY, SILVER_PARCEL_REGISTRY, SILVER_REAL_TRANSACTION,
-    SILVER_REGISTERED_FACTORY,
+    SILVER_REAL_TRANSACTION_REJECTED, SILVER_REGISTERED_FACTORY,
 };
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,

@@ -38,7 +38,7 @@ use serde_json::{json, Value as JsonValue};
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 use crate::rt_molit_real_transaction_export_ingest::{
     persist_plan, RtMolitBusy, RtMolitExportClient, RtMolitExportIngestConfig,
-    RtMolitExportIngestInput, RtMolitRefusal, RtMolitSession,
+    RtMolitExportIngestInput, RtMolitRefusal,
 };
 
 /// `infra/lakehouse/contracts/rt-molit-real-transaction.contract.json`, as compiled in.
@@ -359,33 +359,108 @@ fn classify(contract: &SourceContract, error: anyhow::Error) -> anyhow::Result<A
     Err(error)
 }
 
-/// One export with the contract's retries: a busy answer waits and asks again; one that outlasts the
-/// retries becomes a refusal (the site keeps saying no).
+/// An export the provider answered that does not hold what was asked (root ADR-0364): its rows are
+/// not the count check's, its row numbers do not run 1..N, or its preamble names other dates. Asked
+/// again in a new session; never landed in Bronze.
+#[derive(Debug)]
+pub struct InconsistentExport(pub String);
+
+impl std::fmt::Display for InconsistentExport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rt.molit.go.kr export inconsistent: {}", self.0)
+    }
+}
+
+impl std::error::Error for InconsistentExport {}
+
+/// Why an export is not the one asked for, or None when it is.
+///
+/// The provider keeps an export's search conditions in its session: two exports in flight on one
+/// session answered one with the other's rows (2026-10-30: 오피스텔 전월세 2026-10, 13,180 rows by
+/// the count check, landed with 14-column 토지 rows after them). Checked here, from the bytes:
+/// the preamble's 계약일자 is the month asked, the data rows are the count check's, and their `NO`
+/// runs 1..N.
+#[must_use]
+pub fn export_problem(
+    bytes: &[u8],
+    count: u64,
+    request: &RtMolitRealTransactionExportRequest,
+) -> Option<String> {
+    let (text, _, _) = encoding_rs::EUC_KR.decode(bytes);
+    let mut lines = text.split('\n').map(|line| line.trim_end_matches('\r'));
+    let dates = format!(
+        "계약일자 : {} ~ {}",
+        request.contract_from, request.contract_to
+    );
+    let mut saw_dates = false;
+    let mut header = false;
+    for line in lines.by_ref() {
+        if line.contains(&dates) {
+            saw_dates = true;
+        }
+        if line.starts_with("\"NO\"") {
+            header = true;
+            break;
+        }
+    }
+    if !header {
+        return Some("no header line".to_owned());
+    }
+    if !saw_dates {
+        return Some(format!("the preamble does not name {dates}"));
+    }
+    let mut rows = 0_u64;
+    for line in lines.filter(|line| !line.trim().is_empty()) {
+        rows += 1;
+        let number = line
+            .strip_prefix('"')
+            .and_then(|rest| rest.split('"').next());
+        if number != Some(rows.to_string().as_str()) {
+            return Some(format!("row {rows} is numbered {number:?}"));
+        }
+    }
+    (rows != count).then(|| format!("{rows} rows against the count check's {count}"))
+}
+
+/// One export with the contract's retries, each attempt in a session of its own: a busy answer
+/// waits and asks again, as does an inconsistent export; a busy answer that outlasts the retries
+/// becomes a refusal (the site keeps saying no), an export still inconsistent stays an
+/// [`InconsistentExport`].
 async fn fetch_with_retry(
     contract: &SourceContract,
     client: &RtMolitExportClient,
-    session: &RtMolitSession,
     request: &RtMolitRealTransactionExportRequest,
 ) -> anyhow::Result<crate::rt_molit_real_transaction_export_ingest::RtMolitFetchedExport> {
     let spacing = Duration::from_secs(contract.manners.request_spacing_seconds);
     let retry = &contract.manners.retry;
     let mut attempt = 0;
     loop {
-        match client.fetch_in_session(session, request, spacing).await {
-            Err(error) if error.downcast_ref::<RtMolitBusy>().is_some() => {
-                attempt += 1;
-                if attempt > retry.attempts {
-                    return Err(RtMolitRefusal(format!(
-                        "still busy after {} retries: {error:#}",
-                        retry.attempts
-                    ))
-                    .into());
-                }
-                tracing::warn!(attempt, error = %error, "rt.molit.go.kr busy; backing off");
-                tokio::time::sleep(backoff(retry, attempt)).await;
+        let fetched = match client.open_session().await {
+            Ok(session) => client.fetch_in_session(&session, request, spacing).await,
+            Err(error) => Err(error),
+        };
+        let error = match fetched {
+            Ok(export) => match export_problem(&export.raw_payload, export.provider_count, request)
+            {
+                None => return Ok(export),
+                Some(problem) => anyhow::Error::new(InconsistentExport(problem)),
+            },
+            Err(error) if error.downcast_ref::<RtMolitBusy>().is_some() => error,
+            Err(error) => return Err(error),
+        };
+        attempt += 1;
+        if attempt > retry.attempts {
+            if error.downcast_ref::<InconsistentExport>().is_some() {
+                return Err(error);
             }
-            other => return other,
+            return Err(RtMolitRefusal(format!(
+                "still busy after {} retries: {error:#}",
+                retry.attempts
+            ))
+            .into());
         }
+        tracing::warn!(attempt, error = %error, "rt.molit.go.kr export asked again");
+        tokio::time::sleep(backoff(retry, attempt)).await;
     }
 }
 
@@ -398,8 +473,8 @@ pub struct RunReport {
     pub written: usize,
     pub unchanged: usize,
     pub rows: u64,
-    /// Exports whose CSV held a different number of rows than the count check said.
-    pub count_mismatches: Vec<String>,
+    /// Exports still inconsistent after the retries (root ADR-0364): not landed, asked again next run.
+    pub inconsistent: Vec<String>,
     /// `run_limit`, `daily_limit`, `provider_daily_limit`, `time_budget`.
     pub stopped_by: Option<String>,
 }
@@ -410,18 +485,6 @@ fn stage_name(stage: Stage) -> String {
         Stage::Refresh { tier } => format!("refresh_tier_{tier}"),
         Stage::Backfill => "backfill".to_owned(),
     }
-}
-
-/// The data rows of an export: the lines after the header line that starts with `"NO"`.
-#[must_use]
-pub fn csv_data_rows(bytes: &[u8]) -> Option<u64> {
-    let mut lines = bytes.split(|byte| *byte == b'\n');
-    lines.position(|line| line.starts_with(b"\"NO\""))?;
-    Some(
-        lines
-            .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
-            .count() as u64,
-    )
 }
 
 struct Config {
@@ -509,10 +572,6 @@ pub async fn run() -> anyhow::Result<()> {
         }
         let client =
             RtMolitExportClient::new(config.base_uri.clone(), contract.user_agent.clone())?;
-        let session = match client.open_session().await {
-            Ok(session) => session,
-            Err(error) => return refuse(&refused_path, error, &report),
-        };
         let per_run = usize::try_from(manners.max_downloads_per_run).unwrap_or(0);
         let mut queue = work.iter();
         'run: loop {
@@ -545,7 +604,7 @@ pub async fn run() -> anyhow::Result<()> {
             let fetched = futures_util::future::join_all(
                 batch
                     .iter()
-                    .map(|(_, request)| fetch_with_retry(&contract, &client, &session, request)),
+                    .map(|(_, request)| fetch_with_retry(&contract, &client, request)),
             )
             .await;
             for ((item, request), outcome) in batch.into_iter().zip(fetched) {
@@ -554,6 +613,15 @@ pub async fn run() -> anyhow::Result<()> {
                         count: export.provider_count,
                         bytes: export.raw_payload,
                     },
+                    Err(error) if error.downcast_ref::<InconsistentExport>().is_some() => {
+                        tracing::warn!(error = %error, dataset = %item.dataset, "export not landed");
+                        report.inconsistent.push(format!(
+                            "{} {}: {error:#}",
+                            item.dataset,
+                            yyyymm(item.month)
+                        ));
+                        continue;
+                    }
                     Err(error) => match classify(&contract, error) {
                         Ok(asked) => asked,
                         Err(error) if error.downcast_ref::<RtMolitRefusal>().is_some() => {
@@ -579,13 +647,6 @@ pub async fn run() -> anyhow::Result<()> {
                 };
                 report.exports += 1;
                 report.rows += count;
-                if csv_data_rows(&bytes) != Some(count) {
-                    report.count_mismatches.push(format!(
-                        "{} {}",
-                        item.dataset,
-                        yyyymm(item.month)
-                    ));
-                }
                 let key = month_key(&item.dataset, item.month);
                 let source_slug = collection_domain::source_slug("rt.molit.go.kr", &item.dataset)?;
                 let plan = plan_rt_molit_real_transaction_export_content_addressed(
@@ -656,6 +717,15 @@ pub async fn run() -> anyhow::Result<()> {
             "unchanged"
         }
     );
+    // What landed stays landed; an export the provider kept answering wrongly fails the run so the
+    // alert names it (root ADR-0364).
+    if !report.inconsistent.is_empty() {
+        bail!(
+            "{} export(s) were not what was asked and were not landed: {}",
+            report.inconsistent.len(),
+            report.inconsistent.join("; ")
+        );
+    }
     Ok(())
 }
 

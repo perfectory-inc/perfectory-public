@@ -54,6 +54,8 @@
     "$comment": "What one Silver load takes (plan-silver-load-objects): the Bronze objects no commit of silver.real_transaction records, within window_days, at most max_objects a load.",
     "window_days": 3,
     "max_objects": 60,
+    "max_rejected_share": 0.001,
+    "max_rejected_share_reason": "Root ADR-0364: an export's lines that are not loaded (a cell count not the header's, a NO that does not continue 1..N, a 계약년월 outside the export's month) land in silver.real_transaction_rejected with their Bronze object and line; the rest of the export loads. Above this share of an export's lines, or for an export refused whole (no header, another month in its preamble), the load fails after landing everything so it is seen. 2026-10-30: the 오피스텔 전월세 2026-10 export carried a second export's 14-column rows after its 13,180 own and stopped every load.",
     "max_unmasked_unresolved_share": 0.25,
     "max_unmasked_unresolved_share_reason": "Root ADR-0349 §6: of the rows whose lot the provider did not mask, the share that found no current parcel; above it a load lands its rows and fails so it is seen. Measured 2026-10-30 before any load (2025-09, 12 random 시군구, read-only Trino against silver.parcel_boundaries current rows): 4,925 unmasked candidates of 공장창고·상업업무·아파트·연립·오피스텔, 99.7% a current parcel. History rows meet more re-numbered lots, so the bound leaves room; the pull request that records the first loads sets it from them."
   }
