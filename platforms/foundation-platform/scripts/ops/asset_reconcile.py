@@ -367,6 +367,20 @@ def write_replacing(path: Path, text: str) -> None:
     temporary.replace(path)
 
 
+def absent_is_empty(read, name: str) -> dict:
+    """`read(name)`, or a history with no snapshot when the catalog has no such table (HTTP 404): a
+    Gold a new job has not built yet is owed its first build, and its lane nothing, instead of a
+    reconcile error every tick until then (2026-10-30, the court auction Gold, root ADR-0353)."""
+    import urllib.error  # noqa: PLC0415
+
+    try:
+        return read(name)
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        return {"head": None, "snapshots": []}
+
+
 def last_read(bake_root: Path):
     def read(lane: str):
         path = bake_root / lane / READS
@@ -407,7 +421,7 @@ def main() -> int:
 
     def table(name):
         if name not in cache:
-            cache[name] = catalog.table(name)
+            cache[name] = absent_is_empty(catalog.table, name)
         return cache[name]
 
     def running(service):

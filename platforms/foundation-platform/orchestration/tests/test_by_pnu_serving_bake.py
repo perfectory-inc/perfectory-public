@@ -714,6 +714,7 @@ class ByPnuServingBake(unittest.TestCase):
         elsewhere = {lane: job_specs.writer_of(f"{lane}-by-pnu-section-packs") for lane in lanes}
         elsewhere = {lane: job for lane, job in elsewhere.items() if job != "by_pnu_serving_bake"}
         self.assertEqual(elsewhere, {"parcel-public-auction": "by_pnu_public_auction_bake",
+                                     "parcel-court-auction": "by_pnu_court_auction_bake",
                                      "unit-price": "by_pnu_unit_price_bake"})
         baked = [lane for lane in lanes if lane not in elsewhere]
         self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],
