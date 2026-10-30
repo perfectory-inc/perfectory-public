@@ -78,6 +78,25 @@ circuit breaker는 프로세스 로컬이다. 영속 DLQ/quarantine 테이블·p
   `foundation_platform_public_api_dependency_error_total`이 포함된다.
 - 같은 공급자에 대해 병렬 수집을 실행하는 운영자가 없는지 확인한다.
 
+## 계정 조치 (root ADR-0363)
+
+로그인하는 공급자(지금은 vworld.kr 하나, 목록은 `config/provider-accounts.contract.json`)가 수집 계정을
+거부하면 `FoundationProviderAccountActionRequired` 알림이 공급자마다 하나 온다. 알림 문구가 할 일이다.
+
+| 신호 | 뜻 | 할 일 |
+|---|---|---|
+| `result=useChk` | 이용약관이 바뀌었다(2026-10-30 첫 사례) | vworld.kr 에 수집 계정으로 로그인해 새 약관에 동의 |
+| 그 밖의 `result=` | 비밀번호 만료·잠금·휴면 등 | vworld.kr 에 수집 계정으로 로그인해 사이트가 요구하는 조치 |
+
+- 그동안: 배포는 막히지 않는다(스테이징 스모크가 그 입력을 건너뛰고 `FoundationStagingSmokeInputSkipped` 로
+  알린다). `source_sweep`·`vworld_parcel_edition` 은 `waiting provider account action required — …` 로 끝나
+  빨강이 되지 않는다. 받지 못한 파일은 다음 실행이 이어 받는다.
+- 조치 뒤: 따로 할 것 없다. 다음 로그인(매일 훑기, 다음 배포의 스모크)이 성공하면 알림이 닫힌다. 바로 확인하려면
+  `foundation-source-sweep.service` 를 운영자 시작 한 번으로 돌린다.
+- 알림이 올라가지 않으면(Alertmanager 다운) 작업은 대기 대신 실패로 끝나 기존 실패 알림이 간다.
+- 공급자가 응답하지 않음(재시도 뒤 5xx·시간초과·점검 페이지, 종료 75)은 계정 조치가 아니다: 스모크는 그 입력을
+  건너뛰고 알리며, 수집 작업은 지금처럼 실패하고 다음 실행이 다시 받는다.
+
 ## Event Fabric 경계
 
 Kafka/MSK 또는 Redpanda는 outbox fanout·검색·알림·AI·downstream consumer를 위한 향후

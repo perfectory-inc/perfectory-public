@@ -4,7 +4,7 @@ mod error;
 mod request_circuit_breaker;
 mod request_resilience;
 
-pub use error::OutboundHttpError;
+pub use error::{OutboundFailureClass, OutboundHttpError};
 pub use request_circuit_breaker::{RequestCircuitBreaker, RequestCircuitBreakerPolicy};
 pub use request_resilience::{
     classify_response, classify_status, execute_retryable, execute_single,

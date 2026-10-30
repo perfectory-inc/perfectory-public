@@ -8,9 +8,9 @@ use futures_util::{stream::BoxStream, StreamExt as _};
 use reqwest::header::{HeaderMap, CONTENT_DISPOSITION, CONTENT_TYPE, SET_COOKIE};
 
 use outbound_http_infrastructure::{
-    classify_response, execute_retryable, execute_single, execute_streaming_handshake,
-    redact_transport_error, shared_http_client, AttemptError, ResilienceAudit, ResilienceCtx,
-    RetryDecision, VWORLD_FILE,
+    classify_response, classify_status, execute_retryable, execute_single,
+    execute_streaming_handshake, redact_transport_error, shared_http_client, AttemptError,
+    ResilienceAudit, ResilienceCtx, RetryDecision, VWORLD_FILE,
 };
 
 /// Provider label for the dataset file/inventory client (audit + error messages).
@@ -25,6 +25,9 @@ const LOGIN_PATH: &str = "v4po_usrlogin_a004.do";
 const MAX_DATASET_FILE_PAGE_COUNT: u64 = 10_000;
 const LARGE_FILE_THRESHOLD_KIB: u64 = 512_000;
 const SESSION_BEARING_LOGIN_RESULTS: &[&str] = &["success", "expirePw"];
+/// The endpoint catalog's provider for this login: the key of
+/// `config/provider-accounts.contract.json`, which holds the owner action (root ADR-0363).
+pub const ACCOUNT_PROVIDER: &str = "vworld.kr";
 
 /// Configuration for a `VWorld` provider dataset-file client.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -284,35 +287,75 @@ impl VWorldDatasetLoginClient {
             })?;
         let status = response.status();
         if !status.is_success() {
-            return Err(AttemptError::Fatal(
-                outbound_http_infrastructure::OutboundHttpError::new(format!(
-                    "VWorld dataset login returned HTTP {status}"
-                )),
-            ));
+            let message = format!("VWorld dataset login returned HTTP {status}");
+            // A 5xx/429 is the provider not serving (root ADR-0363); any other status is ours.
+            return Err(match classify_status(status) {
+                RetryDecision::Retryable { retry_after } => AttemptError::Retryable {
+                    message,
+                    retry_after,
+                },
+                RetryDecision::NotRetryable => AttemptError::Fatal(
+                    outbound_http_infrastructure::OutboundHttpError::new(message),
+                ),
+            });
         }
         let headers = response.headers().clone();
-        let login_result = response
-            .json::<VWorldDatasetLoginResponse>()
+        let body = response
+            .text()
             .await
-            .map_err(|error| {
-                outbound_http_infrastructure::OutboundHttpError::new(format!(
-                    "VWorld dataset login response parse failed: {error}"
-                ))
+            .map_err(|error| AttemptError::Retryable {
+                message: format!(
+                    "login response body read failed: {}",
+                    redact_transport_error(&error)
+                ),
+                retry_after: None,
             })?;
+        let login_result = match serde_json::from_str::<VWorldDatasetLoginResponse>(&body) {
+            Ok(login_result) => login_result,
+            // The login answers JSON; an HTML page in its place is the site's maintenance or
+            // notice page, the provider not serving (root ADR-0363).
+            Err(_)
+                if is_html_response(
+                    headers
+                        .get(CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default(),
+                    body.as_bytes(),
+                ) =>
+            {
+                return Err(AttemptError::Retryable {
+                    message: "VWorld dataset login answered an HTML page instead of its result (maintenance or notice page)".to_owned(),
+                    retry_after: None,
+                });
+            }
+            Err(error) => {
+                return Err(AttemptError::Fatal(
+                    outbound_http_infrastructure::OutboundHttpError::new(format!(
+                        "VWorld dataset login response parse failed: {error}"
+                    )),
+                ));
+            }
+        };
         if !login_result
             .result_map
             .as_ref()
             .is_some_and(|result| SESSION_BEARING_LOGIN_RESULTS.contains(&result.result.as_str()))
         {
-            return Err(AttemptError::Fatal(
-                outbound_http_infrastructure::OutboundHttpError::new(
-                    vworld_dataset_login_failure_message(
-                        &login_result,
-                        &self.username,
-                        &self.password,
-                    ),
-                ),
-            ));
+            let message =
+                vworld_dataset_login_failure_message(&login_result, &self.username, &self.password);
+            return Err(AttemptError::Fatal(match &login_result.result_map {
+                // The site answered with a result code: it refuses this account until its owner
+                // acts there (2026-10-30 `useChk`: new terms to accept). No release clears that.
+                Some(result) => {
+                    outbound_http_infrastructure::OutboundHttpError::provider_account_action_required(
+                        ACCOUNT_PROVIDER,
+                        redact_provider_login_detail(&result.result, &self.username, &self.password),
+                        message,
+                    )
+                }
+                // No result at all is a login protocol we no longer read: ours to fix.
+                None => outbound_http_infrastructure::OutboundHttpError::new(message),
+            }));
         }
 
         cookie_header_from_set_cookie_headers(&headers)

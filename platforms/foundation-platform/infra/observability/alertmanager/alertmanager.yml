@@ -33,6 +33,17 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 24h
+    # A provider that refuses our account, and the staging smoke inputs that skipped (root ADR-0363,
+    # scripts/ops/provider_alert.py). 2026-10-30 VWorld wanted new terms accepted: one notice per
+    # provider with the owner action when it starts, one when a login works again, a reminder a day.
+    - matchers:
+        - service = "provider-account"
+      group_by:
+        - alertname
+        - provider
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 24h
     # The repository's open security advisories (root ADR-0278): one notice per advisory when it
     # opens and one when it is gone, the same way as the operations map's problems.
     - matchers:

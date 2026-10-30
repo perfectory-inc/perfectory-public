@@ -26,10 +26,19 @@ class EditionJobOutcomes(unittest.TestCase):
         lines = SCRIPT.splitlines()
         endings = [i for i, line in enumerate(lines)
                    if re.fullmatch(r'\s*exit (0|"\$\{AWAITING_CONTRACT\}")\s*', line)]
-        self.assertEqual(len(endings), 2, "the held and the new-edition endings")
+        self.assertEqual(len(endings), 3, "the held, the account-waiting and the new-edition endings")
         for index in endings:
             with self.subTest(line=lines[index].strip()):
-                self.assertIn("foundation-job-outcome unchanged", lines[index - 1])
+                self.assertRegex(lines[index - 1], r"foundation-job-outcome (unchanged|waiting)\b")
+
+    def test_a_refused_account_waits_for_its_owner_with_the_action(self):
+        # 2026-10-30: VWorld answered the login useChk (new terms). The run ends waiting on the owner,
+        # with the action provider_alert.py paged, never as an opaque login error (root ADR-0363).
+        waiting = re.search(r'if \[ "\$\{ingest_rc\}" = 77 \] && \[ -n "\$\{account_action\}" \]; then\n(.*\n){2}\s*exit 0',
+                            SCRIPT)
+        self.assertIsNotNone(waiting, "exit 77 with a paged action ends waiting")
+        self.assertIn("foundation-job-outcome waiting provider account action required", waiting.group(0))
+        self.assertIn("provider_alert.py\" accounts --source vworld_parcel_edition", SCRIPT)
 
 
 if __name__ == "__main__":

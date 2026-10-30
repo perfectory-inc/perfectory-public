@@ -3,7 +3,7 @@ use super::{
     AttemptError, ResilienceAudit, ResilienceCtx, ResilienceEvent, ResiliencePolicy, RetryDecision,
 };
 use crate::request_circuit_breaker::{RequestCircuitBreaker, RequestCircuitBreakerPolicy};
-use crate::OutboundHttpError;
+use crate::{OutboundFailureClass, OutboundHttpError};
 use reqwest::StatusCode;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
@@ -380,6 +380,8 @@ async fn execute_retryable_exhausts_attempts_then_breaker_opens(
         error.to_string(),
         "test provider request failed after 2 attempts: boom"
     );
+    // Root ADR-0363: a provider that never served is the provider's side, not the release's.
+    assert_eq!(error.class(), &OutboundFailureClass::ProviderUnavailable);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 
     let rejected = execute_retryable(&ctx, counting_op(&calls, |_| Ok(1)))
@@ -423,6 +425,7 @@ async fn execute_retryable_does_not_retry_fatal_errors_or_trip_breaker(
     .err()
     .ok_or("fatal error must surface")?;
     assert_eq!(error.to_string(), "fatal boom");
+    assert_eq!(error.class(), &OutboundFailureClass::Fatal);
     assert_eq!(calls.load(Ordering::SeqCst), 1, "fatal must not retry");
 
     // The breaker must not have tripped: the next call still reaches the op.
@@ -566,10 +569,45 @@ async fn execute_single_never_retries_transient_failures() -> Result<(), Box<dyn
         .err()
         .ok_or("transient failure must not be retried")?;
     assert_eq!(error.to_string(), "test provider request failed: boom");
+    assert_eq!(error.class(), &OutboundFailureClass::ProviderUnavailable);
     assert_eq!(
         calls.load(Ordering::SeqCst),
         1,
         "non-idempotent op must run exactly once even though max_attempts is 3"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn execute_single_keeps_an_account_refusal_and_its_reason(
+) -> Result<(), Box<dyn std::error::Error>> {
+    // 2026-10-30: VWorld answered the login with result=useChk (new terms to accept). That is the
+    // account owner's to clear, not a release's and not a retry's (root ADR-0363).
+    let policy = fast_policy(3);
+    let audit = ResilienceAudit::new("test provider");
+    let ctx = ResilienceCtx {
+        breaker: None,
+        policy: &policy,
+        audit: &audit,
+    };
+    let error = execute_single(&ctx, || {
+        std::future::ready(Err::<u32, _>(AttemptError::Fatal(
+            OutboundHttpError::provider_account_action_required(
+                "vworld.kr",
+                "useChk",
+                "login refused",
+            ),
+        )))
+    })
+    .await
+    .err()
+    .ok_or("an account refusal must surface")?;
+    assert_eq!(
+        error.class(),
+        &OutboundFailureClass::ProviderAccountActionRequired {
+            provider: "vworld.kr".to_owned(),
+            reason: "useChk".to_owned(),
+        }
     );
     Ok(())
 }
