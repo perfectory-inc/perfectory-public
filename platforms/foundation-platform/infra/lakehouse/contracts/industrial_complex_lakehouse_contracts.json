@@ -1313,6 +1313,143 @@
         "object_suffix_separator": null
       }
     },
+    "silver.land_use_zone_area": {
+      "table_name": "silver.land_use_zone_area",
+      "physical_format": "GeoParquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "layer_code",
+          "zone_feature_id"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "columns": [
+        {
+          "name": "layer_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "zone_feature_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "layer_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "field_a7",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "field_a8",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "field_a9",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": true
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "bbox_min_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_min_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_x",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "bbox_max_y",
+          "logical_type": "double",
+          "required": true
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "layer_code",
+        "zone_feature_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "layer_code_not_null",
+        "zone_feature_id_not_null",
+        "geometry_wkb_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.land_individual_price": {
       "table_name": "silver.land_individual_price",
       "physical_format": "Parquet",

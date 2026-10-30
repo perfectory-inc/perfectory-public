@@ -57,6 +57,10 @@ pub(in crate::remote_lakehouse_job) enum Completeness {
     Sido,
     /// One national object; its vintage is its ledger snapshot date.
     National,
+    /// One object for each region the contract lists (`LandRule::listed_regions`), all of one
+    /// vintage: the 용도지역지구 layers a release serves, one national shapefile each (root
+    /// ADR-0362). Objects of regions the contract does not list are not this lane's.
+    Listed,
 }
 
 /// A land lane's rule, from its contract (`lane.rs` checks it).
@@ -67,6 +71,8 @@ pub(in crate::remote_lakehouse_job) struct LandRule {
     /// The member the export reads; for 시도 lanes, with the named groups `region` and `vintage`.
     pub member_name: String,
     pub completeness: Completeness,
+    /// The regions a `Listed` release is; empty for the other completenesses.
+    pub listed_regions: Vec<String>,
     /// `source_snapshot_id` is this label, `:` and the release: the source slug in hyphens, the
     /// label the hand loads wrote (`lane.rs` derives it).
     pub snapshot_label: String,
@@ -86,7 +92,7 @@ impl LandRule {
             .with_context(|| format!("member_name {:?} is not a regex", self.member_name))?;
         let names: BTreeSet<&str> = regex.capture_names().flatten().collect();
         let wanted: BTreeSet<&str> = match self.completeness {
-            Completeness::Sido => ["region", "vintage"].into(),
+            Completeness::Sido | Completeness::Listed => ["region", "vintage"].into(),
             Completeness::National => BTreeSet::new(),
         };
         ensure!(
@@ -214,7 +220,7 @@ pub(in crate::remote_lakehouse_job) fn candidates(
             rule.source
         );
         let (region, vintage) = match rule.completeness {
-            Completeness::Sido => {
+            Completeness::Sido | Completeness::Listed => {
                 let captures = regex
                     .captures(name)
                     .context("a matched name has captures")?;
@@ -236,6 +242,9 @@ pub(in crate::remote_lakehouse_job) fn candidates(
                 object.snapshot_date.format("%Y%m%d").to_string(),
             ),
         };
+        if rule.completeness == Completeness::Listed && !rule.listed_regions.contains(&region) {
+            continue;
+        }
         if vintage.len() != 8 || NaiveDate::parse_from_str(&vintage, "%Y%m%d").is_err() {
             result.refused.push(format!(
                 "{} names the vintage {vintage:?}, which is no date",
@@ -272,7 +281,9 @@ impl LandRelease {
         rule: &LandRule,
     ) -> anyhow::Result<String> {
         Ok(match rule.completeness {
-            Completeness::Sido => format!("{}:{}", rule.snapshot_label, self.vintage),
+            Completeness::Sido | Completeness::Listed => {
+                format!("{}:{}", rule.snapshot_label, self.vintage)
+            }
             Completeness::National => {
                 let [(_, object)] = self.objects.as_slice() else {
                     bail!("a national release is one object");
@@ -309,7 +320,7 @@ pub(in crate::remote_lakehouse_job) fn select(
 ) -> anyhow::Result<LandRelease> {
     let sido = match rule.completeness {
         Completeness::Sido => Some(sido.context("a 시도 lane needs the code list's 시도")?),
-        Completeness::National => None,
+        Completeness::National | Completeness::Listed => None,
     };
     let vintages: BTreeSet<&str> = candidates
         .iter()
@@ -325,11 +336,18 @@ pub(in crate::remote_lakehouse_job) fn select(
                 .push(&candidate.object);
         }
         let held: BTreeSet<&str> = by_region.keys().copied().collect();
-        let complete = sido.map_or(held.len() == 1, |sido| {
-            held.iter()
+        let complete = match (rule.completeness, sido) {
+            (Completeness::Listed, _) => held.iter().copied().eq(rule
+                .listed_regions
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()),
+            (_, Some(sido)) => held
+                .iter()
                 .copied()
-                .eq(sido.on(vintage).iter().map(String::as_str))
-        });
+                .eq(sido.on(vintage).iter().map(String::as_str)),
+            (_, None) => held.len() == 1,
+        };
         if !complete {
             let held: Vec<&str> = held.into_iter().collect();
             skipped_incomplete.push(format!("{vintage} regions={}", held.join(",")));
@@ -351,10 +369,10 @@ pub(in crate::remote_lakehouse_job) fn select(
     bail!(
         "the ledger holds no vintage of {} covering {} (incomplete: {})",
         rule.source,
-        if sido.is_some() {
-            "the 시도 the code list lists on its day"
-        } else {
-            "one national object"
+        match rule.completeness {
+            Completeness::Sido => "the 시도 the code list lists on its day",
+            Completeness::National => "one national object",
+            Completeness::Listed => "every region the contract lists",
         },
         if skipped_incomplete.is_empty() {
             "none; no object matched the member rule".to_owned()

@@ -158,7 +158,7 @@ async fn refresh_land(
     let catalog = lakehouse_catalog()?;
     let sido = match rule.completeness {
         land::Completeness::Sido => Some(land::read_sido_calendar(&catalog).await?),
-        land::Completeness::National => None,
+        land::Completeness::National | land::Completeness::Listed => None,
     };
     let release = land::select(rule, &candidates.found, sido.as_ref())?;
     for skipped in &release.skipped_incomplete {

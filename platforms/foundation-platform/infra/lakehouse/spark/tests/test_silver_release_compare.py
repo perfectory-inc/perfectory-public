@@ -74,6 +74,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.land_right_registration": "source_snapshot_id",
             "silver.land_transfer_history": "source_snapshot_id",
             "silver.land_use_plan": "source_snapshot_id",
+            "silver.land_use_zone_area": "source_snapshot_id",
             "silver.land_use_zone_code": None,
         })
 

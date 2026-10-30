@@ -144,7 +144,7 @@ pub use register_lakehouse_object_artifact::{
 };
 pub use vworld_cadastral_silver_plan::{
     build_vworld_cadastral_silver_parcel_boundary_handoff,
-    normalize_vworld_cadastral_silver_parcel_boundary_rows,
+    normalize_vworld_cadastral_silver_parcel_boundary_rows, parse_geojson_polygonal_geometry,
     VWorldCadastralSilverParcelBoundaryHandoff, VWorldCadastralSilverParcelBoundaryRow,
     VWorldCadastralSilverParcelBoundaryRowsInput, VWorldCadastralSilverPlanError,
 };

@@ -268,6 +268,22 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
         mocks["enforce_ordinary_land_pnu_null_share"].assert_called_once()
         self.assertEqual(emit.call_args.args[0]["persisted_row_count"], 2)
         self.assertEqual(emit.call_args.args[1], "/tmp/summary.json")
+    def test_a_binary_column_travels_as_hex_text_and_an_unknown_type_is_refused(self) -> None:
+        # Root ADR-0362: a WKB geometry rides the JSONL handoff as hex and is unhexed on load.
+        from silver_scalar_handoff_to_lakehouse import cast_handoff_frame, spark_type, validate_scalar_contract
+
+        contract = {"columns": [{"name": "geometry_wkb", "logical_type": "binary", "required": True},
+                                {"name": "pnu", "logical_type": "string", "required": True}]}
+        validate_scalar_contract(contract)
+        types = MagicMock()
+        self.assertIs(spark_type("binary", types), types.StringType.return_value)
+        functions = MagicMock()
+        handoff = MagicMock()
+        cast_handoff_frame(handoff, contract, functions)
+        functions.unhex.assert_called_once_with(functions.col.return_value)
+        with self.assertRaisesRegex(ValueError, "geometry:geography"):
+            validate_scalar_contract({"columns": [{"name": "geometry", "logical_type": "geography", "required": True}]})
+
     def test_default_iceberg_target_uses_contract_namespace_and_table(self) -> None:
         self.assertEqual(
             default_iceberg_target("silver.building_register_floors"),

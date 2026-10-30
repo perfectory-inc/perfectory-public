@@ -302,7 +302,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 151 -> 152: the 총괄표제부 lane embeds its source contract the same way (root ADR-0357).
 # 152 -> 153: the Silver refresh's land-ownership lane compiles in its source contract
 # (vworld-land-ownership-source-objects.json, root ADR-0360), as each land lane's include_str! does.
-COMPILE_TIME_READ_BASELINE="${3:-153}"
+# 153 -> 154: the Silver refresh compiles in the 용도지역지구 lane's contract
+# (vworld-land-use-zone-area-source-objects.json), as it does every lane's, so the run and the
+# contract cannot disagree on its layers (root ADR-0362).
+COMPILE_TIME_READ_BASELINE="${3:-154}"
 
 cd "$repo_root"
 

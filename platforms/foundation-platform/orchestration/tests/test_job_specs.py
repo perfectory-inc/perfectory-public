@@ -487,6 +487,7 @@ LAND_LANES = [
     "silver_refresh_land_right_registration",
     "silver_refresh_land_transfer_history",
     "silver_refresh_land_use_plan",
+    "silver_refresh_land_use_zone_area",
     "silver_refresh_land_use_zone_code",
 ]
 # The hub lanes root ADR-0355 adds after the five above: the same shape, one source each.
