@@ -1,4 +1,4 @@
-//! The 용도지역지구 areas (VWorld NA/24 `AL_D<layer>_00_<YYYYMMDD>` shapefiles, root ADR-0362): one
+//! The 용도지역지구 areas (`VWorld` NA/24 `AL_D<layer>_00_<YYYYMMDD>` shapefiles, root ADR-0362): one
 //! row per designated area of a served layer, its geometry in EPSG:4326 WKB. Per-parcel designations
 //! stay with `silver.land_use_plan`; this table is the regulation areas themselves, for the map.
 

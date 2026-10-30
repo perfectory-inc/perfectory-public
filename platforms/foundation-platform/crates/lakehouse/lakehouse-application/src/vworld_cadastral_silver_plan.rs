@@ -462,7 +462,7 @@ fn optional_property_string(
     }
 }
 
-/// Parses an EPSG:4326 `GeoJSON` Polygon or MultiPolygon into rings; `pnu` only labels an error
+/// Parses an `EPSG:4326` `GeoJSON` `Polygon` or `MultiPolygon` into rings; `pnu` only labels an error
 /// (the 용도지역지구 areas pass their layer and area id, root ADR-0362).
 ///
 /// # Errors
