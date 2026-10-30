@@ -95,19 +95,22 @@ fi
 
 # One shard, all its attempts. Exit 0 baked, 10 over the row cap, 1 failed.
 bake_shard() {
-  local prefix="$1" attempt attempt_log summary="${SUMMARIES}/shard-$1.json" pinned=()
+  local prefix="$1" attempt attempt_log summary="${SUMMARIES}/shard-$1.json" pinned=() export_status
   [[ -z "${pin}" ]] || pinned=("${P}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${pin}")
   for attempt in $(seq 1 "${BY_PNU_PACK_BAKE_ATTEMPTS}"); do
     attempt_log="${SHARDS}/shard-${prefix}.attempt-${attempt}.log"
-    if env ${pinned[@]+"${pinned[@]}"} "${P}_PNU_PREFIX=${prefix}" "${P}_PACK_SUMMARY_PATH=${summary}.partial" \
-        "${PUBLISHER_BIN}" "export-${LANE}-by-pnu-section-packs" >"${attempt_log}" 2>&1; then
+    export_status=0
+    env ${pinned[@]+"${pinned[@]}"} "${P}_PNU_PREFIX=${prefix}" "${P}_PACK_SUMMARY_PATH=${summary}.partial" \
+      "${PUBLISHER_BIN}" "export-${LANE}-by-pnu-section-packs" >"${attempt_log}" 2>&1 || export_status=$?
+    if ((export_status == 0)); then
       mv "${summary}.partial" "${summary}"
       return 0
     fi
     rm -f "${summary}.partial"
     by_pnu_shard_over_row_cap "${attempt_log}" && return 10
     # Refusals a retry cannot change.
-    if grep -q -e 'no longer holds snapshot' -e 'holds packs of Gold snapshot' "${attempt_log}"; then
+    if ((export_status == BY_PNU_EXPORT_REFUSED)) ||
+        grep -q -e 'no longer holds snapshot' -e 'holds packs of Gold snapshot' "${attempt_log}"; then
       tail -n 3 "${attempt_log}"
       return 1
     fi

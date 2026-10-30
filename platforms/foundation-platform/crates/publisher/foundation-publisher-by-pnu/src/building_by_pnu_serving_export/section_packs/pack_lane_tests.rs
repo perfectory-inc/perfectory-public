@@ -432,3 +432,70 @@ fn a_keyed_lane_takes_keys_and_a_pnu_lane_takes_pnus() -> anyhow::Result<()> {
     assert!(check_key(ByPnuLane::Parcel, &format!("{PNU_A}{BUILDING_1}")).is_err());
     Ok(())
 }
+
+/// 2026-10-30: the unit-price lane's first patch (283 upserts, 176 deletes, each `<pnu><building_id>`)
+/// was scanned by bare PNU, kept no row, and refused every upsert as absent from the Gold snapshot,
+/// six times a run. The scan matches the change set by key, the nil building id of the units linked
+/// to no building included, and a key the snapshot contradicts is a refusal no retry repeats.
+#[tokio::test]
+async fn unit_price_patch_scan_keeps_the_change_set_by_key_2026_10_30() -> anyhow::Result<()> {
+    use std::collections::BTreeSet;
+
+    use crate::building_by_pnu_serving_export::select_rows_by;
+    use crate::by_pnu_serving_patch_export::{refuse_live_deletes, PatchTarget};
+    use foundation_publisher_core::refusal::is_refused;
+
+    const NIL: &str = "00000000-0000-0000-0000-000000000000";
+    let lane = lane()?;
+    let renderer = Renderer::load(lane).await?;
+    let key = |pnu: &str, building: &str| format!("{pnu}{building}");
+    let upserts = BTreeSet::from([key(PNU_A, BUILDING_1), key(PNU_A, NIL)]);
+    let patch = PatchTarget {
+        patch: 1,
+        deleted: BTreeSet::from([key(PNU_B, BUILDING_2)]),
+    };
+    let config = BakeConfig {
+        lane,
+        output: ProfileStoreConfig::Local {
+            root: std::env::temp_dir(),
+        },
+        generation: None,
+        sections: lane.section_packs()?.sections.clone(),
+        patch: Some(patch.clone()),
+        upserts: Some(upserts.clone()),
+        pnu_prefix: None,
+        expected_gold_snapshot: None,
+        max_concurrency: 1,
+        summary_path: PathBuf::from("unused.json"),
+        sample_candidates_per_million: None,
+    };
+    let gold = [
+        row(PNU_A, BUILDING_1, 1),
+        row(PNU_A, NIL, 2),
+        row(PNU_A, BUILDING_2, 3),
+        row(PNU_B, BUILDING_1, 4),
+    ];
+    let kept = gold
+        .iter()
+        .filter(|row| bake::scan_keeps(&config, &renderer, None, row))
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(kept.len(), 2, "the scan keeps the upserts' rows, by key");
+    let selected = select_rows_by(&kept, Some(&upserts), None, |row| renderer.key(row))?;
+    assert_eq!(selected.len(), 2);
+
+    // A key the snapshot does not hold, and a delete it still holds: refusals, not retried.
+    let missing = BTreeSet::from([key(PNU_B, NIL)]);
+    let absent = select_rows_by(&kept, Some(&missing), None, |row| renderer.key(row))
+        .err()
+        .context("a key absent from the snapshot is refused")?;
+    assert!(is_refused(&absent));
+    let held = row(PNU_B, BUILDING_2, 5);
+    assert!(bake::scan_keeps(&config, &renderer, None, &held));
+    let held_key = renderer.key(&held)?;
+    let live = refuse_live_deletes(Some(&patch), [held_key.as_str()].into_iter())
+        .err()
+        .context("a delete the snapshot holds is refused")?;
+    assert!(is_refused(&live));
+    Ok(())
+}

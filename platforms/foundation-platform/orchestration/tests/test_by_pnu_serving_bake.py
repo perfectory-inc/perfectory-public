@@ -149,6 +149,10 @@ elif command.startswith("export-"):
             sys.exit(f"Error: generation {target} already holds 3 objects under shard {prefix}, and this run did not start them")
         with open(os.environ[prefix_env + "FRESH_CHECK_MARKER_PATH"], "w") as checked:
             json.dump({"target_generation": target, "pnu_prefix": prefix, "listed_object_count": 0}, checked)
+    # A refusal of the inputs (foundation_publisher_core::refusal): exit 65, every time.
+    if os.environ.get("FAKE_REFUSE_PREFIX") == prefix:
+        print("Error: the PNU allowlist names keys absent from the Gold snapshot", file=sys.stderr)
+        sys.exit(65)
     # A crash while writing, after the check passed.
     crash = os.environ.get("FAKE_CRASH_ONCE_PREFIX")
     marker = os.environ["FAKE_LOG"] + ".crashed"
@@ -587,6 +591,15 @@ class ByPnuServingBake(unittest.TestCase):
         attempts = [call for call in calls if call["env"].get("FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_PREFIX") == "9999917"]
         self.assertEqual(len(attempts), 2)
         self.assertEqual(len(self.published(calls)), 1)
+
+    def test_a_refused_shard_fails_at_once_not_after_every_attempt(self):
+        # 2026-10-30: the unit-price lane retried a refusal of its change set 6 times, 45 s apart.
+        result, calls = self.bake(FAKE_REFUSE_PREFIX="9999917")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("refused its inputs (exit 65)", result.stdout)
+        attempts = [call for call in calls if call["env"].get("FOUNDATION_PLATFORM_PARCEL_BY_PNU_SERVING_PNU_PREFIX") == "9999917"]
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(self.published(calls), [])
 
     def test_a_shard_that_never_bakes_fails_the_job_without_publishing(self):
         result, calls = self.bake(FAKE_CAP="0")

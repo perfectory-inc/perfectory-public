@@ -11,6 +11,8 @@ use std::path::Path;
 use anyhow::{ensure, Context};
 use futures_util::{stream, StreamExt as _, TryStreamExt as _};
 
+use foundation_publisher_core::refusal::Refused;
+
 use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_serving_manifest::tombstone_body;
 use crate::by_pnu_serving_store::ByPnuServingStore;
@@ -119,8 +121,9 @@ pub async fn list_existing(
     }
 }
 
-/// Whether the scan keeps a row with `pnu`: inside the shard, and — when a change set or an
-/// allowlist scopes the run — named by it. A patch keeps its deleted PNUs too, so a delete the
+/// Whether the scan keeps a row with key `pnu` (a PNU, or for a lane keyed narrower than a PNU its
+/// PNU and key suffix, root ADR-0204): inside the shard, and — when a change set or an allowlist
+/// scopes the run — named by it. A patch keeps its deleted PNUs too, so a delete the
 /// table still holds is refused instead of tombstoned.
 pub fn keeps(
     pnu: &str,
@@ -145,8 +148,10 @@ pub fn refuse_live_deletes<'a>(
         for pnu in kept_pnus {
             ensure!(
                 !target.deleted.contains(pnu),
-                "{pnu} is on the delete list but the Gold snapshot still holds it; the change set \
-                 is not of this snapshot"
+                Refused(format!(
+                    "{pnu} is on the delete list but the Gold snapshot still holds it; the change \
+                     set is not of this snapshot"
+                ))
             );
         }
     }

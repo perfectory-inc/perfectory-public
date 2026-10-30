@@ -863,11 +863,13 @@ while ((${#queue[@]})); do
     attempt_env=("${ENV_PREFIX}_FRESH_GENERATION=${shard_fresh}"
       "${ENV_PREFIX}_FRESH_CHECK_MARKER_PATH=${checked}" "${ENV_PREFIX}_SUMMARY_PATH=${shard_summary}.partial")
     [[ "${LANE_SERVES}" == objects ]] || attempt_env=("${ENV_PREFIX}_PACK_SUMMARY_PATH=${shard_summary}.partial")
-    if env "${export_env[@]}" \
+    export_status=0
+    env "${export_env[@]}" \
         "${patch_env[@]}" "${prefix_env[@]}" "${ENV_PREFIX}_MAX_CONCURRENCY=${MAX_CONCURRENCY}" \
         "${ENV_PREFIX}_EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID=${gold}" \
         "${attempt_env[@]}" \
-        "${PUBLISHER_BIN}" "${export_command}" >"${attempt_log}" 2>&1; then
+        "${PUBLISHER_BIN}" "${export_command}" >"${attempt_log}" 2>&1 || export_status=$?
+    if ((export_status == 0)); then
       mv "${shard_summary}.partial" "${shard_summary}"
       [[ "${fresh}" == true && -s "${checked}" ]] && record_target
       baked=yes
@@ -904,6 +906,10 @@ while ((${#queue[@]})); do
       break
     fi
     tail -n 5 "${attempt_log}" >&2
+    if ((export_status == BY_PNU_EXPORT_REFUSED)); then
+      log "FAILED: shard ${prefix} refused its inputs (exit ${export_status}); a retry refuses again, nothing was published"
+      exit 1
+    fi
     log "shard ${prefix} attempt ${attempt}/${ATTEMPTS} failed; resuming in ${RETRY_SECONDS}s"
     sleep "${RETRY_SECONDS}"
   done

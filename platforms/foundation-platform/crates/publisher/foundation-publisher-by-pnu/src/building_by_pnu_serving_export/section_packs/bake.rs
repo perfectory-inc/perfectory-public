@@ -381,7 +381,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         None => None,
     };
     let (rows, gold_record_count, shard_read) =
-        scan(&config, &lakehouse, &snapshot, probe.as_ref()).await?;
+        scan(&config, &renderer, &lakehouse, &snapshot, probe.as_ref()).await?;
     let provenance = snapshot_provenance(&snapshot);
     // Before anything is written: a refused probe leaves no pack behind.
     let expansion_probe = match &probe {
@@ -432,6 +432,7 @@ fn snapshot_provenance(snapshot: &IcebergSnapshotManifestList) -> PackProvenance
 /// read.
 async fn scan(
     config: &BakeConfig,
+    renderer: &Renderer,
     lakehouse: &LakehouseObjectReader,
     snapshot: &IcebergSnapshotManifestList,
     probe: Option<&Probe>,
@@ -440,17 +441,7 @@ async fn scan(
         sections::gold_table(config.lane),
         lakehouse,
         snapshot,
-        |row| match row.get("pnu").and_then(JsonValue::as_str) {
-            Some(pnu) => {
-                patch_export::keeps(
-                    pnu,
-                    config.pnu_prefix.as_deref(),
-                    config.upserts.as_ref(),
-                    config.patch.as_ref(),
-                ) || probe.is_some_and(|probe| probe.keeps(pnu))
-            }
-            None => true,
-        },
+        |row| scan_keeps(config, renderer, probe, row),
         Some(MAX_ROWS_PER_RUN),
         // Only the data files whose PNU bounds can hold the shard are opened (root ADR-0164).
         config.pnu_prefix.as_deref().map(KeptPrefix::pnu),
@@ -464,12 +455,12 @@ async fn scan(
         config.lane.env("PNU_PREFIX")
     );
     rows.ensure_complete()?;
-    patch_export::refuse_live_deletes(
-        config.patch.as_ref(),
-        rows.rows
-            .iter()
-            .filter_map(|row| row.get("pnu").and_then(JsonValue::as_str)),
-    )?;
+    let kept_keys = rows
+        .rows
+        .iter()
+        .filter_map(|row| renderer.key(row).ok())
+        .collect::<Vec<_>>();
+    patch_export::refuse_live_deletes(config.patch.as_ref(), kept_keys.iter().map(String::as_str))?;
     let read = ShardRead {
         data_files: rows.data_file_count,
         skipped_data_files: rows.skipped_data_file_count,
@@ -477,6 +468,31 @@ async fn scan(
     };
     let live = rows.live_record_count();
     Ok((rows.rows, live, read))
+}
+
+/// Whether the scan keeps `row`. The change set and the delete list name the lane's keys (root
+/// ADR-0204: a PNU, then the key suffix), so the row is matched by its key, never by its bare PNU.
+/// On 2026-10-30 the unit-price lane's first patch matched bare PNUs against `<pnu><building_id>`
+/// keys, kept none of its 283 upserts and refused them all as absent from the Gold snapshot.
+/// A row without a key is kept, so the selection refuses it by name.
+pub(super) fn scan_keeps(
+    config: &BakeConfig,
+    renderer: &Renderer,
+    probe: Option<&Probe>,
+    row: &JsonMap<String, JsonValue>,
+) -> bool {
+    let (Some(pnu), Ok(key)) = (
+        row.get("pnu").and_then(JsonValue::as_str),
+        renderer.key(row),
+    ) else {
+        return true;
+    };
+    patch_export::keeps(
+        &key,
+        config.pnu_prefix.as_deref(),
+        config.upserts.as_ref(),
+        config.patch.as_ref(),
+    ) || probe.is_some_and(|probe| probe.keeps(pnu))
 }
 
 /// Where each baked section goes, and what a section re-baked alone is joined with.
