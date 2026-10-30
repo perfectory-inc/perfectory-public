@@ -171,18 +171,11 @@ fn months_span_whole_calendar_months() {
 
 fn export(month: &str, rows: &[&str]) -> Vec<u8> {
     let mut text = format!(
-        "\"□ 안내\"
-\"계약일자 : {month}\"
-\"실거래구분 : 합성(매매)\"
-\"NO\",\"시군구\"
-"
+        "\"□ 안내\"\r\n\"계약일자 : {month}\"\r\n\"실거래구분 : 합성(매매)\"\r\n\"NO\",\"시군구\"\r\n"
     );
     for row in rows {
         text.push_str(row);
-        text.push_str(
-            "
-",
-        );
+        text.push_str("\r\n");
     }
     let (bytes, _, _) = encoding_rs::EUC_KR.encode(&text);
     bytes.into_owned()
