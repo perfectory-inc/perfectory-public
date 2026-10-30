@@ -243,11 +243,20 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
                 F.collect_set("candidate").alias("_land"))
             build = candidates.where(checks["zone"] & checks["building_year"] & checks["floor_area"]).groupBy("row_id").agg(
                 F.collect_set("candidate").alias("_build"))
-            per_row = per_row.join(land, "row_id", "left").join(build, "row_id", "left").withColumn(
-                "_set", F.when((F.size("_land") == 1) & (F.size("_build") == 1) & (F.col("_land") == F.col("_build")),
-                               F.col("_set")).otherwise(F.array())).drop("_land", "_build")
+            # size(null) is -1 in Spark: a register that left no candidate counts 0.
+            sizes = [F.when(F.col(c).isNull(), F.lit(0)).otherwise(F.size(c)) for c in ("_land", "_build")]
+            agreed = (sizes[0] == 1) & (sizes[1] == 1) & (F.col("_land") == F.col("_build"))
+            # Two registers naming two parcels are two candidates: ambiguous, not "none".
+            disagree = (sizes[0] == 1) & (sizes[1] == 1) & ~agreed
+            per_row = (per_row.join(land, "row_id", "left").join(build, "row_id", "left")
+                       .withColumn("_count", F.when(agreed, F.size("_set"))
+                                   .otherwise(F.greatest(sizes[0], sizes[1], F.when(disagree, F.lit(2)).otherwise(F.lit(0)))))
+                       .withColumn("_set", F.when(agreed, F.col("_set")).otherwise(F.array()))
+                       .drop("_land", "_build"))
+        else:
+            per_row = per_row.withColumn("_count", F.size("_set"))
         outcomes.append(per_row.select("row_id", F.lit(rank).alias("_rank"), F.lit(level["grade"]).alias("_grade"),
-                                       F.size("_set").alias("_count"), F.element_at("_set", 1).alias("_pnu")))
+                                       F.col("_count"), F.element_at("_set", 1).alias("_pnu")))
     every = deals.select("row_id")
     if not outcomes:
         return every.select("row_id", F.lit(None).cast("string").alias("pnu"),
