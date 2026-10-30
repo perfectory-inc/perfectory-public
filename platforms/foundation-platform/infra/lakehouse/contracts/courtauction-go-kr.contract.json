@@ -6,10 +6,10 @@
   "contact_env": "FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT",
   "contact_required": false,
   "manners": {
-    "$comment": "ADR-0281 §1-§5. request_spacing_seconds is a floor a setting may only raise; a robots.txt Crawl-delay above it raises it too. One connection, no concurrency. A run starts only inside the quiet hours (KST) and sends no request after they end. max_requests_per_run bounds one night. Retries are for network errors only, never for a refusal.",
+    "$comment": "ADR-0281 §1-§5. request_spacing_seconds is a floor a setting may only raise; a robots.txt Crawl-delay above it raises it too. One connection, no concurrency. A run starts only inside the quiet hours (KST) and sends no request after they end. max_requests_per_run bounds one night: since root ADR-0290 §1 asks the item search with a ±365-day window it lists about 108,306 rows (2026-10-21), 2,167 pages of 50, plus about 251 sale-result pages and robots.txt (2026-10-19 night) = about 2,420 requests; 3,500 keeps a complete pass with 45% room and, at the measured 3.4 s a request (78 minutes for 1,377), ends within about 200 minutes, inside the 300-minute window. Retries are for network errors only, never for a refusal.",
     "request_spacing_seconds": 3,
     "request_timeout_seconds": 60,
-    "max_requests_per_run": 2500,
+    "max_requests_per_run": 3500,
     "network_retries": 2,
     "quiet_hours_kst": {"start": "01:00", "end": "06:00"},
     "robots_path": "/robots.txt"
