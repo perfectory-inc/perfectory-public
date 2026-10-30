@@ -50,6 +50,128 @@
     "row_number_column": "NO",
     "mutable_columns": ["해제사유발생일", "등기일자"]
   },
+  "place_inference": {
+    "$comment": "Root ADR-0351 (사장 결정 2026-10-31). Inferring the parcel of a masked lot, read by place_identity_resolver.enabled_levels / infer_masked. A level links a dataset's deals only when its `measured` precision for that dataset reaches precision_bar on at least min_measured_rows; a level not measured for a dataset is not used. Measured read-only 2026-10-31: API deals 2024-01..2025-12 (공장창고 every 시군구, 상업업무 80 시군구) and 2025-01..06 (토지, 단독다가구, ground truth: 40 시군구), candidates from ai-server Trino over silver.land_characteristic 20260519 and the current main buildings of silver.building_register_titles.",
+    "precision_bar": 0.99,
+    "min_measured_rows": 200,
+    "area_tolerance_m2": 0.05,
+    "ownership_window_days": [
+      0,
+      120
+    ],
+    "ownership_causes": [
+      "매매"
+    ],
+    "levels": [
+      {
+        "grade": "inferred_ownership_change",
+        "evidence": [
+          "lot_range",
+          "zone",
+          "jimok",
+          "land_area",
+          "ownership_change"
+        ],
+        "measured": {},
+        "not_measured_reason": "silver.land_ownership (#973, ADR-0360) is not in production on 2026-10-31; the pull request that measures it against the attribute evidence fills `measured`"
+      },
+      {
+        "grade": "inferred_attributes",
+        "evidence": [
+          "lot_range",
+          "zone",
+          "jimok",
+          "land_area",
+          "registers_agree"
+        ],
+        "measured": {
+          "real_transaction_industrial_trade": {
+            "precision": 0.9866,
+            "precision_wilson_low": 0.9832,
+            "rows": 5585,
+            "deals": 12496,
+            "coverage": 0.4409,
+            "ambiguous": 0.1002,
+            "method": "independent_registers: of the masked deals both registers narrow to one parcel, the share where the land register's parcel (area, 용도지역) is the building register's (사용승인 연도, 연면적); a lower bound on one register's precision, since a disagreement may be either register's",
+            "measured_on": "2026-10-31"
+          },
+          "real_transaction_commercial_trade": {
+            "precision": 0.9846,
+            "precision_wilson_low": 0.9801,
+            "rows": 3693,
+            "deals": 9019,
+            "coverage": 0.4031,
+            "ambiguous": 0.221,
+            "method": "independent_registers: of the masked deals both registers narrow to one parcel, the share where the land register's parcel (area, 용도지역) is the building register's (사용승인 연도, 연면적); a lower bound on one register's precision, since a disagreement may be either register's",
+            "measured_on": "2026-10-31"
+          },
+          "real_transaction_detached_house_trade": {
+            "precision": 0.9795,
+            "precision_wilson_low": 0.9697,
+            "rows": 1171,
+            "deals": 3353,
+            "coverage": 0.3421,
+            "ambiguous": 0.3907,
+            "method": "independent_registers: of the masked deals both registers narrow to one parcel, the share where the land register's parcel (area, 용도지역) is the building register's (사용승인 연도, 연면적); a lower bound on one register's precision, since a disagreement may be either register's",
+            "measured_on": "2026-10-31"
+          }
+        },
+        "not_measured_reason": "real_transaction_land_trade: bare land has no building register to cross-check; it waits for the ownership level"
+      }
+    ],
+    "ground_truth_checks": {
+      "real_transaction_apartment_trade": {
+        "rows": 3000,
+        "linked": 425,
+        "right": 414,
+        "precision": 0.9741,
+        "coverage": 0.1417,
+        "ambiguous": 0.8347,
+        "method": "provider ground truth: an unmasked lot masked as the provider masks it (the 본번's first digit kept), matched on 본번 range + 용도지역 + 사용승인 연도; those rows carry no 대지면적, so the area evidence the masked rows use cannot be tested on them",
+        "measured_on": "2026-10-31"
+      },
+      "real_transaction_officetel_trade": {
+        "rows": 2488,
+        "linked": 299,
+        "right": 299,
+        "precision": 1.0,
+        "coverage": 0.1202,
+        "ambiguous": 0.7894,
+        "method": "provider ground truth: an unmasked lot masked as the provider masks it (the 본번's first digit kept), matched on 본번 range + 용도지역 + 사용승인 연도; those rows carry no 대지면적, so the area evidence the masked rows use cannot be tested on them",
+        "measured_on": "2026-10-31"
+      },
+      "real_transaction_row_house_trade": {
+        "rows": 3000,
+        "linked": 212,
+        "right": 209,
+        "precision": 0.9858,
+        "coverage": 0.0707,
+        "ambiguous": 0.903,
+        "method": "provider ground truth: an unmasked lot masked as the provider masks it (the 본번's first digit kept), matched on 본번 range + 용도지역 + 사용승인 연도; those rows carry no 대지면적, so the area evidence the masked rows use cannot be tested on them",
+        "measured_on": "2026-10-31"
+      },
+      "real_transaction_industrial_trade": {
+        "rows": 176,
+        "linked": 41,
+        "right": 41,
+        "precision": 1.0,
+        "coverage": 0.233,
+        "ambiguous": 0.642,
+        "method": "provider ground truth: an unmasked lot masked as the provider masks it (the 본번's first digit kept), matched on 본번 range + 용도지역 + 사용승인 연도; those rows carry no 대지면적, so the area evidence the masked rows use cannot be tested on them",
+        "measured_on": "2026-10-31"
+      },
+      "real_transaction_commercial_trade": {
+        "rows": 1929,
+        "linked": 380,
+        "right": 374,
+        "precision": 0.9842,
+        "coverage": 0.197,
+        "ambiguous": 0.7112,
+        "method": "provider ground truth: an unmasked lot masked as the provider masks it (the 본번's first digit kept), matched on 본번 range + 용도지역 + 사용승인 연도; those rows carry no 대지면적, so the area evidence the masked rows use cannot be tested on them",
+        "measured_on": "2026-10-31"
+      }
+    }
+  },
   "silver_load": {
     "$comment": "What one Silver load takes (plan-silver-load-objects): the Bronze objects no commit of silver.real_transaction records, within window_days, at most max_objects a load.",
     "window_days": 3,
