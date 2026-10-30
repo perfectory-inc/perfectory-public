@@ -808,6 +808,33 @@
       "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
+      "id": "silver_refresh_land_ownership",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 토지소유 lane `land-ownership` (root ADR-0169 ③, ADR-0360): pick the newest vintage whose AL_D161 objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_ownership already records it or a newer one (`unchanged`), export each object, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed parcels' rows and a removal marker per vanished parcel (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-ownership.service",
+      "check_service": "foundation-silver-refresh-plan@land-ownership.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-ownership"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:00:00Z"
+    },
+    {
       "id": "silver_refresh_land_right_registration",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1216,6 +1243,60 @@
       "reads_data_contracts": true,
       "enabled": true,
       "enabled_since": "2026-10-14T19:37:57Z"
+    },
+    {
+      "id": "gold_parcel_ownership_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "토지소유 kind Gold (root ADR-0361; scripts/ops/gold-panel-rebuild.sh parcel-ownership): gold.parcel_ownership from silver.land_ownership, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the owner rows the Silver release appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (land_ownership_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_serving_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-ownership-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-ownership-to-gold-parcel-ownership",
+        "reference-legal-dong-code-change-to-gold-parcel-ownership"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0361). Off until its first full build (about 120 million owner rows nationally, computed) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-ownership, root ADR-0193 §7), after silver_refresh_land_ownership loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_ownership_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_ownership (the own-producer ownership kind, root ADR-0361) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-ownership), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2): a slow national parcel re-bake in by_pnu_serving_bake never holds it. Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_ownership_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171); each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). Two slots and MemoryMax=5G, the public-auction bake's bound: a scheduled run patches the parcels a twice-yearly release changed, and the lane's whole generation is the operator's cut-over bake (root ADR-0190), not this job's. Two slots so it never runs beside both the panel bake and the public-auction bake: the three at once (14 + 5 + 5 = 24g) would exceed the host budget's 22g job allowance (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-ownership-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-ownership-to-parcel-ownership-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0361). Off with gold_parcel_ownership_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-ownership cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "by_pnu_serving_bake",

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_ownership_by_pnu",
+  "description": "A parcel's owners as the 토지소유 file (VWorld AL_D161) registers them (root ADR-0360, ADR-0361): the parcel's own co-owners in the provider's order, and for a collective building on it only how many unit owners of each 소유구분. Every value is the provider's code or word; no person is named.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["foundation-platform.parcel_ownership_by_pnu.v1"]},
+    "schema_revision": {"type": "integer"},
+    "pnu": {"type": "string", "pattern": "^[0-9]{19}$"},
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {"type": "string"},
+        "iceberg_snapshot_id": {"type": "string"}
+      },
+      "required": ["table", "iceberg_snapshot_id"]
+    },
+    "ownership": {
+      "type": "object",
+      "properties": {
+        "owners": {
+          "description": "The parcel's own owners (집합건물일련번호 all zeros), by 공유인일련번호, at most 100; owner_total counts all.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "co_owner_serial_no": {"type": "string"},
+              "ownership_kind_code": {"type": ["string", "null"]},
+              "ownership_kind_name": {"type": ["string", "null"]},
+              "residence_kind_code": {"type": ["string", "null"]},
+              "residence_kind_name": {"type": ["string", "null"]},
+              "state_agency_kind_code": {"type": ["string", "null"]},
+              "state_agency_kind_name": {"type": ["string", "null"]},
+              "ownership_change_reason_code": {"type": ["string", "null"]},
+              "ownership_change_reason": {"type": ["string", "null"]},
+              "ownership_changed_on": {"type": ["string", "null"]},
+              "co_owner_count": {"type": ["integer", "null"]}
+            },
+            "required": ["co_owner_serial_no"]
+          }
+        },
+        "unit_owner_total": {"description": "Unit owner rows of the collective buildings on the parcel.", "type": "integer"},
+        "unit_owner_kinds": {
+          "description": "Those rows counted by 소유구분, most first.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ownership_kind_name": {"type": ["string", "null"]},
+              "count": {"type": "integer"}
+            },
+            "required": ["count"]
+          }
+        },
+        "latest_changed_on": {"type": ["string", "null"]},
+        "base_year_month": {"type": ["string", "null"]},
+        "data_reference_date": {"type": ["string", "null"]}
+      },
+      "required": ["owners", "unit_owner_total", "unit_owner_kinds"]
+    },
+    "owner_total": {"type": ["integer", "null"]},
+    "attached_via": {"type": ["string", "null"]}
+  },
+  "required": ["schema_version", "pnu", "source", "ownership"]
+}

@@ -288,9 +288,11 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         self.assertEqual(set(self.spec.reconciles),
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
                           "by_pnu_serving_bake"})
-        # Every job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
+        # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
+        # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
+        # switches it on lists it here (the ownership bake, root ADR-0361).
         lanes = {spec.job_id for spec in job_specs.load_specs()
-                 if any(job_specs.by_pnu_lane_of(name) for _, name in spec.outputs)}
+                 if spec.enabled and any(job_specs.by_pnu_lane_of(name) for _, name in spec.outputs)}
         self.assertLessEqual(lanes, set(self.spec.reconciles))
         start = self.tasks["start"]
         self.assertEqual(start.expanded, ("XComArg", "select"))

@@ -190,6 +190,8 @@ GOLD_UNIT=foundation-gold-panel-rebuild-unconditional
 BAKE_SCHEDULED=foundation-by-pnu-serving-bake.service
 # The own-producer public-auction lane bakes in its own job beside it (root ADR-0303).
 BAKE_OWN_PRODUCER=foundation-by-pnu-public-auction-bake.service
+# The own-producer ownership lane bakes in its own job too (root ADR-0303 §2, ADR-0361).
+BAKE_OWNERSHIP=foundation-by-pnu-parcel-ownership-bake.service
 # The unit price lane bakes in its own job too (root ADR-0333).
 BAKE_UNIT_PRICE=foundation-by-pnu-unit-price-bake.service
 PACK_BAKES='foundation-*-pack-bake-g*.service'
@@ -262,7 +264,7 @@ refuse_while_the_deploy_holds() {
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
 refuse_while_baking() {
   local lane lock running
-  refuse_while_active "${BAKE_SCHEDULED}" "${BAKE_OWN_PRODUCER}" "${BAKE_UNIT_PRICE}"
+  refuse_while_active "${BAKE_SCHEDULED}" "${BAKE_OWN_PRODUCER}" "${BAKE_OWNERSHIP}" "${BAKE_UNIT_PRICE}"
   running="$(running_units "${PACK_BAKES}")"
   [[ -z "${running}" ]] || refuse "a section pack bake is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
   for lane in building parcel ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
@@ -645,7 +647,7 @@ case "${ACTION}" in
       [[ ! -f "${WORK}/logs/${action}.log" ]] || tail -3 "${WORK}/logs/${action}.log" | cut -c1-300
     done
     for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${GOLD_UNIT_PRICE}" "${BAKE_SCHEDULED}" \
-        "${BAKE_OWN_PRODUCER}" "${BAKE_UNIT_PRICE}"; do
+        "${BAKE_OWN_PRODUCER}" "${BAKE_OWNERSHIP}" "${BAKE_UNIT_PRICE}"; do
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
     done
     [[ ! -f "${GOLD_LOG}" ]] || tail -3 "${GOLD_LOG}" | cut -c1-300

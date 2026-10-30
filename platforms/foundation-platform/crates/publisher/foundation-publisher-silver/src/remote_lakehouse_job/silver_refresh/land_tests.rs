@@ -19,10 +19,11 @@ use super::*;
 const PRICE: &str = "vworldkr__land_individual_price";
 const ZONE: &str = "vworldkr__land_use_zone_code";
 
-const LAND_LANES: [Lane; 7] = [
+const LAND_LANES: [Lane; 8] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
+    Lane::LandOwnership,
     Lane::LandRightRegistration,
     Lane::LandTransferHistory,
     Lane::LandUsePlan,
@@ -495,6 +496,7 @@ fn members(lane: Lane) -> (&'static str, &'static [&'static str]) {
         Lane::LandCharacteristic => ("AL_D195_97_20991231.csv", &["AL_D194_97110_20991231.shp"]),
         Lane::LandForestLedger => ("AL_D003_97_20991231.csv", &["CH_D003_97_20991231.csv"]),
         Lane::LandIndividualPrice => ("AL_D151_97_20991231.csv", &["AL_D150_97_20991231.dbf"]),
+        Lane::LandOwnership => ("AL_D161_97_20991231.csv", &["AL_D160_97_20991231.dbf"]),
         Lane::LandRightRegistration => ("AL_D006_97_20991231.csv", &["CH_D006_97_20991231.csv"]),
         Lane::LandTransferHistory => ("AL_D157_97_20991231.csv", &["CH_D157_97_20991231.csv"]),
         Lane::LandUsePlan => ("AL_D155_97_20991231.csv", &["AL_D154_97_20991231.shp"]),
@@ -829,10 +831,11 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 7] = [
+const COMPARING_LANES: [Lane; 8] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
+    Lane::LandOwnership,
     Lane::LandRightRegistration,
     Lane::LandTransferHistory,
     Lane::LandUsePlan,

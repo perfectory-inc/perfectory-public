@@ -108,6 +108,7 @@
       "gold_panel_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_kind_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_public_auction_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_parcel_ownership_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_unit_price_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_served_gold": [{"project": "foundation-platform-compute", "service": "spark"}],
@@ -124,6 +125,7 @@
       "silver_refresh_land_characteristic": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_forest_ledger": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_individual_price": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_land_ownership": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_right_registration": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_transfer_history": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_use_plan": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
@@ -149,6 +151,10 @@
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ],
       "by_pnu_public_auction_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ],
+      "by_pnu_parcel_ownership_bake": [
         {"unit": "MemoryMax"},
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ],

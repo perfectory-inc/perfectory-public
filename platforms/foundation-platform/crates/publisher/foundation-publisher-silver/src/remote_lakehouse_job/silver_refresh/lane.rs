@@ -27,6 +27,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
+    LandOwnership,
     LandRightRegistration,
     LandTransferHistory,
     LandUsePlan,
@@ -34,7 +35,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 14] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 15] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -45,6 +46,7 @@ impl Lane {
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
+        Self::LandOwnership,
         Self::LandRightRegistration,
         Self::LandTransferHistory,
         Self::LandUsePlan,
@@ -65,6 +67,7 @@ impl Lane {
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
+            Self::LandOwnership => "land-ownership",
             Self::LandRightRegistration => "land-right-registration",
             Self::LandTransferHistory => "land-transfer-history",
             Self::LandUsePlan => "land-use-plan",
@@ -132,6 +135,10 @@ impl Lane {
             Self::LandIndividualPrice => (
                 "vworld-land-individual-price-source-objects.json",
                 include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-individual-price-source-objects.json"),
+            ),
+            Self::LandOwnership => (
+                "vworld-land-ownership-source-objects.json",
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-ownership-source-objects.json"),
             ),
             Self::LandRightRegistration => (
                 "vworld-land-right-registration-source-objects.json",

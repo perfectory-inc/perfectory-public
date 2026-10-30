@@ -806,7 +806,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
             block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh")
             if block is not None:
                 lanes[block["table"]] = block
-        self.assertEqual(len(lanes), 14)
+        self.assertEqual(len(lanes), 15)
         for table, block in lanes.items():
             if block["spark"]["iceberg_write_mode"] == "overwrite":
                 self.assertIn(overwrite_declaration(table), (COMPARE, FULL_REASON), table)
@@ -821,6 +821,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                                     "silver.building_register_titles", "silver.building_register_unit_areas",
                                     "silver.building_register_units", "silver.land_characteristic",
                                     "silver.land_forest_ledger", "silver.land_individual_price",
+                                    "silver.land_ownership",
                                     "silver.land_right_registration", "silver.land_transfer_history",
                                     "silver.land_use_plan", "silver.land_use_zone_code"])
 
