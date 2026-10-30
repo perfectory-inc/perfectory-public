@@ -1,19 +1,21 @@
 {
-  "$comment": "Root ADR-0348 (사장 결정 2026-10-30: the rt.molit.go.kr bulk path of FP-ADR-0020, its automation clause known). How 국토교통부 실거래가 is asked from the 조건별 자료제공 export, how politely, when, and what stops a run. Read by collect-rt-molit-real-transaction (crates/publisher/foundation-publisher-collection/src/rt_molit_real_transaction_collect.rs, compiled in) and by the Silver load (infra/lakehouse/spark/jobs/rt_molit_real_transaction.py). Checked 2026-10-30: no CAPTCHA and no login; a form page sets a session cookie, then a count check (JSON) and the CSV (POST); a nationwide export spans at most one month; no row cap (95,786 rows, 18 MB, 8 s).",
+  "$comment": "Root ADR-0348 (사장 결정 2026-10-30: the rt.molit.go.kr bulk path of FP-ADR-0020, its automation clause known; 2026-10-31: any hour, normal speed). How 국토교통부 실거래가 is asked from the 조건별 자료제공 export, how fast, and what stops a run. Read by collect-rt-molit-real-transaction (crates/publisher/foundation-publisher-collection/src/rt_molit_real_transaction_collect.rs, compiled in) and by the Silver load (infra/lakehouse/spark/jobs/rt_molit_real_transaction.py). Checked 2026-10-30: no CAPTCHA and no login; a form page sets a session cookie, then a count check (JSON) and the CSV (POST); a nationwide export spans at most one month; no row cap (95,786 rows, 18 MB, 8 s).",
   "version": 1,
   "base_url": "https://rt.molit.go.kr",
   "user_agent": "perfectory-foundation-rt-molit/1 (+root ADR-0348)",
   "manners": {
-    "$comment": "Root ADR-0281's manners, applied here. One session, one request at a time. A run starts and asks only inside the quiet hours (KST). The provider's own answer caps downloads at 100 a day (its count-check message, quoted in rt_molit_real_transaction_export_ingest.rs); 90 leaves room for people. Two requests an export (count check, CSV), each after request_spacing_seconds: about 20 s an export with the transfer, so 18 exports are about 6 minutes.",
-    "request_spacing_seconds": 5,
-    "quiet_hours_kst": {"start": "01:00", "end": "06:00"},
-    "max_downloads_per_run": 18,
+    "$comment": "Root ADR-0348 §2 (사장 결정 2026-10-31: any hour, normal speed, practical safeguards). One session; up to `concurrency` exports in flight, each request after request_spacing_seconds; a busy answer (HTTP 429 or a 5xx) is asked again after a doubling backoff, `retry.attempts` times at most. The provider's own answer caps downloads at 100 a day (its count-check message, quoted in rt_molit_real_transaction_export_ingest.rs); 90 leaves room for people, and it is that daily cap, not the speed, that sets how fast the history fills.",
+    "request_spacing_seconds": 1,
+    "concurrency": 3,
+    "max_downloads_per_run": 30,
     "daily_download_limit": 90,
-    "run_time_budget_seconds": 1500
+    "run_time_budget_seconds": 1500,
+    "retry": {"attempts": 3, "initial_backoff_seconds": 30, "max_backoff_seconds": 300}
   },
   "refusal": {
-    "$comment": "Root ADR-0281 §3 (rt_molit_real_transaction_export_ingest.rs REFUSAL_STATUSES and RtMolitRefusal): HTTP 403, 429 or 503, or a page where JSON or CSV belongs (a block, notice, login or CAPTCHA page), ends the run and writes refused.json in the state directory; every later run refuses before any request until a person removes it. Retries are never made for a refusal.",
-    "http_statuses": [403, 429, 503]
+    "$comment": "Root ADR-0348 §3 (rt_molit_real_transaction_export_ingest.rs RtMolitRefusal and RtMolitBusy): an outright refusal (HTTP 403, or a page where JSON or CSV belongs: a block, notice, login or CAPTCHA page), or a busy answer that outlasts the retries, ends the run and writes refused.json in the state directory; every later run refuses before any request until a person removes it.",
+    "http_statuses": [403],
+    "busy_statuses": "429 and 5xx, retried"
   },
   "daily_limit_messages": ["다운로드 횟수"],
   "refresh_tiers": [
@@ -21,7 +23,7 @@
     {"max_age_months": 12, "every_days": 7, "reason": "cancellations: p99 354 days after the contract"},
     {"max_age_months": 24, "every_days": 30, "reason": "the latest cancellation measured came 442 days after the contract"}
   ],
-  "refresh_budget_reason": "Downloads a day (computed): the first tier 3 months x 12 datasets = 36, the second 10 x 12 / 7 = about 17, the third 12 x 12 / 30 = about 5: about 58 of the 90, leaving about 32 a day for the history (2,760 months: about 750 for the three industrial datasets first, about 23 days; all of it about 86 days).",
+  "refresh_budget_reason": "Downloads a day (computed): the first tier 3 months x 12 datasets = 36, the second 10 x 12 / 7 = about 17, the third 12 x 12 / 30 = about 5: about 58 of the 90, leaving about 32 a day for the history (2,760 months: about 750 for the three industrial datasets first, about 23 days; all of it about 86 days). The provider's 100 a day bounds this, not our speed.",
   "priority": [
     "real_transaction_industrial_trade",
     "real_transaction_land_trade",

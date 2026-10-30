@@ -88,4 +88,4 @@ bronze/source=<source-slug>/contract_from=<yyyy-mm-dd>/contract_to=<yyyy-mm-dd>/
 
 ---
 
-개정 각주(2026-10-30): 이 채널의 정기 수집(새벽 조용한 시간, 하루 90건, 최근 달 다시 받기, 내용 주소 키)과 이용안내 자동화 조항에 대한 사장 결정은 [root ADR-0348](../../../../docs/adr/0348-real-transactions-come-from-the-rt-molit-bulk-export-and-recent-months-are-pulled-again.md) 에 있다.
+개정 각주(2026-10-30): 이 채널의 정기 수집(매시간, 동시 3건, 하루 90건, 최근 달 다시 받기, 내용 주소 키)과 이용안내 자동화 조항에 대한 사장 결정은 [root ADR-0348](../../../../docs/adr/0348-real-transactions-come-from-the-rt-molit-bulk-export-and-recent-months-are-pulled-again.md) 에 있다.

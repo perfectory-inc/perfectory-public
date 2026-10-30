@@ -95,8 +95,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // 131st–132nd are the two courtauction.go.kr list searches (root ADR-0281); the 133rd is the
     // data.go.kr 차세대 온비드 물건상세 getRlstDtlInf2 (15157247), registered as a source by ADR-0296 §1
     // (its collector wiring is Stage B, not yet built); the 134th–135th are 물건상세 입찰정보
-    // getCltrBidInf2 (15157251) and 공고상세 getPbancDtlInf2 (15157218), root ADR-0340 §3.
-    assert_eq!(checked, 135, "expected 135 in-scope catalog entries");
+    // getCltrBidInf2 (15157251) and 공고상세 getPbancDtlInf2 (15157218), root ADR-0340 §3; the
+    // 136th–147th are the twelve rt.molit.go.kr 실거래가 bulk exports (root ADR-0348).
+    assert_eq!(checked, 147, "expected 147 in-scope catalog entries");
     assert_eq!(
         skipped, 10,
         "expected 10 skipped mixed_public_source entries"

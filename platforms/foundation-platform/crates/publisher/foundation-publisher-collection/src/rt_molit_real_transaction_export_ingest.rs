@@ -220,9 +220,9 @@ pub(crate) fn rt_molit_dataset_slug(
     }
 }
 
-/// The provider said no (root ADR-0348 §6, the manners of root ADR-0281): an HTTP 403, 429 or 503,
-/// or a page where JSON or CSV belongs (a block, notice, login or CAPTCHA page). A collector stops
-/// at once and does not ask again until a person clears it.
+/// The provider said no outright (root ADR-0348 §3): an HTTP 403, or a page where JSON or CSV belongs
+/// (a block, notice, login or CAPTCHA page). A collector stops at once and does not ask again until a
+/// person clears it.
 #[derive(Debug)]
 pub(crate) struct RtMolitRefusal(pub(crate) String);
 
@@ -234,7 +234,19 @@ impl std::fmt::Display for RtMolitRefusal {
 
 impl std::error::Error for RtMolitRefusal {}
 
-const REFUSAL_STATUSES: [u16; 3] = [403, 429, 503];
+/// The provider is busy (HTTP 429 or a 5xx): worth asking again after a backoff (root ADR-0348 §3).
+#[derive(Debug)]
+pub(crate) struct RtMolitBusy(pub(crate) String);
+
+impl std::fmt::Display for RtMolitBusy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rt.molit.go.kr busy: {}", self.0)
+    }
+}
+
+impl std::error::Error for RtMolitBusy {}
+
+const REFUSAL_STATUSES: [u16; 1] = [403];
 
 #[derive(Clone, Debug)]
 pub(crate) struct RtMolitExportClient {
@@ -374,6 +386,9 @@ impl RtMolitExportClient {
 fn refuse_status(status: u16, step: &str) -> anyhow::Result<()> {
     if REFUSAL_STATUSES.contains(&status) {
         return Err(RtMolitRefusal(format!("HTTP {status} at the {step}")).into());
+    }
+    if status == 429 || (500..600).contains(&status) {
+        return Err(RtMolitBusy(format!("HTTP {status} at the {step}")).into());
     }
     Ok(())
 }

@@ -5,20 +5,20 @@
 //! months it owes from its state and the contract (`plan_work`): the recent months first (age 0-2,
 //! asked again daily), then the older refresh tiers (3-12 weekly, 13-24 monthly: cancellations
 //! arrive up to 442 days after a contract), then the history never asked, newest month first, the
-//! industrial datasets first. It asks them politely (the manners of root ADR-0281): one session,
-//! one request at a time, `request_spacing_seconds` apart, only inside the KST quiet hours, at most
-//! `max_downloads_per_run` exports a run and `daily_download_limit` a KST day (the provider's own
-//! limit is 100 downloads a day).
+//! industrial datasets first. Any hour, at normal speed (사장 결정 2026-10-31): `concurrency` exports
+//! in flight on one session, at most `max_downloads_per_run` a run and `daily_download_limit` a KST
+//! day (the provider's own limit is 100 downloads a day).
 //!
 //! Every export lands content-qualified (`export--sha256-<hex>.csv`): a month whose bytes did not
 //! change since its last pull is not written again, and one whose bytes changed lands beside the
 //! earlier object (append-only). The state is saved after every export, so a stopped run loses at
 //! most the export in flight.
 //!
-//! A refusal (HTTP 403/429/503, or a page where JSON or CSV belongs) ends the run at once and writes
-//! `refused.json`; while that file exists every run refuses before any request, until a person
-//! removes it (root ADR-0281 §3). The provider's daily-limit answer ends the run and waits for the
-//! next KST day. Any other provider error fails the run.
+//! A busy answer (HTTP 429 or a 5xx) is asked again after a growing backoff, `retry.attempts` times
+//! at most. An outright refusal (HTTP 403, or a page where JSON or CSV belongs), or a busy answer that
+//! outlasts the retries, ends the run and writes `refused.json`; while that file exists every run
+//! refuses before any request, until a person removes it. The provider's daily-limit answer ends the
+//! run and waits for the next KST day. Any other provider error fails the run.
 
 use std::{
     collections::BTreeMap,
@@ -27,7 +27,7 @@ use std::{
 };
 
 use anyhow::{bail, ensure, Context};
-use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use collection_application::{
     plan_rt_molit_real_transaction_export_content_addressed, RtMolitExportScope,
     RtMolitRealTransactionExportPlanInput, RtMolitRealTransactionExportRequest,
@@ -37,8 +37,8 @@ use serde_json::{json, Value as JsonValue};
 
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 use crate::rt_molit_real_transaction_export_ingest::{
-    persist_plan, RtMolitExportClient, RtMolitExportIngestConfig, RtMolitExportIngestInput,
-    RtMolitRefusal,
+    persist_plan, RtMolitBusy, RtMolitExportClient, RtMolitExportIngestConfig,
+    RtMolitExportIngestInput, RtMolitRefusal, RtMolitSession,
 };
 
 /// `infra/lakehouse/contracts/rt-molit-real-transaction.contract.json`, as compiled in.
@@ -64,18 +64,20 @@ pub struct Tier {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct QuietHours {
-    pub start: String,
-    pub end: String,
+pub struct Retry {
+    pub attempts: u32,
+    pub initial_backoff_seconds: u64,
+    pub max_backoff_seconds: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Manners {
     pub request_spacing_seconds: u64,
-    pub quiet_hours_kst: QuietHours,
+    pub concurrency: usize,
     pub max_downloads_per_run: u32,
     pub daily_download_limit: u32,
     pub run_time_budget_seconds: u64,
+    pub retry: Retry,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -102,7 +104,7 @@ impl SourceContract {
 /// The compiled-in contract, checked.
 ///
 /// # Errors
-/// When the contract does not parse or names a bad month, tier order or quiet hours.
+/// When the contract does not parse or names a bad month, tier order or concurrency.
 pub fn source_contract() -> anyhow::Result<SourceContract> {
     let contract: SourceContract = serde_json::from_str(CONTRACT_JSON)
         .context("rt-molit-real-transaction.contract.json is not valid")?;
@@ -124,7 +126,14 @@ pub fn source_contract() -> anyhow::Result<SourceContract> {
             .all(|w| w[0].max_age_months < w[1].max_age_months),
         "refresh_tiers must grow in max_age_months"
     );
-    quiet_hours(&contract.manners.quiet_hours_kst)?;
+    ensure!(
+        (1..=4).contains(&contract.manners.concurrency),
+        "manners.concurrency must be 1 to 4 (root ADR-0348 §2)"
+    );
+    ensure!(
+        contract.manners.retry.attempts >= 1,
+        "manners.retry.attempts must be at least 1"
+    );
     Ok(contract)
 }
 
@@ -171,25 +180,13 @@ fn kst_month(at: DateTime<Utc>) -> Month {
     date.year() * 12 + i32::try_from(date.month0()).unwrap_or(0)
 }
 
-fn quiet_hours(hours: &QuietHours) -> anyhow::Result<(NaiveTime, NaiveTime)> {
-    let parse = |text: &str| {
-        NaiveTime::parse_from_str(text, "%H:%M").with_context(|| format!("not a time: {text:?}"))
-    };
-    Ok((parse(&hours.start)?, parse(&hours.end)?))
-}
-
-/// Whether `at` lies inside the contract's KST quiet hours.
-///
-/// # Errors
-/// When the contract's hours do not parse.
-pub fn inside_quiet_hours(contract: &SourceContract, at: DateTime<Utc>) -> anyhow::Result<bool> {
-    let (start, end) = quiet_hours(&contract.manners.quiet_hours_kst)?;
-    let now = kst(at).time();
-    Ok(if start <= end {
-        start <= now && now < end
-    } else {
-        now >= start || now < end
-    })
+/// The wait before the `attempt`-th retry (1-based): doubling from the contract's first backoff, capped.
+#[must_use]
+pub fn backoff(retry: &Retry, attempt: u32) -> Duration {
+    let doubled = retry
+        .initial_backoff_seconds
+        .saturating_mul(1_u64 << attempt.saturating_sub(1).min(16));
+    Duration::from_secs(doubled.min(retry.max_backoff_seconds))
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -362,6 +359,36 @@ fn classify(contract: &SourceContract, error: anyhow::Error) -> anyhow::Result<A
     Err(error)
 }
 
+/// One export with the contract's retries: a busy answer waits and asks again; one that outlasts the
+/// retries becomes a refusal (the site keeps saying no).
+async fn fetch_with_retry(
+    contract: &SourceContract,
+    client: &RtMolitExportClient,
+    session: &RtMolitSession,
+    request: &RtMolitRealTransactionExportRequest,
+) -> anyhow::Result<crate::rt_molit_real_transaction_export_ingest::RtMolitFetchedExport> {
+    let spacing = Duration::from_secs(contract.manners.request_spacing_seconds);
+    let retry = &contract.manners.retry;
+    let mut attempt = 0;
+    loop {
+        match client.fetch_in_session(session, request, spacing).await {
+            Err(error) if error.downcast_ref::<RtMolitBusy>().is_some() => {
+                attempt += 1;
+                if attempt > retry.attempts {
+                    return Err(RtMolitRefusal(format!(
+                        "still busy after {} retries: {error:#}",
+                        retry.attempts
+                    ))
+                    .into());
+                }
+                tracing::warn!(attempt, error = %error, "rt.molit.go.kr busy; backing off");
+                tokio::time::sleep(backoff(retry, attempt)).await;
+            }
+            other => return other,
+        }
+    }
+}
+
 /// What one run did.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct RunReport {
@@ -373,7 +400,7 @@ pub struct RunReport {
     pub rows: u64,
     /// Exports whose CSV held a different number of rows than the count check said.
     pub count_mismatches: Vec<String>,
-    /// `outside_quiet_hours`, `run_limit`, `daily_limit`, `provider_daily_limit`, `time_budget`.
+    /// `run_limit`, `daily_limit`, `provider_daily_limit`, `time_budget`.
     pub stopped_by: Option<String>,
 }
 
@@ -474,11 +501,8 @@ pub async fn run() -> anyhow::Result<()> {
             .or_insert(0) += 1;
     }
     let manners = &contract.manners;
-    let spacing = Duration::from_secs(manners.request_spacing_seconds);
     let mut objects = Vec::new();
-    if !inside_quiet_hours(&contract, now)? {
-        report.stopped_by = Some("outside_quiet_hours".to_owned());
-    } else if !work.is_empty() {
+    if !work.is_empty() {
         if config.live_write {
             crate::bronze_object_storage::live_write_target_preflight()
                 .context("rt.molit.go.kr collection live-write preflight failed")?;
@@ -489,101 +513,122 @@ pub async fn run() -> anyhow::Result<()> {
             Ok(session) => session,
             Err(error) => return refuse(&refused_path, error, &report),
         };
-        for item in &work {
-            if state.budget.provider_limit_reached {
-                report.stopped_by = Some("provider_daily_limit".to_owned());
-                break;
-            }
-            if state.budget.downloads >= manners.daily_download_limit {
-                report.stopped_by = Some("daily_limit".to_owned());
-                break;
-            }
-            if report.exports >= usize::try_from(manners.max_downloads_per_run).unwrap_or(0) {
-                report.stopped_by = Some("run_limit".to_owned());
-                break;
-            }
-            if started.elapsed() >= Duration::from_secs(manners.run_time_budget_seconds)
-                || !inside_quiet_hours(&contract, Utc::now())?
-            {
-                report.stopped_by = Some("time_budget".to_owned());
-                break;
-            }
-            let request = request_for(&contract, item)?;
-            state.budget.downloads += 1;
-            let asked = match client.fetch_in_session(&session, &request, spacing).await {
-                Ok(fetched) => Asked::Export {
-                    count: fetched.provider_count,
-                    bytes: fetched.raw_payload,
-                },
-                Err(error) => match classify(&contract, error) {
-                    Ok(asked) => asked,
-                    Err(error) if error.downcast_ref::<RtMolitRefusal>().is_some() => {
-                        state.save(&state_path)?;
-                        return refuse(&refused_path, error, &report);
-                    }
-                    Err(error) => {
-                        state.save(&state_path)?;
-                        return Err(error)
-                            .with_context(|| format!("{} {}", item.dataset, yyyymm(item.month)));
-                    }
-                },
-            };
-            let (count, bytes) = match asked {
-                Asked::DailyLimit(message) => {
-                    tracing::info!(message, "rt.molit.go.kr daily download limit reached");
-                    state.budget.provider_limit_reached = true;
-                    state.save(&state_path)?;
-                    report.stopped_by = Some("provider_daily_limit".to_owned());
+        let per_run = usize::try_from(manners.max_downloads_per_run).unwrap_or(0);
+        let mut queue = work.iter();
+        'run: loop {
+            // The next batch: as many as the bounds still allow, `concurrency` at most.
+            let mut batch = Vec::new();
+            while batch.len() < manners.concurrency {
+                let stop = if state.budget.provider_limit_reached {
+                    Some("provider_daily_limit")
+                } else if state.budget.downloads >= manners.daily_download_limit {
+                    Some("daily_limit")
+                } else if report.exports + batch.len() >= per_run {
+                    Some("run_limit")
+                } else if started.elapsed() >= Duration::from_secs(manners.run_time_budget_seconds)
+                {
+                    Some("time_budget")
+                } else {
+                    None
+                };
+                if let Some(reason) = stop {
+                    report.stopped_by = Some(reason.to_owned());
                     break;
                 }
-                Asked::Export { count, bytes } => (count, bytes),
-            };
-            report.exports += 1;
-            report.rows += count;
-            if csv_data_rows(&bytes) != Some(count) {
-                report
-                    .count_mismatches
-                    .push(format!("{} {}", item.dataset, yyyymm(item.month)));
+                let Some(item) = queue.next() else { break };
+                state.budget.downloads += 1;
+                batch.push((item, request_for(&contract, item)?));
             }
-            let key = month_key(&item.dataset, item.month);
-            let source_slug = collection_domain::source_slug("rt.molit.go.kr", &item.dataset)?;
-            let plan = plan_rt_molit_real_transaction_export_content_addressed(
-                RtMolitRealTransactionExportPlanInput {
-                    source_slug: &source_slug,
-                    request: request.clone(),
-                    raw_payload: bytes,
-                },
-            )?;
-            let unchanged = state
-                .months
-                .get(&key)
-                .and_then(|mark| mark.checksum_sha256.as_deref())
-                == Some(plan.checksum_sha256.as_str());
-            if unchanged {
-                report.unchanged += 1;
-            } else if config.live_write {
-                let ingest = RtMolitExportIngestConfig::from_input(RtMolitExportIngestInput {
-                    request,
-                    base_uri: Some(config.base_uri.clone()),
-                    user_agent: Some(contract.user_agent.clone()),
-                    live_write: Some("1".to_owned()),
-                })?;
-                let object_key = plan.object_key.as_str().to_owned();
-                persist_plan(&ingest, count, plan.clone()).await?;
-                objects.push(json!({"dataset": item.dataset, "month": yyyymm(item.month),
-                                    "object_key": object_key, "rows": count}));
-                report.written += 1;
-            } else {
-                objects.push(json!({"dataset": item.dataset, "month": yyyymm(item.month),
-                                    "object_key": plan.object_key.as_str(), "rows": count,
-                                    "planned_only": true}));
+            if batch.is_empty() {
+                break;
             }
-            let mark = state.months.entry(key).or_default();
-            mark.completed_utc = Some(Utc::now());
-            mark.checksum_sha256 = Some(plan.checksum_sha256.clone());
-            mark.provider_count = Some(count);
-            if config.live_write {
-                state.save(&state_path)?;
+            let fetched = futures_util::future::join_all(
+                batch
+                    .iter()
+                    .map(|(_, request)| fetch_with_retry(&contract, &client, &session, request)),
+            )
+            .await;
+            for ((item, request), outcome) in batch.into_iter().zip(fetched) {
+                let asked = match outcome {
+                    Ok(export) => Asked::Export {
+                        count: export.provider_count,
+                        bytes: export.raw_payload,
+                    },
+                    Err(error) => match classify(&contract, error) {
+                        Ok(asked) => asked,
+                        Err(error) if error.downcast_ref::<RtMolitRefusal>().is_some() => {
+                            state.save(&state_path)?;
+                            return refuse(&refused_path, error, &report);
+                        }
+                        Err(error) => {
+                            state.save(&state_path)?;
+                            return Err(error).with_context(|| {
+                                format!("{} {}", item.dataset, yyyymm(item.month))
+                            });
+                        }
+                    },
+                };
+                let (count, bytes) = match asked {
+                    Asked::DailyLimit(message) => {
+                        tracing::info!(message, "rt.molit.go.kr daily download limit reached");
+                        state.budget.provider_limit_reached = true;
+                        report.stopped_by = Some("provider_daily_limit".to_owned());
+                        continue;
+                    }
+                    Asked::Export { count, bytes } => (count, bytes),
+                };
+                report.exports += 1;
+                report.rows += count;
+                if csv_data_rows(&bytes) != Some(count) {
+                    report.count_mismatches.push(format!(
+                        "{} {}",
+                        item.dataset,
+                        yyyymm(item.month)
+                    ));
+                }
+                let key = month_key(&item.dataset, item.month);
+                let source_slug = collection_domain::source_slug("rt.molit.go.kr", &item.dataset)?;
+                let plan = plan_rt_molit_real_transaction_export_content_addressed(
+                    RtMolitRealTransactionExportPlanInput {
+                        source_slug: &source_slug,
+                        request: request.clone(),
+                        raw_payload: bytes,
+                    },
+                )?;
+                let unchanged = state
+                    .months
+                    .get(&key)
+                    .and_then(|mark| mark.checksum_sha256.as_deref())
+                    == Some(plan.checksum_sha256.as_str());
+                if unchanged {
+                    report.unchanged += 1;
+                } else if config.live_write {
+                    let ingest = RtMolitExportIngestConfig::from_input(RtMolitExportIngestInput {
+                        request,
+                        base_uri: Some(config.base_uri.clone()),
+                        user_agent: Some(contract.user_agent.clone()),
+                        live_write: Some("1".to_owned()),
+                    })?;
+                    let object_key = plan.object_key.as_str().to_owned();
+                    persist_plan(&ingest, count, plan.clone()).await?;
+                    objects.push(json!({"dataset": item.dataset, "month": yyyymm(item.month),
+                                        "object_key": object_key, "rows": count}));
+                    report.written += 1;
+                } else {
+                    objects.push(json!({"dataset": item.dataset, "month": yyyymm(item.month),
+                                        "object_key": plan.object_key.as_str(), "rows": count,
+                                        "planned_only": true}));
+                }
+                let mark = state.months.entry(key).or_default();
+                mark.completed_utc = Some(Utc::now());
+                mark.checksum_sha256 = Some(plan.checksum_sha256.clone());
+                mark.provider_count = Some(count);
+                if config.live_write {
+                    state.save(&state_path)?;
+                }
+            }
+            if report.stopped_by.is_some() {
+                break 'run;
             }
         }
     }

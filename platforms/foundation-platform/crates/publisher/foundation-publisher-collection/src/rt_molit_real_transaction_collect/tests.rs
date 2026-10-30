@@ -133,13 +133,25 @@ fn the_last_tier_reaches_the_latest_measured_cancellation() {
 }
 
 #[test]
-fn runs_ask_only_inside_the_kst_quiet_hours() {
-    let contract = source_contract().unwrap();
-    assert!(inside_quiet_hours(&contract, at("2026-10-30T16:00:00Z")).unwrap()); // 01:00 KST
-    assert!(inside_quiet_hours(&contract, at("2026-10-30T20:59:00Z")).unwrap()); // 05:59 KST
-    assert!(!inside_quiet_hours(&contract, at("2026-10-30T21:00:00Z")).unwrap()); // 06:00 KST
-    assert!(!inside_quiet_hours(&contract, at("2026-10-30T13:00:00Z")).unwrap());
-    // 22:00 KST
+fn a_busy_answer_backs_off_doubling_up_to_the_cap() {
+    let retry = Retry {
+        attempts: 3,
+        initial_backoff_seconds: 30,
+        max_backoff_seconds: 100,
+    };
+    assert_eq!(backoff(&retry, 1), Duration::from_secs(30));
+    assert_eq!(backoff(&retry, 2), Duration::from_secs(60));
+    assert_eq!(backoff(&retry, 3), Duration::from_secs(100));
+    assert_eq!(backoff(&retry, 40), Duration::from_secs(100));
+}
+
+#[test]
+fn the_contract_keeps_modest_concurrency_and_retries() {
+    // 사장 결정 2026-10-31: 2-4 downloads in parallel, retries with backoff on 429/5xx.
+    let manners = source_contract().unwrap().manners;
+    assert!((2..=4).contains(&manners.concurrency));
+    assert!(manners.retry.attempts >= 1);
+    assert!(manners.retry.initial_backoff_seconds > 0);
 }
 
 #[test]
@@ -168,7 +180,7 @@ fn data_rows_are_the_lines_after_the_header() {
 #[test]
 fn a_refusal_stays_a_refusal_and_the_daily_limit_waits() {
     let contract = source_contract().unwrap();
-    let refusal: anyhow::Error = RtMolitRefusal("HTTP 429 at the count check".to_owned()).into();
+    let refusal: anyhow::Error = RtMolitRefusal("HTTP 403 at the count check".to_owned()).into();
     let refused = classify(&contract, refusal.context("CSV")).unwrap_err();
     assert!(refused.downcast_ref::<RtMolitRefusal>().is_some());
     let limit = anyhow::anyhow!(
