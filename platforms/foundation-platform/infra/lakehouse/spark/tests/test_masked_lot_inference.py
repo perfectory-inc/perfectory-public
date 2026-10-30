@@ -82,7 +82,7 @@ class TheBarIsInTheContract(unittest.TestCase):
                     self.assertIn(field, measured, f"{level['grade']} {dataset}")
 
 
-@unittest.skipUnless(has_pyspark(), "pyspark is not installed")
+@unittest.skipUnless(has_pyspark(), "requires pyspark")
 class InfersInSpark(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
