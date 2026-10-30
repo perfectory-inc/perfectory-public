@@ -16,9 +16,7 @@
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|status <silver-lane>
-#   by-pnu-pack-operator.sh silver start <silver-lane> --requested-at <epoch second> --reason <why>
 #   by-pnu-pack-operator.sh job status <disabled job id>
-#   by-pnu-pack-operator.sh job start <disabled job id> --requested-at <epoch second> --reason <why>
 #   by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status
 #   by-pnu-pack-operator.sh raon build|plan|status
 #   by-pnu-pack-operator.sh raon run <max-files|all> <new-bytes-budget>
@@ -47,8 +45,8 @@
 #
 # `silver` drives one Silver refresh lane (root ADR-0169, ADR-0178): `plan` runs its
 # `silver-refresh.sh <lane> --plan` (reads the ledger and the catalog, writes nothing) and prints
-# the outcome; `start` starts its scheduled unit foundation-silver-refresh@<lane>.service once, the
-# supervised first run before the job is enabled; `status` shows the unit and the end of its journal.
+# the outcome; `status` shows the unit and the end of its journal. A lane's run is started from the
+# console (root ADR-0282), not here.
 # The lanes are the jobs.v1.json jobs whose service is that template; nothing else is accepted.
 #
 # `parcel-tiles rehearse gold <YYYYMM>` starts the Gold half of the parcel tile rehearsal (root
@@ -58,11 +56,9 @@
 # beside the Gold rebuilds, a Silver lane or another instance of the bake.
 # `status` shows the four instances and the end of the bake's journal.
 #
-# `job` is the same supervised first run for any other job that jobs.v1.json lists as off
-# (`enabled: false`, ADR-0122 §4): `start` starts its systemd service once, never while the
-# deploy holds it and never while its pool has no room for it (root ADR-0270 §2b, D5); `status`
-# shows the unit and the end of its journal. An enabled job is Airflow's to start
-# (start-scheduled-job.sh), and a Silver lane takes `silver`.
+# `job status` shows the unit of a job that jobs.v1.json lists as off (`enabled: false`, ADR-0122
+# §4) and the end of its journal. Its supervised run, like any job's run-now, is started from the
+# console under the operator's staff identity (root ADR-0282), through the scheduler's gate.
 #
 # sudo grants this script, by its control-checkout path and nothing else, to the operator account
 # (`foundation-release.sh operator-access`, root ADR-0161): it is how a cut-over's gates, publish
@@ -121,7 +117,7 @@ record_start() {
   logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
 }
 ATTENDED_FLAGS="--requested-at <epoch second> --reason <why>"
-USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|status <silver-lane> | job status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -168,6 +164,12 @@ release_ops="$(cd "${RELEASE}/scripts/ops" 2>/dev/null && pwd -P)" || refuse "no
 if [[ "${here}" != "${release_ops}" ]]; then
   [[ -x "${release_ops}/by-pnu-pack-operator.sh" ]] || refuse "the current release has no ${0##*/}; it is older than this script" 65
   exec "${release_ops}/by-pnu-pack-operator.sh" "${LANE}" "${ACTION}" "$@"
+fi
+# A job and a Silver lane are started by an operator from the console, under their staff identity:
+# 더니어 데이터 흐름 → 예약 작업 → 운영 → 지금 한 번 돌리기 (root ADR-0282; a job that is off too).
+# Starting them here ended with it: a shell can start them at any time, a console request expires.
+if [[ ("${LANE}" == job || "${LANE}" == silver) && "${ACTION}" == start ]]; then
+  refuse "${LANE} start is retired: start it from 더니어 (데이터 흐름 → 예약 작업 → 운영 → 지금 한 번 돌리기), root ADR-0282"
 fi
 # Every action that starts or writes is attended and immediate (see attended_start above), asked
 # once, in the copy that does the work: the control checkout's copy above passes the request on.
@@ -337,14 +339,6 @@ PY
       exec "${SYSTEMD_RUN}" --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
         "${plan_props[@]}" "${RELEASE}/scripts/ops/silver-refresh.sh" "${SILVER_LANE}" --plan
       ;;
-    start)
-      # One Spark lane at a time beside the Gold rebuild and the bakes, like the scheduled pool.
-      refuse_while_active "${SILVER_UNIT}" "${GOLD_UNIT}"
-      refuse_while_the_deploy_holds "silver_refresh_${SILVER_LANE//-/_}"
-      refuse_while_pool_full "${SILVER_UNIT}"
-      log "starting ${SILVER_UNIT}; follow it with: silver status ${SILVER_LANE}"
-      exec systemctl start --no-block "${SILVER_UNIT}"
-      ;;
     status)
       systemctl status --no-pager --lines=0 "${SILVER_UNIT}" || true
       exec journalctl -u "${SILVER_UNIT}" --no-pager -o short-iso -n 40
@@ -383,8 +377,8 @@ fi
 if [[ "${LANE}" == job ]]; then
   JOB_ID="${1:-}"
   (($# == 1)) || refuse "job ${ACTION} takes one job id"
-  # The job's service and pool, only when the release lists it as off and it is not a Silver lane.
-  read -r JOB_UNIT JOB_POOL JOB_STATE < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
+  # The job's service and state directory, only when the release lists it as off and it is not a Silver lane.
+  read -r JOB_UNIT _ JOB_STATE < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" "${JOB_ID}" <<'PY'
 import json, sys
 for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
     if job["id"] == sys.argv[2] and job["enabled"] is False             and not job["systemd_service"].startswith("foundation-silver-refresh@"):
@@ -393,15 +387,6 @@ PY
   ) || true
   [[ -n "${JOB_UNIT:-}" ]] || refuse "${JOB_ID:-<none>} is not a job jobs.v1.json lists as off (an enabled job is Airflow's; a Silver lane takes 'silver')"
   case "${ACTION}" in
-    start)
-      refuse_while_active "${JOB_UNIT}"
-      refuse_while_the_deploy_holds "${JOB_ID}"
-      # The hand Gold rebuild is a transient unit, not a job, so the pool cannot count it.
-      [[ "${JOB_POOL}" != spark ]] || refuse_while_active "${GOLD_UNIT}"
-      refuse_while_pool_full "${JOB_ID}"
-      log "starting ${JOB_UNIT} once (supervised first run); follow it with: job status ${JOB_ID}"
-      exec systemctl start --no-block "${JOB_UNIT}"
-      ;;
     start-outside-quiet-hours)
       # One attended court auction run outside the contract's quiet hours (owner decision): the
       # collector takes this file before its first request, removes it, keeps every other manner
