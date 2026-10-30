@@ -19,7 +19,7 @@ use super::*;
 const PRICE: &str = "vworldkr__land_individual_price";
 const ZONE: &str = "vworldkr__land_use_zone_code";
 
-const LAND_LANES: [Lane; 8] = [
+const LAND_LANES: [Lane; 9] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -842,7 +842,7 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 8] = [
+const COMPARING_LANES: [Lane; 9] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
