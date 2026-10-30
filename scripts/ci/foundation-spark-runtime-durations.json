@@ -1,5 +1,5 @@
 {
-  "$comment": "Seconds per runtime-gated Spark test file, from the log's 'durations, slowest first' table (Foundation CI job 124333935740, 2026-10-30, ubuntu-24.04, two files at a time). foundation_spark_shards.py balances the shards with them, and its split floor is in these seconds. Refresh by copying a recent table; a file missing here counts as the median.",
+  "$comment": "Seconds per runtime-gated Spark test file, from the log's 'durations, slowest first' table (Foundation CI job 124333935740, 2026-10-30, ubuntu-24.04, two files at a time). foundation_spark_shards.py balances the shards with them, and its split floor is in these seconds. Refresh by copying a recent table; a file missing here counts as the median. A split file's pieces may be listed by unittest name; the gold_incremental methods are PR #985's shard logs (run 41138647882) scaled to this table's file time.",
   "seconds": {
     "test_address_pnu_spark.py": 6,
     "test_building_parent_links_spark.py": 19,
@@ -13,6 +13,10 @@
     "test_data_go_kr_onbid.py": 5,
     "test_gold_code_change_publish_iceberg.py": 21,
     "test_gold_fingerprint_iceberg.py": 45,
+    "test_gold_incremental_iceberg.IncrementalGoldIcebergTest.test_an_appended_price_batch_is_its_own_change_set": 88,
+    "test_gold_incremental_iceberg.IncrementalGoldIcebergTest.test_building_incremental_merge_equals_the_full_rebuild": 97,
+    "test_gold_incremental_iceberg.IncrementalGoldIcebergTest.test_parcel_incremental_merge_equals_the_full_rebuild": 258,
+    "test_gold_incremental_iceberg.IncrementalGoldIcebergTest.test_the_difference_compares_fingerprints_and_still_sees_every_changed_row": 5,
     "test_gold_incremental_iceberg.py": 447,
     "test_gold_range_layout_iceberg.py": 16,
     "test_gold_rebuild_iceberg.py": 7,

@@ -10,7 +10,8 @@ Prints the shard's targets on one line (nothing: this shard has none) and the wh
    an unknown comparison, a run-all input, or a change to the runtime or this selection runs all.
 2. Which shard: longest first onto the least loaded shard, by the durations the job's log measured
    (foundation-spark-runtime-durations.json). A file longer than one slot's even share is split into
-   its test classes, or its test methods when it has one class, so it is not the tail by itself.
+   its test classes, or its test methods when it has one class, so it is not the tail by itself; a
+   piece the table names by its unittest name counts its own time, else an even part of the file's.
 
 Reads CHANGE_SCOPE_EVENT, CHANGE_SCOPE_BASE and CHANGE_SCOPE_HEAD, as the scope job does.
 """
@@ -100,7 +101,9 @@ def plan(
     work: list[tuple[str, float]] = []
     for name, seconds in estimated.items():
         split = seconds > max(share, MIN_SPLIT_SECONDS)
-        work += pieces(name, seconds, source(name)) if split else [(name, seconds)]
+        parts = pieces(name, seconds, source(name)) if split else [(name, seconds)]
+        # A piece measured on its own (its methods are seldom equal) keeps its own time.
+        work += [(target, float(durations.get(target, part))) for target, part in parts]
     assigned: list[list[tuple[str, float]]] = [[] for _ in range(shards)]
     for target, seconds in sorted(work, key=lambda item: (-item[1], item[0])):
         least = min(range(shards), key=lambda i: (sum(s for _, s in assigned[i]), i))

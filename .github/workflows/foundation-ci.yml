@@ -932,7 +932,7 @@ jobs:
     runs-on: ubuntu-24.04
     # Root ADR-0365: the files split across parallel runners, each the files a pull request or the
     # merge queue reaches (foundation_spark_shards.py). One job of 46 files took 689-1137 s of tests
-    # and was cancelled at 20 minutes three times on 2026-10-30; a shard of all of them plans 3-5 min of tests.
+    # and was cancelled at 20 minutes three times on 2026-10-30; PR #985 ran all of them in 3-7 min per shard.
     # Each pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file,
     # one file per two CPUs at a time. Its log ends with every file's duration, slowest first.
     timeout-minutes: 20

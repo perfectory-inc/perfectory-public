@@ -96,6 +96,15 @@ class PlanTest(unittest.TestCase):
         self.assertLessEqual(max(loads) - min(loads), 90)
         self.assertEqual(dict(planned[1] + planned[0])["test_new.py"], 85)  # the median
 
+    def test_a_piece_measured_on_its_own_keeps_its_own_time(self):
+        durations = {"test_long.py": 400, "test_long.T.test_one": 350, "test_a.py": 50}
+        sources = {"test_long.py": ONE_CLASS, "test_a.py": ""}
+
+        planned = shards.plan(["test_long.py", "test_a.py"], durations, 2, sources.__getitem__)
+
+        self.assertEqual(planned[0], [("test_long.T.test_one", 350.0)])
+        self.assertEqual(planned[1], [("test_a.py", 50.0), ("test_long.T.test_two", 200.0)][::-1])
+
     def test_a_short_file_is_not_split(self):
         planned = shards.plan(["test_x.py"], {"test_x.py": shards.MIN_SPLIT_SECONDS}, 4, lambda _: ONE_CLASS)
         self.assertEqual([t for shard in planned for t, _ in shard], ["test_x.py"])
