@@ -214,6 +214,33 @@ class ReleaseAdmissionTests(unittest.TestCase):
             self.module.prepare_release(self.expected(), self.merged, self.archive, self.target)
         self.assertEqual(list(self.target.iterdir()), [])
 
+    def test_the_2026_10_30_retry_archive_is_the_same_release_and_other_contents_are_not(self):
+        # 2026-10-30: the owner removed failed/59c0b68… to retry; the retry archived the tree again,
+        # every entry stamped with the time of day, and prepare refused the installed release as
+        # "a different archive". Identity is the files, modes and bytes (root ADR-0363 §7).
+        def tree_archive(sha, *options):
+            return subprocess.check_output(["git", "-C", str(self.source), "archive", "--format=tar", *options,
+                                            f"{sha}:platforms/foundation-platform"])
+        first = tree_archive(self.merged, "--mtime=@1000000000")
+        retry = tree_archive(self.merged, "--mtime=@2000000000")
+        self.assertNotEqual(first, retry, "a tree archive's bytes carry its mtime")
+        self.archive.write_bytes(retry)
+        self.assertEqual(self.module.check_archive_contents(self.expected(), self.archive), retry)
+        # The fix's other half: the commit's own time makes the same commit the same bytes.
+        committed = "@" + self.git("show", "-s", "--format=%ct", self.merged).strip()
+        self.assertEqual(tree_archive(self.merged, f"--mtime={committed}"),
+                         tree_archive(self.merged, f"--mtime={committed}"))
+        self.archive.write_bytes(tree_archive(self.unmerged))
+        with self.assertRaisesRegex(ValueError, "contents do not match"):
+            self.module.check_archive_contents(self.expected(), self.archive)
+        # foundation-release.sh refuses an installed id only when admission finds other contents.
+        release = (Path(__file__).resolve().parents[2] / "scripts/deploy/foundation-release.sh").read_text(
+            encoding="utf-8")
+        refusal = re.search(r'"\$\{admission\}" check-archive "\$\{release_id\}" "\$\{archive\}" \|\| \{\n'
+                            r"\s*printf 'release id already exists with a different archive", release)
+        self.assertIsNotNone(refusal, "other archive bytes are judged by their contents")
+        self.assertEqual(release.count("already exists with a different archive"), 1)
+
     def test_self_declared_markers_do_not_authorize_a_tree(self):
         (self.target / ".foundation-release-id").write_text(self.merged)
         (self.target / ".foundation-release-archive-sha256").write_text("a" * 64)

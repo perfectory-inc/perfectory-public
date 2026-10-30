@@ -418,10 +418,18 @@ install_release() {
     "${admission}" build "${target}"
     assert_installed_release "${release_id}"
     recorded_sha="$(cat "${target}/.foundation-release-archive-sha256")"
-    [[ "${recorded_sha}" == "${archive_sha}" ]] || {
-      printf 'release id already exists with a different archive: %s\n' "${release_id}" >&2
-      exit 65
-    }
+    # A release is its contents, not its archive's bytes (root ADR-0363 §7). The lines above proved
+    # every installed byte is the canonical commit's; other archive bytes of the same commit
+    # (2026-10-30: the first try of 59c0b68 archived with the time of day as every mtime) are the
+    # same release when admission finds their contents to be that commit's. Other contents refuse.
+    if [[ "${recorded_sha}" != "${archive_sha}" ]]; then
+      "${admission}" check-archive "${release_id}" "${archive}" || {
+        printf 'release id already exists with a different archive: %s\n' "${release_id}" >&2
+        exit 65
+      }
+      printf 'release %s is installed from other bytes of the same contents (archive %s, installed from %s); kept\n' \
+        "${release_id}" "${archive_sha}" "${recorded_sha}"
+    fi
     if [[ "${activate}" == yes ]]; then activate_and_prune "${release_id}"; fi
     return
   fi
