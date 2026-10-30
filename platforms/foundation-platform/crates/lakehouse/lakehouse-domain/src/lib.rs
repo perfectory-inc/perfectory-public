@@ -13,6 +13,7 @@ mod building_panel;
 mod building_permit_basis_outline;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
+mod building_register_master;
 mod by_pnu_kind;
 mod court_auction;
 mod land_characteristic;
@@ -50,6 +51,7 @@ pub use building_register_apartment_price::{
     SILVER_BUILDING_REGISTER_APARTMENT_PRICE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
 };
 pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT;
+pub use building_register_master::SILVER_BUILDING_REGISTER_MASTER;
 pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{

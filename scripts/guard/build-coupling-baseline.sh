@@ -299,7 +299,8 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the export client's sources to hold them to root ADR-0281's forbidden names (root ADR-0348).
 # 150 -> 151: the 건축인허가 기본개요 lane embeds its source contract once, as every hub part lane does,
 # so the export's layout and the Silver refresh's release rules are the same bytes (root ADR-0356).
-COMPILE_TIME_READ_BASELINE="${3:-151}"
+# 151 -> 152: the 총괄표제부 lane embeds its source contract the same way (root ADR-0357).
+COMPILE_TIME_READ_BASELINE="${3:-152}"
 
 cd "$repo_root"
 

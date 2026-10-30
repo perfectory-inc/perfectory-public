@@ -698,6 +698,33 @@
       "enabled_since": "2026-10-30T13:00:00Z"
     },
     {
+      "id": "silver_refresh_building_register_master",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 총괄표제부 lane `building-register-master` (root ADR-0169 ②, ADR-0357): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_master already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed sites' rows and a removal marker per vanished site (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-master.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-master.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-master"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:00:00Z"
+    },
+    {
       "id": "silver_refresh_land_characteristic",
       "scope": "changed-keys",
       "interruptible": true,
