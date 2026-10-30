@@ -928,11 +928,19 @@ jobs:
   spark-runtime:
     needs: [scope]
     if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'spark-runtime') }}
-    name: Spark and Iceberg runtime tests
+    name: Spark and Iceberg runtime tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-24.04
-    # Pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file,
-    # one file per two CPUs at a time. The log ends with every file's duration, slowest first.
+    # Root ADR-0365: the files split across parallel runners, each the files a pull request or the
+    # merge queue reaches (foundation_spark_shards.py). One job of 46 files took 689-1137 s of tests
+    # and was cancelled at 20 minutes three times on 2026-10-30; a shard of all of them plans 3-5 min of tests.
+    # Each pulls the pinned Spark image and the Iceberg runtime jars, then starts a JVM per test file,
+    # one file per two CPUs at a time. Its log ends with every file's duration, slowest first.
     timeout-minutes: 20
+    strategy:
+      # Every shard reports: one failing file does not hide another shard's.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     steps:
       - name: Checkout
@@ -941,9 +949,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Verify the Spark runtime file runner
+      - name: Verify the Spark runtime file runner and the shard plan
         working-directory: ${{ github.workspace }}
-        run: python3 scripts/ci/test_foundation_spark_runtime_files.py -v
+        run: |
+          python3 scripts/ci/test_foundation_spark_runtime_files.py -v
+          python3 scripts/ci/test_foundation_spark_shards.py -v
       - name: Select Spark runtime gate
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -959,14 +969,27 @@ jobs:
       # PySpark: the Iceberg commit and snapshot-pin tests among them (root ADR-0139). Here they run
       # in the compose `spark` image with the engine contract's Iceberg runtime, and a test that
       # still skips for want of it fails the job.
-      - name: Run the Spark and Iceberg tests in the pinned runtime
+      - name: Run this shard's Spark and Iceberg tests in the pinned runtime
         working-directory: ${{ github.workspace }}
+        shell: bash
+        env:
+          CHANGE_SCOPE_EVENT: ${{ github.event_name }}
+          CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
+          SHARD: ${{ strategy.job-index }}
+          SHARDS: ${{ strategy.job-total }}
         run: |
+          set -euo pipefail
           if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
             echo "Spark job inputs are unaffected; the Spark runtime tests succeed without containers."
             exit 0
           fi
-          bash scripts/verify/foundation-spark-runtime.sh
+          targets="$(python3 scripts/ci/foundation_spark_shards.py --shard "$SHARD" --shards "$SHARDS")"
+          if [ -z "$targets" ]; then
+            echo "This change reaches no Spark runtime test planned for this shard; see the plan above."
+            exit 0
+          fi
+          SPARK_RUNTIME_TARGETS="$targets" bash scripts/verify/foundation-spark-runtime.sh
 
   # Root ADR-0345: the release build of .github/workflows/foundation-release-build.yml, built here as
   # a dry run: every image, the executable and the jars from the same script, read from main's build

@@ -110,7 +110,11 @@ RULES = {
         "exact": [
             "platforms/foundation-platform/compose.lakehouse.yml",
             "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+            # Which files each shard runs (root ADR-0365): a change here runs them all.
+            "scripts/ci/foundation-spark-runtime-durations.json",
+            "scripts/ci/foundation_spark_shards.py",
             "scripts/ci/test_foundation_spark_runtime_files.py",
+            "scripts/ci/test_foundation_spark_shards.py",
             "scripts/verify/foundation-spark-runtime-files.sh",
             "scripts/verify/foundation-spark-runtime.sh",
         ],
