@@ -297,7 +297,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 147 -> 150: the 실거래가 bulk collector embeds rt-molit-real-transaction.contract.json (the manners,
 # datasets and refresh tiers the Silver load reads beside it), and its test embeds the collector's and
 # the export client's sources to hold them to root ADR-0281's forbidden names (root ADR-0348).
-COMPILE_TIME_READ_BASELINE="${3:-150}"
+# 150 -> 151: the 건축인허가 기본개요 lane embeds its source contract once, as every hub part lane does,
+# so the export's layout and the Silver refresh's release rules are the same bytes (root ADR-0356).
+COMPILE_TIME_READ_BASELINE="${3:-151}"
 
 cd "$repo_root"
 
