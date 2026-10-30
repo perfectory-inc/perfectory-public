@@ -145,6 +145,11 @@ vworld_rc=0
 { "${PUBLISHER_BIN}" plan-vworld-dataset-collection &&
   "${PUBLISHER_BIN}" inventory-vworld-dataset-files &&
   "${PUBLISHER_BIN}" ingest-vworld-dataset-files; } >> "${run_log}" 2>&1 || vworld_rc=$?
+# 계정 문제(루트 ADR-0363). 2026-10-30 VWorld 가 로그인에 useChk(바뀐 약관 동의)로 답했고 이 레인은 "login session"
+# 오류로만 실패했다. 제공자가 계정을 거부하면(종료 77) 소유자 조치를 알림으로 띄우고 그 조치가 이 레인의 이유가
+# 된다; 로그인이 되면 열린 알림을 닫는다. 알림이 올라가지 않으면 이유는 비고, 레인은 여느 실패처럼 실패한다.
+account_action="$(python3 -I "${RELEASE_ROOT}/scripts/ops/provider_alert.py" accounts --source source_sweep \
+  "${run_log}" 2>> "${run_log}")" || account_action=""
 
 # 3. raon 레인(ADR-0170). 상한은 카탈로그의 selection_archive_new_bytes_budget, 운영자가 그 실행 하나만
 #    FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET 로 바꾼다 — raon-large-files.sh 와 같은 규칙이다. 상한 0 은
@@ -173,10 +178,10 @@ cat "${members_output_path}" >> "${run_log}" 2>/dev/null || true
 summary="$(python3 - "${evidence_path}" "${hub_rc}" "${vworld_evidence_path}" "${vworld_rc}" \
   "${vworld_plan_path}" "${vworld_inventory_path}" \
   "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" "${raon_budget}" \
-  "${members_output_path}" "${members_rc}" <<'PY'
+  "${members_output_path}" "${members_rc}" "${account_action}" <<'PY'
 import json, os, sys
 (hub_path, hub_rc, vworld_path, vworld_rc, plan_path, inventory_path, raon_deferred, raon_rc, raon_path,
- raon_budget, members_path, members_rc) = sys.argv[1:13]
+ raon_budget, members_path, members_rc, account_action) = sys.argv[1:14]
 
 # Failed files and their reasons, per failed lane, for the unit's journal: the evidence naming them
 # is in the state directory, which an operator cannot read. job_failed_files masks and cuts them.
@@ -217,7 +222,13 @@ else:
     new_names += [f"{j.get('source_slug')}:{j.get('provider_file_id')}" for j in jobs if j.get("status") == "succeeded"]
 
 vworld = load(vworld_path)
-if vworld is None:
+account_waiting = None
+if vworld_rc == "77" and account_action:
+    # The provider refuses the account (root ADR-0363): paged with its owner action; the lane waits
+    # for the owner, it is not a fault of this run.
+    vworld_line = f"vworld status=provider_account_action_required rc={vworld_rc}"
+    account_waiting = f"provider account action required — {account_action}"
+elif vworld is None:
     vworld_line = f"vworld status=no-evidence rc={vworld_rc}"
     failed.append("vworld")
 else:
@@ -249,7 +260,7 @@ else:
         collect_failures("vworld", (
             (f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}",
              f.get("error_message") or (f.get("status") if f.get("status") != "failed" else None))
-            for f in files if f.get("status") in ("failed", "provider_acquisition_blocked")))
+            for f in files if f.get("status") in ("failed", "provider_acquisition_blocked", "provider_unavailable")))
     new_names += [f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}"
                   for f in vworld.get("files", []) if f.get("status") == "succeeded"]
 
@@ -322,7 +333,10 @@ else:
         failed.append("members")
 
 names = ", ".join(new_names[:10]) + (f" 외 {len(new_names) - 10}건" if len(new_names) > 10 else "")
+if account_waiting:
+    notes.append(account_waiting)
 print(json.dumps({"line": f"{hub_line} | {vworld_line} | {raon_line} | {members_line}", "failed": failed,
+                  "waiting": account_waiting or "",
                   "new": len(new_names), "names": names, "notes": notes, "info": info,
                   "failed_files": failed_files}, ensure_ascii=False))
 PY
@@ -351,6 +365,9 @@ if [ "${new_count}" != "0" ]; then
   notify_slack "📦 새 원천 파일 ${new_count}건 도착 — 오늘 반영할 것 (ADR-0077 §5): $(field names)"
   # 새 파일이 Bronze 에 왔다: 이 원천을 읽는 Silver 레인이 바로 시작된다(루트 ADR-0171).
   echo "foundation-job-outcome changed"
+elif [ -n "$(field waiting)" ]; then
+  # Root ADR-0363: nothing new and the VWorld lane waits on the account's owner, who is paged.
+  echo "foundation-job-outcome waiting $(field waiting)"
 else
   echo "foundation-job-outcome unchanged"
 fi

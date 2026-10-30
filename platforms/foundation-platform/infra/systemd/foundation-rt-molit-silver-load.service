@@ -1,0 +1,26 @@
+[Unit]
+Description=Foundation Platform 국토교통부 실거래가, the Silver half: load the Bronze exports no Silver commit records into silver.real_transaction (root ADR-0348, ADR-0349)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/rt-molit-silver-load.sh
+TimeoutStartSec=40m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/real-transaction
+
+[Install]
+WantedBy=multi-user.target

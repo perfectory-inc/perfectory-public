@@ -130,10 +130,16 @@ def protected_path(path: Path, owner: int = 0) -> None:
             raise ValueError(f"protected path is writable by another principal: {entry}")
 
 
-def prepare_release(expected, release_id: str, archive: Path, target: Path) -> None:
+def check_archive_contents(expected, archive: Path) -> bytes:
+    """The archive's files, modes and bytes are the canonical commit's; its tar metadata is not identity."""
     raw = archive.read_bytes()
     if archive_files(raw) != expected:
         raise ValueError("archive contents do not match the canonical release commit")
+    return raw
+
+
+def prepare_release(expected, release_id: str, archive: Path, target: Path) -> None:
+    raw = check_archive_contents(expected, archive)
     if any(target.iterdir()):
         raise ValueError("release staging directory must be empty")
     # Write the independently fetched Git bytes, never extract the supplied tar archive.
@@ -963,6 +969,11 @@ def main() -> int:
     prepare.add_argument("release_id")
     prepare.add_argument("archive", type=Path)
     prepare.add_argument("target", type=Path)
+    # Whether an archive holds exactly the canonical commit's files: what makes other archive bytes of
+    # an installed release the same release (root ADR-0363 §7). Writes nothing.
+    check_archive = sub.add_parser("check-archive")
+    check_archive.add_argument("release_id")
+    check_archive.add_argument("archive", type=Path)
     verify = sub.add_parser("verify")
     verify.add_argument("target", type=Path)
     build = sub.add_parser("build")
@@ -1008,6 +1019,9 @@ def main() -> int:
             source.refresh()
             check_control_commit(source.git, args.release_id, CONTROL_ROOT)
             prepare_release(release_files(source.git, args.release_id), args.release_id, args.archive, args.target)
+        elif args.command == "check-archive":
+            source.check_cache()
+            check_archive_contents(release_files(source.git, args.release_id), args.archive)
         elif args.command == "seal":
             # As soon as the release is in place and before its build: nothing a build or a root
             # import does afterwards can write into it (root ADR-0184).

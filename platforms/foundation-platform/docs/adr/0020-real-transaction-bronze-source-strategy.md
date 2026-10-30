@@ -85,3 +85,7 @@ bronze/source=<source-slug>/contract_from=<yyyy-mm-dd>/contract_to=<yyyy-mm-dd>/
 - Silver 또는 Gold 정규화가 완료됐다고 선언하는 것
 - 전체 과거 전국 수집을 승인하는 것(확장은 운영자 gate를 따른다)
 - `data.go.kr` RTMS 경로를 제거하는 것
+
+---
+
+개정 각주(2026-10-30): 이 채널의 정기 수집(매시간, 동시 3건, 하루 90건, 최근 달 다시 받기, 내용 주소 키)과 이용안내 자동화 조항에 대한 사장 결정은 [root ADR-0348](../../../../docs/adr/0348-real-transactions-come-from-the-rt-molit-bulk-export-and-recent-months-are-pulled-again.md) 에 있다.

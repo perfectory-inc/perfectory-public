@@ -43,6 +43,8 @@ const DEFAULT_EVIDENCE_PATH: &str = "target/audit/vworld-dataset-file-ingest-evi
 const DEFAULT_USER_AGENT: &str = "foundation-platform-vworld-dataset-file-ingestor/1.0";
 const DEFAULT_PAGE_SIZE: u64 = 100;
 const EVIDENCE_SCHEMA_VERSION: &str = "foundation-platform.vworld_dataset_file_ingest_evidence.v1";
+/// A file whose provider did not serve after the retries (root ADR-0363).
+const PROVIDER_UNAVAILABLE_STATUS: &str = "provider_unavailable";
 
 pub async fn run() -> anyhow::Result<()> {
     let mut config = VWorldDatasetFileIngestConfig::from_env()?;
@@ -155,8 +157,12 @@ pub async fn run() -> anyhow::Result<()> {
         .iter()
         .filter(|report| report.status == "failed")
         .count() as u64;
+    let provider_unavailable_file_count = reports
+        .iter()
+        .filter(|report| report.status == PROVIDER_UNAVAILABLE_STATUS)
+        .count() as u64;
     let ingest_status = vworld_dataset_file_ingest_status(
-        failed_file_count,
+        failed_file_count + provider_unavailable_file_count,
         provider_acquisition_blocked_file_count,
         config.defer_provider_acquisition_blocked,
     );
@@ -168,6 +174,21 @@ pub async fn run() -> anyhow::Result<()> {
         ingest_status.evidence_status,
     );
     write_evidence(&config.evidence_path, &evidence)?;
+    if ingest_status.should_bail
+        && evidence.failed_file_count == 0
+        && provider_unavailable_file_count > 0
+        && (evidence.provider_acquisition_blocked_file_count == 0
+            || config.defer_provider_acquisition_blocked)
+    {
+        // Every file that did not land met a provider that did not serve: its side (root
+        // ADR-0363), said with its class so the run exits as such.
+        return Err(CollectionError::ProviderUnavailable(format!(
+            "VWorld dataset file ingest: {provider_unavailable_file_count} of {} files met a provider that did not serve report={}",
+            evidence.selected_file_count,
+            config.evidence_path.display()
+        ))
+        .into());
+    }
     if ingest_status.should_bail {
         bail!(
             "VWorld dataset file ingest blocked selected_files={} failed={} provider_acquisition_blocked={} report={}",
@@ -243,6 +264,7 @@ fn ingest_evidence(
         succeeded_file_count: count("succeeded"),
         skipped_file_count: count("skipped_existing"),
         provider_acquisition_blocked_file_count: count("provider_acquisition_blocked"),
+        provider_unavailable_file_count: count(PROVIDER_UNAVAILABLE_STATUS),
         failed_file_count: count("failed"),
         live_write_enabled: live_write,
         completion_claim_allowed: false,
@@ -439,6 +461,8 @@ struct VWorldDatasetFileIngestEvidence {
     succeeded_file_count: u64,
     skipped_file_count: u64,
     provider_acquisition_blocked_file_count: u64,
+    /// Files whose provider did not serve after the retries (root ADR-0363); not in `failed`.
+    provider_unavailable_file_count: u64,
     failed_file_count: u64,
     live_write_enabled: bool,
     completion_claim_allowed: bool,
@@ -708,7 +732,18 @@ fn failed_file_report(
     started_at: chrono::DateTime<Utc>,
     error: anyhow::Error,
 ) -> VWorldDatasetFileIngestItemEvidence {
-    let provider_acquisition_blocked = is_provider_acquisition_blocked(&error);
+    let status = if is_provider_acquisition_blocked(&error) {
+        "provider_acquisition_blocked"
+    } else if error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<CollectionError>(),
+            Some(CollectionError::ProviderUnavailable(_))
+        )
+    }) {
+        PROVIDER_UNAVAILABLE_STATUS
+    } else {
+        "failed"
+    };
     let error_message = truncate_failure_message(&format!("{error:#}"));
     VWorldDatasetFileIngestItemEvidence {
         endpoint_slug: job.endpoint_slug.clone(),
@@ -716,11 +751,7 @@ fn failed_file_report(
         download_ds_id: file.download_ds_id.clone(),
         file_no: file.file_no.clone(),
         provider_file_name: file.provider_file_name.clone(),
-        status: if provider_acquisition_blocked {
-            "provider_acquisition_blocked".to_owned()
-        } else {
-            "failed".to_owned()
-        },
+        status: status.to_owned(),
         object_key: None,
         size_bytes: None,
         error_message: Some(error_message),
@@ -843,11 +874,18 @@ async fn resolve_vworld_dataset_cookie_header(
     };
     let client = VWorldDatasetLoginClient::new(&login_config)
         .context("failed to configure VWorld dataset login client")?;
-    client
+    let cookie_header = client
         .fetch_cookie_header()
         .await
-        .map(Some)
-        .context("failed to acquire VWorld dataset login session")
+        .context("failed to acquire VWorld dataset login session")?;
+    // What closes an open account alert for the provider (root ADR-0363).
+    eprintln!(
+        "{}",
+        foundation_publisher_core::provider_outcome::login_ok_line(
+            collection_infrastructure::vworld_dataset_file::ACCOUNT_PROVIDER
+        )
+    );
+    Ok(Some(cookie_header))
 }
 
 fn vworld_dataset_login_config(

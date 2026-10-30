@@ -583,7 +583,7 @@ Spark는 작업별 컨테이너에서 실행하므로 `docker compose ... run --
 | 잠시 끄기 | `touch /etc/foundation-platform/autodeploy.off` (지우면 다시 돈다) |
 | 지금 상태 | `journalctl -u foundation-autodeploy.service -n 50`, `ls /var/lib/perfectory/autodeploy/{deployed,refused,failed}` |
 | 손으로 한 커밋 배포 | `bash /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-deploy.sh <sha>` |
-| 실패한 커밋 다시 시도 | 원인을 고친 새 커밋을 main 에 올린다. 같은 커밋을 다시 하려면 `/var/lib/perfectory/autodeploy/failed/<sha>` 를 지운다 |
+| 실패한 커밋 다시 시도 | 원인을 고친 새 커밋을 main 에 올린다. 원인이 커밋 밖에 있었으면(공급자 계정·호스트) 같은 커밋을 다시 하려면 `rm /var/lib/perfectory/autodeploy/failed/<sha>` 하나면 된다. 그 밖에 지울 것은 없다: 이미 준비된 릴리스는 내용이 같으면 그대로 쓰인다(루트 ADR-0363 §7) |
 
 검사가 실패한 커밋(`refused`)과 배포가 실패한 커밋(`failed`)은 한 번만 Slack 으로 알리고 다시 시도하지 않는다.
 배포 뒤 작업(`started_once_after_deploy`)이 실패해도 배포는 성공이고 DAG 는 다시 켜진다(루트 ADR-0173): 그 유닛의
@@ -674,7 +674,7 @@ sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deplo
 ### 4. 설치·빌드
 
 ```bash
-git archive --format=tar.gz -o /tmp/foundation-$sha.tar.gz "$sha:platforms/foundation-platform"
+git archive --format=tar.gz --mtime="@$(git show -s --format=%ct $sha)" -o /tmp/foundation-$sha.tar.gz "$sha:platforms/foundation-platform"
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh prepare $sha /tmp/foundation-$sha.tar.gz
 ```
 

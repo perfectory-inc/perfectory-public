@@ -1,5 +1,6 @@
 //! Contract tests for the `VWorld` provider dataset-file inventory client.
 
+use collection_domain::CollectionError;
 use collection_infrastructure::{
     parse_vworld_dataset_file_inventory_page, VWorldDatasetFileClient, VWorldDatasetFileConfig,
     VWorldDatasetFileDownloadRequest, VWorldDatasetFileInventorySelector, VWorldDatasetFileKind,
@@ -840,6 +841,84 @@ async fn login_client_reports_provider_failure_reason_without_leaking_credential
     assert!(error_message.contains("password expired"));
     assert!(!error_message.contains("alice-id"));
     assert!(!error_message.contains("secret-token"));
+    Ok(())
+}
+
+async fn login_error(
+    response: ResponseTemplate,
+) -> Result<CollectionError, Box<dyn std::error::Error + Send + Sync>> {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v4po_usrlogin_a004.do"))
+        .respond_with(response)
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = VWorldDatasetLoginClient::new(&VWorldDatasetLoginConfig {
+        base_uri: server.uri(),
+        user_agent: "foundation-platform-test/1.0".to_owned(),
+        username: "alice-id".to_owned(),
+        password: "secret-token".to_owned(),
+    })?;
+    client
+        .fetch_cookie_header()
+        .await
+        .err()
+        .ok_or_else(|| std::io::Error::other("expected login failure").into())
+}
+
+#[tokio::test]
+async fn login_terms_change_2026_10_30_is_an_account_action_not_a_release_failure() -> TestResult {
+    // 2026-10-30 13:07Z: the 2026-10-30 deploy stopped at the staging smoke on exactly this
+    // answer. VWorld changed its terms; only the account owner accepting them clears it
+    // (root ADR-0363).
+    let error = login_error(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+        "resultMap": {"result": "useChk", "msg": "이용약관 변경안내 페이지로 이동합니다."}
+    })))
+    .await?;
+    let CollectionError::ProviderAccountActionRequired {
+        provider,
+        reason,
+        message,
+    } = error
+    else {
+        return Err(format!("expected an account action, got {error:?}").into());
+    };
+    assert_eq!(
+        (provider.as_str(), reason.as_str()),
+        ("vworld.kr", "useChk")
+    );
+    assert!(message.contains("이용약관 변경안내"), "{message}");
+    assert!(!message.contains("alice-id") && !message.contains("secret-token"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn login_server_error_and_maintenance_page_are_the_provider_unavailable() -> TestResult {
+    for response in [
+        ResponseTemplate::new(503),
+        ResponseTemplate::new(200)
+            .insert_header("content-type", "text/html; charset=UTF-8")
+            .set_body_string("<html><body>시스템 점검 중입니다</body></html>"),
+    ] {
+        let error = login_error(response).await?;
+        assert!(
+            matches!(error, CollectionError::ProviderUnavailable(_)),
+            "unexpected error: {error:?}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn login_answer_we_cannot_read_stays_ours_to_fix() -> TestResult {
+    // A JSON answer without resultMap is a login protocol this release no longer reads.
+    let error =
+        login_error(ResponseTemplate::new(200).set_body_json(serde_json::json!({"x": 1}))).await?;
+    assert!(
+        matches!(error, CollectionError::Infrastructure(_)),
+        "unexpected error: {error:?}"
+    );
     Ok(())
 }
 

@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **145개**
+- 엔드포인트 정의: **157개**
 - 고유 dataset slug: **126개**
-- 고유 Bronze source slug: **145개**
-- 국가 수집 허용 endpoint: **96개**
+- 고유 Bronze source slug: **157개**
+- 국가 수집 허용 endpoint: **108개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -40,6 +40,7 @@ last_reviewed: 2026-07-30
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
 | mixed_public_source | 10 | 0 | 0 | 수동 승인 10 |
 | mois.go.kr | 2 | 0 | 0 | 수동 승인 2 |
+| rt.molit.go.kr | 12 | 12 | 0 | 전용 커맨드 12 |
 | vworld.kr | 26 | 26 | 25 | API 예정 1, 기본 실행 25 |
 
 ## 수집 레인
@@ -65,6 +66,7 @@ last_reviewed: 2026-07-30
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `onbid_open_api` | 7 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
 | `other_bulk` | 12 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
+| `real_transaction_bulk` | 12 | rt.molit.go.kr 실거래가 조건별 자료제공 전국 월 CSV (root ADR-0348) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
 | `vworld_dataset` | 25 | vworld.kr 제공기관 데이터 파일 |
 | `vworld_ned_open_api` | 1 | vworld.kr NED API (현재 기본 실행 제외) |
@@ -214,6 +216,18 @@ last_reviewed: 2026-07-30
 | mixed_public_source | 기타 공공데이터 | 대학교 | 벌크(수동 승인) | false | 수동 승인 |
 | mois.go.kr | 기타 공공데이터 | 동 인구 | 벌크(수동 승인) | false | 수동 승인 |
 | mois.go.kr | 기타 공공데이터 | 세대수 | 벌크(수동 승인) | false | 수동 승인 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 아파트 매매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 아파트 전월세 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 연립다세대 매매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 연립다세대 전월세 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 단독다가구 매매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 단독다가구 전월세 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 오피스텔 매매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 오피스텔 전월세 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 아파트 분양권전매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 상업업무용 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 토지 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| rt.molit.go.kr | 부동산 실거래(벌크) | 공장창고 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 통계 읍면동 경계 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 통계 시도 경계 | 제공기관 파일 | true | 기본 실행 |
 | vworld.kr | 공간·토지·산업단지 | VWorld 통계 시군구 경계 | 제공기관 파일 | true | 기본 실행 |

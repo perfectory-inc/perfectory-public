@@ -396,6 +396,7 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.registered_factory": "공장이 입주한 단지명 원문 — 표시용(식별은 주소로 찾은 PNU, root ADR-0280)",
             "silver.court_auction_item": "경매 물건의 건물명 원문 — 표시용(식별은 법원·사건·물건번호와 PNU, root ADR-0280)",
             "silver.court_auction_sale_result": "매각결과의 건물명 원문 — 표시용(식별은 법원·사건·물건번호와 PNU, root ADR-0280)",
+            "silver.real_transaction": "실거래의 단지명·건물명 원문 — 표시용(식별은 내용 이름과 주소로 찾은 PNU, root ADR-0349)",
         }
         contracts = json.loads(
             (DBT_ROOT.parent / "contracts" / "industrial_complex_lakehouse_contracts.json")

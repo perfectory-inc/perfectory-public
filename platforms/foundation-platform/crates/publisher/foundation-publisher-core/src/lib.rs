@@ -34,6 +34,7 @@ pub mod free_space;
 pub mod industrial_complex_gold_profile_store;
 pub mod lakehouse_snapshot_scan;
 pub mod profile_gateway_contract;
+pub mod provider_outcome;
 pub mod public_data_control_support;
 pub mod r2_command_support;
 pub mod r2_layout;

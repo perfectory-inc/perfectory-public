@@ -224,9 +224,16 @@ pub async fn run() -> anyhow::Result<()> {
             .with_context(|| format!("failed to read {key}"))?;
         std::fs::write(&path, &bytes)
             .with_context(|| format!("failed to write {}", path.display()))?;
+        // When R2 says the object landed: the edition of a source whose key names no run (a
+        // content-qualified export, root ADR-0348 §5).
+        let landed = listed
+            .iter()
+            .find(|object| &object.key == key)
+            .map(|object| object.last_modified.to_rfc3339());
         objects.push(json!({
             "object_key": key,
             "source_slug": source_of(key)?,
+            "last_modified": landed,
             "local_path": path.strip_prefix(&output_dir).unwrap_or(&path).to_string_lossy().replace('\\', "/"),
             "size_bytes": bytes.len(),
         }));

@@ -2,8 +2,8 @@
 
 use chrono::NaiveDate;
 use collection_application::{
-    plan_rt_molit_real_transaction_export, RtMolitExportScope,
-    RtMolitRealTransactionExportPlanInput, RtMolitRealTransactionExportRequest,
+    plan_rt_molit_real_transaction_export, plan_rt_molit_real_transaction_export_content_addressed,
+    RtMolitExportScope, RtMolitRealTransactionExportPlanInput, RtMolitRealTransactionExportRequest,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -116,6 +116,64 @@ fn rt_molit_export_plan_rejects_reversed_contract_range() -> TestResult {
     assert!(
         error.to_string().contains("contract_from must be"),
         "unexpected error: {error}"
+    );
+    Ok(())
+}
+
+/// Root ADR-0348 §5: a re-pulled month whose bytes changed lands beside the earlier object; the same
+/// bytes name the same object.
+#[test]
+fn rt_molit_content_addressed_plan_names_the_bytes() -> TestResult {
+    let request = || -> TestResult<RtMolitRealTransactionExportRequest> {
+        Ok(RtMolitRealTransactionExportRequest {
+            thing_code: "H".to_owned(),
+            deal_type_code: "1".to_owned(),
+            contract_from: NaiveDate::from_ymd_opt(2026, 6, 1).ok_or("valid date")?,
+            contract_to: NaiveDate::from_ymd_opt(2026, 6, 30).ok_or("valid date")?,
+            scope: RtMolitExportScope::Nationwide,
+            response_format: "csv".to_owned(),
+        })
+    };
+    let plan = |bytes: &[u8]| -> TestResult<String> {
+        Ok(plan_rt_molit_real_transaction_export_content_addressed(
+            RtMolitRealTransactionExportPlanInput {
+                source_slug: "rtmolitgokr__real_transaction_industrial_trade",
+                request: request()?,
+                raw_payload: bytes.to_vec(),
+            },
+        )?
+        .object_key
+        .as_str()
+        .to_owned())
+    };
+    let first = plan(
+        b"header
+row-1
+",
+    )?;
+    assert!(first.starts_with(
+        "bronze/source=rtmolitgokr__real_transaction_industrial_trade/period=2026-06/scope=nationwide/export--sha256-"
+    ));
+    assert_eq!(
+        first.rsplit_once('.').map(|(_, extension)| extension),
+        Some("csv")
+    );
+    assert_eq!(
+        first,
+        plan(
+            b"header
+row-1
+"
+        )?
+    );
+    assert_ne!(
+        first,
+        plan(
+            b"header
+row-1
+row-2
+"
+        )?
     );
     Ok(())
 }

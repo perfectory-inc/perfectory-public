@@ -897,7 +897,9 @@ class TheWholeDeploy(unittest.TestCase):
         for name, body in (
             ("sudo", 'while [[ "$1" == -* ]]; do [[ "$1" == -u ]] && shift; shift; done\nexec "$@"\n'),
             # `git archive <sha> <paths>` to stdout: the commit's tree (the pre-flight's input).
-            ("git", 'if [[ "$*" == *" -o "* ]]; then : > "${@: -2:1}"\n'
+            # `show -s --format=%ct`: the commit's time. The release archive's arguments are logged.
+            ("git", 'if [[ "$2" == show ]]; then echo 1761800000; exit 0; fi\n'
+                    'if [[ "$*" == *" -o "* ]]; then printf "%s\\n" "$*" >> "$FIXTURE_ROOT/archive.log"; : > "${@: -2:1}"\n'
                     'elif [[ "$2" == archive ]]; then tar -C "$FIXTURE_ROOT/commit" -cf - .; fi\nexit 0\n'),
             ("chown", "exit 0\n"),
             ("sleep", 'printf "%s\\n" "$*" >> "$FIXTURE_ROOT/sleep.log"\n'),
@@ -951,6 +953,17 @@ class TheWholeDeploy(unittest.TestCase):
         unpaused = [line.split()[-1].removeprefix("foundation_")
                     for line in (self.root / "airflow.log").read_text().splitlines() if line.startswith("dags unpause")]
         self.assertEqual(unpaused[-len(self.ENABLED):], list(reversed(self.ENABLED)))
+
+    def test_the_2026_10_30_retry_archives_the_same_commit_into_the_same_bytes(self):
+        # 2026-10-30: the retry of that commit archived the tree with the time of day as every mtime, so
+        # its bytes differed from the first try's and prepare refused the release (root ADR-0363 §7).
+        # The archive is stamped with the commit's own time; test_foundation_release_admission.py
+        # proves git then writes the same bytes, and that other bytes of the same files are accepted.
+        result = self.deploy()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        [archive] = [line for line in (self.root / "archive.log").read_text().splitlines()
+                     if ":platforms/foundation-platform" in line]
+        self.assertIn("--format=tar.gz --mtime=@1761800000 -o ", archive)
 
     def test_the_deploy_waits_on_release_admissions_own_list_of_running_jobs(self):
         # 2026-10-11: the deploy kept its own list of the jobs to wait for (the enabled ones), reached
