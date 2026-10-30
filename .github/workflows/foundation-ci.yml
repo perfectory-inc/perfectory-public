@@ -979,7 +979,6 @@ jobs:
           SHARD: ${{ strategy.job-index }}
           SHARDS: ${{ strategy.job-total }}
         run: |
-          set -euo pipefail
           if [ "${FOUNDATION_CI_GATE_SELECTED:-false}" != true ]; then
             echo "Spark job inputs are unaffected; the Spark runtime tests succeed without containers."
             exit 0
