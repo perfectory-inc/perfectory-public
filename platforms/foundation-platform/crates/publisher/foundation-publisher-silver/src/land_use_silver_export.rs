@@ -577,6 +577,15 @@ pub fn export_command(command: &str) -> Option<ExportCommand> {
         "export-land-transfer-history-silver-handoff" => &LAND_TRANSFER_LANE,
         "export-land-right-registration-silver-handoff" => &LAND_RIGHT_LANE,
         "export-land-ownership-silver-handoff" => &LAND_OWNERSHIP_LANE,
+        // The 용도지역지구 layers are shapefiles, not CSV: their own export, same environment
+        // names and summary, so the Silver refresh runs them as it runs these (root ADR-0362).
+        "export-land-use-zone-area-silver-handoff" => {
+            return Some(ExportCommand {
+                env_prefix: crate::land_use_zone_area_silver_export::ENV_PREFIX,
+                table: lakehouse_domain::SILVER_LAND_USE_ZONE_AREA.table_name,
+                member_matches: crate::land_use_zone_area_silver_export::converts_member,
+            })
+        }
         _ => return None,
     };
     Some(ExportCommand {

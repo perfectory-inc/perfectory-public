@@ -104,3 +104,15 @@ pub mod remote_lakehouse_job;
     )
 )]
 pub mod land_use_silver_export;
+
+/// 용도지역지구 도형 Silver handoff export (root ADR-0362), run by the Silver refresh like the land
+/// CSV exports above.
+#[allow(
+    clippy::nursery,
+    clippy::pedantic,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    missing_docs
+)]
+#[cfg_attr(test, allow(clippy::panic, clippy::unwrap_used))]
+pub mod land_use_zone_area_silver_export;

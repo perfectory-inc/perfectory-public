@@ -31,11 +31,12 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     LandRightRegistration,
     LandTransferHistory,
     LandUsePlan,
+    LandUseZoneArea,
     LandUseZoneCode,
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 15] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 16] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -50,6 +51,7 @@ impl Lane {
         Self::LandRightRegistration,
         Self::LandTransferHistory,
         Self::LandUsePlan,
+        Self::LandUseZoneArea,
         Self::LandUseZoneCode,
     ];
 
@@ -71,6 +73,7 @@ impl Lane {
             Self::LandRightRegistration => "land-right-registration",
             Self::LandTransferHistory => "land-transfer-history",
             Self::LandUsePlan => "land-use-plan",
+            Self::LandUseZoneArea => "land-use-zone-area",
             Self::LandUseZoneCode => "land-use-zone-code",
         }
     }
@@ -151,6 +154,10 @@ impl Lane {
             Self::LandUsePlan => (
                 "vworld-land-use-plan-source-objects.json",
                 include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-use-plan-source-objects.json"),
+            ),
+            Self::LandUseZoneArea => (
+                "vworld-land-use-zone-area-source-objects.json",
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json"),
             ),
             Self::LandUseZoneCode => (
                 "vworld-land-use-zone-code-source-objects.json",
@@ -331,6 +338,9 @@ struct CompletenessBlock {
     /// A 시도 lane: the table its 시도 come from, which must be the code list.
     #[serde(default)]
     regions_from: Option<String>,
+    /// A listed lane: the regions a release is (root ADR-0362).
+    #[serde(default)]
+    regions: Option<Vec<String>>,
 }
 
 /// A lane's contract after the checks that keep a wrong value from reaching a run.
@@ -450,16 +460,33 @@ impl LaneContract {
             // The 시도 are the code list's on the vintage's day, never a number written here: a
             // hand-written 17 refused every release after the 2026-07-01 merger.
             let code_list = lakehouse_domain::REFERENCE_LEGAL_DONG_CODE_SNAPSHOT.table_name;
+            let listed_regions = completeness.regions.clone().unwrap_or_default();
             let completeness = match (
                 completeness.load_granularity.as_str(),
                 completeness.count,
                 completeness.regions_from.as_deref(),
+                completeness.regions.as_ref().map(Vec::len),
             ) {
-                ("sido", None, Some(from)) if from == code_list => Completeness::Sido,
-                ("national", Some(1), None) => Completeness::National,
-                (granularity, count, from) => bail!(
-                    "completeness {granularity} count={count:?} regions_from={from:?} is neither \
-                     sido from {code_list} (no count) nor national 1"
+                ("sido", None, Some(from), None) if from == code_list => Completeness::Sido,
+                ("national", Some(1), None, None) => Completeness::National,
+                // A region listed twice or blank would make a release wait for nothing.
+                ("listed", None, None, Some(count))
+                    if count > 0
+                        && listed_regions
+                            .iter()
+                            .all(|region| !region.trim().is_empty())
+                        && listed_regions
+                            .iter()
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .len()
+                            == count =>
+                {
+                    Completeness::Listed
+                }
+                (granularity, count, from, listed) => bail!(
+                    "completeness {granularity} count={count:?} regions_from={from:?} \
+                     regions={listed:?} is neither sido from {code_list} (no count), national 1, \
+                     nor listed with distinct regions"
                 ),
             };
             // The label the hand loads wrote (`vworldkr-land-use-plan:<vintage>`), so a release
@@ -478,6 +505,7 @@ impl LaneContract {
                     .member_name
                     .context("a land lane states its member_name rule")?,
                 completeness,
+                listed_regions,
                 snapshot_label: label,
                 handoff_prefix: checked_prefix(document.handoff_prefix)?,
                 handoff_suffix,

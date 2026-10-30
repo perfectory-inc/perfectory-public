@@ -19,7 +19,7 @@ use super::*;
 const PRICE: &str = "vworldkr__land_individual_price";
 const ZONE: &str = "vworldkr__land_use_zone_code";
 
-const LAND_LANES: [Lane; 8] = [
+const LAND_LANES: [Lane; 9] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -27,6 +27,7 @@ const LAND_LANES: [Lane; 8] = [
     Lane::LandRightRegistration,
     Lane::LandTransferHistory,
     Lane::LandUsePlan,
+    Lane::LandUseZoneArea,
     Lane::LandUseZoneCode,
 ];
 
@@ -35,6 +36,7 @@ fn rule() -> LandRule {
         source: PRICE.to_owned(),
         member_name: r"^AL_D151_(?P<region>[0-9]{2})_(?P<vintage>[0-9]{8})\.csv$".to_owned(),
         completeness: Completeness::Sido,
+        listed_regions: Vec::new(),
         snapshot_label: "vworldkr-land-individual-price".to_owned(),
         handoff_prefix: format!("silver-handoff/{PRICE}"),
         handoff_suffix: ".jsonl.gz".to_owned(),
@@ -46,6 +48,7 @@ fn zone_rule() -> LandRule {
         source: ZONE.to_owned(),
         member_name: r"^LART_LMISZONE\.csv$".to_owned(),
         completeness: Completeness::National,
+        listed_regions: Vec::new(),
         snapshot_label: "vworldkr-land-use-zone-code".to_owned(),
         handoff_prefix: format!("silver-handoff/{ZONE}"),
         handoff_suffix: ".jsonl.gz".to_owned(),
@@ -500,6 +503,7 @@ fn members(lane: Lane) -> (&'static str, &'static [&'static str]) {
         Lane::LandRightRegistration => ("AL_D006_97_20991231.csv", &["CH_D006_97_20991231.csv"]),
         Lane::LandTransferHistory => ("AL_D157_97_20991231.csv", &["CH_D157_97_20991231.csv"]),
         Lane::LandUsePlan => ("AL_D155_97_20991231.csv", &["AL_D154_97_20991231.shp"]),
+        Lane::LandUseZoneArea => ("AL_D032_00_20991231.shp", &["AL_D032_00_20991231.dbf"]),
         _ => ("LART_LMISZONE.csv", &["[Content_Types].xml"]),
     }
 }
@@ -538,6 +542,13 @@ fn every_land_rule_reads_what_its_export_converts_and_nothing_beside_it() -> any
             );
             let captures = regex.captures(loaded).context("captures")?;
             assert_eq!(&captures["region"], "97");
+            assert_eq!(&captures["vintage"], "20991231");
+        } else if rule.completeness == Completeness::Listed {
+            let captures = regex.captures(loaded).context("captures")?;
+            assert!(rule
+                .listed_regions
+                .iter()
+                .any(|region| region == &captures["region"]));
             assert_eq!(&captures["vintage"], "20991231");
         } else {
             assert_eq!(lane, Lane::LandUseZoneCode);
@@ -831,7 +842,7 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 8] = [
+const COMPARING_LANES: [Lane; 9] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -839,6 +850,7 @@ const COMPARING_LANES: [Lane; 8] = [
     Lane::LandRightRegistration,
     Lane::LandTransferHistory,
     Lane::LandUsePlan,
+    Lane::LandUseZoneArea,
     Lane::LandUseZoneCode,
 ];
 
@@ -978,6 +990,11 @@ fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> a
                 2
             }
             Completeness::National => 0,
+            // The layer code, `D032`: each layer is compared and committed alone (root ADR-0362).
+            Completeness::Listed => {
+                assert_eq!(latest.key.first(), Some(&"layer_code"), "{}", lane.id());
+                4
+            }
         };
         assert_eq!(
             contract.compare_bucket_prefix_length,

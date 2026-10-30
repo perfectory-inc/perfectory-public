@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0362-the-regulation-areas-a-buyer-checks-are-loaded-layer-by-layer-for-the-map.md",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)와 그 옆의 ZIP 안 이름(catalog.bronze_object_member)에서 고른다. 안 이름이 silver_refresh.member_name 에 맞는 객체(전체데이터 AL_D<층>_00_<판>.shp)가 후보이고, 이름의 region 이 층(레이어) 번호, vintage 가 판이다. 판은 completeness.regions 의 층을 빠짐없이 덮는 판 중 가장 새것이다. 목록에 없는 층의 객체와 변동데이터(CH_D*)는 후보가 아니다. 같은 층·판의 객체가 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. 도형 둘로 나뉜 층(…(2).shp)은 거부해 반만 올리지 않는다(root ADR-0169 §1–2, ADR-0362).",
+  "source": "bronze/source=vworldkr__land_use_zone",
+  "dataset_series": "AL_D<layer>_00",
+  "field_layout_authority": "Provider DBF, CP949, no .cpg; every served layer has the same ten columns (measured 2026-10-30 on AL_D032, AL_D143, AL_D124, AL_D335, AL_D060 of 20260609): A0 N9 provider row number (not kept), A1 C33 area number, A2 C254 layer name, A3 D8 데이터기준일자 (not kept: it changes every release), A4 C5 시군구 code, A5 C6 용도지역지구 code, A6 C200 its name, A7 C8 an unnamed day, A8 C200 and A9 C200 unnamed texts. .prj Korea 2000 Central Belt 2010 (EPSG:5186), reprojected to EPSG:4326 on export. A1 unique within a layer on the four layers scanned whole (D032 758, D335 730, D336 660, D327 5,544 areas).",
+  "why_this_file_exists": "The prefix piles up every month's full and change files of all 187 layers under object names (20171128DS00032-672.zip) that say neither the layer nor the month; loading two months would double every area, and loading a month that lacks a layer would look complete while that layer is missing.",
+  "handoff_prefix": "silver-handoff/vworldkr__land_use_zone",
+  "handoff_suffix": ".jsonl.gz",
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@land-use-zone-area.service 의 실행 값(root ADR-0169 §3 ③, ADR-0362). 판의 층마다 한 번 export 하고, load branch 에 통째로 올린 뒤 main 에 발행하지 않고, compare 가 층(layer_code 네 글자)마다 따로 main 의 현재 행과 키(layer_code, zone_feature_id)마다 비교해 바뀐 구역의 행과 사라진 구역의 삭제 표시만 changes branch 에 층 하나씩 커밋하고, 층이 다 끝나면 그 브랜치를 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). 시간이 모자라면 남은 층은 다음 실행이 잇는다. content_columns 는 판마다 바뀌는 열(적재 열)을 넣지 않는다. regions 는 처음 서빙하는 층(ADR-0362 §2): 500MB 를 넘어 RAON 으로만 오는 관리지역(125)·보전산지(054)와, 산업단지 경계가 이미 정본인 산업단지(060)는 넣지 않는다.",
+    "table": "silver.land_use_zone_area",
+    "source": "vworldkr__land_use_zone",
+    "member_name": "^AL_D(?P<region>[0-9]{3})_00_(?P<vintage>[0-9]{8})\\.shp$",
+    "completeness": {
+      "load_granularity": "listed",
+      "regions": ["032", "036", "124", "126", "127", "142", "143", "144", "145", "146", "147", "148", "327", "335", "336"]
+    },
+    "export": "export-land-use-zone-area-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "overwrite",
+      "input_file_batch_size": 4
+    },
+    "compare": {
+      "content_columns": [
+        "layer_name",
+        "sigungu_code",
+        "zone_code",
+        "zone_name",
+        "field_a7",
+        "field_a8",
+        "field_a9",
+        "geometry_checksum_sha256"
+      ],
+      "bucket_prefix_length": 4
+    }
+  }
+}

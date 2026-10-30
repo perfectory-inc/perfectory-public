@@ -253,6 +253,7 @@ enum Command {
     ExportVWorldCadastralSilverHandoffShard,
     ExportLandUsePlanSilverHandoff,
     ExportLandUseZoneCodeSilverHandoff,
+    ExportLandUseZoneAreaSilverHandoff,
     ExportLandIndividualPriceSilverHandoff,
     ExportLandCharacteristicSilverHandoff,
     ExportLandForestSilverHandoff,
@@ -570,6 +571,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandUsePlanSilverHandoff => Box::pin(land_use_silver_export::run_plan()),
         Command::ExportLandUseZoneCodeSilverHandoff => {
             Box::pin(land_use_silver_export::run_zone_code())
+        }
+        Command::ExportLandUseZoneAreaSilverHandoff => {
+            Box::pin(foundation_publisher_silver::land_use_zone_area_silver_export::run())
         }
         Command::ExportLandRightRegistrationSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_right_registration())
@@ -1155,6 +1159,9 @@ where
         }
         Some("export-land-use-zone-code-silver-handoff") => {
             Ok(Command::ExportLandUseZoneCodeSilverHandoff)
+        }
+        Some("export-land-use-zone-area-silver-handoff") => {
+            Ok(Command::ExportLandUseZoneAreaSilverHandoff)
         }
         Some("export-land-right-registration-silver-handoff") => {
             Ok(Command::ExportLandRightRegistrationSilverHandoff)

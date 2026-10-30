@@ -770,6 +770,7 @@
         "silver_refresh_land_right_registration",
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
+        "silver_refresh_land_use_zone_area",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
         "gold_unit_price_rebuild",
@@ -1131,6 +1132,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_plan,PROD)",
           "node_id": "silver-land-use-plan",
           "title": "필지별 토지이용계획",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_use_zone_area",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_area,PROD)",
+          "node_id": "silver-land-use-zone-area",
+          "title": "용도지역지구 구역",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1320,6 +1329,7 @@
         "silver_refresh_land_right_registration",
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
+        "silver_refresh_land_use_zone_area",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
         "gold_unit_price_rebuild",
@@ -1681,6 +1691,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_plan,PROD)",
           "node_id": "silver-land-use-plan",
           "title": "필지별 토지이용계획",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_use_zone_area",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_area,PROD)",
+          "node_id": "silver-land-use-zone-area",
+          "title": "용도지역지구 구역",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -2198,6 +2216,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_plan,PROD)",
           "node_id": "silver-land-use-plan",
           "title": "필지별 토지이용계획",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "silver_refresh_land_use_zone_area",
+      "producers": [
+        "source_sweep"
+      ],
+      "reads": [
+        {
+          "dataset": "perfectory://source-vworld-dataset",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-vworld-dataset,PROD)",
+          "node_id": "source-vworld-dataset",
+          "title": "브이월드 공간·토지 파일",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.land_use_zone_area",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_area,PROD)",
+          "node_id": "silver-land-use-zone-area",
+          "title": "용도지역지구 구역",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -2852,6 +2896,7 @@
         "silver_refresh_land_right_registration",
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
+        "silver_refresh_land_use_zone_area",
         "silver_refresh_land_use_zone_code",
         "gold_panel_rebuild",
         "gold_unit_price_rebuild",
@@ -3213,6 +3258,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_plan,PROD)",
           "node_id": "silver-land-use-plan",
           "title": "필지별 토지이용계획",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_use_zone_area",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_area,PROD)",
+          "node_id": "silver-land-use-zone-area",
+          "title": "용도지역지구 구역",
           "kind": "silver_table",
           "surface_kind": null
         },

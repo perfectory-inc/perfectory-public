@@ -462,7 +462,12 @@ fn optional_property_string(
     }
 }
 
-fn parse_geojson_polygonal_geometry(
+/// Parses an `EPSG:4326` `GeoJSON` `Polygon` or `MultiPolygon` into rings; `pnu` only labels an error
+/// (the 용도지역지구 areas pass their layer and area id, root ADR-0362).
+///
+/// # Errors
+/// Returns `VWorldCadastralSilverPlanError` when the geometry is not a closed polygonal one.
+pub fn parse_geojson_polygonal_geometry(
     geometry: &JsonValue,
     pnu: &str,
 ) -> Result<ParsedPolygonalGeometry, VWorldCadastralSilverPlanError> {

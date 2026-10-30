@@ -6,8 +6,9 @@ Silver handoff rows. This job is intentionally storage-focused: it loads
 the Rust-exported table contract, checks required fields and basic quality
 metrics, then writes the rows to a local Parquet path or an Iceberg REST catalog.
 
-It supports scalar contracts only. Geometry/binary transport remains owned by
-specialized jobs such as `vworld_parcel_boundaries_handoff_to_silver.py`.
+A `binary` column (a WKB geometry, root ADR-0362) travels in the JSONL handoff as lowercase hex
+text under its own name and is decoded here (`unhex`); every other column is a scalar. The parcel and
+complex boundary lanes keep their specialized jobs (`vworld_parcel_boundaries_handoff_to_silver.py`).
 """
 
 from __future__ import annotations
@@ -198,15 +199,17 @@ def validate_identifier(label: str, value: str) -> None:
 
 
 def validate_scalar_contract(contract: dict[str, Any]) -> None:
-    binary_columns = [
-        column["name"]
+    """Refuses, before Spark starts, a column type this loader cannot read from a handoff."""
+    unsupported = sorted(
+        f"{column['name']}:{column['logical_type']}"
         for column in contract["columns"]
-        if column["logical_type"] == "binary"
-    ]
-    if binary_columns:
+        if column["logical_type"] not in HANDOFF_LOGICAL_TYPES
+        and not column["logical_type"].startswith("decimal(")
+    )
+    if unsupported:
         raise ValueError(
-            "silver_scalar_handoff_to_lakehouse does not support binary columns: "
-            + ", ".join(binary_columns)
+            "silver_scalar_handoff_to_lakehouse cannot read these columns from a handoff: "
+            + ", ".join(unsupported)
         )
 
 
@@ -266,10 +269,17 @@ def load_pyspark() -> tuple[Any, Any, Any, Any]:
     return SparkSession, F, T, StorageLevel
 
 
+# The logical types a handoff may carry; `binary` arrives as hex text (see the module docstring).
+HANDOFF_LOGICAL_TYPES = frozenset(
+    {"array<string>", "string", "binary", "int", "long", "double", "date", "timestamp"}
+)
+
+
 def spark_type(logical_type: str, T: Any) -> Any:
     if logical_type == "array<string>":
         return T.ArrayType(T.StringType())
-    if logical_type == "string":
+    # A binary column is read as its hex text and decoded in `cast_handoff_frame`.
+    if logical_type in {"string", "binary"}:
         return T.StringType()
     if logical_type == "int":
         return T.IntegerType()
@@ -395,6 +405,8 @@ def cast_handoff_frame(handoff: Any, contract: dict[str, Any], F: Any) -> Any:
             expressions.append(F.to_date(source, "yyyy-MM-dd").alias(name))
         elif logical_type in {"int", "long", "double"} or logical_type.startswith("decimal("):
             expressions.append(source.cast(logical_type).alias(name))
+        elif logical_type == "binary":
+            expressions.append(F.unhex(source).alias(name))
         else:
             expressions.append(source.alias(name))
     return handoff.select(*expressions)

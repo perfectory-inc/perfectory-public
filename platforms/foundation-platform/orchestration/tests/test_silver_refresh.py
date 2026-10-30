@@ -94,8 +94,8 @@ class TheLanes(unittest.TestCase):
         tables = {node["id"]: node.get("table_name") for node in graph["nodes"]}
         found = list(lane_contracts())
         # The hub lanes of root ADR-0169 step 2 (건축인허가 root ADR-0356, 총괄표제부 root ADR-0357) and
-        # the eight VWorld land lanes of step 3 (the eighth, 토지소유, root ADR-0360).
-        self.assertEqual(sorted(name.split("-")[0] for name, _ in found), ["hub"] * 7 + ["vworld"] * 8)
+        # the nine VWorld land lanes of step 3 (토지소유 root ADR-0360, 용도지역지구 root ADR-0362).
+        self.assertEqual(sorted(name.split("-")[0] for name, _ in found), ["hub"] * 7 + ["vworld"] * 9)
         for name, document in found:
             with self.subTest(contract=name):
                 lane = document["silver_refresh"]
