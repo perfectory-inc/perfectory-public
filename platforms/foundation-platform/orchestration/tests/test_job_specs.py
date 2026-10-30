@@ -368,10 +368,10 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + (115 + 30) + (60 + 30))
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + (115 + 30) + 2 * (60 + 30))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
                                          "gold_panel_rebuild", "by_pnu_serving_bake", "by_pnu_public_auction_bake",
-                                         "by_pnu_unit_price_bake",
+                                         "by_pnu_unit_price_bake", "by_pnu_court_auction_bake",
                                          "onbid_public_auction_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
@@ -709,8 +709,9 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         self.assertIn("by_pnu_serving_bake", blockers)
         self.assertIn("by_pnu_public_auction_bake", blockers)
         self.assertIn("by_pnu_unit_price_bake", blockers)
+        self.assertIn("by_pnu_court_auction_bake", blockers)
         self.assertIn("onbid_public_auction_silver", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + (115 + 30) + (60 + 30))
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + (115 + 30) + 2 * (60 + 30))
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])

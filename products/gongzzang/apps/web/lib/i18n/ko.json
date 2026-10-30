@@ -610,6 +610,7 @@
         "title": "이 필지의 경매 ({count})",
         "none": "이 필지에 진행 중인 경매가 없어요",
         "fallbackName": "경매 물건",
+        "address": "소재지",
         "court": "법원",
         "appraisal": "감정가",
         "minimumBid": "최저매각가",

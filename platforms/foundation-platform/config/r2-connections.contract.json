@@ -577,7 +577,7 @@
       "section": "court_auction",
       "columns": ["court_auction_json"],
       "producer": "court_auction_silver_to_gold",
-      "decision": "docs/adr/0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md"
+      "decision": "docs/adr/0353-court-auction-is-a-parcel-kind-built-partially-and-baked-in-its-own-job.md"
     },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",

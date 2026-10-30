@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchCourtAuction } from "./court-auction";
+import { fetchCourtAuction, todayKst, upcoming } from "./court-auction";
 
 vi.mock("@/lib/env", () => ({
   env: { NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: "https://catalog.example.test" },
@@ -65,5 +65,16 @@ describe("court auction edge", () => {
     await expect(fetchCourtAuction("../manifest.json")).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
     await expect(fetchCourtAuction(pnu)).rejects.toThrow("PNU");
+  });
+
+  it("drops an item whose sale date passed since the daily build, by the Korean calendar day", () => {
+    const auction = document().court_auction;
+    const past = { ...auction.rounds[0], case_no: "9999타경00002", sale_date: "2099-01-04" };
+    const both = { ...auction, rounds: [past, ...auction.rounds] };
+    expect(upcoming(both, "2099-01-05").rounds.map((round) => round.case_no)).toEqual([
+      "9999타경00001",
+    ]);
+    // 15:30 UTC is already the next day in Korea.
+    expect(todayKst(new Date("2099-01-04T15:30:00Z"))).toBe("2099-01-05");
   });
 });

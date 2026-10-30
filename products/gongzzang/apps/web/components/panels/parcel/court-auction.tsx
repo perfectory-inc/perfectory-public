@@ -59,7 +59,9 @@ type Translate = ReturnType<typeof useTranslations<"panels.parcel.courtAuction">
 
 function rowsOf(t: Translate, r: CourtAuctionRound): [string, string][] {
   const rows: [string, string][] = [];
-  if (r.court_name) rows.push([t("court"), r.court_name]);
+  if (r.print_address_raw) rows.push([t("address"), r.print_address_raw]);
+  if (r.court_name)
+    rows.push([t("court"), [r.court_name, r.department_name].filter(Boolean).join(" ")]);
   if (r.appraisal_amount_krw != null)
     rows.push([t("appraisal"), formatPriceKrw(r.appraisal_amount_krw)]);
   if (r.minimum_bid_price_krw != null)

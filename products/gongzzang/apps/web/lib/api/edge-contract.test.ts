@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { EdgeBuildingProfileSchema } from "./building-edge";
+import { CourtAuctionDocumentSchema } from "./court-auction";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 import { UnitPriceDocumentSchema } from "./unit-price-edge";
 
@@ -15,7 +16,6 @@ const lanes = JSON.parse(
   readFileSync(resolve(FOUNDATION, "config/r2-connections.contract.json"), "utf8"),
 ).by_pnu_lanes;
 const lane = lanes["unit-price"];
-const publicAuction = lanes["parcel-public-auction"];
 const registry = JSON.parse(
   readFileSync(resolve(FOUNDATION, "contracts/schema-registry/registry.json"), "utf8"),
 ) as {
@@ -45,11 +45,12 @@ describe("the web reads what the foundation publishes", () => {
   // 2026-10-29: a web build that refused the public auction v2 document showed no auction at all.
   // The lane's versions live in the schema registry (root ADR-0336), never on its contract line: the
   // web takes every string of every major the registry lists for the lane's subject.
-  it("accepts every public auction document version the lane can serve", () => {
-    expect(publicAuction.document_schema_version).toBeUndefined();
-    const entry = registry.subjects.find(
-      (subject) => subject.owner.lane === "parcel-public-auction",
-    );
+  it.each([
+    ["parcel-public-auction", PublicAuctionDocumentSchema],
+    ["parcel-court-auction", CourtAuctionDocumentSchema],
+  ] as const)("accepts every %s document version the lane can serve", (name, schema) => {
+    expect(lanes[name].document_schema_version).toBeUndefined();
+    const entry = registry.subjects.find((subject) => subject.owner.lane === name);
     expect(entry).toBeDefined();
     const servable = new Set<string>();
     for (const revision of entry?.revisions ?? []) {
@@ -57,7 +58,7 @@ describe("the web reads what the foundation publishes", () => {
       servable.add(revision.schema_version);
     }
     for (const version of servable) {
-      expect(PublicAuctionDocumentSchema.shape.schema_version.options).toContain(version);
+      expect(schema.shape.schema_version.options).toContain(version);
     }
   });
 });

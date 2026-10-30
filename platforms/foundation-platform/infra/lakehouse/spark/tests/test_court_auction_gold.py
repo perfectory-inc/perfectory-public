@@ -43,7 +43,12 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE}, "in-progress items only")
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
-        self.assertEqual(set(whole), {job.ITEM_SOURCE})
+        # The item table maps its changed keys to PNUs; a parcel edition or lineage change moves
+        # items their rows do not name, so those two rebuild the kind whole (root ADR-0312 §2).
+        self.assertEqual(set(whole), {job.PARCEL_SOURCE, job.LINEAGE_SOURCE})
+        self.assertEqual(job.declared_sources("parcel-court-auction", True),
+                         (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.LINEAGE_SOURCE))
+        self.assertEqual(job.declared_sources("parcel-court-auction", False), (job.PARCEL_SOURCE, job.ITEM_SOURCE))
 
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
@@ -112,7 +117,7 @@ class PlacementSparkTest(unittest.TestCase):
         candidates = self.spark.createDataFrame([
             (SPLIT_A, RETIRED, 1, "origin:split:confirmed"), (SPLIT_B, RETIRED, 1, "origin:split:confirmed"),
             (CURRENT, RETIRED, 2, "lineage:confirmed")], "successor_pnu string, source_pnu string, hop int, path string")
-        placed = job.placed(job.rounds(self.items()), current, candidates).collect()
+        placed = job.onbid.placed(job.rounds(self.items()), current, candidates).collect()
         where = sorted((r.case_no, r.pnu, r.attached_via) for r in placed)
         self.assertEqual(where, sorted([
             ("C-1", CURRENT, None),
@@ -128,7 +133,7 @@ class PlacementSparkTest(unittest.TestCase):
             (RETIRED, CURRENT, "official"), (STRANDED, CURRENT, "needs_review")],
             "predecessor_pnu string, successor_pnu string, grade string")
         where = {(r.case_no, r.pnu, r.attached_via)
-                 for r in job.placed(job.rounds(self.items()), current, None, merges).collect()}
+                 for r in job.onbid.placed(job.rounds(self.items()), current, None, merges).collect()}
         self.assertEqual(where, {("C-1", CURRENT, None), ("C-2", CURRENT, "merged:official"),
                                  ("C-3", STRANDED, job.LINEAGE_MISSING)})
 
@@ -136,8 +141,8 @@ class PlacementSparkTest(unittest.TestCase):
         # Root ADR-0292: a lineage_missing item has no parcel document to attach to, so it is never
         # written to the servable Gold, though placed() still flags it (counter and silver keep it).
         current = self.spark.createDataFrame([(CURRENT,)], "pnu string")
-        placed = job.placed(job.rounds(self.items()), current, None)
-        servable = {(r.case_no, r.pnu, r.attached_via) for r in job.servable(placed).collect()}
+        placed = job.onbid.placed(job.rounds(self.items()), current, None)
+        servable = {(r.case_no, r.pnu, r.attached_via) for r in job.onbid.servable(placed).collect()}
         self.assertEqual(servable, {("C-1", CURRENT, None)})  # C-2, C-3 (lineage_missing) are gone
 
 
@@ -202,7 +207,7 @@ class DocumentSparkTest(unittest.TestCase):
 
     def test_a_document_carries_exactly_its_records_fields(self):
         # The guard-equivalent path check: the bake serves the JSON as written, so its paths are the
-        # committed record's (contracts/by-pnu-documents; mirrors by_pnu_document_records.rs SPARK_HELD).
+        # registry's current revision (root ADR-0336; by_pnu_document_records.rs SPARK_HELD names this test).
         import json
         import by_pnu_kinds
         from pyspark.sql import functions as F
@@ -236,6 +241,51 @@ class DocumentSparkTest(unittest.TestCase):
         carried = rows.where(F.col("case_no") == "CARRIED").withColumn("pnu", F.lit(SPLIT_A)).withColumn(
             "attached_via", F.lit("origin:split:confirmed"))
         self.assertEqual(job.document_rows(carried).first().attached_via, "origin:split:confirmed")
+
+
+CHANGE_SCHEMA = ("court_office_code string, case_no string, property_seq int, item_seq int, pnu string, "
+                 "row_state string, source_snapshot_id string, item_in_progress_yn string, sale_date date")
+
+
+def versioned(case, pnu_value, snap, sale_date, row_state=None):
+    return ("B", case, 1, 1, pnu_value, row_state, snap, "Y", sale_date)
+
+
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class AffectedSparkTest(unittest.TestCase):
+    """Root ADR-0312 §2: only the PNUs an item change or a passed sale date reaches are rebuilt."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.spark = SparkSession.builder.master("local[2]").appName("court-auction-affected").getOrCreate()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def test_a_moved_item_reaches_both_pnus_a_passed_sale_date_its_own_and_nothing_else_is_touched(self):
+        import json
+
+        base = [versioned("MOVED", CURRENT, "s1", date(2099, 1, 9)),
+                versioned("PASSED", SPLIT_A, "s1", date(2099, 1, 3)),
+                versioned("STILL", SPLIT_B, "s1", date(2099, 1, 9))]
+        old = {job.ITEM_SOURCE: self.spark.createDataFrame(base, CHANGE_SCHEMA)}
+        new = {job.ITEM_SOURCE: self.spark.createDataFrame(base + [versioned("MOVED", RETIRED, "s2", date(2099, 1, 9))],
+                                                           CHANGE_SCHEMA),
+               job.PARCEL_SOURCE: self.spark.createDataFrame([(p,) for p in (CURRENT, RETIRED, SPLIT_A, SPLIT_B)],
+                                                             "pnu string")}
+
+        def served(pnu_value, case):
+            body = {"rounds": [{"court_office_code": "B", "case_no": case, "property_seq": 1, "item_seq": 1}]}
+            return (pnu_value, json.dumps(body))
+
+        gold = self.spark.createDataFrame([served(CURRENT, "MOVED"), served(SPLIT_A, "PASSED"), served(SPLIT_B, "STILL")],
+                                          "pnu string, court_auction_json string")
+        how = job.Placement("2099-01-04T00:00:00Z")
+        affected = job.affected_pnus(old, new, how, gold, "2099-01-02T00:00:00Z", [job.ITEM_SOURCE])
+        self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT, RETIRED, SPLIT_A})
 
 
 if __name__ == "__main__":

@@ -40,57 +40,29 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
   const publicAuctionCount = publicAuction.data?.length ?? 0;
   const courtAuction = useQuery(parcelCourtAuctionQuery(entry.id));
   const courtAuctionCount = courtAuction.data?.rounds.length ?? 0;
+  const counts = {
+    listings: listingCount,
+    publicAuction: publicAuctionCount,
+    courtAuction: courtAuctionCount,
+  };
   const categories = [
     { key: "parcel" as const, label: t("categories.parcel"), count: null },
-    ...(listingCount > 0
-      ? [{ key: "listings" as const, label: t("categories.listings"), count: listingCount }]
-      : []),
-    ...(publicAuctionCount > 0
-      ? [
-          {
-            key: "publicAuction" as const,
-            label: t("categories.publicAuction"),
-            count: publicAuctionCount,
-          },
-        ]
-      : []),
-    ...(courtAuctionCount > 0
-      ? [
-          {
-            key: "courtAuction" as const,
-            label: t("categories.courtAuction"),
-            count: courtAuctionCount,
-          },
-        ]
-      : []),
+    ...(["listings", "publicAuction", "courtAuction"] as const)
+      .filter((key) => counts[key] > 0)
+      .map((key) => ({ key, label: t(`categories.${key}`), count: counts[key] })),
   ];
+  // Each non-parcel category is one page of its own data, once that data has loaded.
+  const pages: Record<Exclude<typeof category, "parcel">, ReactNode> = {
+    listings: listings.data && <ParcelListingsCard entry={entry} data={listings.data} />,
+    publicAuction: publicAuction.data && <ParcelPublicAuctionCard rounds={publicAuction.data} />,
+    courtAuction: courtAuction.data && <ParcelCourtAuctionCard data={courtAuction.data} />,
+  };
+  const page = category === "parcel" ? null : pages[category];
   const parcelSections = useParcelSections(entry, data);
   const sections: Section[] =
-    category === "listings" && listings.data
-      ? [
-          {
-            id: "listings",
-            label: t("categories.listings"),
-            content: <ParcelListingsCard entry={entry} data={listings.data} />,
-          },
-        ]
-      : category === "publicAuction" && publicAuction.data
-        ? [
-            {
-              id: "publicAuction",
-              label: t("categories.publicAuction"),
-              content: <ParcelPublicAuctionCard rounds={publicAuction.data} />,
-            },
-          ]
-        : category === "courtAuction" && courtAuction.data
-          ? [
-              {
-                id: "courtAuction",
-                label: t("categories.courtAuction"),
-                content: <ParcelCourtAuctionCard data={courtAuction.data} />,
-              },
-            ]
-          : parcelSections;
+    category !== "parcel" && page
+      ? [{ id: category, label: t(`categories.${category}`), content: page }]
+      : parcelSections;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = useScrollSpy(scrollRef, sections.map((s) => s.id).join(","));

@@ -641,6 +641,7 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(calls, [])
         for active in (["foundation-gold-panel-rebuild.service"], ["foundation-gold-panel-rebuild-unconditional"],
                        ["foundation-by-pnu-serving-bake.service"], ["foundation-by-pnu-public-auction-bake.service"],
+                       ["foundation-by-pnu-court-auction-bake.service"],
                        ["foundation-building-pack-bake-g3.service"]):
             with self.subTest(active=active):
                 result, calls = self.run_operator("parcel", "gold-rebuild", active=active)
@@ -730,6 +731,7 @@ class PackOperator(OperatorHarness):
         self.assertIn("foundation-gold-panel-rebuild.service: inactive", result.stdout)
         self.assertIn("foundation-by-pnu-serving-bake.service: inactive", result.stdout)
         self.assertIn("foundation-by-pnu-public-auction-bake.service: inactive", result.stdout)
+        self.assertIn("foundation-by-pnu-court-auction-bake.service: inactive", result.stdout)
 
     def test_the_equality_gate_is_told_its_generation_by_the_action(self):
         # 2026-10-13: the first parcel kind lane's gate (가) stopped with "PACK_GENERATION is

@@ -1020,13 +1020,15 @@
     },
     {
       "id": "gold_court_auction_rebuild",
+      "scope": "changed-keys",
       "interruptible": true,
-      "description": "법원경매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. 공매(gold_public_auction_rebuild)를 본뜬 자기 생산자 종류라 gold_kind_rebuild 가 아니라 자기 작업에서 돈다(root ADR-0287). by_pnu_serving_bake serves its commit. Off until court collection turns on (court_auction_collect/court_auction_silver).",
+      "commits": "as_it_goes",
+      "description": "법원경매 kind Gold (root ADR-0287, ADR-0353; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. An own-producer kind like 공매, so its own job, not gold_kind_rebuild. Partial: only the PNUs whose items changed in Silver, or whose sale date passed since the last build, are recomputed and merged (root ADR-0312 §2); a new served parcel edition or lineage rebuilds it whole. Started when court_auction_silver commits, by the asset reconciler (asset_reconcile) when that event was lost, and at 22:05 as the fallback (root ADR-0171), not the public-auction rebuild's 21:35: both take the spark pool and the rebuild lock. A committed rebuild starts by_pnu_court_auction_bake (root ADR-0303).",
       "systemd_service": "foundation-gold-court-auction-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
-      "schedule": "35 21 * * *",
-      "started_by": "schedule",
+      "schedule": "5 22 * * *",
+      "started_by": "inputs",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 65,
@@ -1037,8 +1039,8 @@
       "pipeline_graph_edges": [
         "silver-court-auction-item-to-gold-parcel-court-auction"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0280, ADR-0281, ADR-0287). Off until court collection turns on: court_auction_collect and court_auction_silver stay off until a first supervised night (runbook court-auction.md), and switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:30:00Z"
     },
     {
       "id": "gold_public_auction_rebuild",
@@ -1202,6 +1204,35 @@
       "enabled_since": "2026-10-28T00:00:00Z"
     },
     {
+      "id": "by_pnu_court_auction_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_court_auction (the own-producer court-auction kind, root ADR-0287, ADR-0353) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-court-auction), as section packs (root ADR-0147, ADR-0193 §9), exactly as by_pnu_public_auction_bake does for its lane: a change set decides a create-only patch, a reflect-only manifest or a full new generation. Its own job and asset (root ADR-0303, ADR-0333). Until the operator's first cut-over of the lane (its pack-only gate) a run is `nothing to do`. Started when gold_court_auction_rebuild commits a new snapshot, by the asset reconciler (asset_reconcile) when that event was lost, and at 11:05 as the fallback (root ADR-0171), apart from the 10:15, 10:45 and 10:55 bakes so no two clock starts crowd the host at once; each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). It does not take turns. One slot and MemoryMax=3G (root ADR-0138): its Gold is the parcels with an item in progress, about 40,000 small documents (2026-10-19 Silver: 37,922 items with a PNU), the unit price bake's size class.",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-court-auction-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "5 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 60,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:30:00Z"
+    },
+    {
       "id": "by_pnu_unit_price_bake",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1253,6 +1284,8 @@
         "gold_unit_price_rebuild",
         "by_pnu_unit_price_bake",
         "by_pnu_public_auction_bake",
+        "gold_court_auction_rebuild",
+        "by_pnu_court_auction_bake",
         "by_pnu_serving_bake"
       ],
       "enabled": true,

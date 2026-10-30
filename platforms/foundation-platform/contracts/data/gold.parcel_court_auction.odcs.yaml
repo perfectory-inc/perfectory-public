@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "gold.parcel_court_auction"
 name: "필지 법원경매 by-PNU 표"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "PNU마다 빌드 시각에 진행 중인 법원경매 물건을 매각기일이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287). 계약의 종류 한 줄(parcel-court-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 법원경매 Silver 에서 만든다. 공매(parcel-public-auction)를 본떴고 사진 색인은 없다. 수집이 꺼져 있어 데이터가 없는 계약만의 섬(contract_only)이다. 이 행을 보여 주는 화면은 출처(대한민국법원 법원경매정보)를 표시해야 한다(저작권법 제24조의2, 루트 ADR-0281 §6)."
+  purpose: "PNU마다 빌드 시각에 진행 중인 법원경매 물건을 매각기일이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287, ADR-0353). 계약의 종류 한 줄(parcel-court-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 법원경매 Silver 에서 만든다. 공매(parcel-public-auction)의 자리 정하기를 함께 쓰고, 바뀐 물건이 닿는 PNU 만 다시 만든다. 목록 검색에는 사진이 없어 사진 색인이 없다. 이 행을 보여 주는 화면은 출처(대한민국법원 법원경매정보)를 표시해야 한다(저작권법 제24조의2, 루트 ADR-0281 §6)."
 team:
   name: "foundation-platform"
 servers:
@@ -62,7 +62,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "gold-parcel-court-auction"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Projection"
   - property: "physicalFormat"

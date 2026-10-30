@@ -90,7 +90,9 @@
       "unit_price_panel_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "by_pnu_kind_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "onbid_public_auction_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
-      "onbid_public_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
+      "onbid_public_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "court_auction_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "court_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
     },
     "scoped_contracts": {
       "industrial_complex_lakehouse_contracts.json": {
@@ -122,6 +124,10 @@
       "parcel-public-auction": {
         "max_row_loss_fraction": 0.5,
         "max_row_loss_reason": "The 공매 kind's rows are the parcels with an OPEN Onbid auction as of the build (root ADR-0287 §7), which open and close every day — unlike the slowly-growing registers the 1% default is for, this count swings widely day to day (a batch of rounds closing drops those PNUs). The bound here catches a catastrophic loss (an input lost a region, a join broke, or, as on 2026-10-21, a producer change that drops real sales) rather than normal daily variation; tighten it once the daily open-auction volatility is measured against a clean baseline."
+      },
+      "parcel-court-auction": {
+        "max_row_loss_fraction": 0.5,
+        "max_row_loss_reason": "The 경매 kind's rows are the parcels with a court auction item in progress as of the build (root ADR-0353), which leave as their sale dates pass and arrive as cases are listed: like the 공매 kind, the count swings day to day, unlike the slowly-growing registers the 1% default is for. The bound catches a catastrophic loss (the item Silver lost a region, a join broke, a night's pass loaded only in part) rather than daily variation; tighten it once a month of daily counts is measured."
       }
     },
     "incremental": {

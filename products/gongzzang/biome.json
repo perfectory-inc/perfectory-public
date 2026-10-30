@@ -21,6 +21,7 @@
       "!crates/foundation-platform-client/openapi/*.json",
       "!apps/web/lib/api/foundation-catalog.generated.ts",
       "!apps/web/lib/api/public-auction.generated.ts",
+      "!apps/web/lib/api/court-auction.generated.ts",
       "!services/gongzzang-api/openapi.json",
       "!packages/api-types/generated/schema.ts",
       "!pnpm-lock.yaml"
