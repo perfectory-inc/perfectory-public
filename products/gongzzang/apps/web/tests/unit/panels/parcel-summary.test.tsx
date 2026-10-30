@@ -10,6 +10,7 @@ const reads = vi.hoisted(() => ({
   buildings: { buildings: [] as unknown[], unlinked_units: [] as unknown[] },
   listings: { listings: [] as unknown[], total: 0 },
   publicAuction: [] as unknown[],
+  courtAuction: null as { rounds: unknown[]; source_attribution: string } | null,
 }));
 vi.mock("@/components/panels/parcel/queries", () => ({
   parcelBuildingsQuery: (pnu: string) => ({
@@ -23,6 +24,10 @@ vi.mock("@/components/panels/parcel/queries", () => ({
   parcelPublicAuctionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "public-auction", pnu],
     queryFn: async () => reads.publicAuction,
+  }),
+  parcelCourtAuctionQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "court-auction", pnu],
+    queryFn: async () => reads.courtAuction,
   }),
 }));
 
@@ -157,6 +162,25 @@ describe("parcel panel categories", () => {
       ).toEqual(["필지정보", "공매 2"]);
     } finally {
       reads.publicAuction = [];
+    }
+  });
+
+  it("adds 경매 with its count when the parcel has court auctions", async () => {
+    // Synthetic only (public-repo fixture-safety): made-up items, no real court data or place names.
+    reads.courtAuction = {
+      rounds: [{ building_name: "테스트 물건" }, { building_name: "테스트 물건" }],
+      source_attribution: "대한민국법원 법원경매정보",
+    };
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      expect(
+        within(bar)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual(["필지정보", "경매 2"]);
+    } finally {
+      reads.courtAuction = null;
     }
   });
 });

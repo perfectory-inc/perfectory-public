@@ -240,7 +240,8 @@
         "categories": {
           "parcel": "필지정보",
           "listings": "매물",
-          "publicAuction": "공매"
+          "publicAuction": "공매",
+          "courtAuction": "경매"
         },
         "sections": {
           "land": "토지",
@@ -604,6 +605,21 @@
           "video": "동영상"
         },
         "announcementTextOmitted": "공고문전문이 길어 여기에 싣지 않았습니다. 첨부파일을 확인하세요."
+      },
+      "courtAuction": {
+        "title": "이 필지의 경매 ({count})",
+        "none": "이 필지에 진행 중인 경매가 없어요",
+        "fallbackName": "경매 물건",
+        "address": "소재지",
+        "court": "법원",
+        "appraisal": "감정가",
+        "minimumBid": "최저매각가",
+        "saleAmount": "매각가",
+        "saleDate": "매각기일",
+        "salePlace": "매각장소",
+        "failedBids": "유찰",
+        "failedBidsCount": "{count}회",
+        "source": "출처: {attribution}"
       }
     },
     "complex": {

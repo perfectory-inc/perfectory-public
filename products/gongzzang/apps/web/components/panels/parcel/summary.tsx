@@ -8,9 +8,15 @@ import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
+import { ParcelCourtAuctionCard } from "./court-auction";
 import { ParcelListingsCard } from "./listings";
 import { ParcelPublicAuctionCard } from "./public-auction";
-import { parcelBuildingsQuery, parcelListingsQuery, parcelPublicAuctionQuery } from "./queries";
+import {
+  parcelBuildingsQuery,
+  parcelCourtAuctionQuery,
+  parcelListingsQuery,
+  parcelPublicAuctionQuery,
+} from "./queries";
 
 type Entry = Extract<PanelStackEntry, { kind: "parcel" }>;
 
@@ -25,45 +31,38 @@ type Section = { id: string; label: string; content: ReactNode };
  */
 export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelDocument }) {
   const t = useTranslations("panels.parcel.summary");
-  const [category, setCategory] = useState<"parcel" | "listings" | "publicAuction">("parcel");
+  const [category, setCategory] = useState<
+    "parcel" | "listings" | "publicAuction" | "courtAuction"
+  >("parcel");
   const listings = useQuery(parcelListingsQuery(entry.id));
   const listingCount = listings.data?.total ?? 0;
   const publicAuction = useQuery(parcelPublicAuctionQuery(entry.id));
   const publicAuctionCount = publicAuction.data?.length ?? 0;
+  const courtAuction = useQuery(parcelCourtAuctionQuery(entry.id));
+  const courtAuctionCount = courtAuction.data?.rounds.length ?? 0;
+  const counts = {
+    listings: listingCount,
+    publicAuction: publicAuctionCount,
+    courtAuction: courtAuctionCount,
+  };
   const categories = [
     { key: "parcel" as const, label: t("categories.parcel"), count: null },
-    ...(listingCount > 0
-      ? [{ key: "listings" as const, label: t("categories.listings"), count: listingCount }]
-      : []),
-    ...(publicAuctionCount > 0
-      ? [
-          {
-            key: "publicAuction" as const,
-            label: t("categories.publicAuction"),
-            count: publicAuctionCount,
-          },
-        ]
-      : []),
+    ...(["listings", "publicAuction", "courtAuction"] as const)
+      .filter((key) => counts[key] > 0)
+      .map((key) => ({ key, label: t(`categories.${key}`), count: counts[key] })),
   ];
+  // Each non-parcel category is one page of its own data, once that data has loaded.
+  const pages: Record<Exclude<typeof category, "parcel">, ReactNode> = {
+    listings: listings.data && <ParcelListingsCard entry={entry} data={listings.data} />,
+    publicAuction: publicAuction.data && <ParcelPublicAuctionCard rounds={publicAuction.data} />,
+    courtAuction: courtAuction.data && <ParcelCourtAuctionCard data={courtAuction.data} />,
+  };
+  const page = category === "parcel" ? null : pages[category];
   const parcelSections = useParcelSections(entry, data);
   const sections: Section[] =
-    category === "listings" && listings.data
-      ? [
-          {
-            id: "listings",
-            label: t("categories.listings"),
-            content: <ParcelListingsCard entry={entry} data={listings.data} />,
-          },
-        ]
-      : category === "publicAuction" && publicAuction.data
-        ? [
-            {
-              id: "publicAuction",
-              label: t("categories.publicAuction"),
-              content: <ParcelPublicAuctionCard rounds={publicAuction.data} />,
-            },
-          ]
-        : parcelSections;
+    category !== "parcel" && page
+      ? [{ id: category, label: t(`categories.${category}`), content: page }]
+      : parcelSections;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = useScrollSpy(scrollRef, sections.map((s) => s.id).join(","));

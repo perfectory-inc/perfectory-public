@@ -324,6 +324,70 @@
           ]
         }
       ]
+    },
+    {
+      "subject": "foundation-platform.parcel_court_auction_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-court-auction",
+        "producer": "infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0353-court-auction-is-a-parcel-kind-built-partially-and-baked-in-its-own-job.md",
+          "reason": "the first served document: a parcel's court auction items in progress, the list search's values and the court's attribution, registered before its first bake"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
+          "reason": "the 경매 panel: generated from this list and the subject's current revision (pnpm gen:schemas)",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "court_auction", "required": true},
+            {"path": "court_auction.rounds", "required": true},
+            {"path": "court_auction.source_attribution", "required": true},
+            {"path": "court_auction.rounds[].case_no", "required": false},
+            {"path": "court_auction.rounds[].user_case_no", "required": false},
+            {"path": "court_auction.rounds[].court_name", "required": false},
+            {"path": "court_auction.rounds[].department_name", "required": false},
+            {"path": "court_auction.rounds[].building_name", "required": false},
+            {"path": "court_auction.rounds[].print_address_raw", "required": false},
+            {"path": "court_auction.rounds[].appraisal_amount_krw", "required": false},
+            {"path": "court_auction.rounds[].minimum_bid_price_krw", "required": false},
+            {"path": "court_auction.rounds[].sale_amount_krw", "required": false},
+            {"path": "court_auction.rounds[].sale_date", "required": false},
+            {"path": "court_auction.rounds[].sale_time_raw", "required": false},
+            {"path": "court_auction.rounds[].sale_place", "required": false},
+            {"path": "court_auction.rounds[].failed_bid_count", "required": false}
+          ]
+        },
+        {
+          "name": "foundation-publisher",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back, the serving monitor (foundation-by-pnu-serving-monitor@parcel-court-auction) and the Worker autodeploy smoke hold every served document to; it takes the subject's major from the registry",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "source", "required": true},
+            {"path": "court_auction", "required": true},
+            {"path": "attached_via", "required": false}
+          ]
+        },
+        {
+          "name": "foundation-by-pnu-gateway",
+          "at": "platforms/foundation-platform/services/foundation-by-pnu-gateway/src/schemas.ts",
+          "reason": "the parcel Worker serves the document bytes as they are and reads none of its fields; it holds the manifest's record of the document schema to the subject's majors",
+          "reads": []
+        }
+      ]
     }
   ]
 }

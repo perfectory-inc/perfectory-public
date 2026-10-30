@@ -1,0 +1,44 @@
+[Unit]
+Description=Foundation Platform by-PNU court-auction bake: gold.parcel_court_auction to R2 by-PNU serving section packs, its own job and asset beside the panel bake (ADR-0287, ADR-0303, ADR-0353)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The same files the by-PNU serving bake reads: admitted-writer runtime settings, the lakehouse R2
+# settings, and the Gold read and served-snapshot tag (catalog and R2 lakehouse writer). The
+# optional last file holds only non-secret tuning (FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY).
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
+# The single own-producer court-auction lane, baked alone (root ADR-0303); until the operator's
+# first cut-over of the lane a run is `nothing to do`.
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh parcel-court-auction
+# The job list's time_limit_minutes (jobs.v1.json). Generated from the list, not hand-set:
+# `cargo run -p foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=1h
+# A small lane's export: the parcels with a court auction item in progress, about 40,000 small
+# documents (2026-10-19 Silver: 37,922 items with a PNU), the unit price lane's size class, so its
+# 3G bound; tighten it from the first production run's measured peak (systemctl show -p MemoryPeak).
+# It never runs beside the unit price bake in a worse set than the one the budget already counts:
+# the worst spark-slot combination is the parcel bake + the public-auction bake + one 3G bake,
+# 14 + 5 + 3 = 22g, no more than the 22g release builder (root ADR-0138). The change set runs before
+# the export in the compose `spark-small` container (2560m), a Docker cgroup the host budget counts.
+# scripts/guard/every-container-has-a-memory-cap.sh reads this line; without it the guard fails.
+MemoryMax=3G
+MemorySwapMax=0
+# As the sibling serving bakes: a process killed at MemoryMax fails the script's step, and the script
+# still ends with its `foundation-job-outcome failed ...` line instead of systemd stopping it first.
+OOMPolicy=continue
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Work files only on the data disk, never the root disk.
+ReadWritePaths=/data/foundation-platform/by-pnu-bake

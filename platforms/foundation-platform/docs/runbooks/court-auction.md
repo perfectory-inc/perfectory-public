@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # 법원경매정보 (courtauction.go.kr) — 정직한 수집·적재 런북
@@ -35,13 +35,25 @@ last_reviewed: 2026-10-19
 
 ## 처음 켜기
 
-1. 새벽(01:00–06:00 KST)에 단위를 직접 한 번 시작해 지켜본다:
-   `sudo systemctl start foundation-court-auction-collect.service`. 요청 수·소요 시간·거절 없음을 확인한다.
+1. 새벽(01:00–06:00 KST)에 운영자 경로로 한 번 시작해 지켜본다(작업이 꺼져 있을 때만 받는다):
+   `ssh -tt ai-server 'sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start court_auction_collect --requested-at "$(date +%s)" --reason "<왜>"'`.
+   요청 수·소요 시간·거절 없음을 확인한다. 2026-10-20 01:02 KST(2026-10-19 16:02 UTC) 첫 밤: 1,377요청(물건 1,125 · 매각결과 251 · robots 1),
+   1시간 18분, 거절 없음, Bronze 13.6MB. 적재: 물건 43,821행 중 PNU 86.5%, 매각결과 10,120행 중 97.0%.
    User-Agent 는 `perfectory-foundation-court-auction/<버전>` 이다. 연락처는 선택이다(ADR-0283):
    `/etc/foundation-platform/court-auction.env` 에 `FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT` 가 있으면 `(+연락처)` 로 붙는다.
 2. 적재 단위를 한 번 시작하고 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다.
 3. 첫 밤의 Bronze 크기를 perfectory-ops 비용 추정에 덧붙인다.
-4. 두 작업의 `enabled` 를 켜는 PR.
+4. 두 작업의 `enabled` 를 켜는 PR(2026-10-30, 사장 승인 "모든 데이터 수집을 승인").
+
+## 켠 뒤 첫 밤 전에 (2026-10-30)
+
+- 2026-10-20 09:42 KST 의 낮 실행(감독 면제)이 174 요청째 `ipcheck=false` 로 거절당해 `collector/refused.json` 이 남아 있다.
+  이 파일이 있는 동안 켜진 작업도 매 밤 시작하지 않는다. 낮 실행이 원인이었고 밤 실행(10-19)은 거절 없이 끝났으므로,
+  위 "거절당했을 때" 3번의 운영자 경로로 지운다. 지우는 것은 사람이다(수집기는 스스로 지우지 않는다).
+- 한 밤의 양(계산): 물건 검색 ±365일 창 약 108,306행(2026-10-21) ÷ 50 = 약 2,167쪽, 매각결과 약 251쪽, robots 1 =
+  약 2,420 요청(계약 상한 3,500), 요청당 3.4초(실측)로 약 2시간 17분. Bronze 는 요청당 약 9.9KB(13.6MB ÷ 1,377)라 한 밤 약
+  24MB, 한 달 약 0.7GB, 한 해 약 8.8GB(append-only). R2 저장 $0.015/GB-월로 한 해 쌓인 뒤에도 월 약 $0.13(약 190원).
+  수집은 사이트 무료 공개 목록이라 호출 비용이 없다.
 
 ## 출처 표시
 

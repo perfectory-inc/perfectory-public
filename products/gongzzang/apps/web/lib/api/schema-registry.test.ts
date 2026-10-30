@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { generate } from "../../codegen/gen-schemas.mjs";
+import { CourtAuctionDocumentSchema } from "./court-auction";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 
 // Root ADR-0336. 2026-10-29: an old build of this web refused the public auction's v2 documents —
@@ -50,13 +51,14 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     }
   });
 
-  it("reads exactly the public auction paths its pact lists", () => {
-    const entry = registry.subjects.find(
-      (subject) => subject.owner.lane === "parcel-public-auction",
-    );
+  it.each([
+    ["parcel-public-auction", "public-auction", PublicAuctionDocumentSchema],
+    ["parcel-court-auction", "court-auction", CourtAuctionDocumentSchema],
+  ] as const)("reads exactly the %s paths its pact lists", (lane, file, schema) => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === lane);
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
-    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/public-auction.generated.ts");
-    const read = paths(z.toJSONSchema(PublicAuctionDocumentSchema, { io: "input" }));
+    expect(pact?.at).toBe(`products/gongzzang/apps/web/lib/api/${file}.generated.ts`);
+    const read = paths(z.toJSONSchema(schema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 });
