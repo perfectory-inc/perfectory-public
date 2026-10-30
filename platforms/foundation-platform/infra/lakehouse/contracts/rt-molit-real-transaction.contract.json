@@ -1,0 +1,58 @@
+{
+  "$comment": "Root ADR-0348 (사장 결정 2026-10-30: the rt.molit.go.kr bulk path of FP-ADR-0020, its automation clause known). How 국토교통부 실거래가 is asked from the 조건별 자료제공 export, how politely, when, and what stops a run. Read by collect-rt-molit-real-transaction (crates/publisher/foundation-publisher-collection/src/rt_molit_real_transaction_collect.rs, compiled in) and by the Silver load (infra/lakehouse/spark/jobs/rt_molit_real_transaction.py). Checked 2026-10-30: no CAPTCHA and no login; a form page sets a session cookie, then a count check (JSON) and the CSV (POST); a nationwide export spans at most one month; no row cap (95,786 rows, 18 MB, 8 s).",
+  "version": 1,
+  "base_url": "https://rt.molit.go.kr",
+  "user_agent": "perfectory-foundation-rt-molit/1 (+root ADR-0348)",
+  "manners": {
+    "$comment": "Root ADR-0281's manners, applied here. One session, one request at a time. A run starts and asks only inside the quiet hours (KST). The provider's own answer caps downloads at 100 a day (its count-check message, quoted in rt_molit_real_transaction_export_ingest.rs); 90 leaves room for people. Two requests an export (count check, CSV), each after request_spacing_seconds: about 20 s an export with the transfer, so 18 exports are about 6 minutes.",
+    "request_spacing_seconds": 5,
+    "quiet_hours_kst": {"start": "01:00", "end": "06:00"},
+    "max_downloads_per_run": 18,
+    "daily_download_limit": 90,
+    "run_time_budget_seconds": 1500
+  },
+  "refusal": {
+    "$comment": "Root ADR-0281 §3 (rt_molit_real_transaction_export_ingest.rs REFUSAL_STATUSES and RtMolitRefusal): HTTP 403, 429 or 503, or a page where JSON or CSV belongs (a block, notice, login or CAPTCHA page), ends the run and writes refused.json in the state directory; every later run refuses before any request until a person removes it. Retries are never made for a refusal.",
+    "http_statuses": [403, 429, 503]
+  },
+  "daily_limit_messages": ["다운로드 횟수"],
+  "refresh_tiers": [
+    {"max_age_months": 2, "every_days": 1, "reason": "this month and the two before: reports arrive within 30 days of the contract, and 31% of cancellations within 30 days (810 measured, root ADR-0348)"},
+    {"max_age_months": 12, "every_days": 7, "reason": "cancellations: p99 354 days after the contract"},
+    {"max_age_months": 24, "every_days": 30, "reason": "the latest cancellation measured came 442 days after the contract"}
+  ],
+  "refresh_budget_reason": "Downloads a day (computed): the first tier 3 months x 12 datasets = 36, the second 10 x 12 / 7 = about 17, the third 12 x 12 / 30 = about 5: about 58 of the 90, leaving about 32 a day for the history (2,760 months: about 750 for the three industrial datasets first, about 23 days; all of it about 86 days).",
+  "priority": [
+    "real_transaction_industrial_trade",
+    "real_transaction_land_trade",
+    "real_transaction_commercial_trade"
+  ],
+  "datasets": {
+    "real_transaction_industrial_trade": {"thing_code": "H", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_land_trade": {"thing_code": "G", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_commercial_trade": {"thing_code": "F", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_apartment_trade": {"thing_code": "A", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_apartment_rent": {"thing_code": "A", "deal_type_code": "2", "first_month": "2011-01"},
+    "real_transaction_apartment_presale": {"thing_code": "E", "deal_type_code": "1", "first_month": "2007-06"},
+    "real_transaction_officetel_trade": {"thing_code": "D", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_officetel_rent": {"thing_code": "D", "deal_type_code": "2", "first_month": "2011-01"},
+    "real_transaction_row_house_trade": {"thing_code": "B", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_row_house_rent": {"thing_code": "B", "deal_type_code": "2", "first_month": "2011-01"},
+    "real_transaction_detached_house_trade": {"thing_code": "C", "deal_type_code": "1", "first_month": "2006-01"},
+    "real_transaction_detached_house_rent": {"thing_code": "C", "deal_type_code": "2", "first_month": "2011-01"}
+  },
+  "csv": {
+    "$comment": "Root ADR-0349. The export is CP949 text: a notice preamble, then a header line that starts with \"NO\", then one line per transaction. NO is a row number of this export, never identity. The mutable columns are filled in after the contract: a change in them is a new version of the same row.",
+    "encoding": "cp949",
+    "header_first_column": "NO",
+    "row_number_column": "NO",
+    "mutable_columns": ["해제사유발생일", "등기일자"]
+  },
+  "silver_load": {
+    "$comment": "What one Silver load takes (plan-silver-load-objects): the Bronze objects no commit of silver.real_transaction records, within window_days, at most max_objects a load.",
+    "window_days": 3,
+    "max_objects": 60,
+    "max_unmasked_unresolved_share": 0.25,
+    "max_unmasked_unresolved_share_reason": "Root ADR-0349 §6: of the rows whose lot the provider did not mask, the share that found no current parcel; above it a load lands its rows and fails so it is seen. Measured 2026-10-30 before any load (2025-09, 12 random 시군구, read-only Trino against silver.parcel_boundaries current rows): 4,925 unmasked candidates of 공장창고·상업업무·아파트·연립·오피스텔, 99.7% a current parcel. History rows meet more re-numbered lots, so the bound leaves room; the pull request that records the first loads sets it from them."
+  }
+}

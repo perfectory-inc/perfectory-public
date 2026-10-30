@@ -75,6 +75,7 @@ pub mod public_data_bronze_lane_registry;
 pub mod public_provider_rate_controller;
 pub mod public_provider_rate_policy;
 pub mod real_transaction_ingest;
+pub mod rt_molit_real_transaction_collect;
 pub mod rt_molit_real_transaction_export_collection_plan;
 pub mod rt_molit_real_transaction_export_ingest;
 pub mod vworld_bronze_catalog_recovery;

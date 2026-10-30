@@ -85,7 +85,7 @@ pub struct RtMolitExportIngestInput {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct RtMolitExportIngestConfig {
+pub(crate) struct RtMolitExportIngestConfig {
     source_slug: String,
     source_name: String,
     dataset_name: String,
@@ -129,7 +129,7 @@ impl RtMolitExportIngestConfig {
         })
     }
 
-    fn from_input(input: RtMolitExportIngestInput) -> anyhow::Result<Self> {
+    pub(crate) fn from_input(input: RtMolitExportIngestInput) -> anyhow::Result<Self> {
         let dataset_slug =
             rt_molit_dataset_slug(&input.request.thing_code, &input.request.deal_type_code)?;
         let source_slug = crate::public_data_control_support::resolve_canonical_source_slug(
@@ -197,7 +197,10 @@ fn nonblank(value: Option<String>) -> Option<String> {
     })
 }
 
-fn rt_molit_dataset_slug(thing_code: &str, deal_type_code: &str) -> anyhow::Result<&'static str> {
+pub(crate) fn rt_molit_dataset_slug(
+    thing_code: &str,
+    deal_type_code: &str,
+) -> anyhow::Result<&'static str> {
     match (thing_code, deal_type_code) {
         ("A", "1") => Ok("real_transaction_apartment_trade"),
         ("A", "2") => Ok("real_transaction_apartment_rent"),
@@ -217,15 +220,37 @@ fn rt_molit_dataset_slug(thing_code: &str, deal_type_code: &str) -> anyhow::Resu
     }
 }
 
+/// The provider said no (root ADR-0348 §6, the manners of root ADR-0281): an HTTP 403, 429 or 503,
+/// or a page where JSON or CSV belongs (a block, notice, login or CAPTCHA page). A collector stops
+/// at once and does not ask again until a person clears it.
+#[derive(Debug)]
+pub(crate) struct RtMolitRefusal(pub(crate) String);
+
+impl std::fmt::Display for RtMolitRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rt.molit.go.kr refused: {}", self.0)
+    }
+}
+
+impl std::error::Error for RtMolitRefusal {}
+
+const REFUSAL_STATUSES: [u16; 3] = [403, 429, 503];
+
 #[derive(Clone, Debug)]
-struct RtMolitExportClient {
+pub(crate) struct RtMolitExportClient {
     base_uri: String,
     user_agent: String,
     client: reqwest::Client,
 }
 
+/// The cookie the export form's page set, sent with every request of one session.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct RtMolitSession {
+    cookie: Option<String>,
+}
+
 impl RtMolitExportClient {
-    fn new(base_uri: String, user_agent: String) -> anyhow::Result<Self> {
+    pub(crate) fn new(base_uri: String, user_agent: String) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .user_agent(user_agent.clone())
             .build()
@@ -237,21 +262,45 @@ impl RtMolitExportClient {
         })
     }
 
-    async fn fetch_csv_export(
-        &self,
-        request: &RtMolitRealTransactionExportRequest,
-    ) -> anyhow::Result<RtMolitFetchedExport> {
-        let landing_url = format!("{}/pt/xls/xls.do?mobileAt=", self.base_uri);
+    fn landing_url(&self) -> String {
+        format!("{}/pt/xls/xls.do?mobileAt=", self.base_uri)
+    }
+
+    /// Opens the export form once: its cookie serves every export of the session.
+    pub(crate) async fn open_session(&self) -> anyhow::Result<RtMolitSession> {
         let landing = self
             .client
-            .get(&landing_url)
+            .get(self.landing_url())
             .header(USER_AGENT, &self.user_agent)
             .send()
             .await
             .context("failed to open rt.molit.go.kr CSV export form")?;
-        let cookie_header = cookie_header_from_set_cookie(landing.headers());
+        refuse_status(landing.status().as_u16(), "export form")?;
+        Ok(RtMolitSession {
+            cookie: cookie_header_from_set_cookie(landing.headers()),
+        })
+    }
+
+    async fn fetch_csv_export(
+        &self,
+        request: &RtMolitRealTransactionExportRequest,
+    ) -> anyhow::Result<RtMolitFetchedExport> {
+        let session = self.open_session().await?;
+        self.fetch_in_session(&session, request, std::time::Duration::ZERO)
+            .await
+    }
+
+    /// The count check, then the CSV: two requests, each after `spacing`.
+    pub(crate) async fn fetch_in_session(
+        &self,
+        session: &RtMolitSession,
+        request: &RtMolitRealTransactionExportRequest,
+        spacing: std::time::Duration,
+    ) -> anyhow::Result<RtMolitFetchedExport> {
+        let landing_url = self.landing_url();
         let form = request_form(request);
 
+        tokio::time::sleep(spacing).await;
         let count_url = format!("{}/pt/xls/ptXlsDownDataCheck.do", self.base_uri);
         let mut count_request = self
             .client
@@ -260,13 +309,14 @@ impl RtMolitExportClient {
             .header(REFERER, &landing_url)
             .header(ACCEPT, "application/json, text/javascript, */*; q=0.01")
             .form(&form);
-        if let Some(cookie) = cookie_header.as_deref() {
+        if let Some(cookie) = session.cookie.as_deref() {
             count_request = count_request.header(COOKIE, cookie);
         }
         let count_response = count_request
             .send()
             .await
             .context("failed to check rt.molit.go.kr export row count")?;
+        refuse_status(count_response.status().as_u16(), "count check")?;
         if !count_response.status().is_success() {
             bail!(
                 "rt.molit.go.kr count check returned HTTP {}",
@@ -279,6 +329,7 @@ impl RtMolitExportClient {
             .context("failed to read rt.molit.go.kr count response")?;
         let provider_count = parse_count_response(&count_body)?;
 
+        tokio::time::sleep(spacing).await;
         let csv_url = format!("{}/pt/xls/ptXlsCSVDown.do", self.base_uri);
         let mut csv_request = self
             .client
@@ -287,13 +338,14 @@ impl RtMolitExportClient {
             .header(REFERER, &landing_url)
             .header(ACCEPT, "text/csv, */*; q=0.01")
             .form(&form);
-        if let Some(cookie) = cookie_header.as_deref() {
+        if let Some(cookie) = session.cookie.as_deref() {
             csv_request = csv_request.header(COOKIE, cookie);
         }
         let csv_response = csv_request
             .send()
             .await
             .context("failed to download rt.molit.go.kr CSV export")?;
+        refuse_status(csv_response.status().as_u16(), "CSV download")?;
         if !csv_response.status().is_success() {
             bail!(
                 "rt.molit.go.kr CSV export returned HTTP {}",
@@ -319,13 +371,20 @@ impl RtMolitExportClient {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct RtMolitFetchedExport {
-    provider_count: u64,
-    raw_payload: Vec<u8>,
+fn refuse_status(status: u16, step: &str) -> anyhow::Result<()> {
+    if REFUSAL_STATUSES.contains(&status) {
+        return Err(RtMolitRefusal(format!("HTTP {status} at the {step}")).into());
+    }
+    Ok(())
 }
 
-async fn persist_plan(
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RtMolitFetchedExport {
+    pub(crate) provider_count: u64,
+    pub(crate) raw_payload: Vec<u8>,
+}
+
+pub(crate) async fn persist_plan(
     config: &RtMolitExportIngestConfig,
     provider_count: u64,
     plan: RtMolitRealTransactionExportPlan,
@@ -572,8 +631,13 @@ fn cookie_header_from_set_cookie(headers: &reqwest::header::HeaderMap) -> Option
 }
 
 fn parse_count_response(body: &str) -> anyhow::Result<u64> {
-    let response: JsonValue =
-        serde_json::from_str(body).context("rt.molit.go.kr count response must be JSON")?;
+    // A page where JSON belongs is a block, notice, login or CAPTCHA page: a refusal.
+    let response: JsonValue = serde_json::from_str(body).map_err(|_| {
+        RtMolitRefusal(format!(
+            "the count check answered something that is not JSON: {}",
+            body.chars().take(120).collect::<String>()
+        ))
+    })?;
     if let Some(message) = response.get("error").and_then(JsonValue::as_str) {
         bail!("rt.molit.go.kr provider rejected count check: {message}");
     }
@@ -585,7 +649,9 @@ fn parse_count_response(body: &str) -> anyhow::Result<u64> {
 
 fn reject_html_payload(raw_payload: &[u8], content_type: Option<&str>) -> anyhow::Result<()> {
     if content_type.is_some_and(|value| value.to_ascii_lowercase().contains("text/html")) {
-        bail!("rt.molit.go.kr CSV endpoint returned HTML content-type");
+        return Err(
+            RtMolitRefusal("the CSV download answered an HTML content-type".to_owned()).into(),
+        );
     }
     let prefix = String::from_utf8_lossy(&raw_payload[..raw_payload.len().min(128)]);
     if prefix
@@ -593,7 +659,7 @@ fn reject_html_payload(raw_payload: &[u8], content_type: Option<&str>) -> anyhow
         .to_ascii_lowercase()
         .starts_with("<html")
     {
-        bail!("rt.molit.go.kr CSV endpoint returned an HTML document");
+        return Err(RtMolitRefusal("the CSV download answered an HTML document".to_owned()).into());
     }
     Ok(())
 }

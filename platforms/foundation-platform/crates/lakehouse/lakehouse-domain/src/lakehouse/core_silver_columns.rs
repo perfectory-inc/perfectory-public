@@ -524,6 +524,7 @@ pub use crate::onbid_public_auction::{
 };
 pub use crate::parcel_number_change_history::SILVER_PARCEL_NUMBER_CHANGE_HISTORY;
 pub use crate::parcel_panel::GOLD_PARCEL_PANEL;
+pub use crate::real_transaction::SILVER_REAL_TRANSACTION;
 pub use crate::registered_factory::SILVER_REGISTERED_FACTORY;
 
 // D151 필지별 개별공시지가 CSV 의 열 순서 그대로 (root ADR-0085). 값은 원천 표기

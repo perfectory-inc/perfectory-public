@@ -4,8 +4,8 @@ use std::fmt::Write as _;
 
 use chrono::{Datelike, NaiveDate};
 use collection_domain::{
-    build_bronze_object_key, BronzeObjectKeyError, BronzeObjectKeyParts, SnapshotBasis,
-    SnapshotGranularity,
+    build_bronze_content_object_key, build_bronze_object_key, BronzeObjectKeyError,
+    BronzeObjectKeyParts, SnapshotBasis, SnapshotGranularity,
 };
 use foundation_shared_kernel::ObjectKey;
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -211,6 +211,21 @@ pub fn plan_rt_molit_real_transaction_export(
         snapshot_basis: SnapshotBasis::RequestMonth,
         raw_payload: input.raw_payload,
     })
+}
+
+/// Plans one export as a content-qualified Bronze object (root ADR-0348 §5, the key shape of root
+/// ADR-0152): `.../export--sha256-<checksum>.csv`, so a re-pull of the same month whose bytes changed
+/// lands beside the earlier one (append-only) and one whose bytes are the same is the same object.
+///
+/// # Errors
+///
+/// As [`plan_rt_molit_real_transaction_export`].
+pub fn plan_rt_molit_real_transaction_export_content_addressed(
+    input: RtMolitRealTransactionExportPlanInput<'_>,
+) -> Result<RtMolitRealTransactionExportPlan, RtMolitRealTransactionExportPlanError> {
+    let mut plan = plan_rt_molit_real_transaction_export(input)?;
+    plan.object_key = build_bronze_content_object_key(&plan.object_key, &plan.checksum_sha256)?;
+    Ok(plan)
 }
 
 fn object_partition_and_snapshot(

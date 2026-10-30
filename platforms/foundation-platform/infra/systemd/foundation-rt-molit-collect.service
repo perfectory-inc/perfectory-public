@@ -1,0 +1,24 @@
+[Unit]
+Description=Foundation Platform 국토교통부 실거래가 from the rt.molit.go.kr bulk export, the collection half: in the KST quiet hours, the (dataset, month) nationwide CSVs owed, politely, within the provider's daily limit; the Silver load finds them in R2 (root ADR-0348)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/rt-molit-collect.sh
+TimeoutStartSec=30m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/real-transaction
+
+[Install]
+WantedBy=multi-user.target
