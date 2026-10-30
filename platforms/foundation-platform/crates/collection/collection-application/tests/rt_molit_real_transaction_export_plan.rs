@@ -154,7 +154,10 @@ row-1
     assert!(first.starts_with(
         "bronze/source=rtmolitgokr__real_transaction_industrial_trade/period=2026-06/scope=nationwide/export--sha256-"
     ));
-    assert!(first.ends_with(".csv"));
+    assert_eq!(
+        first.rsplit_once('.').map(|(_, extension)| extension),
+        Some("csv")
+    );
     assert_eq!(
         first,
         plan(
