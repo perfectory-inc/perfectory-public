@@ -1,6 +1,6 @@
 //! Whose side a failed command is on: the provider's or the release's (root ADR-0363).
 //!
-//! 2026-10-30 13:07Z the deploy of 59c0b68 stopped at the staging smoke because VWorld answered
+//! 2026-10-30 13:07Z the 2026-10-30 deploy stopped at the staging smoke because VWorld answered
 //! the collection account's login `useChk` (new terms to accept). No release can accept a
 //! provider's terms, yet every deploy failed and every VWorld job failed with an opaque error. A
 //! command whose error carries a provider-side [`CollectionError`] exits with its own code and

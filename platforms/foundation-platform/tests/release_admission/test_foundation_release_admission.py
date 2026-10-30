@@ -215,7 +215,7 @@ class ReleaseAdmissionTests(unittest.TestCase):
         self.assertEqual(list(self.target.iterdir()), [])
 
     def test_the_2026_10_30_retry_archive_is_the_same_release_and_other_contents_are_not(self):
-        # 2026-10-30: the owner removed failed/59c0b68… to retry; the retry archived the tree again,
+        # 2026-10-30: the owner removed failed/<sha> to retry; the retry archived the tree again,
         # every entry stamped with the time of day, and prepare refused the installed release as
         # "a different archive". Identity is the files, modes and bytes (root ADR-0363 §7).
         def tree_archive(sha, *options):

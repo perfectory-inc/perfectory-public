@@ -869,7 +869,7 @@ async fn login_error(
 
 #[tokio::test]
 async fn login_terms_change_2026_10_30_is_an_account_action_not_a_release_failure() -> TestResult {
-    // 2026-10-30 13:07Z: the deploy of 59c0b68 stopped at the staging smoke on exactly this
+    // 2026-10-30 13:07Z: the 2026-10-30 deploy stopped at the staging smoke on exactly this
     // answer. VWorld changed its terms; only the account owner accepting them clears it
     // (root ADR-0363).
     let error = login_error(ResponseTemplate::new(200).set_body_json(serde_json::json!({

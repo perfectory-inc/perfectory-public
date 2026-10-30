@@ -955,7 +955,7 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual(unpaused[-len(self.ENABLED):], list(reversed(self.ENABLED)))
 
     def test_the_2026_10_30_retry_archives_the_same_commit_into_the_same_bytes(self):
-        # 2026-10-30: the retry of 59c0b68 archived the tree with the time of day as every mtime, so
+        # 2026-10-30: the retry of that commit archived the tree with the time of day as every mtime, so
         # its bytes differed from the first try's and prepare refused the release (root ADR-0363 §7).
         # The archive is stamped with the commit's own time; test_foundation_release_admission.py
         # proves git then writes the same bytes, and that other bytes of the same files are accepted.

@@ -287,7 +287,7 @@ class StagingSmoke(unittest.TestCase):
     NOT_SERVING = {"rc": 75, "outcome": {"outcome": "provider_unavailable", "message": "HTTP 503 after 3 attempts"}}
 
     def test_the_2026_10_30_terms_change_skips_the_sample_and_deploys_with_an_owner_page(self):
-        # 2026-10-30 13:07Z: the deploy of 59c0b68 stopped at "ingest FAILED … VWorld dataset login failed
+        # 2026-10-30 13:07Z: the 2026-10-30 deploy stopped at "ingest FAILED … VWorld dataset login failed
         # result=useChk". No release can accept a provider's terms.
         self.scenario(provider={"ingest-vworld-dataset-files": self.TERMS_CHANGED})
         result = self.run_smoke()

@@ -282,7 +282,7 @@ deploy_metric_phase build
 log "2. prepare (release admission: the signed release from the registry, or a build under the build lock)"
 archive="$(mktemp /var/lib/perfectory/foundation-XXXXXX.tar.gz)"
 # The same commit makes the same bytes (root ADR-0363 §7). An archive of a tree, not a commit, stamps
-# every entry with the current time, so 2026-10-30 the retry of 59c0b68 made other bytes than its
+# every entry with the current time, so 2026-10-30 the retry of that commit made other bytes than its
 # first try and prepare refused it ("already exists with a different archive"). The commit's own
 # time fixes the entries; git's tar order is the tree's and its gzip writes no name or time (gzip -n).
 committed_at="$(git --git-dir="${mirror}" show -s --format=%ct "${sha}")"

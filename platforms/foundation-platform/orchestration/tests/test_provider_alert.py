@@ -1,7 +1,7 @@
 """A provider that refuses our account pages its owner with the action it wants (root ADR-0363).
 
 2026-10-30 13:07Z VWorld answered the collection account's login `useChk` (new terms to accept). The
-deploy of 59c0b68 stopped at the staging smoke and every VWorld collection failed with "failed to
+2026-10-30 deploy stopped at the staging smoke and every VWorld collection failed with "failed to
 acquire VWorld dataset login session"; nothing said that only the owner could clear it, or how.
 scripts/ops/provider_alert.py turns the publisher's `foundation-provider-outcome` lines into one
 Alertmanager alert per provider, with the owner action config/provider-accounts.contract.json gives.

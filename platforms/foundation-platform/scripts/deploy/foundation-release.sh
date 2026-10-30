@@ -420,7 +420,7 @@ install_release() {
     recorded_sha="$(cat "${target}/.foundation-release-archive-sha256")"
     # A release is its contents, not its archive's bytes (root ADR-0363 §7). The lines above proved
     # every installed byte is the canonical commit's; other archive bytes of the same commit
-    # (2026-10-30: the first try of 59c0b68 archived with the time of day as every mtime) are the
+    # (2026-10-30: the first try of that commit archived with the time of day as every mtime) are the
     # same release when admission finds their contents to be that commit's. Other contents refuse.
     if [[ "${recorded_sha}" != "${archive_sha}" ]]; then
       "${admission}" check-archive "${release_id}" "${archive}" || {

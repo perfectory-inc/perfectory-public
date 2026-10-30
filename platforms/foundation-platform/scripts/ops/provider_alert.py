@@ -2,7 +2,7 @@
 """Pages what a provider wants from its account's owner, and what the staging smoke skipped (root ADR-0363).
 
 2026-10-30 13:07Z VWorld answered the collection account's login `useChk` (new terms to accept). The
-deploy of 59c0b68 stopped at the staging smoke and every VWorld collection failed with
+2026-10-30 deploy stopped at the staging smoke and every VWorld collection failed with
 "failed to acquire VWorld dataset login session" — an error no release could clear, saying nothing
 about who could. The publisher now ends such a run with exit 77 and one line,
 
