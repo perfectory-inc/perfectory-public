@@ -33,6 +33,8 @@ use lakehouse_infrastructure::{
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
+use foundation_publisher_core::refusal::Refused;
+
 use crate::building_link_evidence::ApprovedBuildingLinks;
 use crate::by_pnu_gateway_contract::ByPnuLane;
 use crate::by_pnu_serving_patch_export::{self as patch_export, PatchTarget};
@@ -509,7 +511,7 @@ pub(crate) fn select_rows_by<'a>(
         }
         ensure!(
             seen.insert(pnu.clone()),
-            "Gold snapshot carries more than one row for {pnu}"
+            Refused(format!("Gold snapshot carries more than one row for {pnu}"))
         );
     }
     if let Some(list) = allowlist {
@@ -520,7 +522,9 @@ pub(crate) fn select_rows_by<'a>(
             .collect::<Vec<_>>();
         ensure!(
             missing.is_empty(),
-            "the PNU allowlist names buildings absent from the Gold snapshot: {missing:?}"
+            Refused(format!(
+                "the PNU allowlist names keys absent from the Gold snapshot: {missing:?}"
+            ))
         );
     }
     Ok(selected)

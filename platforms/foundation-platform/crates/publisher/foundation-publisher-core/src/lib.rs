@@ -37,6 +37,7 @@ pub mod profile_gateway_contract;
 pub mod public_data_control_support;
 pub mod r2_command_support;
 pub mod r2_layout;
+pub mod refusal;
 pub mod runtime_environment;
 pub mod schema_registry;
 #[cfg(any(test, feature = "test-fixtures"))]

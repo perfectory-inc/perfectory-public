@@ -387,10 +387,23 @@ fn main() -> anyhow::Result<()> {
         // No runtime: the runner waits on its child itself, and its exit code is the outcome's.
         std::process::exit(i32::from(job_run_from_env()));
     }
-    if command_requires_expanded_stack(command) {
-        return run_command_with_expanded_stack(command);
+    let result = if command_requires_expanded_stack(command) {
+        run_command_with_expanded_stack(command)
+    } else {
+        run_command_runtime(command)
+    };
+    result.map_err(exit_if_refused)
+}
+
+/// A refusal of the inputs exits `REFUSED_EXIT_CODE`, so the bakes do not retry it; any other
+/// error returns to exit 1, which they retry (`foundation_publisher_core::refusal`).
+fn exit_if_refused(error: anyhow::Error) -> anyhow::Error {
+    use foundation_publisher_core::refusal::{is_refused, REFUSED_EXIT_CODE};
+    if is_refused(&error) {
+        eprintln!("Error: {error:?}");
+        std::process::exit(REFUSED_EXIT_CODE);
     }
-    run_command_runtime(command)
+    error
 }
 
 /// `job-run`: the job and paths from the environment (root ADR-0270 §2); the exit code is the one

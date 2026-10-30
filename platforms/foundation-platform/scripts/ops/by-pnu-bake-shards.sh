@@ -19,6 +19,11 @@ BY_PNU_FIRST_SHARDS=(1 2 3 4 5 6 7 8 9)
 BY_PNU_PACK_BAKE_WORKERS=4
 BY_PNU_PACK_BAKE_ATTEMPTS=3
 
+# The export's exit code for a refusal of its inputs (foundation_publisher_core::refusal, EX_DATAERR):
+# the same inputs refuse again, so a bake stops at it instead of retrying. On 2026-10-30 the
+# unit-price lane retried such a refusal six times, 45 seconds apart, on every run.
+BY_PNU_EXPORT_REFUSED=65
+
 # Is $1 a shard prefix?
 by_pnu_shard_valid() {
   [[ "$1" =~ ^[0-9]{1,10}$ ]]
