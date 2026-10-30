@@ -61,6 +61,7 @@ class VersionOrderTest(unittest.TestCase):
                 latest = current_row_latest(load_lakehouse_contract(block["table"]))
                 editions[block["table"]] = job.edition_column(latest)
         self.assertEqual(editions, {
+            "silver.building_permit_basis_outline": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_titles": "valid_from_utc",
             "silver.building_register_unit_areas": "valid_from_utc",

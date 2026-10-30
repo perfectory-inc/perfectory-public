@@ -797,7 +797,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
         self.assertFalse(frame.appended)
 
     def test_every_lane_contract_answers_for_its_overwrite(self) -> None:
-        """레인 계약 열두 개 모두: 덮어쓰는 레인은 compare 나 full_reason 하나, 붙이는 레인은 둘 다 없다."""
+        """레인 계약 열세 개 모두: 덮어쓰는 레인은 compare 나 full_reason 하나, 붙이는 레인은 둘 다 없다."""
         import json
         from lakehouse_ingest import LANE_CONTRACTS_DIR
 
@@ -806,7 +806,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
             block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh")
             if block is not None:
                 lanes[block["table"]] = block
-        self.assertEqual(len(lanes), 12)
+        self.assertEqual(len(lanes), 13)
         for table, block in lanes.items():
             if block["spark"]["iceberg_write_mode"] == "overwrite":
                 self.assertIn(overwrite_declaration(table), (COMPARE, FULL_REASON), table)
@@ -816,7 +816,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                 self.assertNotIn(FULL_REASON, block, table)
         compared = sorted(t for t, b in lanes.items() if COMPARE in b)
         # Every overwriting lane compares, and so does the exclusive-unit part lane (ADR-0318).
-        self.assertEqual(compared, ["silver.building_register_exclusive_unit",
+        self.assertEqual(compared, ["silver.building_permit_basis_outline", "silver.building_register_exclusive_unit",
                                     "silver.building_register_titles", "silver.building_register_unit_areas",
                                     "silver.building_register_units", "silver.land_characteristic",
                                     "silver.land_forest_ledger", "silver.land_individual_price",

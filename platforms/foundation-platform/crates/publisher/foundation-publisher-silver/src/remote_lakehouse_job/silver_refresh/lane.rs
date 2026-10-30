@@ -22,6 +22,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     UnitAreas,
     ApartmentPrice,
     ExclusiveUnit,
+    PermitBasisOutline,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -32,12 +33,13 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 12] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 13] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
         Self::ApartmentPrice,
         Self::ExclusiveUnit,
+        Self::PermitBasisOutline,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -56,6 +58,7 @@ impl Lane {
             Self::UnitAreas => "building-register-unit-areas",
             Self::ApartmentPrice => "building-register-apartment-price",
             Self::ExclusiveUnit => "building-register-exclusive-unit",
+            Self::PermitBasisOutline => "building-permit-basis-outline",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -106,6 +109,10 @@ impl Lane {
             Self::ExclusiveUnit => (
                 "hub-building-register-exclusive-unit-source-objects.json",
                 crate::building_register_exclusive_unit_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitBasisOutline => (
+                "hub-building-permit-basis-outline-source-objects.json",
+                crate::building_permit_basis_outline_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -173,6 +180,9 @@ impl ExportKind {
             },
             "export-building-register-exclusive-unit-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_EXCLUSIVE_UNIT",
+            },
+            "export-building-permit-basis-outline-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_BASIS",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {

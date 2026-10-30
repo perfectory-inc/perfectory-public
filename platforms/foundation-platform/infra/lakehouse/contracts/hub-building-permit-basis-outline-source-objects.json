@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0356-building-permits-land-in-silver-as-the-life-of-a-building.md",
+  "source": "bronze/source=hubgokr__building_permit_basis_outline",
+  "measured_at_utc": "2026-10-30",
+  "dataset_series": "mart_kcy_01",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 430 MB, 멤버 mart_kcy_01.txt 1,719,117,872 바이트)을 R2 읽기 전용 범위 읽기로 끝까지 읽었다: 6,527,521 행, 모든 행 41칸, 관리번호 6,527,521 개 모두 고유, PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 6,520,913 행(99.90%). 칸 뜻은 건축HUB 건축인허가 기본개요 API(getApBasisOulnInfo) 응답 항목 순서와 표본 행의 값(허가일 ≤ 착공 ≤ 사용승인, 건축구분코드 0100=신축)으로 맞췄다.",
+  "field_layout_authority": "건축HUB 건축인허가정보 서비스 기본개요 항목 순서와 2026-10 판 실측 표본의 교차 확인",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치·건물명·특수지명·블록·로트·지목·지역지구구역·건폐율·용적률·세대·호·가구·주차·생성일자)은 뜻을 추정하지 않고 raw_columns 의 원래 index 로만 보존한다. 칸 2(건물명)에는 개인 이름이 들어 있는 행이 있다: 화면에 내보내지 않는다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_01.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 41,
+  "columns": {
+    "mgmt_key": {"index": 0, "meaning": "관리허가대장PK 원문"},
+    "sigungu_cd": {"index": 3, "meaning": "시군구코드"},
+    "bjdong_cd": {"index": 4, "meaning": "법정동코드"},
+    "san_gubun": {"index": 5, "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"},
+    "bonbeon": {"index": 6, "meaning": "번 원문"},
+    "bubeon": {"index": 7, "meaning": "지 원문"},
+    "arch_kind_code": {"index": 19, "meaning": "건축구분코드 원문(0100 신축 등)"},
+    "arch_kind_name": {"index": 20, "meaning": "건축구분명 원문(신축·증축·용도변경·대수선·가설건축물축조허가 등)"},
+    "plot_area_m2": {"index": 21, "meaning": "대지면적 원문"},
+    "building_area_m2": {"index": 22, "meaning": "건축면적 원문"},
+    "total_floor_area_m2": {"index": 24, "meaning": "연면적 원문"},
+    "main_purpose_code": {"index": 29, "meaning": "주용도코드 원문"},
+    "main_purpose_name": {"index": 30, "meaning": "주용도명 원문(공장·창고시설 등)"},
+    "start_scheduled_date": {"index": 35, "meaning": "착공예정일 YYYYMMDD 또는 빈칸"},
+    "start_delayed_date": {"index": 36, "meaning": "착공연기일 YYYYMMDD 또는 빈칸"},
+    "start_actual_date": {"index": 37, "meaning": "실제착공일 YYYYMMDD 또는 빈칸"},
+    "permit_date": {"index": 38, "meaning": "건축허가일 YYYYMMDD 또는 빈칸"},
+    "use_approval_date": {"index": 39, "meaning": "사용승인일 YYYYMMDD 또는 빈칸"}
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_basis_outline",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-basis-outline.service 의 실행 값(root ADR-0169 §3, ADR-0356). 판은 장부가 정한다. 부분은 판의 load branch 에 쌓고 main 에 발행하지 않는다. compare 가 main 의 현재 행과 mgmt_key 마다 비교해 바뀐 허가의 행과 사라진 허가의 삭제 표시만 changes branch 에 키 앞 두 자리 묶음마다 커밋하고(실측 세 묶음: 10·11·12), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 판마다 바뀌는 vintage·적재 열은 content_columns 에 넣지 않는다.",
+    "table": "silver.building_permit_basis_outline",
+    "roles": {
+      "source": "hubgokr__building_permit_basis_outline"
+    },
+    "export": "export-building-permit-basis-outline-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {"content_columns": ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "arch_kind_code", "arch_kind_name", "plot_area_m2", "building_area_m2", "total_floor_area_m2", "main_purpose_code", "main_purpose_name", "start_scheduled_date", "start_delayed_date", "start_actual_date", "permit_date", "use_approval_date", "pnu", "raw_columns"], "bucket_prefix_length": 2}
+  }
+}

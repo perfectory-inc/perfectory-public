@@ -204,6 +204,18 @@ fn exclusive_unit_streaming_export_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn permit_basis_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-basis-outline-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitBasisOutlineSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
