@@ -26,6 +26,24 @@ run_log="${work}/run.log"
 trap 'job_journal "${journal}" "rt.molit silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
 trap 'rm -rf "${work}/plans"' EXIT
 
+# Root ADR-0364: the exports this run quarantined whole, as a node-exporter textfile; the alert
+# FoundationRealTransactionExportQuarantined fires on a run that quarantined one and clears on the next.
+METRICS_DIR="/var/lib/foundation-jobs/metrics"
+write_metrics() { # <quarantined exports> <rejected lines>
+  local tmp="${METRICS_DIR}/.rt-molit-silver.prom.$$"
+  {
+    printf '# HELP foundation_rt_molit_quarantined_exports Exports the last 실거래가 Silver load quarantined whole.\n'
+    printf '# TYPE foundation_rt_molit_quarantined_exports gauge\n'
+    printf 'foundation_rt_molit_quarantined_exports %s\n' "$1"
+    printf '# HELP foundation_rt_molit_rejected_lines Lines the last 실거래가 Silver load rejected.\n'
+    printf '# TYPE foundation_rt_molit_rejected_lines gauge\n'
+    printf 'foundation_rt_molit_rejected_lines %s\n' "$2"
+    printf '# HELP foundation_rt_molit_silver_written_timestamp_seconds When the 실거래가 Silver load last wrote these.\n'
+    printf '# TYPE foundation_rt_molit_silver_written_timestamp_seconds gauge\n'
+    printf 'foundation_rt_molit_silver_written_timestamp_seconds %s\n' "$(date -u +%s)"
+  } > "${tmp}" && mv -f "${tmp}" "${METRICS_DIR}/rt-molit-silver.prom" || true # a metrics write never fails the load
+}
+
 read -r window_days max_objects < <(python3 -I -c '
 import json, sys
 c = json.load(open(sys.argv[1], encoding="utf-8"))["silver_load"]
@@ -42,6 +60,7 @@ env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE="${table}" FOUNDATION_PLATFORM_SILVER_
 owed="$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["objects"]))' "${plan_dir}/plan.json")"
 if [ "${owed}" = 0 ]; then
   job_journal "${journal}" "rt.molit silver load: nothing owed run=${run_id}"
+  write_metrics 0 0
   printf 'foundation-job-outcome unchanged\n'
   exit 0
 fi
@@ -59,6 +78,12 @@ lakehouse_spark_run foundation-platform-compute \
   --allow-non-smoke-write >> "${run_log}" 2>&1
 
 summary="$(grep '^rt-molit-real-transaction-summary-json ' "${run_log}" | tail -1)"
+read -r quarantined rejected < <(python3 -I -c '
+import json, sys
+s = json.loads(sys.argv[1].split(" ", 1)[1])
+print(s.get("quarantined_exports", 0), s.get("rejected", 0))
+' "${summary}")
+write_metrics "${quarantined}" "${rejected}"
 late="$(python3 -I -c 'import json, sys; print(len(json.load(open(sys.argv[1], encoding="utf-8"))["selection"].get("late", [])))' "${plan_dir}/plan.json")"
 if [ "${late}" != 0 ]; then
   job_journal "${journal}" "rt.molit silver load LATE run=${run_id}: loaded ${late} object(s) older than ${window_days} days that no load had recorded ${summary}" >&2

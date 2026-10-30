@@ -31,10 +31,12 @@ import re
 import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 
 JOB_NAME = "rt_molit_real_transaction"
 TABLE = "silver.real_transaction"
+# Root ADR-0364: the lines an export carried that are not loaded, each with its Bronze reference.
+REJECTED_TABLE = "silver.real_transaction_rejected"
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "rt-molit-real-transaction.contract.json"
 PLAN_SCHEMA = "foundation-platform.silver_load_objects.v1"
 PERIOD = re.compile(r"/period=(\d{4})-(\d{2})/")
@@ -135,22 +137,74 @@ def day(value: Any) -> date | None:
 READERS = {TEXT: text_or_none, AMOUNT: amount, INT: amount, DAY: day}
 
 
-def export_rows(data: bytes, encoding: str, header_first: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
-    """(header, [(line number, cells)]) of one export; the notice preamble before the header is skipped.
-    An export without the header line is refused: it is not the provider's CSV."""
+class Rejected(NamedTuple):
+    """A line of an export that is not loaded, with the Bronze reference that finds it again (root ADR-0364)."""
+
+    line: int
+    raw: str
+    reason: str
+
+
+class _Recorded:
+    """The physical lines `csv.reader` consumed for its last record, so a rejected record keeps its raw text."""
+
+    def __init__(self, lines: Iterable[str]) -> None:
+        self._lines = iter(lines)
+        self.taken: list[str] = []
+
+    def __iter__(self) -> "_Recorded":
+        return self
+
+    def __next__(self) -> str:
+        line = next(self._lines)
+        self.taken.append(line)
+        return line
+
+
+def export_rows(data: bytes, encoding: str, header_first: str, month: str | None = None
+                ) -> tuple[list[str], list[tuple[int, list[str]]], list[Rejected]]:
+    """(header, [(line number, cells)], rejected lines) of one export.
+
+    The text is read as CSV from the header line on, in one pass (a quoted field may span lines, and
+    only CR/LF end a line: `str.splitlines` also broke on form feeds and other separators). An export
+    without its header line, or whose preamble names another month than `month`, is refused whole.
+    A record is rejected, not loaded, when its cell count is not the header's or its `NO` does not
+    continue the export's 1..N (the 2026-10-30 export carried a second export's rows after its own).
+    """
 
     text = data.decode(encoding)
-    lines = text.splitlines()
-    start = next((i for i, line in enumerate(lines) if line.startswith(f'"{header_first}"')), None)
-    if start is None:
+    start = text.find(f'"{header_first}"')
+    if start < 0 or (start > 0 and text[start - 1] not in "\r\n"):
         raise ValueError("the export has no header line: not the provider's CSV")
-    reader = csv.reader(io.StringIO("\n".join(lines[start:])))
+    if month is not None:
+        dates = re.search(r"계약일자 : (\d{4})-(\d{2})-\d{2} ~ (\d{4})-(\d{2})-\d{2}", text[:start])
+        if not dates or dates.group(1) + dates.group(2) != month or dates.group(3) + dates.group(4) != month:
+            raise ValueError(f"the preamble does not name the month {month}")
+    first_line = text.count("\n", 0, start) + 1
+    source = _Recorded(io.StringIO(text[start:], newline=""))
+    reader = csv.reader(source)
     header = next(reader)
-    rows = [(start + 1 + n, cells) for n, cells in enumerate(reader, start=1) if any(c.strip() for c in cells)]
-    for number, cells in rows:
+    source.taken = []
+    rows: list[tuple[int, list[str]]] = []
+    rejected: list[Rejected] = []
+    expected = 1
+    line = first_line
+    for cells in reader:
+        raw, source.taken = "".join(source.taken).rstrip("\r\n"), []
+        number, line = line + 1, line + raw.count("\n") + 1
+        if not any(c.strip() for c in cells):
+            continue
         if len(cells) != len(header):
-            raise ValueError(f"line {number} has {len(cells)} cells for a {len(header)}-column header")
-    return header, rows
+            rejected.append(Rejected(number, raw, f"cells_{len(cells)}_of_{len(header)}"))
+            # A broken row of this export still took its number; another export's row did not.
+            expected += 1 if cells and cells[0].strip() == str(expected) else 0
+            continue
+        if cells[0].strip() != str(expected):
+            rejected.append(Rejected(number, raw, f"row_number_{cells[0].strip()}_where_{expected}"))
+            continue
+        expected += 1
+        rows.append((number, cells))
+    return header, rows, rejected
 
 
 def identity(dataset: str, month: str, fields: Mapping[str, str], drop: Iterable[str]) -> str:
@@ -188,16 +242,17 @@ def unrepresented(header: Sequence[str]) -> list[str]:
 
 
 def rows_of(data: bytes, dataset: str, month: str, object_key: str, snapshot_id: str, ingested_at: datetime,
-            csv_contract: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
-    """(named rows, unrepresented columns) of one export (ADR-0349 §2)."""
+            csv_contract: Mapping[str, Any]) -> tuple[list[dict[str, Any]], list[str], list[Rejected]]:
+    """(named rows, unrepresented columns, rejected lines) of one export (ADR-0349 §2, ADR-0364)."""
 
-    header, lines = export_rows(data, csv_contract["encoding"], csv_contract["header_first_column"])
+    header, lines, rejected = export_rows(data, csv_contract["encoding"], csv_contract["header_first_column"], month)
     drop = [csv_contract["row_number_column"], *csv_contract["mutable_columns"]]
     grouped: dict[str, list[tuple[int, dict[str, str]]]] = {}
     for number, cells in lines:
         fields = dict(zip(header, cells))
         if fields.get("계약년월", month).strip() != month:
-            raise ValueError(f"{object_key} line {number}: 계약년월 {fields.get('계약년월')} outside the month {month}")
+            rejected.append(Rejected(number, ",".join(f'"{c}"' for c in cells), "deal_month_outside_export"))
+            continue
         grouped.setdefault(identity(dataset, month, fields, drop), []).append((number, fields))
     rows = []
     mutable = csv_contract["mutable_columns"]
@@ -209,7 +264,44 @@ def rows_of(data: bytes, dataset: str, month: str, object_key: str, snapshot_id:
             row.update(row_key=f"{name}-{rank}", source_record_id=object_key, source_line_number=number,
                        source_snapshot_id=snapshot_id, ingested_at_utc=ingested_at)
             rows.append(row)
-    return rows, unrepresented(header)
+    return rows, unrepresented(header), rejected
+
+
+def read_export(entry: Mapping[str, Any], csv_contract: Mapping[str, Any], ingested_at: datetime
+                ) -> tuple[list[dict[str, Any]], list[str], list[Rejected], bool]:
+    """(rows, unrepresented columns, rejected lines, refused whole) of one planned object.
+
+    An export that is not the provider's CSV for its month is refused whole: one rejected line 0 with
+    the reason, and no rows (root ADR-0364)."""
+
+    try:
+        rows, unknown, rejected = rows_of(entry["path"].read_bytes(), entry["dataset"], entry["month"],
+                                          entry["object_key"], entry["source_snapshot_id"], ingested_at, csv_contract)
+    except (ValueError, UnicodeDecodeError) as error:
+        return [], [], [Rejected(0, "", f"export_refused: {error}")], True
+    return rows, unknown, rejected, False
+
+
+def rejected_share(rows: int, rejected: int) -> float:
+    return rejected / (rows + rejected) if rows + rejected else 0.0
+
+
+def quarantine_reason(rows: int, rejected: Sequence[Rejected], refused: bool, max_share: float) -> str | None:
+    """Why an export is quarantined whole, or None when its accepted rows load (root ADR-0364): refused
+    outright, or more of its lines rejected than the contract allows (a mixed export: what passed the
+    line checks is not trusted either; the collector asks the month again in a clean session)."""
+
+    if refused:
+        return "export_refused"
+    share = rejected_share(rows, len(rejected))
+    return f"export_quarantined: {share:.4%} of lines rejected" if share > max_share else None
+
+
+def rejected_rows(entry: Mapping[str, Any], rejected: Sequence[Rejected], ingested_at: datetime) -> list[tuple[Any, ...]]:
+    """The dead-letter rows of one object, in `silver.real_transaction_rejected`'s column order."""
+
+    return [(entry["dataset"], entry["month"], entry["object_key"], r.line, r.raw, r.reason,
+             entry["source_snapshot_id"], ingested_at) for r in rejected]
 
 
 def lot_of(row: Mapping[str, Any]) -> tuple[str, tuple[bool, int, int] | None]:
@@ -345,10 +437,10 @@ def _parse(argv: Sequence[str]) -> int:
     now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
     report = []
     for entry in planned_objects([Path(d) for d in args.plan_dir], contract):
-        rows, unknown = rows_of(entry["path"].read_bytes(), entry["dataset"], entry["month"], entry["object_key"],
-                                entry["source_snapshot_id"], now, contract["csv"])
-        report.append({"object": entry["object_key"], "rows": len(rows),
-                       "cancelled": sum(1 for r in rows if r["cancelled"]), "unrepresented_fields": unknown})
+        rows, unknown, rejected, refused = read_export(entry, contract["csv"], now)
+        report.append({"object": entry["object_key"], "rows": len(rows), "rejected": len(rejected),
+                       "refused": refused, "cancelled": sum(1 for r in rows if r["cancelled"]),
+                       "unrepresented_fields": unknown})
     _summary_line({"job": JOB_NAME, "status": "parsed", "objects": report})
     return 0
 
@@ -368,14 +460,14 @@ def newest_snapshot_rows(spark: Any, catalog: str) -> list[tuple[str, str, str]]
     return [(row["region_cd"], row["full_name"], row["status"]) for row in rows]
 
 
-def ensure_table(spark: Any, args: argparse.Namespace) -> tuple[str, dict[str, Any], list[str], str]:
+def ensure_table(spark: Any, args: argparse.Namespace, name: str = TABLE) -> tuple[str, dict[str, Any], list[str], str]:
     from platform_contracts import (  # noqa: PLC0415
         column_names, create_table_columns_sql, evolve_iceberg_table_to_contract, load_lakehouse_contract,
         partition_clause_sql, spark_sql_type,
     )
 
-    contract = load_lakehouse_contract(TABLE)
-    table = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`.`{TABLE.split('.', 1)[1] + args.table_suffix}`"
+    contract = load_lakehouse_contract(name)
+    table = f"`{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`.`{name.split('.', 1)[1] + args.table_suffix}`"
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.iceberg_namespace}`")
     spark.sql(f"CREATE TABLE IF NOT EXISTS {table} ({create_table_columns_sql(contract)}) USING iceberg "
               f"{partition_clause_sql(contract)} TBLPROPERTIES ('format-version' = '2', "
@@ -416,8 +508,11 @@ def _load(argv: Sequence[str]) -> int:
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     below_bound: list[str] = []
+    over_rejected: list[str] = []
+    max_rejected = float(source["silver_load"]["max_rejected_share"])
     try:
         table, contract, columns, schema = ensure_table(spark, args)
+        dead_table, _dead_contract, dead_columns, dead_schema = ensure_table(spark, args, REJECTED_TABLE)
         if objects:
             # ADR-0349 §5: names → codes from the newest snapshot; old codes → current through the
             # crosswalk; a pnu only when it is a current parcel. Read once for the run.
@@ -426,8 +521,31 @@ def _load(argv: Sequence[str]) -> int:
             parcels = current_rows(spark.table(f"`{args.iceberg_catalog_name}`.`silver`.`parcel_boundaries`"),
                                    load_lakehouse_contract("silver.parcel_boundaries")).select("pnu")
         for entry in objects:
-            rows, unknown = rows_of(entry["path"].read_bytes(), entry["dataset"], entry["month"],
-                                    entry["object_key"], entry["source_snapshot_id"], now, source["csv"])
+            rows, unknown, rejected, refused = read_export(entry, source["csv"], now)
+            share_rejected = rejected_share(len(rows), len(rejected))
+            quarantined = quarantine_reason(len(rows), rejected, refused, max_rejected)
+            if quarantined:
+                # The whole export waits for its clean copy: nothing of it loads, and it is recorded so
+                # no later run stops on it again (root ADR-0364; the alert fires once, from the metric).
+                if not refused:
+                    rejected = [Rejected(0, "", quarantined), *rejected]
+                rows = []
+                over_rejected.append(entry["object_key"])
+            # Root ADR-0364: the lines not loaded land first, in their own table, referencing Bronze.
+            if rejected:
+                dead = spark.createDataFrame(rejected_rows(entry, rejected, now), schema=dead_schema)
+                append_source_object(spark, dead, dead_columns, dead_table, entry["object_key"])
+            if quarantined:
+                # Recorded with no rows and no comparison: an empty export compared with the month would
+                # remove every row the month holds.
+                empty = spark.createDataFrame([], schema=schema)
+                summary["objects"].append({
+                    "object": entry["object_key"], "dataset": entry["dataset"], "month": entry["month"],
+                    "rows": 0, "rejected": len(rejected), "rejected_share": round(share_rejected, 6),
+                    "refused": refused, "quarantined": quarantined,
+                    "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
+                    "appended": append_source_object(spark, empty, columns, table, entry["object_key"])})
+                continue
             for row in rows:
                 code, reason = legal_dong_code(row, dongs)
                 lot_reason, lot = lot_of(row)
@@ -455,6 +573,9 @@ def _load(argv: Sequence[str]) -> int:
                     "rows": len(rows), "cancelled": sum(1 for r in rows if r["cancelled"]),
                     "changes": changes.count(), "removed": changes.where(F.col("row_state") == REMOVED).count(),
                     "linked": link_report(linked), "unmasked_unresolved_share": round(share, 4),
+                    "rejected": len(rejected), "rejected_share": round(share_rejected, 6), "refused": refused,
+                    "quarantined": None,
+                    "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
                     "unrepresented_fields": unknown}
             line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"])
             if share > float(source["silver_load"]["max_unmasked_unresolved_share"]) and len(linked) >= 50:
@@ -466,12 +587,17 @@ def _load(argv: Sequence[str]) -> int:
         spark.stop()
     if below_bound:
         summary["status"] = "loaded_link_rate_below_bound"
+    summary["quarantined_exports"] = len(over_rejected)
+    summary["rejected"] = sum(line.get("rejected", 0) for line in summary["objects"])
     _summary_line(summary)
     if below_bound:
         print(f"rt-molit-real-transaction: {len(below_bound)} object(s) linked fewer unmasked lots than the "
               f"contract's bound; loaded, failing so it is seen", file=sys.stderr)
-        return 1
-    return 0
+    if over_rejected:
+        print(f"rt-molit-real-transaction: {len(over_rejected)} export(s) quarantined whole (refused, or more "
+              f"lines rejected than max_rejected_share); their lines are in {REJECTED_TABLE}, the run goes on: "
+              f"{', '.join(over_rejected)}", file=sys.stderr)
+    return 1 if below_bound else 0
 
 
 COMMANDS = {"parse": _parse, "load": _load, "tables": _tables}

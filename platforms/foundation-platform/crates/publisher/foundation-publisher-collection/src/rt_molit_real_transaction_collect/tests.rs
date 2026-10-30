@@ -22,6 +22,7 @@ fn complete(state: &mut State, dataset: &str, month: &str, when: &str) {
             completed_utc: Some(at(when)),
             checksum_sha256: Some("0".repeat(64)),
             provider_count: Some(1),
+            verified: true,
         },
     );
 }
@@ -169,12 +170,60 @@ fn months_span_whole_calendar_months() {
     );
 }
 
+fn export(month: &str, rows: &[&str]) -> Vec<u8> {
+    let mut text = format!(
+        "\"□ 안내\"\r\n\"계약일자 : {month}\"\r\n\"실거래구분 : 합성(매매)\"\r\n\"NO\",\"시군구\"\r\n"
+    );
+    for row in rows {
+        text.push_str(row);
+        text.push_str("\r\n");
+    }
+    let (bytes, _, _) = encoding_rs::EUC_KR.encode(&text);
+    bytes.into_owned()
+}
+
+fn june() -> RtMolitRealTransactionExportRequest {
+    request_for(
+        &contract_with(&[("real_transaction_land_trade", "2006-01")]),
+        &WorkItem {
+            stage: Stage::Backfill,
+            priority: 0,
+            newest_first: 0,
+            dataset: "real_transaction_land_trade".to_owned(),
+            month: month_index("2098-06").unwrap(),
+        },
+    )
+    .unwrap()
+}
+
 #[test]
-fn data_rows_are_the_lines_after_the_header() {
-    let export = "\"□ 안내\"\r\n\"□ 검색조건\"\r\n\"NO\",\"시군구\"\r\n\"1\",\"합성도 합성시\"\r\n\"2\",\"합성도 합성시\"\r\n\r\n";
-    assert_eq!(csv_data_rows(export.as_bytes()), Some(2));
-    assert_eq!(csv_data_rows(b"\"NO\",\"x\"\n"), Some(0));
-    assert_eq!(csv_data_rows(b"<html></html>"), None);
+fn an_export_is_believed_only_when_it_holds_what_was_asked() {
+    // root ADR-0364: the 2026-10-30 export carried another export's rows after its own.
+    let request = june();
+    let good = export(
+        "2098-06-01 ~ 2098-06-30",
+        &["\"1\",\"합성도\"", "\"2\",\"합성도\""],
+    );
+    assert_eq!(export_problem(&good, 2, &request), None);
+    assert!(export_problem(&good, 3, &request)
+        .unwrap()
+        .contains("count check"));
+    let mixed = export(
+        "2098-06-01 ~ 2098-06-30",
+        &[
+            "\"1\",\"합성도\"",
+            "\"2\",\"합성도\"",
+            "\"1\",\"다른 내보내기\"",
+        ],
+    );
+    assert!(export_problem(&mixed, 2, &request)
+        .unwrap()
+        .contains("numbered"));
+    let other_month = export("2098-05-01 ~ 2098-05-31", &["\"1\",\"합성도\""]);
+    assert!(export_problem(&other_month, 1, &request)
+        .unwrap()
+        .contains("preamble"));
+    assert!(export_problem(b"<html></html>", 0, &request).is_some());
 }
 
 #[test]
@@ -213,4 +262,30 @@ fn the_collector_source_uses_no_disguise() {
         assert!(!source.contains(name), "{name}");
         assert!(!ingest.contains(name), "{name}");
     }
+}
+
+#[test]
+fn a_month_stored_before_the_check_is_owed_again_at_once_whatever_its_age() {
+    // root ADR-0364: the 2026-10-30 exports were stored without export_problem, some mixed.
+    let name = "real_transaction_industrial_trade";
+    let contract = contract_with(&[(name, "2024-01")]);
+    let now = at("2026-10-30T17:00:00Z");
+    let mut state = State::default();
+    for month in month_index("2024-01").unwrap()..=month_index("2026-10").unwrap() {
+        complete(&mut state, name, &yyyymm(month), "2026-10-30T16:30:00Z");
+    }
+    // An old month (age 33, past every tier) stored before the check: its mark has no `verified`.
+    let raw =
+        r#"{"completed_utc":"2026-10-30T16:30:00Z","checksum_sha256":null,"provider_count":5}"#;
+    let old: MonthMark = serde_json::from_str(raw).unwrap();
+    assert!(!old.verified);
+    state
+        .months
+        .insert(month_key(name, month_index("2024-01").unwrap()), old);
+    let due: Vec<(Stage, String)> = plan_work(&contract, &state, now)
+        .unwrap()
+        .iter()
+        .map(|w| (w.stage, yyyymm(w.month)))
+        .collect();
+    assert_eq!(due, vec![(Stage::Recheck, "202401".to_owned())]);
 }
