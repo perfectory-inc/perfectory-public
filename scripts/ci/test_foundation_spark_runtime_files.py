@@ -147,6 +147,39 @@ class SparkRuntimeFilesTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_list_prints_the_gated_files_only(self):
+        self.gated("test_b_iceberg.py")
+        self.gated("test_a_spark.py")
+        self.write("test_pure_logic.py", UNGATED)
+
+        result = subprocess.run([BASH, str(RUNNER), "--list", str(self.directory)], capture_output=True, text=True, check=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), ["test_a_spark.py", "test_b_iceberg.py"])
+
+    def test_given_targets_run_and_nothing_else(self):
+        # A shard (root ADR-0365) passes its part: whole files and unittest names inside one.
+        self.gated("test_a_spark.py")
+        self.write("test_b_two.py", GATED.format(sleep=0, passes=True) + '''
+
+class U(unittest.TestCase):
+    def test_other(self):
+        raise AssertionError("a class outside the target ran")
+''')
+        self.gated("test_c_not_mine.py", passes=False)
+        environment = {**os.environ, "SPARK_RUNTIME_JOBS": "2", "PYTHONDONTWRITEBYTECODE": "1"}
+
+        result = subprocess.run(
+            [BASH, str(RUNNER), str(self.directory), "test_a_spark.py", "test_b_two.T.test_it"],
+            capture_output=True, text=True, env=environment, check=False,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 files, 2 at a time", result.stdout)
+        self.assertIn("== test_b_two.T.test_it (", result.stdout)
+        self.assertNotIn("test_c_not_mine", result.stdout)
+        self.assertNotIn("test_other", result.stdout)
+
     def test_no_gated_file_is_a_failure(self):
         self.write("test_pure_logic.py", UNGATED)
 
