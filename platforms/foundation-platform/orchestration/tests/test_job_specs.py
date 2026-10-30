@@ -482,6 +482,7 @@ LAND_LANES = [
     "silver_refresh_land_characteristic",
     "silver_refresh_land_forest_ledger",
     "silver_refresh_land_individual_price",
+    "silver_refresh_land_ownership",
     "silver_refresh_land_right_registration",
     "silver_refresh_land_transfer_history",
     "silver_refresh_land_use_plan",
@@ -513,9 +514,10 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                              set(specs["gold_panel_rebuild"].producers))
         # The bake serves the panels and the panel-section kinds; the kinds follow the panels (root
         # ADR-0193 §9). The own-producer public-auction kind bakes in its own job (root ADR-0303),
-        # so gold_public_auction_rebuild feeds that job, not this one.
+        # so gold_public_auction_rebuild feeds that job, not this one. The own-producer ownership kind
+        # changes twice a year and bakes here (root ADR-0361), so its rebuild feeds this job.
         self.assertEqual(specs["by_pnu_serving_bake"].producers,
-                         ("gold_panel_rebuild", "gold_kind_rebuild"))
+                         ("gold_panel_rebuild", "gold_kind_rebuild", "gold_parcel_ownership_rebuild"))
         self.assertEqual(specs["by_pnu_public_auction_bake"].producers, ("gold_public_auction_rebuild",))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
@@ -567,10 +569,12 @@ class JobsStartedByTheirInputs(unittest.TestCase):
 
     def test_an_enabled_job_whose_feeders_are_all_off_is_refused(self):
         def bake_without_gold(jobs):
-            for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_auction_rebuild"):
+            for name in ("gold_panel_rebuild", "gold_kind_rebuild", "gold_public_auction_rebuild",
+                         "gold_parcel_ownership_rebuild"):
                 switch_off(job(jobs, name), disabled_reason="planted")
         self.refused(bake_without_gold, "by_pnu_serving_bake: enabled and started by its inputs, but every job "
-                                        "that writes them (gold_panel_rebuild, gold_kind_rebuild) is switched off")
+                                        "that writes them (gold_panel_rebuild, gold_kind_rebuild, "
+                                        "gold_parcel_ownership_rebuild) is switched off")
 
     def test_a_job_is_never_started_by_what_it_writes(self):
         # The Gold rebuild writes the unit prices it then reads (root ADR-0182); the fold reads the

@@ -4,7 +4,8 @@
 //! (`silver.land_use_plan`), the LMIS zone code table (`silver.land_use_zone_code`), and
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
-//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0091).
+//! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0091),
+//! and the AL_D161 land ownership (`silver.land_ownership`, root ADR-0360).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -27,8 +28,8 @@ use foundation_outbox::R2ObjectStorage;
 use foundation_shared_kernel::Pnu;
 use lakehouse_domain::{
     LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
-    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_RIGHT_REGISTRATION, SILVER_LAND_TRANSFER_HISTORY,
-    SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_OWNERSHIP, SILVER_LAND_RIGHT_REGISTRATION,
+    SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
 };
 use serde_json::json;
 
@@ -409,6 +410,88 @@ const LAND_RIGHT_LANE: Lane = Lane {
     delimiter: Some(b'|'),
 };
 
+// The full AL_D161 CSV; the AL_D160 SHP/DBF siblings stay in Bronze (root ADR-0359 §4, ADR-0360).
+// One row per co-owner of the parcel, and per unit of a collective building standing on it. The
+// file names no person; 지목·토지면적·공시지가 are dropped because 토지특성 and 개별공시지가 own them.
+const LAND_OWNERSHIP_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_LAND_OWNERSHIP",
+    contract: &SILVER_LAND_OWNERSHIP,
+    expected_header: &[
+        "고유번호",
+        "법정동코드",
+        "법정동명",
+        "대장구분코드",
+        "대장구분명",
+        "지번",
+        "집합건물일련번호",
+        "건물동명",
+        "건물층명",
+        "건물호명",
+        "건물실명",
+        "공유인일련번호",
+        "기준연월",
+        "지목코드",
+        "지목",
+        "토지면적",
+        "공시지가",
+        "소유구분코드",
+        "소유구분",
+        "거주지구분코드",
+        "거주지구분",
+        "국가기관구분코드",
+        "국가기관구분",
+        "소유권변동원인코드",
+        "소유권변동원인",
+        "소유권변동일자",
+        "공유인수",
+        "데이터기준일자",
+        "원천시도시군구코드",
+    ],
+    csv_columns: &[
+        Some("pnu"),
+        Some("legal_dong_code"),
+        Some("legal_dong_name"),
+        Some("ledger_kind_code"),
+        Some("ledger_kind_name"),
+        Some("jibun"),
+        Some("collective_building_serial_no"),
+        Some("dong_name"),
+        Some("floor_name"),
+        Some("ho_name"),
+        Some("room_name"),
+        Some("co_owner_serial_no"),
+        Some("base_year_month"),
+        None, // 지목코드: 토지특성 owns the land category.
+        None, // 지목
+        None, // 토지면적: 토지특성 owns the area.
+        None, // 공시지가: 개별공시지가 owns the price.
+        Some("ownership_kind_code"),
+        Some("ownership_kind_name"),
+        Some("residence_kind_code"),
+        Some("residence_kind_name"),
+        Some("state_agency_kind_code"),
+        Some("state_agency_kind_name"),
+        Some("ownership_change_reason_code"),
+        Some("ownership_change_reason"),
+        Some("ownership_changed_on"),
+        Some("co_owner_count"),
+        Some("data_reference_date"),
+        Some("source_sigungu_code"),
+    ],
+    member_matches: |name| name.starts_with("AL_D161_") && name.ends_with(".csv"),
+    pnu_position: Some(0),
+    positive_area: false,
+    delimiter: None,
+};
+
+/// Exports every parcel's owner rows through the shared handoff transport (root ADR-0360).
+///
+/// # Errors
+/// Refuses header drift, ambiguous members, and failed IO.
+pub async fn run_land_ownership() -> anyhow::Result<()> {
+    run_lane(&LAND_OWNERSHIP_LANE).await
+}
+
 /// Exports every registered land right through the shared handoff transport.
 ///
 /// # Errors
@@ -493,6 +576,7 @@ pub fn export_command(command: &str) -> Option<ExportCommand> {
         "export-land-forest-silver-handoff" => &LAND_FOREST_LANE,
         "export-land-transfer-history-silver-handoff" => &LAND_TRANSFER_LANE,
         "export-land-right-registration-silver-handoff" => &LAND_RIGHT_LANE,
+        "export-land-ownership-silver-handoff" => &LAND_OWNERSHIP_LANE,
         _ => return None,
     };
     Some(ExportCommand {
@@ -1090,6 +1174,10 @@ pub mod transfer_csv_tests;
 pub mod right_csv_tests;
 
 #[cfg(test)]
+#[path = "land_ownership_csv_tests.rs"]
+pub mod ownership_csv_tests;
+
+#[cfg(test)]
 mod tests {
     use uuid::Uuid;
 
@@ -1134,6 +1222,7 @@ mod tests {
     #[test]
     fn lane_mappings_cover_their_contracts_exactly() {
         for lane in [
+            &LAND_OWNERSHIP_LANE,
             &LAND_RIGHT_LANE,
             &PLAN_LANE,
             &ZONE_CODE_LANE,

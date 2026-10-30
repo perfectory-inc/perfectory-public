@@ -70,6 +70,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.land_characteristic": "source_snapshot_id",
             "silver.land_forest_ledger": "source_snapshot_id",
             "silver.land_individual_price": "source_snapshot_id",
+            "silver.land_ownership": "source_snapshot_id",
             "silver.land_right_registration": "source_snapshot_id",
             "silver.land_transfer_history": "source_snapshot_id",
             "silver.land_use_plan": "source_snapshot_id",

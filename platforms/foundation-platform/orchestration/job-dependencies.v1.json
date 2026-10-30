@@ -758,6 +758,7 @@
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
+        "silver_refresh_land_ownership",
         "silver_refresh_land_right_registration",
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
@@ -1081,6 +1082,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_individual_price,PROD)",
           "node_id": "silver-land-individual-price",
           "title": "필지별 공시지가",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_ownership,PROD)",
+          "node_id": "silver-land-ownership",
+          "title": "필지별 토지소유",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1282,6 +1291,7 @@
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
+        "silver_refresh_land_ownership",
         "silver_refresh_land_right_registration",
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
@@ -1605,6 +1615,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_individual_price,PROD)",
           "node_id": "silver-land-individual-price",
           "title": "필지별 공시지가",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_ownership,PROD)",
+          "node_id": "silver-land-ownership",
+          "title": "필지별 토지소유",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -2034,6 +2052,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_individual_price,PROD)",
           "node_id": "silver-land-individual-price",
           "title": "필지별 공시지가",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "silver_refresh_land_ownership",
+      "producers": [
+        "source_sweep"
+      ],
+      "reads": [
+        {
+          "dataset": "perfectory://source-vworld-dataset",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-vworld-dataset,PROD)",
+          "node_id": "source-vworld-dataset",
+          "title": "브이월드 공간·토지 파일",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.land_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_ownership,PROD)",
+          "node_id": "silver-land-ownership",
+          "title": "필지별 토지소유",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -2762,6 +2806,7 @@
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
+        "silver_refresh_land_ownership",
         "silver_refresh_land_right_registration",
         "silver_refresh_land_transfer_history",
         "silver_refresh_land_use_plan",
@@ -3089,6 +3134,14 @@
           "surface_kind": null
         },
         {
+          "dataset": "iceberg://silver.land_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_ownership,PROD)",
+          "node_id": "silver-land-ownership",
+          "title": "필지별 토지소유",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
           "dataset": "iceberg://silver.land_right_registration",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_right_registration,PROD)",
           "node_id": "silver-land-right-registration",
@@ -3260,10 +3313,37 @@
       "writes": []
     },
     {
+      "id": "gold_parcel_ownership_rebuild",
+      "producers": [
+        "silver_refresh_land_ownership"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.land_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_ownership,PROD)",
+          "node_id": "silver-land-ownership",
+          "title": "필지별 토지소유",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "by_pnu_serving_bake",
       "producers": [
         "gold_panel_rebuild",
-        "gold_kind_rebuild"
+        "gold_kind_rebuild",
+        "gold_parcel_ownership_rebuild"
       ],
       "reads": [
         {
@@ -3295,6 +3375,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3385,6 +3473,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-land-rights-by-pnu-section-packs,PROD)",
           "node_id": "parcel-land-rights-by-pnu-section-packs",
           "title": "필지 대지권 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-ownership-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-ownership-by-pnu-section-packs",
+          "title": "필지 토지소유 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },
@@ -3475,6 +3571,7 @@
         "gold_unit_price_rebuild",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
+        "gold_parcel_ownership_rebuild",
         "by_pnu_serving_bake",
         "by_pnu_public_auction_bake",
         "by_pnu_unit_price_bake"
@@ -3525,6 +3622,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3613,6 +3718,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-land-rights-by-pnu-section-packs,PROD)",
           "node_id": "parcel-land-rights-by-pnu-section-packs",
           "title": "필지 대지권 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        },
+        {
+          "dataset": "perfectory://parcel-ownership-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-ownership-by-pnu-section-packs",
+          "title": "필지 토지소유 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },

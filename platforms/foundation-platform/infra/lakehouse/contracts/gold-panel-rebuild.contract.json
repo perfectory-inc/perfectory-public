@@ -90,7 +90,9 @@
       "unit_price_panel_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "by_pnu_kind_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "onbid_public_auction_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
-      "onbid_public_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
+      "onbid_public_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "land_ownership_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "land_ownership_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
     },
     "scoped_contracts": {
       "industrial_complex_lakehouse_contracts.json": {

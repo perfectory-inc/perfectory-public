@@ -806,6 +806,33 @@
       "enabled_since": "2026-10-10T22:13:25Z"
     },
     {
+      "id": "silver_refresh_land_ownership",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 토지소유 lane `land-ownership` (root ADR-0169 ③, ADR-0360): pick the newest vintage whose AL_D161 objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_ownership already records it or a newer one (`unchanged`), export each object, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed parcels' rows and a removal marker per vanished parcel (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-ownership.service",
+      "check_service": "foundation-silver-refresh-plan@land-ownership.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-ownership"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:00:00Z"
+    },
+    {
       "id": "silver_refresh_land_right_registration",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1216,6 +1243,30 @@
       "enabled_since": "2026-10-14T19:37:57Z"
     },
     {
+      "id": "gold_parcel_ownership_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "토지소유 kind Gold (root ADR-0361; scripts/ops/gold-panel-rebuild.sh parcel-ownership): gold.parcel_ownership from silver.land_ownership, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the owner rows the Silver release appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (land_ownership_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_serving_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-ownership-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-ownership-to-gold-parcel-ownership"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0361). Off until its first full build (about 120 million owner rows nationally, computed) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-ownership, root ADR-0193 §7), after silver_refresh_land_ownership loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "by_pnu_serving_bake",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1251,7 +1302,8 @@
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
-        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
+        "gold-parcel-ownership-to-parcel-ownership-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"

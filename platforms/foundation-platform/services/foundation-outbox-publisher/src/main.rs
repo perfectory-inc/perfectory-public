@@ -258,6 +258,7 @@ enum Command {
     ExportLandForestSilverHandoff,
     ExportLandTransferHistorySilverHandoff,
     ExportLandRightRegistrationSilverHandoff,
+    ExportLandOwnershipSilverHandoff,
     ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
@@ -572,6 +573,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportLandRightRegistrationSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_right_registration())
+        }
+        Command::ExportLandOwnershipSilverHandoff => {
+            Box::pin(land_use_silver_export::run_land_ownership())
         }
         Command::ExportLandTransferHistorySilverHandoff => {
             Box::pin(land_use_silver_export::run_land_transfer_history())
@@ -1154,6 +1158,9 @@ where
         }
         Some("export-land-right-registration-silver-handoff") => {
             Ok(Command::ExportLandRightRegistrationSilverHandoff)
+        }
+        Some("export-land-ownership-silver-handoff") => {
+            Ok(Command::ExportLandOwnershipSilverHandoff)
         }
         Some("export-land-transfer-history-silver-handoff") => {
             Ok(Command::ExportLandTransferHistorySilverHandoff)

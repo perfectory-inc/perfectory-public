@@ -84,7 +84,8 @@ class Reconciler(unittest.TestCase):
                              "parcel-characteristics": "gold.parcel_characteristics",
                              "parcel-forest-ledger": "gold.parcel_forest_ledger",
                              "parcel-transfer-history": "gold.parcel_transfer_history",
-                             "parcel-land-rights": "gold.parcel_land_rights"}.items()})
+                             "parcel-land-rights": "gold.parcel_land_rights",
+                             "parcel-ownership": "gold.parcel_ownership"}.items()})
         price = self.assets["gold_unit_price_rebuild"]
         self.assertEqual(price.uri, "iceberg://gold.unit_price")
         self.assertEqual(price.inputs, ("silver.building_register_titles", "silver.building_register_units",

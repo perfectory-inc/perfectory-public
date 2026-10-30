@@ -3713,6 +3713,187 @@
         "object_suffix_separator": null
       }
     },
+    "silver.land_ownership": {
+      "table_name": "silver.land_ownership",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "pnu"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ledger_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "collective_building_serial_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ho_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "room_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "co_owner_serial_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "base_year_month",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "residence_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "residence_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "state_agency_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "state_agency_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_change_reason_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_change_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_changed_on",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "co_owner_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_sigungu_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "pnu",
+        "collective_building_serial_no",
+        "co_owner_serial_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "pnu_not_null",
+        "co_owner_serial_no_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_register_apartment_price": {
       "table_name": "silver.building_register_apartment_price",
       "physical_format": "Parquet",
@@ -6592,6 +6773,67 @@
           "name": "public_auction_json",
           "logical_type": "string",
           "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_ownership": {
+      "table_name": "gold.parcel_ownership",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ownership_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "owner_total",
+          "logical_type": "long",
+          "required": false
         },
         {
           "name": "attached_via",

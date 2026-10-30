@@ -514,6 +514,7 @@ pub use crate::building_panel::GOLD_BUILDING_PANEL;
 pub use crate::court_auction::{SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT};
 pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
+pub use crate::land_ownership::SILVER_LAND_OWNERSHIP;
 pub use crate::land_right_registration::SILVER_LAND_RIGHT_REGISTRATION;
 pub use crate::land_transfer_history::SILVER_LAND_TRANSFER_HISTORY;
 pub use crate::onbid_public_auction::{
