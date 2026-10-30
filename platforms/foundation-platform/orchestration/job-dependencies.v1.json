@@ -770,7 +770,8 @@
         "complex_boundary_release",
         "parcel_served_gold",
         "gold_public_auction_rebuild",
-        "gold_kind_rebuild"
+        "gold_kind_rebuild",
+        "gold_parcel_ownership_rebuild"
       ],
       "reads": [
         {
@@ -850,6 +851,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1303,7 +1312,8 @@
         "complex_boundary_release",
         "parcel_served_gold",
         "gold_public_auction_rebuild",
-        "gold_kind_rebuild"
+        "gold_kind_rebuild",
+        "gold_parcel_ownership_rebuild"
       ],
       "reads": [
         {
@@ -1383,6 +1393,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2818,7 +2836,8 @@
         "complex_boundary_release",
         "parcel_served_gold",
         "gold_public_auction_rebuild",
-        "gold_kind_rebuild"
+        "gold_kind_rebuild",
+        "gold_parcel_ownership_rebuild"
       ],
       "reads": [
         {
@@ -2898,6 +2917,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3315,9 +3342,18 @@
     {
       "id": "gold_parcel_ownership_rebuild",
       "producers": [
+        "lineage_stewardship",
         "silver_refresh_land_ownership"
       ],
       "reads": [
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
         {
           "dataset": "iceberg://silver.land_ownership",
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_ownership,PROD)",
@@ -3339,11 +3375,36 @@
       ]
     },
     {
+      "id": "by_pnu_parcel_ownership_bake",
+      "producers": [
+        "gold_parcel_ownership_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_ownership",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
+          "node_id": "gold-parcel-ownership",
+          "title": "필지 토지소유 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-ownership-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-ownership-by-pnu-section-packs",
+          "title": "필지 토지소유 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
       "id": "by_pnu_serving_bake",
       "producers": [
         "gold_panel_rebuild",
-        "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_kind_rebuild"
       ],
       "reads": [
         {
@@ -3375,14 +3436,6 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
-          "kind": "gold_table",
-          "surface_kind": null
-        },
-        {
-          "dataset": "iceberg://gold.parcel_ownership",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
-          "node_id": "gold-parcel-ownership",
-          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3473,14 +3526,6 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-land-rights-by-pnu-section-packs,PROD)",
           "node_id": "parcel-land-rights-by-pnu-section-packs",
           "title": "필지 대지권 by-PNU 묶음 파일",
-          "kind": "serving_surface",
-          "surface_kind": "r2_baked_documents"
-        },
-        {
-          "dataset": "perfectory://parcel-ownership-by-pnu-section-packs",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
-          "node_id": "parcel-ownership-by-pnu-section-packs",
-          "title": "필지 토지소유 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },
@@ -3571,7 +3616,6 @@
         "gold_unit_price_rebuild",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild",
         "by_pnu_serving_bake",
         "by_pnu_public_auction_bake",
         "by_pnu_unit_price_bake"
@@ -3622,14 +3666,6 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_land_rights,PROD)",
           "node_id": "gold-parcel-land-rights",
           "title": "필지 대지권 by-PNU 표",
-          "kind": "gold_table",
-          "surface_kind": null
-        },
-        {
-          "dataset": "iceberg://gold.parcel_ownership",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_ownership,PROD)",
-          "node_id": "gold-parcel-ownership",
-          "title": "필지 토지소유 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3718,14 +3754,6 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-land-rights-by-pnu-section-packs,PROD)",
           "node_id": "parcel-land-rights-by-pnu-section-packs",
           "title": "필지 대지권 by-PNU 묶음 파일",
-          "kind": "serving_surface",
-          "surface_kind": "r2_baked_documents"
-        },
-        {
-          "dataset": "perfectory://parcel-ownership-by-pnu-section-packs",
-          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
-          "node_id": "parcel-ownership-by-pnu-section-packs",
-          "title": "필지 토지소유 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         },

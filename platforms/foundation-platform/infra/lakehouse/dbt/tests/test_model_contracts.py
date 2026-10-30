@@ -382,6 +382,10 @@ class FoundationDbtModelContractTest(unittest.TestCase):
         registered_roles = {
             "silver.building_register_exclusive_unit": "대장 전유부 원본 — 정규화 대상(본류)",
             "silver.land_right_registration": "등기 대지권 — 교차확증 증인 (본 후보 모델)",
+            "silver.land_ownership": (
+                "토지소유 호 소유 행의 동·층·호·실 원문 — 표시·집계용(식별은 PNU·집합건물일련번호·공유인일련번호, "
+                "root ADR-0360); 호 정합의 증인으로 쓰지 않는다"
+            ),
             "silver.unit_official_price": (
                 "세대 공시가격 — 열쇠 기반 증인 (price_candidates; 원천이 대장 "
                 "관리번호 보유, 운영 검산 열쇠 조인 24,736·이름 검증 일치 99.45%)"

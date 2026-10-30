@@ -693,6 +693,7 @@ class ByPnuServingBake(unittest.TestCase):
                     programs[spec.job_id] = line.split("by-pnu-serving-bake.sh ", 1)[1].split()
         self.assertEqual(programs.get("by_pnu_public_auction_bake"), ["parcel-public-auction"])
         self.assertEqual(programs.get("by_pnu_unit_price_bake"), ["unit-price"])
+        self.assertEqual(programs.get("by_pnu_parcel_ownership_bake"), ["parcel-ownership"])
         for job_id, args in programs.items():
             with self.subTest(job_id):
                 self.log.unlink(missing_ok=True)
@@ -714,6 +715,7 @@ class ByPnuServingBake(unittest.TestCase):
         elsewhere = {lane: job_specs.writer_of(f"{lane}-by-pnu-section-packs") for lane in lanes}
         elsewhere = {lane: job for lane, job in elsewhere.items() if job != "by_pnu_serving_bake"}
         self.assertEqual(elsewhere, {"parcel-public-auction": "by_pnu_public_auction_bake",
+                                     "parcel-ownership": "by_pnu_parcel_ownership_bake",
                                      "unit-price": "by_pnu_unit_price_bake"})
         baked = [lane for lane in lanes if lane not in elsewhere]
         self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],

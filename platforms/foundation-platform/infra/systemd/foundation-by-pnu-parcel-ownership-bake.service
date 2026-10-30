@@ -1,0 +1,41 @@
+[Unit]
+Description=Foundation Platform by-PNU parcel-ownership bake: gold.parcel_ownership to R2 by-PNU serving section packs, its own job as every own-producer kind's (ADR-0303, ADR-0361)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+# The same files the by-PNU serving bake reads: admitted-writer runtime settings, the lakehouse R2
+# settings, and the Gold read and served-snapshot tag (catalog and R2 lakehouse writer). The
+# optional last file holds only non-secret tuning (FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY).
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=-/etc/foundation-platform/by-pnu-bake.env
+# The own-producer ownership lane, baked alone (root ADR-0303 §2, ADR-0361).
+ExecStart=/opt/foundation-platform/current/scripts/ops/by-pnu-serving-bake.sh parcel-ownership
+# The job list's time_limit_minutes (jobs.v1.json). Generated from the list, not hand-set:
+# `cargo run -p foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=115m
+# A patch of the parcels a twice-yearly 토지소유 release changed, not the lane's whole generation (the
+# operator's cut-over bakes that, root ADR-0190): the public-auction bake's 5G bound, which keeps the
+# spark-slot combinations inside the host memory budget with the job's two slots (root ADR-0138);
+# to be set from the first measured scheduled run's peak. The change set runs before the export in the compose `spark-small`
+# container (2560m), a Docker cgroup the host budget counts beside this unit.
+# scripts/guard/every-container-has-a-memory-cap.sh reads this line; without it the guard fails.
+MemoryMax=5G
+MemorySwapMax=0
+# As the sibling serving bake: a process killed at MemoryMax fails the script's step, and the script
+# still ends with its `foundation-job-outcome failed ...` line instead of systemd stopping it first.
+OOMPolicy=continue
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Work files only on the data disk, never the root disk.
+ReadWritePaths=/data/foundation-platform/by-pnu-bake

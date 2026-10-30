@@ -76,4 +76,5 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
+      - "reference.legal_dong_code_change"
       - "silver.land_ownership"

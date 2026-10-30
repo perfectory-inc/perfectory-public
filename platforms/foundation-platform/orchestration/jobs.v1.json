@@ -1261,10 +1261,40 @@
       "priority_weight": 2,
       "retries": 0,
       "pipeline_graph_edges": [
-        "silver-land-ownership-to-gold-parcel-ownership"
+        "silver-land-ownership-to-gold-parcel-ownership",
+        "reference-legal-dong-code-change-to-gold-parcel-ownership"
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0361). Off until its first full build (about 120 million owner rows nationally, computed) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-ownership, root ADR-0193 §7), after silver_refresh_land_ownership loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_ownership_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_ownership (the own-producer ownership kind, root ADR-0361) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-ownership), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2): a slow national parcel re-bake in by_pnu_serving_bake never holds it. Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_ownership_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171); each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). Two slots and MemoryMax=5G, the public-auction bake's bound: a scheduled run patches the parcels a twice-yearly release changed, and the lane's whole generation is the operator's cut-over bake (root ADR-0190), not this job's. Two slots so it never runs beside both the panel bake and the public-auction bake: the three at once (14 + 5 + 5 = 24g) would exceed the host budget's 22g job allowance (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-ownership-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-ownership-to-parcel-ownership-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0361). Off with gold_parcel_ownership_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-ownership cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "by_pnu_serving_bake",
@@ -1302,8 +1332,7 @@
         "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
         "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
         "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
-        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
-        "gold-parcel-ownership-to-parcel-ownership-by-pnu-section-packs"
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
       "enabled": true,
       "enabled_since": "2026-10-07T19:55:24Z"

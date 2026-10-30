@@ -44,15 +44,19 @@
    - `gold_parcel_ownership_rebuild`가 `gold-panel-rebuild.sh parcel-ownership`을 돈다. 자기 단위
      `foundation-gold-parcel-ownership-rebuild.service`, scope `changed-keys`, 입력이 시작한다.
    - 공매처럼 자기 작업인 까닭: 자기 생산자 종류는 `kinds` 의 표가 아니다.
-   - 굽기는 자기 작업이 아니라 `by_pnu_serving_bake` 가 한다(서빙 간선을 그 작업이 진다). 공매가 따로 구운 까닭은 시간마다
-     바뀌는 신선도였다(ADR-0303). 소유는 반년마다 바뀐다. 그래서 새 메모리 예산이나 풀 자리 없이 기존 굽기의 차례에 들어간다.
-   - 첫 발행 전에는 굽기가 이 레인을 건너뛴다(묶음 전용 관문, ADR-0190).
+   - 굽기는 자기 굽기 작업 `by_pnu_parcel_ownership_bake`(`by-pnu-serving-bake.sh parcel-ownership`)가 한다. 자기 생산자 종류는
+     모두 서빙 간선을 자기 작업이 진다(ADR-0303 §2): 느린 전국 필지 굽기가 이 레인을 붙잡지 않는다.
+   - 그 작업은 스파크 풀 두 자리, `MemoryMax=5G` 다. 정기 실행은 반년마다 바뀐 필지의 패치만 굽고, 레인 전체 세대는 운영자의
+     전환 굽기가 만든다(ADR-0190). 두 자리인 까닭: 패널 굽기(14G)·공매 굽기(5G)와 셋이 함께 돌면 24G 로 호스트 예산의
+     작업 몫 22G 를 넘는다(`every-container-has-a-memory-cap`, ADR-0138). 두 자리면 둘 중 하나와만 함께 돈다.
+   - 첫 발행 전에는 굽기가 할 일이 없다(묶음 전용 관문, ADR-0190).
 6. **문서 스키마는 레지스트리에 있다(ADR-0336).**
    - 주제는 `foundation-platform.parcel_ownership_by_pnu`, 판 1 리비전 1, `FULL_TRANSITIVE`다.
    - 소비자는 발행기의 `pack_lane_document::check`다. 웹 화면의 소비자는 화면 PR 이 더한다.
    - Spark 테스트(`test_land_ownership_gold.py`)가 쓰인 JSON 의 경로를 레지스트리와 같게 묶는다(`SPARK_HELD`).
 7. **첫 전량 빌드는 감독 실행이다.**
-   - Gold 작업은 꺼진 채로 들어간다(`enabled: false`).
+   - Gold 작업과, 그것이 먹이는 굽기 작업은 꺼진 채로 들어간다(`enabled: false`). 켜진 작업의 입력을 쓰는 작업이 모두 꺼져
+     있으면 작업 목록이 거부한다(`job_specs`).
    - 전국 약 1억 2천만 소유 행의 첫 빌드를 단위의 150분 상한 안에서 재본 뒤, 다른 배포에서 켠다.
      ADR-0193 §7 의 "첫 전량 빌드는 예약 작업 밖에서 재고 돈다"를 따른다.
 
@@ -65,7 +69,8 @@
 - **운영자 단계(사장, 순서대로).**
   1. `silver_refresh_land_ownership` 이 첫 판을 적재한 뒤 첫 Gold 를 잰다:
      `ssh -tt ai-server sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh gold rebuild parcel-ownership`
-  2. 시간이 150분 안이면 Gold 작업을 켜는 PR.
-  3. 레인 첫 발행(묶음 전용 관문, 창 안):
+  2. 레인 첫 발행(묶음 전용 관문, 창 안):
      `ssh -tt ai-server sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-ownership cutover 1`
+  3. 첫 빌드가 150분 안이었고 발행이 끝났으면, Gold 작업과 굽기 작업을 함께 켜는 PR.
+- 스파크 풀의 기다림 상한(FLOOR)은 굽기 한 번(115+30분)만큼 늘어 2,645분이다. 작업 목록의 상한 안이다(`pool_starvation`).
 - 화면(공짱 필지 패널의 "소유" 칸)은 다음 PR 이 이 레인을 읽어 붙인다.

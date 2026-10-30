@@ -154,6 +154,10 @@
         {"unit": "MemoryMax"},
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ],
+      "by_pnu_parcel_ownership_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ],
       "by_pnu_unit_price_bake": [
         {"unit": "MemoryMax"},
         {"project": "foundation-platform-compute", "service": "spark-small"}
