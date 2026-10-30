@@ -93,9 +93,9 @@ pub use real_transaction_bronze_plan::{
     RealTransactionBronzePlanError, RealTransactionPageRequest, RealTransactionSchemaObservation,
 };
 pub use rt_molit_real_transaction_export_plan::{
-    plan_rt_molit_real_transaction_export, RtMolitExportScope, RtMolitRealTransactionExportPlan,
-    RtMolitRealTransactionExportPlanError, RtMolitRealTransactionExportPlanInput,
-    RtMolitRealTransactionExportRequest,
+    plan_rt_molit_real_transaction_export, plan_rt_molit_real_transaction_export_content_addressed,
+    RtMolitExportScope, RtMolitRealTransactionExportPlan, RtMolitRealTransactionExportPlanError,
+    RtMolitRealTransactionExportPlanInput, RtMolitRealTransactionExportRequest,
 };
 pub use standard_code_bronze_plan::{
     build_standard_code_bronze_object_key, plan_standard_code_bronze_page,

@@ -173,6 +173,7 @@ mod r2_inventory_audit;
 use foundation_publisher_collection::real_transaction_ingest;
 use foundation_publisher_core::r2_layout;
 mod regional_data_serving_load_check;
+use foundation_publisher_collection::rt_molit_real_transaction_collect;
 use foundation_publisher_collection::rt_molit_real_transaction_export_collection_plan;
 use foundation_publisher_collection::rt_molit_real_transaction_export_ingest;
 use foundation_publisher_core::runtime_environment;
@@ -216,6 +217,7 @@ enum Command {
     BuildingRegisterSmoke,
     CollectCodeGoKrLegalDong,
     CollectDataGoKrOnbid,
+    CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
     CollectDataGoKrRegisteredFactory,
     PlanSilverLoadObjects,
@@ -490,6 +492,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CollectCodeGoKrLegalDong => Box::pin(code_go_kr_legal_dong_collect::run()),
         Command::CollectDataGoKrOnbid => Box::pin(data_go_kr_onbid_collect::run()),
+        Command::CollectRtMolitRealTransaction => {
+            Box::pin(rt_molit_real_transaction_collect::run())
+        }
         Command::CollectCourtauctionGoKr => Box::pin(courtauction_go_kr_collect::run()),
         Command::CollectDataGoKrRegisteredFactory => {
             Box::pin(data_go_kr_registered_factory_collect::run())
@@ -1067,6 +1072,7 @@ where
         }
         Some("collect-code-go-kr-legal-dong") => Ok(Command::CollectCodeGoKrLegalDong),
         Some("collect-data-go-kr-onbid") => Ok(Command::CollectDataGoKrOnbid),
+        Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("collect-data-go-kr-registered-factory") => {
             Ok(Command::CollectDataGoKrRegisteredFactory)

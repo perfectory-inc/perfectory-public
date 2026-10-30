@@ -29,6 +29,8 @@
     {"path": "/var/lib/foundation-platform/registered-factory/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-platform/onbid", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/onbid/lakehouse", "mode": "0777"},
+    {"path": "/var/lib/foundation-platform/real-transaction", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/real-transaction/lakehouse", "mode": "0777"},
     {"path": "/var/lib/foundation-jobs/metrics", "mode": "0755", "written_by": "the scheduled jobs' own Prometheus textfiles, each job one <name>.prom it replaces whole (root ADR-0330 §4); node-exporter reads the directory beside the deploy's (root ADR-0321 §5)"},
     {"path": "/var/lib/foundation-platform/legal-dong-code", "mode": "0755"},
     {"path": "/var/lib/foundation-jobs/switches", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the operator switches (root ADR-0282 §3); the gate and the runner only read them"},
@@ -387,6 +389,56 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-20T01:26:10Z"
+    },
+    {
+      "id": "rt_molit_real_transaction_collect",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "국토교통부 실거래가 12종 from the rt.molit.go.kr 조건별 자료제공 bulk export (root ADR-0348, 사장 결정 2026-10-30 and 2026-10-31; scripts/ops/rt-molit-collect.sh): every hour, the (dataset, 계약 달) nationwide CSVs owed, in the order the decision sets: the months of age 0-2 (asked again daily), 3-12 (weekly) and 13-24 (monthly), whose re-pulls catch the reports and cancellations the provider adds up to 442 days after a contract, then the history never pulled, newest first, 공장창고·토지·상업업무용 first. The provider has no changed-since export, so a due month is the unit that may have changed; a month whose bytes did not change is not written again, one whose bytes changed lands content-qualified beside the earlier object. One session, 3 exports in flight, at most 30 a run and 90 a KST day under the provider's 100 (rt-molit-real-transaction.contract.json manners); a busy answer (429, 5xx) is retried after a doubling backoff; the state is saved after every export. An outright refusal, or a busy answer that outlasts the retries, ends the run and blocks later runs until a person removes refused.json. No Spark.",
+      "systemd_service": "foundation-rt-molit-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/real-transaction"
+      ],
+      "schedule": "25 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-rt-molit-bulk-to-silver-real-transaction"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T15:00:00Z"
+    },
+    {
+      "id": "rt_molit_real_transaction_silver",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver load of 국토교통부 실거래가 (root ADR-0349; scripts/ops/rt-molit-silver-load.sh, infra/lakehouse/spark/jobs/rt_molit_real_transaction.py): the Bronze exports no commit of silver.real_transaction records (plan-silver-load-objects, R2 alone), oldest landing first, each in its own commit: for its (dataset, 계약 달) the rows whose name is new or whose content changed (a cancellation is a new version of the same row) and a removal marker for a name the month's export no longer holds, compared with that month's current rows only; the 법정동 code and PNU of each row from the one place-identity resolver (root ADR-0288). Hourly, after the collector; `unchanged` without starting Spark when nothing is owed. A load whose unmasked lots link below the contract's bound lands its rows and fails so it is seen.",
+      "systemd_service": "foundation-rt-molit-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/real-transaction"
+      ],
+      "schedule": "55 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 40,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 10,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-rt-molit-bulk-to-silver-real-transaction"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T15:00:00Z"
     },
     {
       "id": "vworld_parcel_edition",
