@@ -63,6 +63,7 @@ class VersionOrderTest(unittest.TestCase):
         self.assertEqual(editions, {
             "silver.building_permit_basis_outline": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
+            "silver.building_register_master": "vintage",
             "silver.building_register_titles": "valid_from_utc",
             "silver.building_register_unit_areas": "valid_from_utc",
             "silver.building_register_units": "valid_from_utc",

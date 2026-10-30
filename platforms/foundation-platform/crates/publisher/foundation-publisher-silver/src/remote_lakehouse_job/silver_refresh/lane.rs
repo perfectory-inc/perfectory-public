@@ -23,6 +23,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     ApartmentPrice,
     ExclusiveUnit,
     PermitBasisOutline,
+    RegisterMaster,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -33,13 +34,14 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 13] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 14] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
         Self::ApartmentPrice,
         Self::ExclusiveUnit,
         Self::PermitBasisOutline,
+        Self::RegisterMaster,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -59,6 +61,7 @@ impl Lane {
             Self::ApartmentPrice => "building-register-apartment-price",
             Self::ExclusiveUnit => "building-register-exclusive-unit",
             Self::PermitBasisOutline => "building-permit-basis-outline",
+            Self::RegisterMaster => "building-register-master",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -113,6 +116,10 @@ impl Lane {
             Self::PermitBasisOutline => (
                 "hub-building-permit-basis-outline-source-objects.json",
                 crate::building_permit_basis_outline_silver_export::CONTRACT_JSON,
+            ),
+            Self::RegisterMaster => (
+                "hub-building-register-master-source-objects.json",
+                crate::building_register_master_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -183,6 +190,9 @@ impl ExportKind {
             },
             "export-building-permit-basis-outline-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_BASIS",
+            },
+            "export-building-register-master-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_REGISTER_MASTER",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {

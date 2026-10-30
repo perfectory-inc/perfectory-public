@@ -228,6 +228,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 표 | 상태 | 이유 |
 |---|---|---|
 | `silver.building_permit_basis_outline` | 계약만 있음 | 허가마다 한 행: 허가일·착공예정일·착공연기일·실제착공일·사용승인일과 건축구분·주용도·면적. 필지에 지금 짓는 건물과 허가만 난 건물을 말한다. 원문 41칸 보존. 적재 레인은 돌고, 읽는 소비자(건물 by-PNU 패널의 수명 칸)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0356). |
+| `silver.building_register_master` | 계약만 있음 | 여러 동이 선 대지마다 한 행: 대지·건축·연면적 합계, 주·부속 건축물 수, 주차 수, 허가·착공·사용승인일. 공장 단지형 대지의 규모를 말한다. 원문 64칸 보존. 적재 레인은 돌고, 읽는 소비자(건물 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0357). |
 | `silver.building_register_apartment_price_versions` | 계약만 있음 | 공동주택가격의 판마다 바뀐 (관리번호, 기준일) 키의 행과 사라진 키의 삭제 표시만 쌓는다. 어느 판이든 그 판 이하의 버전에서 키마다 가장 새 행으로 다시 만들며, 판의 전체 사본과 같다(루트 ADR-0317). 일회성 이행 잡이 옛 표에서 채우고, 레인 전환 전까지 읽는 소비자가 없어 섬으로 둔다. |
 | `silver.unit_official_price_versions` | 계약만 있음 | 세대 가격 조합의 판마다 바뀐 (관리번호, 기준일) 키의 행과 사라진 키의 삭제 표시만 쌓는다. 어느 판이든 그 판 이하의 버전에서 키마다 가장 새 행으로 다시 만들며, 패널이 읽던 그 판의 묶음과 같다(루트 ADR-0317). 일회성 이행 잡이 옛 표에서 채우고, 독자 전환 전까지 읽는 소비자가 없어 섬으로 둔다. |
 | `silver.court_auction_item` | 계약만 있음 | 물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
@@ -347,6 +348,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축HUB 파일 → 건축물대장 공동주택가격 | `export-building-register-apartment-price-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건축물대장 전유부 | `export-building-register-exclusive-unit-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 건축HUB 파일 → 건축인허가 기본개요 | `export-building-permit-basis-outline-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
+| 건축HUB 파일 → 건축물대장 총괄표제부 | `export-building-register-master-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 필지 경계 | `export-vworld-cadastral-shapefile-silver-handoff`<br>`export-vworld-cadastral-silver-handoff-shard`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py` |
 | 브이월드 공간·토지 파일 → 필지별 토지이용계획 | `export-land-use-plan-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
 | 브이월드 공간·토지 파일 → 용도지역 코드 사전 | `export-land-use-zone-code-silver-handoff`<br>`platforms/foundation-platform/scripts/ops/silver-refresh.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py` |
