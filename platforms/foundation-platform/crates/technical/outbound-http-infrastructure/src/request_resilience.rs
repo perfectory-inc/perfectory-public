@@ -475,7 +475,8 @@ where
             }
             ctx.audit
                 .record(ResilienceEvent::AttemptsExhausted { attempts: 1 });
-            Err(OutboundHttpError::new(format!(
+            // The provider did not serve; a retry may (root ADR-0363), not a new release.
+            Err(OutboundHttpError::provider_unavailable(format!(
                 "{} request failed: {message}",
                 ctx.audit.provider
             )))
@@ -541,7 +542,8 @@ fn record_exhaustion(
     }
     ctx.audit
         .record(ResilienceEvent::AttemptsExhausted { attempts });
-    Ok(OutboundHttpError::new(format!(
+    // Every attempt was retryable: the provider did not serve (root ADR-0363).
+    Ok(OutboundHttpError::provider_unavailable(format!(
         "{} request failed after {attempts} attempts: {message}",
         ctx.audit.provider
     )))

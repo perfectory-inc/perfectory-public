@@ -32,7 +32,7 @@ use super::{
     partition_held_files, persist_file_stream_with_adapters, plan_streamed_file_location,
     refuse_provider_file_id_live_write, select_inventory_files, validate_inventory_file_identity,
     vworld_dataset_file_ingest_status, vworld_dataset_login_config, BronzeKeyForm, PayloadKey,
-    VWorldDatasetFileIngestConfig, VWorldDatasetFileJob,
+    VWorldDatasetFileIngestConfig, VWorldDatasetFileJob, PROVIDER_UNAVAILABLE_STATUS,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -483,6 +483,34 @@ fn ingest_status_always_blocks_real_failures() {
 
     assert_eq!(status.evidence_status, "blocked");
     assert!(status.should_bail);
+}
+
+#[test]
+fn failed_file_report_names_a_provider_that_did_not_serve() -> TestResult {
+    // Root ADR-0363: a 5xx after the retries is the provider's side, so the staging smoke skips
+    // the file instead of refusing the release; a file we could not read stays `failed`.
+    let job = test_job();
+    let inventory_file =
+        test_inventory_file("20991231DS99993", "20991231DS99993", "9005", "2026-05");
+    let started_at = test_started_at()?;
+    let unavailable = failed_file_report(
+        &job,
+        &inventory_file,
+        started_at,
+        anyhow::Error::from(CollectionError::ProviderUnavailable(
+            "VWorld dataset file request failed after 3 attempts: HTTP 503".to_owned(),
+        ))
+        .context("failed to open VWorld dataset file stream"),
+    );
+    assert_eq!(unavailable.status, PROVIDER_UNAVAILABLE_STATUS);
+    let ours = failed_file_report(
+        &job,
+        &inventory_file,
+        started_at,
+        CollectionError::Infrastructure("returned HTML".to_owned()).into(),
+    );
+    assert_eq!(ours.status, "failed");
+    Ok(())
 }
 
 #[test]

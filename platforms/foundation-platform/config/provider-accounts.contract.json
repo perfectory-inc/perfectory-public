@@ -1,0 +1,24 @@
+{
+  "$comment": "Root ADR-0363. Every provider the platform logs into with an account, and what its owner does when the provider refuses that account. Names only, never values: the credentials' variable names live in config/environment-variable-naming.contract.json (credentials_group). A login client reports a refusal as CollectionError::ProviderAccountActionRequired with this file's provider key and the provider's own result code (foundation-publisher-core provider_outcome); scripts/ops/provider_alert.py reads this file to page the owner action through Alertmanager, and clears the alert on the next login that succeeds. orchestration/tests/test_provider_alert.py refuses a login client whose provider is not here.",
+  "schema_version": 1,
+  "providers": {
+    "vworld.kr": {
+      "display_name": "VWorld",
+      "login_site": "https://www.vworld.kr",
+      "credentials_group": "foundation-vworld-credentials",
+      "login_client": "crates/collection/collection-infrastructure/src/vworld_dataset_file.rs (VWorldDatasetLoginClient)",
+      "jobs": ["source_sweep", "vworld_parcel_edition"],
+      "owner_actions": {
+        "useChk": "vworld.kr 에 수집 계정으로 로그인해 바뀐 이용약관에 동의하세요 (log into vworld.kr with the collection account and accept the new terms)",
+        "*": "vworld.kr 에 수집 계정으로 로그인해 사이트가 요구하는 조치(비밀번호 변경·잠금 해제·휴면 해제 등)를 마치세요 (log into vworld.kr with the collection account and clear what it asks)"
+      },
+      "first_seen": "2026-10-30 13:07Z: the login answered result=useChk (이용약관 변경안내); the deploy of 59c0b68 stopped at the staging smoke and every VWorld collection failed until the owner accepted the terms."
+    }
+  },
+  "alert": {
+    "alertname": "FoundationProviderAccountActionRequired",
+    "service": "provider-account",
+    "hold_hours": 26,
+    "hold_reason": "Every job that logs in refreshes the alert on each refusal; the daily sweep runs once a day, so 26 hours keeps it firing between two of its runs and lets it lapse a day after nothing logs in any more. A login that succeeds resolves it at once."
+  }
+}

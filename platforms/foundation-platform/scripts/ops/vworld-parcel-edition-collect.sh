@@ -119,7 +119,22 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_CONFIRM_FULL_DOWNLOAD=1
 # 그 옛 객체를 "이미 있음"으로 읽는다(2026-10-14). 본문은 해시를 재는 동안 실행 폴더의 spool 에 두고 파일마다 지운다.
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY=content_addressed
 export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_SPOOL_DIR="${work}/spool"
-"${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1
+ingest_rc=0
+"${PUBLISHER_BIN}" ingest-vworld-dataset-files >> "${run_log}" 2>&1 || ingest_rc=$?
+# 계정 문제(루트 ADR-0363): 제공자가 계정을 거부하면(종료 77) 소유자 조치를 알림으로 띄우고 이 실행은 그
+# 조치를 기다린다고 말하고 끝난다 — 다시 돌면 받은 파일은 건너뛰고 이어 받는다. 로그인이 되면 열린 알림을 닫는다.
+account_action="$("${PY[@]}" "${RELEASE_ROOT}/scripts/ops/provider_alert.py" accounts --source vworld_parcel_edition \
+  "${run_log}" 2>> "${run_log}")" || account_action=""
+if [ "${ingest_rc}" = 77 ] && [ -n "${account_action}" ]; then
+  job_journal "${journal}" "vworld-parcel-edition provider=${edition} waiting: provider account action required run=${run_id}"
+  printf 'foundation-job-outcome waiting provider account action required — %s\n' "${account_action}"
+  exit 0
+fi
+if [ "${ingest_rc}" != 0 ]; then
+  job_journal "${journal}" "vworld-parcel-edition FAILED at ingest (exit ${ingest_rc}) run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
+  exit "${ingest_rc}"
+fi
 "${PY[@]}" - "${work}/ingest-evidence.json" "${files}" > "${work}/keys.txt" <<'PY'
 import json, sys
 evidence = json.load(open(sys.argv[1], encoding="utf-8"))

@@ -9,6 +9,7 @@ against foundation_staging, the sample is the two smallest files plus one large 
 multipart, and a step that lands or measures less than it should fails the smoke.
 """
 
+import datetime
 import hashlib
 import json
 import os
@@ -23,6 +24,9 @@ ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ORCHESTRATION / "dags"))
 
 import job_specs  # noqa: E402
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from alertmanager_stub import AlertmanagerStub  # noqa: E402
 
 PLATFORM = job_specs.PLATFORM_ROOT
 sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
@@ -57,6 +61,11 @@ with open(os.path.join(state, "calls.jsonl"), "a", encoding="utf-8") as log:
     log.write(json.dumps(seen) + "\n")
 if command == scenario.get("die"):
     sys.exit(command + " died")
+# The provider's side (root ADR-0363): the publisher's own exit code and outcome line.
+provider = scenario.get("provider", {}).get(command)
+if provider:
+    sys.stderr.write("foundation-provider-outcome " + json.dumps(provider["outcome"]) + "\n")
+    sys.exit(provider["rc"])
 if command == "clear-staging-namespace":
     print("staging-namespace cleared prefix=staging/ objects=0 bytes=0")
 elif command == "plan-building-hub-bulk-collection":
@@ -71,6 +80,7 @@ elif command == "ingest-vworld-dataset-files":
     sample = json.load(open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], encoding="utf-8"))
     files = [f for job in sample["jobs"] for f in job["files"]]
     json.dump({"sampled": [f["file_no"] for f in files]}, open(os.path.join(state, "sample.json"), "w"))
+    sys.stderr.write('foundation-provider-outcome {"outcome": "ok", "provider": "vworld.kr"}\n')
     failed = scenario.get("ingest_failed", 0)
     json.dump({"status": "blocked" if failed else "ready", "selected_file_count": len(files),
                "succeeded_file_count": len(files) - failed, "failed_file_count": failed},
@@ -132,12 +142,15 @@ class StagingSmoke(unittest.TestCase):
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
         for name in ("staging-smoke.sh", "admitted-writer-runtime.sh", "database-url.sh", "vworld-login.sh",
-                     "vworld-sweep-lane.sh", "job-journal.sh"):
+                     "vworld-sweep-lane.sh", "job-journal.sh", "provider_alert.py"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "config").mkdir()
         shutil.copy(CONTRACT, release / "config")
         shutil.copy(NAMING, release / "config")
+        shutil.copy(PLATFORM / "config/provider-accounts.contract.json", release / "config")
+        self.alertmanager = AlertmanagerStub()
+        self.addCleanup(self.alertmanager.close)
         (release / "docs/catalog").mkdir(parents=True)
         shutil.copy(CATALOG, release / "docs/catalog")
         (release / "infra/compose").mkdir(parents=True)
@@ -171,6 +184,7 @@ class StagingSmoke(unittest.TestCase):
             "FOUNDATION_PLATFORM_RUNTIME_ENV": "production",
             # The service account's home in production; Docker cannot keep its state there.
             "HOME": "/nonexistent", "DOCKER_CONFIG": "/nonexistent/.docker",
+            "FOUNDATION_ALERTMANAGER_PORT": self.alertmanager.port,
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
         self.scenario()
@@ -265,6 +279,56 @@ class StagingSmoke(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("clear FAILED", result.stderr)
         self.assertEqual(self.lines("docker.jsonl"), [], "nothing after the failed step ran")
+
+    # Root ADR-0363: the smoke judges the release, not the providers.
+    TERMS_CHANGED = {"rc": 77, "outcome": {
+        "outcome": "provider_account_action_required", "provider": "vworld.kr", "reason": "useChk",
+        "message": "VWorld dataset login failed result=useChk message=이용약관 변경안내 페이지로 이동합니다."}}
+    NOT_SERVING = {"rc": 75, "outcome": {"outcome": "provider_unavailable", "message": "HTTP 503 after 3 attempts"}}
+
+    def test_the_2026_10_30_terms_change_skips_the_sample_and_deploys_with_an_owner_page(self):
+        # 2026-10-30 13:07Z: the deploy of 59c0b68 stopped at "ingest FAILED … VWorld dataset login failed
+        # result=useChk". No release can accept a provider's terms.
+        self.scenario(provider={"ingest-vworld-dataset-files": self.TERMS_CHANGED})
+        result = self.run_smoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"staging-smoke: passed release={RELEASE_ID} with provider inputs skipped", result.stdout)
+        self.assertIn("staging-smoke: skipped vworld-ingest", result.stdout)
+        self.assertNotIn("measure-bronze-object-members", [c["command"] for c in self.lines("calls.jsonl")],
+                         "nothing landed, so nothing is measured")
+        [account] = self.alertmanager.named("FoundationProviderAccountActionRequired")
+        self.assertEqual(account["labels"]["provider"], "vworld.kr")
+        self.assertIn("accept the new terms", account["annotations"]["summary"])
+        [skipped] = self.alertmanager.named("FoundationStagingSmokeInputSkipped")
+        self.assertIn("vworld-ingest", skipped["annotations"]["summary"])
+        self.assertIn("useChk", skipped["annotations"]["summary"])
+
+    def test_a_provider_that_serves_no_input_is_inconclusive_and_still_deploys(self):
+        self.scenario(provider={"plan-building-hub-bulk-collection": self.NOT_SERVING,
+                                "plan-vworld-dataset-collection": self.NOT_SERVING})
+        result = self.run_smoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"staging-smoke: inconclusive release={RELEASE_ID}", result.stdout)
+        commands = [c["command"] for c in self.lines("calls.jsonl")]
+        self.assertNotIn("inventory-vworld-dataset-files", commands)
+        self.assertNotIn("ingest-vworld-dataset-files", commands)
+        self.assertEqual(len(self.alertmanager.named("FoundationStagingSmokeInputSkipped")), 1)
+
+    def test_the_releases_own_failure_still_refuses_it_while_a_provider_is_down(self):
+        # A provider being down does not excuse what the release broke: the image, the schema, a crash.
+        self.scenario(provider={"plan-building-hub-bulk-collection": self.NOT_SERVING},
+                      die="ingest-vworld-dataset-files")
+        result = self.run_smoke()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ingest FAILED", result.stderr)
+
+    def test_a_clean_smoke_resolves_what_an_earlier_one_paged(self):
+        self.assertEqual(self.run_smoke().returncode, 0)
+        [account] = self.alertmanager.named("FoundationProviderAccountActionRequired")
+        [skipped] = self.alertmanager.named("FoundationStagingSmokeInputSkipped")
+        for alert in (account, skipped):
+            ends = datetime.datetime.fromisoformat(alert["endsAt"].replace("Z", "+00:00"))
+            self.assertLessEqual(ends, datetime.datetime.now(datetime.timezone.utc), alert)
 
     def test_a_missing_setting_refuses_before_any_side_effect(self):
         env = dict(self.env)

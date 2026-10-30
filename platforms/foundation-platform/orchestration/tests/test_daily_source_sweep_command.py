@@ -10,6 +10,7 @@ budget (a large day is said once, never refused), a lane that fails does not sto
 missing setting stops the job before anything happens.
 """
 
+import datetime
 import hashlib
 import json
 import os
@@ -29,7 +30,10 @@ PLATFORM = job_specs.PLATFORM_ROOT
 sys.path.insert(0, str(PLATFORM / "scripts/deploy"))
 import runtime_secrets  # noqa: E402
 
-UNIT = "foundation-source-sweep.service"
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from alertmanager_stub import AlertmanagerStub  # noqa: E402
+
+UNIT ="foundation-source-sweep.service"
 SCRIPT = PLATFORM / "scripts/ops/daily-source-sweep.sh"
 CATALOG = PLATFORM / "docs/catalog/public-source-endpoint-catalog.v1.json"
 NAMING = PLATFORM / "config/environment-variable-naming.contract.json"
@@ -84,7 +88,11 @@ elif command == "ingest-vworld-dataset-files":
     assert not [name for name in env if "NEW_BYTES_BUDGET" in name and "RAON" not in name], \
         "the VWorld lane is given no byte budget"
     vworld = scenario["vworld"]
-    json.dump(vworld["evidence"], open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH"], "w"))
+    if vworld.get("outcome"):
+        # The publisher's provider outcome line (root ADR-0363), on stderr as the real one prints it.
+        sys.stderr.write("foundation-provider-outcome " + json.dumps(vworld["outcome"]) + "\n")
+    if vworld.get("evidence") is not None:
+        json.dump(vworld["evidence"], open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INGEST_EVIDENCE_PATH"], "w"))
     sys.exit(vworld.get("rc", 0))
 elif command == "measure-bronze-object-members":
     # What the measuring step was handed (names and whether set, never values).
@@ -169,7 +177,7 @@ class SweepCommand(unittest.TestCase):
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
         for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh", "job-journal.sh",
-                     "bronze-object-members.sh", "database-url.sh", "vworld-sweep-lane.sh"):
+                     "bronze-object-members.sh", "database-url.sh", "vworld-sweep-lane.sh", "provider_alert.py"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "scripts/ops/raon-large-files.sh").write_text(FAKE_RAON)
@@ -182,6 +190,9 @@ class SweepCommand(unittest.TestCase):
         self.raon_cap(2**34)
         (release / "config").mkdir()
         shutil.copy(NAMING, release / "config")
+        shutil.copy(PLATFORM / "config/provider-accounts.contract.json", release / "config")
+        self.alertmanager = AlertmanagerStub()
+        self.addCleanup(self.alertmanager.close)
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -207,6 +218,7 @@ class SweepCommand(unittest.TestCase):
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FOUNDATION_SOURCE_SWEEP_STATE_ROOT": str(self.state),
             "FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE": str(token), "FAKE_STATE": str(self.fake),
             "FOUNDATION_SOURCE_SWEEP_SPOOL_DIR": str(self.spool),
+            "FOUNDATION_ALERTMANAGER_PORT": self.alertmanager.port,
             **{name: "planted-" + name.lower() for name in NEEDS},
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
         }
@@ -310,6 +322,42 @@ class SweepCommand(unittest.TestCase):
         self.assertIn(summary, result.stdout.splitlines(), "the journal line is the unit's line too")
         self.assertIn("  | hub ingest died", result.stderr, "the end of the run log is relayed")
         self.assertNotIn("planted-", result.stdout + result.stderr)
+
+    TERMS_CHANGED = {"outcome": "provider_account_action_required", "provider": "vworld.kr", "reason": "useChk",
+                     "message": "VWorld dataset login failed result=useChk message=이용약관 변경안내 페이지로 이동합니다."}
+
+    def test_the_2026_10_30_terms_change_waits_on_the_owner_and_pages_the_action(self):
+        # 2026-10-30: VWorld answered the collection login useChk and the lane failed with "failed to
+        # acquire VWorld dataset login session". It now waits on the owner, who is paged with the action.
+        self.scenario(vworld={"rc": 77, "outcome": self.TERMS_CHANGED, "evidence": None})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        last = result.stdout.splitlines()[-1]
+        self.assertTrue(last.startswith("foundation-job-outcome waiting provider account action required"), last)
+        self.assertIn("accept the new terms", last)
+        self.assertIn("vworld status=provider_account_action_required", self.journal())
+        [account] = self.alertmanager.alerts
+        self.assertEqual(account["labels"], {"alertname": "FoundationProviderAccountActionRequired",
+                                             "service": "provider-account", "environment": "prelaunch",
+                                             "provider": "vworld.kr"})
+        self.assertIn("source_sweep", account["annotations"]["summary"])
+
+    def test_a_refused_account_that_cannot_be_paged_fails_loudly(self):
+        self.alertmanager.close()
+        self.scenario(vworld={"rc": 77, "outcome": self.TERMS_CHANGED, "evidence": None})
+        result = self.run_job()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("vworld status=no-evidence rc=77", self.journal())
+
+    def test_a_login_that_works_again_resolves_the_page(self):
+        self.scenario(vworld={"outcome": {"outcome": "ok", "provider": "vworld.kr"},
+                              "evidence": vworld_evidence([vfile("8", "skipped_existing")])})
+        result = self.run_job()
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged", result.stderr)
+        [resolved] = self.alertmanager.alerts
+        self.assertEqual(resolved["labels"]["provider"], "vworld.kr")
+        self.assertLessEqual(resolved["endsAt"], datetime.datetime.now(datetime.timezone.utc)
+                             .strftime("%Y-%m-%dT%H:%M:%S.000Z"))
 
     def test_the_old_budget_is_gone_end_to_end(self):
         collection = json.loads(CATALOG.read_text(encoding="utf-8"))["daily_collections"]["source_sweep"]

@@ -392,7 +392,21 @@ fn main() -> anyhow::Result<()> {
     } else {
         run_command_runtime(command)
     };
-    result.map_err(exit_if_refused)
+    result
+        .map_err(exit_if_refused)
+        .map_err(exit_if_provider_side)
+}
+
+/// A provider that did not serve or refuses the account exits with its own code and one outcome
+/// line (`foundation_publisher_core::provider_outcome`, root ADR-0363), so the staging smoke and
+/// the jobs tell the provider's side from the release's.
+fn exit_if_provider_side(error: anyhow::Error) -> anyhow::Error {
+    if let Some((line, code)) = foundation_publisher_core::provider_outcome::provider_side(&error) {
+        eprintln!("Error: {error:?}");
+        eprintln!("{line}");
+        std::process::exit(code);
+    }
+    error
 }
 
 /// A refusal of the inputs exits `REFUSED_EXIT_CODE`, so the bakes do not retry it; any other
