@@ -2,8 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-30
-- Builds on: [ADR-0359](./0359-every-vworld-land-dataset-is-swept-and-the-land-register-api-is-not-collected.md)
-  (토지소유를 매일 훑기가 받는다, 토지대장 API 는 받지 않는다),
+- Builds on: ADR-0359(토지소유를 매일 훑기가 받는다, 토지대장 API 는 받지 않는다; PR #968),
   [ADR-0169](./0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md)(Silver 레인이 원장에서 판을 고른다),
   ADR-0275·ADR-0311·ADR-0318(바뀐 키만 덧붙이고 사라진 키에 삭제 표지),
   [ADR-0091](./0091-a-parcel-learns-its-land-rights.md)(같은 모양의 앞선 레인: 대지권등록)

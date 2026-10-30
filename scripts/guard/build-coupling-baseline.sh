@@ -300,7 +300,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 150 -> 151: the 건축인허가 기본개요 lane embeds its source contract once, as every hub part lane does,
 # so the export's layout and the Silver refresh's release rules are the same bytes (root ADR-0356).
 # 151 -> 152: the 총괄표제부 lane embeds its source contract the same way (root ADR-0357).
-COMPILE_TIME_READ_BASELINE="${3:-152}"
+# 152 -> 153: the Silver refresh's land-ownership lane compiles in its source contract
+# (vworld-land-ownership-source-objects.json, root ADR-0360), as each land lane's include_str! does.
+COMPILE_TIME_READ_BASELINE="${3:-153}"
 
 cd "$repo_root"
 
