@@ -358,8 +358,8 @@ async fn refresh_run(
 /// published as `main` in one fast-forward once every bucket is in (root ADR-0318), so `main` keeps
 /// every row it held and a reader never sees half a release. Returns whether `main` holds the
 /// release; false when the run's time ran out with buckets left, which the next run compares. A
-/// table that had no snapshot when the load began was written on `main` directly, whole; there is
-/// nothing to compare.
+/// load with no branch (one already one commit) wrote `main` directly; there is nothing to compare.
+/// A new table stages too: its branch grows from an empty commit (`append_batch_once`).
 async fn append_changes(
     contract: &LaneContract,
     runtime: &Runtime,
@@ -685,8 +685,7 @@ async fn stage_load(
 }
 
 /// Publishes the staged batches as `main` in one commit, then confirms `main` records every one
-/// (root ADR-0183). A table that had no snapshot when the load began was written on `main`
-/// directly (there was no branch to make and no reader); then there is nothing to publish.
+/// (root ADR-0183). A load with no branch wrote `main` directly; then there is nothing to publish.
 async fn publish_load(
     catalog: &IcebergRestCatalog,
     table: &str,

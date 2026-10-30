@@ -466,9 +466,14 @@ def append_batch_once(
     token = ingest_batch_token(record_ids)
     ref = MAIN
     target = qualified_table
-    # A table with no snapshot yet has nothing a branch could be made from, and no reader yet.
-    if branch is not None and ref_lineage(spark, qualified_table, MAIN):
+    if branch is not None:
         ref = checked_ref(branch)
+        # A new table has no snapshot to make the branch from. Writing its first batch on main
+        # instead put part of a release on main (silver.land_ownership, 2026-10-30: 4 of 17
+        # objects), which the compare refuses; an empty commit that records nothing gives the
+        # branch its base, so every batch stages and main gets the release in one commit.
+        if not ref_lineage(spark, qualified_table, MAIN):
+            frame.select(*columns).limit(0).writeTo(qualified_table).append()
         spark.sql(f"ALTER TABLE {qualified_table} CREATE BRANCH IF NOT EXISTS {ref}")
         target = f"{qualified_table}.`branch_{ref}`"
     ingested = read_ingested_objects(spark, qualified_table, unquoted, ref)

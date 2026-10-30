@@ -301,6 +301,19 @@ def refuse_older_edition(edition: str, held: set[str]) -> None:
         raise ValueError(f"edition {edition} is older than the held editions {newer}; versions are appended in edition order")
 
 
+def part_of_the_staged_release(main_lineage: set[int], branch_lineage: set[int]) -> bool:
+    """Whether the objects `main` records of a release are the load branch's own first batch.
+
+    Before every batch staged (`append_batch_once`), a new table took its first batch on `main` and
+    the branch grew from it (silver.land_ownership and silver.land_use_zone_area, 2026-10-30). The
+    branch holds every commit of `main` then, so the rows `main` has are staged rows: compared, they
+    are unchanged, and the rest of the release is appended in one commit. Any other partial record
+    on `main` is refused: a compare publishes a release whole, so it cannot come from one.
+    """
+
+    return bool(main_lineage) and main_lineage <= branch_lineage
+
+
 def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) -> dict[str, Any]:
     from pyspark.sql import functions as F  # noqa: PLC0415
     from pyspark.storagelevel import StorageLevel  # noqa: PLC0415
@@ -318,12 +331,13 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
 
     recorded = read_ingested_objects(spark, qualified, unquoted, MAIN)
     held = [o for o in objects if o in recorded]
-    if held:
-        if len(held) != len(objects):
-            raise ValueError(f"main records {len(held)} of the release's {len(objects)} objects; a release is one commit")
+    if len(held) == len(objects):
         return {**report, "outcome": "already_appended"}
-    if not ref_lineage(spark, qualified, args.branch):
+    branch_lineage = ref_lineage(spark, qualified, args.branch)
+    if not branch_lineage:
         raise ValueError(f"{args.contract} has no branch {args.branch} to compare")
+    if held and not part_of_the_staged_release(ref_lineage(spark, qualified, MAIN), branch_lineage):
+        raise ValueError(f"main records {len(held)} of the release's {len(objects)} objects; a release is one commit")
     staged_objects = read_ingested_objects(spark, qualified, unquoted, args.branch)
     unstaged = [o for o in objects if o not in staged_objects]
     if unstaged:
