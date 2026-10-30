@@ -345,6 +345,28 @@
       ],
       "consumers": [
         {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/ownership.generated.ts",
+          "reason": "the parcel panel's 소유 group (root ADR-0361): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "ownership", "required": true},
+            {"path": "ownership.owners", "required": true},
+            {"path": "ownership.owners[].co_owner_serial_no", "required": true},
+            {"path": "ownership.owners[].ownership_kind_name", "required": false},
+            {"path": "ownership.owners[].residence_kind_name", "required": false},
+            {"path": "ownership.owners[].ownership_change_reason", "required": false},
+            {"path": "ownership.owners[].ownership_changed_on", "required": false},
+            {"path": "ownership.unit_owner_total", "required": true},
+            {"path": "ownership.unit_owner_kinds", "required": true},
+            {"path": "ownership.unit_owner_kinds[].ownership_kind_name", "required": false},
+            {"path": "ownership.unit_owner_kinds[].count", "required": true},
+            {"path": "ownership.base_year_month", "required": false},
+            {"path": "owner_total", "required": false}
+          ]
+        },
+        {
           "name": "pack-lane-document",
           "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
           "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",

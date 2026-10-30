@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { generate } from "../../codegen/gen-schemas.mjs";
+import { OwnershipDocumentSchema } from "./ownership";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 
 // Root ADR-0336. 2026-10-29: an old build of this web refused the public auction's v2 documents —
@@ -57,6 +58,14 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
     expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/public-auction.generated.ts");
     const read = paths(z.toJSONSchema(PublicAuctionDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the ownership paths its pact lists", () => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === "parcel-ownership");
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/ownership.generated.ts");
+    const read = paths(z.toJSONSchema(OwnershipDocumentSchema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 });
