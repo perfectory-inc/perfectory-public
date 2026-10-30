@@ -4,13 +4,19 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Building } from "@/lib/api/buildings";
+import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
 import { ParcelListingsCard } from "./listings";
 import { ParcelPublicAuctionCard } from "./public-auction";
-import { parcelBuildingsQuery, parcelListingsQuery, parcelPublicAuctionQuery } from "./queries";
+import {
+  parcelBuildingsQuery,
+  parcelListingsQuery,
+  parcelOwnershipQuery,
+  parcelPublicAuctionQuery,
+} from "./queries";
 
 type Entry = Extract<PanelStackEntry, { kind: "parcel" }>;
 
@@ -222,8 +228,13 @@ function ParcelHeader({ pnu, data }: { pnu: string; data: ParcelDocument }) {
 function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const t = useTranslations("panels.parcel.summary");
   const buildings = useQuery(parcelBuildingsQuery(entry.id));
+  const ownership = useQuery(parcelOwnershipQuery(entry.id));
   const sections: Section[] = [
-    { id: "land", label: t("sections.land"), content: <LandSection data={data} /> },
+    {
+      id: "land",
+      label: t("sections.land"),
+      content: <LandSection data={data} ownership={ownership.data ?? null} />,
+    },
   ];
   const buildingList = buildings.data?.buildings ?? [];
   const landRights = data.land_right_total ?? 0;
@@ -293,7 +304,59 @@ function characteristicRows(
   ];
 }
 
-function LandSection({ data }: { data: ParcelDocument }) {
+/**
+ * 소유 from the 토지소유 lane (root ADR-0361): the parcel's own owners counted by 소유구분, how many
+ * co-owners, the newest change, where the owners live relative to the land, and for a collective
+ * building on it how many unit owners of each 소유구분. Every value is the provider's word; a field
+ * the source leaves out is "-" or not shown.
+ */
+function OwnershipGroup({ ownership }: { ownership: Ownership }) {
+  const t = useTranslations("panels.parcel.summary");
+  const dash = t("none");
+  const kinds = ownerKinds(ownership)
+    .map(([kind, count]) => (count > 1 ? `${kind ?? dash} ${count}` : (kind ?? dash)))
+    .join(" · ");
+  const latest = latestChange(ownership);
+  const residences = [
+    ...new Set(ownership.owners.map((o) => o.residence_kind_name).filter((r): r is string => !!r)),
+  ];
+  const units = ownership.unit_owner_kinds
+    .map((k) => `${k.ownership_kind_name ?? dash} ${k.count.toLocaleString("ko-KR")}`)
+    .join(" · ");
+  const rows: [string, ReactNode][] = [];
+  if (ownership.owners.length > 0) {
+    rows.push([t("land.ownerKinds"), kinds]);
+    rows.push([t("land.ownerCount"), t("land.coOwnerCount", { count: ownership.ownerTotal })]);
+    rows.push([
+      t("land.latestChange"),
+      latest
+        ? `${latest.ownership_changed_on} ${latest.ownership_change_reason ?? ""}`.trim()
+        : dash,
+    ]);
+    rows.push([t("land.residence"), residences.length > 0 ? residences.join(" · ") : dash]);
+  }
+  if (ownership.unit_owner_total > 0) {
+    rows.push([
+      t("land.unitOwners"),
+      `${units} (${t("land.unitOwnerCount", { count: ownership.unit_owner_total.toLocaleString("ko-KR") })})`,
+    ]);
+  }
+  if (rows.length === 0) return null;
+  return (
+    <Group
+      title={t("land.ownership")}
+      note={
+        ownership.base_year_month
+          ? t("land.ownershipLaneSource", { month: ownership.base_year_month })
+          : t("land.ownershipLaneSourceUndated")
+      }
+    >
+      <Rows rows={rows} />
+    </Group>
+  );
+}
+
+function LandSection({ data, ownership }: { data: ParcelDocument; ownership: Ownership | null }) {
   const t = useTranslations("panels.parcel.summary");
   // 원천이 말하지 않은 값은 "-" — 지어내지 않는다 (root ADR-0070/0078).
   const dash = t("none");
@@ -337,20 +400,24 @@ function LandSection({ data }: { data: ParcelDocument }) {
           </p>
         )}
       </Group>
-      {data.forest_ledger && (
-        <Group title={t("land.ownership")} note={t("land.ownershipSource")}>
-          <Rows
-            rows={[
-              [t("land.ownershipKind"), data.forest_ledger.ownership_kind_name ?? dash],
-              [
-                t("land.coOwners"),
-                data.forest_ledger.co_owner_count != null
-                  ? t("land.coOwnerCount", { count: data.forest_ledger.co_owner_count })
-                  : dash,
-              ],
-            ]}
-          />
-        </Group>
+      {ownership ? (
+        <OwnershipGroup ownership={ownership} />
+      ) : (
+        data.forest_ledger && (
+          <Group title={t("land.ownership")} note={t("land.ownershipSource")}>
+            <Rows
+              rows={[
+                [t("land.ownershipKind"), data.forest_ledger.ownership_kind_name ?? dash],
+                [
+                  t("land.coOwners"),
+                  data.forest_ledger.co_owner_count != null
+                    ? t("land.coOwnerCount", { count: data.forest_ledger.co_owner_count })
+                    : dash,
+                ],
+              ]}
+            />
+          </Group>
+        )
       )}
       <Group title={t("land.moves")} note={moves.length > 0 ? t("land.movesNote") : undefined}>
         {moves.length > 0 ? (

@@ -10,6 +10,7 @@ const reads = vi.hoisted(() => ({
   buildings: { buildings: [] as unknown[], unlinked_units: [] as unknown[] },
   listings: { listings: [] as unknown[], total: 0 },
   publicAuction: [] as unknown[],
+  ownership: null as unknown,
 }));
 vi.mock("@/components/panels/parcel/queries", () => ({
   parcelBuildingsQuery: (pnu: string) => ({
@@ -23,6 +24,10 @@ vi.mock("@/components/panels/parcel/queries", () => ({
   parcelPublicAuctionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "public-auction", pnu],
     queryFn: async () => reads.publicAuction,
+  }),
+  parcelOwnershipQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "ownership", pnu],
+    queryFn: async () => reads.ownership,
   }),
 }));
 
@@ -92,6 +97,42 @@ describe("parcel panel sections", () => {
     renderPanel(parcel({ forest_ledger: { ownership_kind: "06", co_owner_count: 2 } }));
     expect(screen.queryByText("06")).toBeNull();
     expect(screen.getByText("2인")).toBeTruthy();
+  });
+
+  it("shows the 토지소유 lane's owners in the source's words instead of the forest ledger", async () => {
+    reads.ownership = {
+      owners: [
+        {
+          co_owner_serial_no: "000001",
+          ownership_kind_name: "법인",
+          residence_kind_name: "관외",
+          ownership_change_reason: "소유권이전",
+          ownership_changed_on: "2019-11-26",
+        },
+        {
+          co_owner_serial_no: "000002",
+          ownership_kind_name: "법인",
+          residence_kind_name: "관외",
+          ownership_change_reason: "소유권이전",
+          ownership_changed_on: "2024-01-02",
+        },
+      ],
+      unit_owner_total: 0,
+      unit_owner_kinds: [],
+      base_year_month: "2024-12",
+      ownerTotal: 2,
+    };
+    try {
+      renderPanel(
+        parcel({ forest_ledger: { ownership_kind_name: "임야소유", co_owner_count: 9 } }),
+      );
+      expect(await screen.findByText("법인 2")).toBeTruthy();
+      expect(screen.getByText("2024-01-02 소유권이전")).toBeTruthy();
+      expect(screen.getByText("토지소유정보 · 2024-12 기준")).toBeTruthy();
+      expect(screen.queryByText("임야소유")).toBeNull();
+    } finally {
+      reads.ownership = null;
+    }
   });
 
   it("adds a 건물 anchor once the parcel's buildings are read", async () => {
