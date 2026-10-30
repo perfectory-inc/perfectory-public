@@ -235,6 +235,7 @@ enum Command {
     StopParcelTileBake,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
+    ExportBuildingPermitBasisOutlineSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
     ExportBuildingRegisterTitleSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
@@ -554,6 +555,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportBuildingRegisterExclusiveUnitSilverHandoff => Box::pin(
             foundation_publisher_silver::building_register_exclusive_unit_silver_export::run(),
+        ),
+        Command::ExportBuildingPermitBasisOutlineSilverHandoff => Box::pin(
+            foundation_publisher_silver::building_permit_basis_outline_silver_export::run(),
         ),
         Command::ExportBuildingRegisterApartmentPriceSilverHandoff => Box::pin(
             foundation_publisher_silver::building_register_apartment_price_silver_export::run(),
@@ -1131,6 +1135,9 @@ where
         Some("export-land-use-plan-silver-handoff") => Ok(Command::ExportLandUsePlanSilverHandoff),
         Some("export-building-register-exclusive-unit-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterExclusiveUnitSilverHandoff)
+        }
+        Some("export-building-permit-basis-outline-silver-handoff") => {
+            Ok(Command::ExportBuildingPermitBasisOutlineSilverHandoff)
         }
         Some("export-building-register-apartment-price-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterApartmentPriceSilverHandoff)

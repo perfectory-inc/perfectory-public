@@ -753,6 +753,7 @@
         "silver_refresh_building_register_unit_areas",
         "silver_refresh_building_register_apartment_price",
         "silver_refresh_building_register_exclusive_unit",
+        "silver_refresh_building_permit_basis_outline",
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
@@ -943,6 +944,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
           "node_id": "silver-administrative-boundaries",
           "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_basis_outline",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_basis_outline,PROD)",
+          "node_id": "silver-building-permit-basis-outline",
+          "title": "건축인허가 기본개요",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1259,6 +1268,7 @@
         "silver_refresh_building_register_unit_areas",
         "silver_refresh_building_register_apartment_price",
         "silver_refresh_building_register_exclusive_unit",
+        "silver_refresh_building_permit_basis_outline",
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
@@ -1449,6 +1459,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
           "node_id": "silver-administrative-boundaries",
           "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_basis_outline",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_basis_outline,PROD)",
+          "node_id": "silver-building-permit-basis-outline",
+          "title": "건축인허가 기본개요",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1868,6 +1886,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_exclusive_unit,PROD)",
           "node_id": "silver-building-register-exclusive-unit",
           "title": "건축물대장 전유부",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "silver_refresh_building_permit_basis_outline",
+      "producers": [
+        "source_sweep"
+      ],
+      "reads": [
+        {
+          "dataset": "perfectory://source-building-hub-bulk",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-building-hub-bulk,PROD)",
+          "node_id": "source-building-hub-bulk",
+          "title": "건축HUB 파일",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.building_permit_basis_outline",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_basis_outline,PROD)",
+          "node_id": "silver-building-permit-basis-outline",
+          "title": "건축인허가 기본개요",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -2669,6 +2713,7 @@
         "silver_refresh_building_register_unit_areas",
         "silver_refresh_building_register_apartment_price",
         "silver_refresh_building_register_exclusive_unit",
+        "silver_refresh_building_permit_basis_outline",
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
@@ -2859,6 +2904,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.administrative_boundaries,PROD)",
           "node_id": "silver-administrative-boundaries",
           "title": "행정경계(읍면동)",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_basis_outline",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_basis_outline,PROD)",
+          "node_id": "silver-building-permit-basis-outline",
+          "title": "건축인허가 기본개요",
           "kind": "silver_table",
           "surface_kind": null
         },

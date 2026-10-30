@@ -10,6 +10,7 @@ pub mod industrial_complex_gold_pointer;
 pub mod industrial_complex_jsonl_transport;
 
 mod building_panel;
+mod building_permit_basis_outline;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod by_pnu_kind;
@@ -44,6 +45,7 @@ pub mod lakehouse_registry;
 /// Spark batch run summary handoff contracts.
 pub mod lakehouse_run_summary;
 
+pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
 pub use building_register_apartment_price::{
     SILVER_BUILDING_REGISTER_APARTMENT_PRICE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
 };
