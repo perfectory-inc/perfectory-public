@@ -39,6 +39,17 @@
     },
     {
       "kind": "security",
+      "package": "glob",
+      "version": "14.0.2",
+      "from": "13.0.0",
+      "advisories": [
+        "GHSA-3g3m-2fjr-6pw4"
+      ],
+      "reason": "AbortSignal cancellation bypass, 9.0.0 up to 14.0.2; the fix exists only on the 14 line. Only gongzzang resolves glob (13.0.6, through cacache, rimraf and @npmcli/map-workspaces, which call glob() and globSync() only), so the floor lifts the 13 line and moves together with minimatch 11.",
+      "date": "2026-10-31"
+    },
+    {
+      "kind": "security",
       "package": "http-cache-semantics",
       "version": "4.3.0",
       "advisories": [
@@ -102,6 +113,17 @@
       ],
       "reason": "Rendering/parser advisories on the 14.x line pulled by markdownlint; 14.3.3 is the first release fixing GHSA-gfr2-rv44-r23c and GHSA-vfgh-jcmw-g37q (stays in 14.x, no 15.x jump).",
       "date": "2026-10-21"
+    },
+    {
+      "kind": "security",
+      "package": "minimatch",
+      "version": "11.0.1",
+      "from": "10.0.0",
+      "advisories": [
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "reason": "Globparts amplification denial of service in every release below 11.0.1; no older line has a fix. The 10 line (glob, @npmcli, @tufjs, ignore-walk; named minimatch/Minimatch use only) is lifted; the 5 line stays because @redocly/openapi-core 1.x calls require('minimatch') as a function, which 11 no longer exports, and is waived in tools/osv-vulnerability-baseline.tsv.",
+      "date": "2026-10-31"
     },
     {
       "kind": "security",
