@@ -20,7 +20,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/foundation-platform/real-transaction
+ReadWritePaths=/var/lib/foundation-platform/real-transaction /var/lib/foundation-jobs/metrics
 
 [Install]
 WantedBy=multi-user.target

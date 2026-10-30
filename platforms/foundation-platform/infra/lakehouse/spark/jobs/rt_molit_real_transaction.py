@@ -286,6 +286,17 @@ def rejected_share(rows: int, rejected: int) -> float:
     return rejected / (rows + rejected) if rows + rejected else 0.0
 
 
+def quarantine_reason(rows: int, rejected: Sequence[Rejected], refused: bool, max_share: float) -> str | None:
+    """Why an export is quarantined whole, or None when its accepted rows load (root ADR-0364): refused
+    outright, or more of its lines rejected than the contract allows (a mixed export: what passed the
+    line checks is not trusted either; the collector asks the month again in a clean session)."""
+
+    if refused:
+        return "export_refused"
+    share = rejected_share(rows, len(rejected))
+    return f"export_quarantined: {share:.4%} of lines rejected" if share > max_share else None
+
+
 def rejected_rows(entry: Mapping[str, Any], rejected: Sequence[Rejected], ingested_at: datetime) -> list[tuple[Any, ...]]:
     """The dead-letter rows of one object, in `silver.real_transaction_rejected`'s column order."""
 
@@ -511,13 +522,30 @@ def _load(argv: Sequence[str]) -> int:
                                    load_lakehouse_contract("silver.parcel_boundaries")).select("pnu")
         for entry in objects:
             rows, unknown, rejected, refused = read_export(entry, source["csv"], now)
+            share_rejected = rejected_share(len(rows), len(rejected))
+            quarantined = quarantine_reason(len(rows), rejected, refused, max_rejected)
+            if quarantined:
+                # The whole export waits for its clean copy: nothing of it loads, and it is recorded so
+                # no later run stops on it again (root ADR-0364; the alert fires once, from the metric).
+                if not refused:
+                    rejected = [Rejected(0, "", quarantined), *rejected]
+                rows = []
+                over_rejected.append(entry["object_key"])
             # Root ADR-0364: the lines not loaded land first, in their own table, referencing Bronze.
             if rejected:
                 dead = spark.createDataFrame(rejected_rows(entry, rejected, now), schema=dead_schema)
                 append_source_object(spark, dead, dead_columns, dead_table, entry["object_key"])
-            share_rejected = rejected_share(len(rows), len(rejected))
-            if refused or share_rejected > max_rejected:
-                over_rejected.append(entry["object_key"])
+            if quarantined:
+                # Recorded with no rows and no comparison: an empty export compared with the month would
+                # remove every row the month holds.
+                empty = spark.createDataFrame([], schema=schema)
+                summary["objects"].append({
+                    "object": entry["object_key"], "dataset": entry["dataset"], "month": entry["month"],
+                    "rows": 0, "rejected": len(rejected), "rejected_share": round(share_rejected, 6),
+                    "refused": refused, "quarantined": quarantined,
+                    "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
+                    "appended": append_source_object(spark, empty, columns, table, entry["object_key"])})
+                continue
             for row in rows:
                 code, reason = legal_dong_code(row, dongs)
                 lot_reason, lot = lot_of(row)
@@ -546,6 +574,7 @@ def _load(argv: Sequence[str]) -> int:
                     "changes": changes.count(), "removed": changes.where(F.col("row_state") == REMOVED).count(),
                     "linked": link_report(linked), "unmasked_unresolved_share": round(share, 4),
                     "rejected": len(rejected), "rejected_share": round(share_rejected, 6), "refused": refused,
+                    "quarantined": None,
                     "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
                     "unrepresented_fields": unknown}
             line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"])
@@ -558,18 +587,17 @@ def _load(argv: Sequence[str]) -> int:
         spark.stop()
     if below_bound:
         summary["status"] = "loaded_link_rate_below_bound"
-    if over_rejected:
-        summary["status"] = "loaded_rejected_over_bound"
+    summary["quarantined_exports"] = len(over_rejected)
     summary["rejected"] = sum(line.get("rejected", 0) for line in summary["objects"])
     _summary_line(summary)
     if below_bound:
         print(f"rt-molit-real-transaction: {len(below_bound)} object(s) linked fewer unmasked lots than the "
               f"contract's bound; loaded, failing so it is seen", file=sys.stderr)
     if over_rejected:
-        print(f"rt-molit-real-transaction: {len(over_rejected)} object(s) were refused or rejected more lines "
-              f"than the contract's max_rejected_share; the rest loaded, the lines are in {REJECTED_TABLE}, "
-              f"failing so it is seen: {', '.join(over_rejected)}", file=sys.stderr)
-    return 1 if below_bound or over_rejected else 0
+        print(f"rt-molit-real-transaction: {len(over_rejected)} export(s) quarantined whole (refused, or more "
+              f"lines rejected than max_rejected_share); their lines are in {REJECTED_TABLE}, the run goes on: "
+              f"{', '.join(over_rejected)}", file=sys.stderr)
+    return 1 if below_bound else 0
 
 
 COMMANDS = {"parse": _parse, "load": _load, "tables": _tables}

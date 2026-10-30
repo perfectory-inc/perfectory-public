@@ -134,6 +134,15 @@ class ReadsExports(unittest.TestCase):
         self.assertIn("가상리", rejected[0].raw)
         self.assertEqual(job.rejected_share(len(rows), len(rejected)), 2 / 6)
 
+    def test_an_export_over_the_bound_is_quarantined_whole_and_the_run_goes_on(self):
+        """ADR-0364: a mixed export loads nothing (its clean copy will); a little noise loads the rest."""
+
+        bound = float(job.load_source_contract()["silver_load"]["max_rejected_share"])
+        one = [job.Rejected(9, "x", "cells_14_of_21")]
+        self.assertIsNone(job.quarantine_reason(10_000, one, False, bound))
+        self.assertTrue(job.quarantine_reason(100, one, False, bound).startswith("export_quarantined"))
+        self.assertEqual(job.quarantine_reason(0, [], True, bound), "export_refused")
+
     def test_a_second_exports_rows_after_the_first_are_rejected(self):
         rows, _, rejected = rows_and_rejected(export(factory(no=1), factory(no=2), factory(no=1, amount="7")))
         self.assertEqual(len(rows), 2)

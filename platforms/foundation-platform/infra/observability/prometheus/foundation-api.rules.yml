@@ -307,6 +307,17 @@ groups:
         annotations:
           summary: 공매 물건상세 커버리지 지표가 3시간째 갱신되지 않아요 — onbid 수집이 멈췄거나 /var/lib/foundation-jobs/metrics 에 못 써요
           runbook: docs/runbooks/data-go-kr-onbid.md
+      # 실거래가 Silver (root ADR-0364). 2026-10-30: an export carried another export's rows and stopped
+      # every hourly load. Now such an export is quarantined whole and the load goes on; this says so
+      # once, for the run that quarantined it (the next run writes 0 and it clears).
+      - alert: FoundationRealTransactionExportQuarantined
+        expr: foundation_rt_molit_quarantined_exports > 0
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '실거래 내보내기 {{ $value }}건을 통째로 격리했어요 — silver.real_transaction_rejected 에 줄 번호·원문이 있고, 수집기가 그 달을 새 세션으로 다시 받아요'
+          runbook: ../../docs/adr/0364-a-real-transaction-export-is-checked-before-it-is-believed-and-a-bad-line-is-a-dead-letter.md
       - alert: FoundationSecurityTokenExpiring
         expr: foundation_security_token_expires_days < 14
         for: 1h

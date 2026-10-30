@@ -204,6 +204,10 @@ pub struct MonthMark {
     pub completed_utc: Option<DateTime<Utc>>,
     pub checksum_sha256: Option<String>,
     pub provider_count: Option<u64>,
+    /// The stored export passed `export_problem` (root ADR-0364). A month stored before that check,
+    /// or by a run that stored an export the check would refuse, is owed again at once.
+    #[serde(default)]
+    pub verified: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -263,6 +267,9 @@ impl State {
 pub enum Stage {
     /// A month of the first refresh tier (age 0-2), asked again daily.
     Recent,
+    /// A month whose stored export was never checked (root ADR-0364): asked again at once, whatever
+    /// its age, so a clean copy lands beside the earlier one.
+    Recheck,
     /// A later refresh tier (`tier` is its index in the contract).
     Refresh { tier: usize },
     /// A month never read whole: the history.
@@ -300,12 +307,12 @@ pub fn plan_work(
     let mut work = Vec::new();
     for (name, dataset) in &contract.datasets {
         for month in month_index(&dataset.first_month)?..=current {
-            let completed = state
-                .months
-                .get(&month_key(name, month))
-                .and_then(|mark| mark.completed_utc);
+            let mark = state.months.get(&month_key(name, month));
+            let completed = mark.and_then(|mark| mark.completed_utc);
             let tier = tier_of(contract, current - month);
+            let unchecked = completed.is_some() && !mark.is_some_and(|mark| mark.verified);
             let stage = match (completed, tier) {
+                _ if unchecked => Stage::Recheck,
                 (None, Some(0)) => Stage::Recent,
                 (None, _) => Stage::Backfill,
                 (Some(at), Some(tier)) => {
@@ -482,6 +489,7 @@ pub struct RunReport {
 fn stage_name(stage: Stage) -> String {
     match stage {
         Stage::Recent => "recent".to_owned(),
+        Stage::Recheck => "recheck".to_owned(),
         Stage::Refresh { tier } => format!("refresh_tier_{tier}"),
         Stage::Backfill => "backfill".to_owned(),
     }
@@ -684,6 +692,7 @@ pub async fn run() -> anyhow::Result<()> {
                 mark.completed_utc = Some(Utc::now());
                 mark.checksum_sha256 = Some(plan.checksum_sha256.clone());
                 mark.provider_count = Some(count);
+                mark.verified = true;
                 if config.live_write {
                     state.save(&state_path)?;
                 }

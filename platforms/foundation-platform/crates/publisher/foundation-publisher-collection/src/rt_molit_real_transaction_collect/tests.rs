@@ -22,6 +22,7 @@ fn complete(state: &mut State, dataset: &str, month: &str, when: &str) {
             completed_utc: Some(at(when)),
             checksum_sha256: Some("0".repeat(64)),
             provider_count: Some(1),
+            verified: true,
         },
     );
 }
@@ -261,4 +262,30 @@ fn the_collector_source_uses_no_disguise() {
         assert!(!source.contains(name), "{name}");
         assert!(!ingest.contains(name), "{name}");
     }
+}
+
+#[test]
+fn a_month_stored_before_the_check_is_owed_again_at_once_whatever_its_age() {
+    // root ADR-0364: the 2026-10-30 exports were stored without export_problem, some mixed.
+    let name = "real_transaction_industrial_trade";
+    let contract = contract_with(&[(name, "2024-01")]);
+    let now = at("2026-10-30T17:00:00Z");
+    let mut state = State::default();
+    for month in month_index("2024-01").unwrap()..=month_index("2026-10").unwrap() {
+        complete(&mut state, name, &yyyymm(month), "2026-10-30T16:30:00Z");
+    }
+    // An old month (age 33, past every tier) stored before the check: its mark has no `verified`.
+    let raw =
+        r#"{"completed_utc":"2026-10-30T16:30:00Z","checksum_sha256":null,"provider_count":5}"#;
+    let old: MonthMark = serde_json::from_str(raw).unwrap();
+    assert!(!old.verified);
+    state
+        .months
+        .insert(month_key(name, month_index("2024-01").unwrap()), old);
+    let due: Vec<(Stage, String)> = plan_work(&contract, &state, now)
+        .unwrap()
+        .iter()
+        .map(|w| (w.stage, yyyymm(w.month)))
+        .collect();
+    assert_eq!(due, vec![(Stage::Recheck, "202401".to_owned())]);
 }

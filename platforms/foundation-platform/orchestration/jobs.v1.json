@@ -423,7 +423,8 @@
       "systemd_service": "foundation-rt-molit-silver-load.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/real-transaction"
+        "/var/lib/foundation-platform/real-transaction",
+        "/var/lib/foundation-jobs/metrics"
       ],
       "schedule": "55 * * * *",
       "started_by": "schedule",
