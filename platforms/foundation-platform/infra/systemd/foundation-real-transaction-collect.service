@@ -1,0 +1,25 @@
+[Unit]
+Description=Foundation Platform 국토교통부 실거래가 from data.go.kr, the collection half: ask the (dataset, 시군구, month) buckets owed within the run's call bound and land them in Bronze; the Silver load finds them in R2 (root ADR-0348)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/data-go-kr.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/real-transaction-collect.sh
+TimeoutStartSec=40m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/real-transaction
+
+[Install]
+WantedBy=multi-user.target

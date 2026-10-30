@@ -7259,6 +7259,354 @@
         "object_prefix": null,
         "object_suffix_separator": null
       }
+    },
+    "silver.real_transaction": {
+      "table_name": "silver.real_transaction",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "dataset_slug",
+          "lawd_cd",
+          "deal_ym",
+          "row_key"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "dataset_slug",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "lawd_cd",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "deal_ym",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "deal_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "deal_amount_10k_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "deposit_10k_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "monthly_rent_10k_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "pre_deposit_10k_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "pre_monthly_rent_10k_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "contract_term",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "contract_type",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_rr_right",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sgg_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sgg_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "umd_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "umd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun_masked",
+          "logical_type": "boolean",
+          "required": false
+        },
+        {
+          "name": "bonbun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "apt_seq",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "apt_dong",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_use",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_type",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "house_type",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_area_m2",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_area_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_area_m2",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_area_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "floor",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "build_year",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "land_use",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jimok",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dealing_gbn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "buyer_gbn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "seller_gbn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "estate_agent_sgg_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "share_dealing_type",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ownership_gbn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_leasehold_gbn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_name_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_name_bonbun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_name_bubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "registration_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "cancel_type",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cancel_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "cancelled",
+          "logical_type": "boolean",
+          "required": false
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "place_identity_grade",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "dataset_slug",
+        "truncate(4, deal_ym)"
+      ],
+      "sort_order": [
+        "lawd_cd",
+        "deal_ym",
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "pnu is null or a current parcel at load",
+        "(dataset_slug, lawd_cd, deal_ym, row_key, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
     }
   },
   "jsonl_transports": {

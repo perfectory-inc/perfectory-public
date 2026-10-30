@@ -31,7 +31,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | data.go.kr 파일 데이터 | 1 endpoint | 일부 연결 — data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
 | 주소정보 전자지도 | 11 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 건물 도형 Silver 계약은 아직 없다. |
 | 기타 공공 일괄 파일 | 12 endpoint | 승인 후 수집 가능 — 수동 승인 수집 경로이며 Silver 연결은 없다. |
-| 실거래가 API | 12 endpoint | 수집 비활성 — 카탈로그에서 중복 API로 비활성화되어 있다. |
+| 실거래가 API | 12 endpoint | 일부 연결 — 국토교통부 실거래가 정보 OpenAPI 12종(data.go.kr, 루트 ADR-0348). rt.molit.go.kr 은 자동 접근을 금지하고 data.go.kr 로 보내므로 이것이 유일한 자동 채널이다. 수집기와 Silver 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다. |
 | 브이월드 공간·토지 파일 | 25 endpoint | 일부 연결 — 필지·용도지역·공시지가·행정경계·산업단지 프로필과 경계의 실행 경로가 있다. 나머지는 수집 단계에 남는다. |
 | 브이월드 토지대장 API | 1 endpoint | 예정 — API 수집 예정이며 Silver 계약은 없다. |
 | 행정표준코드 법정동 | 1 endpoint | 실행 경로 있음 — 법정동코드 전체자료(getStanReginCdList)가 등록부 레인의 입력이다. 추출 입력은 수동이며 전용 API 수집기는 아직 없다. |
@@ -183,18 +183,18 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 기타 공공 일괄 파일 | 공항 (`public-bulk-airport`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 상권 (`public-bulk-commercial-district`) | `manual_approval_bulk` |
 | 기타 공공 일괄 파일 | 행정동 법정동 연계 (`public-bulk-adm-dong-code-linkage`) | `manual_approval_bulk` |
-| 실거래가 API | 연립다세대 매매 실거래가 (`datagokr__real_transaction_row_house_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 연립다세대 전월세 실거래가 (`datagokr__real_transaction_row_house_rent`) | `disabled_api_duplicate` |
-| 실거래가 API | 공장창고 실거래가 (`datagokr__real_transaction_industrial_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 토지 실거래가 (`datagokr__real_transaction_land_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 상업업무용 실거래가 (`datagokr__real_transaction_commercial_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 오피스텔 매매 실거래가 (`datagokr__real_transaction_officetel_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 오피스텔 전월세 실거래가 (`datagokr__real_transaction_officetel_rent`) | `disabled_api_duplicate` |
-| 실거래가 API | 아파트 매매 상세 실거래가 (`datagokr__real_transaction_apartment_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 아파트 전월세 실거래가 (`datagokr__real_transaction_apartment_rent`) | `disabled_api_duplicate` |
-| 실거래가 API | 아파트 분양권전매 실거래가 (`datagokr__real_transaction_apartment_presale`) | `disabled_api_duplicate` |
-| 실거래가 API | 단독다가구 매매 실거래가 (`datagokr__real_transaction_detached_house_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 단독다가구 전월세 실거래가 (`datagokr__real_transaction_detached_house_rent`) | `disabled_api_duplicate` |
+| 실거래가 API | 연립다세대 매매 실거래가 (`datagokr__real_transaction_row_house_trade`) | `open_api_only` |
+| 실거래가 API | 연립다세대 전월세 실거래가 (`datagokr__real_transaction_row_house_rent`) | `open_api_only` |
+| 실거래가 API | 공장창고 실거래가 (`datagokr__real_transaction_industrial_trade`) | `open_api_only` |
+| 실거래가 API | 토지 실거래가 (`datagokr__real_transaction_land_trade`) | `open_api_only` |
+| 실거래가 API | 상업업무용 실거래가 (`datagokr__real_transaction_commercial_trade`) | `open_api_only` |
+| 실거래가 API | 오피스텔 매매 실거래가 (`datagokr__real_transaction_officetel_trade`) | `open_api_only` |
+| 실거래가 API | 오피스텔 전월세 실거래가 (`datagokr__real_transaction_officetel_rent`) | `open_api_only` |
+| 실거래가 API | 아파트 매매 상세 실거래가 (`datagokr__real_transaction_apartment_trade`) | `open_api_only` |
+| 실거래가 API | 아파트 전월세 실거래가 (`datagokr__real_transaction_apartment_rent`) | `open_api_only` |
+| 실거래가 API | 아파트 분양권전매 실거래가 (`datagokr__real_transaction_apartment_presale`) | `open_api_only` |
+| 실거래가 API | 단독다가구 매매 실거래가 (`datagokr__real_transaction_detached_house_trade`) | `open_api_only` |
+| 실거래가 API | 단독다가구 전월세 실거래가 (`datagokr__real_transaction_detached_house_rent`) | `open_api_only` |
 | 브이월드 공간·토지 파일 | VWorld 시도 경계 (`vworldkr__boundary_sido`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 통계 읍면동 경계 (`vworldkr__boundary_census_emd`) | `provider_dataset_file` |
 | 브이월드 공간·토지 파일 | VWorld 통계 시도 경계 (`vworldkr__boundary_census_sido`) | `provider_dataset_file` |
@@ -219,6 +219,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | `silver.court_auction_item` | 계약만 있음 | 물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.court_auction_sale_result` | 계약만 있음 | 매각결과 검색의 행(매각가 포함)을 내용이 바뀔 때만 쌓는다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 계약만 있고, 적재 레인은 수집기 PR 에서 연결된다. |
 | `silver.registered_factory` | 계약만 있음 | 등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
+| `silver.real_transaction` | 계약만 있음 | 12종의 (데이터셋, 시군구, 계약 달) 묶음마다 새 이름·바뀐 행과 빠진 이름의 삭제 표지를 쌓는다. 계약해제는 같은 행의 새 판이다(루트 ADR-0349). 법정동과 PNU 는 정본 해석기로 정하고, 가린 지번은 법정동까지만 잇는다. 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다. |
 | `silver.complex_parcel_memberships` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `gold.complex_spatial_locator` | 계약만 있음 | 계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다. |
 | `silver.parcel_number_change_history` | 실행 경로 있음 | Silver 변환은 있으나 서빙으로 가는 실행 경로는 아직 없다. |
@@ -439,6 +440,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 차세대 온비드 공매 (data.go.kr) → 온비드 공고상세 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
 | 차세대 온비드 공매 (data.go.kr) → 온비드 물건상세 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
 | 차세대 온비드 공매 (data.go.kr) → 온비드 물건 입찰정보 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py` |
+| 실거래가 API → 실거래가 | `collect-data-go-kr-rtms`<br>`platforms/foundation-platform/scripts/ops/real-transaction-collect.sh`<br>`platforms/foundation-platform/scripts/ops/real-transaction-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_rtms.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py` |
 | data.go.kr 파일 데이터 → 전국 등록공장 | `collect-data-go-kr-registered-factory`<br>`platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |
 | 법원경매정보 (courtauction.go.kr) → 법원경매 진행 물건 | `collect-courtauction-go-kr`<br>`platforms/foundation-platform/scripts/ops/court-auction-collect.sh`<br>`platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |
 | 법원경매정보 (courtauction.go.kr) → 법원경매 매각결과 | `collect-courtauction-go-kr`<br>`platforms/foundation-platform/scripts/ops/court-auction-collect.sh`<br>`platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py` |

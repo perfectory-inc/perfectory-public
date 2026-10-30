@@ -1,0 +1,54 @@
+{
+  "$comment": "Root ADR-0348. How 국토교통부 실거래가 (data.go.kr RTMS OpenAPI, the only automated channel: rt.molit.go.kr forbids automated access) is asked, what an answer must look like, and the call bounds. Read by collect-data-go-kr-rtms (services/foundation-outbox-publisher/src/data_go_kr_rtms_collect.rs, compiled in) and by the Silver load (infra/lakehouse/spark/jobs/data_go_kr_rtms.py).",
+  "version": 1,
+  "base_url": "https://apis.data.go.kr/1613000",
+  "user_agent": "foundation-platform-rtms-collector/1 (+root ADR-0348)",
+  "request_spacing_ms": 250,
+  "request_spacing_reason": "The gateway allows 35 requests a second (X-RateLimit-Limit on its 429, measured 2026-10-30) and four parallel workers drew 429 for about a minute; one request at a time every 250 ms (4 a second) leaves the rest of the second for the key's other collectors.",
+  "request_timeout_seconds": 60,
+  "format_param": {"_type": "json"},
+  "result_codes": {
+    "$comment": "response.header.resultCode. The RTMS services answer 000 (an empty month is 000 with totalCount 0); 00 is the portal's older spelling. Anything else fails the run.",
+    "ok": ["000", "00"]
+  },
+  "page_size": 1000,
+  "per_run_call_limit": 3000,
+  "run_time_budget_seconds": 1800,
+  "per_run_reason": "Root ADR-0300 H: measured 2026-10-30 about 0.55 s a request with the spacing, so 3,000 calls are about 28 minutes, inside run_time_budget_seconds and the job's 40-minute limit. Hourly that is 72,000 calls a day: the history (about 820,000 calls, computed: 269 시군구 x (8 trade datasets x ~250 months + 4 rent datasets x ~190 months) plus extra pages) lands in about 12 days; the steady refresh is about 15,600 calls a day (computed from refresh_tiers).",
+  "commit_every_calls": 500,
+  "daily_call_limit_per_dataset": 200000,
+  "daily_call_limit_reason": "Our own bound per dataset and KST day, a fifth of the gateway's 1,000,000 (X-RateLimit-Limit on a 200, measured 2026-10-30).",
+  "lawd_set_max_age_days": 3,
+  "refresh_tiers": [
+    {"max_age_months": 2, "every_days": 1, "reason": "this month and the two before: reports arrive within 30 days of the contract, and 31% of cancellations come within 30 days"},
+    {"max_age_months": 12, "every_days": 7, "reason": "cancellations: p99 354 days after the contract (810 measured, root ADR-0348 Context)"},
+    {"max_age_months": 24, "every_days": 30, "reason": "the latest measured cancellation came 442 days after the contract"}
+  ],
+  "priority": [
+    "real_transaction_industrial_trade",
+    "real_transaction_land_trade",
+    "real_transaction_commercial_trade"
+  ],
+  "datasets": {
+    "real_transaction_industrial_trade": {"operation": "getRTMSDataSvcInduTrade", "path": "/RTMSDataSvcInduTrade/getRTMSDataSvcInduTrade", "first_month": "2006-01"},
+    "real_transaction_land_trade": {"operation": "getRTMSDataSvcLandTrade", "path": "/RTMSDataSvcLandTrade/getRTMSDataSvcLandTrade", "first_month": "2006-01"},
+    "real_transaction_commercial_trade": {"operation": "getRTMSDataSvcNrgTrade", "path": "/RTMSDataSvcNrgTrade/getRTMSDataSvcNrgTrade", "first_month": "2006-01"},
+    "real_transaction_apartment_trade": {"operation": "getRTMSDataSvcAptTradeDev", "path": "/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev", "first_month": "2006-01"},
+    "real_transaction_apartment_rent": {"operation": "getRTMSDataSvcAptRent", "path": "/RTMSDataSvcAptRent/getRTMSDataSvcAptRent", "first_month": "2011-01"},
+    "real_transaction_apartment_presale": {"operation": "getRTMSDataSvcSilvTrade", "path": "/RTMSDataSvcSilvTrade/getRTMSDataSvcSilvTrade", "first_month": "2007-06"},
+    "real_transaction_officetel_trade": {"operation": "getRTMSDataSvcOffiTrade", "path": "/RTMSDataSvcOffiTrade/getRTMSDataSvcOffiTrade", "first_month": "2006-01"},
+    "real_transaction_officetel_rent": {"operation": "getRTMSDataSvcOffiRent", "path": "/RTMSDataSvcOffiRent/getRTMSDataSvcOffiRent", "first_month": "2011-01"},
+    "real_transaction_row_house_trade": {"operation": "getRTMSDataSvcRHTrade", "path": "/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade", "first_month": "2006-01"},
+    "real_transaction_row_house_rent": {"operation": "getRTMSDataSvcRHRent", "path": "/RTMSDataSvcRHRent/getRTMSDataSvcRHRent", "first_month": "2011-01"},
+    "real_transaction_detached_house_trade": {"operation": "getRTMSDataSvcSHTrade", "path": "/RTMSDataSvcSHTrade/getRTMSDataSvcSHTrade", "first_month": "2006-01"},
+    "real_transaction_detached_house_rent": {"operation": "getRTMSDataSvcSHRent", "path": "/RTMSDataSvcSHRent/getRTMSDataSvcSHRent", "first_month": "2011-01"}
+  },
+  "silver_load": {
+    "$comment": "What one Silver load takes (plan-silver-load-objects): the Bronze objects no commit of silver.real_transaction records, within window_days, at most max_objects a load.",
+    "window_days": 3,
+    "max_objects": 120,
+    "max_unmasked_unresolved_share": 0.25,
+    "max_unmasked_unresolved_share_reason": "Root ADR-0349 §6: of the rows whose lot the provider did not mask, the share that found no current parcel; above it a load lands its rows and fails so it is seen. Measured 2026-10-30 before any load (API 2025-09, 12 random 시군구, read-only Trino against silver.parcel_boundaries current rows): 4,925 unmasked candidates of 공장창고·상업업무·아파트·연립·오피스텔, 99.7% a current parcel. History rows meet more re-numbered lots, so the bound leaves room; the pull request that records the first loads sets it from them.",
+    "lawd_set_refresh_hours": 20
+  }
+}

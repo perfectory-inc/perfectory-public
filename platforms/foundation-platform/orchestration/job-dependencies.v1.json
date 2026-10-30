@@ -632,6 +632,54 @@
       ]
     },
     {
+      "id": "real_transaction_collect",
+      "producers": [],
+      "reads": [
+        {
+          "dataset": "perfectory://source-real-transaction-open-api",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-real-transaction-open-api,PROD)",
+          "node_id": "source-real-transaction-open-api",
+          "title": "실거래가 API",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.real_transaction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
+          "node_id": "silver-real-transaction",
+          "title": "실거래가",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "real_transaction_silver",
+      "producers": [],
+      "reads": [
+        {
+          "dataset": "perfectory://source-real-transaction-open-api",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-real-transaction-open-api,PROD)",
+          "node_id": "source-real-transaction-open-api",
+          "title": "실거래가 API",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.real_transaction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
+          "node_id": "silver-real-transaction",
+          "title": "실거래가",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "vworld_parcel_edition",
       "producers": [
         "source_sweep"
@@ -696,6 +744,8 @@
         "registered_factory",
         "onbid_public_auction_collect",
         "onbid_public_auction_silver",
+        "real_transaction_collect",
+        "real_transaction_silver",
         "vworld_parcel_edition",
         "parcel_number_change_history",
         "silver_refresh_building_register_titles",
@@ -1149,6 +1199,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
           "node_id": "silver-parcel-registry",
           "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.real_transaction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
+          "node_id": "silver-real-transaction",
+          "title": "실거래가",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1192,6 +1250,8 @@
         "registered_factory",
         "onbid_public_auction_collect",
         "onbid_public_auction_silver",
+        "real_transaction_collect",
+        "real_transaction_silver",
         "vworld_parcel_edition",
         "parcel_number_change_history",
         "silver_refresh_building_register_titles",
@@ -1645,6 +1705,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
           "node_id": "silver-parcel-registry",
           "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.real_transaction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
+          "node_id": "silver-real-transaction",
+          "title": "실거래가",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -2592,6 +2660,8 @@
         "registered_factory",
         "onbid_public_auction_collect",
         "onbid_public_auction_silver",
+        "real_transaction_collect",
+        "real_transaction_silver",
         "vworld_parcel_edition",
         "parcel_number_change_history",
         "silver_refresh_building_register_titles",
@@ -3045,6 +3115,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_registry,PROD)",
           "node_id": "silver-parcel-registry",
           "title": "필지 ID 원장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.real_transaction",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.real_transaction,PROD)",
+          "node_id": "silver-real-transaction",
+          "title": "실거래가",
           "kind": "silver_table",
           "surface_kind": null
         },

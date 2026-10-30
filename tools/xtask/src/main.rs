@@ -807,13 +807,12 @@ const AREAS: &[Area] = &[
                     test: "lakehouse_live_smoke",
                 }],
             },
-            // Diagnostic, not a gate. Every one of the 22 data.go.kr endpoints in
-            // `public-source-endpoint-catalog.v1.json` — ten building-register and twelve
-            // real-transaction — carries `source_acquisition_lane: disabled_api_duplicate`, and
-            // `national_data_collection_ledger_execute` refuses to select any of them. The building
-            // register comes from the hub.go.kr bulk files; real transactions come from their own
-            // collector (root ADR-0348). This lane therefore proves the provider still answers,
-            // which is worth knowing and is not worth blocking on.
+            // Diagnostic, not a gate. The ten building-register data.go.kr endpoints in
+            // `public-source-endpoint-catalog.v1.json` carry `source_acquisition_lane:
+            // disabled_api_duplicate`: the building register comes from the hub.go.kr bulk files.
+            // Real transactions come from their own collector (root ADR-0348), not from this lane.
+            // This lane therefore proves the provider still answers, which is worth knowing and is
+            // not worth blocking on.
             //
             // Treating it as a lane to "turn on" wastes a real service key on a path the platform
             // has decided not to use, and the provider is intermittently down besides — three

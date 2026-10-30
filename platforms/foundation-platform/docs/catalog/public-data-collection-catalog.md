@@ -25,7 +25,7 @@ last_reviewed: 2026-07-30
 - 엔드포인트 정의: **145개**
 - 고유 dataset slug: **126개**
 - 고유 Bronze source slug: **145개**
-- 국가 수집 허용 endpoint: **96개**
+- 국가 수집 허용 endpoint: **108개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -34,7 +34,7 @@ last_reviewed: 2026-07-30
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 2 | 2 | 0 | 전용 커맨드 2 |
-| data.go.kr | 31 | 8 | 0 | API 예정 8, 전용 커맨드 1, 중복 API 비활성 22 |
+| data.go.kr | 31 | 20 | 0 | API 예정 20, 전용 커맨드 1, 중복 API 비활성 10 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 3 | 2 | 0 | 전용 커맨드 3 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
@@ -117,18 +117,18 @@ last_reviewed: 2026-07-30
 | data.go.kr | 온비드 공매 | 온비드 공고목록 | 공개 API | true | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 부동산 물건목록 | 공개 API | true | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 부동산 물건상세 | 공개 API | true | API 예정 |
-| data.go.kr | 부동산 실거래 | 아파트 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 아파트 매매 상세 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 공장창고 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 토지 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 상업업무용 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 오피스텔 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 오피스텔 매매 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 연립다세대 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 연립다세대 매매 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 단독다가구 전월세 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 단독다가구 매매 실거래가 | 중복 API | false | 중복 API 비활성 |
-| data.go.kr | 부동산 실거래 | 아파트 분양권전매 실거래가 | 중복 API | false | 중복 API 비활성 |
+| data.go.kr | 부동산 실거래 | 아파트 전월세 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 아파트 매매 상세 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 공장창고 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 토지 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 상업업무용 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 오피스텔 전월세 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 오피스텔 매매 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 연립다세대 전월세 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 연립다세대 매매 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 단독다가구 전월세 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 단독다가구 매매 실거래가 | 공개 API | true | API 예정 |
+| data.go.kr | 부동산 실거래 | 아파트 분양권전매 실거래가 | 공개 API | true | API 예정 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 건물 전기 사용량 파일 | bulk_file | true | 기본 실행 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 지번별에너지(전기,연도별) | 제공기관 목록 없음 | false | 제공기관 목록 없음 |
 | hub.go.kr | 건축물·허가·에너지·점검 | 지번별에너지(가스,연도별) | 제공기관 목록 없음 | false | 제공기관 목록 없음 |

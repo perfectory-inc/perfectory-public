@@ -70,6 +70,7 @@ mod code_go_kr_legal_dong_collect;
 mod courtauction_go_kr_collect;
 mod data_go_kr_onbid_collect;
 mod data_go_kr_registered_factory_collect;
+mod data_go_kr_rtms_collect;
 mod silver_load_objects;
 use foundation_publisher_collection::collection_job_requeue;
 mod dbase_table;
@@ -214,6 +215,7 @@ enum Command {
     BuildingRegisterSmoke,
     CollectCodeGoKrLegalDong,
     CollectDataGoKrOnbid,
+    CollectDataGoKrRtms,
     CollectCourtauctionGoKr,
     CollectDataGoKrRegisteredFactory,
     PlanSilverLoadObjects,
@@ -471,6 +473,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CollectCodeGoKrLegalDong => Box::pin(code_go_kr_legal_dong_collect::run()),
         Command::CollectDataGoKrOnbid => Box::pin(data_go_kr_onbid_collect::run()),
+        Command::CollectDataGoKrRtms => Box::pin(data_go_kr_rtms_collect::run()),
         Command::CollectCourtauctionGoKr => Box::pin(courtauction_go_kr_collect::run()),
         Command::CollectDataGoKrRegisteredFactory => {
             Box::pin(data_go_kr_registered_factory_collect::run())
@@ -1030,6 +1033,7 @@ where
         }
         Some("collect-code-go-kr-legal-dong") => Ok(Command::CollectCodeGoKrLegalDong),
         Some("collect-data-go-kr-onbid") => Ok(Command::CollectDataGoKrOnbid),
+        Some("collect-data-go-kr-rtms") => Ok(Command::CollectDataGoKrRtms),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("collect-data-go-kr-registered-factory") => {
             Ok(Command::CollectDataGoKrRegisteredFactory)
