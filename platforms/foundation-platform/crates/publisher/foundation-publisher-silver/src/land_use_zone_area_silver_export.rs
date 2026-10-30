@@ -533,9 +533,10 @@ mod tests {
             assert_eq!(rows[0]["field_a9"], "비고");
             assert_eq!(rows[0]["geometry_srid"], 4326);
             let wkb = rows[0]["geometry_wkb"].as_str().unwrap_or_default();
+            // The shared reader returns every shape as a MultiPolygon (WKB type 6).
             assert!(
-                wkb.starts_with("0103000000"),
-                "little-endian WKB polygon: {wkb}"
+                wkb.starts_with("0106000000"),
+                "little-endian WKB multipolygon: {wkb}"
             );
             let keys: std::collections::BTreeSet<&str> = rows[0]
                 .as_object()
