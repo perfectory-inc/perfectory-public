@@ -3,11 +3,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ParcelBuildingsCard } from "@/components/panels/parcel/buildings";
+import { NO_BUILDING } from "@/components/panels/parcel/unit-prices";
 import type { BuildingsResponse } from "@/lib/api/buildings";
 import koMessages from "@/lib/i18n/ko.json";
 
 const PNU = "9999900000100000000";
 const UNIT_ID = "00000000-0000-8000-8000-000000000001";
+const BUILDING_ID = "00000000-0000-8000-8000-000000000003";
 const fetchUnitPrices = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api/unit-price-edge", () => ({ fetchUnitPrices }));
 
@@ -66,7 +68,7 @@ it("displays every reference-date price the unit price lane serves for the unit"
   );
   renderCard();
   await openPrices();
-  expect(fetchUnitPrices).toHaveBeenCalledWith(PNU, expect.anything());
+  expect(fetchUnitPrices).toHaveBeenCalledWith(PNU, NO_BUILDING, expect.anything());
   expect(screen.getByText("2010-06-01").getAttribute("datetime")).toBe("2010-06-01");
   expect(screen.getByText("2010-01-01").getAttribute("datetime")).toBe("2010-01-01");
   expect(screen.getByText("35,000,000 원")).toBeInTheDocument();
@@ -108,17 +110,19 @@ it("has the prices on their way before a building's units are opened", async () 
   renderCard({
     buildings: [
       {
-        id: "00000000-0000-8000-8000-000000000003",
+        id: BUILDING_ID,
         name: "",
         purpose: null,
         total_area_m2: null,
         approved_at: null,
-        units: [unit],
+        units: [{ ...unit, building_id: BUILDING_ID }],
       },
     ],
     unlinked_units: [],
   });
-  await waitFor(() => expect(fetchUnitPrices).toHaveBeenCalledWith(PNU, expect.anything()));
+  await waitFor(() =>
+    expect(fetchUnitPrices).toHaveBeenCalledWith(PNU, BUILDING_ID, expect.anything()),
+  );
 });
 
 it("asks for no prices for a parcel without units", async () => {
