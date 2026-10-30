@@ -220,9 +220,10 @@ pub(crate) fn rt_molit_dataset_slug(
     }
 }
 
-/// The provider said no outright (root ADR-0348 §3): an HTTP 403, or a page where JSON or CSV belongs
-/// (a block, notice, login or CAPTCHA page). A collector stops at once and does not ask again until a
-/// person clears it.
+/// The provider said no outright (root ADR-0348 §3).
+///
+/// An HTTP 403, or a page where JSON or CSV belongs (a block, notice, login or CAPTCHA page). A
+/// collector stops at once and does not ask again until a person clears it.
 #[derive(Debug)]
 pub(crate) struct RtMolitRefusal(pub(crate) String);
 

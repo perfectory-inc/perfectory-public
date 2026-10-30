@@ -213,9 +213,10 @@ pub fn plan_rt_molit_real_transaction_export(
     })
 }
 
-/// Plans one export as a content-qualified Bronze object (root ADR-0348 §5, the key shape of root
-/// ADR-0152): `.../export--sha256-<checksum>.csv`, so a re-pull of the same month whose bytes changed
-/// lands beside the earlier one (append-only) and one whose bytes are the same is the same object.
+/// Plans one export as a content-qualified Bronze object: `.../export--sha256-<checksum>.csv`.
+///
+/// A re-pull of the same month whose bytes changed lands beside the earlier one (append-only), and
+/// one whose bytes are the same is the same object (root ADR-0348 §6, the key shape of root ADR-0152).
 ///
 /// # Errors
 ///
