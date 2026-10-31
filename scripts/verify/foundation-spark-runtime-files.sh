@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Runs the runtime-gated Spark test files of one directory side by side, each in its own interpreter.
 #
-# Usage: foundation-spark-runtime-files.sh <tests directory>
+# Usage: foundation-spark-runtime-files.sh <tests directory> [target...]
+#        foundation-spark-runtime-files.sh --list <tests directory>
+#   target              a gated file (test_x.py) or a unittest name in one (test_x.Class[.test_y]);
+#                       given, exactly these run, in this order (foundation_spark_shards.py's plan,
+#                       root ADR-0365); none, every gated file runs.
+#   --list              print the gated files and stop: the one definition of which files these are.
 #   SPARK_RUNTIME_JOBS  how many files run at once (default: one per 2 CPUs and per 2 GiB free).
 #
 # foundation-spark-runtime.sh calls this inside the pinned Spark container. A file joins by naming
@@ -11,13 +16,23 @@
 # Files share nothing on disk: each gets its own TMPDIR and spark.local.dir. A job may own its
 # scratch directory outright (gold_incremental deletes sibling stage directories, as production
 # serializes its runs), so a shared /tmp would let one file delete another's stages mid-run.
-# Files start largest first, so a long file does not begin last and become the tail.
+# Files start largest first (targets: longest measured first), so a long one does not begin last
+# and become the tail.
 # Their output is printed one file at a time in name order, then the files by duration, slowest
 # first, so a slow file is named in the log rather than guessed at. Any failing file fails the run,
 # whatever the others did.
 set -euo pipefail
 
-tests="${1:?usage: foundation-spark-runtime-files.sh <tests directory>}"
+gated() {
+  grep -l -E "skip(Unless|If)\(.*\"requires (pyspark|the pinned)" test_*.py | sort
+}
+if [[ "${1:-}" == --list ]]; then
+  cd "${2:?usage: foundation-spark-runtime-files.sh --list <tests directory>}"
+  gated
+  exit
+fi
+tests="${1:?usage: foundation-spark-runtime-files.sh <tests directory> [target...]}"
+shift
 # One file per two CPUs (each test session is local[2]; more at once only made every file slower
 # on a 4-CPU runner, see foundation-spark-runtime.sh), and no more than one per 2 GiB of available
 # memory: a test JVM peaks near that, and a small Docker VM runs out before its CPUs do.
@@ -31,8 +46,14 @@ default_jobs() {
 jobs="${SPARK_RUNTIME_JOBS:-$(default_jobs)}"
 cd "$tests"
 
-mapfile -t files < <(grep -l -E "skip(Unless|If)\(.*\"requires (pyspark|the pinned)" test_*.py | sort)
-((${#files[@]})) || { echo "no runtime-gated test file found" >&2; exit 1; }
+if (($#)); then
+  files=("$@")
+  order=("$@")
+else
+  mapfile -t files < <(gated)
+  ((${#files[@]})) || { echo "no runtime-gated test file found" >&2; exit 1; }
+  mapfile -t order < <(ls -S -- "${files[@]}")
+fi
 
 logs="$(mktemp -d)"
 export SPARK_RUNTIME_LOGS="$logs"
@@ -51,7 +72,7 @@ run_one() {
 }
 export -f run_one
 started="$(date +%s)"
-ls -S -- "${files[@]}" | tr '\n' '\0' | xargs -0 -n 1 -P "$jobs" bash -c 'run_one "$1"' _ || true
+printf '%s\0' "${order[@]}" | xargs -0 -n 1 -P "$jobs" bash -c 'run_one "$1"' _ || true
 wall="$(($(date +%s) - started))"
 
 failed=0

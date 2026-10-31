@@ -22,6 +22,8 @@
 # 2 files at a time 534s; with these JVM options 357s at 2, 418s at 3, 420s at 4 at a time
 # (those four also defaulted shuffle partitions to 2, dropped since; serial on main: 488s-774s).
 # None of the options changes what a query computes.
+# 2026-10-30 the one job neared its 20-minute limit (wall 689-1137s, 46 files) and was cancelled
+# three times in a day: CI now splits the files across parallel runners (root ADR-0365).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
@@ -62,6 +64,8 @@ chmod 1777 "$work/tmp"
 SECONDS=0
 compose pull --quiet spark
 echo "foundation-spark-runtime: image ready in ${SECONDS}s"
+# SPARK_RUNTIME_TARGETS: this CI shard's part (foundation_spark_shards.py, root ADR-0365); unset, all.
+read -ra targets <<<"${SPARK_RUNTIME_TARGETS:-}"
 status=0
 compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-platform" \
   -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 -e RUN_SPARK_TESTS=1 -e RUN_ICEBERG_TESTS=1 \
@@ -77,7 +81,7 @@ compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-pl
       python3 -c "from pyspark.sql import SparkSession; SparkSession.builder.master(\"local[1]\").getOrCreate().stop()"
     jars="$(printf "%s," /tmp/ivy/jars/*.jar)"
     export PYSPARK_SUBMIT_ARGS="--jars ${jars%,} $defaults pyspark-shell"
-    bash /repo/scripts/verify/foundation-spark-runtime-files.sh "$0"' "$TESTS" >"$log" 2>&1 || status=$?
+    bash /repo/scripts/verify/foundation-spark-runtime-files.sh "$0" "$@"' "$TESTS" "${targets[@]}" >"$log" 2>&1 || status=$?
 cat "$log"
 if ((status)); then
   echo "foundation-spark-runtime: FAILED (exit $status)" >&2
