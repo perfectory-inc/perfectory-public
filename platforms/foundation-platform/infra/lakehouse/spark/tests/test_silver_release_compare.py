@@ -134,5 +134,16 @@ class BucketTest(unittest.TestCase):
         self.assertEqual(job.recorded_buckets(snapshots, {1, 2, 4, 5}, mine), {'"11"'})
 
 
+class PartialMainTest(unittest.TestCase):
+    """main 이 판의 일부만 기록하면, 그것이 load branch 의 첫 묶음일 때만 비교한다."""
+
+    def test_only_a_main_the_branch_grew_from_is_compared(self):
+        # main 1 <- 2 (the first batch); the branch 1 <- 2 <- 3 <- 4 grew from it.
+        self.assertTrue(job.part_of_the_staged_release({1, 2}, {1, 2, 3, 4}))
+        # main moved on past the branch's base: its part came from elsewhere.
+        self.assertFalse(job.part_of_the_staged_release({1, 2, 5}, {1, 2, 3, 4}))
+        self.assertFalse(job.part_of_the_staged_release(set(), {1, 2}))
+
+
 if __name__ == "__main__":
     unittest.main()

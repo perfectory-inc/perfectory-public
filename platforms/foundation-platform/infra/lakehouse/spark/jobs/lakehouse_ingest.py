@@ -421,6 +421,17 @@ def unquoted_table_name(qualified_table: str) -> str:
     return qualified_table.replace("`", "")
 
 
+def give_main_a_base(spark: Any, frame: Any, columns: Sequence[str], qualified_table: str) -> None:
+    """Commit nothing to a new table's `main`, so a load branch has a snapshot to grow from.
+
+    Without it the first batch of a new table was written on `main` and only the rest staged
+    (silver.land_ownership, 2026-10-30: 4 of 17 objects), which the compare refuses: a release is one
+    commit. The empty commit records no object, so every batch stages and `main` gets the release whole.
+    """
+    if not ref_lineage(spark, qualified_table, MAIN):
+        frame.select(*columns).limit(0).writeTo(qualified_table).append()
+
+
 def append_batch_once(
     spark: Any,
     frame: Any,
@@ -466,9 +477,9 @@ def append_batch_once(
     token = ingest_batch_token(record_ids)
     ref = MAIN
     target = qualified_table
-    # A table with no snapshot yet has nothing a branch could be made from, and no reader yet.
-    if branch is not None and ref_lineage(spark, qualified_table, MAIN):
+    if branch is not None:
         ref = checked_ref(branch)
+        give_main_a_base(spark, frame, columns, qualified_table)
         spark.sql(f"ALTER TABLE {qualified_table} CREATE BRANCH IF NOT EXISTS {ref}")
         target = f"{qualified_table}.`branch_{ref}`"
     ingested = read_ingested_objects(spark, qualified_table, unquoted, ref)
