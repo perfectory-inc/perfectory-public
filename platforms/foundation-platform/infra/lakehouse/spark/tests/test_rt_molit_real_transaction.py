@@ -222,5 +222,36 @@ class ReadsPlans(unittest.TestCase):
                 job.planned_objects([self.plan(Path(tmp), **kwargs)], contract)
 
 
+class FitsItsUnit(unittest.TestCase):
+    """ADR-0300 H: one run's objects fit the unit's time limit, from measured object times."""
+
+    def test_the_per_run_bound_fits_the_unit(self):
+        import re
+
+        load = job.load_source_contract()["silver_load"]
+        unit = (SPARK_DIR.parents[1] / "systemd" / "foundation-rt-molit-silver-load.service").read_text(encoding="utf-8")
+        limit = int(re.search(r"^TimeoutStartSec=(\d+)m$", unit, re.M).group(1)) * 60
+        measured = load["measured_object_seconds"]
+        # The objects a run takes, at p90, after the start, fit the budget at which it stops starting more.
+        self.assertLessEqual(load["run_start_seconds"] + load["max_objects"] * measured["p90"],
+                             load["run_time_budget_seconds"])
+        # The object in flight when the budget passes still finishes inside the unit's limit.
+        self.assertLess(load["run_time_budget_seconds"] + measured["max"] + 120, limit)
+
+    def test_a_run_stops_starting_objects_at_its_deadline(self):
+        now = [0.0]
+        deadline = job.Deadline(10, clock=lambda: now[0])
+        self.assertFalse(deadline.passed())
+        now[0] = 10
+        self.assertTrue(deadline.passed())
+
+    def test_the_parcel_read_asks_for_both_codes_of_a_lot(self):
+        dongs = {"합성도 합성시 합성면 가상리": "9999933021"}
+        rows = [{"address_raw": "합성도 합성시 합성면 가상리", "jibun_raw": "12-3"},
+                {"address_raw": "합성도 합성시 합성면 가상리", "jibun_raw": "3**"}]
+        self.assertEqual(job.candidate_pnus(rows, dongs, {"9999933021": "9999933099"}),
+                         {"9999933021100120003", "9999933099100120003"})
+
+
 if __name__ == "__main__":
     unittest.main()

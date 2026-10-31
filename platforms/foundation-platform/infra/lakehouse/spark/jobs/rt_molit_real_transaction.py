@@ -282,6 +282,35 @@ def read_export(entry: Mapping[str, Any], csv_contract: Mapping[str, Any], inges
     return rows, unknown, rejected, False
 
 
+def candidate_pnus(rows: Iterable[Mapping[str, Any]], dongs: Mapping[str, str], remap: Mapping[str, str]) -> set[str]:
+    """Every PNU the resolver can ask the parcel set about for these rows: each unmasked lot's
+    candidate under its source code and under the current code the crosswalk carries it to."""
+
+    found: set[str] = set()
+    for row in rows:
+        code, _ = legal_dong_code(row, dongs)
+        _, lot = lot_of(row)
+        pnu = candidate_pnu(code, lot)
+        if pnu:
+            found.add(pnu)
+            found.add(remap.get(pnu[:10], pnu[:10]) + pnu[10:])
+    return found
+
+
+class Deadline:
+    """When a run stops starting objects (root ADR-0300 H): an object not started stays unrecorded and
+    the next run loads it; one started finishes and commits."""
+
+    def __init__(self, seconds: float, clock: Any = None) -> None:
+        import time  # noqa: PLC0415
+
+        self._clock = clock or time.monotonic
+        self._end = self._clock() + seconds
+
+    def passed(self) -> bool:
+        return self._clock() >= self._end
+
+
 def rejected_share(rows: int, rejected: int) -> float:
     return rejected / (rows + rejected) if rows + rejected else 0.0
 
@@ -510,6 +539,8 @@ def _load(argv: Sequence[str]) -> int:
     below_bound: list[str] = []
     over_rejected: list[str] = []
     max_rejected = float(source["silver_load"]["max_rejected_share"])
+    deadline = Deadline(float(source["silver_load"]["run_time_budget_seconds"]))
+    deferred: list[str] = []
     try:
         table, contract, columns, schema = ensure_table(spark, args)
         dead_table, _dead_contract, dead_columns, dead_schema = ensure_table(spark, args, REJECTED_TABLE)
@@ -518,9 +549,21 @@ def _load(argv: Sequence[str]) -> int:
             # crosswalk; a pnu only when it is a current parcel. Read once for the run.
             dongs = dong_index(newest_snapshot_rows(spark, args.iceberg_catalog_name))
             remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
-            parcels = current_rows(spark.table(f"`{args.iceberg_catalog_name}`.`silver`.`parcel_boundaries`"),
-                                   load_lakehouse_contract("silver.parcel_boundaries")).select("pnu")
+            # One read of the ~40M current parcels for the run, cut to the PNUs these objects can ask
+            # about (2026-10-31: read again per object, it was most of each object's 1-3 minutes and
+            # a run of 60 objects outlived its unit's 40-minute limit, every hour).
+            wanted: set[str] = set()
+            for entry in objects:
+                wanted |= candidate_pnus(read_export(entry, source["csv"], now)[0], dongs, remap)
+            every = current_rows(spark.table(f"`{args.iceberg_catalog_name}`.`silver`.`parcel_boundaries`"),
+                                 load_lakehouse_contract("silver.parcel_boundaries")).select("pnu")
+            asked = spark.createDataFrame([(pnu,) for pnu in sorted(wanted)], "pnu string")
+            parcels = every.join(F.broadcast(asked), "pnu", "left_semi").distinct().cache()
+            summary["parcels_read"] = {"asked": len(wanted), "held": parcels.count()}
         for entry in objects:
+            if deadline.passed():
+                deferred.append(entry["object_key"])
+                continue
             rows, unknown, rejected, refused = read_export(entry, source["csv"], now)
             share_rejected = rejected_share(len(rows), len(rejected))
             quarantined = quarantine_reason(len(rows), rejected, refused, max_rejected)
@@ -588,6 +631,8 @@ def _load(argv: Sequence[str]) -> int:
     if below_bound:
         summary["status"] = "loaded_link_rate_below_bound"
     summary["quarantined_exports"] = len(over_rejected)
+    # Not started before the run's time budget: unrecorded, so the next run's plan owes them again.
+    summary["deferred"] = len(deferred)
     summary["rejected"] = sum(line.get("rejected", 0) for line in summary["objects"])
     _summary_line(summary)
     if below_bound:

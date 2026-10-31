@@ -175,7 +175,11 @@
   "silver_load": {
     "$comment": "What one Silver load takes (plan-silver-load-objects): the Bronze objects no commit of silver.real_transaction records, within window_days, at most max_objects a load.",
     "window_days": 3,
-    "max_objects": 60,
+    "max_objects": 9,
+    "run_time_budget_seconds": 1800,
+    "measured_object_seconds": {"p50": 111, "p90": 165, "max": 206, "measured_on": "2026-10-31"},
+    "run_start_seconds": 180,
+    "per_run_reason": "Root ADR-0300 H, measured 2026-10-31 (read-only Trino, silver.real_transaction$snapshots, 60 appending objects of the first loads): an object took p50 111 s, p90 165 s, max 206 s, and a run of up to 60 outlived the unit's 40-minute TimeoutStartSec every hour from 22:48 UTC. 9 objects at p90 plus about 3 minutes of Spark start and the one parcel read fit 30 minutes; run_time_budget_seconds stops starting objects at 30 minutes, leaving 10 for the object in flight (max 206 s) and the exit. 9 an hour is 216 a day against the collector's 90 downloads a day, so no backlog builds past window_days.",
     "max_rejected_share": 0.001,
     "max_rejected_share_reason": "Root ADR-0364: an export's lines that are not loaded (a cell count not the header's, a NO that does not continue 1..N, a 계약년월 outside the export's month) land in silver.real_transaction_rejected with their Bronze object and line; the rest of the export loads. Above this share of an export's lines, or for an export refused whole (no header, another month in its preamble), the load fails after landing everything so it is seen. 2026-10-30: the 오피스텔 전월세 2026-10 export carried a second export's 14-column rows after its 13,180 own and stopped every load.",
     "max_unmasked_unresolved_share": 0.25,
