@@ -261,7 +261,15 @@
         "sections": {
           "land": "토지",
           "buildings": "건물",
+          "demolitions": "멸실 건물",
           "rules": "규제"
+        },
+        "demolitions": {
+          "title": "멸실된 건물 {count}건",
+          "source": "건축인허가 철거멸실관리대장",
+          "floorArea": "연면적 {area}㎡",
+          "buildingCount": "건축물수 {count}",
+          "more": "최근 {shown}건만 보임 · 전체 {total}건"
         },
         "mountain": "산",
         "legalDongCode": "법정동코드 {code}",

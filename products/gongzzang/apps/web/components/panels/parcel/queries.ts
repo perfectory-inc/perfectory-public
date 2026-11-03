@@ -2,6 +2,7 @@
 // The parcel views' reads, keyed as `PanelEntryView` keys a view (`["panel", kind, view, id]`), so
 // the panel's own sections and the pushed views share one cache entry per read.
 import { fetchBuildings } from "@/lib/api/buildings";
+import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchListings } from "@/lib/listings/api";
@@ -28,6 +29,13 @@ export const parcelOwnershipQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "ownership", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchOwnership(pnu, signal),
   // The lane changes when the 토지소유 file does, twice a year (root ADR-0361).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelDemolitionsQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "demolitions", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchDemolitions(pnu, signal),
+  // The 철거멸실관리대장 is published monthly and rarely changes (root ADR-0397, ADR-0399).
   staleTime: 60 * 60_000,
 });
 

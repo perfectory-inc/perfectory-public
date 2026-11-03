@@ -580,6 +580,14 @@
       "producer": "land_ownership_silver_to_gold",
       "decision": "docs/adr/0361-a-parcel-s-owners-are-their-own-by-pnu-kind.md"
     },
+    "parcel-demolitions": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "demolitions",
+      "section": "demolitions",
+      "columns": ["demolitions_json", "demolition_total:long"],
+      "producer": "building_demolition_silver_to_gold",
+      "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md"
+    },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

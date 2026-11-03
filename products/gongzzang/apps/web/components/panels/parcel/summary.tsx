@@ -5,6 +5,7 @@ import { groupBy } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Building } from "@/lib/api/buildings";
+import { type Demolitions, reportDates } from "@/lib/api/demolitions";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
@@ -17,6 +18,7 @@ import { useParcelMapZoningAreas } from "./map-zoning";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
+  parcelDemolitionsQuery,
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
@@ -233,6 +235,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const t = useTranslations("panels.parcel.summary");
   const buildings = useQuery(parcelBuildingsQuery(entry.id));
   const ownership = useQuery(parcelOwnershipQuery(entry.id));
+  const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -250,6 +253,13 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
     });
   }
   const mapZones = useParcelMapZoningAreas(entry.id);
+  if (demolitions.data && demolitions.data.records.length > 0) {
+    sections.push({
+      id: "demolitions",
+      label: t("sections.demolitions"),
+      content: <DemolitionsSection demolitions={demolitions.data} />,
+    });
+  }
   if ((data.zonings?.length ?? 0) > 0 || mapZones !== null) {
     sections.push({
       id: "rules",
@@ -523,6 +533,60 @@ function BuildingsSection({
         </Group>
       )}
     </div>
+  );
+}
+
+/**
+ * 멸실된 건물 from the 철거멸실 lane (root ADR-0399): the parcel's 철거·멸실 reports newest first, each
+ * in the provider's words: 철거멸실구분, the date, the building's 주용도·구조·연면적(㎡)·건축물수.
+ * A value the source leaves out is not shown.
+ */
+function DemolitionsSection({ demolitions }: { demolitions: Demolitions }) {
+  const t = useTranslations("panels.parcel.summary");
+  return (
+    <Group
+      title={t("demolitions.title", { count: demolitions.total })}
+      note={t("demolitions.source")}
+    >
+      <ul className="flex flex-col gap-2">
+        {demolitions.records.map((record) => (
+          <li
+            key={[
+              record.demolition_kind_name,
+              record.demolition_start_date,
+              record.demolition_end_date,
+              record.demolition_loss_date,
+              record.main_purpose_name,
+              record.total_floor_area_m2,
+            ].join("|")}
+            className="rounded-md border border-[var(--color-hairline)] px-3 py-2 text-[length:var(--text-body-sm)]"
+          >
+            <div className="font-semibold text-[var(--color-ink)]">
+              {[record.demolition_kind_name, reportDates(record)].filter(Boolean).join(" · ")}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {[
+                record.main_purpose_name,
+                record.structure_name,
+                record.total_floor_area_m2
+                  ? t("demolitions.floorArea", { area: record.total_floor_area_m2 })
+                  : null,
+                record.building_count
+                  ? t("demolitions.buildingCount", { count: record.building_count })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {demolitions.total > demolitions.records.length && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("demolitions.more", { shown: demolitions.records.length, total: demolitions.total })}
+        </p>
+      )}
+    </Group>
   );
 }
 

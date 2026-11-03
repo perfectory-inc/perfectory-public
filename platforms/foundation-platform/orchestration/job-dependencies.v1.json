@@ -810,7 +810,8 @@
         "parcel_served_gold",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_parcel_ownership_rebuild",
+        "gold_parcel_demolitions_rebuild"
       ],
       "reads": [
         {
@@ -874,6 +875,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
           "node_id": "gold-parcel-characteristics",
           "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_demolitions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
+          "node_id": "gold-parcel-demolitions",
+          "title": "필지 철거멸실 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1405,7 +1414,8 @@
         "parcel_served_gold",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_parcel_ownership_rebuild",
+        "gold_parcel_demolitions_rebuild"
       ],
       "reads": [
         {
@@ -1469,6 +1479,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
           "node_id": "gold-parcel-characteristics",
           "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_demolitions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
+          "node_id": "gold-parcel-demolitions",
+          "title": "필지 철거멸실 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3138,7 +3156,8 @@
         "parcel_served_gold",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_parcel_ownership_rebuild",
+        "gold_parcel_demolitions_rebuild"
       ],
       "reads": [
         {
@@ -3202,6 +3221,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_characteristics,PROD)",
           "node_id": "gold-parcel-characteristics",
           "title": "필지 토지특성 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_demolitions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
+          "node_id": "gold-parcel-demolitions",
+          "title": "필지 철거멸실 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3724,6 +3751,41 @@
       ]
     },
     {
+      "id": "gold_parcel_demolitions_rebuild",
+      "producers": [
+        "lineage_stewardship",
+        "silver_refresh_building_permit_demolition_loss"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_demolition_loss",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_demolition_loss,PROD)",
+          "node_id": "silver-building-permit-demolition-loss",
+          "title": "건축인허가 철거멸실관리대장",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_demolitions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
+          "node_id": "gold-parcel-demolitions",
+          "title": "필지 철거멸실 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "by_pnu_parcel_ownership_bake",
       "producers": [
         "gold_parcel_ownership_rebuild"
@@ -3744,6 +3806,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
           "node_id": "parcel-ownership-by-pnu-section-packs",
           "title": "필지 토지소유 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
+      "id": "by_pnu_parcel_demolitions_bake",
+      "producers": [
+        "gold_parcel_demolitions_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_demolitions",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
+          "node_id": "gold-parcel-demolitions",
+          "title": "필지 철거멸실 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-demolitions-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-demolitions-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-demolitions-by-pnu-section-packs",
+          "title": "필지 철거멸실 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         }
