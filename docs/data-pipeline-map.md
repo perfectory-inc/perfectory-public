@@ -50,7 +50,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 브이월드 공간·토지 파일: VWorld 필지 | 1 endpoint | 필지 경계 (`silver.parcel_boundaries`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`)<br>필지 토지소유 by-PNU 표 (`gold.parcel_ownership`)<br>필지 규제 구역 by-PNU 표 (`gold.parcel_regulation_zones`)<br>행정경계(읍면동) (`silver.administrative_boundaries`)<br>행정경계 서빙본 (`gold.administrative_boundary_served`)<br>필지 서빙본 (`gold.parcel_boundary_served`)<br>필지 계보 (`silver.parcel_lineage`)<br>발행 ID 목록 (`gold.place_id_registry`)<br>ID↔코드 연결표 (`gold.place_id_bridge`)<br>ID 변경 내역 (`gold.place_id_changelog`)<br>필지 계보 검토 목록 (`gold.lineage_review_queue`)<br>필지 ID 원장 (`silver.parcel_registry`) | 스튜어드 결정 (필지 계보·법정동 짝)<br>필지 경계 서빙 | 필지 지도 타일<br>행정경계 지도 타일<br>공짱 지도·상세 패널 |
 | 브이월드 공간·토지 파일: VWorld 토지이용계획 | 1 endpoint | 필지별 토지이용계획 (`silver.land_use_plan`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`) | — | — |
 | ↳ D155 CSV만 연결한다. 같은 원천의 D154 도형은 Bronze에 남는다. | | | | |
-| 브이월드 공간·토지 파일: VWorld 토지이용구역 | 1 endpoint | 용도지역지구 구역 (`silver.land_use_zone_area`)<br>필지 규제 구역 by-PNU 표 (`gold.parcel_regulation_zones`) | — | — |
+| 브이월드 공간·토지 파일: VWorld 토지이용구역 | 1 endpoint | 용도지역지구 구역 (`silver.land_use_zone_area`)<br>필지 규제 구역 by-PNU 표 (`gold.parcel_regulation_zones`) | — | 규제 구역 지도 타일 |
 | ↳ 전체데이터 AL_D<층>_00 SHP 의 목록 층만 연결한다. 변동데이터 CH_D* 와 목록 밖 172개 층은 Bronze 에 남는다. | | | | |
 | 브이월드 공간·토지 파일: VWorld 토지이용구역 코드 | 1 endpoint | 용도지역 코드 사전 (`silver.land_use_zone_code`)<br>필지 by-PNU 제공용 패널 (`gold.parcel_panel`)<br>필지 용도지역 판정 by-PNU 표 (`gold.parcel_zoning`)<br>필지 개별공시지가 by-PNU 표 (`gold.parcel_price`)<br>필지 토지특성 by-PNU 표 (`gold.parcel_characteristics`)<br>필지 임야대장 by-PNU 표 (`gold.parcel_forest_ledger`)<br>필지 토지이동이력 by-PNU 표 (`gold.parcel_transfer_history`)<br>필지 대지권 by-PNU 표 (`gold.parcel_land_rights`) | — | — |
 | ↳ 코드 사전의 계층을 그대로 읽는다. | | | | |
@@ -336,7 +336,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 규제 구역 by-PNU 묶음 파일 (`parcel-regulation-zones-by-pnu-section-packs`) | 실행 경로 있음 | gold.parcel_regulation_zones 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/regulation-zones/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0375). 첫 발행은 운영자의 묶음 전용 관문을 거친다. |
 | 지도 편집 저장소 (`map-edit-store`) | 실행 경로 있음 | 관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다. |
 | 스튜어드 검토 화면 (`steward-review-surface`) | 예정 | 사람이 검토 목록의 필지마다 후보와 근거를 보고 결정한다. 결정은 evidence_kind=steward 계보 행이 된다(루트 ADR-0113 10항, ADR-0103 4항). |
-| 규제 구역 지도 타일 (`zoning-overlay-tiles`) | 예정 | 용도지역지구 구역을 층 번호 접두사로 나눈 정적 PMTiles 로 굽고(바뀐 층만 다시 굽는다, 루트 ADR-0316 의 접두사 분할), 공짱 지도가 규제 오버레이로 켠다(루트 ADR-0362 §5). 서빙 유닛·첫 정적 릴리스·Worker 경로·화면 토글은 후속이다. |
+| 규제 구역 지도 타일 (`zoning-overlay-tiles`) | 실행 경로 있음 | 용도지역지구 구역(지금 15개 층)을 정적 PMTiles 유닛 zoning 으로 굽는다. 첫 굽기가 유닛을 낳고(루트 ADR-0374), 그 뒤로는 바뀐 구역이 닿는 타일만 패치로 내며(루트 ADR-0323) 새 기본판이 필요하면 행이 바뀐 층만 다시 굽는다(루트 ADR-0316 의 층 접두사 분할). 공짱 지도가 계열마다 켜는 규제 오버레이다(루트 ADR-0373). |
 
 ## 실행 근거
 
@@ -505,7 +505,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 계보 검토 목록 → 스튜어드 결정 (필지 계보·법정동 짝) | `platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py`<br>`platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_review_items_load.rs` |
 | 스튜어드 결정 (필지 계보·법정동 짝) → 필지 계보 | `platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_steward_fold.rs`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_steward_fold_to_silver.py` |
 | 필지 계보 검토 목록 → 스튜어드 검토 화면 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
-| 용도지역지구 구역 → 규제 구역 지도 타일 | `docs/adr/0362-the-regulation-areas-a-buyer-checks-are-loaded-layer-by-layer-for-the-map.md` |
+| 용도지역지구 구역 → 규제 구역 지도 타일 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/land_use_zone_area_tile_handoff.py`<br>`bake-lakehouse-tiles`<br>`platforms/foundation-platform/scripts/ops/zoning-tile-bake.sh` |
 | 필지 ID 원장 → 필지 by-PNU 제공용 패널 | `docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md` |
 
 ## 이전 지도에서 바뀐 점

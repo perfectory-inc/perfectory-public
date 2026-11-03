@@ -28,7 +28,7 @@ use chrono::NaiveDate;
 use foundation_publisher_core::lakehouse_snapshot_scan::{
     scan_snapshot_rows_kept, LakehouseObjectReader,
 };
-use lakehouse_domain::REFERENCE_LEGAL_DONG_CODE_SNAPSHOT;
+use lakehouse_domain::{REFERENCE_LEGAL_DONG_CODE_CHANGE, REFERENCE_LEGAL_DONG_CODE_SNAPSHOT};
 use lakehouse_infrastructure::IcebergRestCatalog;
 use regex::Regex;
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -342,10 +342,11 @@ pub(in crate::remote_lakehouse_job) fn select(
                 .iter()
                 .map(String::as_str)
                 .collect::<BTreeSet<_>>()),
-            (_, Some(sido)) => held
-                .iter()
-                .copied()
-                .eq(sido.on(vintage).iter().map(String::as_str)),
+            // Root ADR-0372: a harvest still under a 시도 code the list ended is complete when the
+            // recorded 시도 pairs carry its codes onto exactly the day's 시도.
+            (_, Some(sido)) => sido
+                .carried(&held, vintage)
+                .is_some_and(|carried| carried == sido.on(vintage)),
             (_, None) => held.len() == 1,
         };
         if !complete {
@@ -389,6 +390,9 @@ pub(in crate::remote_lakehouse_job) fn select(
 pub(in crate::remote_lakehouse_job) struct SidoCalendar {
     /// Two-digit code, first day (`YYYYMMDD`, `None`: always), day it ended (`None`: still).
     codes: Vec<(String, Option<String>, Option<String>)>,
+    /// The 시도-level pairs of `reference.legal_dong_code_change` in force (root ADR-0329: a pair a
+    /// `supersession` withdrew is not one): old two-digit code -> (new code, effective `YYYYMMDD`).
+    pairs: BTreeMap<String, Vec<(String, String)>>,
 }
 
 fn text(row: &JsonMap<String, JsonValue>, column: &str) -> String {
@@ -482,12 +486,86 @@ impl SidoCalendar {
                 (other, _) => bail!("{region} has the status {other:?}, not 존재 or 폐지"),
             }
         }
-        let calendar = Self { codes };
+        let calendar = Self {
+            codes,
+            pairs: BTreeMap::new(),
+        };
         ensure!(
             !calendar.on(&newest.replace('-', "")).is_empty(),
             "the {newest} snapshot of reference.legal_dong_code_snapshot lists no current 시도"
         );
         Ok(calendar)
+    }
+
+    /// The calendar with the 시도-level pairs of the code change table's rows (`kind`, `old_code`,
+    /// `new_code`, `level`, `effective_date`, `source`). A pair a `supersession` row withdraws is
+    /// left out unless a steward recorded it, as `legal_dong_code_change_views.pair_rows` reads it.
+    pub(in crate::remote_lakehouse_job) fn with_pairs(
+        mut self,
+        rows: &[JsonMap<String, JsonValue>],
+    ) -> Self {
+        let sido = |code: &str| code.len() == 10 && code.ends_with("00000000");
+        let withdrawn: BTreeSet<(String, String)> = rows
+            .iter()
+            .filter(|row| text(row, "kind") == "supersession")
+            .map(|row| (text(row, "old_code"), text(row, "new_code")))
+            .collect();
+        for row in rows {
+            let (old, new) = (text(row, "old_code"), text(row, "new_code"));
+            let steward = text(row, "source").starts_with("steward:");
+            if text(row, "kind") != "pair"
+                || !sido(&old)
+                || !sido(&new)
+                || old == new
+                || (withdrawn.contains(&(old.clone(), new.clone())) && !steward)
+            {
+                continue;
+            }
+            let effective = text(row, "effective_date").replace('-', "");
+            let entry = self.pairs.entry(old[..2].to_owned()).or_default();
+            if !entry.iter().any(|(code, _)| *code == new[..2]) {
+                entry.push((new[..2].to_owned(), effective));
+            }
+        }
+        self
+    }
+
+    /// The day's 시도 that the regions `held` stand for, or `None` when one of them stands for
+    /// none: a code in force on `day` stands for itself, and a code the list ended stands for the
+    /// one code a recorded pair in effect by `day` carries it to, when that code is in force.
+    /// Also `None` when a 시도 is held under its own code and carried onto too: that release would
+    /// load its parcels twice.
+    pub(in crate::remote_lakehouse_job) fn carried(
+        &self,
+        held: &BTreeSet<&str>,
+        day: &str,
+    ) -> Option<BTreeSet<String>> {
+        let current = self.on(day);
+        let mut direct = BTreeSet::new();
+        let mut via_pair = BTreeSet::new();
+        for region in held {
+            if current.contains(*region) {
+                direct.insert((*region).to_owned());
+                continue;
+            }
+            let successors: Vec<&String> = self
+                .pairs
+                .get(*region)?
+                .iter()
+                .filter(|(code, effective)| {
+                    !effective.is_empty() && effective.as_str() <= day && current.contains(code)
+                })
+                .map(|(code, _)| code)
+                .collect();
+            let [successor] = successors.as_slice() else {
+                return None;
+            };
+            via_pair.insert((*successor).clone());
+        }
+        if !direct.is_disjoint(&via_pair) {
+            return None;
+        }
+        Some(direct.union(&via_pair).cloned().collect())
     }
 
     /// The 시도 codes in force on `day` (`YYYYMMDD`), in code order.
@@ -530,7 +608,34 @@ pub(in crate::remote_lakehouse_job) async fn read_sido_calendar(
     )
     .await?;
     scanned.ensure_complete()?;
-    SidoCalendar::from_snapshot_rows(&scanned.rows)
+    let calendar = SidoCalendar::from_snapshot_rows(&scanned.rows)?;
+    // Root ADR-0372: the 시도 pairs, so a harvest under codes a merger ended is read through them.
+    let table = REFERENCE_LEGAL_DONG_CODE_CHANGE.table_name;
+    let Some(snapshot) = catalog
+        .load_current_snapshot_manifest_list(table)
+        .await
+        .with_context(|| format!("cannot resolve the {table} snapshot"))?
+    else {
+        return Ok(calendar);
+    };
+    let is_sido_pair = |row: &JsonMap<String, JsonValue>| {
+        ["old_code", "new_code"].iter().all(|column| {
+            row.get(*column)
+                .and_then(JsonValue::as_str)
+                .is_some_and(|code| code.ends_with("00000000"))
+        })
+    };
+    let changes = scan_snapshot_rows_kept(
+        &REFERENCE_LEGAL_DONG_CODE_CHANGE,
+        &reader,
+        &snapshot,
+        is_sido_pair,
+        None,
+        None,
+    )
+    .await?;
+    changes.ensure_complete()?;
+    Ok(calendar.with_pairs(&changes.rows))
 }
 
 /// Whether the table already holds the release: every object of it recorded, or an object of a

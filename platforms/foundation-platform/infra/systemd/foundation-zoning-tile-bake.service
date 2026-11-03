@@ -1,0 +1,24 @@
+[Unit]
+Description=Foundation Platform regulation-zone tiles: hand the current silver.land_use_zone_area rows to the tile bake and patch only the tiles changed zones touch (ADR-0373, ADR-0374, ADR-0323)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/zoning-tile-bake.sh
+# Under the job's 115 minutes in Airflow (jobs.v1.json) and the spark pool's starvation bound.
+TimeoutStartSec=115m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# The handoff (about 3.3 GB of hex WKB for 655,266 zones), Spark's spill, GDAL's input and
+# tippecanoe's temporary files, on the data disk (tile-bake-containers.contract.json work_disk).
+ReadWritePaths=/data/foundation-platform/tile-bake
