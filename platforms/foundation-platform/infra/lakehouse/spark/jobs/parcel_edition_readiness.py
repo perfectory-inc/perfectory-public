@@ -192,12 +192,39 @@ def evidence(contract: Mapping[str, Any], partitions_csv: str | None, inventory:
     return found
 
 
-def readiness(contract: Mapping[str, Any], evidence: Mapping[str, Any], now: datetime | None = None) -> dict[str, Any]:
-    """The report: per edition, its stages, whether it is ready and the first stage that is not."""
+def edition_inputs(contract: Mapping[str, Any], name: str, evidence: Mapping[str, Any]) -> str:
+    """The digest of everything one edition's verdict reads: its contract entry, the served edition and
+    its rows (the Silver bound), the gate's bounds, and the evidence about it. Equal digests, equal
+    verdict: the scheduled check recomputes only the editions whose digest moved (root ADR-0380)."""
 
     served = editions.served(contract)
+    rows = (evidence.get("silver") or {}).get("rows_by_edition") or {}
+    held = {
+        "entry": editions.edition(contract, name),
+        "served": served,
+        "readiness": contract.get("readiness"),
+        "rows": [rows.get(name), rows.get(served)],
+        "silver_measured": "silver" in evidence,
+        "reuploads": (evidence.get("provider_reuploads") or {}).get(name),
+        "rehearsal": (evidence.get("rehearsals") or {}).get(name),
+    }
+    return hashlib.sha256(json.dumps(held, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def readiness(contract: Mapping[str, Any], evidence: Mapping[str, Any], now: datetime | None = None,
+              previous: Mapping[str, Any] | None = None, previous_inputs: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """The report: per edition, its stages, whether it is ready and the first stage that is not.
+
+    With the previous report and its per-edition input digests, an edition whose digest did not move
+    keeps its row as it was; only the others are judged again."""
+
+    served = editions.served(contract)
+    kept = {row["edition"]: row for row in (previous or {}).get("editions") or []}
     rows = []
     for name in editions.names(contract):
+        if name in kept and (previous_inputs or {}).get(name) == edition_inputs(contract, name, evidence):
+            rows.append(kept[name])
+            continue
         stages = {
             "source": source_stage(contract, name, evidence),
             "silver": silver_stage(contract, name, evidence),
@@ -285,6 +312,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--partitions", help='evidence: silver."parcel_boundaries$partitions" as headerless CSV')
     parser.add_argument("--inventory", help="evidence: the newest provider inventory of the edition collection")
     parser.add_argument("--journal", help="evidence: the parcel tile bake's journal")
+    parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
+    parser.add_argument("--inputs", help="readiness: the per-edition input digests beside it; rewritten")
     parser.add_argument("--output", help="evidence, readiness: where to write (stdout without)")
     args = parser.parse_args(argv)
     path = Path(args.contract) if args.contract else editions.contract_path()
@@ -295,13 +324,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             made = evidence(contract, _text(args.partitions), json.loads(inventory) if inventory else None,
                             journal.splitlines() if journal is not None else None)
         elif args.command == "readiness":
-            made = readiness(contract, json.loads(_text(args.evidence) or "{}"))
+            found = json.loads(_text(args.evidence) or "{}")
+            previous_text, inputs_text = _text(args.previous), _text(args.inputs)
+            previous = json.loads(previous_text) if previous_text else None
+            inputs = json.loads(inputs_text) if inputs_text else {}
+            made = readiness(contract, found, previous=previous, previous_inputs=inputs)
+            digests = {name: edition_inputs(contract, name, found) for name in editions.names(contract)}
+            moved = sorted(name for name in digests if inputs.get(name) != digests[name])
         if args.command != "promote":
             body = json.dumps(made, ensure_ascii=False, indent=2) + "\n"
             if args.output:
                 Path(args.output).write_text(body, encoding="utf-8")
             else:
                 sys.stdout.write(body)
+            if args.command == "readiness":
+                # The digests follow the report: a run that dies between the two judges again, never skips.
+                if args.inputs:
+                    Path(args.inputs).write_text(json.dumps(digests, indent=2) + "\n", encoding="utf-8")
+                # The editions judged again, one line (empty when none): the job's outcome rests on it.
+                print(",".join(moved), file=sys.stdout if args.output else sys.stderr)
             return 0
         if not args.report:
             raise editions.EditionError("promote needs --report, the readiness report it rests on")

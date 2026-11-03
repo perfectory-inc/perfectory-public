@@ -26,7 +26,7 @@ import json
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -426,7 +426,8 @@ def check_not_partial(contract: Mapping[str, Any], name: str, objects: Sequence[
             f"{bounds['max_sigungu_count_change_share']}): a partial collection, not a new edition")
 
 
-def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[str, Any]], prefix: str) -> dict[str, Any]:
+def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[str, Any]], prefix: str,
+            measured_on: date | None = None) -> dict[str, Any]:
     """The contract entry for edition `name`, from the ZIPs as they were measured.
 
     `measured` holds one row per collected object: its key, bytes, the members of its central
@@ -456,6 +457,12 @@ def propose(contract: Mapping[str, Any], name: str, measured: Sequence[Mapping[s
         # (part written before it) must pull `earliest` back to its oldest member.
         "extracted_on": {"earliest": min(dates), "latest": max(dates)},
         "handoff_prefix": prefix,
+        # The proposal is the measurement: the readiness check's source stage reads this date, and an
+        # entry without it never reached ready (202610, collected 2026-10-15, root ADR-0380).
+        "measured_at_utc": (measured_on or datetime.now(timezone.utc).date()).isoformat(),
+        "how_measured": ("Each object's ZIP central directory was read by ranged request "
+                         "(vworld_parcel_edition_members.py); the region code is the .shp member's, the "
+                         "extraction dates every member's timestamp."),
         "granularity_counts": {g: sum(1 for obj in objects if obj["granularity"] == g) for g in GRANULARITIES},
         "objects": objects,
     }

@@ -116,6 +116,30 @@ class EvidenceTest(unittest.TestCase):
         self.assertTrue(row(report, SERVED)["stages"]["rehearsal"]["passed"])
 
 
+class PartialRunTest(unittest.TestCase):
+    """The scheduled check judges only the editions whose inputs moved (root ADR-0380)."""
+
+    def test_an_edition_whose_inputs_did_not_move_keeps_its_row(self):
+        held, found = contract(), evidence()
+        first = readiness.readiness(held, found, NOW)
+        digests = {name: readiness.edition_inputs(held, name, found) for name in editions.names(held)}
+        # Mark the kept rows, so a row judged again shows itself by losing the mark.
+        for entry in first["editions"]:
+            entry["stages"]["source"]["detail"] = "kept"
+        moved = copy.deepcopy(found)
+        moved["rehearsals"][CANDIDATE]["bake"] = {"passed": False, "detail": "equivalence differs"}
+        second = readiness.readiness(held, moved, NOW, previous=first, previous_inputs=digests)
+        self.assertEqual(row(second, SERVED)["stages"]["source"]["detail"], "kept")
+        self.assertNotEqual(row(second, CANDIDATE)["stages"]["source"]["detail"], "kept")
+        self.assertEqual(row(second, CANDIDATE)["first_failing_stage"], "rehearsal")
+
+    def test_a_moved_served_edition_judges_every_edition_again(self):
+        held, found = contract(), evidence()
+        digests = {name: readiness.edition_inputs(held, name, found) for name in editions.names(held)}
+        moved = readiness.promote(held, readiness.readiness(held, found, NOW), CANDIDATE, "op", "why", NOW)
+        self.assertTrue(all(readiness.edition_inputs(moved, name, found) != digests[name] for name in digests))
+
+
 class PromotionTest(unittest.TestCase):
     def promote(self, held: dict, report: dict, now: datetime = NOW) -> dict:
         return readiness.promote(held, report, CANDIDATE, "operator@synthetic", "the newer edition is all there", now)

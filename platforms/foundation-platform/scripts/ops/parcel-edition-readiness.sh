@@ -46,8 +46,19 @@ fi
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" evidence "${partitions[@]}" "${inventory[@]}" \
   --journal "${TILE_JOURNAL}" --output "${work}/evidence.json"
 mkdir -p "$(dirname "${OUT}")"
-"${PY[@]}" "${JOBS}/parcel_edition_readiness.py" readiness --evidence "${work}/evidence.json" --output "${OUT}.tmp"
-mv -f -- "${OUT}.tmp" "${OUT}"
+# Partial (root ADR-0380): an edition whose inputs did not move since the last run keeps its row; the
+# per-edition input digests live beside the report and are replaced after it.
+if [ -f "${OUT}.inputs.json" ]; then cp -- "${OUT}.inputs.json" "${work}/inputs.json"; fi
+"${PY[@]}" "${JOBS}/parcel_edition_readiness.py" readiness --evidence "${work}/evidence.json"   --previous "${OUT}" --inputs "${work}/inputs.json" --output "${work}/readiness.json" > "${work}/judged"
 "${PY[@]}" -c 'import json, sys
 for row in json.load(open(sys.argv[1], encoding="utf-8"))["editions"]:
-    print(row["edition"], "ready" if row["ready"] else "not ready: " + row["first_failing_stage"])' "${OUT}"
+    print(row["edition"], "ready" if row["ready"] else "not ready: " + row["first_failing_stage"], file=sys.stderr)' "${work}/readiness.json"
+mv -f -- "${work}/readiness.json" "${OUT}"
+mv -f -- "${work}/inputs.json" "${OUT}.inputs.json"
+# The outcome (root ADR-0171): the report moved only when an edition was judged again.
+judged="$(cat "${work}/judged")"
+if [ -z "${judged}" ]; then
+  printf 'foundation-job-outcome unchanged\n'
+else
+  printf 'foundation-job-outcome changed judged %s\n' "${judged}"
+fi

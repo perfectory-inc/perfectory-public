@@ -226,6 +226,7 @@ class ANewProviderEditionTest(unittest.TestCase):
         self.assertEqual(entry["granularity_counts"], {"sido": 1, "sigungu": 2})
         self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-13", "latest": "2099-10-14"})
         self.assertEqual([o["region_code"] for o in entry["objects"]], ["97", "97110", "98110"])
+        self.assertTrue(entry["measured_at_utc"], "a proposal is a measurement the readiness check reads")
         # 심은 위반: 다른 판의 파일, 시군구 없는 시도, 이미 다른 판이 가진 객체.
         planted = {
             "not one shapefile of edition 209910": rows + [measured("209906", "99110")],
