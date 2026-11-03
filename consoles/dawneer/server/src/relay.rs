@@ -78,6 +78,8 @@ const DATA_CATALOG_ROUTES: &[(Method, &[Segment])] = &[
     (Method::GET, &[Literal("dataset-snapshots")]),
     // How Korea reaches the live hostnames and how long pull request CI takes (root ADR-0209).
     (Method::GET, &[Literal("service-checks")]),
+    // Every cadastral edition's readiness and who served which (root ADR-0379).
+    (Method::GET, &[Literal("parcel-editions")]),
     // Pause, resume, run once now or stop one scheduled job (root ADR-0282).
     (
         Method::POST,
@@ -223,6 +225,11 @@ mod tests {
         assert!(data_catalog_allowed(&Method::GET, "quality-checks"));
         assert!(data_catalog_allowed(&Method::GET, "dataset-snapshots"));
         assert!(data_catalog_allowed(&Method::GET, "service-checks"));
+        assert!(data_catalog_allowed(&Method::GET, "parcel-editions"));
+        assert!(
+            !data_catalog_allowed(&Method::POST, "parcel-editions"),
+            "the served edition moves through a reviewed promotion, never from the console"
+        );
         assert!(
             !data_catalog_allowed(&Method::POST, "service-checks"),
             "the checks run on the host, never from a screen"

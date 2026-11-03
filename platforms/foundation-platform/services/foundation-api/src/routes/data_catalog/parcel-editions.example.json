@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "checked_at_utc": "2099-10-20T12:00:00Z",
+  "evidence_measured_at_utc": "2099-10-20T11:00:00Z",
+  "contract_sha256": "c43702b6e3f01a4381841ccd4bf6862a8edfdb0be18c90c72708a5ca2bfe16cc",
+  "served_edition": "209910",
+  "editions": [
+    {
+      "edition": "209906",
+      "provider_base_month": "2099-06",
+      "served": false,
+      "ready": false,
+      "first_failing_stage": "rehearsal",
+      "stages": {
+        "source": {
+          "passed": true,
+          "detail": "2 시군구 objects measured 2099-10-15, none re-uploaded"
+        },
+        "silver": {
+          "passed": true,
+          "detail": "1000 rows"
+        },
+        "rehearsal": {
+          "passed": false,
+          "detail": "rehearsal gold: no passing run recorded"
+        }
+      }
+    },
+    {
+      "edition": "209910",
+      "provider_base_month": "2099-10",
+      "served": true,
+      "ready": false,
+      "first_failing_stage": "silver",
+      "stages": {
+        "source": {
+          "passed": true,
+          "detail": "2 시군구 objects measured 2099-10-15, none re-uploaded"
+        },
+        "silver": {
+          "passed": false,
+          "detail": "silver.parcel_boundaries holds no row of this edition"
+        },
+        "rehearsal": {
+          "passed": true,
+          "detail": "served: its live release is its bake"
+        }
+      }
+    }
+  ],
+  "promotions": [
+    {
+      "edition": "209906",
+      "from_edition": null,
+      "promoted_at_utc": "2026-10-05T00:00:00Z",
+      "by": "synthetic",
+      "reason": "synthetic",
+      "readiness": null
+    },
+    {
+      "edition": "209910",
+      "from_edition": "209906",
+      "promoted_at_utc": "2099-10-20T12:00:00Z",
+      "by": "operator@synthetic",
+      "reason": "the newer edition is all there",
+      "readiness": {
+        "checked_at_utc": "2099-10-20T12:00:00Z",
+        "contract_sha256": "b1fd38537192cc4823159eed93a8c3ab83917554d6af0857f517e3d10b5d65dd",
+        "stages": {
+          "source": "2 시군구 objects measured 2099-10-15, none re-uploaded",
+          "silver": "1002 rows (served 209906 holds 1000)",
+          "rehearsal": "gold served Gold 1002 rows; bake equivalence 0 differences"
+        }
+      }
+    }
+  ]
+}

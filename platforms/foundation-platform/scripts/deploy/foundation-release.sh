@@ -1195,6 +1195,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
     # and their kept CI runs (root ADR-0209). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks
+    # The cadastral edition readiness report, served read-only the same way (root ADR-0379).
+    install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/parcel-editions
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer

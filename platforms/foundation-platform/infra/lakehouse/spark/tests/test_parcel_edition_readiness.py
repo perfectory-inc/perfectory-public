@@ -188,6 +188,17 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(real["promotions"][-1]["edition"], editions.served(real))
 
 
+class ConsoleShapeTest(unittest.TestCase):
+    def test_the_report_has_the_shape_foundation_api_reads(self):
+        # foundation-api's parcel_editions route reads this file (its example is what its test parses).
+        example = json.loads((Path(__file__).resolve().parents[4] / "services/foundation-api/src/routes/data_catalog/"
+                              "parcel-editions.example.json").read_text(encoding="utf-8"))
+        made = readiness.readiness(contract(), evidence(), NOW)
+        self.assertEqual(sorted(made), sorted(example))
+        self.assertEqual(sorted(made["editions"][0]), sorted(example["editions"][0]))
+        self.assertEqual(sorted(made["editions"][0]["stages"]), sorted(example["editions"][0]["stages"]))
+
+
 class CommandLineTest(unittest.TestCase):
     def test_the_command_refuses_an_incomplete_edition_and_leaves_the_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
