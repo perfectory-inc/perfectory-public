@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ParcelEditionReadiness } from "../api/client";
-import { editionLabel, readinessSentence } from "./parcelEditions";
+import { editionLabel, promotionRequest, readinessSentence, requestOutcomeLabel } from "./parcelEditions";
 
 const stage = (passed: boolean) => ({ passed, detail: "합성" });
 const row = (overrides: Partial<ParcelEditionReadiness>): ParcelEditionReadiness => ({
@@ -25,5 +25,19 @@ describe("parcel editions", () => {
     expect(readinessSentence(row({ ready: true, first_failing_stage: null }))).toBe("준비됨 — 승격할 수 있어요");
     expect(readinessSentence(row({}))).toBe("리허설 단계에서 멈춤");
     expect(readinessSentence(row({ first_failing_stage: "source" }))).toBe("원천 단계에서 멈춤");
+  });
+
+  it("asks to serve an edition with one line of why", () => {
+    expect(promotionRequest("209910", "새 판이 다 있다")).toEqual({
+      request: { action: "promote_edition", reason: "새 판이 다 있다", drop_pending: false, edition: "209910" },
+    });
+    expect(promotionRequest("209910", "  ")).toEqual({ problem: "이유를 적어 주세요." });
+    expect(promotionRequest("209910", "두\n줄")).toEqual({ problem: "이유는 한 줄로 적어 주세요." });
+  });
+
+  it("says how a request was answered", () => {
+    expect(requestOutcomeLabel("granted")).toBe("승인됨 — 승격 PR 을 낼 차례");
+    expect(requestOutcomeLabel("refused: 209910 is not ready")).toBe("거부됨: 209910 is not ready");
+    expect(requestOutcomeLabel("expired")).toBe("만료됨 (48시간 안에 판정되지 않음)");
   });
 });

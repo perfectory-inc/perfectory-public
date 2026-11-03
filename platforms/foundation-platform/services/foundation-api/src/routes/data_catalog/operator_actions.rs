@@ -30,7 +30,7 @@ use crate::identity_authorization::AuthorizedPrincipal;
         (status = 401, description = "Staff identity credential is missing or invalid"),
         (status = 403, description = "Principal may not operate scheduled jobs"),
         (status = 404, description = "No such job in the job list", body = ApiErrorResponse),
-        (status = 422, description = "Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, or a window that is not two HH:MM times lasting 1 to 168 hours on a set_window", body = ApiErrorResponse),
+        (status = 422, description = "Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, or an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness", body = ApiErrorResponse),
         (status = 503, description = "The ledger could not be written; nothing was recorded", body = InternalApiErrorResponse),
     )
 )]
@@ -62,6 +62,7 @@ pub(super) async fn record_operator_action(
                 job_id,
                 action: body.action,
                 window,
+                edition: body.edition,
                 drop_pending: body.drop_pending,
                 reason: body.reason,
                 actor: StaffId::new(principal.principal_id),
@@ -99,6 +100,7 @@ pub(super) async fn record_operator_action(
             expires_at: record.expires_at,
             window_start: record.window_start,
             window_end: record.window_end,
+            edition: record.edition,
         }),
     ))
 }

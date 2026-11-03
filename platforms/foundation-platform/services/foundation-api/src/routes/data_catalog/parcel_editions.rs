@@ -56,6 +56,7 @@ const fn unread(error: String) -> ParcelEditions {
         served_edition: None,
         editions: Vec::new(),
         promotions: Vec::new(),
+        promotion_requests: Vec::new(),
         error: Some(error),
     }
 }
@@ -104,6 +105,8 @@ mod tests {
         assert!(report.promotions[0].readiness.is_none());
         assert_eq!(report.promotions[1].from_edition.as_deref(), Some("209906"));
         assert!(report.promotions[1].readiness.is_some());
+        assert_eq!(report.promotion_requests.len(), 1);
+        assert_eq!(report.promotion_requests[0].outcome, "granted");
         Ok(())
     }
 

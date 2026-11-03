@@ -294,6 +294,72 @@ def promote(contract: Mapping[str, Any], report: Mapping[str, Any], name: str, b
     return promoted
 
 
+PROMOTION_JOB = "parcel_edition_readiness"
+
+
+def parse_request(text: str) -> dict[str, str]:
+    """A promotion request as foundation-api's switch board writes it: `key=value` lines (root ADR-0381)."""
+
+    fields = dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+    for key in ("request", "actor", "requested_at", "reason", "job", "expires_at", "edition"):
+        if not fields.get(key):
+            raise editions.EditionError(f"a promotion request names no {key}")
+    return fields
+
+
+def answer(contract: Mapping[str, Any], report: Mapping[str, Any], request: Mapping[str, str],
+           now: datetime | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """The answer to one console request, and the promoted contract when it is granted.
+
+    Granted means `promote` accepted it: the edition is ready by a fresh report of this contract. The
+    promoted contract is then a reviewed change away from served (the GitOps step, like a proposed
+    edition entry); the ledger entry it carries names the staff member who asked and why."""
+
+    now = now or _now()
+    record = {"request": request["request"], "edition": request["edition"], "by": request["actor"],
+              "reason": request["reason"], "requested_at": request["requested_at"], "answered_at": _iso(now)}
+    if request["job"] != PROMOTION_JOB:
+        return {**record, "outcome": f"refused: asked of {request['job']}, not {PROMOTION_JOB}"}, None
+    if _utc(request["expires_at"], "expires_at") < now:
+        return {**record, "outcome": "expired"}, None
+    try:
+        promoted = promote(contract, report, request["edition"], request["actor"], request["reason"], now)
+    except editions.EditionError as error:
+        return {**record, "outcome": f"refused: {error}"}, None
+    return {**record, "outcome": "granted"}, promoted
+
+
+def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answers: Path) -> list[str]:
+    """Answers every request in `requests` that `answers` does not hold yet, each once, and lists every
+    answer in the report under `promotion_requests`. Returns the ids answered now."""
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    answers.mkdir(parents=True, exist_ok=True)
+    answered = []
+    for path in sorted(requests.glob("*")) if requests.is_dir() else []:
+        if not path.is_file() or path.name.endswith(".partial") or (answers / f"{path.name}.json").exists():
+            continue
+        try:
+            request = parse_request(path.read_text(encoding="utf-8"))
+        except editions.EditionError as error:
+            record, promoted = {"request": path.name, "outcome": f"refused: {error}", "answered_at": _iso(_now())}, None
+        else:
+            record, promoted = answer(contract, report, request)
+        if promoted is not None:
+            target = answers / f"{path.name}.contract.json"
+            target.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            record["contract"] = str(target)
+        # The answer is written last and once: a run that dies before it answers again, never twice.
+        (answers / f"{path.name}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+        answered.append(path.name)
+    report["promotion_requests"] = sorted(
+        (json.loads(path.read_text(encoding="utf-8")) for path in answers.glob("*.json")
+         if not path.name.endswith(".contract.json")),
+        key=lambda record: str(record.get("requested_at") or ""))
+    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return answered
+
+
 def _text(path: str | None) -> str | None:
     """A file the host may not hold yet: absent is no evidence, not an error."""
 
@@ -302,7 +368,7 @@ def _text(path: str | None) -> str | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("evidence", "readiness", "promote"))
+    parser.add_argument("command", choices=("evidence", "readiness", "promote", "grant"))
     parser.add_argument("--contract", help=f"defaults to ${editions.CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--evidence", help="readiness: the host's measured evidence (JSON)")
     parser.add_argument("--report", help="promote: the readiness report to rest on")
@@ -312,6 +378,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--partitions", help='evidence: silver."parcel_boundaries$partitions" as headerless CSV')
     parser.add_argument("--inventory", help="evidence: the newest provider inventory of the edition collection")
     parser.add_argument("--journal", help="evidence: the parcel tile bake's journal")
+    parser.add_argument("--requests", help="grant: the console's promotion requests (switches/promote.d)")
+    parser.add_argument("--answers", help="grant: where each answer and granted contract is kept")
     parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
     parser.add_argument("--inputs", help="readiness: the per-edition input digests beside it; rewritten")
     parser.add_argument("--output", help="evidence, readiness: where to write (stdout without)")
@@ -331,7 +399,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             made = readiness(contract, found, previous=previous, previous_inputs=inputs)
             digests = {name: edition_inputs(contract, name, found) for name in editions.names(contract)}
             moved = sorted(name for name in digests if inputs.get(name) != digests[name])
-        if args.command != "promote":
+        if args.command in ("evidence", "readiness"):
             body = json.dumps(made, ensure_ascii=False, indent=2) + "\n"
             if args.output:
                 Path(args.output).write_text(body, encoding="utf-8")
@@ -345,7 +413,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(",".join(moved), file=sys.stdout if args.output else sys.stderr)
             return 0
         if not args.report:
-            raise editions.EditionError("promote needs --report, the readiness report it rests on")
+            raise editions.EditionError(f"{args.command} needs --report, the readiness report it rests on")
+        if args.command == "grant":
+            if not args.requests or not args.answers:
+                raise editions.EditionError("grant needs --requests and --answers")
+            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers))
+            print(",".join(answered))
+            return 0
         report = json.loads(Path(args.report).read_text(encoding="utf-8"))
         promoted = promote(contract, report, args.edition or "", args.by, args.reason)
         path.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
