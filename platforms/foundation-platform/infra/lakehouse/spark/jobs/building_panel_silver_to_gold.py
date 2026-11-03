@@ -171,6 +171,11 @@ def read_source(spark, args, name, pins, after=None, batches=None):
             (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
         if batch is not None:
             frame = frame.where(F.col("source_snapshot_id") == batch)
+    if name == PRICE_SOURCE:
+        # The batch is chosen above, with the commit order its vintage ties need (`newest_batch`); the
+        # contract's edition order alone refuses those ties (root ADR-0376 §1) until the readers move
+        # to the versions table (ADR-0317).
+        return frame
     # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275): of
     # the floors, the newest generation by its ingest instant, never the larger "v" in the id
     # (`Editions`, root ADR-0128, ADR-0286 §3).
