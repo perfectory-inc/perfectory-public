@@ -1,6 +1,7 @@
 """규제 구역 타일 넘김(루트 ADR-0373): 인자, 부분 파일 잇기, 계약과의 일치."""
 
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,8 @@ from pathlib import Path
 JOBS_DIR = Path(__file__).resolve().parents[1] / "jobs"
 sys.path.insert(0, str(JOBS_DIR))
 CONFIG = Path(__file__).resolve().parents[4] / "config"
+# The map's own list of pending layer codes (products/gongzzang, root ADR-0373 §4).
+WEB_PENDING = Path(__file__).resolve().parents[6] / "products/gongzzang/apps/web/lib/map/zoning-families.ts"
 
 import land_use_zone_area_tile_handoff as job  # noqa: E402
 
@@ -32,6 +35,16 @@ class LandUseZoneAreaTileHandoffTest(unittest.TestCase):
     def test_the_raon_only_layers_are_reported_pending(self):
         contract = json.loads(job.LANE_CONTRACT.read_text(encoding="utf-8"))
         self.assertEqual([item["layer_code"] for item in job.pending_layers(contract)], ["D054", "D125"])
+
+    def test_the_map_names_the_same_pending_layers(self):
+        if not WEB_PENDING.exists():
+            self.skipTest("the map's zoning families arrive with the web change (PR #995)")
+        text = WEB_PENDING.read_text(encoding="utf-8")
+        listed = re.search(r"ZONING_PENDING_LAYER_CODES\s*=\s*\[([^\]]*)\]", text)
+        self.assertIsNotNone(listed, "zoning-families.ts no longer exports ZONING_PENDING_LAYER_CODES")
+        codes = sorted(re.findall(r'"(D[0-9]{3})"', listed.group(1)))
+        contract = json.loads(job.LANE_CONTRACT.read_text(encoding="utf-8"))
+        self.assertEqual(codes, [item["layer_code"] for item in job.pending_layers(contract)])
 
     def test_a_layer_cannot_be_loaded_and_pending(self):
         contract = {"silver_refresh": {"completeness": {"regions": ["999"]}},
