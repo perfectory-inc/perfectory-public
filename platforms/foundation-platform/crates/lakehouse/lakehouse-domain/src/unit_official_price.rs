@@ -1,9 +1,9 @@
 //! Unit-indexed reference-date prices derived from the two HUB registers.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer,
+    LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole,
+    LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 /// Append-only province batches retaining every assessment reference date.
@@ -13,7 +13,12 @@ pub const SILVER_UNIT_OFFICIAL_PRICE: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["vintage"],
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: &[
         LakehouseColumn {
             name: "mgm_bldrgst_pk",
@@ -100,7 +105,7 @@ pub const SILVER_UNIT_OFFICIAL_PRICE_VERSIONS: LakehouseTableContract = Lakehous
     current_row_predicate: None,
     // One row per key in a vintage (correction notices resolve before the join); ordered by the
     // vintage, then the commit's instant (a vintage joined again from reloaded sources).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk", "base_date"],
         newest_first: &["vintage", "ingested_at_utc"],
         removal_column: Some("row_state"),

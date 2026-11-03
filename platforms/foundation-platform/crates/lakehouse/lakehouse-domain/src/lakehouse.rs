@@ -55,6 +55,70 @@ pub struct LakehouseCurrentRowLatest {
     pub keep_ties: bool,
 }
 
+/// How a table's rows pile up, and so which rows a reader takes as current (root ADR-0286).
+///
+/// Required on every contract: a table that appends without saying how is what failed the complex
+/// boundary release on 2026-10-16. Modelled on Delta Live Tables `KEYS / SEQUENCE BY / SCD TYPE`,
+/// Hudi's record key and ordering field, and Kimball's transaction and periodic-snapshot facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseRowVersions {
+    /// One row per key; a load replaces the rows it covers (the whole table, or the partitions or
+    /// keys its `overwritePartitions` or `MERGE` touches). SCD Type 1.
+    Replaced {
+        /// The key, or why the table has none.
+        key: LakehouseRowKey,
+    },
+    /// Versions accumulate per key and the newest is current (root ADR-0267, ADR-0275). SCD Type 2.
+    LatestPerKey(LakehouseCurrentRowLatest),
+    /// A load appends one complete edition; a reader reads one. Kimball periodic snapshot.
+    Editions {
+        /// The column naming a row's edition: it groups rows into editions.
+        edition_column: &'static str,
+        /// What orders the editions: each edition's maximum of these columns, compared in turn,
+        /// then the commit that appended it. Not the edition id, which is not in time order
+        /// (Hudi's ordering field, applied per edition).
+        newest_first: &'static [&'static str],
+        /// Columns whose values each hold their own editions (empty: the table is one group).
+        per: &'static [&'static str],
+        /// Which edition a reader takes by default.
+        read: LakehouseEditionRead,
+    },
+    /// Every row is a fact and every row is current. Kimball transaction fact.
+    Events {
+        /// The domain fold every reader goes through, when the table's current state is one
+        /// (`module.function` under the Spark jobs).
+        canonical_reader: Option<&'static str>,
+    },
+    /// No writer exists yet, and every write is refused. The declared absence of a writer, not an
+    /// accumulation shape: the table's first writer replaces it with one of the four.
+    Unwritten {
+        /// The planned work that will write it.
+        reason: &'static str,
+    },
+}
+
+/// The key of a [`LakehouseRowVersions::Replaced`] table.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseRowKey {
+    /// Columns naming one row.
+    Columns(&'static [&'static str]),
+    /// No key, and why: the source repeats keys and gives no row id. Such a table may not become an
+    /// appending lane before a key is measured (root ADR-0286, ADR-0275).
+    Keyless {
+        /// Why there is no key.
+        reason: &'static str,
+    },
+}
+
+/// Which edition of a [`LakehouseRowVersions::Editions`] table a reader takes by default.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LakehouseEditionRead {
+    /// The newest edition (per group).
+    Newest,
+    /// The edition the caller names; there is no default.
+    Pinned,
+}
+
 /// One column in a lakehouse table contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LakehouseColumn {
@@ -79,10 +143,10 @@ pub struct LakehouseTableContract {
     pub serving_role: LakehouseServingRole,
     /// Machine-readable predicate selecting the current logical row, when the table is versioned.
     pub current_row_predicate: Option<&'static str>,
-    /// For an append-only table that keeps every version, which surviving row is current: the
-    /// newest per key. Applied after `current_row_predicate`; readers take both through one helper
+    /// How the rows pile up and which are current (root ADR-0286). Applied after
+    /// `current_row_predicate`; readers take both through one helper
     /// (`platform_contracts.current_rows`), never by hand (root ADR-0267).
-    pub current_row_latest: Option<LakehouseCurrentRowLatest>,
+    pub row_versions: LakehouseRowVersions,
     /// Stable column contract.
     pub columns: &'static [LakehouseColumn],
     /// Iceberg partition spec expressed as stable contract text.
@@ -95,6 +159,17 @@ pub struct LakehouseTableContract {
     pub quality_gates: &'static [&'static str],
     /// What one load of this table carries, and how the re-run guard reads it.
     pub load: LakehouseLoadUnit,
+}
+
+impl LakehouseTableContract {
+    /// The newest-per-key rule of a [`LakehouseRowVersions::LatestPerKey`] table.
+    #[must_use]
+    pub const fn current_row_latest(&self) -> Option<LakehouseCurrentRowLatest> {
+        match self.row_versions {
+            LakehouseRowVersions::LatestPerKey(latest) => Some(latest),
+            _ => None,
+        }
+    }
 }
 
 /// What one load of a table carries.

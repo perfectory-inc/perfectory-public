@@ -6,7 +6,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -103,7 +103,7 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM: LakehouseTableContract = LakehouseTable
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
     // A pass is one source_snapshot_id (its start, `YYYYMMDDTHHMMSSZ`), so the newest pass wins.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no", "pbct_cdtn_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: Some("row_state"),
@@ -165,7 +165,7 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO: LakehouseTableContract = Lakehous
     // `pbct_cdtn_no` only names the round whose detail answered. The newest run that recorded it
     // wins, and within a run the later line (two rounds of one item fetched in one run before root
     // ADR-0339); a re-seen photo keeps one row. "처음 본 시각" is the earliest ingested_at_utc.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no", "sha256"],
         newest_first: &["source_snapshot_id", "source_line_number"],
         removal_column: None,
@@ -255,7 +255,7 @@ pub const SILVER_ONBID_ITEM_BID_RESULT: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no", "pbct_cdtn_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,
@@ -310,7 +310,7 @@ pub const SILVER_ONBID_ANNOUNCEMENT: LakehouseTableContract = LakehouseTableCont
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["onbid_pbanc_no", "pbct_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,
@@ -363,7 +363,7 @@ pub const SILVER_ONBID_ANNOUNCEMENT_BID_RESULT: LakehouseTableContract = Lakehou
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["onbid_pbanc_no", "pbct_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,
@@ -419,7 +419,7 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL: LakehouseTableContract = Lakehou
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,
@@ -503,7 +503,7 @@ pub const SILVER_ONBID_ITEM_BID_INFO: LakehouseTableContract = LakehouseTableCon
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["cltr_mng_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,
@@ -564,7 +564,7 @@ pub const SILVER_ONBID_ANNOUNCEMENT_DETAIL: LakehouseTableContract = LakehouseTa
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["pbanc_mng_no", "pbct_no"],
         newest_first: &["source_snapshot_id"],
         removal_column: None,

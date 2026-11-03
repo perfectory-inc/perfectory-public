@@ -1,8 +1,8 @@
 //! One row per building of a PNU with its units' official price histories, apart from the
 //! building panel (root ADR-0190, ADR-0204).
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const COLUMNS: &[LakehouseColumn] = &[
@@ -45,7 +45,9 @@ pub const GOLD_UNIT_PRICE_PANEL: LakehouseTableContract = LakehouseTableContract
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["pnu", "building_id"]),
+    },
     columns: COLUMNS,
     partition_spec: &["source_snapshot_id"],
     sort_order: &["pnu", "building_id"],

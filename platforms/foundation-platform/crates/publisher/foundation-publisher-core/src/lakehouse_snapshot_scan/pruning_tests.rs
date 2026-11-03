@@ -10,8 +10,8 @@ use arrow_array::{ArrayRef, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema as ArrowSchema};
 use async_trait::async_trait;
 use lakehouse_domain::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 use lakehouse_infrastructure::IcebergSnapshotManifestList;
 use parquet::arrow::ArrowWriter;
@@ -27,7 +27,9 @@ const FIXTURE: LakehouseTableContract = LakehouseTableContract {
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["pnu"]),
+    },
     columns: &[
         LakehouseColumn {
             name: "pnu",

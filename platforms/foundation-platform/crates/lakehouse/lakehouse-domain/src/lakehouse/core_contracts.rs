@@ -8,11 +8,12 @@ use super::building_and_gold_columns::{
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS,
 };
 use super::{
-    LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
-    SILVER_INDUSTRIAL_COMPLEXES_COLUMNS, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
-    SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS, SILVER_LAND_USE_PLAN_COLUMNS,
-    SILVER_LAND_USE_ZONE_CODES_COLUMNS, SILVER_PARCEL_BOUNDARIES_COLUMNS,
+    LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions, LakehouseServingRole,
+    LakehouseTableContract, LakehouseWriteDistribution, SILVER_INDUSTRIAL_COMPLEXES_COLUMNS,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS, SILVER_LAND_INDIVIDUAL_PRICE_COLUMNS,
+    SILVER_LAND_USE_PLAN_COLUMNS, SILVER_LAND_USE_ZONE_CODES_COLUMNS,
+    SILVER_PARCEL_BOUNDARIES_COLUMNS,
 };
 
 /// Canonical Silver table for industrial complex facts.
@@ -25,7 +26,7 @@ pub const SILVER_INDUSTRIAL_COMPLEXES: LakehouseTableContract = LakehouseTableCo
     // Every load appends a whole version and leaves the earlier ones (append-only); a re-load of
     // the same source snapshot is a newer version of the same row, not a second complex
     // (root ADR-0267).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["official_complex_code"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: None,
@@ -67,7 +68,12 @@ pub const SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES: LakehouseTableContract = Lakehou
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["valid_from_utc"],
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES_COLUMNS,
     // No partitions. 1,343 rows in 8 MB were split across 371 partitions, one file each, twenty
     // kilobytes apiece — a layout compaction cannot repair, because it may only merge within a
@@ -101,7 +107,12 @@ pub const SILVER_PARCEL_BOUNDARIES: LakehouseTableContract = LakehouseTableContr
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: Some("valid_to_utc IS NULL"),
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["valid_from_utc"],
+        per: &[],
+        read: LakehouseEditionRead::Pinned,
+    },
     columns: SILVER_PARCEL_BOUNDARIES_COLUMNS,
     // One partition per edition, range ordered by PNU (root ADR-0316). Root ADR-0063 removed the
     // `pnu` bucket and ADR-0066 sigungu, whose 257 partitions capped files at 29 MB. But the
@@ -146,7 +157,7 @@ pub const SILVER_LAND_USE_PLAN: LakehouseTableContract = LakehouseTableContract 
     current_row_predicate: None,
     // A release appends only the rows of its changed keys and a removal marker per vanished key
     // (root ADR-0275, ADR-0318); a parcel's designations are every row of its newest release.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["pnu"],
         // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
         newest_first: &["source_snapshot_id", "ingested_at_utc"],
@@ -181,7 +192,7 @@ pub const SILVER_LAND_INDIVIDUAL_PRICE: LakehouseTableContract = LakehouseTableC
     current_row_predicate: None,
     // A release appends only the rows of its changed keys and a removal marker per vanished key
     // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["pnu"],
         // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
         newest_first: &["source_snapshot_id", "ingested_at_utc"],
@@ -217,7 +228,7 @@ pub const SILVER_LAND_USE_ZONE_CODES: LakehouseTableContract = LakehouseTableCon
     // A release appends only its changed codes and a removal marker per vanished code (root
     // ADR-0275, ADR-0318). Its source_snapshot_id is the file's name and checksum, not a date, so
     // the load that wrote a row orders the versions; one load is one ingest instant.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["ucode"],
         newest_first: &["ingested_at_utc"],
         removal_column: Some("row_state"),
@@ -242,7 +253,12 @@ pub const SILVER_BUILDING_REGISTER_FLOORS: LakehouseTableContract = LakehouseTab
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["ingested_at_utc"],
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_BUILDING_REGISTER_FLOORS_COLUMNS,
     partition_spec: &["bucket(16, mgm_bldrgst_pk)"],
     sort_order: &["mgm_bldrgst_pk", "floor_index", "floor_row_id"],
@@ -288,7 +304,7 @@ pub const SILVER_BUILDING_REGISTER_TITLES: LakehouseTableContract = LakehouseTab
     // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
     // release: the provider month (`valid_from_utc`), then the commit instant. The run identity's
     // digest would order two loads of one month by their bytes, not their time (ADR-0328).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: Some("row_state"),
@@ -325,7 +341,7 @@ pub const SILVER_BUILDING_REGISTER_UNITS: LakehouseTableContract = LakehouseTabl
     // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
     // release: the provider month (`valid_from_utc`), then the commit instant. The run identity's
     // digest would order two loads of one month by their bytes, not their time (ADR-0328).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: Some("row_state"),
@@ -376,7 +392,7 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
     // vanished register (root ADR-0275, ADR-0318); a register's version is every row of its newest
     // release: the provider month (`valid_from_utc`), then the commit instant. The run identity's
     // digest would order two loads of one month by their bytes, not their time (ADR-0328).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgm_bldrgst_pk"],
         newest_first: &["valid_from_utc", "ingested_at_utc"],
         removal_column: Some("row_state"),
@@ -408,7 +424,9 @@ pub const SILVER_COMPLEX_PARCEL_MEMBERSHIPS: LakehouseTableContract = LakehouseT
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Unwritten {
+        reason: "planned: the dated membership fact of root ADR-0019 and ADR-0020; no production writer yet",
+    },
     columns: SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS,
     partition_spec: &["sigungu_code", "bucket(256, pnu)"],
     sort_order: &["complex_id", "pnu", "membership_kind"],
@@ -434,7 +452,9 @@ pub const GOLD_COMPLEX_CATALOG: LakehouseTableContract = LakehouseTableContract 
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["complex_id"]),
+    },
     columns: GOLD_COMPLEX_CATALOG_COLUMNS,
     // Follows the canonical table it projects: the snapshot the rows were published from
     // (root ADR-0035).
@@ -458,7 +478,9 @@ pub const GOLD_COMPLEX_SPATIAL_LOCATOR: LakehouseTableContract = LakehouseTableC
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::SpatialLocator,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Unwritten {
+        reason: "planned: the complex spatial pruning locator; no production writer yet",
+    },
     columns: GOLD_COMPLEX_SPATIAL_LOCATOR_COLUMNS,
     partition_spec: &["spatial_key_prefix"],
     sort_order: &["spatial_key", "complex_id"],
