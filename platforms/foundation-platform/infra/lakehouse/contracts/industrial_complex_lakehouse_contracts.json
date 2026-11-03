@@ -8594,7 +8594,7 @@
         "region_code",
         "period"
       ],
-      "write_distribution": "range",
+      "write_distribution": "hash",
       "quality_gates": [
         "one row per (dataset_slug, region_level, region_code, period_kind, period)",
         "region_code is a 10-digit 법정동 or 시군구 code",

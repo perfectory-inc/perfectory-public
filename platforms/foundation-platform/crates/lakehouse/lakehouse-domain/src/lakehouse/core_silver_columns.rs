@@ -527,6 +527,7 @@ pub use crate::onbid_public_auction::{
 pub use crate::parcel_number_change_history::SILVER_PARCEL_NUMBER_CHANGE_HISTORY;
 pub use crate::parcel_panel::GOLD_PARCEL_PANEL;
 pub use crate::real_transaction::SILVER_REAL_TRANSACTION;
+pub use crate::real_transaction_region_stats::GOLD_REAL_TRANSACTION_REGION_STATS;
 pub use crate::real_transaction_rejected::SILVER_REAL_TRANSACTION_REJECTED;
 pub use crate::registered_factory::SILVER_REGISTERED_FACTORY;
 
