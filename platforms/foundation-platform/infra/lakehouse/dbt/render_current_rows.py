@@ -95,18 +95,22 @@ def render() -> str:
 {{%- if rule is none -%}}
 {{{{ relation }}}}
 {{%- elif rule['edition'] -%}}
+{{#- The newest editions as one scalar array: a join to them let Trino build its hash on the table
+    (2026-11-04, unit prices: 8 GB per-node limit), a one-row array cannot (9.6 s). `per` columns are
+    required contract columns, so the row comparison sees no null. -#}}
+{{%- set group = rule['per'] + [rule['edition']] -%}}
 (
     select r.* from {{{{ relation }}}} as r
-    where exists (
-        select 1 from (
-            select {{% for column in rule['per'] %}}{{{{ column }}}}, {{% endfor %}}{{{{ rule['edition'] }}}}, rank() over (
+    where contains((
+        select array_agg(row({{{{ group | join(', ') }}}})) from (
+            select {{{{ group | join(', ') }}}}, rank() over (
                 {{% if rule['per'] %}}partition by {{{{ rule['per'] | join(', ') }}}} {{% endif %}}order by {{% for column in rule['newest_first'] %}}max({{{{ column }}}}) desc nulls last{{% if not loop.last %}}, {{% endif %}}{{% endfor %}}
             ) as _edition_rank
             from {{{{ relation }}}}
-            group by {{% for column in rule['per'] %}}{{{{ column }}}}, {{% endfor %}}{{{{ rule['edition'] }}}}
-        ) as e
-        where e._edition_rank = 1 and e.{{{{ rule['edition'] }}}} = r.{{{{ rule['edition'] }}}}{{% for column in rule['per'] %}} and e.{{{{ column }}}} is not distinct from r.{{{{ column }}}}{{% endfor %}}
-    )
+            group by {{{{ group | join(', ') }}}}
+        ) as editions
+        where _edition_rank = 1
+    ), row({{% for column in group %}}r.{{{{ column }}}}{{% if not loop.last %}}, {{% endif %}}{{% endfor %}}))
     {{% if rule['predicate'] %}}and ({{{{ rule['predicate'] }}}}){{% endif %}}
 ) as {{{{ name }}}}
 {{%- else -%}}

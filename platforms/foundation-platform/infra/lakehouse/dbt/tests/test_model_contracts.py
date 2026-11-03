@@ -569,7 +569,9 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
         self.assertIn("'unit_official_price': {'predicate': none, 'key': none, 'newest_first': ['vintage'], "
                       "'removal': none, 'edition': 'source_snapshot_id', 'per': []},", macro)
         self.assertIn("max({{ column }}) desc nulls last", macro)
-        self.assertIn("where e._edition_rank = 1 and e.{{ rule['edition'] }} = r.{{ rule['edition'] }}", macro)
+        # A one-row array, not a join: Trino built a join's hash on the 1.2B-row table (2026-11-04).
+        self.assertIn("where contains((", macro)
+        self.assertIn("select array_agg(row({{ group | join(', ') }}))", macro)
 
     def test_the_key_test_covers_every_source_whose_current_key_is_unique(self) -> None:
         """Root ADR-0286 §4: `rank() = 1` keeps tied rows; dbt checks the key Spark refuses ties on."""
