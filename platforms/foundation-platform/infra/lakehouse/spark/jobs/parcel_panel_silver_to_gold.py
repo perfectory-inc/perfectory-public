@@ -90,7 +90,6 @@ from lakehouse_engine import (
 from platform_contracts import (
     column_names,
     current_row_latest,
-    current_row_predicate,
     ensure_contract_table,
     current_rows,
     load_lakehouse_contract,
@@ -427,17 +426,7 @@ def read_served_parcels(
     rebuild fails.
     """
 
-    predicate = current_row_predicate(load_lakehouse_contract(PARCEL_SOURCE))
-    if predicate is None:
-        raise ValueError(
-            f"{PARCEL_SOURCE} declares no current_row_predicate; this projection cannot "
-            "say which boundary row is the parcel's current one"
-        )
-    source = source or parcel_editions.load()
-    served_id = parcel_editions.snapshot_id(source, parcel_editions.served(source))
-    served = (read_source(spark, args, PARCEL_SOURCE, pins)
-              .where(F.expr(predicate))
-              .where(F.expr(f"source_snapshot_id = '{served_id}'")))
+    served = parcel_editions.served_rows(read_source(spark, args, PARCEL_SOURCE, pins), source)
     return filtered_by_region(served, args.region_prefix) if region else served
 
 

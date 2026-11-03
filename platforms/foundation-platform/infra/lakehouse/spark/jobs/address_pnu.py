@@ -168,12 +168,15 @@ def current_legal_dongs(spark: Any, catalog: str) -> list[tuple[str, str]]:
 
 
 def lakehouse_inputs(spark: Any, catalog: str) -> tuple[Any, Any]:
-    """The current parcels' PNUs and the building register titles, as ``resolve`` reads them."""
+    """The served parcels' PNUs and the building register titles, as ``resolve`` reads them.
+
+    A PNU resolves only to a parcel of the served edition (root ADR-0291 §5): every edition's rows
+    are current, and a parcel only a newer edition holds is one the map does not serve."""
 
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from vworld_parcel_editions import served_rows  # noqa: PLC0415
 
-    parcels = current_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`"),
-                           load_lakehouse_contract("silver.parcel_boundaries")).select("pnu").distinct()
+    parcels = served_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`")).select("pnu").distinct()
     # The register appends only each release's changed buildings (root ADR-0318): its current rows.
     titles = current_rows(spark.table(f"`{catalog}`.`silver`.`building_register_titles`"),
                           load_lakehouse_contract("silver.building_register_titles")).select("pnu", "road_address_raw")
