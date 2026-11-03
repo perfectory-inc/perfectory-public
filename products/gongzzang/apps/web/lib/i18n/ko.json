@@ -344,7 +344,8 @@
           "conflicting": "저촉",
           "mapZones": "지도 규제 구역",
           "mapZonesSource": "용도지역지구",
-          "mapZonesNone": "지도에서 이 필지에 겹치는 규제 구역이 없어요",
+          "mapZonesSourceAsOf": "용도지역지구 · 기준일 {date}",
+          "mapZonesMore": "외 {count}개 구역",
           "otherFamily": "기타",
           "pendingNote": "일부 구역 수집 대기: {layers}"
         },

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/panel/use-panel-stack", () => ({ usePanelStack: () => ({ push: vi.fn() }) }));
 
@@ -15,7 +15,12 @@ const reads = vi.hoisted(() => ({
   energy: null as unknown,
   demolitions: null as unknown,
 }));
-vi.mock("@/components/panels/parcel/queries", () => ({
+// The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
+// the lane, never from a map.
+vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
+  parcelRegulationZonesQuery: (
+    await importOriginal<typeof import("@/components/panels/parcel/queries")>()
+  ).parcelRegulationZonesQuery,
   parcelBuildingsQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "buildings", pnu],
     queryFn: async () => reads.buildings,
@@ -49,7 +54,6 @@ vi.mock("@/components/panels/parcel/queries", () => ({
 import { ParcelSummaryCard } from "@/components/panels/parcel/summary";
 import { type ParcelDocument, parseParcelDocument } from "@/lib/api/parcels";
 import koMessages from "@/lib/i18n/ko.json";
-import { useMapStore } from "@/stores/map";
 
 // Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
 const PNU = "9999900000100120003";
@@ -74,6 +78,15 @@ function renderPanel(data: ParcelDocument): void {
   );
   render(<ParcelSummaryCard entry={entry} data={data} />, { wrapper });
 }
+
+// The real regulation zones read goes to the parcel edge: answered here, never by the network.
+beforeEach(() =>
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response(null, { status: 404 })),
+  ),
+);
+afterEach(() => vi.unstubAllGlobals());
 
 const anchors = () =>
   within(screen.queryByRole("navigation", { name: "구획" }) ?? document.createElement("nav"))
@@ -109,51 +122,55 @@ describe("parcel panel sections", () => {
     await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
   });
 
-  it("lists the map's zones over the parcel by family, and names the layers not collected", async () => {
-    const square = (x0: number, x1: number) => ({
-      type: "Polygon",
-      coordinates: [
-        [
-          [x0, 0],
-          [x1, 0],
-          [x1, 0.001],
-          [x0, 0.001],
-          [x0, 0],
-        ],
-      ],
+  it("lists the lane's zones for a parcel no map ever loaded, by family, with the layers not collected", async () => {
+    // Root ADR-0375 acceptance: no map instance and no tile exist in this test; only the parcel
+    // edge answers, with zones the Foundation computed for this PNU.
+    const zone = (id: string, layerCode: string, layerName: string, zoneName: string) => ({
+      zone_id: `${layerCode}:${id}`,
+      layer_code: layerCode,
+      layer_name: layerName,
+      zone_code: "UQZ999",
+      zone_name: zoneName,
+      release_date: id === "A" ? "2026-06-09" : "2026-10-09",
     });
-    const mapZone = (id: string, layerCode: string, layerName: string, zoneName: string) => ({
-      properties: {
-        zone_id: `${layerCode}:${id}`,
-        layer_code: layerCode,
-        layer_name: layerName,
-        zone_name: zoneName,
-      },
-      geometry: square(0.0005, 0.002),
-    });
-    useMapStore.setState({
-      mapbox: {
-        getSource: () => ({}),
-        querySourceFeatures: (sourceId: string) =>
-          sourceId === "parcels"
-            ? [{ properties: { pnu: PNU }, geometry: square(0, 0.001) }]
-            : [
-                mapZone("A", "D032", "시험층/개발제한구역", "개발제한구역"),
-                mapZone("B", "D335", "시험층/공장설립제한지역", "공장설립제한지역"),
+    const fetcher = vi.fn(async (url: string) =>
+      url.endsWith(`/parcels/regulation-zones/by-pnu/${PNU}`)
+        ? Response.json({
+            schema_version: "foundation-platform.parcel_regulation_zones_by_pnu.v1",
+            schema_revision: 1,
+            pnu: PNU,
+            source: {
+              table: "gold.parcel_regulation_zones",
+              iceberg_snapshot_id: "999990000000000001",
+            },
+            regulation_zones: {
+              zones: [
+                zone("A", "D032", "시험층/개발제한구역", "개발제한구역"),
+                zone("B", "D335", "시험층/공장설립제한지역", "공장설립제한지역"),
+                zone("C", "D998", "시험층/목록 밖", "시험구역"),
               ],
-      },
-    });
-    try {
-      renderPanel(parcel());
-      await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
-      expect(screen.getByText("지도 규제 구역")).toBeTruthy();
-      expect(screen.getByRole("heading", { level: 4, name: "개발제한구역" })).toBeTruthy();
-      expect(screen.getByRole("heading", { level: 4, name: "공장입지 규제" })).toBeTruthy();
-      expect(screen.getByText("시험층/공장설립제한지역")).toBeTruthy();
-      expect(screen.getByText("일부 구역 수집 대기: 보전·준보전산지·관리지역")).toBeTruthy();
-    } finally {
-      useMapStore.setState({ mapbox: null });
-    }
+            },
+            zone_total: 5,
+          })
+        : new Response(null, { status: 404 }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    renderPanel(parcel());
+    await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
+    expect(screen.getByText("지도 규제 구역")).toBeTruthy();
+    expect(screen.getByText("용도지역지구 · 기준일 2026-10-09")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 4, name: "개발제한구역" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 4, name: "공장입지 규제" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 4, name: "기타" })).toBeTruthy();
+    expect(screen.getByText("시험층/공장설립제한지역")).toBeTruthy();
+    expect(screen.getByText("외 2개 구역")).toBeTruthy();
+    expect(screen.getByText("일부 구역 수집 대기: 보전·준보전산지·관리지역")).toBeTruthy();
+  });
+
+  it("leaves the map zones out when the lane has no document for the parcel", async () => {
+    renderPanel(parcel({ zonings: [{ zone_code: "UQA122", zone_name: "제2종일반주거지역" }] }));
+    await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
+    expect(screen.queryByText("지도 규제 구역")).toBeNull();
   });
 
   it("never shows a code where the source's name is missing", () => {

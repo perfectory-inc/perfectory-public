@@ -9,14 +9,17 @@ import { type Demolitions, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
+import type { RegulationZone, RegulationZones } from "@/lib/api/regulation-zones";
 import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
-import type { ZoningArea } from "@/lib/map/zoning-areas";
-import { ZONING_FAMILIES, ZONING_PENDING_LAYER_CODES } from "@/lib/map/zoning-families";
+import {
+  ZONING_FAMILIES,
+  ZONING_PENDING_LAYER_CODES,
+  zoningFamilyOf,
+} from "@/lib/map/zoning-families";
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
 import { ParcelListingsCard } from "./listings";
-import { useParcelMapZoningAreas } from "./map-zoning";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
@@ -25,6 +28,7 @@ import {
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
+  parcelRegulationZonesQuery,
   parcelSubParcelsQuery,
 } from "./queries";
 
@@ -266,7 +270,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <SubParcelsSection links={links} />,
     });
   }
-  const mapZones = useParcelMapZoningAreas(entry.id);
+  const mapZones = useQuery(parcelRegulationZonesQuery(entry.id)).data ?? null;
   if (energy.data && energy.data.months.length > 0) {
     sections.push({
       id: "energy",
@@ -737,7 +741,13 @@ function DemolitionsSection({ demolitions }: { demolitions: Demolitions }) {
   );
 }
 
-function RulesSection({ data, mapZones }: { data: ParcelDocument; mapZones: ZoningArea[] | null }) {
+function RulesSection({
+  data,
+  mapZones,
+}: {
+  data: ParcelDocument;
+  mapZones: RegulationZones | null;
+}) {
   const t = useTranslations("panels.parcel.summary");
   return (
     <div>
@@ -763,40 +773,51 @@ function RulesSection({ data, mapZones }: { data: ParcelDocument; mapZones: Zoni
 }
 
 /**
- * 지도 규제 구역: the zones the map draws over the parcel (root ADR-0373), by family in the toggles'
- * order, each in the provider's layer and zone names; and which layers are still not collected.
+ * 지도 규제 구역: the zones the Foundation found covering part of the parcel (root ADR-0375), by
+ * family in the map toggles' order, each in the provider's layer and zone names, with the newest
+ * release date among them; and which layers are still not collected.
  */
-function MapZonesGroup({ zones }: { zones: ZoningArea[] }) {
+function MapZonesGroup({ zones }: { zones: RegulationZones }) {
   const t = useTranslations("panels.parcel.summary.rules");
   const tMap = useTranslations("map.zoning");
-  const byFamily = groupBy(zones, (zone) => zone.family ?? "other");
+  const byFamily = groupBy(zones.zones, (zone) => zoningFamilyOf(zone.layer_code) ?? "other");
   const groups = [
     ...ZONING_FAMILIES.map(({ key }) => [tMap(`families.${key}`), byFamily[key]] as const),
     [t("otherFamily"), byFamily.other] as const,
-  ].filter((group): group is readonly [string, ZoningArea[]] => (group[1]?.length ?? 0) > 0);
+  ].filter((group): group is readonly [string, RegulationZone[]] => (group[1]?.length ?? 0) > 0);
   const pending = ZONING_PENDING_LAYER_CODES.map((code) => tMap(`pendingLayers.${code}`)).join("·");
+  const asOf = zones.zones
+    .map((zone) => zone.release_date)
+    .filter((date): date is string => !!date)
+    .sort()
+    .at(-1);
+  const more = zones.zoneTotal - zones.zones.length;
   return (
-    <Group title={t("mapZones")} note={t("mapZonesSource")}>
-      {groups.length === 0 ? (
-        <p className="text-[length:var(--text-body-sm)] text-[var(--color-muted)]">
-          {t("mapZonesNone")}
+    <Group
+      title={t("mapZones")}
+      note={asOf ? t("mapZonesSourceAsOf", { date: asOf }) : t("mapZonesSource")}
+    >
+      {groups.map(([label, list]) => (
+        <div key={label} className="flex flex-col gap-1">
+          <h4 className="text-[length:var(--text-caption)] text-[var(--color-muted)]">{label}</h4>
+          <ul className="flex flex-col gap-1 text-[length:var(--text-body-sm)]">
+            {list.map((zone) => (
+              <li key={zone.zone_id} className="flex items-baseline justify-between gap-2">
+                <span className="text-[var(--color-ink)]">
+                  {zone.zone_name || zone.layer_name || zone.layer_code}
+                </span>
+                <span className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+                  {zone.layer_name ?? zone.layer_code}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+      {more > 0 && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("mapZonesMore", { count: more })}
         </p>
-      ) : (
-        groups.map(([label, list]) => (
-          <div key={label} className="flex flex-col gap-1">
-            <h4 className="text-[length:var(--text-caption)] text-[var(--color-muted)]">{label}</h4>
-            <ul className="flex flex-col gap-1 text-[length:var(--text-body-sm)]">
-              {list.map((zone) => (
-                <li key={zone.zoneId} className="flex items-baseline justify-between gap-2">
-                  <span className="text-[var(--color-ink)]">{zone.zoneName || zone.layerName}</span>
-                  <span className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
-                    {zone.layerName}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))
       )}
       <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
         {t("pendingNote", { layers: pending })}
