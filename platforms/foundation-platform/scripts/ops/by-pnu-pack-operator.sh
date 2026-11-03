@@ -17,6 +17,8 @@
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|status <silver-lane>
 #   by-pnu-pack-operator.sh silver start <silver-lane> --requested-at <epoch second> --reason <why>
+#   by-pnu-pack-operator.sh prices migrate-versions --requested-at <epoch second> --reason <why>
+#   by-pnu-pack-operator.sh prices status
 #   by-pnu-pack-operator.sh job status <disabled job id>
 #   by-pnu-pack-operator.sh job start <disabled job id> --requested-at <epoch second> --reason <why>
 #   by-pnu-pack-operator.sh parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status
@@ -44,6 +46,11 @@
 # raon-large-files.sh as the service user and wait; `run` starts it detached as
 # foundation-raon-large-files-operator.service against the daily sweep's evidence, with that run's
 # file count and byte budget; `status` shows that unit. None starts while the daily sweep runs.
+#
+# `prices migrate-versions` runs ADR-0317 stage 2 once, as foundation-unit-price-versions-migrate.service
+# (scripts/ops/unit-price-versions-migrate.sh): both price tables' vintages into their versions
+# tables, each vintage checked against its full copy. `status` shows that unit and its journal,
+# whose last line is `unit-price-versions parity=ok` when every vintage matched.
 #
 # `silver` drives one Silver refresh lane (root ADR-0169, ADR-0178): `plan` runs its
 # `silver-refresh.sh <lane> --plan` (reads the ledger and the catalog, writes nothing) and prints
@@ -121,7 +128,7 @@ record_start() {
   logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
 }
 ATTENDED_FLAGS="--requested-at <epoch second> --reason <why>"
-USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | prices migrate-versions|status | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -136,7 +143,7 @@ LANE="${1:-}" ACTION="${2:-}"
 # then on it is watched and canaried like the other lanes. Its gateway block is `by_pnu_lanes.<lane>`,
 # or, for a lane written as a host and a kind (root ADR-0193 §4), its host's: the same Worker and
 # preview serve it by path.
-[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == job || "${LANE}" == raon || "${LANE}" == parcel-tiles ]] || is_pack_lane "${LANE}" \
+[[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == prices || "${LANE}" == job || "${LANE}" == raon || "${LANE}" == parcel-tiles ]] || is_pack_lane "${LANE}" \
   || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
   || refuse "${USAGE}"
 if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
@@ -311,6 +318,36 @@ if [[ "${LANE}" == raon ]]; then
       (($# == 0)) || refuse "raon status takes nothing after it"
       systemctl status --no-pager --lines=0 "${RAON_UNIT}" || true
       exec journalctl -u "${RAON_UNIT}" --no-pager -o short-iso -n 40
+      ;;
+    *) refuse "${USAGE}" ;;
+  esac
+fi
+
+if [[ "${LANE}" == prices ]]; then
+  # The unit prices' one-time move into their versions tables (root ADR-0317 stage 2): both price
+  # tables' vintages, oldest first, each checked against its full copy (missing = extra = 0). A run
+  # holds the Spark pool for hours, so it starts beside no Spark job and no Gold rebuild; a rerun
+  # skips the vintages already moved and checks them again.
+  PRICE_VERSIONS_UNIT=foundation-unit-price-versions-migrate.service
+  (($# == 0)) || refuse "prices ${ACTION} takes no argument"
+  case "${ACTION}" in
+    migrate-versions)
+      mapfile -t spark_units < <(python3 -I - "${RELEASE}/orchestration/jobs.v1.json" <<'PY'
+import json, sys
+for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
+    if job["pool"] == "spark":
+        print(job["systemd_service"].replace("@.service", "@*.service"))
+PY
+      )
+      refuse_while_active "${PRICE_VERSIONS_UNIT}" "${GOLD_UNIT}" "${spark_units[@]}"
+      # The two jobs that write the price tables it reads.
+      refuse_while_the_deploy_holds gold_panel_rebuild silver_refresh_building_register_apartment_price
+      log "starting ${PRICE_VERSIONS_UNIT}; follow it with: prices status"
+      exec systemctl start --no-block "${PRICE_VERSIONS_UNIT}"
+      ;;
+    status)
+      systemctl status --no-pager --lines=0 "${PRICE_VERSIONS_UNIT}" || true
+      exec journalctl -u "${PRICE_VERSIONS_UNIT}" --no-pager -o short-iso -n 60
       ;;
     *) refuse "${USAGE}" ;;
   esac

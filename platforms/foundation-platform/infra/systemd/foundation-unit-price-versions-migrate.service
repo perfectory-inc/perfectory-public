@@ -1,0 +1,20 @@
+[Unit]
+Description=Foundation Platform unit price versions: move both price tables' vintages into their versions tables, parity checked per vintage (ADR-0317 stage 2)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/unit-price-versions-migrate.sh
+TimeoutStartSec=8h
+StateDirectory=foundation-platform/unit-price-versions
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
