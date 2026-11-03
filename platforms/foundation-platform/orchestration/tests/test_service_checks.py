@@ -171,6 +171,8 @@ class Security(unittest.TestCase):
                 return [{"filename": name} for name in pull_files.get(number, ["README.md"])], {}
             if "/jobs" in path:
                 run_id = int(path.split("/runs/")[1].split("/")[0])
+                if any(run["id"] == run_id and run["conclusion"] == "success" for run in main_runs or []):
+                    return {"jobs": [{"id": 1, "conclusion": "success"}]}, {}
                 return {"jobs": [{"id": 1, "conclusion": "success"}, {"id": 3 if run_id in silent else 2, "conclusion": "failure"}]}, {}
             if "/check-runs/3/annotations" in path:
                 return [{"title": "", "message": "Process completed with exit code 1."}], {}
