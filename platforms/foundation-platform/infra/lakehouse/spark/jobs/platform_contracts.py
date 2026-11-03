@@ -525,9 +525,10 @@ def pinned_edition(frame: Any, contract: dict[str, Any], edition: str) -> Any:
 def all_rows(frame: Any, contract: dict[str, Any]) -> Any:
     """Every row of every version and edition, for a write that keeps them all: a schema backfill
     rewrites the table's rows as they are, whatever it keeps (root ADR-0286 §3). Not a current read:
-    the declared access point that says so, so the reader guard can tell it from a raw read."""
+    the declared access point that says so, so the reader guard can tell it from a raw read. Any
+    shape is rewritten the same way, so the contract is not consulted (a test's own table has none)."""
 
-    row_versions(contract)
+    del contract
     return frame
 
 
