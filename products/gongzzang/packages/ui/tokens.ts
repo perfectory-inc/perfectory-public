@@ -61,11 +61,20 @@ export type ListingTypeKey = keyof typeof LISTING_TYPE_COLORS;
 /** 미지/누락 listing_type 의 fallback (gray-500). */
 export const LISTING_TYPE_COLOR_FALLBACK = "#6b7280";
 
-/** 지도 layer fill/outline 색상. parcels(core) / admin / complex 3 layer. */
+/** 지도 layer fill/outline 색상. parcels(core) / admin / complex / zoning(규제 구역 갈래별). */
 export const MAP_LAYER_COLORS = {
   parcel: { fill: "#10b981", outline: "#059669" }, // emerald-500/600
   admin: { fill: "#9ca3af", outline: "#6b7280" }, // gray-400/500
   complex: { fill: "#3b82f6", outline: "#1d4ed8" }, // blue-500/700
+  // 규제 구역 갈래마다 한 색 — 칠은 반투명, 선은 같은 색 (root ADR-0373).
+  zoning: {
+    greenbelt: "#15803d", // green-700
+    urbanPlanningFacility: "#ea580c", // orange-600
+    factoryLocation: "#dc2626", // red-600
+    agriculturalPromotion: "#ca8a04", // yellow-600
+    useDistrict: "#7c3aed", // violet-600
+    forest: "#0f766e", // teal-700
+  },
 } as const;
 
 /** 핀 SVG stroke + 내부 색. */

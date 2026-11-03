@@ -1,15 +1,19 @@
 // apps/web/components/panels/parcel/summary.tsx
 "use client";
 import { useQuery } from "@tanstack/react-query";
+import { groupBy } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Building } from "@/lib/api/buildings";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
+import type { ZoningArea } from "@/lib/map/zoning-areas";
+import { ZONING_FAMILIES, ZONING_PENDING_LAYER_CODES } from "@/lib/map/zoning-families";
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
 import { ParcelListingsCard } from "./listings";
+import { useParcelMapZoningAreas } from "./map-zoning";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
@@ -245,11 +249,12 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <BuildingsSection entry={entry} buildings={buildingList} landRights={landRights} />,
     });
   }
-  if ((data.zonings?.length ?? 0) > 0) {
+  const mapZones = useParcelMapZoningAreas(entry.id);
+  if ((data.zonings?.length ?? 0) > 0 || mapZones !== null) {
     sections.push({
       id: "rules",
       label: t("sections.rules"),
-      content: <RulesSection data={data} />,
+      content: <RulesSection data={data} mapZones={mapZones} />,
     });
   }
   return sections;
@@ -521,22 +526,70 @@ function BuildingsSection({
   );
 }
 
-function RulesSection({ data }: { data: ParcelDocument }) {
+function RulesSection({ data, mapZones }: { data: ParcelDocument; mapZones: ZoningArea[] | null }) {
   const t = useTranslations("panels.parcel.summary");
   return (
-    <Group title={t("rules.zoning")} note={t("rules.zoningSource")}>
-      <ul className="flex flex-col gap-1.5 text-[length:var(--text-body-sm)]">
-        {(data.zonings ?? []).map((zone) => (
-          <li key={zone.zone_code} className="flex items-center justify-between gap-2">
-            <span className="text-[var(--color-ink)]">{zone.zone_name}</span>
-            {(zone.inclusion_code === "1" || zone.inclusion_code === "2") && (
-              <span className="rounded border border-[var(--color-hairline)] px-1.5 text-[length:var(--text-caption)] text-[var(--color-muted)]">
-                {zone.inclusion_code === "1" ? t("rules.included") : t("rules.conflicting")}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+    <div>
+      {(data.zonings?.length ?? 0) > 0 && (
+        <Group title={t("rules.zoning")} note={t("rules.zoningSource")}>
+          <ul className="flex flex-col gap-1.5 text-[length:var(--text-body-sm)]">
+            {(data.zonings ?? []).map((zone) => (
+              <li key={zone.zone_code} className="flex items-center justify-between gap-2">
+                <span className="text-[var(--color-ink)]">{zone.zone_name}</span>
+                {(zone.inclusion_code === "1" || zone.inclusion_code === "2") && (
+                  <span className="rounded border border-[var(--color-hairline)] px-1.5 text-[length:var(--text-caption)] text-[var(--color-muted)]">
+                    {zone.inclusion_code === "1" ? t("rules.included") : t("rules.conflicting")}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Group>
+      )}
+      {mapZones !== null && <MapZonesGroup zones={mapZones} />}
+    </div>
+  );
+}
+
+/**
+ * 지도 규제 구역: the zones the map draws over the parcel (root ADR-0373), by family in the toggles'
+ * order, each in the provider's layer and zone names; and which layers are still not collected.
+ */
+function MapZonesGroup({ zones }: { zones: ZoningArea[] }) {
+  const t = useTranslations("panels.parcel.summary.rules");
+  const tMap = useTranslations("map.zoning");
+  const byFamily = groupBy(zones, (zone) => zone.family ?? "other");
+  const groups = [
+    ...ZONING_FAMILIES.map(({ key }) => [tMap(`families.${key}`), byFamily[key]] as const),
+    [t("otherFamily"), byFamily.other] as const,
+  ].filter((group): group is readonly [string, ZoningArea[]] => (group[1]?.length ?? 0) > 0);
+  const pending = ZONING_PENDING_LAYER_CODES.map((code) => tMap(`pendingLayers.${code}`)).join("·");
+  return (
+    <Group title={t("mapZones")} note={t("mapZonesSource")}>
+      {groups.length === 0 ? (
+        <p className="text-[length:var(--text-body-sm)] text-[var(--color-muted)]">
+          {t("mapZonesNone")}
+        </p>
+      ) : (
+        groups.map(([label, list]) => (
+          <div key={label} className="flex flex-col gap-1">
+            <h4 className="text-[length:var(--text-caption)] text-[var(--color-muted)]">{label}</h4>
+            <ul className="flex flex-col gap-1 text-[length:var(--text-body-sm)]">
+              {list.map((zone) => (
+                <li key={zone.zoneId} className="flex items-baseline justify-between gap-2">
+                  <span className="text-[var(--color-ink)]">{zone.zoneName || zone.layerName}</span>
+                  <span className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+                    {zone.layerName}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("pendingNote", { layers: pending })}
+      </p>
     </Group>
   );
 }

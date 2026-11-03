@@ -34,6 +34,7 @@ vi.mock("@/components/panels/parcel/queries", () => ({
 import { ParcelSummaryCard } from "@/components/panels/parcel/summary";
 import { type ParcelDocument, parseParcelDocument } from "@/lib/api/parcels";
 import koMessages from "@/lib/i18n/ko.json";
+import { useMapStore } from "@/stores/map";
 
 // Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
 const PNU = "9999900000100120003";
@@ -91,6 +92,53 @@ describe("parcel panel sections", () => {
     expect(screen.getAllByText("제2종일반주거지역").length).toBeGreaterThan(0);
     expect(screen.getByText("저촉")).toBeTruthy();
     await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
+  });
+
+  it("lists the map's zones over the parcel by family, and names the layers not collected", async () => {
+    const square = (x0: number, x1: number) => ({
+      type: "Polygon",
+      coordinates: [
+        [
+          [x0, 0],
+          [x1, 0],
+          [x1, 0.001],
+          [x0, 0.001],
+          [x0, 0],
+        ],
+      ],
+    });
+    const mapZone = (id: string, layerCode: string, layerName: string, zoneName: string) => ({
+      properties: {
+        zone_id: `${layerCode}:${id}`,
+        layer_code: layerCode,
+        layer_name: layerName,
+        zone_name: zoneName,
+      },
+      geometry: square(0.0005, 0.002),
+    });
+    useMapStore.setState({
+      mapbox: {
+        getSource: () => ({}),
+        querySourceFeatures: (sourceId: string) =>
+          sourceId === "parcels"
+            ? [{ properties: { pnu: PNU }, geometry: square(0, 0.001) }]
+            : [
+                mapZone("A", "D032", "시험층/개발제한구역", "개발제한구역"),
+                mapZone("B", "D335", "시험층/공장설립제한지역", "공장설립제한지역"),
+              ],
+      },
+    });
+    try {
+      renderPanel(parcel());
+      await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
+      expect(screen.getByText("지도 규제 구역")).toBeTruthy();
+      expect(screen.getByRole("heading", { level: 4, name: "개발제한구역" })).toBeTruthy();
+      expect(screen.getByRole("heading", { level: 4, name: "공장입지 규제" })).toBeTruthy();
+      expect(screen.getByText("시험층/공장설립제한지역")).toBeTruthy();
+      expect(screen.getByText("일부 구역 수집 대기: 보전·준보전산지·관리지역")).toBeTruthy();
+    } finally {
+      useMapStore.setState({ mapbox: null });
+    }
   });
 
   it("never shows a code where the source's name is missing", () => {

@@ -50,6 +50,22 @@
       "vWorldLink": "V-World",
       "license": "(공공누리 제1유형: 출처표시)",
       "ariaDataSource": "데이터 출처"
+    },
+    "zoning": {
+      "legend": "규제 구역 지도 층",
+      "families": {
+        "greenbelt": "개발제한구역",
+        "urbanPlanningFacility": "도시계획시설",
+        "factoryLocation": "공장입지 규제",
+        "agriculturalPromotion": "농업진흥지역",
+        "useDistrict": "용도지역",
+        "forest": "산지"
+      },
+      "pending": "일부 구역 수집 대기",
+      "pendingLayers": {
+        "D054": "보전·준보전산지",
+        "D125": "관리지역"
+      }
     }
   },
   "listingForm": {
@@ -299,7 +315,12 @@
           "zoning": "용도지역",
           "zoningSource": "토지이용계획",
           "included": "포함",
-          "conflicting": "저촉"
+          "conflicting": "저촉",
+          "mapZones": "지도 규제 구역",
+          "mapZonesSource": "용도지역지구",
+          "mapZonesNone": "지도에서 이 필지에 겹치는 규제 구역이 없어요",
+          "otherFamily": "기타",
+          "pendingNote": "일부 구역 수집 대기: {layers}"
         },
         "copy": "복사",
         "copied": "복사됨",
