@@ -470,7 +470,7 @@
     {
       "id": "parcel_edition_readiness",
       "scope": "skip-if-unchanged",
-      "interruptible": true,
+      "interruptible": false,
       "commits": "at_end",
       "description": "Whether each cadastral edition the source contract holds is all there (root ADR-0291 §2, ADR-0379, ADR-0380): source measured and not re-uploaded, Silver within the row-loss bound of the served edition, rehearsal Gold and bake passed. Reads only Trino's partition metadata of silver.parcel_boundaries, the edition collection's newest provider inventory and the tile bake journal, judges only the editions whose inputs moved since the last run, and writes the report foundation-api serves to the operator console.",
       "systemd_service": "foundation-parcel-edition-readiness.service",
