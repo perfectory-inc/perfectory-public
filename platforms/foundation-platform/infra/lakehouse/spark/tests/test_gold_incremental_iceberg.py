@@ -470,6 +470,19 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertEqual(json.loads(self.rows("parcel_panel", job)[pnu(1)].legal_dong_json),
                          {"name": "synthetic-si new-dong", "lowest_name": None})
 
+        # Root ADR-0392: the transfer history gains versions by appends, as its Silver refresh
+        # writes them. PNU 8's history moves; PNU 10 gets a newer version with the same content
+        # (reached, not changed); PNU 12's row is removed. The two snapshots are never diffed: the
+        # appended rows' PNUs are the change, and the merge still equals the full rebuild.
+        appended = [{**transfers[7], "moved_at": "2026-02-02", "source_snapshot_id": "tr-v2"},
+                    {**transfers[9], "source_snapshot_id": "tr-v2"},
+                    {**transfers[11], "source_snapshot_id": "tr-v2", "row_state": "removed"}]
+        pins8 = {**pins7, job.TRANSFER_SOURCE: self.append(job.TRANSFER_SOURCE, appended)}
+        merged = self.assert_merge_equals_full(job, pins8, pins7, "2099-08-01T00:00:00Z",
+                                               {pnu(8), pnu(10), pnu(12)})
+        self.assertEqual(merged["rebuild"]["appended_inputs"], [job.TRANSFER_SOURCE], merged["rebuild"])
+
+
     def test_a_promotion_merges_only_the_parcels_the_two_editions_differ_in(self):
         """Root ADR-0381: the served edition moves while no Silver snapshot does. The comparison side
         reads the edition the Gold was built from, so exactly the PNUs one edition holds and the other
@@ -525,6 +538,28 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         self.assertIn(pnu(21), after)
         for key in sorted(set(before) - {pnu(20), pnu(21)}):
             self.assertEqual(after[key], before[key], f"{key} is in both editions but its row changed")
+
+    def test_every_parcel_attribute_maps_its_appends_to_pnus(self):
+        """2026-11-03: the parcel rebuild diffed 131.8M transfer history rows for 182,700 appended
+        ones (7,661 s) and timed out twice. An attribute that stops mapping its appends falls back
+        to that diff, so each must; a versioned key without the PNU cannot (root ADR-0392)."""
+        import parcel_panel_silver_to_gold as job
+        from platform_contracts import load_lakehouse_contract
+
+        self.assertEqual(set(job.APPEND_KEYED_SOURCES), set(job.ATTRIBUTE_SOURCES))
+        contract = json.loads(json.dumps(load_lakehouse_contract(job.TRANSFER_SOURCE)))
+        contract["current_row_latest"]["key"] = ["transfer_history_seq"]
+        self.assertFalse(job.appends_map_to_pnus(contract))
+        contract["current_row_latest"] = None
+        self.assertFalse(job.appends_map_to_pnus(contract))
+
+    def append(self, name, rows):
+        """Append `rows` to `name` (one append snapshot); the new head snapshot id."""
+        table = f"proof.{name}"
+        schema = self.spark.table(table).schema
+        self.spark.createDataFrame([tuple(row.get(f.name) for f in schema.fields) for row in rows],
+                                   schema).writeTo(table).append()
+        return self.head(table)
 
     def assert_merge_equals_full(self, job, pins, previous, published, reached, fraction=0.9):
         """Merges `pins` over `previous` incrementally, reaching exactly `reached`, and compares every

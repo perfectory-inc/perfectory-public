@@ -184,6 +184,18 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 # The inputs keyed by the Gold row's own PNU.
 PNU_KEYED_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES)
+# Root ADR-0392: a versioned input whose newest-per-key key holds the PNU. An append adds versions
+# of its keys only, so a key's current row can differ only if the append carries that key: the
+# appended rows' PNUs are a superset of the changed PNUs, and the two whole snapshots are never
+# diffed (2026-11-03: the diff of 131.8M transfer history rows for 182,700 appended ones took
+# 7,661 s, and the run timed out).
+def appends_map_to_pnus(contract: dict[str, Any]) -> bool:
+    latest = current_row_latest(contract)
+    return latest is not None and "pnu" in latest.key
+
+
+APPEND_KEYED_SOURCES: tuple[str, ...] = tuple(
+    name for name in ATTRIBUTE_SOURCES if appends_map_to_pnus(load_lakehouse_contract(name)))
 
 # parcel_zoning_catalog_projection_load.rs anchor_for: the resolved endpoints of the
 # parent_ucode walk, plus the urban root that stands for itself.
@@ -390,6 +402,10 @@ def source_namespace(args: argparse.Namespace, contract_name: str) -> str:
     return args.source_iceberg_namespace if namespace == "silver" else namespace
 
 
+def source_iceberg_table(args: argparse.Namespace, contract_name: str) -> str:
+    return f"{args.iceberg_catalog_name}.{source_namespace(args, contract_name)}.{source_table_name(contract_name)}"
+
+
 def read_source(
     spark: SparkSession, args: argparse.Namespace, contract_name: str, pins: dict[str, str]
 ) -> DataFrame:
@@ -399,8 +415,7 @@ def read_source(
     if args.input_mode == "parquet":
         frame = spark.read.parquet(str(Path(args.input_root) / table))
     else:
-        frame = read_pinned_iceberg(spark,
-            f"{args.iceberg_catalog_name}.{source_namespace(args, contract_name)}.{table}", contract_name, pins)
+        frame = read_pinned_iceberg(spark, source_iceberg_table(args, contract_name), contract_name, pins)
     # A pinned snapshot predates the columns added since; they read as null (with_contract_columns).
     frame = with_contract_columns(frame, contract)
     # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
@@ -1490,8 +1505,12 @@ def build_panel(
 def affected_pnus(
     old: dict[str, DataFrame], old_candidates: DataFrame | None,
     new: dict[str, DataFrame], new_candidates: DataFrame | None, changed: list[str],
+    appended: dict[str, DataFrame] | None = None,
 ) -> DataFrame:
     """Every PNU whose Gold row can read a row that differs between `old` and `new` (ADR-0180 §2).
+
+    An input in `appended` (`appended_pnus`, root ADR-0392) brings the PNUs of its appended rows
+    instead of the difference of its two snapshots.
 
     Every section is keyed by its own PNU. A changed code pair reaches the parcels under either of
     its codes, a changed zone code the parcels zoned under a code whose anchor moved, and a changed
@@ -1500,8 +1519,11 @@ def affected_pnus(
     successors whose candidates differ.
     """
 
+    appended = appended or {}
     keyed = [
-        incremental.trimmed_keys(incremental.changed_rows(old[name], new[name], ("pnu",)), trim=False)
+        incremental.trimmed_keys(
+            appended[name] if name in appended else incremental.changed_rows(old[name], new[name], ("pnu",)),
+            trim=False)
         for name in changed if name in new and name in PNU_KEYED_SOURCES
     ]
     if CODE_CHANGE_SOURCE in changed and CODE_CHANGE_SOURCE in new:
@@ -1525,6 +1547,29 @@ def affected_pnus(
     if not keyed:
         return new[PARCEL_SOURCE].select("pnu").limit(0)
     return incremental.union_keys(keyed)
+
+
+def appended_pnus(
+    spark: SparkSession, args: argparse.Namespace, previous: dict[str, str], pins: dict[str, str],
+    appended: list[str], candidates: DataFrame | None,
+) -> dict[str, DataFrame]:
+    """The PNUs of the rows each input in `appended` gained after its previous pin (root ADR-0392).
+
+    Under the raw code and the served one (`renumbered`, as the build keys them), with the region's
+    lineage sources as the build reads them (`with_lineage_sources`). A superset is safe: a PNU whose
+    rebuilt row is unchanged is not merged.
+    """
+
+    if not appended:
+        return {}
+    _, renumbering = read_renumbering(spark, args, pins, {})
+    pnus = {}
+    for name in appended:
+        added = incremental.read_appended(spark, source_iceberg_table(args, name), previous[name], pins[name])
+        added = added.select("pnu")
+        pnus[name] = with_lineage_sources(
+            added.unionByName(renumbered(added, renumbering)).distinct(), args.region_prefix, candidates)
+    return pnus
 
 
 def code_change_pnus(old: dict[str, DataFrame], new: dict[str, DataFrame]) -> list[DataFrame]:
@@ -1616,9 +1661,12 @@ def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> 
     lane = incremental.Lane(
         build=lambda inputs: build_panel(spark, args, inputs, candidates, counters, parcel_snapshot),
         restrict=lambda inputs, keys: restrict_inputs(inputs, keys, candidates),
-        # No append_inputs: every input is diffed (root ADR-0189 lists only the building lane).
-        affected=lambda changed, _appended: affected_pnus(
-            *read_inputs(spark, args, previous, {}), frames, candidates, changed),
+        affected=lambda changed, appended: affected_pnus(
+            *read_inputs(spark, args, previous, {}), frames, candidates, changed,
+            appended_pnus(spark, args, previous, pins, appended, candidates)),
+        # Root ADR-0392: a versioned PNU-keyed input moved by appends only maps its appended rows.
+        append_inputs=({name: source_iceberg_table(args, name) for name in APPEND_KEYED_SOURCES}
+                       if args.input_mode == "iceberg" else {}),
         validate=lambda gold: validate_gold_frame(gold, None),
         content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
         whole_table_inputs=WHOLE_TABLE_INPUTS,
