@@ -8,13 +8,14 @@ use std::collections::BTreeMap;
 use crate::complex_search::{ComplexSearchQuery, ComplexSearchResult};
 use async_trait::async_trait;
 use catalog_domain::{
-    Blueprint, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind, ComplexMutation,
-    ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
+    Blueprint, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
+    ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
     IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
     IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
     MarkerTileRequest, ParcelIndustryAssignment, RequestFingerprint, RequestFingerprintBuilder,
     RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
-    VectorTileBuildOutcome, VectorTileManifest, VectorTileRuntimeManifest,
+    ValidatedPmtilesArtifact, VectorTileBuildOutcome, VectorTileManifest,
+    VectorTileRuntimeManifest,
 };
 use chrono::NaiveDate;
 use foundation_shared_kernel::ids::{
@@ -440,6 +441,50 @@ impl PromoteTileLayerStaticCommand {
             .displayed(&self.build_job_id)
             .displayed(&self.expected_active_release_id)
             .integer(self.expected_serving_generation.value())
+            .displayed(&self.operator_staff_id)
+            .finish()
+    }
+}
+
+/// Registers a publication unit whose first release is a lakehouse bake (root ADR-0374).
+///
+/// A unit created this way never had a dynamic `PostGIS` release: the unit row, its first data
+/// revision, the validated static release and its layer, and a complete runtime manifest selecting
+/// it are written in one transaction, so no committed moment holds a unit without a release (the
+/// promotion gate refuses a manifest that does not select every unit). Every later release of the
+/// unit is an ordinary lakehouse bake that replaces this one.
+#[derive(Clone, Debug)]
+pub struct RegisterLakehouseTileUnitCommand {
+    /// The new publication unit; refused when a unit already has this key.
+    pub unit_key: String,
+    /// The release's one layer, keyed by its layer id.
+    pub layer_id: String,
+    /// What the archive's single layer is and how clients render it.
+    pub layer: RuntimeTileLayer,
+    /// The lakehouse snapshot the archive was baked from.
+    pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
+    /// `catalog.source_record.source` naming the table the snapshot belongs to
+    /// (`lakehouse:<namespace>.<table>`); the snapshot id is its external id.
+    pub source_record_source: String,
+    /// The uploaded archive, rehashed after its create-only write.
+    pub artifact: ValidatedPmtilesArtifact,
+    /// SHA-256 of the bake's gate evidence.
+    pub evidence: BuildEvidenceDigest,
+    /// Caller-chosen key that makes a retried registration return the first outcome.
+    pub idempotency_key: String,
+    /// Staff operator that requested the registration.
+    pub operator_staff_id: StaffId,
+}
+
+impl RegisterLakehouseTileUnitCommand {
+    /// Digests the unit, the baked snapshot, the archive's bytes and the actor.
+    #[must_use]
+    pub fn request_fingerprint(&self) -> RequestFingerprint {
+        RequestFingerprintBuilder::new(CatalogMutationKind::RegisterLakehouseTileUnit)
+            .text(&self.unit_key)
+            .text(self.canonical_iceberg_snapshot_id.as_str())
+            .displayed(&self.artifact.release_id)
+            .text(self.artifact.checksum.as_str())
             .displayed(&self.operator_staff_id)
             .finish()
     }

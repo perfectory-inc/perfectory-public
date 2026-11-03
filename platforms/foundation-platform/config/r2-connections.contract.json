@@ -462,7 +462,8 @@
     "patches": {
       "decision": "docs/adr/0323-parcel-tiles-patch-only-the-tiles-changed-parcels-touch.md",
       "units": [
-        "parcels"
+        "parcels",
+        "zoning"
       ],
       "manifest_suffix": ".patches.json",
       "manifest_schema_version": "foundation-platform.vector_tile_patches.v1",

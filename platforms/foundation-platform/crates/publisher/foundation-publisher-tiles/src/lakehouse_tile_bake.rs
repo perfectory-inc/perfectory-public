@@ -38,18 +38,21 @@ use std::time::Duration;
 use anyhow::{bail, ensure, Context as _};
 use catalog_application::ports::{
     PromoteTileLayerStaticCommand, RecordVectorTileBuildResultCommand,
-    RuntimeManifestPublicationCapability, StartLakehouseBakeCommand,
+    RegisterLakehouseTileUnitCommand, RuntimeManifestPublicationCapability,
+    StartLakehouseBakeCommand,
 };
 use catalog_application::{PromoteTileLayerStatic, VectorTileBuildLifecycle};
 use catalog_domain::{
     static_file_asset_id_for_build, static_release_id_for_build, static_release_martin_source_id,
     static_release_pmtiles_object_key, BuildEvidenceDigest, CanonicalIcebergSnapshotId,
-    PmtilesChecksum, RuntimeTilesUrlTemplate, ServingGeneration, ValidatedPmtilesArtifact,
-    VectorTileBuildOutcome,
+    FeatureIdProperty, PmtilesChecksum, RuntimeTileLayer, RuntimeTilesUrlTemplate,
+    ServingGeneration, ValidatedPmtilesArtifact, VectorTileBuildOutcome,
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use foundation_outbox::object_storage::R2ObjectStorage;
-use foundation_shared_kernel::ids::{StaffId, VectorTileBuildJobId, VectorTileReleaseId};
+use foundation_shared_kernel::ids::{
+    FileAssetId, StaffId, VectorTileBuildJobId, VectorTileReleaseId,
+};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -71,6 +74,8 @@ pub mod subpixel;
 #[path = "tile_equivalence.rs"]
 pub mod tile_equivalence;
 
+#[path = "lakehouse_tile_bake_birth.rs"]
+mod birth;
 #[path = "lakehouse_tile_bake_gate.rs"]
 mod gate;
 #[path = "lakehouse_tile_bake_partitions.rs"]
@@ -81,13 +86,18 @@ pub mod patch;
 mod patch_run;
 #[path = "pmtiles_write.rs"]
 pub mod pmtiles_write;
+#[path = "lakehouse_tile_bake_upload.rs"]
+mod upload;
 
+pub use birth::NewbornUnit;
+use birth::{bear, unit_exists};
 use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
 pub use partitions::{
     bake_partitions, partition_archive, tile_join_args, CsvOut, CsvPart, PartitionedCsv,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
+use upload::{bake_and_upload, compared_with, rehearse, Upload};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const CONTRACT_JSON: &str = include_str!("../../../../config/tile-bake-containers.contract.json");
@@ -118,6 +128,10 @@ pub struct BakeContract {
     /// parcels) and the archives are joined; a prefix whose rows did not change keeps its archive.
     #[serde(default)]
     pub partition_by_feature_id_prefix: std::collections::BTreeMap<String, usize>,
+    /// Root ADR-0374: a unit listed here that has no publication unit yet is registered by its
+    /// first lakehouse bake, with this layer; once it exists its layer is read from Catalog.
+    #[serde(default)]
+    pub units_born_from_a_lakehouse_bake: std::collections::BTreeMap<String, NewbornUnit>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +190,9 @@ impl BakeContract {
                 .all(|chars| (1..=10).contains(chars)),
             "a partition_by_feature_id_prefix is between 1 and 10 characters"
         );
+        for (unit, newborn) in &contract.units_born_from_a_lakehouse_bake {
+            newborn.validate(unit)?;
+        }
         Ok(contract)
     }
 
@@ -1092,12 +1109,32 @@ async fn bake_in(
     work: &Path,
 ) -> anyhow::Result<()> {
     let summary = Arc::new(summary);
-    // Root ADR-0323: a patched unit first tries to publish only the tiles its changes touch.
+    let pool = PgPool::connect(&required_env_value("DATABASE_URL")?).await?;
+    // Root ADR-0374: a unit the contract lists and Catalog does not hold yet is born from this bake.
+    let newborn = if unit_exists(&pool, &config.unit_key).await? {
+        None
+    } else {
+        Some(
+            contract
+                .units_born_from_a_lakehouse_bake
+                .get(&config.unit_key)
+                .with_context(|| {
+                    format!(
+                        "Catalog has no publication unit {} and the contract does not let a bake register it",
+                        config.unit_key
+                    )
+                })?,
+        )
+    };
+    // Root ADR-0323: a patched unit first tries to publish only the tiles its changes touch. A
+    // newborn unit has no base to patch, but its index lets the next bake patch it.
     let policy = patch::PatchPolicy::load()?;
     let mut indexed = None;
     if policy.covers(&config.unit_key) {
         let index = patch_run::index_handoff(&summary, &config.served_handoff, work).await?;
-        if patch_run::try_patch(config, contract, &policy, &summary, work, &index).await? {
+        if newborn.is_none()
+            && patch_run::try_patch(config, contract, &policy, &summary, work, &index).await?
+        {
             return Ok(());
         }
         indexed = Some(index.without_records());
@@ -1130,7 +1167,20 @@ async fn bake_in(
         .context("the handoff reader stopped")??
     };
 
-    let pool = PgPool::connect(&required_env_value("DATABASE_URL")?).await?;
+    if let Some(newborn) = newborn {
+        return bear(
+            config,
+            contract,
+            samples,
+            summary,
+            work,
+            prepared,
+            pool,
+            newborn,
+            indexed.as_ref(),
+        )
+        .await;
+    }
     let active = read_active_static(&pool, &config.unit_key).await?;
     ensure!(
         active.snapshot != summary.canonical_iceberg_snapshot_id,
@@ -1151,7 +1201,7 @@ async fn bake_in(
             &contract.images,
             work,
             prepared,
-            &active,
+            (&active.layer, compared_with(&active)),
             samples,
             summary,
         )
@@ -1181,10 +1231,18 @@ async fn bake_in(
     let built = bake_and_upload(
         config,
         &contract.images,
-        build_job_id,
+        Upload {
+            label: build_job_id.to_string(),
+            release_id: static_release_id_for_build(build_job_id),
+            file_asset_id: static_file_asset_id_for_build(build_job_id),
+            kind: "lakehouse_bake",
+            build_job_id: Some(build_job_id),
+            layer: &active.layer,
+            compare_with: compared_with(&active),
+            skipped: tile_equivalence::skipped(active.origin).unwrap_or_default(),
+        },
         work,
         prepared,
-        &active,
         samples,
         summary.clone(),
     )
@@ -1247,221 +1305,6 @@ type Prepared = (Vec<String>, ServedIds, Option<Vec<CsvPart>>);
 /// The directory a partitioned unit's per-partition CSVs are written to, beside `served.csv`.
 fn work_partition_csvs(served_csv: &Path) -> PathBuf {
     served_csv.with_file_name("partition-csv")
-}
-
-/// What the bake produced before anything is written: the archive, the maxzoom id gate (the SHA-256
-/// of its id hashes and the sub-pixel ids it allowed to be missing, ADR-0262), and — when the active release came from another oven — the first-release equivalence
-/// outcome with the file its whole evidence was written to.
-struct Gated {
-    archive: PathBuf,
-    ids: IdGate,
-    equivalence: Option<(tile_equivalence::Equivalence, PathBuf)>,
-}
-
-/// Bakes and runs every gate, writing nothing but the work directory and the equivalence evidence
-/// (named after `label`) beside it.
-#[allow(clippy::too_many_arguments)]
-async fn bake_and_gate(
-    config: &Config,
-    images: &ImageSet,
-    label: &str,
-    work: &Path,
-    (columns, ids, partitions): Prepared,
-    active: &ActiveStatic,
-    samples: &SampleContract,
-    summary: Arc<ServedSummary>,
-) -> anyhow::Result<Gated> {
-    let layer = &active.layer;
-    let archive = build_archive(
-        config,
-        images,
-        work,
-        &columns,
-        summary.geometry_srid,
-        layer,
-        partitions,
-    )
-    .await?;
-    let (id_gate, collector, ids) = {
-        let (archive, layer, summary, handoff) = (
-            archive.clone(),
-            layer.clone(),
-            summary.clone(),
-            config.served_handoff.clone(),
-        );
-        let mut collector = SampleCollector::new(samples, &config.unit_key);
-        tokio::task::spawn_blocking(move || {
-            let render_max_zoom = layer.render_max_zoom;
-            let gate = gate_archive(
-                &archive,
-                &layer,
-                &columns,
-                &ids,
-                |missing| classify_missing(&summary, &handoff, missing, render_max_zoom),
-                &mut |tile, id| collector.observe(tile, id),
-            )?;
-            anyhow::Ok((gate, collector, ids))
-        })
-        .await
-        .context("the archive gate stopped")??
-    };
-    if tile_equivalence::skipped(active.origin).is_some() {
-        return Ok(Gated {
-            archive,
-            ids: id_gate,
-            equivalence: None,
-        });
-    }
-    let storage = TileDerivativeR2Config::from_env()?;
-    // The active archive is read by range: its directory and the sampled tiles, never whole.
-    let active_reader = R2ObjectStorage::from_config(storage.reader_config())
-        .open_seekable_object(&active.pmtiles_object_key, EQUIVALENCE_READ_CHUNK_BYTES)
-        .await
-        .with_context(|| format!("the active archive {}", active.pmtiles_object_key))?;
-    let (new_archive, layer, samples) = (archive.clone(), layer.clone(), samples.clone());
-    let outcome = tokio::task::spawn_blocking(move || {
-        tile_equivalence::first_release_gate(
-            active_reader,
-            File::open(&new_archive)?,
-            &samples,
-            (&layer.source_layer, &layer.feature_id_property),
-            (layer.tile_min_zoom, layer.tile_max_zoom),
-            &collector,
-            &ids,
-        )
-    })
-    .await
-    .context("the equivalence gate stopped")??;
-    // Beside the work directory, which is removed: the whole evidence outlives the bake.
-    let evidence_file = config.work_root.join(format!(
-        "{}-first-release-equivalence-{label}.json",
-        config.unit_key
-    ));
-    std::fs::write(&evidence_file, serde_json::to_vec_pretty(&outcome)?)
-        .with_context(|| format!("equivalence evidence {}", evidence_file.display()))?;
-    Ok(Gated {
-        archive,
-        ids: id_gate,
-        equivalence: Some((outcome, evidence_file)),
-    })
-}
-
-/// ADR-0253: bakes and gates the snapshot like a bake, then stops — no build row, no upload, no
-/// promotion, no fold — and prints what a person needs before the contract serves the edition.
-async fn rehearse(
-    config: &Config,
-    images: &ImageSet,
-    work: &Path,
-    prepared: Prepared,
-    active: &ActiveStatic,
-    samples: &SampleContract,
-    summary: Arc<ServedSummary>,
-) -> anyhow::Result<()> {
-    let label = format!("rehearsal-{}", Uuid::now_v7());
-    let gated = bake_and_gate(
-        config,
-        images,
-        &label,
-        work,
-        prepared,
-        active,
-        samples,
-        summary.clone(),
-    )
-    .await?;
-    let pmtiles_bytes = std::fs::metadata(&gated.archive)?.len();
-    let equivalence = gated.equivalence.as_ref().map(|(outcome, file)| {
-        serde_json::json!({
-            "passed": outcome.passed(),
-            "evidence": file.display().to_string(),
-            "counts": outcome.refusal(),
-        })
-    });
-    println!(
-        "lakehouse-tile-bake-rehearsal unit={} gold_snapshot={} served_row_count={} pmtiles_bytes={pmtiles_bytes} maxzoom_feature_id_hashes_sha256={} maxzoom_subpixel_ids={} first_release_equivalence={}",
-        config.unit_key,
-        summary.canonical_iceberg_snapshot_id,
-        summary.served_row_count,
-        gated.ids.digest,
-        serde_json::to_string(&gated.ids.subpixel)?,
-        serde_json::to_string(&equivalence)?
-    );
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn bake_and_upload(
-    config: &Config,
-    images: &ImageSet,
-    build_job_id: VectorTileBuildJobId,
-    work: &Path,
-    prepared: Prepared,
-    active: &ActiveStatic,
-    samples: &SampleContract,
-    summary: Arc<ServedSummary>,
-) -> anyhow::Result<(BuildEvidenceDigest, ValidatedPmtilesArtifact)> {
-    let Gated {
-        archive,
-        ids: id_gate,
-        equivalence,
-    } = bake_and_gate(
-        config,
-        images,
-        &build_job_id.to_string(),
-        work,
-        prepared,
-        active,
-        samples,
-        summary.clone(),
-    )
-    .await?;
-    let equivalence = match &equivalence {
-        Some((outcome, file)) => tile_equivalence::verdict(outcome, &file.display().to_string())?,
-        None => tile_equivalence::skipped(active.origin).unwrap_or_default(),
-    };
-    let storage = TileDerivativeR2Config::from_env()?;
-    let release_id = static_release_id_for_build(build_job_id);
-    let object_key = storage.release_key(&config.unit_key, &release_id.to_string())?;
-    ensure!(
-        object_key == static_release_pmtiles_object_key(&config.unit_key, release_id),
-        "the storage prefix does not produce the release-addressed key"
-    );
-    let reader = R2ObjectStorage::from_config(storage.reader_config());
-    let writer = R2ObjectStorage::from_config(storage.writer);
-    let verified = create_only_upload_and_rehash(&writer, &reader, &archive, &object_key).await?;
-    let source_id = static_release_martin_source_id(&config.unit_key, release_id);
-    let evidence = serde_json::to_vec(&serde_json::json!({
-        "schema_version": 2,
-        "kind": "lakehouse_bake",
-        "build_job_id": build_job_id.to_string(),
-        "release_id": release_id.to_string(),
-        "gold_snapshot": summary.canonical_iceberg_snapshot_id,
-        "source_snapshot_id": summary.source_snapshot_id,
-        "served_summary_schema": summary.schema_version,
-        "edits_through_change_seq": summary.edits_through_change_seq,
-        "served_row_count": summary.served_row_count,
-        "maxzoom_feature_id_hashes_sha256": id_gate.digest,
-        "maxzoom_subpixel_ids": id_gate.subpixel,
-        "first_release_equivalence": equivalence,
-        "pmtiles_sha256": verified.checksum_sha256,
-        "pmtiles_bytes": verified.size_bytes,
-    }))?;
-    Ok((
-        BuildEvidenceDigest::new(format!("{:x}", Sha256::digest(evidence)))
-            .map_err(anyhow::Error::msg)?,
-        ValidatedPmtilesArtifact {
-            release_id,
-            file_asset_id: static_file_asset_id_for_build(build_job_id),
-            object_key,
-            tiles_url_template: RuntimeTilesUrlTemplate::new(format!(
-                "{}/{source_id}/{{z}}/{{x}}/{{y}}",
-                config.public_tiles_base_url
-            ))
-            .map_err(anyhow::Error::msg)?,
-            checksum: PmtilesChecksum::new(verified.checksum_sha256).map_err(anyhow::Error::msg)?,
-            size_bytes: verified.size_bytes,
-        },
-    ))
 }
 
 #[cfg(test)]

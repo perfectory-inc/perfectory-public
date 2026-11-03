@@ -22,9 +22,23 @@
   },
   "maxzoom_detail_reason": "Root ADR-0262. tippecanoe's --full-detail for a unit, the maxzoom tile extent being 2^detail. At the default 12 (extent 4096, about 10 cm per unit at z16 in Korea) the national 202609 bake lost 542 parcels tippecanoe's polygon cleaning collapsed, slivers up to 16 px wide at render_max_zoom 22 among them. At 14 (extent 16384) one unit is one pixel at zoom 22, and every parcel still lost in the measurement is sub-pixel there, which the maxzoom id gate allows by id. A unit not listed keeps 12.",
   "partition_by_feature_id_prefix": {
-    "parcels": 2
+    "parcels": 2,
+    "zoning": 4
   },
-  "partition_by_feature_id_prefix_reason": "Root ADR-0316. A unit listed here is baked one archive per feature-id prefix and the archives are joined with tile-join (installed beside tippecanoe from the same pinned commit). For parcels the first 2 characters of the PNU are the 시도. Each archive is kept under the bake work root as <unit>-partitions/<prefix>/<sha256 of its rows and bake inputs>.pmtiles, create-only, so an edition that leaves a 시도's rows unchanged reuses that 시도's archive instead of running GDAL and tippecanoe over it again. A unit not listed is baked whole.",
+  "partition_by_feature_id_prefix_reason": "Root ADR-0316 (zoning: root ADR-0373, by layer code). A unit listed here is baked one archive per feature-id prefix and the archives are joined with tile-join (installed beside tippecanoe from the same pinned commit). For parcels the first 2 characters of the PNU are the 시도. Each archive is kept under the bake work root as <unit>-partitions/<prefix>/<sha256 of its rows and bake inputs>.pmtiles, create-only, so an edition that leaves a 시도's rows unchanged reuses that 시도's archive instead of running GDAL and tippecanoe over it again. A unit not listed is baked whole.",
+  "units_born_from_a_lakehouse_bake": {
+    "zoning": {
+      "source_layer": "zoning",
+      "feature_id_property": "zone_id",
+      "tile_min_zoom": 10,
+      "tile_max_zoom": 14,
+      "render_min_zoom": 10,
+      "render_max_zoom": 22,
+      "feature_filter_properties": ["layer_code", "layer_name", "zone_code", "zone_name"],
+      "source_record_source": "lakehouse:silver.land_use_zone_area"
+    }
+  },
+  "units_born_from_a_lakehouse_bake_reason": "Root ADR-0374. A unit listed here that Catalog does not hold yet is registered by its first bake-lakehouse-tiles run with this layer, its first static release and a complete runtime manifest in one transaction; it never has a PostGIS release. Once the unit exists its layer is read from Catalog like every other unit's, so editing this entry after the birth changes nothing. zoning (root ADR-0373): the regulation zones of silver.land_use_zone_area, feature id <layer_code>:<zone_feature_id> (partitioned by its first 4 characters, the layer), tiles 10-14 measured from the 2026-10-31 load: by bounding box at most 196 tiles at z10, 661 at z11, 2,395 at z12, 9,067 at z13 and 34,983 at z14 (47,302 in all) over 655,266 zones; at z10 an average tile already carries about 3,400 zones, at z8 26,000, so lower zooms are not baked.",
   "work_disk": {
     "min_free_bytes": 2147483648,
     "min_free_bytes_per_handoff_byte": 8,
