@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findParcelZoningAreas, interiorsOverlap } from "@/lib/map/zoning-areas";
 import {
@@ -134,5 +136,24 @@ describe("zones over a parcel", () => {
     );
     expect(interiorsOverlap(square, square)).toBe(true);
     expect(interiorsOverlap(square, inner)).toBe(true);
+  });
+});
+
+describe("zoning pending layers (root ADR-0373 §4)", () => {
+  // The Foundation lane contract is the one list of layers it does not load yet; the map's list
+  // must be the same, or a collected layer would still say 수집 대기 (or a missing one would not).
+  const contract = JSON.parse(
+    readFileSync(
+      resolve(
+        __dirname,
+        "../../../../../../../platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
+      ),
+      "utf8",
+    ),
+  ) as { pending_regions?: { region: string }[] };
+  // shortcut: skipped until the Foundation change that adds pending_regions (PR #999) is on main.
+  it.skipIf(!contract.pending_regions)("matches the lane contract's pending_regions", () => {
+    const fromContract = (contract.pending_regions ?? []).map((item) => `D${item.region}`).sort();
+    expect([...ZONING_PENDING_LAYER_CODES].sort()).toEqual(fromContract);
   });
 });
