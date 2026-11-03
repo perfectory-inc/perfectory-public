@@ -95,6 +95,10 @@ def add_arguments(parser: Any) -> None:
     parser.add_argument("--incremental-from-snapshots",
                         help="JSON file of the Silver pins the current Gold was built from: recompute only "
                              "the PNUs whose inputs changed since, and merge them (root ADR-0180).")
+    parser.add_argument("--incremental-from-parcel-edition", default=None,
+                        help="The served cadastral edition (its source_snapshot_id) the current Gold was built "
+                             "from, when the contract serves another now: the comparison side reads it, so a "
+                             "promotion recomputes only the PNUs whose parcel inputs differ (root ADR-0381).")
     parser.add_argument("--max-changed-key-fraction", type=float, default=None,
                         help="Above this fraction of the Gold's PNUs, run the full rebuild instead.")
     parser.add_argument("--parity-sample-keys", type=int, default=0,
@@ -138,7 +142,16 @@ def validate_arguments(args: Any, sources: tuple[str, ...]) -> dict[str, str] | 
     unknown = sorted(set(previous) - set(sources))
     if unknown:
         raise ValueError(f"--incremental-from-snapshots names inputs this producer does not read: {unknown}")
-    return {name: snapshot_id(value) for name, value in previous.items()}
+    pins = {name: snapshot_id(value) for name, value in previous.items()}
+    edition = getattr(args, "incremental_from_parcel_edition", None)
+    if edition is not None:
+        import vworld_parcel_editions as parcel_editions  # noqa: PLC0415
+
+        if parcel_editions.PARCEL_TABLE not in pins:
+            raise ValueError("--incremental-from-parcel-edition names the edition of an input this run does not pin")
+        parcel_editions.edition_of_snapshot_id(parcel_editions.load(), edition)
+        pins[parcel_editions.SERVED_EDITION_PIN] = edition
+    return pins
 
 
 def input_tag(gold_table: str) -> str:
@@ -146,12 +159,32 @@ def input_tag(gold_table: str) -> str:
     return INPUT_TAG_PREFIX + gold_table.replace(".", "-")
 
 
-def changed_inputs(previous: dict[str, str], current: dict[str, str]) -> list[str]:
-    """Inputs whose pinned snapshot moved. Every current input must have a previous pin."""
+def changed_inputs(previous: dict[str, str], current: dict[str, str], served_edition: str | None = None) -> list[str]:
+    """Inputs whose pinned snapshot moved. Every current input must have a previous pin.
+
+    The parcels also change when the served edition moved (a promotion, root ADR-0381): their Silver
+    snapshot is the same, both editions being loaded, but the served universe is another edition.
+    `previous` then names the edition the current Gold was built from; `served_edition` is the one
+    served now."""
+    from vworld_parcel_editions import PARCEL_TABLE, SERVED_EDITION_PIN  # noqa: PLC0415
+
     missing = sorted(set(current) - set(previous))
     if missing:
         raise IncrementalRefusal(f"the current Gold was not built from {missing}")
-    return sorted(name for name in current if previous[name] != current[name])
+    moved = {name for name in current if previous[name] != current[name]}
+    if PARCEL_TABLE in current and previous.get(SERVED_EDITION_PIN, served_edition) != served_edition:
+        moved.add(PARCEL_TABLE)
+    return sorted(moved)
+
+
+def served_parcel_snapshot(previous: dict[str, str]) -> str | None:
+    """The served edition's snapshot id, read only when the previous pins name an edition."""
+    import vworld_parcel_editions as parcel_editions  # noqa: PLC0415
+
+    if parcel_editions.SERVED_EDITION_PIN not in previous:
+        return None
+    contract = parcel_editions.load()
+    return parcel_editions.snapshot_id(contract, parcel_editions.served(contract))
 
 
 def change_fraction_verdict(affected: int, gold_rows: int, max_fraction: float) -> str | None:
@@ -524,7 +557,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     reason, changed, appended = None, [], []
     if previous is not None:
         try:
-            changed = changed_inputs(previous, pins)
+            changed = changed_inputs(previous, pins, served_parcel_snapshot(previous))
             whole = [name for name in changed if name in lane.whole_table_inputs]
             if whole:
                 raise IncrementalRefusal(f"{whole} changed, and a change there is not mapped to PNUs")

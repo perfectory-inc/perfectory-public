@@ -203,7 +203,14 @@ def served_reader_id(given: str | None, allow_other: bool, flag: str, contract: 
     return want
 
 
-def served_rows(frame: Any, contract: Mapping[str, Any] | None = None) -> Any:
+# The previous pins of an incremental Gold rebuild name the edition its current Gold was built from
+# under this key (root ADR-0381): the comparison side of a promotion reads that edition, not the one
+# the contract serves now. Only previous pins carry it; a current read is always the served edition.
+PARCEL_TABLE = "silver.parcel_boundaries"
+SERVED_EDITION_PIN = f"{PARCEL_TABLE}@served_edition"
+
+
+def served_rows(frame: Any, contract: Mapping[str, Any] | None = None, snapshot: str | None = None) -> Any:
     """The served parcel universe of a `silver.parcel_boundaries` frame: its current rows of the served
     edition only (root ADR-0291 §5). Every edition's rows are current by the predicate, so a reader that
     takes `current_rows` of the whole table puts each parcel in once per edition and attaches its
@@ -217,7 +224,20 @@ def served_rows(frame: Any, contract: Mapping[str, Any] | None = None) -> Any:
     if predicate is None:
         raise EditionError("silver.parcel_boundaries declares no current_row_predicate; the served parcels cannot be named")
     contract = contract or load()
-    return frame.where(f"source_snapshot_id = '{snapshot_id(contract, served(contract))}'").where(predicate)
+    if snapshot is None:
+        snapshot = snapshot_id(contract, served(contract))
+    else:
+        edition_of_snapshot_id(contract, snapshot)  # only an edition the contract holds, in its one spelling
+    return frame.where(f"source_snapshot_id = '{snapshot}'").where(predicate)
+
+
+def served_at(contract: Mapping[str, Any], instant: str) -> str:
+    """The edition the promotions ledger served at `instant` (ISO-8601 UTC): the last promotion at or
+    before it, or the first promotion's edition before any. Instants compare as their UTC strings."""
+
+    ledger = contract["promotions"]
+    held = [entry["edition"] for entry in ledger if str(entry["promoted_at_utc"]) <= instant.replace("+00:00", "Z")]
+    return held[-1] if held else ledger[0]["edition"]
 
 
 def edition_reader_id(given: str | None, allow_other: bool, flag: str, contract: Mapping[str, Any] | None = None) -> str | None:
