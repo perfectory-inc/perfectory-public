@@ -41,6 +41,7 @@
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -53,6 +54,7 @@
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
@@ -83,6 +85,7 @@
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
         "platforms/foundation-platform/contracts/schema-registry/**",
         ".github/workflows/gongzzang-*.yml",
@@ -96,6 +99,7 @@
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         ".github/workflows/gongzzang-*.yml",
         "tools/xtask/**"
       ]
@@ -109,6 +113,7 @@
         "platforms/foundation-platform/config/r2-connections.contract.json",
         "platforms/foundation-platform/crates/foundation-contracts/src/building_panel.rs",
         "platforms/foundation-platform/contracts/schema-registry/registry.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json",
         ".github/workflows/gongzzang-*.yml"
       ]
     },
