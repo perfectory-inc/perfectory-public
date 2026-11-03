@@ -184,7 +184,7 @@ BUILD_COLUMNS: dict[str, tuple[str, ...]] = {
 # (`affected_pnus`).
 WHOLE_TABLE_INPUTS: tuple[str, ...] = ()
 # The inputs keyed by the Gold row's own PNU; those versioned by it map an append to its PNUs, never
-# a diff of two snapshots (root ADR-0392: 7,661 s for 131.8M rows on 2026-11-03, the run timed out).
+# a diff of two snapshots (root ADR-0392: 7,661 s for 131,850,695 rows on 2026-11-03, the run timed out).
 PNU_KEYED_SOURCES = (PARCEL_SOURCE, *ATTRIBUTE_SOURCES)
 APPEND_KEYED_SOURCES = tuple(n for n in ATTRIBUTE_SOURCES if incremental.appends_map_to_keys(load_lakehouse_contract(n)))
 

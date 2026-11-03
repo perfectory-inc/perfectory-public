@@ -540,7 +540,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
             self.assertEqual(after[key], before[key], f"{key} is in both editions but its row changed")
 
     def test_every_parcel_attribute_maps_its_appends_to_pnus(self):
-        """2026-11-03: the parcel rebuild diffed 131.8M transfer history rows for 182,700 appended
+        """2026-11-03: the parcel rebuild diffed 131,850,695 transfer history rows for 182,700 appended
         ones (7,661 s) and timed out twice. An attribute that stops mapping its appends falls back
         to that diff, so each must; a versioned key without the PNU cannot (root ADR-0392)."""
         import gold_incremental as incremental
