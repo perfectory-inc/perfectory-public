@@ -780,7 +780,8 @@
         "parcel_served_gold",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_parcel_ownership_rebuild",
+        "gold_parcel_regulation_zones_rebuild"
       ],
       "reads": [
         {
@@ -892,6 +893,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
           "node_id": "gold-parcel-public-auction",
           "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_regulation_zones",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_regulation_zones,PROD)",
+          "node_id": "gold-parcel-regulation-zones",
+          "title": "필지 규제 구역 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1339,7 +1348,8 @@
         "parcel_served_gold",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_parcel_ownership_rebuild",
+        "gold_parcel_regulation_zones_rebuild"
       ],
       "reads": [
         {
@@ -1451,6 +1461,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
           "node_id": "gold-parcel-public-auction",
           "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_regulation_zones",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_regulation_zones,PROD)",
+          "node_id": "gold-parcel-regulation-zones",
+          "title": "필지 규제 구역 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -2906,7 +2924,8 @@
         "parcel_served_gold",
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
-        "gold_parcel_ownership_rebuild"
+        "gold_parcel_ownership_rebuild",
+        "gold_parcel_regulation_zones_rebuild"
       ],
       "reads": [
         {
@@ -3018,6 +3037,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
           "node_id": "gold-parcel-public-auction",
           "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_regulation_zones",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_regulation_zones,PROD)",
+          "node_id": "gold-parcel-regulation-zones",
+          "title": "필지 규제 구역 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3480,6 +3507,76 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
           "node_id": "parcel-ownership-by-pnu-section-packs",
           "title": "필지 토지소유 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
+      "id": "gold_parcel_regulation_zones_rebuild",
+      "producers": [
+        "lineage_stewardship",
+        "vworld_parcel_edition",
+        "silver_refresh_land_use_zone_area"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.land_use_zone_area",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_area,PROD)",
+          "node_id": "silver-land-use-zone-area",
+          "title": "용도지역지구 구역",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.parcel_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
+          "node_id": "silver-parcel-boundaries",
+          "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_regulation_zones",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_regulation_zones,PROD)",
+          "node_id": "gold-parcel-regulation-zones",
+          "title": "필지 규제 구역 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "by_pnu_parcel_regulation_zones_bake",
+      "producers": [
+        "gold_parcel_regulation_zones_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_regulation_zones",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_regulation_zones,PROD)",
+          "node_id": "gold-parcel-regulation-zones",
+          "title": "필지 규제 구역 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-regulation-zones-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-regulation-zones-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-regulation-zones-by-pnu-section-packs",
+          "title": "필지 규제 구역 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         }
