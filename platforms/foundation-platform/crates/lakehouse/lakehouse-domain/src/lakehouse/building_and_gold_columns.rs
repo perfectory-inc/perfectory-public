@@ -619,6 +619,13 @@ pub(super) const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn]
         logical_type: "string",
         required: false,
     },
+    // The handoff part the row was loaded from (root ADR-0391 addendum, as ADR-0357's part lanes);
+    // null on the rows loaded whole before 2026-11.
+    LakehouseColumn {
+        name: "source_part_id",
+        logical_type: "string",
+        required: false,
+    },
 ];
 
 pub(super) const SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS: &[LakehouseColumn] = &[

@@ -9,10 +9,13 @@ use std::{
 };
 
 mod parquet_row_writer;
+mod r2_parts;
 
 use anyhow::{bail, Context};
 use chrono::{DateTime, Utc};
+use foundation_publisher_silver::hub_provider_release::ProviderMonth;
 use foundation_publisher_silver::sigungu_crosswalk::{hub_sido_tally, hub_sigungu_crosswalk};
+use foundation_publisher_silver::silver_handoff_io::{open_sink, HandoffSink, OutputSink};
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::building_register_row_identity::natural_key_occurrences;
 use lakehouse_application::{
@@ -40,7 +43,13 @@ struct UnitAreaExportConfig {
     max_rows: Option<usize>,
     output_format: OutputFormat,
     chunk_rows: Option<usize>,
+    /// `r2-parts`: the lane's handoff prefix, where the parts and their manifest go (root
+    /// ADR-0391 addendum); `chunk_rows` is then the rows of one part.
+    output_object_prefix: Option<String>,
 }
+
+/// Opens an output of the R2 part writer: R2 in a run, a local file in a test.
+type OpenSink<'a> = Box<dyn FnMut(&OutputSink) -> anyhow::Result<HandoffSink> + Send + 'a>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct UnitAreaExportReport {
@@ -53,6 +62,8 @@ struct UnitAreaExportReport {
 enum OutputFormat {
     Jsonl,
     Parquet,
+    /// Gzip JSONL parts under an R2 manifest, loaded part by part (root ADR-0391 addendum).
+    R2Parts,
 }
 
 /// Runs the local 전유공용면적 Bronze-to-Silver normalization export.
@@ -62,20 +73,39 @@ enum OutputFormat {
 /// output writing fails.
 pub async fn run() -> anyhow::Result<()> {
     let config = UnitAreaExportConfig::from_env()?;
-    let report = export_handoff_via(&config, &hub_sigungu_crosswalk().await?)?;
+    let crosswalk = hub_sigungu_crosswalk().await?;
+    let report = if config.output_format == OutputFormat::R2Parts {
+        let storage = foundation_outbox::R2ObjectStorage::from_env()
+            .context("the unit-area part export writes R2")?;
+        let runtime = tokio::runtime::Handle::current();
+        tokio::task::spawn_blocking(move || {
+            let open: OpenSink<'_> =
+                Box::new(|output| runtime.block_on(open_sink(output, Some(&storage))));
+            export_handoff_via(&config, &crosswalk, open)
+        })
+        .await
+        .context("failed to join the unit-area part export")??
+    } else {
+        export_handoff_via(&config, &crosswalk, no_sink())?
+    };
     tracing::info!(
         row_count = report.row_count,
         accepted_count = report.accepted_count,
         bronze_object_key = %report.bronze_object_key,
-        output_path = %config.output_path.display(),
         "전유공용면적 unit-area Silver normalization export succeeded"
     );
     Ok(())
 }
 
+/// The opener of an export that writes no R2 part.
+fn no_sink<'a>() -> OpenSink<'a> {
+    Box::new(|output| anyhow::bail!("this export writes no R2 part, not {}", output.describe()))
+}
+
 fn export_handoff_via(
     config: &UnitAreaExportConfig,
     sigungu_crosswalk: &SigunguCrosswalk,
+    open: OpenSink<'_>,
 ) -> anyhow::Result<UnitAreaExportReport> {
     let object_path = locate_source_object(config)?;
     // The rows are valid from the first of the provider month (root ADR-0128); the file must be
@@ -87,8 +117,26 @@ fn export_handoff_via(
     let bronze_object_key = bronze_object_key(&config.bronze_local_object_root, &object_path)?;
     let mut sido_tally = hub_sido_tally(sigungu_crosswalk)?;
 
-    let mut output_writer =
-        SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?;
+    let mut output_writer = if config.output_format == OutputFormat::R2Parts {
+        let layout = r2_parts::Layout {
+            prefix: config
+                .output_object_prefix
+                .clone()
+                .context("an r2-parts export names its OUTPUT_OBJECT_PREFIX")?,
+            input_object_key: bronze_object_key.clone(),
+            source_snapshot_id: config.source_snapshot_id.clone(),
+            vintage: ProviderMonth::from_valid_from(config.valid_from_utc)?.vintage(),
+            rows_per_part: u64::try_from(
+                config
+                    .chunk_rows
+                    .context("an r2-parts export names its CHUNK_ROWS, the rows of one part")?,
+            )?,
+            attempt: format!("attempt={}", uuid::Uuid::new_v4()),
+        };
+        SilverRowWriter::R2Parts(Box::new(r2_parts::PartWriter::new(layout, open)?))
+    } else {
+        SilverRowWriter::new(&config.output_path, config.chunk_rows, config.output_format)?
+    };
     let ingested_at_utc = Utc::now();
     let mut row_count = 0usize;
     let mut accepted_count = 0u64;
@@ -157,9 +205,15 @@ fn export_handoff_via(
     if next_row != occurrences.len() {
         bail!("전유공용면적 Bronze object changed between its two reads");
     }
-    output_writer
-        .flush()
-        .context("failed to flush 전유공용면적 Silver handoff")?;
+    match output_writer {
+        SilverRowWriter::R2Parts(writer) => {
+            let parts = writer.finish(u64::try_from(next_row)?)?;
+            tracing::info!(parts = parts.len(), "전유공용면적 handoff parts published");
+        }
+        mut writer => writer
+            .flush()
+            .context("failed to flush 전유공용면적 Silver handoff")?,
+    }
     let sido = sido_tally.finish()?;
 
     if let Some(summary_path) = &config.summary_path {
@@ -213,6 +267,9 @@ impl UnitAreaExportConfig {
             chunk_rows: optional_usize_env(
                 "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_CHUNK_ROWS",
             )?,
+            output_object_prefix: optional_env(
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_OUTPUT_OBJECT_PREFIX",
+            )?,
         })
     }
 }
@@ -228,8 +285,9 @@ impl OutputFormat {
         match raw.as_str() {
             "jsonl" => Ok(Self::Jsonl),
             "parquet" => Ok(Self::Parquet),
+            "r2-parts" => Ok(Self::R2Parts),
             _ => bail!(
-                "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_OUTPUT_FORMAT must be one of jsonl, parquet"
+                "FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_OUTPUT_FORMAT must be one of jsonl, parquet, r2-parts"
             ),
         }
     }
@@ -477,12 +535,13 @@ fn optional_usize_env(name: &str) -> anyhow::Result<Option<usize>> {
     }
 }
 
-enum SilverRowWriter {
+enum SilverRowWriter<'a> {
     Jsonl(JsonlRowWriter),
     Parquet(Box<ParquetUnitAreaRowWriter>),
+    R2Parts(Box<r2_parts::PartWriter<OpenSink<'a>>>),
 }
 
-impl SilverRowWriter {
+impl SilverRowWriter<'_> {
     fn new(
         path: &Path,
         chunk_rows: Option<usize>,
@@ -494,6 +553,7 @@ impl SilverRowWriter {
                 path.to_path_buf(),
                 chunk_rows,
             )?))),
+            OutputFormat::R2Parts => bail!("an r2-parts export opens its part writer itself"),
         }
     }
 
@@ -501,6 +561,7 @@ impl SilverRowWriter {
         match self {
             Self::Jsonl(writer) => writer.write_rows(rows),
             Self::Parquet(writer) => writer.write_rows(rows),
+            Self::R2Parts(writer) => writer.write_rows(rows),
         }
     }
 
@@ -508,6 +569,7 @@ impl SilverRowWriter {
         match self {
             Self::Jsonl(writer) => writer.flush(),
             Self::Parquet(writer) => writer.flush(),
+            Self::R2Parts(_) => bail!("an r2-parts export finishes with its manifest"),
         }
     }
 }
@@ -622,7 +684,7 @@ mod tests {
 
     /// The export under the seed's own pairs; the real `export_handoff` needs a projection file.
     fn export_handoff(config: &UnitAreaExportConfig) -> anyhow::Result<UnitAreaExportReport> {
-        super::export_handoff_via(config, &crate::test_crosswalk::seed()?)
+        super::export_handoff_via(config, &crate::test_crosswalk::seed()?, super::no_sink())
     }
 
     fn temp_root(name: &str) -> PathBuf {
@@ -710,6 +772,7 @@ mod tests {
             max_rows: None,
             output_format: OutputFormat::Jsonl,
             chunk_rows: None,
+            output_object_prefix: None,
         };
         let error = export_handoff(&config).expect_err("ambiguous source must fail");
         assert!(error.to_string().contains("source_object"), "{error}");
@@ -755,6 +818,7 @@ mod tests {
             max_rows: None,
             output_format: OutputFormat::Jsonl,
             chunk_rows: None,
+            output_object_prefix: None,
         };
         let error = export_handoff(&config).expect_err("a December file is not a November release");
         assert!(
@@ -773,6 +837,147 @@ mod tests {
             "{error:#}"
         );
         assert!(!config.output_path.exists());
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    /// Root ADR-0391 addendum: the release goes out as gzip JSONL parts under a manifest the hub
+    /// part lanes load and resume, every row naming its part, the last part the only short one.
+    #[test]
+    fn exports_parts_under_a_manifest_the_part_lanes_load() -> anyhow::Result<()> {
+        use std::io::Read as _;
+
+        let root = temp_root("foundation-platform-building-register-unit-area-r2-parts");
+        let object_key =
+            "bronze/source=hubgokr__building_register_exclusive_common_area/OPN209912310000000002.zip";
+        let payload = [
+            area_line(
+                "SYNTHETIC-AREA-PK-0001",
+                "SYNTHETIC-UNIT-416",
+                "1",
+                "42.125",
+            ),
+            area_line("SYNTHETIC-AREA-PK-0001", "SYNTHETIC-UNIT-416", "2", "8.250"),
+            area_line(
+                "SYNTHETIC-AREA-PK-0002",
+                "SYNTHETIC-UNIT-417",
+                "1",
+                "30.500",
+            ),
+        ]
+        .join("\n");
+        write_zip_file(
+            &root.join(object_key),
+            "mart_djy_06.txt",
+            payload.as_bytes(),
+        )?;
+        let prefix = "silver-handoff/hubgokr__building_register_exclusive_common_area";
+        let outputs = root.join("r2");
+        // R2 keys land as local files: the writer only sees the sink it is handed.
+        let open: OpenSink<'_> = Box::new(|output| {
+            let OutputSink::R2Object(key) = output else {
+                anyhow::bail!("the part writer writes R2 keys");
+            };
+            let path = outputs.join(key);
+            fs::create_dir_all(path.parent().context("a key has a parent")?)?;
+            Ok(HandoffSink::Local {
+                pending: foundation_publisher_silver::silver_handoff_io::PendingOutput::create(
+                    &path,
+                )?,
+                final_path: path,
+            })
+        });
+        let config = UnitAreaExportConfig {
+            bronze_local_object_root: root.clone(),
+            source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
+            source_object: None,
+            output_path: root.join("unused"),
+            summary_path: None,
+            source_snapshot_id: "synthetic-building-register-unit-area-209912".to_owned(),
+            valid_from_utc: DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc(),
+            max_rows: None,
+            output_format: OutputFormat::R2Parts,
+            chunk_rows: Some(2),
+            output_object_prefix: Some(prefix.to_owned()),
+        };
+        let report = export_handoff_via(&config, &SigunguCrosswalk::identity(), open)?;
+        assert_eq!(report.row_count, 3);
+
+        let manifest: serde_json::Value = serde_json::from_slice(&fs::read(
+            outputs.join(format!("{prefix}/OPN209912310000000002/manifest.json")),
+        )?)?;
+        assert_eq!(manifest["input_object_key"], object_key);
+        assert_eq!(manifest["vintage"], "209912");
+        assert_eq!(manifest["output_object_prefix"], prefix);
+        assert_eq!(
+            (
+                manifest["rows_read"].as_u64(),
+                manifest["rows_emitted"].as_u64()
+            ),
+            (Some(3), Some(3))
+        );
+        let parts = manifest["parts"].as_array().context("parts")?;
+        assert_eq!(
+            parts.iter().map(|p| p["rows"].as_u64()).collect::<Vec<_>>(),
+            [Some(2), Some(1)]
+        );
+        for (index, part) in parts.iter().enumerate() {
+            let key = part["object_key"].as_str().context("part key")?;
+            assert!(
+                key.starts_with(&format!("{prefix}/OPN209912310000000002/attempt="))
+                    && key.ends_with(&format!("/part-{:04}.jsonl.gz", index + 1)),
+                "{key}"
+            );
+            let mut text = String::new();
+            flate2::read::GzDecoder::new(fs::File::open(outputs.join(key))?)
+                .read_to_string(&mut text)?;
+            for line in text.lines() {
+                let row: serde_json::Value = serde_json::from_str(line)?;
+                assert_eq!(
+                    row["source_part_id"], key,
+                    "a row names the part it is loaded from"
+                );
+            }
+        }
+        fs::remove_dir_all(root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn an_r2_parts_export_without_its_prefix_or_part_size_is_refused() -> anyhow::Result<()> {
+        let root = temp_root("foundation-platform-building-register-unit-area-r2-parts-refused");
+        write_zip_file(
+            &root.join(format!(
+                "bronze/source={DEFAULT_SOURCE_SLUG}/OPN209912310000000002.zip"
+            )),
+            "mart_djy_06.txt",
+            area_line(
+                "SYNTHETIC-AREA-PK-0001",
+                "SYNTHETIC-UNIT-416",
+                "1",
+                "42.125",
+            )
+            .as_bytes(),
+        )?;
+        for (prefix, chunk) in [(None, Some(2)), (Some("silver-handoff/x"), None)] {
+            let config = UnitAreaExportConfig {
+                bronze_local_object_root: root.clone(),
+                source_slug: DEFAULT_SOURCE_SLUG.to_owned(),
+                source_object: None,
+                output_path: root.join("unused"),
+                summary_path: None,
+                source_snapshot_id: "synthetic-building-register-unit-area-209912".to_owned(),
+                valid_from_utc: DateTime::parse_from_rfc3339("2099-12-01T00:00:00Z")?.to_utc(),
+                max_rows: None,
+                output_format: OutputFormat::R2Parts,
+                chunk_rows: chunk,
+                output_object_prefix: prefix.map(str::to_owned),
+            };
+            assert!(
+                export_handoff_via(&config, &SigunguCrosswalk::identity(), super::no_sink())
+                    .is_err()
+            );
+        }
         fs::remove_dir_all(root)?;
         Ok(())
     }
@@ -815,8 +1020,10 @@ mod tests {
                 max_rows: None,
                 output_format: OutputFormat::Parquet,
                 chunk_rows: Some(2),
+                output_object_prefix: None,
             },
             &SigunguCrosswalk::identity(),
+            super::no_sink(),
         )?;
 
         assert_eq!(report.row_count, 3);

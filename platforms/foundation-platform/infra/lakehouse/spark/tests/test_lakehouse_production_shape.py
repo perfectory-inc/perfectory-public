@@ -72,7 +72,12 @@ class ProductionShape(unittest.TestCase):
                 )
                 # The transfer history gained it with #728 (ledger of 10-18); the other four gain it now.
                 live_names = {name for _, name, _, _ in live}
-                self.assertEqual(plan["add"], [] if "row_state" in live_names else ["row_state"])
+                expected = [] if "row_state" in live_names else ["row_state"]
+                # The unit areas load part by part since root ADR-0391's addendum: a nullable column
+                # the rows loaded whole leave null.
+                if table == "silver.building_register_unit_areas" and "source_part_id" not in live_names:
+                    expected.append("source_part_id")
+                self.assertEqual(plan["add"], expected)
                 self.assertEqual((plan["backfill"], plan["reorder"]), ([], False))
 
     def test_a_required_column_planted_on_a_table_with_rows_is_refused(self) -> None:
