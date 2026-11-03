@@ -155,8 +155,9 @@ def zone_name(value: Any) -> str | None:
 
 def enabled_levels(inference: Mapping[str, Any], dataset: str) -> list[dict[str, Any]]:
     """The levels a dataset may link by, strongest first: those whose measured precision for it
-    reaches the contract's bar on at least its minimum sample. A level never measured for a dataset
-    is not used."""
+    reaches the contract's bar on at least its minimum sample, judged on the lower end of its 95%
+    Wilson interval (root ADR-0370: a point estimate a hair over the bar on a small sample is not
+    a measurement over it). A level never measured for a dataset is not used."""
 
     bar = float(inference["precision_bar"])
     minimum = int(inference["min_measured_rows"])
@@ -166,7 +167,7 @@ def enabled_levels(inference: Mapping[str, Any], dataset: str) -> list[dict[str,
         if unknown or level["grade"] not in INFERRED_GRADES:
             raise ValueError(f"place_inference level {level['grade']} names {sorted(unknown) or 'an unknown grade'}")
         measured = (level.get("measured") or {}).get(dataset)
-        if measured and float(measured["precision"]) >= bar and int(measured["rows"]) >= minimum:
+        if measured and float(measured["precision_wilson_low"]) >= bar and int(measured["rows"]) >= minimum:
             levels.append(level)
     return levels
 

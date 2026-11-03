@@ -60,8 +60,11 @@
       120
     ],
     "ownership_causes": [
-      "매매"
+      "소유권이전"
     ],
+    "ownership_causes_reason": "Root ADR-0370, measured 2026-11-03 (read-only Trino, silver.land_ownership, 80,446,851 rows, base 2024-12): the file's 소유권변동원인 has no 매매; a sale is 소유권이전 (57,881,656 rows), beside 주소변경, 소유권보존, 성명(명칭)변경 and others. The file keeps each owner's last change only and is as of 2024-12, so a deal later than about 2024-09 cannot be confirmed by it and a parcel resold since the deal no longer shows the deal's change.",
+    "precision_judged_on": "precision_wilson_low",
+    "precision_judged_on_reason": "Root ADR-0370: a level is used when the low end of the 95% Wilson interval of its measured precision reaches precision_bar, not the point estimate.",
     "levels": [
       {
         "grade": "inferred_ownership_change",
@@ -72,8 +75,39 @@
           "land_area",
           "ownership_change"
         ],
-        "measured": {},
-        "not_measured_reason": "silver.land_ownership (#973, ADR-0360) is not in production on 2026-10-31; the pull request that measures it against the attribute evidence fills `measured`"
+        "measured": {
+          "real_transaction_industrial_trade": {
+            "precision": 0.9908,
+            "precision_wilson_low": 0.9894,
+            "rows": 18778,
+            "deals": 94458,
+            "coverage": 0.3439,
+            "ambiguous": 0.0037,
+            "method": "independent_registers: of the masked deals (지분 거래 excluded) the ownership level (본번 range, 용도지역, 지목, 대지·계약면적 ±0.05 m², a 소유권이전 0-120 days after the contract on any owner row of the parcel, as infer_masked reads it) and the building register (사용승인 연도, 연면적 ±0.05 m²) each narrow to one parcel, the share where the two are the same; a lower bound on the level's precision, since a disagreement may be the building register's (a factory over two lots registered on one); silver.real_transaction 일반 deals contracted 2012-06..2024-09-02",
+            "measured_on": "2026-11-03"
+          },
+          "real_transaction_commercial_trade": {
+            "precision": 0.9904,
+            "precision_wilson_low": 0.9851,
+            "rows": 1986,
+            "deals": 4679,
+            "coverage": 0.5738,
+            "ambiguous": 0.0135,
+            "method": "independent_registers: of the masked deals (지분 거래 excluded) the ownership level (본번 range, 용도지역, 지목, 대지·계약면적 ±0.05 m², a 소유권이전 0-120 days after the contract on any owner row of the parcel, as infer_masked reads it) and the building register (사용승인 연도, 연면적 ±0.05 m²) each narrow to one parcel, the share where the two are the same; a lower bound on the level's precision, since a disagreement may be the building register's (a factory over two lots registered on one); rt.molit exports 2024-01..2024-04, nationwide",
+            "measured_on": "2026-11-03"
+          },
+          "real_transaction_detached_house_trade": {
+            "precision": 0.9882,
+            "precision_wilson_low": 0.9859,
+            "rows": 10337,
+            "deals": 22968,
+            "coverage": 0.6569,
+            "ambiguous": 0.027,
+            "method": "independent_registers: of the masked deals (지분 거래 excluded) the ownership level (본번 range, 용도지역, 지목, 대지·계약면적 ±0.05 m², a 소유권이전 0-120 days after the contract on any owner row of the parcel, as infer_masked reads it) and the building register (사용승인 연도, 연면적 ±0.05 m²) each narrow to one parcel, the share where the two are the same; a lower bound on the level's precision, since a disagreement may be the building register's (a factory over two lots registered on one); rt.molit exports 2024-01..2024-06, nationwide",
+            "measured_on": "2026-11-03"
+          }
+        },
+        "not_measured_reason": "real_transaction_land_trade: bare land has no building register to measure against. Measured 2026-11-03 on rt.molit exports 2024-01..2024-02 (49,311 masked deals, 지분 excluded): the level links 55.7% (27,450), 1.0% ambiguous; of the deals the ownership evidence without area (본번 range, 용도지역, 지목, 소유권이전 in the window) and the land register's area each narrow to one parcel, 95.46% (9,378 of 9,824, Wilson low 95.03%) are the same parcel, a bound that does not reach the bar. Both come from the 토지대장 office, so it is not recorded as the level's measurement."
       },
       {
         "grade": "inferred_attributes",
@@ -120,6 +154,16 @@
       }
     ],
     "ground_truth_checks": {
+      "ownership_evidence_real_transaction_industrial_trade": {
+        "rows": 3586,
+        "truth_changed_in_window": 3166,
+        "linked": 1732,
+        "right": 1693,
+        "precision": 0.9775,
+        "precision_wilson_low": 0.9694,
+        "method": "provider ground truth for the ownership evidence (root ADR-0370): the unmasked 공장창고 집합 deals of silver.real_transaction contracted 2024-01..2024-09-02 with a current pnu, the 본번 masked as the provider masks it, matched on 본번 range + 용도지역 + 사용승인 연도 + a 소유권이전 0-120 days after the contract on any owner row; 88.3% of the true parcels show such a change. Without the ownership evidence the same rows link 872, 847 right (97.13%). Those rows carry no 대지면적, so the level's area evidence cannot be tested on them",
+        "measured_on": "2026-11-03"
+      },
       "real_transaction_apartment_trade": {
         "rows": 3000,
         "linked": 425,

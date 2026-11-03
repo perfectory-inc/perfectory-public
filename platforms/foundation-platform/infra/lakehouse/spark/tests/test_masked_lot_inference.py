@@ -59,15 +59,23 @@ class TheBarIsInTheContract(unittest.TestCase):
     def test_a_level_measured_under_the_bar_is_not_used(self) -> None:
         inference = {"precision_bar": 0.99, "min_measured_rows": 200, "levels": [
             {"grade": "inferred_ownership_change", "evidence": ["lot_range", "ownership_change"],
-             "measured": {"real_transaction_land_trade": {"precision": 0.985, "rows": 5000}}},
+             "measured": {"real_transaction_land_trade": {"precision": 0.985, "precision_wilson_low": 0.98, "rows": 5000},
+                          # Over the bar as a point, under it at the interval's low end: not used (ADR-0370).
+                          "real_transaction_commercial_trade": {"precision": 0.9908, "precision_wilson_low": 0.9894,
+                                                                "rows": 18778}}},
             {"grade": "inferred_attributes", "evidence": ["lot_range", "land_area", "registers_agree"],
-             "measured": {"real_transaction_land_trade": {"precision": 0.995, "rows": 150},
-                          "real_transaction_industrial_trade": {"precision": 0.995, "rows": 900}}},
+             "measured": {"real_transaction_land_trade": {"precision": 0.995, "precision_wilson_low": 0.99, "rows": 150},
+                          "real_transaction_industrial_trade": {"precision": 0.995, "precision_wilson_low": 0.991,
+                                                                "rows": 900}}},
         ]}
         self.assertEqual(r.enabled_levels(inference, "real_transaction_land_trade"), [])
         self.assertEqual([lv["grade"] for lv in r.enabled_levels(inference, "real_transaction_industrial_trade")],
                          ["inferred_attributes"])
         self.assertEqual(r.enabled_levels(inference, "real_transaction_commercial_trade"), [])
+
+    def test_the_ownership_cause_is_the_files_own_word(self) -> None:
+        # 2026-11-03: AL_D161 writes 소유권이전 for a sale; 매매 is not one of its causes (ADR-0370).
+        self.assertEqual(INFERENCE["ownership_causes"], ["소유권이전"])
 
     def test_a_level_naming_unknown_evidence_is_refused(self) -> None:
         bad = {"precision_bar": 0.99, "min_measured_rows": 1,
@@ -78,7 +86,7 @@ class TheBarIsInTheContract(unittest.TestCase):
     def test_every_enabled_level_carries_its_measurement(self) -> None:
         for level in INFERENCE["levels"]:
             for dataset, measured in (level.get("measured") or {}).items():
-                for field in ("precision", "rows", "coverage", "ambiguous", "method", "measured_on"):
+                for field in ("precision", "precision_wilson_low", "rows", "coverage", "ambiguous", "method", "measured_on"):
                     self.assertIn(field, measured, f"{level['grade']} {dataset}")
 
 
@@ -122,14 +130,14 @@ class InfersInSpark(unittest.TestCase):
             ("9999933021104020000", 2015, 300.0),
         ], "pnu string, approval_year int, floor_area_m2 double")
         ownership = self.spark.createDataFrame([
-            ("9999933021101020000", "2098-02-20", "매매"),
-            ("9999933021101010000", "2099-06-01", "매매"),
+            ("9999933021101020000", "2098-02-20", "소유권이전"),
+            ("9999933021101010000", "2099-06-01", "소유권이전"),
         ], "pnu string, ownership_changed_on string, ownership_change_reason string")
         return deals, parcels, titles, ownership
 
     def run_levels(self, levels, ownership=True):
         deals, parcels, titles, owners = self.frames()
-        out = r.infer_masked(deals, parcels, titles, owners if ownership else None, levels, 0.05, (0, 120), ["매매"])
+        out = r.infer_masked(deals, parcels, titles, owners if ownership else None, levels, 0.05, (0, 120), INFERENCE["ownership_causes"])
         return {row["row_id"]: row.asDict() for row in out.collect()}
 
     def test_registers_must_agree_on_one_parcel(self) -> None:
