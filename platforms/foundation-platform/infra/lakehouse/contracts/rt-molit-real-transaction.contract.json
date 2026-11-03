@@ -153,6 +153,85 @@
         "not_measured_reason": "real_transaction_land_trade: bare land has no building register to cross-check; it waits for the ownership level"
       }
     ],
+    "evidence_checks": {
+      "$comment": "Root ADR-0370 §4 (2026-11-04, read-only): other evidence weighed for the ownership level, measured as the level is (agreement with the building register's one parcel on masked deals, 지분 excluded). None is used by enabled_levels: a check, not a level. `lot_group` scores a disagreement whose two parcels share the 본번 (300 and 300-1: one plant over two lots) as agreement, i.e. the precision of linking a deal to the 본번 필지 묶음 instead of one PNU; turning that on changes what a link claims and is the owner's decision.",
+      "real_transaction_industrial_trade": {
+        "period": "silver.real_transaction 일반 deals 2010-2026 (backfill as of 2026-11-04)",
+        "single_parcel": {
+          "rows": 19483,
+          "right": 19298,
+          "precision": 0.9905,
+          "precision_wilson_low": 0.989
+        },
+        "land_rows_only_ownership": {
+          "rows": 19482,
+          "right": 19302,
+          "precision": 0.9908,
+          "precision_wilson_low": 0.9893
+        },
+        "plus_registered_factory": {
+          "rows": 4458,
+          "right": 4420,
+          "precision": 0.9915,
+          "precision_wilson_low": 0.9883,
+          "method": "the candidate also holds a silver.registered_factory row (공장등록, 179,948 of 220,705 rows with a PNU)"
+        },
+        "lot_group": {
+          "rows": 19483,
+          "right": 19411,
+          "neighbour_disagreements": 113,
+          "disagreements": 185,
+          "precision": 0.9963,
+          "precision_wilson_low": 0.9953
+        },
+        "not_available": "the 공장창고 export has no 등기일자 (silver registration_date null on every row), so an exact registration-date match cannot be tested; 개별공시지가 is held for 2026 only, so a deal-price band against it is not period-true",
+        "measured_on": "2026-11-04"
+      },
+      "real_transaction_commercial_trade": {
+        "period": "rt.molit exports 2024-01..2024-04",
+        "single_parcel": {
+          "rows": 1986,
+          "right": 1967,
+          "precision": 0.9904,
+          "precision_wilson_low": 0.9851
+        },
+        "land_rows_only_ownership": {
+          "rows": 1990,
+          "right": 1975,
+          "precision": 0.9925,
+          "precision_wilson_low": 0.9876
+        },
+        "lot_group": {
+          "rows": 1986,
+          "right": 1976,
+          "precision": 0.995,
+          "precision_wilson_low": 0.9908
+        },
+        "measured_on": "2026-11-04"
+      },
+      "real_transaction_detached_house_trade": {
+        "period": "rt.molit exports 2024-01..2024-06",
+        "single_parcel": {
+          "rows": 10337,
+          "right": 10215,
+          "precision": 0.9882,
+          "precision_wilson_low": 0.9859
+        },
+        "land_rows_only_ownership": {
+          "rows": 10386,
+          "right": 10272,
+          "precision": 0.989,
+          "precision_wilson_low": 0.9868
+        },
+        "lot_group": {
+          "rows": 10337,
+          "right": 10284,
+          "precision": 0.9949,
+          "precision_wilson_low": 0.9933
+        },
+        "measured_on": "2026-11-04"
+      }
+    },
     "ground_truth_checks": {
       "ownership_evidence_real_transaction_industrial_trade": {
         "rows": 3586,
