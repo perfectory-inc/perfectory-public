@@ -811,6 +811,7 @@
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
         "gold_parcel_ownership_rebuild",
+        "gold_parcel_sub_parcels_rebuild",
         "gold_parcel_energy_rebuild",
         "gold_parcel_demolitions_rebuild"
       ],
@@ -940,6 +941,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
           "node_id": "gold-parcel-public-auction",
           "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_sub_parcels",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_sub_parcels,PROD)",
+          "node_id": "gold-parcel-sub-parcels",
+          "title": "필지 부속지번 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1424,6 +1433,7 @@
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
         "gold_parcel_ownership_rebuild",
+        "gold_parcel_sub_parcels_rebuild",
         "gold_parcel_energy_rebuild",
         "gold_parcel_demolitions_rebuild"
       ],
@@ -1553,6 +1563,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
           "node_id": "gold-parcel-public-auction",
           "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_sub_parcels",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_sub_parcels,PROD)",
+          "node_id": "gold-parcel-sub-parcels",
+          "title": "필지 부속지번 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3175,6 +3193,7 @@
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
         "gold_parcel_ownership_rebuild",
+        "gold_parcel_sub_parcels_rebuild",
         "gold_parcel_energy_rebuild",
         "gold_parcel_demolitions_rebuild"
       ],
@@ -3304,6 +3323,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_public_auction,PROD)",
           "node_id": "gold-parcel-public-auction",
           "title": "필지 공매 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_sub_parcels",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_sub_parcels,PROD)",
+          "node_id": "gold-parcel-sub-parcels",
+          "title": "필지 부속지번 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3778,6 +3805,41 @@
       ]
     },
     {
+      "id": "gold_parcel_sub_parcels_rebuild",
+      "producers": [
+        "lineage_stewardship",
+        "silver_refresh_building_register_sub_parcel"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_register_sub_parcel",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_sub_parcel,PROD)",
+          "node_id": "silver-building-register-sub-parcel",
+          "title": "건축물대장 부속지번",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_sub_parcels",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_sub_parcels,PROD)",
+          "node_id": "gold-parcel-sub-parcels",
+          "title": "필지 부속지번 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "gold_parcel_energy_rebuild",
       "producers": [
         "lineage_stewardship",
@@ -3877,6 +3939,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
           "node_id": "parcel-ownership-by-pnu-section-packs",
           "title": "필지 토지소유 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
+      "id": "by_pnu_parcel_sub_parcels_bake",
+      "producers": [
+        "gold_parcel_sub_parcels_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_sub_parcels",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_sub_parcels,PROD)",
+          "node_id": "gold-parcel-sub-parcels",
+          "title": "필지 부속지번 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-sub-parcels-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-sub-parcels-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-sub-parcels-by-pnu-section-packs",
+          "title": "필지 부속지번 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         }
