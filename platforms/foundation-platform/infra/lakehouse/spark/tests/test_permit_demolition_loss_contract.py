@@ -25,7 +25,8 @@ class PermitDemolitionLossContractTest(unittest.TestCase):
                          (34, "mart_kcy_07.txt", "sha256_of_row"))
         self.assertEqual({name: column["index"] for name, column in source["columns"].items()}, {
             "sigungu_cd": 3, "bjdong_cd": 4, "san_gubun": 5, "bonbeon": 6, "bubeon": 7,
-            "demolition_kind_code": 11, "demolition_kind_name": 12, "main_purpose_code": 18,
+            "demolition_kind_code": 11, "demolition_kind_name": 12, "demolition_start_date": 13, "demolition_end_date": 14,
+            "demolition_loss_date": 15, "total_floor_area_m2": 16, "building_count": 17, "main_purpose_code": 18,
             "main_purpose_name": 19, "structure_code": 20, "structure_name": 21,
         })
         block = source["silver_refresh"]

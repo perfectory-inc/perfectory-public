@@ -5,8 +5,8 @@
   "measured_at_utc": "2026-11-04",
   "dataset_series": "mart_kcy_07",
   "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 15,082,185 바이트, 멤버 mart_kcy_07.txt 79,051,004 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 462,774 행, 모든 행 34칸, 칸 0(관리허가대장PK)은 모든 행이 빈칸, 서로 다른 행 458,314 개(같은 행 최대 47번 되풀이). PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 462,368 행(99.91%). 2026-09 판과 행 묶음이 같다(양쪽에만 있는 행 0). 칸 뜻은 값이 스스로 말하는 칸만 붙였다: 철거멸실구분(1 철거 175,500·2 부분철거 17,209·3 멸실 6,070, 표본 20만 행), 주용도 코드·이름, 구조 코드·이름.",
-  "field_layout_authority": "2026-10 판 실측 표본의 값(코드와 이름이 짝을 이루는 칸, 지번 칸)",
-  "unmapped_columns": "이름을 붙이지 않은 칸(관리허가대장PK·대지위치·칸 2·특수지명·블록·로트·날짜 칸 13–15·면적 칸 16·동수 칸 17·층 칸 22·표시 칸 23–33)은 뜻을 추정하지 않고 raw_columns 의 원래 index 로만 보존한다. 날짜 세 칸은 칸 13 ≤ 칸 14 가 371,459 대 2,561 로 신고→완료 순서로 보이나 제공자 명세로 확인하기 전에는 이름을 붙이지 않는다.",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축인허가 철거멸실관리대장(data.go.kr 15044683)의 속성 목록(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리허가대장PK·건물명·특수지명·블록·로트·철거멸실구분코드·명·철거시작일·철거종료일·철거멸실일·연면적·건축물수·주용도코드·명·구조코드·명·세대수·가구수·호수·석면 함유 표시 8칸·생성일자, 34개)과 2026-10 판 실측의 교차 확인. 대량 파일은 같은 목록에서 관리허가대장PK·대지위치·건물명이 앞으로 와 칸 0–2 이고, 칸 3 부터 시군구코드 순서다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(관리허가대장PK·대지위치·건물명·특수지명·블록·로트·세대수·가구수·호수·석면 함유 표시 칸 25–32·생성일자)은 raw_columns 의 원래 index 로만 보존한다. 칸 2(건물명)에는 개인 이름이 들어 있는 행이 있다: 화면에 내보내지 않는다.",
   "load_granularity": "national",
   "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
   "inner_file": "mart_kcy_07.txt",
@@ -43,6 +43,26 @@
     "demolition_kind_name": {
       "index": 12,
       "meaning": "철거멸실구분명 원문(철거·부분철거·멸실 등)"
+    },
+    "demolition_start_date": {
+      "index": 13,
+      "meaning": "철거시작일 YYYYMMDD 또는 빈칸"
+    },
+    "demolition_end_date": {
+      "index": 14,
+      "meaning": "철거종료일 YYYYMMDD 또는 빈칸"
+    },
+    "demolition_loss_date": {
+      "index": 15,
+      "meaning": "철거멸실일 YYYYMMDD 또는 빈칸"
+    },
+    "total_floor_area_m2": {
+      "index": 16,
+      "meaning": "연면적 원문(㎡, 건축물대장 연면적과 같은 단위)"
+    },
+    "building_count": {
+      "index": 17,
+      "meaning": "건축물수 원문"
     },
     "main_purpose_code": {
       "index": 18,
@@ -88,6 +108,11 @@
         "bubeon",
         "demolition_kind_code",
         "demolition_kind_name",
+        "demolition_start_date",
+        "demolition_end_date",
+        "demolition_loss_date",
+        "total_floor_area_m2",
+        "building_count",
         "main_purpose_code",
         "main_purpose_name",
         "structure_code",

@@ -538,6 +538,31 @@
           "required": false
         },
         {
+          "name": "demolition_start_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_end_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_loss_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "total_floor_area_m2",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_count",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "main_purpose_code",
           "logical_type": "string",
           "required": false

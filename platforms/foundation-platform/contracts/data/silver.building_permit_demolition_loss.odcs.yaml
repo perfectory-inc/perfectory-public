@@ -53,6 +53,26 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: false
+      - name: "demolition_start_date"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "demolition_end_date"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "demolition_loss_date"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "total_floor_area_m2"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "building_count"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
       - name: "main_purpose_code"
         physicalType: "string"
         logicalType: "string"
