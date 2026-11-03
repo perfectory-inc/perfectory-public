@@ -83,12 +83,12 @@ last_reviewed: 2026-10-31
 
 - 결정: ADR-0299(위생 = 기계 강제 불변식, A~O 15 계열) + ADR-0300(15 계열 전부 채택, 정합이 축,
   P1→P3). 각 불변식은 가드가 착지하는 PR 에서 AGENTS.md `위생 불변식` 절에 한 줄로 들어간다.
-  지금 그 절의 규칙은 서빙 신선도(ADR-0306, #893) 하나다.
+  지금 그 절의 규칙은 서빙 신선도(ADR-0306, #893)와 호스트 자원(ADR-0385, 초안)이다.
 - P1 상태:
 
 | 항목 | 상태 |
 | --- | --- |
-| 호스트 자원 경보 | 미완. node-exporter 는 textfile 수집기만 켰고 cAdvisor 없음. ADR-0343 실행표 3번("다음 PR") |
+| 호스트 자원 경보 | 초안. ADR-0385: node-exporter 호스트 수집기(디스크·메모리·OOM·CPU) + cAdvisor, `foundation-host` 경보 6개 → Slack, promtool 규칙 시험 가드. 처음 잰 것: 10-28~11-03 OOM 100번(공매 Silver 2.5GiB 상한) |
 | 수집 run 당 상한 + 가드 | 일부. 공매 각 API 에 `per_run_limit`(#871 등). 통일 어휘와 모든 수집 작업을 거는 가드는 없음 |
 | postgres 복원드릴 타이머 + 백업 freshness | freshness 끝(#882, 타이머 있음). 복원드릴은 스크립트뿐이고 postgres 타이머 없음 |
 | R2 객체 ↔ silver 색인 대조 | 미착수(main 에 없음) |

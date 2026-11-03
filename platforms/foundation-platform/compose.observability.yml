@@ -73,11 +73,14 @@ services:
       timeout: 5s
       retries: 12
 
-  # The host's own state as series (root ADR-0321 §5): only the textfile collector, which serves
-  # the files a host script writes, the way Prometheus documents for batch jobs. The deploy writes
-  # what it is doing and since when (scripts/deploy/deploy-start-once.sh deploy_metric_*); the
+  # The host's own state as series. The textfile collector serves the files a host script writes,
+  # the way Prometheus documents for batch jobs (root ADR-0321 §5): the deploy writes what it is
+  # doing and since when (scripts/deploy/deploy-start-once.sh deploy_metric_*), and the
   # FoundationDeploy* rules alert on how long a drain, a deploy or a pause lasts. The host
-  # collectors (disk, memory) are root ADR-0299 C-host's to add here.
+  # collectors are root ADR-0385's: free space of every disk (filesystem, through the host's root
+  # mounted read-only at /host, whose /proc names the host's mounts), memory (meminfo), the
+  # kernel's OOM kill count (vmstat) and CPU time (cpu). meminfo, vmstat and cpu read the
+  # container's /proc, which shows the host's numbers: those files are not per namespace.
   node-exporter:
     logging: *log-cap
     image: prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0
@@ -95,9 +98,42 @@ services:
       - --collector.textfile
       - --collector.textfile.directory=/textfile
       - --collector.textfile.directory=/textfile-jobs
+      - --collector.filesystem
+      - --collector.meminfo
+      - --collector.vmstat
+      - --collector.cpu
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
     volumes:
       - ${FOUNDATION_HOST_METRICS_DIR:-/var/lib/perfectory/metrics}:/textfile:ro
       - ${FOUNDATION_JOB_METRICS_DIR:-/var/lib/foundation-jobs/metrics}:/textfile-jobs:ro
+      - /:/host:ro,rslave
+
+  # Each container's and each systemd service's working set against its cap, and its CPU (root
+  # ADR-0343 §6, ADR-0385). Read from the cgroup files alone (raw cgroups under /system.slice/,
+  # where the systemd cgroup driver puts both docker-<id>.scope and every unit), so it needs no
+  # container-engine socket and no privilege: those files are world-readable. Without the socket
+  # a container is named by its cgroup id; the asset reconciler writes the id-to-name table
+  # (docker-containers.prom) and the alert looks the name up.
+  cadvisor:
+    logging: *log-cap
+    image: ghcr.io/google/cadvisor:v0.60.6@sha256:b8e7d1093144fd088f425ff003d75a4aa405de075db78dae3bc563730b1bd07a
+    mem_limit: 192m
+    restart: unless-stopped
+    read_only: true
+    user: "65534:65534"
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - --docker_only=false
+      - --raw_cgroup_prefix_whitelist=/system.slice/
+      - --enable_metrics=cpu,memory
+      - --store_container_labels=false
+      - --housekeeping_interval=30s
+    volumes:
+      - /sys:/sys:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
 
 volumes:
   prometheus_data:
