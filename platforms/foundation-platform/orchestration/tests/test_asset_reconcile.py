@@ -275,6 +275,16 @@ class Reconciler(unittest.TestCase):
         self.assertIn("alert: FoundationDockerAddressPoolNearlyFull", rules)
         self.assertIn('node_textfile_mtime_seconds{file=~".*/docker-networks.prom"}', rules)
 
+    def test_each_running_container_is_named_by_the_cgroup_cadvisor_reads(self):
+        # Root ADR-0385: cAdvisor runs without the engine's socket and labels a container only by
+        # its cgroup under the systemd driver; the near-cap alert looks the name up from here.
+        text = asset_reconcile.container_names(lambda command: "b2 synthetic-trino\na1 synthetic-spark-run\n")
+        self.assertIn('foundation_docker_container_info{id="/system.slice/docker-a1.scope",name="synthetic-spark-run"} 1\n',
+                      text)
+        self.assertLess(text.index("docker-a1"), text.index("docker-b2"), "sorted, so a tick that changes nothing writes the same file")
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn('foundation_docker_container_info{id=%q}', rules)
+
     def test_the_unscheduled_alert_waits_three_reconcile_periods(self):
         # Root ADR-0333 §7: the alert fires past three times the reconciler's period.
         reconciler = next(job for job in self.jobs["jobs"] if job["id"] == asset_reconcile.RECONCILER)

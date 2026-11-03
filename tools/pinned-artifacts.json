@@ -11,6 +11,15 @@
       "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "zip"},
       "url": "https://github.com/rhysd/actionlint/releases/download/v{version}/actionlint_{version}_{os}_{arch}.{extension}"
     },
+    "promtool": {
+      "pins": "tools/promtool.env",
+      "version_variable": "PROMTOOL_VERSION",
+      "sha256_variable": "PROMTOOL_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "amd64", "aarch64": "arm64"},
+      "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "tar.gz"},
+      "url": "https://github.com/prometheus/prometheus/releases/download/v{version}/prometheus-{version}.{os}-{arch}.{extension}"
+    },
     "gitleaks": {
       "pins": "tools/gitleaks.env",
       "version_variable": "GITLEAKS_VERSION",

@@ -6,6 +6,11 @@
   "dataset_series": "AL_D<layer>_00",
   "field_layout_authority": "Provider DBF, CP949, no .cpg; every served layer has the same ten columns (measured 2026-10-30 on AL_D032, AL_D143, AL_D124, AL_D335, AL_D060 of 20260609): A0 N9 provider row number (not kept), A1 C33 area number, A2 C254 layer name, A3 D8 데이터기준일자 (not kept: it changes every release), A4 C5 시군구 code, A5 C6 용도지역지구 code, A6 C200 its name, A7 C8 an unnamed day, A8 C200 and A9 C200 unnamed texts. .prj Korea 2000 Central Belt 2010 (EPSG:5186), reprojected to EPSG:4326 on export. A1 unique within a layer on the four layers scanned whole (D032 758, D335 730, D336 660, D327 5,544 areas).",
   "why_this_file_exists": "The prefix piles up every month's full and change files of all 187 layers under object names (20171128DS00032-672.zip) that say neither the layer nor the month; loading two months would double every area, and loading a month that lacks a layer would look complete while that layer is missing.",
+  "pending_regions": [
+    {"region": "054", "name": "보전·준보전산지", "reason": "984MB, over the 500MB the daily sweep fetches: only the RAON lane brings it, its budget is 0, and its geometry is split across two shapefiles (ADR-0362 §2)."},
+    {"region": "125", "name": "관리지역", "reason": "600MB, over the 500MB the daily sweep fetches: only the RAON lane brings it, and its budget is 0 (ADR-0362 §2)."}
+  ],
+  "pending_regions_means": "Layers a buyer checks that this lane does not load yet, and why (root ADR-0373 §4). They are not in silver_refresh.completeness.regions; the regulation-zone tile handoff copies them into its summary and the map says 일부 구역 수집 대기 for them, so a missing layer is reported, never silently absent. A layer leaves this list in the change that adds it to completeness.regions. The map's own list of pending codes is checked against this one in CI (root ADR-0373 §4).",
   "handoff_prefix": "silver-handoff/vworldkr__land_use_zone",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {

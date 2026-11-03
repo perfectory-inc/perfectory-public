@@ -932,3 +932,79 @@ fn tile_join_reads_every_partition_and_keeps_tiles_whole() {
         ]
     );
 }
+
+#[test]
+fn the_contract_registers_zoning_partitioned_by_its_layer_code() -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let zoning = contract
+        .units_born_from_a_lakehouse_bake
+        .get("zoning")
+        .context("the contract lets the first bake register zoning (root ADR-0374)")?;
+    // `D032` of `D032:<area number>`: each layer is its own archive (root ADR-0373, ADR-0316).
+    assert_eq!(
+        contract.partition_by_feature_id_prefix.get("zoning"),
+        Some(&"D032".len())
+    );
+    let layer = zoning.served_layer();
+    assert_eq!(
+        layer.properties,
+        [
+            "zone_id",
+            "layer_code",
+            "layer_name",
+            "zone_code",
+            "zone_name"
+        ]
+    );
+    assert_eq!((layer.tile_min_zoom, layer.tile_max_zoom), (10, 14));
+    let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+    value["units_born_from_a_lakehouse_bake"]["zoning"]["feature_filter_properties"] =
+        json!(["zone_name", "layer_code"]);
+    assert!(BakeContract::parse(&value.to_string()).is_err(), "unsorted");
+    let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+    value["units_born_from_a_lakehouse_bake"]["zoning"]["source_record_source"] =
+        json!("silver.land_use_zone_area");
+    assert!(
+        BakeContract::parse(&value.to_string()).is_err(),
+        "no lakehouse: prefix"
+    );
+    Ok(())
+}
+
+/// Synthetic zones of two reserved layers (D998, D999), never a real area number.
+fn zoning_partitions(ids: &[&str], csv_dir: &Path) -> anyhow::Result<Vec<CsvPart>> {
+    let (handoff, summary) = v2(&[("part-00000.jsonl", ids)])?;
+    std::fs::create_dir_all(csv_dir)?;
+    let prepared = prepare_handoff(
+        &summary,
+        handoff.path(),
+        PartitionedCsv::new(csv_dir.to_path_buf(), "D999".len()),
+    )?;
+    prepared.csv.finish()
+}
+
+#[tokio::test]
+async fn a_changed_zone_rebakes_only_its_layers_archive() -> anyhow::Result<()> {
+    let work = tempfile::tempdir()?;
+    let root = work.path().join("zoning-partitions");
+    let month_1 = zoning_partitions(
+        &["D998:SYN-0001", "D999:SYN-0001", "D999:SYN-0002"],
+        &work.path().join("csv-1"),
+    )?;
+    let (first, baked) = stub_bake(work.path(), &root, month_1, "inputs").await?;
+    assert_eq!(baked, ["partition-D998", "partition-D999"]);
+    // The next month adds one D999 zone; D998 is untouched.
+    let month_2 = zoning_partitions(
+        &[
+            "D998:SYN-0001",
+            "D999:SYN-0001",
+            "D999:SYN-0002",
+            "D999:SYN-0003",
+        ],
+        &work.path().join("csv-2"),
+    )?;
+    let (second, baked) = stub_bake(work.path(), &root, month_2, "inputs").await?;
+    assert_eq!(baked, ["partition-D999"]);
+    assert_eq!(second[0], ("D998".to_owned(), first[0].1.clone(), false));
+    Ok(())
+}

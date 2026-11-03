@@ -50,6 +50,8 @@ mod lakehouse_bake;
 mod readdress;
 #[path = "spatial_tile_publication/source_file_asset.rs"]
 mod source_file_asset;
+#[path = "spatial_tile_publication/unit_birth.rs"]
+mod unit_birth;
 #[path = "spatial_tile_publication/vocabulary.rs"]
 mod vocabulary;
 

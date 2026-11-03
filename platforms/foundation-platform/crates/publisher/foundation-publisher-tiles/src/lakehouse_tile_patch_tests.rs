@@ -81,6 +81,8 @@ fn z16_tile() -> (u32, u32) {
 fn the_contract_patches_parcels_and_derives_keys_beside_the_base() -> anyhow::Result<()> {
     let policy = PatchPolicy::load()?;
     assert!(policy.covers("parcels"));
+    // Root ADR-0373: regulation zones patch the tiles a changed zone touches.
+    assert!(policy.covers("zoning"));
     assert!(!policy.covers("complex"));
     let base = "gold/vector-tiles/releases/parcels-00000000-0000-7000-8000-000000000001.pmtiles";
     assert_eq!(
@@ -453,5 +455,96 @@ fn a_manifest_for_another_base_or_with_unknown_fields_is_refused() -> anyhow::Re
     let mut ahead = manifest.clone();
     ahead.generation = 1;
     assert!(Manifest::parse(&serde_json::to_vec(&ahead)?, &policy, &ahead.base_source_id).is_err());
+    Ok(())
+}
+
+/// One synthetic regulation zone (root ADR-0373): reserved layer codes and area numbers only.
+fn zone(id: &str, name: &str, wkb: &str) -> String {
+    json!({"feature_id": id, "geometry_wkb_hex": wkb, "geometry_srid": 4326, "origin": "source",
+        "properties": {"layer_code": &id[..4], "layer_name": "SYN/합성", "zone_code": "SYN999",
+            "zone_name": name}})
+    .to_string()
+}
+
+fn zoning_index(rows: &[String]) -> anyhow::Result<Vec<Record>> {
+    let text: String = rows
+        .iter()
+        .map(|line| {
+            format!(
+                "{line}
+"
+            )
+        })
+        .collect();
+    let file = written(text.as_bytes())?;
+    let summary: ServedSummary = serde_json::from_value(json!({
+        "schema_version": "foundation-platform.polygon_served_gold.v1",
+        "unit": "zoning",
+        "feature_id_property": "zone_id",
+        "geometry_srid": 4326,
+        "canonical_iceberg_snapshot_id": "2",
+        "edits_through_change_seq": 0,
+        "served_row_count": rows.len(),
+        "status": "ready",
+    }))?;
+    Ok(build_index(&summary, file.path())?.0)
+}
+
+/// Every tile of `zooms` a box touches, as the dirty set names them.
+fn touched(bbox: [f32; 4], zooms: (u8, u8)) -> BTreeSet<u64> {
+    dirty_tiles(&[bbox], zooms, usize::MAX).unwrap_or_default()
+}
+
+#[test]
+fn a_changed_zone_re_tiles_only_the_tiles_it_touches() -> anyhow::Result<()> {
+    let contract = super::super::BakeContract::parse(super::super::CONTRACT_JSON)?;
+    let layer = contract.units_born_from_a_lakehouse_bake["zoning"].served_layer();
+    let zooms = (layer.tile_min_zoom, layer.tile_max_zoom);
+    // Three zones a degree apart, so no two share a tile at any served zoom (a z10 tile is 0.35°).
+    let (a, b, c) = ("D999:SYN-0001", "D998:SYN-0001", "D999:SYN-0002");
+    let month_1 = [
+        zone(a, "합성 A", &square(10.0, 10.0, 0.01)),
+        zone(b, "합성 B", &square(11.0, 10.0, 0.01)),
+        zone(c, "합성 C", &square(12.0, 10.0, 0.01)),
+    ];
+    // Next month: A's boundary moves, C is renamed, B is untouched.
+    let month_2 = [
+        zone(a, "합성 A", &square(10.002, 10.0, 0.01)),
+        zone(b, "합성 B", &square(11.0, 10.0, 0.01)),
+        zone(c, "합성 C 변경", &square(12.0, 10.0, 0.01)),
+    ];
+    let (old, new) = (zoning_index(&month_1)?, zoning_index(&month_2)?);
+    let changes = diff(&old, &new);
+    let mut upserted = changes.upserted.clone();
+    upserted.sort_unstable();
+    let mut expected = vec![id_hash(a), id_hash(c)];
+    expected.sort_unstable();
+    assert_eq!(upserted, expected, "a renamed zone is a changed zone too");
+    assert!(changes.deleted.is_empty());
+
+    let dirty = dirty_tiles(&changes.boxes, zooms, usize::MAX).unwrap_or_default();
+    let box_of = |records: &[Record], id: &str| {
+        records
+            .iter()
+            .find(|record| record.id == id_hash(id))
+            .map(|record| record.bbox)
+            .unwrap_or(EMPTY_BBOX)
+    };
+    let mut own = touched(box_of(&old, a), zooms);
+    own.extend(touched(box_of(&new, a), zooms));
+    own.extend(touched(box_of(&new, c), zooms));
+    assert_eq!(
+        dirty, own,
+        "exactly the tiles the changed zones touch, old box and new"
+    );
+    let untouched = touched(box_of(&new, b), zooms);
+    assert!(!untouched.is_empty());
+    assert!(
+        dirty.is_disjoint(&untouched),
+        "the unchanged zone's tiles are not re-tiled"
+    );
+    // One small zone touches a handful of tiles per zoom, far below the 5% patch bound of a base.
+    assert!(dirty.len() <= 40, "{} dirty tiles", dirty.len());
+    assert!(diff(&new, &new).is_empty());
     Ok(())
 }
