@@ -714,6 +714,32 @@
       ]
     },
     {
+      "id": "parcel_edition_readiness",
+      "producers": [
+        "vworld_parcel_edition"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.parcel_boundaries",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.parcel_boundaries,PROD)",
+          "node_id": "silver-parcel-boundaries",
+          "title": "필지 경계",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-edition-readiness",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-edition-readiness,PROD)",
+          "node_id": "parcel-edition-readiness",
+          "title": "지적 판 준비 판정",
+          "kind": "serving_surface",
+          "surface_kind": "quality_gate"
+        }
+      ]
+    },
+    {
       "id": "parcel_number_change_history",
       "producers": [
         "source_sweep"
