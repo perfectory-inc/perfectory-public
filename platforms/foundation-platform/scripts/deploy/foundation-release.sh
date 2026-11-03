@@ -872,7 +872,9 @@ migrate_runtime() {
   # old container on the old release's files). Their data and the notification log live in
   # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
   "${runtime}" up -d --wait --force-recreate prometheus alertmanager
-  "${runtime}" up -d --wait node-exporter # serves the deploy's textfile (root ADR-0321 §5)
+  # node-exporter serves the deploy's textfile (root ADR-0321 §5) and with cAdvisor the host's
+  # disk, memory, OOM and cap series (root ADR-0385).
+  "${runtime}" up -d --wait node-exporter cadvisor
   verify_runtime_schema
   migrate_lakehouse "${lakehouse}"
 }

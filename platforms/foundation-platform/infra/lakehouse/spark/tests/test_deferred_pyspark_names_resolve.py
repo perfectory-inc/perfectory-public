@@ -45,6 +45,7 @@ MODULES = (
     "administrative_boundary_served_gold",
     "parcel_boundary_served_gold",
     "served_gold_common",
+    "land_use_zone_area_tile_handoff",
     "parcel_lineage_to_silver",
     "parcel_lineage_scheduled",
     "legal_dong_code_snapshot_to_reference",

@@ -527,6 +527,24 @@
         "budget_seconds": 10
       },
       {
+        "name": "prometheus-rules-pass-their-tests-self-test",
+        "paths": [
+          "tools/promtool.env",
+          "platforms/foundation-platform/compose.observability.yml",
+          "platforms/foundation-platform/infra/observability/prometheus/**"
+        ]
+      },
+      {
+        "name": "prometheus-rules-pass-their-tests",
+        "paths": [
+          "tools/promtool.env",
+          "tools/pinned-artifacts.json",
+          "scripts/ci/fetch_pinned.py",
+          "platforms/foundation-platform/compose.observability.yml",
+          "platforms/foundation-platform/infra/observability/prometheus/**"
+        ]
+      },
+      {
         "name": "batch-containers-are-run-scoped-self-test",
         "paths": []
       },

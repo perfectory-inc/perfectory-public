@@ -20,11 +20,20 @@ scrape_configs:
         labels:
           environment: prelaunch
           platform: foundation-platform
-  # The host's textfile series: what the deploy is doing (root ADR-0321 §5).
+  # The host's textfile series (what the deploy is doing, root ADR-0321 §5) and its disk, memory,
+  # OOM kill and CPU series (root ADR-0385).
   - job_name: node-exporter
     static_configs:
       - targets:
           - node-exporter:9100
+        labels:
+          environment: prelaunch
+          platform: foundation-platform
+  # Each container's and systemd unit's working set against its cap, and its CPU (root ADR-0385).
+  - job_name: cadvisor
+    static_configs:
+      - targets:
+          - cadvisor:8080
         labels:
           environment: prelaunch
           platform: foundation-platform

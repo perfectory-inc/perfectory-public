@@ -54,17 +54,20 @@ pub enum CatalogMutationKind {
     PromoteTileLayerStatic,
     /// Return of one publication unit to its preserved same-revision dynamic release.
     RollbackTileLayerSource,
+    /// Birth of a publication unit whose first release is a lakehouse bake (root ADR-0374).
+    RegisterLakehouseTileUnit,
 }
 
 impl CatalogMutationKind {
     /// Every command kind, so a caller can enumerate the vocabulary without restating it.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::MarkTileLayerDynamic,
         Self::StartVectorTileBuild,
         Self::StartStaticReleaseReaddress,
         Self::StartLakehouseBake,
         Self::PromoteTileLayerStatic,
         Self::RollbackTileLayerSource,
+        Self::RegisterLakehouseTileUnit,
     ];
 
     /// Database spelling of this command kind.
@@ -77,6 +80,7 @@ impl CatalogMutationKind {
             Self::StartLakehouseBake => "start_lakehouse_bake",
             Self::PromoteTileLayerStatic => "promote_tile_layer_static",
             Self::RollbackTileLayerSource => "rollback_tile_layer_source",
+            Self::RegisterLakehouseTileUnit => "register_lakehouse_tile_unit",
         }
     }
 
@@ -92,7 +96,8 @@ impl CatalogMutationKind {
         match self {
             Self::MarkTileLayerDynamic
             | Self::PromoteTileLayerStatic
-            | Self::RollbackTileLayerSource => true,
+            | Self::RollbackTileLayerSource
+            | Self::RegisterLakehouseTileUnit => true,
             Self::StartVectorTileBuild
             | Self::StartStaticReleaseReaddress
             | Self::StartLakehouseBake => false,
@@ -112,6 +117,7 @@ impl CatalogMutationKind {
             "start_lakehouse_bake" => Ok(Self::StartLakehouseBake),
             "promote_tile_layer_static" => Ok(Self::PromoteTileLayerStatic),
             "rollback_tile_layer_source" => Ok(Self::RollbackTileLayerSource),
+            "register_lakehouse_tile_unit" => Ok(Self::RegisterLakehouseTileUnit),
             other => Err(format!("unknown Catalog mutation kind: {other}")),
         }
     }
