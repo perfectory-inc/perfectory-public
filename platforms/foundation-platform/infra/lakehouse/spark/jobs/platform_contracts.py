@@ -431,10 +431,21 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     one key that tie on every ``newest_first`` column are refused: picking one would be a rule this
     function does not have (root ADR-0267), unless the rule keeps ties: then every tied row is
     current. A key whose newest row is a removal marker has no current row (root ADR-0275).
+    A table that appends whole editions keeps the rows of its newest edition (``newest_edition``,
+    root ADR-0286 §3); one read by a pinned edition is read through ``pinned_edition``.
     """
 
     from pyspark.sql import Window, functions as F
 
+    # The artifact never carries both (`row_versions` checks it); a newest-per-key rule decides first.
+    versions = contract.get("row_versions") or {}
+    if versions.get("kind") == "editions" and contract.get("current_row_latest") is None:
+        if versions["read"] == "newest":
+            return newest_edition(frame, contract, versions)
+        # A pinned table has no default edition: its predicate's rows of every edition, each edition
+        # current by its own predicate (root ADR-0148), or a refusal when it declares none (ADR-0376 §2).
+        if current_row_predicate(contract) is None:
+            raise ValueError(f"{contract.get('table_name')} is read one pinned edition at a time: use pinned_edition")
     predicate = current_row_predicate(contract)
     if predicate is not None:
         frame = frame.where(F.expr(predicate))
@@ -458,6 +469,64 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     if latest.removal_column is None:
         return ranked
     return ranked.where(F.col(latest.removal_column).isNull() | (F.col(latest.removal_column) != F.lit(REMOVED)))
+
+
+def editions_of(contract: dict[str, Any]) -> dict[str, Any]:
+    """The `Editions` declaration of ``contract``; any other table is refused (root ADR-0286)."""
+
+    versions = row_versions(contract)
+    if versions["kind"] != "editions":
+        raise ValueError(f"{contract.get('table_name')} does not append editions ({versions['kind']})")
+    return versions
+
+
+def newest_edition(frame: Any, contract: dict[str, Any], versions: dict[str, Any] | None = None) -> Any:
+    """The rows of ``frame``'s newest edition, per ``per`` group, then the contract's predicate.
+
+    Editions are ordered by their maxima of ``newest_first``, compared in turn (Hudi's ordering field
+    applied per edition, root ADR-0286 §1); never by the edition id, which is not in time order. Two
+    editions of one group tied on every column are refused, as ``current_rows`` refuses a tie: the
+    commit-order tiebreak of ADR-0286 §1 needs a per-row commit sequence, which Iceberg exposes only
+    with v3 row lineage (shortcut: refuse until the tables are v3, then order the tie by
+    ``_last_updated_sequence_number``). The edition is chosen first and the predicate after it, so an
+    edition whose every row is closed is not passed over for an older one.
+    """
+
+    from pyspark.sql import Window, functions as F
+
+    versions = versions or editions_of(contract)
+    edition, order, per = versions["edition_column"], list(versions["newest_first"]), list(versions["per"])
+    maxima = [f"_edition_newest_{index}" for index in range(len(order))]
+    editions = frame.groupBy(*per, edition).agg(*(F.max(column).alias(name) for column, name in zip(order, maxima)))
+    ranked = editions.withColumn("_edition_rank", F.rank().over(
+        Window.partitionBy(*per).orderBy(*(F.col(name).desc_nulls_last() for name in maxima)))).where("_edition_rank = 1")
+    tied = ranked.groupBy(*per).count().where(F.col("count") > 1)
+    if tied.limit(1).count():
+        samples = [str(sample) for sample in (ranked.join(tied, per, "left_semi") if per else ranked).limit(5).toJSON().collect()]
+        raise ValueError(f"{contract.get('table_name')} holds editions tied on {order}, so none is the newest. "
+                         f"samples={samples}")
+    chosen = ranked.select(*(F.col(c).alias(f"_chosen_{c}") for c in [*per, edition]))
+    matches = [frame[c].eqNullSafe(chosen[f"_chosen_{c}"]) for c in [*per, edition]]
+    rows = frame.join(F.broadcast(chosen), matches, "left_semi")
+    predicate = current_row_predicate(contract)
+    return rows if predicate is None else rows.where(F.expr(predicate))
+
+
+def pinned_edition(frame: Any, contract: dict[str, Any], edition: str) -> Any:
+    """The rows of the one edition the caller names, then the contract's predicate (root ADR-0286 §3)."""
+
+    from pyspark.sql import functions as F
+
+    rows = frame.where(F.col(editions_of(contract)["edition_column"]) == F.lit(edition))
+    predicate = current_row_predicate(contract)
+    return rows if predicate is None else rows.where(F.expr(predicate))
+
+
+def all_editions(frame: Any, contract: dict[str, Any]) -> Any:
+    """Every edition, for a reader that reads them as history: the declared access point for it."""
+
+    editions_of(contract)
+    return frame
 
 
 def rows_as_of(frame: Any, contract: dict[str, Any], release: str) -> Any:
