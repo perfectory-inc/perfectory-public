@@ -600,7 +600,8 @@ def _load(argv: Sequence[str]) -> int:
                 line.update(complete=loads["complete"], source_coded=sum(1 for row in rows if row["pnu"]),
                             resolved_by_grade=graded,
                             changes=changes.count(), removed=changes.where(F.col("row_state") == REMOVED).count())
-                line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"])
+                line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
+                                                         contract_table=table_contract["table_name"])
                 changes.unpersist()
                 resolved.unpersist()
             elif role in COMPARED:
@@ -608,10 +609,12 @@ def _load(argv: Sequence[str]) -> int:
                 current = current_rows(spark.table(table), table_contract)
                 changes = changed_only(frame, current, key, content_columns(table_contract)).cache()
                 line["changes"] = changes.count()
-                line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"])
+                line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
+                                                         contract_table=table_contract["table_name"])
                 changes.unpersist()
             else:
-                line["appended"] = append_source_object(spark, frame, columns, table, entry["object_key"])
+                line["appended"] = append_source_object(spark, frame, columns, table, entry["object_key"],
+                                                         contract_table=table_contract["table_name"])
             summary["objects"].append(line)
     finally:
         spark.stop()

@@ -12,6 +12,9 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+# The proof tables are not the contract's table, so admit_write treats them as staging (root ADR-0286).
+CONTRACT = "gold.parcel_panel"
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
 TABLE = "proof.gold.fingerprint_panel"
@@ -49,7 +52,7 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
         import gold_incremental as incremental
 
         outcome = incremental.Outcome(mode="full", row_count=len(rows), metrics={}, gold=self.frame(rows))
-        outcome.commit(self.spark, TABLE, {"silver.example": pin}, "overwrite")
+        outcome.commit(self.spark, TABLE, {"silver.example": pin}, "overwrite", contract_table="gold.parcel_panel")
         head = self.spark.sql(f"SELECT snapshot_id, operation, summary FROM {TABLE}.snapshots "
                               "ORDER BY committed_at DESC LIMIT 1").first()
         return outcome, str(head.snapshot_id), head.operation, dict(head.summary)
@@ -106,7 +109,7 @@ class UnchangedGoldIcebergTest(unittest.TestCase):
 
         def commit(pin):
             outcome = incremental.Outcome(mode="full", row_count=len(ROWS), metrics={}, gold=self.frame(ROWS))
-            outcome.commit(self.spark, table, {"silver.example": pin}, "overwrite")
+            outcome.commit(self.spark, table, {"silver.example": pin}, "overwrite", contract_table="gold.parcel_panel")
             return outcome
 
         commit("11")
@@ -180,7 +183,7 @@ class RecordedChangesIcebergTest(unittest.TestCase):
         v1 = [(p[0], "a", "d0"), (p[1], "b", "d1"), (p[2], "c", "d2"), (p[3], "d", "d3")]
         frame = self.spark.createDataFrame(v1, "pnu string, payload string, row_digest string")
         incremental.Outcome(mode="full", row_count=4, metrics={}, gold=frame).commit(
-            self.spark, self.TABLE, {"silver.example": "11"}, "overwrite")
+            self.spark, self.TABLE, {"silver.example": "11"}, "overwrite", contract_table=CONTRACT)
         first = self.head()
         # One changed, one new, one deleted, one untouched: the merge source of plan_merge.
         source = self.spark.createDataFrame(
@@ -189,7 +192,7 @@ class RecordedChangesIcebergTest(unittest.TestCase):
         counts = {"inserted_pnus": 1, "updated_pnus": 1, "deleted_pnus": 1}
         merge = {"source": source, "row_key": ("pnu",), "counts": counts, "persisted": [], "stages": None}
         incremental.Outcome(mode="incremental", row_count=4, metrics={}, merge=merge).commit(
-            self.spark, self.TABLE, {"silver.example": "12"}, "overwrite")
+            self.spark, self.TABLE, {"silver.example": "12"}, "overwrite", contract_table=CONTRACT)
         second = self.head()
         summary = self.spark.sql(f"SELECT summary FROM {self.TABLE}.snapshots WHERE snapshot_id = {second}").first()[0]
         self.assertEqual(summary[incremental.KEYS_CHANGED_PROPERTY], "3")
@@ -198,7 +201,7 @@ class RecordedChangesIcebergTest(unittest.TestCase):
         # An empty merge records its step too, so the walk passes it.
         empty = self.spark.createDataFrame([], f"pnu string, payload string, row_digest string, {incremental.DELETE_FLAG} boolean")
         incremental.Outcome(mode="incremental", row_count=4, metrics={},
-                            merge={**merge, "source": empty, "counts": dict.fromkeys(counts, 0)}).commit(self.spark, self.TABLE, {"silver.example": "13"}, "overwrite")
+                            merge={**merge, "source": empty, "counts": dict.fromkeys(counts, 0)}).commit(self.spark, self.TABLE, {"silver.example": "13"}, "overwrite", contract_table=CONTRACT)
         third = self.head()
         self.spark.sql(f"CALL proof.system.rewrite_data_files(table => 'gold.recorded_panel', options => map('rewrite-all', 'true'))")
         compacted = self.head()
@@ -230,7 +233,7 @@ class RecordedChangesIcebergTest(unittest.TestCase):
                      .where(F.col("pnu") != p[3]).cache())
         rewritten.count()
         outcome = incremental.Outcome(mode="full", row_count=3, metrics={}, gold=rewritten)
-        outcome.commit(self.spark, self.TABLE, {"silver.example": "14"}, "overwrite")
+        outcome.commit(self.spark, self.TABLE, {"silver.example": "14"}, "overwrite", contract_table=CONTRACT)
         overwritten = self.head()
         summary = self.spark.sql(f"SELECT operation, summary FROM {self.TABLE}.snapshots "
                                  f"WHERE snapshot_id = {overwritten}").first()

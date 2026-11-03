@@ -27,6 +27,7 @@ from lakehouse_engine import (
     SHUFFLE_SETTINGS,
 )
 from platform_contracts import (
+    admit_write,
     partition_clause_sql,
     column_names,
     create_table_columns_sql,
@@ -863,6 +864,7 @@ def write_gold_iceberg(
     added_columns = evolve_gold_iceberg_table_to_contract(spark, table)
     gold.select(*GOLD_COLUMNS).createOrReplaceTempView(temp_view)
 
+    admit_write(GOLD_CONTRACT_NAME, "replace" if args.iceberg_write_mode == "overwrite" else "append", target=table)
     statement = "INSERT INTO"
     if args.iceberg_write_mode == "overwrite":
         statement = "INSERT OVERWRITE"

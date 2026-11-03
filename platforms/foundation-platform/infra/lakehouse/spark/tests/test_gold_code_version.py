@@ -47,6 +47,9 @@ def silver(*ids):
 PRODUCER = '''"""Doc."""
 import helper
 
+# The proof tables are not the contract's table, so admit_write treats them as staging (root ADR-0286).
+CONTRACT = "gold.parcel_panel"
+
 
 def main():
     from deep import f
@@ -270,7 +273,7 @@ class Commit(unittest.TestCase):
     def test_a_producer_commit_records_the_code_beside_the_pins(self):
         frame = mock.MagicMock()
         with mock.patch.object(code, "of_running_producer", return_value="V"):
-            rebuild.write_gold_snapshot(frame, "t", "append", PINS, "ALL")
+            rebuild.write_gold_snapshot(frame, "t", "append", PINS, "ALL", contract_table="gold.parcel_panel")
             self.assertEqual(rebuild.pins_properties("t", PINS)[code.PROPERTY], "V")
         options = dict(call.args for call in frame.mock_calls if call[0].endswith("option"))
         self.assertEqual(options[rebuild.SNAPSHOT_PROPERTY_PREFIX + code.PROPERTY], "V")
@@ -278,7 +281,8 @@ class Commit(unittest.TestCase):
     def test_a_shadow_write_goes_to_the_branch_and_records_the_tables_code(self):
         frame = mock.MagicMock()
         with mock.patch.object(code, "of_running_producer", return_value="V") as running:
-            rebuild.write_gold_snapshot(frame, "`r2`.`gold`.`t`", "overwrite", PINS, "ALL", branch="audit")
+            rebuild.write_gold_snapshot(frame, "`r2`.`gold`.`t`", "overwrite", PINS, "ALL", branch="audit",
+                                         contract_table="gold.parcel_panel")
         frame.writeTo.assert_called_once_with("`r2`.`gold`.`t`.`branch_audit`")
         running.assert_called_once_with("`r2`.`gold`.`t`", PINS)
 

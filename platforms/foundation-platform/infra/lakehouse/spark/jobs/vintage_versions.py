@@ -38,7 +38,7 @@ from typing import Any, Callable
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
 from lakehouse_ingest import (MAIN, edition_property_option, ingest_batch_token, read_editions, read_ingested_objects,
                               snapshot_property_options)
-from platform_contracts import (column_names, current_row_latest, current_rows, ensure_contract_table,
+from platform_contracts import (admit_write, column_names, current_row_latest, current_rows, ensure_contract_table,
                                 load_lakehouse_contract, rows_as_of)
 from silver_release_compare import commit_stamp, refuse_older_edition, release_changes
 
@@ -162,6 +162,8 @@ def migrate(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
                            .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
             changes = vintage_changes(staged_rows, spark.table(target_q), contract, migration.content, vintage,
                                       batch, instant)
+            # The versions only grow (root ADR-0286): the vintage's changes are appended.
+            admit_write(args.target, "append", target=target_q)
             writer = changes.writeTo(target_u)
             options = {**snapshot_property_options([record], ingest_batch_token([record])),
                        **edition_property_option(vintage)}

@@ -33,7 +33,7 @@ from lakehouse_ingest import (
     table_holds_rows,
     unquoted_table_name,
 )
-from platform_contracts import load_identity_from_value, load_unit
+from platform_contracts import admit_write, load_identity_from_value, load_unit
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -111,6 +111,7 @@ def backfill(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
     # selecting the contract's columns would fail on a column the table does not have. An empty
     # frame taken from the table already matches it.
     empty = frame.limit(0)
+    admit_write(args.table, "record", target=qualified)
     writer = empty.writeTo(qualified)
     for key, value in snapshot_property_options(identities, token).items():
         writer = writer.option(key, value)
