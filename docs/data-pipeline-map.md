@@ -298,6 +298,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 지도 타일 승격 (`vector-tile-manifest-promote`) | 실행 증거 대기 | 검증된 타일 매니페스트 버전을 현재 제공 버전으로 승격한다. |
 | 지도 타일 되돌림 (`vector-tile-manifest-rollback`) | 실행 증거 대기 | 이전 타일 매니페스트 버전으로 되돌린다. |
 | 레이크하우스 품질 검사 (`lakehouse-quality-gate`) | 실행 증거 대기 | 변환 결과가 품질 기준을 어기면 발행을 막는다. |
+| 지적 판 준비 판정 (`parcel-edition-readiness`) | 실행 경로 있음 | 지적 판마다 원천·Silver·리허설이 다 있는지 판정하고, 준비된 판만 서빙판으로 승격할 수 있게 한다(루트 ADR-0379, ADR-0380). 더니어 「지적 판」 탭이 보인다. |
 | 레이크하우스 계보 이벤트 (`lakehouse-lineage-event`) | 실행 증거 대기 | 원천·정제·품질·산출물의 연결 근거를 발행한다. |
 | 객체 저장소 재고 감사 (`r2-inventory-audit`) | 실행 증거 대기 | 저장 공간의 객체 재고와 삭제 후보를 확인한다. |
 | 신선도·실행시간 기준 (`lakehouse-slo-policy`) | 실행 증거 대기 | 수집과 변환의 지연·실패 신호를 관측한다. |
@@ -459,6 +460,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 필지 경계 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 지도 편집 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py` |
 | 필지 ID 원장 → 필지 서빙본 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_matching_gate.py` |
+| 필지 경계 → 지적 판 준비 판정 | `platforms/foundation-platform/scripts/ops/parcel-edition-readiness.sh` |
 | 필지 서빙본 → 필지 지도 타일 | `platforms/foundation-platform/scripts/ops/parcel-tile-bake.sh`<br>`bake-lakehouse-tiles` |
 | 행정표준코드 법정동 → 법정동코드 스냅숏 | `platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py` |
 | 차세대 온비드 공매 (data.go.kr) → 온비드 부동산 물건 | `collect-data-go-kr-onbid`<br>`platforms/foundation-platform/scripts/ops/onbid-collect.sh`<br>`platforms/foundation-platform/scripts/ops/onbid-silver-load.sh`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py`<br>`platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py` |
