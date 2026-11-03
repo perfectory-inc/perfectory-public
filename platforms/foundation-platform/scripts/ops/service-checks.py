@@ -18,8 +18,9 @@
   The first fill of CI_WEEKS weeks takes some hours; after that it is a few requests a day.
 - security: the repository's open security advisories (root ADR-0278), for foundation-api's
   /metrics and so Alertmanager and #alerts: the open Dependabot alerts (with the host's one
-  read-only token), and the advisories the daily OSV and Cargo ratchets on main name in their
-  `advisory` annotations (anonymous; a run already read is not read again). Each source records
+  read-only token), and the advisories the OSV and Cargo ratchets name in their `advisory`
+  annotations (anonymous; a run already read is not read again): main's newest run of any event,
+  and newer pull request or merge-queue runs whose change touches no lockfile (root ADR-0388). Each source records
   whether it could be read, with a fixed reason when not. This part is not on the console's panel.
 
 Each part records its own error. Exits 1 only when no hostname could be measured: the unit's
@@ -59,12 +60,26 @@ CONTROL_ROOT = pathlib.Path(os.environ.get("FOUNDATION_SERVICE_CHECKS_CONTROL_RO
 # Security advisories (root ADR-0278). The token reads Dependabot alerts and nothing else; without it
 # that source says so and the two ratchets, read anonymously, still report.
 SECURITY_TOKEN_ENV = "FOUNDATION_PLATFORM_SECURITY_ALERTS_GITHUB_TOKEN"
-# The daily runs on main that refuse a new advisory, each naming it in an annotation.
+# The runs that refuse a new advisory, each naming it in an annotation.
 RATCHETS = {"osv-ratchet": "monorepo-guard.yml", "cargo-advisories": "dependency-advisories.yml"}
 ADVISORY_TITLE = "advisory"
 ADVISORY_MESSAGE = re.compile(r"(\S+) (\S+)")
-# The most one ratchet costs in an hour: its runs, a new run's jobs, and the failed jobs' annotations.
-SECURITY_REQUESTS = 6
+# Main's verdict is its newest completed run of any of these (root ADR-0388), not only the daily
+# one: 2026-10-30 an advisory published at 23:09Z was refused by a pull request at 23:16Z and by
+# main's push at 23:24Z, while the next scheduled run started at 00:48Z.
+MAIN_EVENTS = ("schedule", "push", "workflow_dispatch")
+# A pull request's or merge group's run reads main's lockfiles too: its refusal is main's when the
+# change touches no lockfile. Only the gates that run on changes are asked.
+CHANGE_EVENTS = ("pull_request", "merge_group")
+GATES_CHANGES = {"monorepo-guard.yml"}
+LOCKFILES = {"Cargo.lock", "pnpm-lock.yaml"}
+QUEUE_BRANCH = re.compile(r"gh-readonly-queue/[^/]+/pr-(\d+)-")
+# Main runs looked at for a known verdict before the last one known stands.
+MAIN_RUNS_READ = 3
+# The most one new run costs: its jobs, a failed job's annotations, its pull request's files.
+RUN_REQUESTS = 3
+# What a ratchet needs to start: its two run lists and one new run.
+SECURITY_REQUESTS = 2 + RUN_REQUESTS
 
 
 def hostnames(contract: pathlib.Path = CONTRACT) -> list[str]:
@@ -242,29 +257,85 @@ def dependabot(repository: str, token: str | None, ask=github) -> tuple[dict, st
     return readable, headers.get("github-authentication-token-expiration")
 
 
-def ratchet(repository: str, workflow: str, token: str | None, previous: dict | None, ask=github) -> dict:
-    """The advisories the latest completed scheduled run of a ratchet on main names in its
-    `advisory` annotations (`<advisory> <package>`). A run already read is not read again."""
-    runs, _ = ask(f"/repos/{repository}/actions/workflows/{workflow}/runs"
-                  "?branch=main&event=schedule&status=completed&per_page=1", token)
-    if not runs["workflow_runs"]:
-        return source_error("no-run", f"{workflow} has no completed scheduled run on main")
-    run = runs["workflow_runs"][0]
-    if previous and previous.get("readable") and previous.get("run_id") == run["id"]:
-        return previous
-    jobs, _ = ask(f"/repos/{repository}/actions/runs/{run['id']}/jobs?per_page=100", token)
-    # A link that is the same every day: the run's own changes daily and would re-announce.
-    link = f"https://github.com/{repository}/actions/workflows/{workflow}?query=branch%3Amain"
+def run_advisories(repository: str, run_id: int, link: str, ask=github) -> list[dict]:
+    """The `<advisory> <package>` pairs a run's failed jobs name in `advisory` annotations."""
+    jobs, _ = ask(f"/repos/{repository}/actions/runs/{run_id}/jobs?per_page=100", None)
     findings = {}
     for job in jobs["jobs"]:
         if job["conclusion"] in ("success", "skipped"):
             continue  # the ratchets annotate only when they refuse
-        notes, _ = ask(f"/repos/{repository}/check-runs/{job['id']}/annotations?per_page=100", token)
+        notes, _ = ask(f"/repos/{repository}/check-runs/{job['id']}/annotations?per_page=100", None)
         for note in notes:
             match = ADVISORY_MESSAGE.fullmatch((note.get("message") or "").strip())
             if note.get("title") == ADVISORY_TITLE and match:
                 findings.setdefault(match.groups(), {"advisory": match[1], "package": match[2], "severity": "", "link": link})
-    return {"readable": True, "reason": None, "error": None, "findings": list(findings.values()), "run_id": run["id"]}
+    return list(findings.values())
+
+
+def changes_a_lockfile(repository: str, run: dict, ask=github) -> bool:
+    """Whether the change a pull request or merge-queue run tested touches a lockfile. Unknown is
+    yes, so a refusal that may be the change's own never pages as main's."""
+    queued = QUEUE_BRANCH.match(run.get("head_branch") or "")
+    numbers = [int(queued[1])] if queued else [pull["number"] for pull in run.get("pull_requests") or []]
+    if not numbers:
+        return True  # a fork's pull request: the runs API does not name it
+    files, _ = ask(f"/repos/{repository}/pulls/{numbers[0]}/files?per_page=100", None)
+    # shortcut: one page; a change of 100+ files counts as touching a lockfile rather than paging.
+    return len(files) >= 100 or any(pathlib.PurePosixPath(f["filename"]).name in LOCKFILES for f in files)
+
+
+def ratchet(repository: str, workflow: str, token: str | None, previous: dict | None, ask=github,
+            remaining=lambda: API_RESERVE + RUN_REQUESTS) -> dict:
+    """The advisories main is exposed to by one ratchet (root ADR-0278, ADR-0388): those the newest
+    completed run on main whose verdict is known names, and those a newer failed pull request or
+    merge-queue run names when its change touches no lockfile. Read anonymously (the token reads
+    Dependabot alerts only); a run already read is not read again, and a run past the hour's budget
+    is read next hour."""
+    del token
+    # A link that is the same every day: a run's own changes and would re-announce.
+    link = f"https://github.com/{repository}/actions/workflows/{workflow}?query=branch%3Amain"
+    known = ({row["run_id"]: row["findings"] for row in previous.get("verdicts", [])}
+             if previous and previous.get("readable") else {})
+    verdicts = {}
+
+    def verdict(run: dict, of_change: bool) -> list[dict] | None:
+        """None while unknown: a run on main that failed without naming an advisory says nothing."""
+        if run["id"] in known:
+            verdicts[run["id"]] = known[run["id"]]
+        elif run["conclusion"] == "success":
+            verdicts[run["id"]] = []
+        elif remaining() >= API_RESERVE + RUN_REQUESTS:
+            found = run_advisories(repository, run["id"], link, ask)
+            if found and of_change and changes_a_lockfile(repository, run, ask):
+                found = []  # the change's own dependency: its pull request is already red
+            verdicts[run["id"]] = found if found or of_change else None
+        return verdicts.get(run["id"])
+
+    listed, _ = ask(f"/repos/{repository}/actions/workflows/{workflow}/runs"
+                    "?branch=main&status=completed&per_page=10", None)
+    main_runs = [run for run in listed["workflow_runs"]
+                 if run.get("event") in MAIN_EVENTS and run.get("conclusion") in ("success", "failure")]
+    if not main_runs:
+        return source_error("no-run", f"{workflow} has no completed run on main")
+    base, findings = None, {}
+    for run in main_runs[:MAIN_RUNS_READ]:
+        found = verdict(run, of_change=False)
+        if found is not None:
+            base, findings = run, {(f["advisory"], f["package"]): f for f in found}
+            break
+    if base is None:
+        if previous and previous.get("readable"):
+            return previous  # main's newest runs failed before the ratchet spoke: what was known stands
+        return source_error("no-verdict", f"{workflow}'s newest runs on main failed without naming an advisory")
+    if workflow in GATES_CHANGES:
+        failed, _ = ask(f"/repos/{repository}/actions/workflows/{workflow}/runs?status=failure&per_page=20", None)
+        for run in failed["workflow_runs"]:
+            # Only evidence newer than main's verdict: a later green run on main supersedes it.
+            if run.get("event") in CHANGE_EVENTS and run["created_at"] > base["created_at"]:
+                for finding in verdict(run, of_change=True) or []:
+                    findings.setdefault((finding["advisory"], finding["package"]), finding)
+    return {"readable": True, "reason": None, "error": None, "findings": list(findings.values()),
+            "run_id": base["id"], "verdicts": [{"run_id": run_id, "findings": found} for run_id, found in verdicts.items()]}
 
 
 def measure_security(repository: str, token: str | None, previous: dict | None, now: datetime,
@@ -289,7 +360,7 @@ def measure_security(repository: str, token: str | None, previous: dict | None, 
             if remaining() < API_RESERVE + SECURITY_REQUESTS:
                 sources[name] = previous_sources.get(name) or unread(name, "github-error", "no anonymous budget left")
                 continue
-            sources[name] = ratchet(repository, workflow, None, previous_sources.get(name), ask)
+            sources[name] = ratchet(repository, workflow, None, previous_sources.get(name), ask, remaining)
         except Exception as error:
             sources[name] = unread(name, "github-error", error)
     return {"checked_at": now.isoformat(), "token_expires_at": expires, "sources": sources}
