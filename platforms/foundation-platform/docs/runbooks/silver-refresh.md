@@ -33,6 +33,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-permit-demolition-loss` | `silver.building_permit_demolition_loss` | 철거멸실관리대장 `mart_kcy_07` (루트 ADR-0397) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-energy-monthly-electricity` | `silver.building_energy_monthly_electricity` | 월별 전기 `eais_elcty_YYYYMM` (루트 ADR-0396) | 객체 하나가 사용 월 하나: 오래된 것부터 run 마다 하나, 그 달 묶음만 비교해 바뀐 지번만 main 에 (`release_unit` object, `bucket_scope` release) |
 | `building-energy-monthly-gas` | `silver.building_energy_monthly_gas` | 월별 가스 `eais_gas_YYYYMM` (루트 ADR-0396) | 전기와 같다 |
+| `building-register-sub-parcel` | `silver.building_register_sub_parcel` | 부속지번 `mart_djy_05` (루트 ADR-0395) | 부분을 load branch 에 쌓고 부속지번 묶음이 바뀐 대장만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `building-permit-basis-outline` | `silver.building_permit_basis_outline` | 건축인허가 기본개요 `mart_kcy_01` (루트 ADR-0356) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275, ADR-0311) |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |
