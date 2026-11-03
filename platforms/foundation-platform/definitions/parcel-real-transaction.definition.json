@@ -28,7 +28,10 @@
         "silver-land-characteristic-to-gold-parcel-real-transaction",
         "silver-building-register-titles-to-gold-parcel-real-transaction",
         "silver-land-ownership-to-gold-parcel-real-transaction",
-        "silver-parcel-lineage-to-gold-parcel-real-transaction"
+        "silver-parcel-lineage-to-gold-parcel-real-transaction",
+        "silver-real-transaction-to-gold-real-transaction-region-stats",
+        "reference-legal-dong-code-change-to-gold-real-transaction-region-stats",
+        "gold-real-transaction-region-stats-to-gold-parcel-real-transaction"
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0371). Off until its first full build has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh parcel-real-transaction gold-rebuild; measured 2026-11-03: 828,897 deal rows loaded; computed: about 210 thousand a month across the 12 datasets, so about 50 million once their 250 months of history are in, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4)."
@@ -95,6 +98,24 @@
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
       ],
       "surface_kind": "r2_baked_documents"
+    },
+    {
+      "id": "gold-real-transaction-region-stats",
+      "type": "gold_table",
+      "title": "실거래 지역 통계",
+      "description": "(데이터셋, 법정동·시군구, 계약 달 또는 빌드 달 앞 12개월)마다 거래 수·해제 수와 해제되지 않은 거래의 m²당 금액(대지·계약면적, 토지 아닌 것은 건물면적) 사분위를 만원으로 담는다(루트 ADR-0350 4항, ADR-0371). 거래의 현재 법정동으로 세므로 코드 변경을 따라간다. 실거래 종류와 한 실행에서 같은 거래로 만들고, 변경이 닿은 시군구만 다시 계산해 키로 합친다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "table_name": "gold.real_transaction_region_stats",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.real_transaction_region_stats"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -184,6 +205,37 @@
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
       ]
+    },
+    {
+      "from": "silver-real-transaction",
+      "to": "gold-real-transaction-region-stats",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "description": "거래를 주소의 현재 법정동과 계약 달로 묶는다. 적재가 덧붙인 거래의 시군구만 다시 계산한다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-real-transaction-region-stats",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "코드 쌍으로 옛 코드의 거래를 현재 코드의 통계로 옮긴다. 바뀐 쌍의 두 코드가 걸친 시군구만 다시 계산한다(views.changed_codes)."
+    },
+    {
+      "from": "gold-real-transaction-region-stats",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "description": "문서의 region 은 그 법정동의 앞 12개월 통계 행이다(같은 실행의 같은 계산)."
     }
   ],
   "by_pnu_lanes": {

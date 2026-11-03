@@ -94,6 +94,11 @@ BUILD_COLUMNS = {
 }
 PNU_INPUTS = (PARCEL_SOURCE, LAND_SOURCE, TITLE_SOURCE, OWNERSHIP_SOURCE)
 INFERENCE_ONLY = (TITLE_SOURCE, OWNERSHIP_SOURCE)
+# The region statistics Gold (root ADR-0350 §4): written by this producer beside the kind, from the
+# same deals, so the document's `region` and the table never disagree.
+REGION_TABLE = "gold.real_transaction_region_stats"
+REGION_KEY = ("dataset_slug", "region_level", "region_code", "period_kind", "period")
+MONTH, TRAILING = "month", "trailing_12_months"
 
 
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
@@ -298,26 +303,19 @@ def gold_rows(frames: dict[str, Any], inference: dict[str, Any], as_of: date, so
                    .groupBy("legal_dong").agg(F.array_sort(F.collect_list(F.struct(
                        F.col("_n"), comparable.alias("_c")))).alias("_list"))
                    .select("legal_dong", F.transform("_list", lambda x: x["_c"]).alias("comparables")))
-    # Region: the 법정동's 공장창고 and 토지 deals of the last REGION_MONTHS, m² prices in 만원.
-    recent = by_deal.where(F.col("dataset_slug").isin(*REGION_DATASETS) & F.col("legal_dong").isNotNull()
-                           & (F.col("deal_date") >= F.lit(add_months(as_of, -REGION_MONTHS)))
-                           & (F.col("deal_date") < F.lit(add_months(as_of, 1))))
-    live = ~F.coalesce("cancelled", F.lit(False))
-    land_price = F.when(live & (F.col("land_area_m2") > 0), F.col("deal_amount_10k_krw") / F.col("land_area_m2"))
-    building_price = F.when(live & (F.col("building_area_m2") > 0) & (F.col("dataset_slug") == INDUSTRIAL),
-                            F.col("deal_amount_10k_krw") / F.col("building_area_m2"))
-    quartiles = lambda c: F.expr(f"percentile({c}, array(0.25, 0.5, 0.75))")  # noqa: E731
-    stats = (recent.withColumn("_land", land_price).withColumn("_building", building_price)
-             .groupBy("legal_dong", "dataset_slug").agg(
-                 F.count(F.lit(1)).alias("deal_count"),
-                 F.sum(F.when(~live, 1).otherwise(0)).cast("long").alias("cancelled_count"),
-                 quartiles("_land").alias("_lq"), quartiles("_building").alias("_bq")))
-    quart = lambda c: F.when(F.size(c) == 3, F.struct(  # noqa: E731
-        F.round(F.col(c)[0], 1).alias("p25"), F.round(F.col(c)[1], 1).alias("median"),
-        F.round(F.col(c)[2], 1).alias("p75")))
-    region = (stats.groupBy("legal_dong").agg(F.array_sort(F.collect_list(F.struct(
-        "dataset_slug", F.col("deal_count").cast("long").alias("deal_count"), "cancelled_count",
-        quart("_lq").alias("land_price_per_m2_10k_krw"), quart("_bq").alias("building_price_per_m2_10k_krw"))))
+    # Region: the 법정동's 공장창고 and 토지 rows of the region statistics' trailing 12 months
+    # (gold.real_transaction_region_stats, root ADR-0350 §4), m² prices in 만원.
+    trailing = region_rows(frames[RT_SOURCE], as_of).where(
+        (F.col("period_kind") == F.lit(TRAILING)) & (F.col("region_level") == F.lit("legal_dong"))
+        & F.col("dataset_slug").isin(*REGION_DATASETS))
+    quart = lambda prefix: F.when(F.col(f"{prefix}_median").isNotNull(), F.struct(  # noqa: E731
+        F.col(f"{prefix}_p25").alias("p25"), F.col(f"{prefix}_median").alias("median"),
+        F.col(f"{prefix}_p75").alias("p75")))
+    region = (trailing.groupBy(F.col("region_code").alias("legal_dong")).agg(F.array_sort(F.collect_list(F.struct(
+        "dataset_slug", "deal_count", "cancelled_count",
+        quart("land_price_per_m2").alias("land_price_per_m2_10k_krw"),
+        F.when(F.col("dataset_slug") == F.lit(INDUSTRIAL), quart("building_price_per_m2"))
+        .alias("building_price_per_m2_10k_krw"))))
         .alias("datasets")))
     # Which PNUs carry comparables: 지목 공장용지·창고용지, or a 공장창고 deal of their own.
     parcels = frames[PARCEL_SOURCE].select("pnu").distinct()
@@ -367,6 +365,92 @@ def gold_rows(frames: dict[str, Any], inference: dict[str, Any], as_of: date, so
         F.lit(None).cast("string").alias("attached_via"),
         F.lit(source_snapshot_id).alias("source_snapshot_id"), F.lit(published_at_utc).alias("published_at_utc"))
         .withColumn("row_digest", F.sha2(F.to_json(F.struct(*content)), 256)).select(*columns))
+
+
+def region_rows(deals: Any, as_of: date) -> Any:
+    """The region statistics of `deals` (root ADR-0350 §4): per (dataset, 법정동 or 시군구, period) the
+    deal count, the cancelled count and the m² price quartiles in 만원 of the uncancelled deals, by
+    land area (계약면적·대지면적) and, but for 토지, by building area. A period is a contract month
+    (`month`, `YYYY-MM`) or the TRAILING 12 months before the build month (`as_of`'s month). The
+    region is the deal's CURRENT 법정동 (`legal_dong`, the address through the code pairs), so a code
+    change moves a deal's statistics with it."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    as_of = month_start(as_of)
+    base = deals.where(F.col("legal_dong").isNotNull() & F.col("deal_date").isNotNull())
+    live = ~F.coalesce("cancelled", F.lit(False))
+    amount = F.col("deal_amount_10k_krw")
+    base = (base.withColumn("_land", F.when(live & (F.col("land_area_m2") > 0), amount / F.col("land_area_m2")))
+            .withColumn("_building", F.when(live & (F.col("building_area_m2") > 0) & (F.col("dataset_slug") != LAND),
+                                            amount / F.col("building_area_m2")))
+            .withColumn("_live", live))
+    monthly = base.withColumn("period_kind", F.lit(MONTH)).withColumn("period", F.date_format("deal_date", "yyyy-MM"))
+    recent = (base.where((F.col("deal_date") >= F.lit(add_months(as_of, -REGION_MONTHS)))
+                         & (F.col("deal_date") < F.lit(as_of)))
+              .withColumn("period_kind", F.lit(TRAILING)).withColumn("period", F.lit(as_of.strftime("%Y-%m"))))
+    periods = monthly.unionByName(recent)
+    levels = (periods.withColumn("region_level", F.lit("legal_dong")).withColumn("region_code", F.col("legal_dong"))
+              .unionByName(periods.withColumn("region_level", F.lit("sigungu"))
+                           .withColumn("region_code", F.concat(F.substring("legal_dong", 1, 5), F.lit("00000")))))
+    quartiles = lambda c: F.expr(f"percentile({c}, array(0.25, 0.5, 0.75))")  # noqa: E731
+    stats = levels.groupBy(*REGION_KEY).agg(
+        F.count(F.lit(1)).cast("long").alias("deal_count"),
+        F.sum(F.when(~F.col("_live"), 1).otherwise(0)).cast("long").alias("cancelled_count"),
+        quartiles("_land").alias("_lq"), quartiles("_building").alias("_bq"))
+    quart = [F.when(F.size(c) == 3, F.round(F.col(c)[i], 1)).alias(f"{name}_{label}")
+             for c, name in (("_lq", "land_price_per_m2"), ("_bq", "building_price_per_m2"))
+             for i, label in enumerate(("p25", "median", "p75"))]
+    return stats.select(*REGION_KEY, "deal_count", "cancelled_count", *quart)
+
+
+def region_gold_rows(deals: Any, as_of: date, source_snapshot_id: str, published_at_utc: str,
+                     columns: tuple[str, ...]) -> Any:
+    """`region_rows` as the region statistics Gold: with its digest of content only and its pins."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    rows = region_rows(deals, as_of)
+    content = [c for c in columns if c not in ("row_digest", "source_snapshot_id", "published_at_utc")]
+    return (rows.withColumn("row_digest", F.sha2(F.to_json(F.struct(*content)), 256))
+            .withColumn("source_snapshot_id", F.lit(source_snapshot_id))
+            .withColumn("published_at_utc", F.lit(published_at_utc)).select(*columns))
+
+
+def region_scope(dongs: Any | None, prefixes: list[str]) -> list[str]:
+    """The 시군구-wide code prefixes whose region statistics a change reaches: a 시군구's rows read
+    every 법정동 under it, so the scope is never narrower than a 시군구 (5 digits)."""
+    found = {p[:5] for p in prefixes}
+    if dongs is not None:
+        found |= {row["legal_dong"][:5] for row in dongs.select("legal_dong").distinct().collect()}
+    return sorted(found)
+
+
+def merge_region_stats(spark: Any, table: str, frames: dict[str, Any], scope: list[str] | None, as_of: date,
+                       source_snapshot_id: str, published_at_utc: str, columns: tuple[str, ...],
+                       properties: dict[str, str]) -> dict[str, int]:
+    """Write the region statistics: whole (`scope` None, a full build) or only the 시군구 of `scope`,
+    recomputed from their deals and merged by key; rows of those 시군구 the rebuild no longer makes
+    are deleted (root ADR-0312 §2: a run writes only what its change reaches)."""
+    from functools import reduce  # noqa: PLC0415
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    import gold_incremental as incremental  # noqa: PLC0415
+    from gold_rebuild import write_gold_snapshot  # noqa: PLC0415
+
+    deals = frames[RT_SOURCE]
+    if scope is None:
+        rows = region_gold_rows(deals, as_of, source_snapshot_id, published_at_utc, columns)
+        write_gold_snapshot(rows, table, "overwrite", {}, F.lit(True), properties)
+        return {"region_scope_sigungu": -1, "region_rows": rows.count()}
+    if not scope:
+        return {"region_scope_sigungu": 0}
+    inside = lambda column: reduce(lambda a, b: a | b, [F.col(column).startswith(p) for p in scope])  # noqa: E731
+    rows = region_gold_rows(deals.where(inside("legal_dong")), as_of, source_snapshot_id, published_at_utc, columns)
+    current = spark.table(table).where(inside("region_code"))
+    source, counts = incremental.merge_source(rows, current, REGION_KEY)
+    incremental.merge_into_gold(spark, table, source, {**properties,
+                                incremental.KEYS_CHANGED_PROPERTY: str(incremental.keys_changed(counts))}, REGION_KEY)
+    return {"region_scope_sigungu": len(scope), **{f"region_{k}": v for k, v in counts.items()}}
 
 
 def under(frame: Any, column: str, dongs: Any) -> Any:
@@ -557,7 +641,7 @@ def main(argv=None) -> int:
     import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
     import rt_molit_real_transaction as rt  # noqa: PLC0415
     import section_coverage  # noqa: PLC0415
-    from gold_rebuild import assert_minimum_row_count  # noqa: PLC0415
+    from gold_rebuild import assert_minimum_row_count, pins_properties  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
     from lakehouse_snapshot_pins import load_source_snapshot_pins  # noqa: PLC0415
     from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract  # noqa: PLC0415
@@ -577,6 +661,7 @@ def main(argv=None) -> int:
     if columns != ("pnu", *kind.columns, "attached_via", "row_digest", "source_snapshot_id", "published_at_utc"):
         raise ValueError(f"{kind.gold_table} columns {columns} are not the kind line's {kind.columns}")
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
+    region_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{REGION_TABLE.split('.', 1)[1]}`"
     rt_table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{RT_SOURCE.split('.', 1)[1]}"
     assert_catalog_env(args.iceberg_catalog_name)
     spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
@@ -602,10 +687,14 @@ def main(argv=None) -> int:
                 [r.asDict() for r in frames[CODE_CHANGE_SOURCE].collect()])
             return with_codes(appended.select("address_raw"), code_frame(spark, rows))
 
+        reached: dict[str, Any] = {}
+
         def affected(changed: list[str], appended: list[str]) -> Any:
             dongs, prefixes = affected_dongs(changed, appended, old=previous_frames, new=frames,
                                              appended_deals=appended_deals,
                                              aged=aged_out_months(previous_as_of(spark, table), as_of))
+            # The same 법정동s bound the region statistics' rewrite, widened to their 시군구.
+            reached["scope"] = region_scope(dongs, prefixes)
             return affected_pnus(dongs, prefixes, [frames[PARCEL_SOURCE], spark.table(table)])
 
         lane = incremental.Lane(
@@ -624,6 +713,15 @@ def main(argv=None) -> int:
                 outcome.commit(spark, table, pins, args.iceberg_write_mode)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    kind.gold_table, pins)
+                # The region statistics: whole after a full build (or when the table is new), else
+                # only the 시군구 the incremental change reached.
+                region_contract = load_lakehouse_contract(REGION_TABLE)
+                ensure_contract_table(spark, region_table, region_contract)
+                whole = outcome.mode == "full" or spark.table(region_table).limit(1).count() == 0
+                counters.update(merge_region_stats(
+                    spark, region_table, frames, None if whole else reached.get("scope", []), as_of,
+                    pins[PARCEL_SOURCE], args.published_at_utc, tuple(column_names(region_contract)),
+                    pins_properties(region_table, pins)))
             summary = {
                 "schema_version": panel.RUN_SUMMARY_SCHEMA_VERSION, "job_name": JOB_NAME, "contract": kind.gold_table,
                 "lane": args.lane, "created_at_utc": panel.normalize_utc_timestamp(None), "row_count": outcome.row_count,
@@ -638,7 +736,8 @@ def main(argv=None) -> int:
     panel.emit_run_summary(summary, args.summary_output)
     if args.lineage_output and not args.validate_only:
         with open(args.lineage_output, "w", encoding="utf-8") as lineage:
-            json.dump({"job_name": JOB_NAME, "output_dataset": kind.gold_table, "inputs": dict(sorted(pins.items()))},
+            json.dump({"job_name": JOB_NAME, "output_dataset": kind.gold_table, "output_datasets": [kind.gold_table, REGION_TABLE],
+                       "inputs": dict(sorted(pins.items()))},
                       lineage, sort_keys=True)
     print(f"gold-kind-{'validate' if args.validate_only else 'write'}-ok lane={args.lane} rows={outcome.row_count} "
           f"mode={outcome.mode}")
