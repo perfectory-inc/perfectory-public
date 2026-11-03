@@ -247,6 +247,28 @@ def read_appended(spark: Any, table: str, old: str, new: str) -> Any:
             .option("end-snapshot-id", str(int(new))).load(table))
 
 
+def appends_map_to_keys(contract: dict[str, Any], key: str = KEY) -> bool:
+    """Whether a table's appends name every `key` whose current rows they change (root ADR-0392).
+
+    A versioned table (its contract's `current_row_latest`) gains versions or removal markers of
+    its keys by an append and nothing else, so a key's current row differs only if the append holds
+    that key; when the key holds `key`, the appended rows' `key` values are a superset of the
+    changed ones. An unversioned table's read may not be row-local (one batch of several), and a key
+    without `key` maps to nothing.
+    """
+    from platform_contracts import current_row_latest
+
+    latest = current_row_latest(contract)
+    return latest is not None and key in latest.key
+
+
+def appended_keys(spark: Any, tables: dict[str, str], previous: dict[str, str], pins: dict[str, str],
+                  appended: list[str], key: str = KEY) -> dict[str, Any]:
+    """Each input in `appended` -> the distinct `key` of the rows its appends added (root ADR-0392)."""
+    return {name: read_appended(spark, tables[name], previous[name], pins[name]).select(key).distinct()
+            for name in appended}
+
+
 def phase_done(name: str, started: float) -> float:
     """Print one phase's wall seconds to the run log; return the time it ended."""
     now = time.monotonic()

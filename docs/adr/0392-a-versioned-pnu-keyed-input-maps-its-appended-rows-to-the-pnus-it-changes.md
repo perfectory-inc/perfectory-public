@@ -49,7 +49,7 @@ ADR-0189 가 필지 패널을 뺀 까닭은 두 가지였다. "읽기가 행 단
 ## Decision
 
 1. **PNU 를 키에 담은 버전 입력은 append 를 PNU 로 매핑한다.** 필지 패널의 속성 입력 중
-   `current_row_latest` 가 있고 그 키가 `pnu` 를 담는 입력(`APPEND_KEYED_SOURCES`, `appends_map_to_pnus`)은
+   `current_row_latest` 가 있고 그 키가 `pnu` 를 담는 입력(`APPEND_KEYED_SOURCES`, 규칙은 공용 `gold_incremental.appends_map_to_keys`, 추가분 키는 `appended_keys`)은
    `Lane.append_inputs` 에 선언한다. 핀부터 새 판까지 append 뿐이면(`appended_span`, ADR-0189 결정 1), 그 입력의
    변경 PNU 는 증분 append 읽기(`read_appended`)로 읽은 추가분의 `pnu` 다.
    - 원래 코드의 PNU 와, 빌드가 쓰는 서빙 코드로 바꾼 PNU(`renumbered`)를 둘 다 넣는다.

@@ -543,15 +543,17 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         """2026-11-03: the parcel rebuild diffed 131.8M transfer history rows for 182,700 appended
         ones (7,661 s) and timed out twice. An attribute that stops mapping its appends falls back
         to that diff, so each must; a versioned key without the PNU cannot (root ADR-0392)."""
+        import gold_incremental as incremental
         import parcel_panel_silver_to_gold as job
         from platform_contracts import load_lakehouse_contract
 
         self.assertEqual(set(job.APPEND_KEYED_SOURCES), set(job.ATTRIBUTE_SOURCES))
         contract = json.loads(json.dumps(load_lakehouse_contract(job.TRANSFER_SOURCE)))
+        self.assertTrue(incremental.appends_map_to_keys(contract))
         contract["current_row_latest"]["key"] = ["transfer_history_seq"]
-        self.assertFalse(job.appends_map_to_pnus(contract))
+        self.assertFalse(incremental.appends_map_to_keys(contract))
         contract["current_row_latest"] = None
-        self.assertFalse(job.appends_map_to_pnus(contract))
+        self.assertFalse(incremental.appends_map_to_keys(contract))
 
     def append(self, name, rows):
         """Append `rows` to `name` (one append snapshot); the new head snapshot id."""
