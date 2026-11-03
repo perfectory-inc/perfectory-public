@@ -170,7 +170,8 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
 
         if not self.spark.table(UNQUOTED).count():
             ingest.append_batch_once(self.spark, self.frame("20990301", [(9, 1, "x")]), self.columns, TABLE, CONTRACT)
-        with self.assertRaisesRegex(ValueError, "on main"):
+        # The declaration refuses it first (root ADR-0286): the table keeps every version.
+        with self.assertRaisesRegex(ValueError, "keeps every row"):
             ingest.append_batch_once(self.spark, self.frame("20990401", [(9, 1, "y")]), self.columns, TABLE,
                                      CONTRACT, write_mode="overwrite")
 
