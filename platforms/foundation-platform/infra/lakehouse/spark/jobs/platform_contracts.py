@@ -522,6 +522,15 @@ def pinned_edition(frame: Any, contract: dict[str, Any], edition: str) -> Any:
     return rows if predicate is None else rows.where(F.expr(predicate))
 
 
+def all_rows(frame: Any, contract: dict[str, Any]) -> Any:
+    """Every row of every version and edition, for a write that keeps them all: a schema backfill
+    rewrites the table's rows as they are, whatever it keeps (root ADR-0286 §3). Not a current read:
+    the declared access point that says so, so the reader guard can tell it from a raw read."""
+
+    row_versions(contract)
+    return frame
+
+
 def all_editions(frame: Any, contract: dict[str, Any]) -> Any:
     """Every edition, for a reader that reads them as history: the declared access point for it."""
 

@@ -483,9 +483,10 @@ def _tables(argv: Sequence[str]) -> int:
 
 
 def newest_snapshot_rows(spark: Any, catalog: str) -> list[tuple[str, str, str]]:
-    table = f"`{catalog}`.`reference`.`legal_dong_code_snapshot`"
-    newest = spark.sql(f"SELECT max(snapshot_date) AS d FROM {table}").collect()[0]["d"]
-    rows = spark.sql(f"SELECT region_cd, full_name, status FROM {table} WHERE snapshot_date = DATE '{newest}'").collect()
+    from legal_dong_code_snapshot_to_reference import newest_snapshot  # noqa: PLC0415
+
+    rows = newest_snapshot(spark, f"`{catalog}`.`reference`.`legal_dong_code_snapshot`").select(
+        "region_cd", "full_name", "status").collect()
     return [(row["region_cd"], row["full_name"], row["status"]) for row in rows]
 
 

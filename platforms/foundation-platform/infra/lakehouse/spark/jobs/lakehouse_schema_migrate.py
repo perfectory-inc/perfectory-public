@@ -42,6 +42,7 @@ from lakehouse_engine import apply_catalog_settings, assert_iceberg_runtime_load
 from platform_contracts import (
     admit_write,
     IDENTIFIER_PATTERN,
+    all_rows,
     apply_write_order,
     column_names,
     evolve_iceberg_table_to_contract,
@@ -280,7 +281,7 @@ def backfill(spark: SparkSession, catalog: str, table_name: str, contract: dict,
         f"SELECT snapshot_id FROM {quoted}.refs WHERE name = 'main'"
     ).first()[0]
     carried = carried_properties(_snapshots(spark, quoted), str(snapshot))
-    frame = spark.read.format("iceberg").option("snapshot-id", snapshot).load(identifier)
+    frame = all_rows(spark.read.format("iceberg").option("snapshot-id", snapshot).load(identifier), contract)
     expected = column_names(contract)
     types = {column["name"]: spark_sql_type(column["logical_type"]) for column in contract["columns"]}
     for name in expected:

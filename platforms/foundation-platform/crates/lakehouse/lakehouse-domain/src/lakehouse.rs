@@ -170,6 +170,109 @@ impl LakehouseTableContract {
             _ => None,
         }
     }
+
+    /// The rows of the newest edition of an [`LakehouseRowVersions::Editions`] table, per `per`
+    /// group: the edition whose maxima of `newest_first`, compared in turn, are the greatest. The
+    /// Rust twin of `platform_contracts.newest_edition` (root ADR-0286 §3, ADR-0376 §1): a tie is
+    /// refused, and the order is never the edition id. Readers that pick an edition by their own
+    /// rule read a second copy of the contract's meaning (the `max(snapshot_date)` of 2026-11-04).
+    ///
+    /// # Errors
+    ///
+    /// The table does not append editions, or two editions of one group tie on every column.
+    pub fn newest_edition_rows<'a>(
+        &self,
+        rows: &'a [serde_json::Map<String, serde_json::Value>],
+    ) -> Result<Vec<&'a serde_json::Map<String, serde_json::Value>>, NewestEditionError> {
+        let LakehouseRowVersions::Editions {
+            edition_column,
+            newest_first,
+            per,
+            ..
+        } = self.row_versions
+        else {
+            return Err(NewestEditionError::NotEditions(self.table_name));
+        };
+        let text = |row: &serde_json::Map<String, serde_json::Value>, column: &str| -> String {
+            match row.get(column) {
+                None | Some(serde_json::Value::Null) => String::new(),
+                Some(serde_json::Value::String(value)) => value.clone(),
+                Some(other) => other.to_string(),
+            }
+        };
+        let group_of = |row| {
+            per.iter()
+                .map(|column| text(row, column))
+                .collect::<Vec<_>>()
+        };
+        // Each edition's maxima, per group. Text order: the columns are ISO dates, `YYYYMMDD` and
+        // instants, whose text order is their time order.
+        let mut maxima: std::collections::BTreeMap<(Vec<String>, String), Vec<String>> =
+            std::collections::BTreeMap::new();
+        for row in rows {
+            let order: Vec<String> = newest_first
+                .iter()
+                .map(|column| text(row, column))
+                .collect();
+            let entry = maxima
+                .entry((group_of(row), text(row, edition_column)))
+                .or_insert_with(|| order.clone());
+            for (held, value) in entry.iter_mut().zip(order) {
+                if value > *held {
+                    *held = value;
+                }
+            }
+        }
+        let mut newest: std::collections::BTreeMap<Vec<String>, (Vec<String>, Vec<String>)> =
+            std::collections::BTreeMap::new();
+        for ((group, edition), order) in maxima {
+            match newest.entry(group) {
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert((order, vec![edition]));
+                }
+                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                    let (held, editions) = slot.get_mut();
+                    match order.cmp(held) {
+                        std::cmp::Ordering::Greater => *slot.get_mut() = (order, vec![edition]),
+                        std::cmp::Ordering::Equal => editions.push(edition),
+                        std::cmp::Ordering::Less => {}
+                    }
+                }
+            }
+        }
+        if let Some((_, editions)) = newest.values().find(|(_, editions)| editions.len() > 1) {
+            return Err(NewestEditionError::Tied {
+                table: self.table_name,
+                editions: editions.clone(),
+            });
+        }
+        Ok(rows
+            .iter()
+            .filter(|row| {
+                newest
+                    .get(&group_of(row))
+                    .is_some_and(|(_, editions)| editions[0] == text(row, edition_column))
+            })
+            .collect())
+    }
+}
+
+/// Why [`LakehouseTableContract::newest_edition_rows`] names no newest edition.
+#[derive(Debug, Eq, PartialEq, thiserror::Error)]
+pub enum NewestEditionError {
+    /// The table's rows do not pile up as editions.
+    #[error("{0} does not append editions")]
+    NotEditions(&'static str),
+    /// Two editions of one group tie on every `newest_first` column.
+    #[error(
+        "{table} holds editions tied on its edition order, so none is the newest: {editions:?}"
+    )]
+    Tied {
+        /// The table.
+        table: &'static str,
+        /// The tied editions.
+        editions: Vec<String>,
+    },
 }
 
 /// What one load of a table carries.

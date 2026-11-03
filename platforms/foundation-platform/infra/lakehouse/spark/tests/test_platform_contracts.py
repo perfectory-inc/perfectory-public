@@ -152,16 +152,24 @@ class PlatformContractsTest(unittest.TestCase):
 
 
 PIPELINE_GRAPH = SPARK_DIR.parents[2] / "docs" / "catalog" / "pipeline-graph.v1.json"
-# `rows_as_of` is the current rows as of a release (root ADR-0318); `pinned_edition` and
-# `all_editions` are the declared reads of one edition and of every edition (root ADR-0286 §3).
-CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of", "pinned_edition", "all_editions"}
+# `rows_as_of` is the current rows as of a release (root ADR-0318); `pinned_edition`, `all_editions`
+# and `all_rows` are the declared reads of one edition, of every edition and of every row for a
+# rewrite (root ADR-0286 §3); `served_rows` is the served cadastral edition (root ADR-0379).
+CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of", "pinned_edition", "all_editions",
+                     "all_rows", "served_rows"}
 
 
 def versioned_tables() -> set[str]:
-    """Every table that keeps versions per key: its contract declares the newest-per-key rule."""
+    """Every table whose rows are not each current: it keeps versions per key or whole editions
+    (`row_versions` neither `replaced`, `events` nor `unwritten`, root ADR-0286 §3, ADR-0377).
+
+    On 2026-10-16 the complex boundary release read `silver.industrial_complexes` whole while it
+    held three versions of each complex; on 2026-11-04 six readers still picked the code list's
+    newest snapshot by their own `max(snapshot_date)`. Both are reads of every row of such a table.
+    """
     return {
         name for name, contract in load_lakehouse_artifact()["contracts"].items()
-        if current_row_latest(contract) is not None
+        if contract["row_versions"]["kind"] in ("latest_per_key", "editions")
     }
 
 
@@ -183,6 +191,11 @@ def named_tables(source: str, tables: set[str]) -> set[str]:
         id(node.body[0].value) for node in ast.walk(tree)
         if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
+    }
+    # An argparse `help` text is documentation too: a generic tool's example names a table it does not read.
+    docstrings |= {
+        id(sub) for node in ast.walk(tree) if isinstance(node, ast.keyword) and node.arg == "help"
+        for sub in ast.walk(node.value) if isinstance(sub, ast.Constant)
     }
     strings = [
         node.value for node in ast.walk(tree)
@@ -448,6 +461,34 @@ class CurrentRowRuleTest(unittest.TestCase):
         self.assertIn(SILVER_INDUSTRIAL_COMPLEXES, tables)
         self.assertEqual(readers_bypassing_current_rows(JOBS_DIR, graph, tables), [])
 
+    def test_the_guard_covers_every_table_that_appends_editions(self) -> None:
+        """Root ADR-0377: the code list, the floors and the factory editions are guarded like versions.
+
+        Planted: the `max(snapshot_date)` read six jobs kept until 2026-11-04, and a whole read of the
+        factory's editions. A reader through the shared code-list reader passes.
+        """
+        tables = versioned_tables()
+        for table in ("reference.legal_dong_code_snapshot", "silver.building_register_floors",
+                      "silver.registered_factory", "silver.parcel_boundaries"):
+            self.assertIn(table, tables)
+        graph = {"nodes": [], "edges": []}
+        jobs = {
+            "raw_code_list.py": 'newest = spark.sql("SELECT max(snapshot_date) FROM r2.`reference`.`legal_dong_code_snapshot`")\n',
+            "raw_factory.py": 'rows = spark.table("r2.silver.registered_factory").count()\n',
+            "through_reader.py": "from legal_dong_code_snapshot_to_reference import newest_snapshot\n"
+                                 'codes = newest_snapshot(spark, "r2.`reference`.`legal_dong_code_snapshot`")\n',
+            "legal_dong_code_snapshot_to_reference.py":
+                "def newest_snapshot(spark, table):\n    return current_rows(spark.table(table), CONTRACT)\n",
+        }
+        with TemporaryDirectory() as tmp:
+            for name, text in jobs.items():
+                (Path(tmp) / name).write_text(text, encoding="utf-8")
+            self.assertEqual(
+                readers_bypassing_current_rows(Path(tmp), graph, tables),
+                [("raw_code_list.py", "reference.legal_dong_code_snapshot"),
+                 ("raw_factory.py", "silver.registered_factory")],
+            )
+
     def test_a_complex_reader_keeps_no_rule_of_its_own(self) -> None:
         for path in sorted(JOBS_DIR.glob("industrial_complex*.py")):
             source = path.read_text(encoding="utf-8")
@@ -473,6 +514,7 @@ class CurrentRowRuleTest(unittest.TestCase):
             "via_shared.py": 'from shared import read\nTABLE = "industrial_complexes"\n',
             "attribute.py": 'import platform_contracts as pc\nrows = pc.current_rows(spark.table("silver.industrial_complexes"), c)\n',
             "prose.py": '"""Reads silver.industrial_complexes."""\nTABLE = "silver.industrial_complex_boundaries"\n',
+            "help_text.py": 'parser.add_argument("--table", help="Logical table, e.g. silver.industrial_complexes")\n',
         }
         with TemporaryDirectory() as tmp:
             for name, text in jobs.items():

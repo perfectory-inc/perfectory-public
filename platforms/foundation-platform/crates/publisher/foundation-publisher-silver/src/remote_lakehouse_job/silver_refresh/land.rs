@@ -430,15 +430,13 @@ impl SidoCalendar {
     pub(in crate::remote_lakehouse_job) fn from_snapshot_rows(
         rows: &[JsonMap<String, JsonValue>],
     ) -> anyhow::Result<Self> {
-        let newest = rows
-            .iter()
+        // The newest snapshot by the table's contract, as every Spark reader takes it (root
+        // ADR-0286 §3), not by an order of its own.
+        let newest_rows = REFERENCE_LEGAL_DONG_CODE_SNAPSHOT.newest_edition_rows(rows)?;
+        let newest = newest_rows
+            .first()
             .map(|row| text(row, "snapshot_date"))
-            .max()
             .context("reference.legal_dong_code_snapshot holds no 시도 row")?;
-        let newest_rows: Vec<_> = rows
-            .iter()
-            .filter(|row| text(row, "snapshot_date") == newest)
-            .collect();
         let with_sido_row: BTreeSet<String> = newest_rows
             .iter()
             .filter_map(|row| {

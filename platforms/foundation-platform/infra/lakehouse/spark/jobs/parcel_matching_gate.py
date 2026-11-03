@@ -41,6 +41,7 @@ import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
+from legal_dong_code_snapshot_to_reference import newest_snapshot
 from platform_contracts import current_rows_of_versioned
 
 JOB_NAME = "parcel_matching_gate"
@@ -270,11 +271,11 @@ def main(argv: list[str] | None = None) -> int:
         parcels = spark.sql(
             f"SELECT DISTINCT pnu FROM {snapshot} AND substr(pnu, 1, 2) IN ({sql_prefixes(args.sido)})"
         ).persist()
-        newest = spark.sql(f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {cat}.`reference`.`legal_dong_code_snapshot`").collect()[0]["d"]
-        official = spark.sql(
-            f"SELECT region_cd, status FROM {cat}.`reference`.`legal_dong_code_snapshot` "
-            + (f"WHERE snapshot_date = DATE '{newest}'" if newest else "WHERE false")
-        )
+        # The newest snapshot of the code list, by its contract (root ADR-0286 §3).
+        code_list = newest_snapshot(spark, f"{cat}.`reference`.`legal_dong_code_snapshot`")
+        dated = code_list.selectExpr("CAST(snapshot_date AS STRING) AS d").limit(1).collect()
+        newest = dated[0]["d"] if dated else None
+        official = code_list.select("region_cd", "status")
         admin_codes = spark.sql(f"SELECT canonical_code FROM {cat}.`gold`.`administrative_boundary_served`")
         current = None
         if state == "checked":

@@ -26,7 +26,7 @@ from typing import Any
 import served_gold_common as common
 import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
-from platform_contracts import admit_write, column_names, declared_geometry_srid, load_lakehouse_contract
+from platform_contracts import admit_write, column_names, declared_geometry_srid, load_lakehouse_contract, pinned_edition
 
 JOB_NAME = "parcel_boundary_served_gold"
 UNIT = "parcels"
@@ -278,11 +278,12 @@ def main(argv: list[str] | None = None) -> int:
         silver_table = qualified(catalog, args.iceberg_namespace, args.iceberg_table)
         silver_snapshot = common.current_snapshot(spark, silver_table)
         # Pinned to one Iceberg snapshot, so the checks and the write read the same rows.
-        base = spark.sql(
-            f"SELECT pnu, geometry_wkb, geometry_srid, geometry_checksum_sha256, source_snapshot_id "
-            f"FROM {silver_table} VERSION AS OF {silver_snapshot} "
-            f"WHERE source_snapshot_id = '{args.source_snapshot_id}'"
-        )
+        # One named edition, by the contract (root ADR-0286 §3, ADR-0376 §2); its rows are all open
+        # (2026-11-04: 0 closed rows in either edition), so the predicate keeps every one.
+        base = pinned_edition(
+            spark.read.option("snapshot-id", str(silver_snapshot)).table(silver_table), SILVER_CONTRACT,
+            args.source_snapshot_id,
+        ).select("pnu", "geometry_wkb", "geometry_srid", "geometry_checksum_sha256", "source_snapshot_id")
         base_rows = check_silver(base, args.source_snapshot_id)
         served, counts, expected = build_served_frame(base, base_rows, ledger)
 
