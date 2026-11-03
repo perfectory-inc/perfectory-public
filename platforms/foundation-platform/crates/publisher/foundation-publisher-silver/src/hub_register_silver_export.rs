@@ -5,6 +5,8 @@ mod apartment_price_tests;
 #[cfg(test)]
 mod demolition_loss_tests;
 #[cfg(test)]
+mod energy_monthly_tests;
+#[cfg(test)]
 mod exclusive_unit_tests;
 mod layout;
 #[cfg(test)]
@@ -294,7 +296,7 @@ fn convert<R: Read + Seek>(
     open: impl Fn(&OutputSink) -> anyhow::Result<HandoffSink> + Sync,
 ) -> anyhow::Result<Report> {
     layout.validate()?;
-    let member = zip_stream::open(source, &layout.inner_file)?;
+    let member = zip_stream::open(source, |name| layout.accepts_member(name))?;
     let mut report = Report::new(config, layout);
     report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
     let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
@@ -569,10 +571,20 @@ fn make_row(
     for name in layout.columns.keys() {
         row.insert(name.clone(), json!(layout.value(fields, name)?));
     }
-    if layout.row_key == Some(layout::RowKey::Sha256OfRow) {
-        // The fields joined back are the row's text exactly: it was split on every `|`.
-        let digest = sha2::Sha256::digest(fields.join("|").as_bytes());
-        row.insert("mgmt_key".into(), json!(format!("{digest:x}")));
+    match &layout.row_key {
+        None => {}
+        Some(layout::RowKey::Sha256OfRow) => {
+            // The fields joined back are the row's text exactly: it was split on every `|`.
+            let digest = sha2::Sha256::digest(fields.join("|").as_bytes());
+            row.insert("mgmt_key".into(), json!(format!("{digest:x}")));
+        }
+        Some(layout::RowKey::JoinedColumns(names)) => {
+            let parts = names
+                .iter()
+                .map(|name| layout.value(fields, name).map(str::trim))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            row.insert("mgmt_key".into(), json!(parts.join("|")));
+        }
     }
     row.extend(GENERATED_COLUMNS.into_iter().map(str::to_owned).zip([
         json!(pnu),

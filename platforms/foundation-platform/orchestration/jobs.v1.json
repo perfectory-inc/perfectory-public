@@ -754,6 +754,60 @@
       "enabled_since": "2026-11-04T00:00:00Z"
     },
     {
+      "id": "silver_refresh_building_energy_monthly_electricity",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 월별 전기 lane `building-energy-monthly-electricity` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_electricity does not record yet (`unchanged` when every one is), stage it on a load branch, compare only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-energy-monthly-electricity.service",
+      "check_service": "foundation-silver-refresh-plan@building-energy-monthly-electricity.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-energy-monthly-electricity"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    },
+    {
+      "id": "silver_refresh_building_energy_monthly_gas",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 월별 가스 lane `building-energy-monthly-gas` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_gas does not record yet (`unchanged` when every one is), stage it on a load branch, compare only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-energy-monthly-gas.service",
+      "check_service": "foundation-silver-refresh-plan@building-energy-monthly-gas.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-energy-monthly-gas"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    },
+    {
       "id": "silver_refresh_land_characteristic",
       "scope": "changed-keys",
       "interruptible": true,

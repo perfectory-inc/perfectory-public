@@ -164,6 +164,39 @@ pub(in crate::remote_lakehouse_job) fn select(
 
 /// Of several objects that would fill one place in a release, the one the provider updated
 /// later; the same or no update date is refused (the land lanes use the same rule, `land.rs`).
+/// Every object of a one-role lane as its own release, oldest ledger month first, then by key:
+/// the order they were published, so a later publication of a usage month loads after the earlier
+/// one and its edition is not older (root ADR-0396). A run loads the first not yet in the table.
+pub(in crate::remote_lakehouse_job) fn select_each(
+    roles: &BTreeMap<String, String>,
+    ledger: &[LedgerObject],
+) -> anyhow::Result<Vec<Release>> {
+    let [(role, slug)]: [(&String, &String); 1] = roles
+        .iter()
+        .collect::<Vec<_>>()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("a lane whose objects are releases reads one source"))?;
+    let mut objects: Vec<&LedgerObject> = ledger
+        .iter()
+        .filter(|object| object.slug == *slug)
+        .collect();
+    objects.sort_by(|a, b| (a.snapshot_date, &a.object_key).cmp(&(b.snapshot_date, &b.object_key)));
+    ensure!(!objects.is_empty(), "the ledger holds no object of {slug}");
+    objects
+        .into_iter()
+        .map(|object| {
+            let release = Release {
+                month: ProviderMonth::from_first_day(object.snapshot_date)
+                    .context("the ledger's hub month is not a provider month")?,
+                objects: BTreeMap::from([(role.clone(), object.clone())]),
+                skipped_incomplete: Vec::new(),
+            };
+            validate(roles, &release)?;
+            Ok(release)
+        })
+        .collect()
+}
+
 pub(in crate::remote_lakehouse_job) fn newest<'a>(
     candidates: &[&'a LedgerObject],
 ) -> anyhow::Result<Option<&'a LedgerObject>> {

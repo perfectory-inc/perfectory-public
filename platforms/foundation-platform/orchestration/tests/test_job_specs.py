@@ -492,7 +492,9 @@ LAND_LANES = [
 ]
 # The hub lanes root ADR-0355 adds after the five above: the same shape, one source each.
 HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline", "silver_refresh_building_register_master",
-                   "silver_refresh_building_permit_demolition_loss"]
+                   "silver_refresh_building_permit_demolition_loss",
+                   "silver_refresh_building_energy_monthly_electricity",
+                   "silver_refresh_building_energy_monthly_gas"]
 ALL_LANES = LANES + LAND_LANES + HUB_ADDED_LANES
 
 

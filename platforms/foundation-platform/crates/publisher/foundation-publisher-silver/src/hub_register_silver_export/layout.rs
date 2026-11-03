@@ -8,13 +8,21 @@ pub(super) struct Column {
     pub(super) index: usize,
 }
 
+/// The slot of `inner_file` a monthly member name fills with its `YYYYMM`.
+const MONTH_SLOT: &str = "{YYYYMM}";
+
 /// Where a row's `mgmt_key` comes from when the provider's key column is empty on every row.
-#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Deserialize, Eq, PartialEq)]
 pub(super) enum RowKey {
     /// The lowercase hex SHA-256 of the row's text: the row is its own identity, so a changed row
     /// is a new key and the old one a removal (root ADR-0397).
     #[serde(rename = "sha256_of_row")]
     Sha256OfRow,
+    /// These consumed columns' trimmed values joined by `|`, in order: a key the provider spells
+    /// across columns (월별 에너지: 사용 월 and 지번, root ADR-0396). The first column is what
+    /// the compare buckets by.
+    #[serde(rename = "joined_columns")]
+    JoinedColumns(Vec<String>),
 }
 
 /// The file layout of one hub national register (root ADR-0092). Which ZIP to read is not here:
@@ -98,6 +106,16 @@ impl Layout {
                     .all(|name| !super::GENERATED_COLUMNS.contains(&name.as_str())),
             "HUB columns must contain the PNU inputs and must not shadow generated columns"
         );
+        if let Some(RowKey::JoinedColumns(names)) = &self.row_key {
+            ensure!(
+                !names.is_empty() && names.iter().all(|name| self.columns.contains_key(name)),
+                "a joined row key names consumed columns"
+            );
+        }
+        ensure!(
+            self.inner_file.matches(MONTH_SLOT).count() <= 1,
+            "inner_file holds at most one {MONTH_SLOT}"
+        );
         ensure!(
             self.columns.contains_key("mgmt_key") != self.row_key.is_some(),
             "a HUB layout reads its mgmt_key from a column or makes it from the row, not both"
@@ -113,6 +131,19 @@ impl Layout {
             "source must be a hub.go.kr Bronze prefix"
         );
         Ok(())
+    }
+
+    /// Whether `name` is this layout's ZIP member: `inner_file` exactly, or with its one
+    /// `{YYYYMM}` standing for six digits (월별 에너지 names each file by its usage month,
+    /// `eais_elcty_202606.txt`, root ADR-0396).
+    pub(super) fn accepts_member(&self, name: &str) -> bool {
+        match self.inner_file.split_once(MONTH_SLOT) {
+            None => name == self.inner_file,
+            Some((head, tail)) => name
+                .strip_prefix(head)
+                .and_then(|rest| rest.strip_suffix(tail))
+                .is_some_and(|month| month.len() == 6 && month.bytes().all(|b| b.is_ascii_digit())),
+        }
     }
 
     /// The `vintage` (`YYYYMM`) of one of this source's monthly ZIPs: the provider month its
