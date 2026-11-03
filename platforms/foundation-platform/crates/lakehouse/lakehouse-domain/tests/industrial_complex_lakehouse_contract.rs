@@ -317,6 +317,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT.table_name
             || contract.table_name == SILVER_BUILDING_PERMIT_BASIS_OUTLINE.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_MASTER.table_name
+            || contract.table_name
+                == lakehouse_domain::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS.table_name
             || contract.table_name == SILVER_LAND_USE_ZONE_CODES.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS.table_name
             || contract.table_name == SILVER_UNIT_OFFICIAL_PRICE_VERSIONS.table_name

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0397-a-demolition-or-loss-report-lands-in-silver-keyed-by-its-own-content.md",
+  "source": "bronze/source=hubgokr__building_permit_demolition_loss",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_kcy_07",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 15,082,185 바이트, 멤버 mart_kcy_07.txt 79,051,004 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 462,774 행, 모든 행 34칸, 칸 0(관리허가대장PK)은 모든 행이 빈칸, 서로 다른 행 458,314 개(같은 행 최대 47번 되풀이). PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 462,368 행(99.91%). 2026-09 판과 행 묶음이 같다(양쪽에만 있는 행 0). 칸 뜻은 값이 스스로 말하는 칸만 붙였다: 철거멸실구분(1 철거 175,500·2 부분철거 17,209·3 멸실 6,070, 표본 20만 행), 주용도 코드·이름, 구조 코드·이름.",
+  "field_layout_authority": "2026-10 판 실측 표본의 값(코드와 이름이 짝을 이루는 칸, 지번 칸)",
+  "unmapped_columns": "이름을 붙이지 않은 칸(관리허가대장PK·대지위치·칸 2·특수지명·블록·로트·날짜 칸 13–15·면적 칸 16·동수 칸 17·층 칸 22·표시 칸 23–33)은 뜻을 추정하지 않고 raw_columns 의 원래 index 로만 보존한다. 날짜 세 칸은 칸 13 ≤ 칸 14 가 371,459 대 2,561 로 신고→완료 순서로 보이나 제공자 명세로 확인하기 전에는 이름을 붙이지 않는다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_07.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 34,
+  "row_key": "sha256_of_row",
+  "columns": {
+    "sigungu_cd": {
+      "index": 3,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 4,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 5,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 6,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 7,
+      "meaning": "지 원문"
+    },
+    "demolition_kind_code": {
+      "index": 11,
+      "meaning": "철거멸실구분코드 원문(1 철거·2 부분철거·3 멸실 등)"
+    },
+    "demolition_kind_name": {
+      "index": 12,
+      "meaning": "철거멸실구분명 원문(철거·부분철거·멸실 등)"
+    },
+    "main_purpose_code": {
+      "index": 18,
+      "meaning": "주용도코드 원문"
+    },
+    "main_purpose_name": {
+      "index": 19,
+      "meaning": "주용도명 원문(공장·창고시설 등)"
+    },
+    "structure_code": {
+      "index": 20,
+      "meaning": "구조코드 원문"
+    },
+    "structure_name": {
+      "index": 21,
+      "meaning": "구조명 원문(철근콘크리트구조 등)"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_demolition_loss",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-demolition-loss.service 의 실행 값(root ADR-0169 §3, ADR-0397). 판은 장부가 정한다. 행에 제공자 키가 없어 mgmt_key 는 행 글자의 SHA-256 이다(row_key). compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 한 묶음으로 커밋하고(전국 46만 행이라 나누지 않는다), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 2026-09 → 2026-10 은 바뀐 행이 0 이다.",
+    "table": "silver.building_permit_demolition_loss",
+    "roles": {
+      "source": "hubgokr__building_permit_demolition_loss"
+    },
+    "export": "export-building-permit-demolition-loss-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "demolition_kind_code",
+        "demolition_kind_name",
+        "main_purpose_code",
+        "main_purpose_name",
+        "structure_code",
+        "structure_name",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 0
+    }
+  }
+}

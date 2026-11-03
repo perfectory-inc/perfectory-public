@@ -24,6 +24,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     ExclusiveUnit,
     PermitBasisOutline,
     RegisterMaster,
+    PermitDemolitionLoss,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -36,7 +37,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 16] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 17] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -44,6 +45,7 @@ impl Lane {
         Self::ExclusiveUnit,
         Self::PermitBasisOutline,
         Self::RegisterMaster,
+        Self::PermitDemolitionLoss,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -66,6 +68,7 @@ impl Lane {
             Self::ExclusiveUnit => "building-register-exclusive-unit",
             Self::PermitBasisOutline => "building-permit-basis-outline",
             Self::RegisterMaster => "building-register-master",
+            Self::PermitDemolitionLoss => "building-permit-demolition-loss",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -126,6 +129,10 @@ impl Lane {
             Self::RegisterMaster => (
                 "hub-building-register-master-source-objects.json",
                 crate::building_register_master_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitDemolitionLoss => (
+                "hub-building-permit-demolition-loss-source-objects.json",
+                crate::building_permit_demolition_loss_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -207,6 +214,9 @@ impl ExportKind {
             },
             "export-building-register-master-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_REGISTER_MASTER",
+            },
+            "export-building-permit-demolition-loss-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_DEMOLITION_LOSS",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {
