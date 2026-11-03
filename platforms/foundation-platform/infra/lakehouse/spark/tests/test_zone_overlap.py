@@ -15,8 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
 import zone_overlap as z  # noqa: E402
 
-# Near the country, so the tests see coordinates of the real magnitude.
-X0, Y0 = 127.0, 37.0
+# The repository-reserved synthetic coordinates (public-fixture-safety), so the tests see
+# coordinates of the real magnitude.
+X0, Y0 = 127.1235, 36.1235
 
 
 def square(x, y, side, clockwise=False):
@@ -155,10 +156,11 @@ class CellPiecesTest(unittest.TestCase):
             self.assertLessEqual(y1, (j + 1) * 0.25 + 1e-9)
 
     def test_a_cell_inside_the_hole_has_no_piece(self):
-        holed = region([square(0, 0, 3), square(0.9, 0.9, 1.2)])
+        # Cells of one degree: the hole covers the whole cell north-east of the origin's.
+        holed = region([square(0, 0, 3), square(0.7, 0.7, 1.5)])
         cells = {(i, j) for i, j, _ in z.cell_pieces(holed, 1)}
-        self.assertNotIn((128, 38), cells)  # the cell (127+1, 37+1) lies wholly in the hole
-        self.assertIn((127, 37), cells)
+        self.assertNotIn((int(X0) + 1, int(Y0) + 1), cells)
+        self.assertIn((int(X0), int(Y0)), cells)
 
     def test_overlaps_summed_over_pieces_equal_the_whole_zones(self):
         ell = [(X0, Y0), (X0 + 2, Y0), (X0 + 2, Y0 + 1), (X0 + 1, Y0 + 1), (X0 + 1, Y0 + 2), (X0, Y0 + 2)]

@@ -46,7 +46,7 @@ SECTION = "regulation_zones"
 ZONE_KEY = ("layer_code", "zone_feature_id")
 BOX = ("bbox_min_x", "bbox_min_y", "bbox_max_x", "bbox_max_y")
 # The grid a zone is cut into (degrees, about 220 x 280 m). Measured 2026-11-03 (Trino, read-only)
-# west of 126.5°E: 0.01° gave 6.15M parcel-piece pairs whose boxes meet, at 167 piece vertices a
+# in the westernmost longitude band (a 2.5-degree-wide strip): 0.01° gave 6.15M parcel-piece pairs whose boxes meet, at 167 piece vertices a
 # pair; 0.005° 5.60M at 75; 0.0025° 5.76M at 33, a fifth of the comparisons for as many pairs.
 CELL_DEGREES = 0.0025
 # Which overlaps count (see the module text for the measurement).

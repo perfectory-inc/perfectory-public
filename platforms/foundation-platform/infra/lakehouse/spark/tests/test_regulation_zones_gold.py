@@ -9,6 +9,7 @@ parcels under a changed code, and nothing else.
 """
 
 import json
+import math
 import os
 import struct
 import sys
@@ -23,7 +24,9 @@ DONG = "9999910100"
 LANE = "parcel-regulation-zones"
 GOLD_COLUMNS = ("pnu", "regulation_zones_json", "zone_total", "attached_via", "row_digest", "source_snapshot_id",
                 "published_at_utc")
-X0, Y0 = 127.001, 37.001
+# The repository-reserved synthetic coordinates (public-fixture-safety); a cell line (0.0025°)
+# runs 0.0014° east and north of the origin.
+X0, Y0 = 127.1236, 36.1236
 
 
 def pnu(main):
@@ -69,7 +72,7 @@ class InputsTest(unittest.TestCase):
         self.assertIn("addPyFile(zone_overlap.__file__)", src)
         rings, area = job.parcel_shape(square(0, 0, 0.001)[0])
         self.assertEqual(len(rings), 1)
-        self.assertAlmostEqual(area, 0.001 * 111195.08 * 0.001 * 111195.08 * 0.79856, delta=50)
+        self.assertAlmostEqual(area, (0.001 * 111195.08) ** 2 * math.cos(math.radians(Y0 + 0.0005)), delta=50)
         self.assertEqual(job.parcel_shape(struct.pack("<BIdd", 1, 1, X0, Y0)), ([], 0.0))
 
     def test_one_cell_s_pairs_carry_both_areas_in_square_metres(self):
@@ -148,8 +151,8 @@ class DocumentSparkTest(unittest.TestCase):
         cls.spark.stop()
 
     PARCELS = {
-        # Across the cell line at 127.0025: its overlap is summed over two pieces.
-        "inside": (pnu(1), square(0.0014, 0.0002, 0.0002)),
+        # Across the cell line 0.0014° east of the origin: its overlap is summed over two pieces.
+        "inside": (pnu(1), square(0.0013, 0.0002, 0.0002)),
         "touching": (pnu(2), square(0.0020, 0.0002, 0.0002)),
         "sliver": (pnu(3), square(0.0019999, 0.0006, 0.0002)),
         "across": (pnu(4), square(0.0007, 0.0032, 0.0006)),
