@@ -114,6 +114,47 @@ def validate(contract: Mapping[str, Any]) -> None:
         if not covered["sigungu"] or not covered["sido"] <= covered["sigungu"]:
             raise EditionError(f"edition {name}: its sido objects cover {sorted(covered['sido'])} and its sigungu objects "
                                f"{sorted(covered['sigungu'])}; every province needs its districts")
+    validate_promotions(contract)
+
+
+# The day root ADR-0291 gated promotion: a promotion before it rested on a reviewed pull request alone.
+READINESS_GATED_FROM = "2026-10-21"
+PROMOTION_STAGES = ("source", "silver", "rehearsal")
+
+
+def validate_promotions(contract: Mapping[str, Any]) -> None:
+    """The served edition is the last promotion of an append-only ledger, and each promotion after root
+    ADR-0291 carries the readiness it passed (`parcel_edition_readiness.promote` is its one writer).
+    A hand edit of `served_edition` fails here, in every reader and every test that loads the contract."""
+
+    gate = contract.get("readiness") or {}
+    if not 0 < float(gate.get("max_row_loss_fraction", 0)) < 1 or float(gate.get("max_report_age_hours", 0)) <= 0:
+        raise EditionError("the source contract's readiness names max_row_loss_fraction (0..1) and max_report_age_hours")
+    ledger = contract.get("promotions")
+    if not isinstance(ledger, list) or not ledger:
+        raise EditionError("the source contract holds no promotions ledger; served_edition is set only by a promotion")
+    previous: Mapping[str, Any] | None = None
+    for index, entry in enumerate(ledger):
+        name = entry.get("edition")
+        if name not in contract["editions"]:
+            raise EditionError(f"promotion {index} names edition {name!r}, which the contract does not hold")
+        if not str(entry.get("by") or "").strip() or not str(entry.get("reason") or "").strip():
+            raise EditionError(f"promotion {index} ({name}) names no one who asked or no reason")
+        at = str(entry.get("promoted_at_utc") or "")
+        if previous is not None:
+            if at <= str(previous["promoted_at_utc"]) or entry.get("from_edition") != previous["edition"]:
+                raise EditionError(f"promotion {index} ({name}) does not follow promotion {index - 1}: the ledger only grows")
+        readiness = entry.get("readiness")
+        if readiness is None:
+            if index != 0 or at[:10] >= READINESS_GATED_FROM:
+                raise EditionError(f"promotion {index} ({name}) carries no readiness; only the first, before "
+                                   f"{READINESS_GATED_FROM}, may (root ADR-0291 §4)")
+        elif sorted((readiness.get("stages") or {})) != sorted(PROMOTION_STAGES) or not readiness.get("contract_sha256"):
+            raise EditionError(f"promotion {index} ({name}) does not carry the readiness it passed")
+        previous = entry
+    if ledger[-1]["edition"] != contract["served_edition"]:
+        raise EditionError(f"served_edition {contract['served_edition']} is not the last promotion's "
+                           f"{ledger[-1]['edition']}; move it with parcel_edition_readiness.py promote")
 
 
 def edition(contract: Mapping[str, Any], name: str) -> Mapping[str, Any]:
@@ -160,6 +201,23 @@ def served_reader_id(given: str | None, allow_other: bool, flag: str, contract: 
         raise EditionError(f"{flag} {given!r} is not the served edition's {want!r} (served_edition of the source "
                            f"contract); pass {ALLOW_OTHER_EDITION} to read another")
     return want
+
+
+def served_rows(frame: Any, contract: Mapping[str, Any] | None = None) -> Any:
+    """The served parcel universe of a `silver.parcel_boundaries` frame: its current rows of the served
+    edition only (root ADR-0291 §5). Every edition's rows are current by the predicate, so a reader that
+    takes `current_rows` of the whole table puts each parcel in once per edition and attaches its
+    records to parcels the map does not serve (the 632 공매 orphans of 2026-10-21). The edition is
+    filtered before the predicate is applied; the parcel-reads-the-served-edition guard
+    refuses any other served-universe read."""
+
+    from platform_contracts import current_row_predicate, load_lakehouse_contract  # noqa: PLC0415
+
+    predicate = current_row_predicate(load_lakehouse_contract("silver.parcel_boundaries"))
+    if predicate is None:
+        raise EditionError("silver.parcel_boundaries declares no current_row_predicate; the served parcels cannot be named")
+    contract = contract or load()
+    return frame.where(f"source_snapshot_id = '{snapshot_id(contract, served(contract))}'").where(predicate)
 
 
 def edition_reader_id(given: str | None, allow_other: bool, flag: str, contract: Mapping[str, Any] | None = None) -> str | None:

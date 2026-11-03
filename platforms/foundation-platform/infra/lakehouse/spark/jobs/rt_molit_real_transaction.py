@@ -525,9 +525,10 @@ def _load(argv: Sequence[str]) -> int:
     import place_identity_resolver  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
     from lakehouse_ingest import append_source_object  # noqa: PLC0415
-    from platform_contracts import REMOVED, current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from platform_contracts import REMOVED, current_rows  # noqa: PLC0415
     from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
     from silver_release_compare import release_changes  # noqa: PLC0415
+    from vworld_parcel_editions import served_rows  # noqa: PLC0415
 
     assert_catalog_env()
     source = load_source_contract()
@@ -555,8 +556,7 @@ def _load(argv: Sequence[str]) -> int:
             wanted: set[str] = set()
             for entry in objects:
                 wanted |= candidate_pnus(read_export(entry, source["csv"], now)[0], dongs, remap)
-            every = current_rows(spark.table(f"`{args.iceberg_catalog_name}`.`silver`.`parcel_boundaries`"),
-                                 load_lakehouse_contract("silver.parcel_boundaries")).select("pnu")
+            every = served_rows(spark.table(f"`{args.iceberg_catalog_name}`.`silver`.`parcel_boundaries`")).select("pnu")
             asked = spark.createDataFrame([(pnu,) for pnu in sorted(wanted)], "pnu string")
             parcels = every.join(F.broadcast(asked), "pnu", "left_semi").distinct().cache()
             summary["parcels_read"] = {"asked": len(wanted), "held": parcels.count()}

@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-05
+last_reviewed: 2026-11-04
 ---
 
 # VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재 런북
@@ -79,6 +79,18 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 다시 받아 측정할지는 사람이 정한다.
 
 `served_edition` 은 이 PR 에서 바꾸지 않는다. 지도를 새 판으로 옮기는 것은 굽기·검증을 거치는 별도 결정이다.
+
+## 3a. 준비 판정과 승격 (root ADR-0291 §2·§4, ADR-0379)
+
+`served_edition` 은 손으로 고치지 않는다 — `vworld_parcel_editions.validate` 가 원장(`promotions`) 마지막 항목과 다른 값을 거부한다.
+
+1. 호스트에서 판정을 쓴다(읽기만; Trino 파티션 메타데이터·최신 제공자 목록·타일 굽기 저널):
+   `scripts/ops/parcel-edition-readiness.sh` → `/var/lib/foundation-platform/parcel-editions/readiness.json`, 판마다
+   `ready` 또는 `not ready: <첫 실패 단계>`(`source` → `silver` → `rehearsal`).
+2. 옮길 판이 `ready` 이면 그 보고서(48시간 안)를 저장소 체크아웃으로 가져와
+   `python3 infra/lakehouse/spark/jobs/parcel_edition_readiness.py promote --report readiness.json --edition <YYYYMM> --by <누가> --reason "<왜>"`.
+   준비 안 됐거나, 오래됐거나, 다른 계약에서 만든 보고서면 거부하고 계약을 그대로 둔다.
+3. 바뀐 계약(서빙판 + 원장 한 줄)을 PR 로 낸다. 지도·패널·타일을 함께 옮기는 재굽기는 ADR-0291 §3 이다.
 
 ## 4. Silver 적재 (판 하나)
 
