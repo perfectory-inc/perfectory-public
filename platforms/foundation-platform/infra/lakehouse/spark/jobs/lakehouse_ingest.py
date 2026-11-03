@@ -558,3 +558,17 @@ def append_source_object(spark: Any, frame: Any, columns: Sequence[str], qualifi
         writer = writer.option(key, value)
     writer.append()
     return True
+
+
+class Deadline:
+    """When a run stops starting objects (root ADR-0300 H): an object not started stays unrecorded and
+    the next run loads it; one started finishes and commits."""
+
+    def __init__(self, seconds: float, clock: Any = None) -> None:
+        import time  # noqa: PLC0415
+
+        self._clock = clock or time.monotonic
+        self._end = self._clock() + seconds
+
+    def passed(self) -> bool:
+        return self._clock() >= self._end

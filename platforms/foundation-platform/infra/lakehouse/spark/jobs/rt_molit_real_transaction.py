@@ -33,6 +33,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 
+from lakehouse_ingest import Deadline  # noqa: F401  (the shared per-run deadline, root ADR-0300 H)
+
 JOB_NAME = "rt_molit_real_transaction"
 TABLE = "silver.real_transaction"
 # Root ADR-0364: the lines an export carried that are not loaded, each with its Bronze reference.
@@ -295,20 +297,6 @@ def candidate_pnus(rows: Iterable[Mapping[str, Any]], dongs: Mapping[str, str], 
             found.add(pnu)
             found.add(remap.get(pnu[:10], pnu[:10]) + pnu[10:])
     return found
-
-
-class Deadline:
-    """When a run stops starting objects (root ADR-0300 H): an object not started stays unrecorded and
-    the next run loads it; one started finishes and commits."""
-
-    def __init__(self, seconds: float, clock: Any = None) -> None:
-        import time  # noqa: PLC0415
-
-        self._clock = clock or time.monotonic
-        self._end = self._clock() + seconds
-
-    def passed(self) -> bool:
-        return self._clock() >= self._end
 
 
 def rejected_share(rows: int, rejected: int) -> float:

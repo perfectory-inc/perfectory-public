@@ -125,6 +125,55 @@ class ContractTest(unittest.TestCase):
         self.assertIn("pbct_stat_cd", content)
 
 
+def fits_its_unit(load: dict, unit_text: str, compose_text: str) -> list[str]:
+    """Why one run of this load would not fit its unit (root ADR-0390, ADR-0300 H): empty when it fits."""
+
+    def mib(value: str) -> int:
+        number, suffix = re.fullmatch(r"(\d+)([mg])", value).groups()
+        return int(number) * (1024 if suffix == "g" else 1)
+
+    limit = int(re.search(r"^TimeoutStartSec=(\d+)m$", unit_text, re.M).group(1)) * 60
+    cap = mib(re.search(r"(?m)^  spark-small:\n(?:    .*\n)*?    mem_limit: (\d+[mg])$", compose_text).group(1))
+    measured, spark = load["measured_object_seconds"], load["spark"]
+    why = []
+    # The object in flight when the budget passes, and the exit, still finish inside the unit.
+    if load["run_time_budget_seconds"] + measured["max"] + 120 >= limit:
+        why.append("the object in flight when the budget passes outlives the unit")
+    # A run that keeps starting objects until its budget clears twice what the collector lands a day.
+    per_run = (load["run_time_budget_seconds"] - load["run_start_seconds"]) // measured["p90"]
+    if per_run * 24 < 2 * load["measured_objects_per_day"]:
+        why.append(f"{per_run} objects a run cannot keep up with {load['measured_objects_per_day']} a day")
+    # The heap plus what the JVM and the Python driver measurably hold beside it fit the container.
+    if mib(spark["driver_memory"]) + spark["measured_jvm_non_heap_mib"] + spark["measured_python_mib"] > cap:
+        why.append(f"a {spark['driver_memory']} heap does not fit spark-small's {cap} MiB beside the JVM and Python")
+    return why
+
+
+class FitsItsUnitTest(unittest.TestCase):
+    """Root ADR-0390: 67 OOM kills (10-28..11-03) and 8 timeouts (10-29..30) of this unit."""
+
+    def setUp(self) -> None:
+        area = SPARK_DIR.parents[2]
+        self.unit = (area / "infra/systemd/foundation-onbid-silver-load.service").read_text(encoding="utf-8")
+        self.compose = (area / "compose.lakehouse.yml").read_text(encoding="utf-8")
+
+    def test_the_contracted_run_fits_its_unit_and_its_container(self) -> None:
+        self.assertEqual(fits_its_unit(CONTRACT["silver_load"], self.unit, self.compose), [])
+
+    def test_the_sizes_that_failed_are_refused(self) -> None:
+        load = json.loads(json.dumps(CONTRACT["silver_load"]))
+        load["spark"]["driver_memory"] = "2g"  # what the script passed until 2026-11
+        load["run_time_budget_seconds"] = 2400  # no deadline: a run ran until the unit killed it
+        load["measured_object_seconds"]["p90"] = 957  # every item list object reading every parcel
+        why = fits_its_unit(load, self.unit, self.compose)
+        self.assertEqual(len(why), 3, why)
+
+    def test_the_script_runs_the_contracted_spark(self) -> None:
+        script = (SPARK_DIR.parents[2] / "scripts/ops/onbid-silver-load.sh").read_text(encoding="utf-8")
+        self.assertIn('--master "${master}" --driver-memory "${driver_memory}"', script)
+        self.assertNotIn("--driver-memory 2g", script)
+
+
 class PhotoTest(unittest.TestCase):
     @staticmethod
     def _detail(items):

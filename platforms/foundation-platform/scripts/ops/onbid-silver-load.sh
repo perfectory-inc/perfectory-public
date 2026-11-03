@@ -29,10 +29,10 @@ run_log="${work}/run.log"
 trap 'job_journal "${journal}" "onbid silver load FAILED at line ${LINENO} run=${run_id}" >&2; job_run_log_tail "${run_log}"' ERR
 trap 'rm -rf "${work}/plans"' EXIT
 
-read -r window_days max_objects < <(python3 -I -c '
+read -r window_days max_objects master driver_memory < <(python3 -I -c '
 import json, sys
-c = json.load(open(sys.argv[1], encoding="utf-8"))
-print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"])
+load = json.load(open(sys.argv[1], encoding="utf-8"))["silver_load"]
+print(load["window_days"], load["max_objects"], load["spark"]["master"], load["spark"]["driver_memory"])
 ' "${CONTRACT}")
 # Each table and the source it loads (root ADR-0340 §6): the item detail feeds both the media index
 # and the detail table, each recording its own loads.
@@ -67,7 +67,7 @@ FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFOR
 lakehouse_spark_run foundation-platform-compute \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[2,8]' --driver-memory 2g \
+  spark-small spark-submit --master "${master}" --driver-memory "${driver_memory}" \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/data_go_kr_onbid.py load \
   "${plan_args[@]}" \
