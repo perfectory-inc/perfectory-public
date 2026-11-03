@@ -289,6 +289,79 @@ fn after_a_merger_the_fewer_sido_are_a_release_and_the_old_ones_are_not() -> any
     Ok(())
 }
 
+/// A 시도-level row of `reference.legal_dong_code_change`, as the scan decodes it.
+fn pair_row(
+    kind: &str,
+    old: &str,
+    new: &str,
+    effective: &str,
+    source: &str,
+) -> serde_json::Map<String, serde_json::Value> {
+    let row = serde_json::json!({
+        "kind": kind,
+        "old_code": format!("{old}00000000"),
+        "new_code": format!("{new}00000000"),
+        "level": "sido",
+        "effective_date": effective,
+        "source": source,
+    });
+    row.as_object().cloned().unwrap_or_default()
+}
+
+#[test]
+fn a_harvest_under_merged_codes_is_a_release_when_the_recorded_pairs_carry_it() -> anyhow::Result<()>
+{
+    // Root ADR-0372. 2026-11-03: VWorld's 토지소유정보 harvest of 2026-10-25 still filed 광주 and
+    // 전남 under 29 and 46, ended by the 2026-07-01 merger into 12, so the lane skipped it every
+    // day and served the 2025-08-31 harvest. The code change table records 29 -> 12 and 46 -> 12.
+    let measured = [
+        price("SYNTHETIC-01", "96", "20990701", None)?,
+        price("SYNTHETIC-02", "97", "20990701", None)?,
+        price("SYNTHETIC-03", "97", "20990801", None)?,
+        price("SYNTHETIC-04", "98", "20990801", None)?,
+        price("SYNTHETIC-05", "99", "20990801", None)?,
+    ];
+    let candidates = land::candidates(&rule(), &measured, converts_price)?;
+    let pairs = [
+        pair_row("pair", "98", "96", "20990601", "derived"),
+        pair_row("pair", "99", "96", "20990601", "derived"),
+    ];
+    let calendar = merger()?.with_pairs(&pairs);
+    let release = land::select(&rule(), &candidates.found, Some(&calendar))?;
+    assert_eq!(release.vintage, "20990801");
+    assert_eq!(regions(&release), ["97", "98", "99"]);
+    assert!(release.skipped_incomplete.is_empty());
+    let held = |codes: &[&'static str]| codes.iter().copied().collect::<BTreeSet<&str>>();
+    // A pair a supersession withdrew carries nothing (root ADR-0329); a steward's pair stays.
+    let withdrawn = merger()?.with_pairs(&[
+        pair_row("pair", "98", "96", "20990601", "derived"),
+        pair_row("supersession", "98", "96", "20990601", "derived"),
+        pair_row("pair", "99", "96", "20990601", "steward:someone"),
+        pair_row("supersession", "99", "96", "20990601", "derived"),
+    ]);
+    assert_eq!(
+        withdrawn.carried(&held(&["97", "98", "99"]), "20990801"),
+        None
+    );
+    assert!(withdrawn
+        .carried(&held(&["97", "99"]), "20990801")
+        .is_some());
+    // A pair not yet in effect on the harvest's day carries nothing.
+    let late = merger()?.with_pairs(&[pair_row("pair", "98", "96", "20991001", "derived")]);
+    assert_eq!(late.carried(&held(&["97", "98"]), "20990801"), None);
+    // A 시도 held under its new code and carried onto too would load its parcels twice.
+    assert_eq!(
+        calendar.carried(&held(&["96", "97", "98"]), "20990801"),
+        None
+    );
+    // Carried onto the day's 시도 but one short: still incomplete.
+    assert_eq!(
+        calendar.carried(&held(&["98", "99"]), "20990801"),
+        Some(["96".to_owned()].into_iter().collect())
+    );
+    Ok(())
+}
+
 #[test]
 fn an_object_not_yet_measured_refuses_the_run_and_names_the_command() -> anyhow::Result<()> {
     let measured = [
