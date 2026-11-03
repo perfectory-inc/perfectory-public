@@ -1,4 +1,5 @@
 import ast
+import tempfile
 import json
 import os
 import re
@@ -151,8 +152,9 @@ class PlatformContractsTest(unittest.TestCase):
 
 
 PIPELINE_GRAPH = SPARK_DIR.parents[2] / "docs" / "catalog" / "pipeline-graph.v1.json"
-# `rows_as_of` is the current rows as of a release (root ADR-0318).
-CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of"}
+# `rows_as_of` is the current rows as of a release (root ADR-0318); `pinned_edition` and
+# `all_editions` are the declared reads of one edition and of every edition (root ADR-0286 §3).
+CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of", "pinned_edition", "all_editions"}
 
 
 def versioned_tables() -> set[str]:
@@ -191,6 +193,61 @@ def named_tables(source: str, tables: set[str]) -> set[str]:
         if any(re.search(rf"(?<!\w)`?{re.escape(table.split('.', 1)[1])}`?(?!\w)",
                          text) for text in strings)
     }
+
+
+def reaches_call(path: Path, names: set[str], seen: set[Path]) -> bool:
+    """Whether the module, or a job module it imports, calls one of `names` (by its last name)."""
+    if path in seen or not path.exists() or path.name == "platform_contracts.py":
+        return False
+    seen.add(path)
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            called = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None)
+            if called in names:
+                return True
+    imported = [
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    ] + [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module]
+    return any(reaches_call(path.parent / f"{module}.py", names, seen) for module in imported)
+
+
+def canonical_readers() -> dict[str, str]:
+    """table -> `module.function` for every contract whose current state is a domain fold (root ADR-0286)."""
+    return {
+        name: contract["row_versions"]["canonical_reader"]
+        for name, contract in load_lakehouse_artifact()["contracts"].items()
+        if contract["row_versions"].get("canonical_reader")
+    }
+
+
+def readers_bypassing_canonical_reader(jobs: Path, graph: dict, readers: dict[str, str]) -> list[tuple[str, str]]:
+    """(job, table) for each job that names a table with a canonical reader, neither writes it nor
+    drives its writer (imports the producer module), and never calls into the reader's module: it
+    would fold the table its own way (root ADR-0286 §6).
+
+    shortcut: any function of the canonical module counts (the review queue folds in the same module
+    as `steward_resolved`); upgrade to a per-function check if that module gains a reader that skips
+    the fold.
+    """
+    written = producers(graph, set(readers))
+    found = []
+    for path in sorted(jobs.glob("*.py")):
+        if path.name == "platform_contracts.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        for table in sorted(named_tables(source, set(readers))):
+            module = readers[table].split(".")[0]
+            folds = {node.name for node in ast.parse((jobs / f"{module}.py").read_text(encoding="utf-8")).body
+                     if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
+            writers = {Path(name).stem for name, written_table in written if written_table == table}
+            imported = {alias.name for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Import)
+                        for alias in node.names}
+            if path.stem == module or path.stem in writers or imported & writers:
+                continue
+            if not reaches_call(path, folds, set()):
+                found.append((path.name, table))
+    return found
 
 
 def reaches_current_rows(path: Path, seen: set[Path]) -> bool:
@@ -304,6 +361,46 @@ def unadmitted_writes(jobs: Path) -> list[str]:
                 admitted.add(qualified)
                 changed = True
     return sorted(qualified for qualified, _, _, writes, _ in functions if writes and qualified not in admitted)
+
+
+class CanonicalReaderRuleTest(unittest.TestCase):
+    """Root ADR-0286 §6: a table whose current state is a domain fold is read through that fold.
+
+    `silver.parcel_lineage` holds derived candidates and steward decisions; a reader that folded them
+    its own way could serve a link a steward rejected (the queue, the registry, the carry and the
+    gate must agree, `lineage_review_queue.steward_resolved`).
+    """
+
+    def test_every_reader_of_a_folded_table_goes_through_its_fold(self) -> None:
+        graph = json.loads(PIPELINE_GRAPH.read_text(encoding="utf-8"))
+        self.assertEqual(readers_bypassing_canonical_reader(JOBS_DIR, graph, canonical_readers()), [])
+
+    def test_a_reader_that_folds_on_its_own_is_found(self) -> None:
+        graph = json.loads(PIPELINE_GRAPH.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            jobs = Path(directory)
+            for name in ("lineage_review_queue.py", "parcel_lineage.py"):
+                (jobs / name).write_text((JOBS_DIR / name).read_text(encoding="utf-8"), encoding="utf-8")
+            (jobs / "rogue_reader.py").write_text(
+                'def links(spark):\n    return spark.table("r2.silver.parcel_lineage").where("grade = \'A\'")\n',
+                encoding="utf-8")
+            (jobs / "good_reader.py").write_text(
+                "import lineage_review_queue as q\n\ndef links(spark):\n"
+                '    return q.steward_resolved(spark.table("r2.silver.parcel_lineage").collect())\n',
+                encoding="utf-8")
+            self.assertEqual(readers_bypassing_canonical_reader(jobs, graph, canonical_readers()),
+                             [("rogue_reader.py", "silver.parcel_lineage")])
+
+    def test_only_the_newest_derivation_run_of_a_pair_and_successor_is_folded(self) -> None:
+        import lineage_review_queue as q
+
+        old = {"from_snapshot_id": "e1", "to_snapshot_id": "e2", "successor_pnu": "9999900001", "predecessor_pnu": "a",
+               "evidence_kind": "derived", "derived_at_utc": "2026-10-20T00:00:00"}
+        new = {**old, "predecessor_pnu": "b", "derived_at_utc": "2026-11-01T00:00:00"}
+        other = {**old, "successor_pnu": "9999900002"}
+        steward = {**old, "evidence_kind": q.STEWARD, "derived_at_utc": "2026-09-01T00:00:00"}
+        self.assertEqual(q.newest_derivations([old, new, other, steward]), [new, other, steward])
+        self.assertEqual(q.newest_derivations([old, other]), [old, other], "one run per key is read as before")
 
 
 class CurrentRowRuleTest(unittest.TestCase):

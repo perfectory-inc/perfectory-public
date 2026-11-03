@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             r.asDict()
             for r in lineage.join(subjects, on="successor_pnu", how="left_semi")
             .select("predecessor_pnu", "successor_pnu", "relation", "grade", "evidence_kind", "evidence_ref",
-                    "from_snapshot_id", "to_snapshot_id")
+                    "from_snapshot_id", "to_snapshot_id", "derived_at_utc")
             .collect()
         ]
         items, counts = q.review_queue(rows, UNIT)
