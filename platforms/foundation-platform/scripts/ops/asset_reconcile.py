@@ -36,7 +36,9 @@ when caught up), foundation_asset_unscheduled_since_timestamp_seconds (while an 
 running, not waiting and its pool has room: since the later of its first unread change and the last
 tick that saw it running or its pool full) and foundation_asset_reconcile_timestamp_seconds; and
 beside it docker-networks.prom, the host's bridge networks against what Docker's address pools hold,
-which every job's Compose project draws from (bridge_networks). The
+which every job's Compose project draws from (bridge_networks), and docker-containers.prom, each running
+container's cgroup id with its name (container_names), which cAdvisor cannot see without the engine's
+socket and the FoundationContainerMemoryNearCap rule looks up (root ADR-0385). The
 FoundationAsset* rules turn them into asset_lag_seconds and asset_unscheduled_seconds and alert. The
 idle-since times are kept under the job's state path between ticks. It changes no data: its outcome
 is `unchanged`, or `failed` when no asset could be read.
@@ -358,6 +360,24 @@ def bridge_networks(run) -> str:
             f"foundation_docker_address_pool_networks {held}\n")
 
 
+CONTAINERS_METRICS_NAME = "docker-containers.prom"
+CONTAINERS_HELP = """# HELP foundation_docker_container_info A running container's name by the cgroup cAdvisor reads it from.
+# TYPE foundation_docker_container_info gauge
+"""
+
+
+def container_names(run) -> str:
+    """The textfile naming each running container's cgroup, as cAdvisor labels it (`id`) under the
+    systemd cgroup driver. cAdvisor runs without the engine's socket (container-runtime-policy), so
+    it knows a container only by that id; the alert on a container near its cap names it from here.
+    Docker container names are [a-zA-Z0-9][a-zA-Z0-9_.-]+, so they need no escaping."""
+    lines = []
+    for line in run(["docker", "ps", "--no-trunc", "--format", "{{.ID}} {{.Names}}"]).splitlines():
+        identifier, name = line.split()
+        lines.append(f'foundation_docker_container_info{{id="/system.slice/docker-{identifier}.scope",name="{name}"}} 1\n')
+    return CONTAINERS_HELP + "".join(sorted(lines))
+
+
 def write_replacing(path: Path, text: str) -> None:
     """Replaced whole by a rename, so a scrape or the next tick never reads half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -429,6 +449,10 @@ def main() -> int:
         write_replacing(metrics_file.with_name(NETWORKS_METRICS_NAME), bridge_networks(docker))
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not count the Docker bridge networks: {error}", file=sys.stderr)
+    try:
+        write_replacing(metrics_file.with_name(CONTAINERS_METRICS_NAME), container_names(docker))
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        print(f"asset_reconcile: could not list the running containers: {error}", file=sys.stderr)
     for line in owed:
         print(line)
     for error in errors:

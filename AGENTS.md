@@ -127,6 +127,7 @@ AI 에이전트 공용 라우터(루트). 영역 안에서 작업할 때는 **�
 
 기계가 강제하는 위생 규칙만 둔다: 규칙 + 그것을 강제하는 장치 + 결정 ADR([ADR-0299](./docs/adr/0299-engineering-hygiene-is-a-set-of-machine-enforced-invariants.md) §5).
 
+- **호스트 자원(C·J)**: 서버의 디스크·메모리·OOM·컨테이너 상한은 시계열이고, 바닥나기 전에 경보한다. 모든 Prometheus 규칙 파일은 promtool 검사를, 시험이 있는 규칙 무리는 모든 경보가 사고의 합성 시계열로 울리는 시험을 통과한다(promtool 버전 = Prometheus 이미지). 장치: node-exporter 호스트 수집기 + cAdvisor → `foundation-host` 경보 → Slack, 가드 `prometheus-rules-pass-their-tests`([ADR-0385](./docs/adr/0385-the-host-says-when-its-disk-memory-or-a-cap-runs-out-and-each-rule-is-tested-by-promtool.md)).
 - **서빙 신선도(B·C)**: 모든 by-PNU 레인은 사용자가 받는 manifest 의 나이(`published_at_utc`)를 계약 예산(`by_pnu_section_packs.freshness_budget_hours`) 안에 둔다 — 작업 상태가 아니라 산출물로 잰다. 장치: 매시 `foundation-by-pnu-serving-monitor@<lane>` 실패 → Slack([ADR-0306](./docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md)).
 
 ## 작업 목록 SSOT

@@ -406,3 +406,94 @@ groups:
         annotations:
           summary: Docker 브리지 네트워크 수를 30분 넘게 못 셌어요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
+
+  # The host's own resources (root ADR-0385, ADR-0343 §6): disk, memory, the kernel's OOM kills and
+  # each cap. node-exporter's filesystem, meminfo and vmstat collectors and cAdvisor's cgroup series
+  # feed them; before them only the textfile collector ran, so none of this was a series and every
+  # incident below was found by hand. Thresholds follow the node-mixin
+  # (prometheus/node_exporter docs/node-mixin, NodeFilesystem*), set against the host measured on
+  # 2026-11-03: / 35% used (144GB free of 232GB), /data 47% (1.06TB free of 1.97TB), memory 52%
+  # available (34.9 of 67.2GB) with the parcel-ownership Gold rebuild at 17.4 of its 20GiB.
+  # Checked by promtool against host-resources.rules.test.yml (guard prometheus-rules-pass-their-tests).
+  - name: foundation-host
+    rules:
+      # 2026-10-02: one uncapped json-file log reached 32GB and filled the root disk under the
+      # production database twice (root ADR-0118 §6); the full disk stopped the data catalog's Kafka.
+      - alert: FoundationHostDiskAlmostFull
+        expr: >-
+          node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"} < 0.10
+          and node_filesystem_readonly{fstype=~"ext4|xfs"} == 0
+        for: 30m
+        labels:
+          severity: ticket
+          service: host
+        annotations:
+          summary: '{{ $labels.mountpoint }} 디스크가 {{ $value | humanizePercentage }} 남았어요 — 다 차면 운영 DB·수집·적재가 멈춰요. du -xh --max-depth=2 {{ $labels.mountpoint }} 로 무엇이 큰지 보세요'
+          runbook: docs/runbooks/host-resources.md
+      # The same incident a day early: at the last six hours' rate the disk is full within 24 hours
+      # (node-mixin NodeFilesystemSpaceFillingUp), once less than 40% is left.
+      - alert: FoundationHostDiskFillingUp
+        expr: >-
+          predict_linear(node_filesystem_avail_bytes{fstype=~"ext4|xfs"}[6h], 24 * 3600) < 0
+          and node_filesystem_avail_bytes{fstype=~"ext4|xfs"} / node_filesystem_size_bytes{fstype=~"ext4|xfs"} < 0.40
+          and node_filesystem_readonly{fstype=~"ext4|xfs"} == 0
+        for: 1h
+        labels:
+          severity: ticket
+          service: host
+        annotations:
+          summary: '{{ $labels.mountpoint }} 디스크가 지난 6시간 속도로는 하루 안에 다 차요 — 커지는 로그나 남은 임시 파일을 찾아 지우세요'
+          runbook: docs/runbooks/host-resources.md
+      # 2026-10-01: Trino with no cap held 27.7GB of the host's 62GB while idle, beside the Spark
+      # loads (root ADR-0118 §6). The caps sum to 61.02g of 62g with 5g reserved for the host
+      # (tools/host-memory-budget.contract.json); less than 10% available means something outside
+      # that budget (Ollama, a hand-started container) is taking it.
+      - alert: FoundationHostMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+        for: 15m
+        labels:
+          severity: ticket
+          service: host
+        annotations:
+          summary: '호스트 메모리가 {{ $value | humanizePercentage }} 남았어요 — 더 줄면 커널이 프로세스를 죽여요. docker stats --no-stream 과 systemctl status ollama 를 보세요'
+          runbook: docs/runbooks/host-resources.md
+      # 2026-10-28 to 11-03 the kernel killed 100 processes (journalctl -k): 99 a Spark java at a
+      # 2.5GiB container cap, and foundation-onbid-silver-load.service exited 137 65 times; 11-02
+      # alone had 39 kills. Nothing said OOM: the unit only showed as failed. One notice an
+      # episode: it fires while the last hour had a kill and resolves after an hour without one.
+      - alert: FoundationHostOomKill
+        expr: increase(node_vmstat_oom_kill[1h]) > 0
+        labels:
+          severity: ticket
+          service: host
+        annotations:
+          summary: '지난 1시간 동안 커널이 메모리 부족으로 프로세스를 {{ $value | printf "%.0f" }}번 죽였어요. journalctl -k --since -1h | grep "Killed process" 로 무엇이 어느 상한(oom_memcg)에서 죽었는지 보세요'
+          runbook: docs/runbooks/host-resources.md
+      # 2026-10-28: the by-PNU bake unit's MemoryPeak was 14.17GB against MemoryMax=14G (root
+      # ADR-0343): a run at its cap is one batch from being killed, and nothing showed it. A
+      # container or a unit whose working set (what the kernel cannot reclaim) stays above 90% of
+      # its cap for 15 minutes. A cap of 0 is cAdvisor's "no cap" and is left out.
+      - alert: FoundationContainerMemoryNearCap
+        expr: >-
+          container_memory_working_set_bytes{id=~"/system.slice/.+"}
+          / (container_spec_memory_limit_bytes{id=~"/system.slice/.+"} > 0) > 0.9
+        for: 15m
+        labels:
+          severity: ticket
+          service: host
+        annotations:
+          summary: '{{ with printf "foundation_docker_container_info{id=%q}" $labels.id | query }}{{ . | first | label "name" }}{{ else }}{{ $labels.id }}{{ end }} 가 15분째 메모리 상한의 {{ $value | humanizePercentage }} 를 쓰고 있어요 — 곧 OOM 으로 죽어요. 상한을 잰 값으로 고치거나 run 을 줄이세요'
+          runbook: docs/runbooks/host-resources.md
+      # Without the collectors the five rules above cannot fire.
+      - alert: FoundationHostMetricsUnread
+        expr: >-
+          up{job="cadvisor"} != 1 or absent(up{job="cadvisor"})
+          or absent(node_memory_MemAvailable_bytes) or absent(node_vmstat_oom_kill)
+          or absent(node_filesystem_avail_bytes)
+        for: 30m
+        labels:
+          severity: ticket
+          service: host
+        annotations:
+          summary: 호스트 자원 지표(cAdvisor·node-exporter 수집기)를 30분째 못 읽어요 — 디스크가 차거나 메모리가 모자라도 알림이 안 가요
+          runbook: docs/runbooks/host-resources.md
