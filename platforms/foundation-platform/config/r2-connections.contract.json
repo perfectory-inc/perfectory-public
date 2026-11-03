@@ -580,6 +580,14 @@
       "producer": "land_ownership_silver_to_gold",
       "decision": "docs/adr/0361-a-parcel-s-owners-are-their-own-by-pnu-kind.md"
     },
+    "parcel-energy": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "energy",
+      "section": "energy",
+      "columns": ["energy_json"],
+      "producer": "building_energy_silver_to_gold",
+      "decision": "docs/adr/0398-a-parcel-shows-twelve-months-of-building-energy-as-its-own-by-pnu-kind.md"
+    },
     "parcel-demolitions": {
       "host": "parcel_by_pnu_gateway",
       "kind": "demolitions",

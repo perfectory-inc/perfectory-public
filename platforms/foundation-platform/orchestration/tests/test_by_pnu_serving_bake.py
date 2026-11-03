@@ -698,6 +698,7 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(programs.get("by_pnu_public_auction_bake"), ["parcel-public-auction"])
         self.assertEqual(programs.get("by_pnu_unit_price_bake"), ["unit-price"])
         self.assertEqual(programs.get("by_pnu_parcel_ownership_bake"), ["parcel-ownership"])
+        self.assertEqual(programs.get("by_pnu_parcel_energy_bake"), ["parcel-energy"])
         self.assertEqual(programs.get("by_pnu_parcel_demolitions_bake"), ["parcel-demolitions"])
         for job_id, args in programs.items():
             with self.subTest(job_id):
@@ -721,6 +722,7 @@ class ByPnuServingBake(unittest.TestCase):
         elsewhere = {lane: job for lane, job in elsewhere.items() if job != "by_pnu_serving_bake"}
         self.assertEqual(elsewhere, {"parcel-public-auction": "by_pnu_public_auction_bake",
                                      "parcel-ownership": "by_pnu_parcel_ownership_bake",
+                                     "parcel-energy": "by_pnu_parcel_energy_bake",
                                      "parcel-demolitions": "by_pnu_parcel_demolitions_bake",
                                      "unit-price": "by_pnu_unit_price_bake"})
         baked = [lane for lane in lanes if lane not in elsewhere]

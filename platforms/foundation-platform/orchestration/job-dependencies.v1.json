@@ -811,6 +811,7 @@
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
         "gold_parcel_ownership_rebuild",
+        "gold_parcel_energy_rebuild",
         "gold_parcel_demolitions_rebuild"
       ],
       "reads": [
@@ -883,6 +884,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
           "node_id": "gold-parcel-demolitions",
           "title": "필지 철거멸실 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_energy",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_energy,PROD)",
+          "node_id": "gold-parcel-energy",
+          "title": "필지 건물 에너지 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -1415,6 +1424,7 @@
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
         "gold_parcel_ownership_rebuild",
+        "gold_parcel_energy_rebuild",
         "gold_parcel_demolitions_rebuild"
       ],
       "reads": [
@@ -1487,6 +1497,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
           "node_id": "gold-parcel-demolitions",
           "title": "필지 철거멸실 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_energy",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_energy,PROD)",
+          "node_id": "gold-parcel-energy",
+          "title": "필지 건물 에너지 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3157,6 +3175,7 @@
         "gold_public_auction_rebuild",
         "gold_kind_rebuild",
         "gold_parcel_ownership_rebuild",
+        "gold_parcel_energy_rebuild",
         "gold_parcel_demolitions_rebuild"
       ],
       "reads": [
@@ -3229,6 +3248,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_demolitions,PROD)",
           "node_id": "gold-parcel-demolitions",
           "title": "필지 철거멸실 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://gold.parcel_energy",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_energy,PROD)",
+          "node_id": "gold-parcel-energy",
+          "title": "필지 건물 에너지 by-PNU 표",
           "kind": "gold_table",
           "surface_kind": null
         },
@@ -3751,6 +3778,50 @@
       ]
     },
     {
+      "id": "gold_parcel_energy_rebuild",
+      "producers": [
+        "lineage_stewardship",
+        "silver_refresh_building_energy_monthly_electricity",
+        "silver_refresh_building_energy_monthly_gas"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://reference.legal_dong_code_change",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,reference.legal_dong_code_change,PROD)",
+          "node_id": "reference-legal-dong-code-change",
+          "title": "법정동 코드 변경 원장",
+          "kind": "reference_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_energy_monthly_electricity",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_energy_monthly_electricity,PROD)",
+          "node_id": "silver-building-energy-monthly-electricity",
+          "title": "건물 전기 사용량(월별)",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_energy_monthly_gas",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_energy_monthly_gas,PROD)",
+          "node_id": "silver-building-energy-monthly-gas",
+          "title": "건물 가스 사용량(월별)",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://gold.parcel_energy",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_energy,PROD)",
+          "node_id": "gold-parcel-energy",
+          "title": "필지 건물 에너지 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
       "id": "gold_parcel_demolitions_rebuild",
       "producers": [
         "lineage_stewardship",
@@ -3806,6 +3877,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-ownership-by-pnu-section-packs,PROD)",
           "node_id": "parcel-ownership-by-pnu-section-packs",
           "title": "필지 토지소유 by-PNU 묶음 파일",
+          "kind": "serving_surface",
+          "surface_kind": "r2_baked_documents"
+        }
+      ]
+    },
+    {
+      "id": "by_pnu_parcel_energy_bake",
+      "producers": [
+        "gold_parcel_energy_rebuild"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://gold.parcel_energy",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,gold.parcel_energy,PROD)",
+          "node_id": "gold-parcel-energy",
+          "title": "필지 건물 에너지 by-PNU 표",
+          "kind": "gold_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://parcel-energy-by-pnu-section-packs",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,parcel-energy-by-pnu-section-packs,PROD)",
+          "node_id": "parcel-energy-by-pnu-section-packs",
+          "title": "필지 건물 에너지 by-PNU 묶음 파일",
           "kind": "serving_surface",
           "surface_kind": "r2_baked_documents"
         }

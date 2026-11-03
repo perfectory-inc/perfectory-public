@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { generate } from "../../codegen/gen-schemas.mjs";
 import { DemolitionsDocumentSchema } from "./demolitions";
+import { EnergyDocumentSchema } from "./energy";
 import { OwnershipDocumentSchema } from "./ownership";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 
@@ -67,6 +68,14 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
     expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/ownership.generated.ts");
     const read = paths(z.toJSONSchema(OwnershipDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the energy paths its pact lists", () => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === "parcel-energy");
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/energy.generated.ts");
+    const read = paths(z.toJSONSchema(EnergyDocumentSchema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 

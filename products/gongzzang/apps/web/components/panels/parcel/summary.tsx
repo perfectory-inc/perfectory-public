@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Building } from "@/lib/api/buildings";
 import { type Demolitions, reportDates } from "@/lib/api/demolitions";
+import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
@@ -19,6 +20,7 @@ import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
   parcelDemolitionsQuery,
+  parcelEnergyQuery,
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
@@ -235,6 +237,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const t = useTranslations("panels.parcel.summary");
   const buildings = useQuery(parcelBuildingsQuery(entry.id));
   const ownership = useQuery(parcelOwnershipQuery(entry.id));
+  const energy = useQuery(parcelEnergyQuery(entry.id));
   const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
   const sections: Section[] = [
     {
@@ -253,6 +256,13 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
     });
   }
   const mapZones = useParcelMapZoningAreas(entry.id);
+  if (energy.data && energy.data.months.length > 0) {
+    sections.push({
+      id: "energy",
+      label: t("sections.energy"),
+      content: <EnergySection energy={energy.data} />,
+    });
+  }
   if (demolitions.data && demolitions.data.records.length > 0) {
     sections.push({
       id: "demolitions",
@@ -533,6 +543,72 @@ function BuildingsSection({
         </Group>
       )}
     </div>
+  );
+}
+
+/**
+ * 건물 에너지 from the 월별 전기·가스 lane (root ADR-0398): the 지번's newest twelve months, oldest
+ * first, 전기 in the provider's kWh with a bar against the window's largest month and 가스 as the
+ * source's 사용량 (no unit is stated). A month without a row of an energy is "-", never 0. The
+ * provider's own exclusions (산업·수송·발전 uses, houses) are said beside the numbers: a factory's
+ * 산업용 meter is not in these files.
+ */
+function EnergySection({ energy }: { energy: Energy }) {
+  const t = useTranslations("panels.parcel.summary");
+  const dash = t("none");
+  const peak = electricityPeak(energy);
+  const number = (value: number | null | undefined) =>
+    value == null ? dash : value.toLocaleString("ko-KR", { maximumFractionDigits: 3 });
+  return (
+    <Group
+      title={t("energy.title")}
+      note={
+        energy.latest_use_ym
+          ? t("energy.source", { month: monthLabel(energy.latest_use_ym) })
+          : t("energy.sourceUndated")
+      }
+    >
+      <table className="w-full text-[length:var(--text-body-sm)] tabular-nums">
+        <thead className="text-[var(--color-muted)]">
+          <tr>
+            <th scope="col" className="text-left font-normal">
+              {t("energy.month")}
+            </th>
+            <th scope="col" className="text-right font-normal">
+              {t("energy.electricity", { unit: energy.electricity_unit })}
+            </th>
+            <th scope="col" className="text-right font-normal">
+              {t("energy.gas")}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {chronological(energy).map((month) => (
+            <tr key={month.use_ym}>
+              <th scope="row" className="text-left font-normal text-[var(--color-muted)]">
+                {monthLabel(month.use_ym)}
+              </th>
+              <td className="text-right text-[var(--color-ink)]">
+                <span className="inline-flex items-center justify-end gap-2">
+                  {peak > 0 && month.electricity_usage != null && (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-1.5 rounded-sm bg-[var(--color-ink)] opacity-40"
+                      style={{ width: `${Math.max(2, (month.electricity_usage / peak) * 48)}px` }}
+                    />
+                  )}
+                  {number(month.electricity_usage)}
+                </span>
+              </td>
+              <td className="text-right text-[var(--color-ink)]">{number(month.gas_usage)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("energy.exclusions")}
+      </p>
+    </Group>
   );
 }
 
