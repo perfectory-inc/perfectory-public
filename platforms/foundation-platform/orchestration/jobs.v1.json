@@ -1182,6 +1182,32 @@
       "disabled_reason": "New (root ADR-0253). Off until the supervised rehearsal of the edition the contract will serve (runbook parcel-tile-bake.md §2) has measured both halves within the unit's 115-minute limit and the owner has moved served_edition; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "zoning_tile_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The regulation-zone map tiles (root ADR-0373; scripts/ops/zoning-tile-bake.sh): unless the tiles already show silver.land_use_zone_area's current snapshot (`unchanged`, nothing read), hand its current zones to bake-lakehouse-tiles as unit `zoning` (land_use_zone_area_tile_handoff.py, feature id <layer_code>:<zone_feature_id>). The first run registers the unit with its first release (root ADR-0374); every later run publishes only the tiles the changed zones touch as a patch (root ADR-0323), and when the patch bounds say a new base, rebakes only the layers whose rows changed (partitioned by layer, root ADR-0316). The layers the lane does not load yet (lane contract pending_regions, RAON only) are named in the run's summary and journal. Started when the Silver lane reports a change, and daily as the fallback.",
+      "systemd_service": "foundation-zoning-tile-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/tile-bake"
+      ],
+      "schedule": "20 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-use-zone-area-to-zoning-overlay-tiles"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    },
+    {
       "id": "parcel_tile_bake",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1485,10 +1511,5 @@
   "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
   "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
   "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
-  "serving_surfaces_without_a_job": [
-    {
-      "surface": "zoning-overlay-tiles",
-      "reason": "Planned, not served (root ADR-0362 §5): the 용도지역지구 Silver lands first; the tile unit `zoning`, its first static release, its served-Gold step and Worker route arrive with the bake job that will produce this surface, which then retires this entry."
-    }
-  ]
+  "serving_surfaces_without_a_job": []
 }

@@ -12,7 +12,7 @@
 use async_trait::async_trait;
 use catalog_application::ports::{
     CatalogUnitOfWork, MarkTileLayerDynamicCommand, PromoteTileLayerStaticCommand,
-    PublishedRuntimeManifest, RecordVectorTileBuildResultCommand,
+    PublishedRuntimeManifest, RecordVectorTileBuildResultCommand, RegisterLakehouseTileUnitCommand,
     RuntimeManifestPublicationCapability, StartLakehouseBakeCommand,
     StartStaticReleaseReaddressCommand, StartVectorTileBuildCommand,
     UpsertIndustrialComplexCommand, UpsertIndustrialComplexEffect, UpsertIndustrialComplexOutcome,
@@ -58,6 +58,7 @@ use crate::sqlx_repository::load_vector_tile_runtime_manifest_by_id;
 mod dynamic_release;
 mod industrial_complex_upsert;
 mod lakehouse_bake;
+mod lakehouse_unit_birth;
 mod manifest_promotion;
 mod mutation_claim;
 mod readdress;
@@ -123,6 +124,20 @@ impl PgCatalogUnitOfWork {
     ) -> Self {
         self.runtime_manifest_publication = capability;
         self
+    }
+
+    /// Registers a unit whose first release is a lakehouse bake, with that release and a complete
+    /// runtime manifest, in one transaction (root ADR-0374).
+    ///
+    /// # Errors
+    ///
+    /// Refuses a unit key that already exists and anything the promotion gate refuses; a retried
+    /// key answers with the manifest the first call published.
+    pub async fn register_lakehouse_tile_unit(
+        &self,
+        command: RegisterLakehouseTileUnitCommand,
+    ) -> Result<VectorTileRuntimeManifest, CatalogError> {
+        lakehouse_unit_birth::register(&self.pool, self.runtime_manifest_publication, command).await
     }
 }
 

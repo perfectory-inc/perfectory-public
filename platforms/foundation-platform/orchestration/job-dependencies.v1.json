@@ -2735,6 +2735,32 @@
       ]
     },
     {
+      "id": "zoning_tile_bake",
+      "producers": [
+        "silver_refresh_land_use_zone_area"
+      ],
+      "reads": [
+        {
+          "dataset": "iceberg://silver.land_use_zone_area",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.land_use_zone_area,PROD)",
+          "node_id": "silver-land-use-zone-area",
+          "title": "용도지역지구 구역",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "perfectory://zoning-overlay-tiles",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,zoning-overlay-tiles,PROD)",
+          "node_id": "zoning-overlay-tiles",
+          "title": "규제 구역 지도 타일",
+          "kind": "serving_surface",
+          "surface_kind": "tiles"
+        }
+      ]
+    },
+    {
       "id": "parcel_tile_bake",
       "producers": [
         "parcel_served_gold"
