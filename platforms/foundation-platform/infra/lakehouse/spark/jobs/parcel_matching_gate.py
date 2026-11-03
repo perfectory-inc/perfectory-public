@@ -42,7 +42,7 @@ from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX, SNAPSHOT_ID, sql_prefixes
 from legal_dong_code_snapshot_to_reference import newest_snapshot
-from platform_contracts import current_rows_of_versioned
+from platform_contracts import current_rows_of_versioned, load_lakehouse_contract, pinned_edition
 
 JOB_NAME = "parcel_matching_gate"
 VERDICT_SCHEMA_VERSION = "foundation-platform.parcel_matching_verdict.v1"
@@ -266,11 +266,13 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.summary_output).write_text(json.dumps(verdict, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             print("parcel-matching-gate-json " + json.dumps(verdict, ensure_ascii=False, sort_keys=True))
             return INPUT_ABSENT
-        snapshot = f"{cat}.`silver`.`parcel_boundaries` WHERE source_snapshot_id = '{args.snapshot_id}'"
-        verdict["snapshot_parcel_count"] = spark.sql(f"SELECT count(DISTINCT pnu) AS n FROM {snapshot}").collect()[0]["n"]
-        parcels = spark.sql(
-            f"SELECT DISTINCT pnu FROM {snapshot} AND substr(pnu, 1, 2) IN ({sql_prefixes(args.sido)})"
-        ).persist()
+        # The one edition checked, by the contract (root ADR-0286 §3, ADR-0377); its rows are all open
+        # (2026-11-04: 0 closed rows in either edition), so the predicate keeps every one.
+        edition = pinned_edition(spark.table(f"{cat}.`silver`.`parcel_boundaries`"),
+                                 load_lakehouse_contract("silver.parcel_boundaries"), args.snapshot_id)
+        verdict["snapshot_parcel_count"] = edition.select("pnu").distinct().count()
+        parcels = (edition.where(f"substr(pnu, 1, 2) IN ({sql_prefixes(args.sido)})")
+                   .select("pnu").distinct().persist())
         # The newest snapshot of the code list, by its contract (root ADR-0286 §3).
         code_list = newest_snapshot(spark, f"{cat}.`reference`.`legal_dong_code_snapshot`")
         dated = code_list.selectExpr("CAST(snapshot_date AS STRING) AS d").limit(1).collect()

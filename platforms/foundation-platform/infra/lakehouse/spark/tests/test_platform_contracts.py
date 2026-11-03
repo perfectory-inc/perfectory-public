@@ -197,15 +197,29 @@ def named_tables(source: str, tables: set[str]) -> set[str]:
         id(sub) for node in ast.walk(tree) if isinstance(node, ast.keyword) and node.arg == "help"
         for sub in ast.walk(node.value) if isinstance(sub, ast.Constant)
     }
+    # An f-string is read whole, its fields as `{}`: `f"SELECT x FROM {cat}.silver.t WHERE …"`.
+    pieces = {id(part) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for part in node.values}
     strings = [
         node.value for node in ast.walk(tree)
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+        and id(node) not in pieces
+    ] + [
+        "".join(part.value if isinstance(part, ast.Constant) else "{}" for part in node.values)
+        for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) and id(node) not in docstrings
     ]
-    return {
-        table for table in tables
-        if any(re.search(rf"(?<!\w)`?{re.escape(table.split('.', 1)[1])}`?(?!\w)",
-                         text) for text in strings)
-    }
+    def names(text: str, table: str) -> bool:
+        # A read names the table as an identifier (`silver.x`, `r2.silver.x`, the bare default `x`,
+        # an f-string piece of a path) or after FROM/JOIN/INTO/TABLE in SQL; a message that mentions
+        # it ("silver.x holds no row of this edition", root ADR-0379's readiness check) does not read it.
+        token = rf"(?<!\w)`?{re.escape(table.split('.', 1)[1])}`?(?!\w)"
+        if not re.search(token, text):
+            return False
+        return bool(re.fullmatch(r"[`\w.{}]*", text.strip())
+                    or re.search(rf"\b(FROM|JOIN|INTO|TABLE)\b[^;]*?{token}", text, re.IGNORECASE)
+                    # A SQL fragment the caller puts after FROM: `{cat}.silver.t WHERE …`.
+                    or re.search(rf"{token}\s+(WHERE|VERSION|FOR|AS|JOIN|GROUP|ORDER|LIMIT)\b", text, re.IGNORECASE))
+
+    return {table for table in tables if any(names(text, table) for text in strings)}
 
 
 def reaches_call(path: Path, names: set[str], seen: set[Path]) -> bool:
@@ -515,6 +529,7 @@ class CurrentRowRuleTest(unittest.TestCase):
             "attribute.py": 'import platform_contracts as pc\nrows = pc.current_rows(spark.table("silver.industrial_complexes"), c)\n',
             "prose.py": '"""Reads silver.industrial_complexes."""\nTABLE = "silver.industrial_complex_boundaries"\n',
             "help_text.py": 'parser.add_argument("--table", help="Logical table, e.g. silver.industrial_complexes")\n',
+            "message.py": 'raise ValueError("silver.industrial_complexes holds no row of this edition")\n',
         }
         with TemporaryDirectory() as tmp:
             for name, text in jobs.items():
