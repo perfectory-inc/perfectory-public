@@ -11,7 +11,7 @@
       "full_tracked_by": "justified while gold.parcel_public_auction is under 10,000 rows and its run under 10 minutes: the run is mostly Spark start and the lineage walk (about 85 s, root ADR-0312), which a partial build pays too; past either bound, map the item Silver's appended rows to PNUs (root ADR-0312 §2)",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-auction): gold.parcel_public_auction from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs (lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
+      "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-auction): gold.parcel_public_auction from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs, each carried to the current legal-dong code on every build through reference.legal_dong_code_change (root ADR-0383; lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
       "systemd_service": "foundation-gold-public-auction-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -32,7 +32,8 @@
         "silver-onbid-announcement-bid-result-to-gold-parcel-public-auction",
         "silver-onbid-announcement-detail-to-gold-parcel-public-auction",
         "silver-onbid-real-estate-item-detail-to-gold-parcel-public-auction",
-        "silver-onbid-item-bid-info-to-gold-parcel-public-auction"
+        "silver-onbid-item-bid-info-to-gold-parcel-public-auction",
+        "reference-legal-dong-code-change-to-gold-parcel-public-auction"
       ],
       "enabled": true,
       "enabled_since": "2026-10-20T16:12:59Z"
@@ -197,6 +198,18 @@
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
       ]
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "공매 회차의 PNU 를 짓기마다 정본 해석기의 쌍으로 현재 법정동 코드에 옮긴다. 이 표가 바뀌면 바뀐 코드(views.changed_codes) 아래 회차가 닿는 PNU 만 다시 만든다(루트 ADR-0383, ADR-0329 §3)."
     }
   ],
   "by_pnu_lanes": {

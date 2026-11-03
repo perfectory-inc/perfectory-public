@@ -36,7 +36,9 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         # Root ADR-0340 §7: the item and announcement blocks read their own Silver, each whole and
         # required (the Silver load creates every Onbid table, empty or not).
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, *job.DOCUMENT_SOURCES})
+        # Root ADR-0383: the code change table is read so every round follows a code change; it is
+        # mapped to the rounds under the codes it reaches, not read whole.
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE, *job.DOCUMENT_SOURCES})
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
         self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE, *job.DOCUMENT_SOURCES})
 
@@ -613,6 +615,36 @@ class IncrementalParitySparkTest(unittest.TestCase):
         self.assertEqual(len(served[one]), 1)
         self.assertEqual(served[two], served[one])
         self.assertEqual(served[other], [])
+
+    def test_a_code_change_re_places_a_round_and_reaches_only_the_rounds_under_it(self):
+        """Root ADR-0383 (owner rule 2026-10-31): a round loaded under a code that was later renumbered
+        is carried to the current parcel on the next build, and the change reaches only the rounds
+        under either code of the pair, not the kind whole."""
+        from platform_contracts import column_names, load_lakehouse_contract
+
+        import place_identity_resolver
+
+        old_code = "9999920100"
+        renamed, kept = f"{old_code}100070000", "9999930100100610000"  # kept: under neither code
+        current = f"{DONG}100070000"
+        late = datetime(2099, 1, 10)
+        items = self.table(job.ITEM_SOURCE, [{**self.item("R", None, late, "snap-1"), "ltno_pnu_raw": renamed},
+                                             self.item("S", kept, late, "snap-1")])
+        parcels = self.spark.createDataFrame([(current,), (kept,)], "pnu string")
+        changes_schema = ", ".join(f"{c} string" for c in place_identity_resolver.CODE_CHANGE_COLUMNS)
+        pair = ("pair", old_code, DONG, "eupmyeondong", "2099-01-03", "derived")
+        old = {job.ITEM_SOURCE: place_identity_resolver.located(items, {}, job.RAW_PNU),
+               job.CODE_CHANGE_SOURCE: self.spark.createDataFrame([], changes_schema), job.PARCEL_SOURCE: parcels}
+        new = {**old, job.ITEM_SOURCE: place_identity_resolver.located(items, {old_code: DONG}, job.RAW_PNU),
+               job.CODE_CHANGE_SOURCE: self.spark.createDataFrame([pair], changes_schema)}
+        how = job.Placement("2099-01-04T00:00:00Z")
+        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        gold_v1 = job.gold_rows(job.placement(old, how), how.as_of, "snap-p", columns).cache()
+        self.assertEqual({r.pnu for r in gold_v1.collect()}, {kept}, "under the old code the round has no parcel")
+        affected = job.affected_pnus(old, new, how, gold_v1, how.as_of, [job.CODE_CHANGE_SOURCE])
+        self.assertEqual({r.pnu for r in affected.collect()}, {current}, "only the round under the pair's codes")
+        gold_v2 = job.gold_rows(job.placement(new, how), how.as_of, "snap-p", columns)
+        self.assertEqual({r.pnu for r in gold_v2.collect()}, {current, kept}, "the round is re-placed")
 
     def test_the_parcels_read_are_only_those_a_sale_or_its_lineage_names(self):
         parcels = self.spark.createDataFrame([(p,) for p in (CURRENT, SPLIT_A, SPLIT_B, pnu(99))], "pnu string")

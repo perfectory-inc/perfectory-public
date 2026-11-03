@@ -72,6 +72,7 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
+      - "reference.legal_dong_code_change"
       - "silver.onbid_announcement"
       - "silver.onbid_announcement_bid_result"
       - "silver.onbid_announcement_detail"

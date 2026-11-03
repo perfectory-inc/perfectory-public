@@ -18,7 +18,11 @@ Which PNU a sale belongs to:
   originals; a sale is added, not chosen, so the merged land shows each predecessor's sale. One
   merge hop into a current parcel; a link not yet in effect (needs_review, pending) is not followed;
 - a retired PNU with no lineage path keeps the sale under itself, flagged `lineage_missing`. A sale
-  is never dropped.
+  is never dropped;
+- the PNU a round is placed by is carried to the CURRENT legal-dong code on every build
+  (`place_identity_resolver.located`: the load's resolved PNU, else the source's `ltno_pnu_raw`),
+  never the one fixed at load time; a change of the code change table rebuilds only the rounds under
+  the codes it reaches (`views.changed_codes`, root ADR-0329 §3, ADR-0383).
 
 What a PNU's document holds (root ADR-0287 §7): the rounds open as of the build, soonest-closing
 first, each with its codes and the names the provider gives them (root ADR-0340 §8), its money
@@ -38,6 +42,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import onbid_public_auction_document as document
+import place_identity_resolver
 
 JOB_NAME = "onbid_public_auction_silver_to_gold"
 ITEM_SOURCE = "silver.onbid_real_estate_item"
@@ -48,6 +53,9 @@ KEY = ("cltr_mng_no", "pbct_cdtn_no")
 ITEM = "cltr_mng_no"
 USAGE_CODE_SOURCE = "reference.onbid_usage_code"
 PHOTO_SOURCE = "silver.onbid_real_estate_item_photo"
+CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
+# The source's own PNU text, kept beside the resolved one (data_go_kr_onbid.py, root ADR-0288 §1).
+RAW_PNU = "ltno_pnu_raw"
 # A round's media as the document carries it (root ADR-0296 §5): the content hash and its facts, from
 # which the web builds the public URL. Order matches the Silver columns the struct is built from.
 PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,sequence:int,title:string,"
@@ -92,9 +100,10 @@ DOCUMENT_SOURCES = document.SOURCES
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
     """(required inputs, optional input -> flag without it, anchor input, whole-table inputs), the
     seam `gold_rebuild.producer_inputs` reads. The item table is read whole: `current_rows` reads
-    every version to pick the current one per key, so any change to it rebuilds the kind."""
+    every version to pick the current one per key, so any change to it rebuilds the kind. The code
+    change table is not: `affected_pnus` maps its changed codes to the rounds under them (root ADR-0383)."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE, *DOCUMENT_SOURCES),
+    return ((PARCEL_SOURCE, ITEM_SOURCE, CODE_CHANGE_SOURCE, *DOCUMENT_SOURCES),
             {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
             (ITEM_SOURCE, PHOTO_SOURCE, *DOCUMENT_SOURCES))
 
@@ -431,6 +440,13 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
         return name in changed and name in old and name in new
 
     touched = [incremental.changed_rows(old[ITEM_SOURCE], new[ITEM_SOURCE], KEY)] if present(ITEM_SOURCE) else []
+    if present(CODE_CHANGE_SOURCE):
+        # The rounds under a code a change reaches, by their PNU before and after it is carried.
+        before, after = ([row.asDict() for row in frames[CODE_CHANGE_SOURCE].collect()] for frames in (old, new))
+        moved = place_identity_resolver.under_changed_codes(
+            [frames[ITEM_SOURCE] for frames in (old, new) if ITEM_SOURCE in frames], before, after, KEY)
+        if moved is not None:
+            touched.append(moved)
     # A media, detail, bid-info or result row is its item's: every round of the item is touched.
     for name in (PHOTO_SOURCE, document.DETAIL_SOURCE, document.BID_INFO_SOURCE, document.RESULT_SOURCE):
         if present(name):
@@ -482,9 +498,27 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{source.split('.', 1)[1]}"
         return with_contract_columns(read_pinned_iceberg(spark, table, source, at), load_lakehouse_contract(source))
 
+    def code_changes(at: dict[str, str]) -> tuple[Any, dict[str, str]]:
+        changes = panel.read_source(spark, args, CODE_CHANGE_SOURCE, at).select(*place_identity_resolver.CODE_CHANGE_COLUMNS)
+        remap, _ambiguous = place_identity_resolver.crosswalk_of(row.asDict() for row in changes.collect())
+        return changes, remap
+
     tables = [ITEM_SOURCE, *((PHOTO_SOURCE,) if args.photos and PHOTO_SOURCE in pins else ()), *DOCUMENT_SOURCES]
-    frames = {name: versions(name, pins).cache() for name in tables}
-    old = None if previous is None else {name: versions(name, previous) for name in tables if name in previous}
+    frames = {name: versions(name, pins) for name in tables}
+    frames[CODE_CHANGE_SOURCE], remap = code_changes(pins)
+    counters["carried_codes"] = len(remap)
+    # Every version is placed by its PNU carried to the current code (root ADR-0383).
+    frames[ITEM_SOURCE] = place_identity_resolver.located(frames[ITEM_SOURCE], remap, RAW_PNU)
+    frames = {name: frame.cache() for name, frame in frames.items()}
+    old = None
+    if previous is not None:
+        old = {name: versions(name, previous) for name in tables if name in previous}
+        old_remap: dict[str, str] = {}
+        if CODE_CHANGE_SOURCE in previous:
+            old[CODE_CHANGE_SOURCE], old_remap = code_changes(previous)
+        if ITEM_SOURCE in old:
+            # The old read is carried by the old pairs, so a code change shows as the rows it moved.
+            old[ITEM_SOURCE] = place_identity_resolver.located(old[ITEM_SOURCE], old_remap, RAW_PNU)
     named = frames[ITEM_SOURCE].select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
     sources = {r.predecessor_pnu for r in named.collect()}
     # Only the candidates from a PNU a sale names: a few thousand, not the lineage's 6.5M.
