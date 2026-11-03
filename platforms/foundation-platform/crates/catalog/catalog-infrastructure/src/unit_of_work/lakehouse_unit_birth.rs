@@ -13,8 +13,8 @@ use super::{
     lock_runtime_manifest_pointer_tx, map_runtime_manifest_gate_error, map_sqlx,
     record_mutation_outbox_event_tx, runtime_manifest_published_event, set_lock_timeout_tx,
     static_release_martin_source_id, u64_to_i64, BTreeMap, CatalogError, CatalogMutationKind,
-    ManifestUnitSelection, MutationClaim, PgPool, Uuid, VectorTileRuntimeManifest,
-    VectorTileRuntimeManifestId,
+    ManifestUnitSelection, MutationClaim, PgPool, Postgres, Transaction, Uuid,
+    VectorTileRuntimeManifest, VectorTileRuntimeManifestId,
 };
 use catalog_application::ports::{
     RegisterLakehouseTileUnitCommand, RuntimeManifestPublicationCapability,
@@ -78,87 +78,10 @@ pub(super) async fn register(
         })
         .collect::<Result<Vec<_>, CatalogError>>()?;
 
-    let unit_id = Uuid::now_v7();
     let snapshot = command.canonical_iceberg_snapshot_id.as_str();
-    sqlx::query(
-        "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key, born_from)
-         VALUES ($1, $2, 'lakehouse_bake')",
-    )
-    .bind(unit_id)
-    .bind(&command.unit_key)
-    .execute(&mut *tx)
-    .await
-    .map_err(map_sqlx)?;
-    let source_record_id = Uuid::now_v7();
-    sqlx::query("INSERT INTO catalog.source_record (id, source, external_id) VALUES ($1, $2, $3)")
-        .bind(source_record_id)
-        .bind(&command.source_record_source)
-        .bind(snapshot)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-    let revision_id = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO catalog.publication_revision
-         (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
-         VALUES ($1, $2, $3, $4)",
-    )
-    .bind(revision_id)
-    .bind(unit_id)
-    .bind(snapshot)
-    .bind(source_record_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(map_sqlx)?;
-
-    let artifact = &command.artifact;
-    let release_id = artifact.release_id.as_uuid();
-    sqlx::query(
-        "INSERT INTO catalog.file_asset
-         (id, object_key, mime_type, size_bytes, checksum_sha256,
-          source_record_id, visibility, version)
-         VALUES ($1, $2, 'application/vnd.pmtiles', $3, $4, $5, 'private', 1)",
-    )
-    .bind(artifact.file_asset_id.as_uuid())
-    .bind(&artifact.object_key)
-    .bind(u64_to_i64(artifact.size_bytes)?)
-    .bind(artifact.checksum.as_str())
-    .bind(source_record_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(map_sqlx)?;
-    sqlx::query(
-        "INSERT INTO catalog.vector_tile_release
-         (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
-          source_record_id, source_kind, martin_source_id, tiles_url_template,
-          pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256, pmtiles_bytes,
-          validated_at, validation_evidence_sha256)
-         VALUES ($1, $2, $3, $4, $5, 'static_pmtiles', $6, $7, $8, $9, $10, $11, now(), $12)",
-    )
-    .bind(release_id)
-    .bind(unit_id)
-    .bind(revision_id)
-    .bind(snapshot)
-    .bind(source_record_id)
-    .bind(static_release_martin_source_id(
-        &command.unit_key,
-        artifact.release_id,
-    ))
-    .bind(artifact.tiles_url_template.as_str())
-    .bind(&artifact.object_key)
-    .bind(artifact.file_asset_id.as_uuid())
-    .bind(artifact.checksum.as_str())
-    .bind(u64_to_i64(artifact.size_bytes)?)
-    .bind(command.evidence.as_str())
-    .execute(&mut *tx)
-    .await
-    .map_err(map_sqlx)?;
-    insert_release_layers_tx(
-        &mut tx,
-        release_id,
-        &BTreeMap::from([(command.layer_id.clone(), command.layer.clone())]),
-    )
-    .await?;
+    let release_id = command.artifact.release_id.as_uuid();
+    let (unit_id, source_record_id, revision_id) =
+        insert_unit_and_first_release_tx(&mut tx, &command).await?;
 
     insert_static_runtime_manifest_tx(&mut tx, manifest_id, source_record_id).await?;
     selections.push(ManifestUnitSelection {
@@ -191,4 +114,99 @@ pub(super) async fn register(
     }
     tx.commit().await.map_err(map_sqlx)?;
     Ok(manifest)
+}
+
+/// The unit row, its source record and first revision, the release's file asset, the release and
+/// its layer; returns `(unit, source record, revision)`.
+async fn insert_unit_and_first_release_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &RegisterLakehouseTileUnitCommand,
+) -> Result<(Uuid, Uuid, Uuid), CatalogError> {
+    let unit_id = Uuid::now_v7();
+    let snapshot = command.canonical_iceberg_snapshot_id.as_str();
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_publication_unit (id, unit_key, born_from)
+         VALUES ($1, $2, 'lakehouse_bake')",
+    )
+    .bind(unit_id)
+    .bind(&command.unit_key)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    let source_record_id = Uuid::now_v7();
+    sqlx::query("INSERT INTO catalog.source_record (id, source, external_id) VALUES ($1, $2, $3)")
+        .bind(source_record_id)
+        .bind(&command.source_record_source)
+        .bind(snapshot)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+    // The revision ledger admits writes only from a publisher transaction.
+    sqlx::query("SELECT set_config('foundation.temporal_publisher', 'on', true)")
+        .execute(&mut **tx)
+        .await
+        .map_err(map_sqlx)?;
+    let revision_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO catalog.publication_revision
+         (id, publication_unit_id, canonical_iceberg_snapshot_id, source_record_id)
+         VALUES ($1, $2, $3, $4)",
+    )
+    .bind(revision_id)
+    .bind(unit_id)
+    .bind(snapshot)
+    .bind(source_record_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+
+    let artifact = &command.artifact;
+    let release_id = artifact.release_id.as_uuid();
+    sqlx::query(
+        "INSERT INTO catalog.file_asset
+         (id, object_key, mime_type, size_bytes, checksum_sha256,
+          source_record_id, visibility, version)
+         VALUES ($1, $2, 'application/vnd.pmtiles', $3, $4, $5, 'private', 1)",
+    )
+    .bind(artifact.file_asset_id.as_uuid())
+    .bind(&artifact.object_key)
+    .bind(u64_to_i64(artifact.size_bytes)?)
+    .bind(artifact.checksum.as_str())
+    .bind(source_record_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    sqlx::query(
+        "INSERT INTO catalog.vector_tile_release
+         (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
+          source_record_id, source_kind, martin_source_id, tiles_url_template,
+          pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256, pmtiles_bytes,
+          validated_at, validation_evidence_sha256)
+         VALUES ($1, $2, $3, $4, $5, 'static_pmtiles', $6, $7, $8, $9, $10, $11, now(), $12)",
+    )
+    .bind(release_id)
+    .bind(unit_id)
+    .bind(revision_id)
+    .bind(snapshot)
+    .bind(source_record_id)
+    .bind(static_release_martin_source_id(
+        &command.unit_key,
+        artifact.release_id,
+    ))
+    .bind(artifact.tiles_url_template.as_str())
+    .bind(&artifact.object_key)
+    .bind(artifact.file_asset_id.as_uuid())
+    .bind(artifact.checksum.as_str())
+    .bind(u64_to_i64(artifact.size_bytes)?)
+    .bind(command.evidence.as_str())
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    insert_release_layers_tx(
+        tx,
+        release_id,
+        &BTreeMap::from([(command.layer_id.clone(), command.layer.clone())]),
+    )
+    .await?;
+    Ok((unit_id, source_record_id, revision_id))
 }
