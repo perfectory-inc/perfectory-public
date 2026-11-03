@@ -28,6 +28,8 @@ fn birth_command(key: &str, release_id: Uuid) -> TestResult<RegisterLakehouseTil
         },
         canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId::new(ZONING_SNAPSHOT.to_owned())?,
         source_record_source: "lakehouse:silver.land_use_zone_area".to_owned(),
+        source_object_key:
+            "warehouse/silver/land_use_zone_area/metadata/00001-synthetic.metadata.json".to_owned(),
         artifact: ValidatedPmtilesArtifact {
             release_id,
             file_asset_id: FileAssetId::new(Uuid::now_v7()),

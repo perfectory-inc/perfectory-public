@@ -53,7 +53,7 @@ Mapbox Tiling Service 는 tileset 을 첫 publish 로 만든다(create 와 첫 p
    - 유닛 줄(`born_from = 'lakehouse_bake'`)을 쓴다. 같은 키의 유닛이 이미 있으면 거부한다. 다음 릴리스는 보통의
      lakehouse 굽기다.
    - `source_record`(`lakehouse:<표>`, 스냅숏 id)와 첫 `publication_revision` 을 쓴다.
-   - 재해시까지 끝난 정적 릴리스, 그 레이어, 파일 자산을 쓴다.
+   - 재해시까지 끝난 정적 릴리스, 그 레이어, 파일 자산을 쓴다. 릴리스의 계보(`source_file_asset_ids`)는 구운 스냅숏을 현재로 만든 Iceberg 메타데이터 파일 하나다. 넘김 작업이 버킷 기준 키로 요약에 적는다(`silver_metadata_object_key`).
    - 나머지 유닛의 선택을 그대로 옮기고 새 유닛을 더한 매니페스트를 쓰고 승격 함수를 부른다.
    - v2 이벤트를 낸다.
    - 같은 키로 다시 부르면 처음 매니페스트로 답한다.

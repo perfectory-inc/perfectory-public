@@ -147,6 +147,28 @@ def served_rows(spark: Any, table: str, snapshot: str) -> Any:
     ).withColumn("origin", F.lit("source"))
 
 
+def metadata_object_key(spark: Any, table: str, snapshot: str) -> str:
+    """The bucket-relative key of the metadata file that made `snapshot` current: the input the
+    tiles are baked from, which a first release names as its source (root ADR-0374)."""
+
+    rows = spark.sql(
+        f"SELECT file FROM {table}.metadata_log_entries WHERE latest_snapshot_id = {snapshot} "
+        "ORDER BY timestamp DESC LIMIT 1"
+    ).collect()
+    if not rows:
+        raise ValueError(f"{table} has no metadata file for snapshot {snapshot}")
+    return bucket_relative(str(rows[0]["file"]))
+
+
+def bucket_relative(location: str) -> str:
+    """`s3://bucket/a/b.json` -> `a/b.json`; anything else is refused."""
+
+    match = re.fullmatch(r"[a-z][a-z0-9+.-]*://[^/]+/(.+)", location)
+    if not match or ".." in match.group(1).split("/"):
+        raise ValueError(f"{location!r} is not an object location")
+    return match.group(1)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
@@ -159,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         if snapshot == args.served_snapshot:
             print(f"land-use-zone-area-tile-handoff-unchanged snapshot={snapshot}")
             return UNCHANGED_EXIT
+        metadata_key = metadata_object_key(spark, table, snapshot)
         frame = served_rows(spark, table, snapshot)
         parts_dir = output.with_name(output.name + ".parts")
         parts = common.write_handoff_parts(
@@ -183,6 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         gold_snapshot=snapshot, through=0, handoff=0, appended=0, ledger=0, served=served, base=served,
         output=output, generated_at=now.isoformat().replace("+00:00", "Z"), counts={},
         extra={"silver_table": SILVER_TABLE, "silver_iceberg_snapshot_id": snapshot,
+               "silver_metadata_object_key": metadata_key,
                "handoff_sha256": sha256, "zones_per_layer": dict(sorted(per_layer.items())),
                "pending_layers": pending_layers(json.loads(LANE_CONTRACT.read_text(encoding="utf-8")))},
     )

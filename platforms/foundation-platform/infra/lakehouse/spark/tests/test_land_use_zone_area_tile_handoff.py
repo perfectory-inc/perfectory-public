@@ -52,6 +52,13 @@ class LandUseZoneAreaTileHandoffTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "both loaded and pending"):
             job.pending_layers(contract)
 
+    def test_a_metadata_location_becomes_its_bucket_relative_key(self):
+        self.assertEqual(job.bucket_relative("s3://bucket/warehouse/silver/t/metadata/00001-x.metadata.json"),
+                         "warehouse/silver/t/metadata/00001-x.metadata.json")
+        for bad in ("warehouse/x.json", "s3://bucket/", "s3://bucket/a/../b.json"):
+            with self.assertRaises(ValueError):
+                job.bucket_relative(bad)
+
     def test_a_served_snapshot_must_be_a_snapshot_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = job.parse_args(["--output", f"{tmp}/h.jsonl", "--summary-output", f"{tmp}/s.json",

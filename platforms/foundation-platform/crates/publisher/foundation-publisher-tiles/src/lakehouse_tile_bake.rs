@@ -243,6 +243,10 @@ pub struct ServedSummary {
     pub source_snapshot_id: Option<String>,
     #[serde(default)]
     pub handoff_parts: Option<Vec<HandoffPart>>,
+    /// The Iceberg metadata file of the snapshot read, bucket-relative: a newborn unit's first
+    /// release names it as its source (root ADR-0374).
+    #[serde(default)]
+    pub silver_metadata_object_key: Option<String>,
 }
 
 impl ServedSummary {

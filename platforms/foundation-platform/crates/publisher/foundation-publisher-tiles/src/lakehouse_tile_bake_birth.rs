@@ -109,6 +109,10 @@ pub(super) async fn bear(
         config.unit_key,
         newborn.feature_id_property
     );
+    let source_object_key = summary
+        .silver_metadata_object_key
+        .clone()
+        .context("a newborn unit's served summary names the metadata file it was read from")?;
     let layer = newborn.served_layer();
     let inputs = bake_inputs(
         &contract.images,
@@ -162,6 +166,7 @@ pub(super) async fn bear(
             )
             .map_err(anyhow::Error::msg)?,
             source_record_source: newborn.source_record_source.clone(),
+            source_object_key,
             artifact,
             evidence,
             idempotency_key: config.promote_idempotency_key.clone(),

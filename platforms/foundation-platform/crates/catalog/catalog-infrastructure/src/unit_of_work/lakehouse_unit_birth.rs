@@ -160,29 +160,17 @@ async fn insert_unit_and_first_release_tx(
     .await
     .map_err(map_sqlx)?;
 
+    let source_file_asset_id = insert_file_assets_tx(tx, command, source_record_id).await?;
     let artifact = &command.artifact;
     let release_id = artifact.release_id.as_uuid();
     sqlx::query(
-        "INSERT INTO catalog.file_asset
-         (id, object_key, mime_type, size_bytes, checksum_sha256,
-          source_record_id, visibility, version)
-         VALUES ($1, $2, 'application/vnd.pmtiles', $3, $4, $5, 'private', 1)",
-    )
-    .bind(artifact.file_asset_id.as_uuid())
-    .bind(&artifact.object_key)
-    .bind(u64_to_i64(artifact.size_bytes)?)
-    .bind(artifact.checksum.as_str())
-    .bind(source_record_id)
-    .execute(&mut **tx)
-    .await
-    .map_err(map_sqlx)?;
-    sqlx::query(
         "INSERT INTO catalog.vector_tile_release
          (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
-          source_record_id, source_kind, martin_source_id, tiles_url_template,
-          pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256, pmtiles_bytes,
-          validated_at, validation_evidence_sha256)
-         VALUES ($1, $2, $3, $4, $5, 'static_pmtiles', $6, $7, $8, $9, $10, $11, now(), $12)",
+          source_record_id, source_file_asset_ids, source_kind, martin_source_id,
+          tiles_url_template, pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256,
+          pmtiles_bytes, validated_at, validation_evidence_sha256)
+         VALUES ($1, $2, $3, $4, $5, ARRAY[$13]::uuid[], 'static_pmtiles', $6, $7, $8, $9, $10,
+                 $11, now(), $12)",
     )
     .bind(release_id)
     .bind(unit_id)
@@ -199,6 +187,7 @@ async fn insert_unit_and_first_release_tx(
     .bind(artifact.checksum.as_str())
     .bind(u64_to_i64(artifact.size_bytes)?)
     .bind(command.evidence.as_str())
+    .bind(source_file_asset_id)
     .execute(&mut **tx)
     .await
     .map_err(map_sqlx)?;
@@ -209,4 +198,42 @@ async fn insert_unit_and_first_release_tx(
     )
     .await?;
     Ok((unit_id, source_record_id, revision_id))
+}
+
+/// The release's two file assets: the input it was baked from (its lineage) and the archive.
+/// Returns the input's id.
+async fn insert_file_assets_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    command: &RegisterLakehouseTileUnitCommand,
+    source_record_id: Uuid,
+) -> Result<Uuid, CatalogError> {
+    // The input the archive was baked from, the release's lineage (`source_file_asset_ids`).
+    let source_file_asset_id = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO catalog.file_asset
+         (id, object_key, mime_type, size_bytes, source_record_id, visibility, version)
+         VALUES ($1, $2, 'application/json', 0, $3, 'private', 1)",
+    )
+    .bind(source_file_asset_id)
+    .bind(&command.source_object_key)
+    .bind(source_record_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    let artifact = &command.artifact;
+    sqlx::query(
+        "INSERT INTO catalog.file_asset
+         (id, object_key, mime_type, size_bytes, checksum_sha256,
+          source_record_id, visibility, version)
+         VALUES ($1, $2, 'application/vnd.pmtiles', $3, $4, $5, 'private', 1)",
+    )
+    .bind(artifact.file_asset_id.as_uuid())
+    .bind(&artifact.object_key)
+    .bind(u64_to_i64(artifact.size_bytes)?)
+    .bind(artifact.checksum.as_str())
+    .bind(source_record_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(map_sqlx)?;
+    Ok(source_file_asset_id)
 }

@@ -466,6 +466,9 @@ pub struct RegisterLakehouseTileUnitCommand {
     /// `catalog.source_record.source` naming the table the snapshot belongs to
     /// (`lakehouse:<namespace>.<table>`); the snapshot id is its external id.
     pub source_record_source: String,
+    /// Bucket-relative key of the object the archive was baked from (the Iceberg metadata file
+    /// of that snapshot): the release's source file asset, its lineage.
+    pub source_object_key: String,
     /// The uploaded archive, rehashed after its create-only write.
     pub artifact: ValidatedPmtilesArtifact,
     /// SHA-256 of the bake's gate evidence.
@@ -483,6 +486,7 @@ impl RegisterLakehouseTileUnitCommand {
         RequestFingerprintBuilder::new(CatalogMutationKind::RegisterLakehouseTileUnit)
             .text(&self.unit_key)
             .text(self.canonical_iceberg_snapshot_id.as_str())
+            .text(&self.source_object_key)
             .displayed(&self.artifact.release_id)
             .text(self.artifact.checksum.as_str())
             .displayed(&self.operator_staff_id)
