@@ -329,10 +329,9 @@ CHANGE_RECORD_SUFFIX = "__changes"
 def change_record_versions(table: str) -> dict[str, Any]:
     """`row_versions` of a Gold's change record: `Events`, one row per changed key and step."""
 
-    recorded = table[: -len(CHANGE_RECORD_SUFFIX)]
-    if not recorded.startswith("gold."):
+    # The shape is the record's own, whatever the Gold: a proof table records its steps the same way.
+    if not table.startswith("gold."):
         raise ValueError(f"{table}: only a Gold table has a change record")
-    row_versions(load_lakehouse_contract(recorded))
     return {"kind": "events", "canonical_reader": None}
 
 

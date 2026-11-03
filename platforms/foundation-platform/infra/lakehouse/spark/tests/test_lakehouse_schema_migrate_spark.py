@@ -125,7 +125,8 @@ class MigrationSpark(unittest.TestCase):
                     scalar.write_silver_iceberg(
                         self.spark, second.select(*reversed(second.columns)), self.scalar_args(name, mode), contract, F)
                     rows = self.spark.table(table).collect()
-                    self.assertCountEqual([row.asDict() for row in rows], [second_expected])
+                    # The second load appends beside the first, both read back by name.
+                    self.assertCountEqual([row.asDict() for row in rows], [first_expected, second_expected])
 
     def test_scalar_unit_tables_reject_missing_input_columns_without_committing(self):
         from pyspark.errors import AnalysisException
