@@ -45,7 +45,7 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 
 | 원천 | 수집·서빙 | 수집·미서빙 | 미수집 | 의도적 미수집 |
 |---|---:|---:|---:|---:|
-| 건축HUB 파일 | 5 | 52 | 0 | 2 |
+| 건축HUB 파일 | 9 | 48 | 0 | 2 |
 | 건축물대장 API | 0 | 0 | 0 | 10 |
 | 산업입지정보 산업단지 | 3 | 0 | 0 | 0 |
 | 행정표준코드관리시스템 법정동 | 1 | 0 | 0 | 0 |
@@ -117,17 +117,17 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 건축HUB 파일 | 건축물대장 기본 정보 파일 (`hubgokr__building_register_basis_outline`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 건축물대장 총괄표제부 파일 (`hubgokr__building_register_master`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 건축물대장 오수정화시설 파일 (`hubgokr__building_register_sewage_facility`) | `bulk_file` | 수집·미서빙 |
-| 건축HUB 파일 | 건축물대장 부속지번 파일 (`hubgokr__building_register_sub_parcel`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 건축물대장 부속지번 파일 (`hubgokr__building_register_sub_parcel`) | `bulk_file` | 수집·서빙 |
 | 건축HUB 파일 | 건축물대장 지역지구구역 파일 (`hubgokr__building_register_district_zone`) | `bulk_file` | 수집·미서빙 |
-| 건축HUB 파일 | 건물 가스 사용량 파일 (`hubgokr__building_energy_monthly_gas`) | `bulk_file` | 수집·미서빙 |
-| 건축HUB 파일 | 건물 전기 사용량 파일 (`hubgokr__building_energy_monthly_electricity`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 건물 가스 사용량 파일 (`hubgokr__building_energy_monthly_gas`) | `bulk_file` | 수집·서빙 |
+| 건축HUB 파일 | 건물 전기 사용량 파일 (`hubgokr__building_energy_monthly_electricity`) | `bulk_file` | 수집·서빙 |
 | 건축HUB 파일 | 기본개요 (`hubgokr__building_permit_basis_outline`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 동별개요 (`hubgokr__building_permit_building_outline`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 층별개요 (`hubgokr__building_permit_floor_overview`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 호별개요 (`hubgokr__building_permit_unit_outline`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 대수선 (`hubgokr__building_permit_major_repair`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 공작물관리대장 (`hubgokr__building_permit_structure_ledger`) | `bulk_file` | 수집·미서빙 |
-| 건축HUB 파일 | 철거멸실관리대장 (`hubgokr__building_permit_demolition_loss`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 철거멸실관리대장 (`hubgokr__building_permit_demolition_loss`) | `bulk_file` | 수집·서빙 |
 | 건축HUB 파일 | 가설건축물 (`hubgokr__building_permit_temporary_building`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 오수정화시설 (`hubgokr__building_permit_sewage_facility`) | `bulk_file` | 수집·미서빙 |
 | 건축HUB 파일 | 주차장 (`hubgokr__building_permit_parking`) | `bulk_file` | 수집·미서빙 |
@@ -188,17 +188,17 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 법원경매정보 (courtauction.go.kr) | 법원경매 물건 검색 (`courtauctiongokr__auction_item`) | `public_web_page` | 미수집 |
 | 법원경매정보 (courtauction.go.kr) | 법원경매 매각결과 검색 (`courtauctiongokr__auction_sale_result`) | `public_web_page` | 미수집 |
 | data.go.kr 파일 데이터 | 한국산업단지공단 전국등록공장현황 (`datagokr__registered_factory`) | `public_web_page` | 수집·미서빙 |
-| 주소정보 전자지도 | JUSO 건물 도형 (`jusogokr__building`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 기초구간 (`jusogokr__base_interval`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 국가기초구역 (`jusogokr__basic_area`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 건물군 (`jusogokr__building_group`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 건물 출입구 (`jusogokr__building_entrance`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 법정구역 읍면동 (`jusogokr__legal_emd`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 법정구역 리 (`jusogokr__legal_ri`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 법정구역 시도 (`jusogokr__legal_sido`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 법정구역 시군구 (`jusogokr__legal_sigungu`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 도로구간 (`jusogokr__road_section`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
-| 주소정보 전자지도 | JUSO 실폭도로 (`jusogokr__road_width`) | `manual_approval_bulk` | 미수집 — 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 준다. 사장의 신청이 먼저다(루트 ADR-0355 §3). |
+| 주소정보 전자지도 | JUSO 건물 도형 (`jusogokr__building`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 기초구간 (`jusogokr__base_interval`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 국가기초구역 (`jusogokr__basic_area`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 건물군 (`jusogokr__building_group`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 건물 출입구 (`jusogokr__building_entrance`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 읍면동 (`jusogokr__legal_emd`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 리 (`jusogokr__legal_ri`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 시도 (`jusogokr__legal_sido`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 시군구 (`jusogokr__legal_sigungu`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 도로구간 (`jusogokr__road_section`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 실폭도로 (`jusogokr__road_width`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
 | 기타 공공 일괄 파일 | 고속도로 접근점 (`public-bulk-highway-access-point`) | `manual_approval_bulk` | 미수집 |
 | 기타 공공 일괄 파일 | 학교 위치 (`public-bulk-school-location`) | `manual_approval_bulk` | 미수집 |
 | 기타 공공 일괄 파일 | 대학교 (`public-bulk-university`) | `manual_approval_bulk` | 미수집 |
