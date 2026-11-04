@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-04
 ---
 
 # Public Data Bronze Lane Orchestration Runbook
@@ -118,7 +118,7 @@ cargo run -p foundation-outbox-publisher -- run-public-data-bronze-collection-la
 - bulk 전체 다운로드는 lane별 `*_CONFIRM_FULL_DOWNLOAD=1`이 필요하다.
 - R2 live write는 lane별 `*_LIVE_WRITE=1`이 필요하다.
 - orchestration evidence의 `completion_claim_allowed`와 `national_rollout_allowed`는 항상 `false`다.
-- 전국 Bronze 원천은 `building-hub-bulk`와 `vworld-dataset-file` 같은 파일 lane만 사용한다(bulk-only 정책). 실행을 막아 두었던 옛 data.go.kr API 비동기 lane(`execute-national-data-collection-async`)은 2026-11-04 코드째 지웠다.
+- 전국 Bronze 원천은 `building-hub-bulk`와 `vworld-dataset-file` 같은 파일 lane만 사용한다(bulk-only 정책). 실행을 막아 두었던 옛 data.go.kr API 비동기 lane 은 2026-11-04 코드째 지웠다.
 
 ## 선택 실행
 
