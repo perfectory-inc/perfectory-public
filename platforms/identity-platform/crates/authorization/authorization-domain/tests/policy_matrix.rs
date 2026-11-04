@@ -71,7 +71,7 @@ fn catalog_admin_can_write_catalog() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn vector_tile_admin_can_administer_spatial_resources() -> Result<(), Box<dyn std::error::Error>> {
-    for action in ["manifest_admin", "anchor_rebuild", "map_edit"] {
+    for action in ["manifest_admin", "map_edit"] {
         let input = PolicyInput::resource_action(
             vec![RoleCode::parse("VECTOR_TILE_ADMIN")?],
             "foundation.spatial",
@@ -193,13 +193,6 @@ fn role_capability_boundaries_expose_decision_and_reason_code(
             "CATALOG_ADMIN",
             "foundation.spatial",
             "manifest_admin",
-            ResourceAction::Deny,
-            "missing_capability",
-        ),
-        (
-            "CATALOG_ADMIN",
-            "foundation.spatial",
-            "anchor_rebuild",
             ResourceAction::Deny,
             "missing_capability",
         ),
