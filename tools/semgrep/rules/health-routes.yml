@@ -1,0 +1,20 @@
+# Probes and monitors need no per-area knowledge: every service answers /healthz and /readyz,
+# with dependency detail under /readyz/<dep> (root ADR-0001 §5).
+#
+# Prevents: deploy-probe drift — four health styles were found across four areas (/health,
+# /health/live, /health/ready, /ready), so a probe written for one area silently 404'd on another.
+rules:
+  - id: health-routes-are-healthz-and-readyz
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      Use /healthz and /readyz (dependency detail under /readyz/<dep>), not $PATH — root ADR-0001 §5.
+    paths:
+      include:
+        - "/products/*/services/**"
+        - "/platforms/*/services/**"
+    patterns:
+      - pattern: $ROUTER.route($PATH, ...)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ^"(/health|/health/live|/health/ready|/ready|/healthz/ready)"$
