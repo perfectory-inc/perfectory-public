@@ -228,6 +228,18 @@ fn register_master_streaming_export_command_is_explicit() -> anyhow::Result<()> 
 }
 
 #[test]
+fn permit_demolition_loss_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-demolition-loss-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitDemolitionLossSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

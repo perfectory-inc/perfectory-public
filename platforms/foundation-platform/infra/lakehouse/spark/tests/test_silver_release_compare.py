@@ -62,6 +62,7 @@ class VersionOrderTest(unittest.TestCase):
                 editions[block["table"]] = job.edition_column(latest)
         self.assertEqual(editions, {
             "silver.building_permit_basis_outline": "vintage",
+            "silver.building_permit_demolition_loss": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
             "silver.building_register_titles": "valid_from_utc",

@@ -8,6 +8,15 @@ pub(super) struct Column {
     pub(super) index: usize,
 }
 
+/// Where a row's `mgmt_key` comes from when the provider's key column is empty on every row.
+#[derive(Clone, Copy, Deserialize, Eq, PartialEq)]
+pub(super) enum RowKey {
+    /// The lowercase hex SHA-256 of the row's text: the row is its own identity, so a changed row
+    /// is a new key and the old one a removal (root ADR-0397).
+    #[serde(rename = "sha256_of_row")]
+    Sha256OfRow,
+}
+
 /// The file layout of one hub national register (root ADR-0092). Which ZIP to read is not here:
 /// the Silver refresh picks it from the Bronze ledger and passes it in (root ADR-0169 §2).
 #[derive(Clone, Deserialize)]
@@ -22,6 +31,8 @@ pub struct Layout {
     has_header: bool,
     pub(super) column_count: usize,
     pub(super) columns: BTreeMap<String, Column>,
+    #[serde(default)]
+    pub(super) row_key: Option<RowKey>,
     pub(super) handoff_suffix: String,
     pub(super) rows_per_part: u64,
     pub(super) max_row_bytes: u64,
@@ -42,7 +53,9 @@ impl Layout {
             .columns
             .iter()
             .filter(|column| {
-                !super::GENERATED_COLUMNS.contains(&column.name) && Some(column.name) != removal
+                !super::GENERATED_COLUMNS.contains(&column.name)
+                    && Some(column.name) != removal
+                    && !(layout.row_key.is_some() && column.name == "mgmt_key")
             })
             .map(|column| column.name.to_owned())
             .collect();
@@ -76,21 +89,18 @@ impl Layout {
             "consumed column names differ from the Silver table contract"
         );
         ensure!(
-            [
-                "mgmt_key",
-                "sigungu_cd",
-                "bjdong_cd",
-                "san_gubun",
-                "bonbeon",
-                "bubeon"
-            ]
-            .iter()
-            .all(|name| self.columns.contains_key(*name))
+            ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon"]
+                .iter()
+                .all(|name| self.columns.contains_key(*name))
                 && self
                     .columns
                     .keys()
                     .all(|name| !super::GENERATED_COLUMNS.contains(&name.as_str())),
             "HUB columns must contain the PNU inputs and must not shadow generated columns"
+        );
+        ensure!(
+            self.columns.contains_key("mgmt_key") != self.row_key.is_some(),
+            "a HUB layout reads its mgmt_key from a column or makes it from the row, not both"
         );
         let positions: BTreeSet<_> = self.columns.values().map(|c| c.index).collect();
         ensure!(

@@ -3,6 +3,8 @@
 #[cfg(test)]
 mod apartment_price_tests;
 #[cfg(test)]
+mod demolition_loss_tests;
+#[cfg(test)]
 mod exclusive_unit_tests;
 mod layout;
 #[cfg(test)]
@@ -26,6 +28,7 @@ use foundation_shared_kernel::{
 };
 use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::Digest;
 use uuid::Uuid;
 
 use crate::silver_handoff_io::{
@@ -565,6 +568,11 @@ fn make_row(
     let mut row = serde_json::Map::new();
     for name in layout.columns.keys() {
         row.insert(name.clone(), json!(layout.value(fields, name)?));
+    }
+    if layout.row_key == Some(layout::RowKey::Sha256OfRow) {
+        // The fields joined back are the row's text exactly: it was split on every `|`.
+        let digest = sha2::Sha256::digest(fields.join("|").as_bytes());
+        row.insert("mgmt_key".into(), json!(format!("{digest:x}")));
     }
     row.extend(GENERATED_COLUMNS.into_iter().map(str::to_owned).zip([
         json!(pnu),

@@ -305,7 +305,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 153 -> 154: the Silver refresh compiles in the 용도지역지구 lane's contract
 # (vworld-land-use-zone-area-source-objects.json), as it does every lane's, so the run and the
 # contract cannot disagree on its layers (root ADR-0362).
-COMPILE_TIME_READ_BASELINE="${3:-154}"
+# 154 -> 155: the 철거멸실관리대장 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0397).
+COMPILE_TIME_READ_BASELINE="${3:-155}"
 
 cd "$repo_root"
 

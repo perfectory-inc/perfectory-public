@@ -11,6 +11,7 @@ pub mod industrial_complex_jsonl_transport;
 
 mod building_panel;
 mod building_permit_basis_outline;
+mod building_permit_demolition_loss;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod building_register_master;
@@ -50,6 +51,7 @@ pub mod lakehouse_registry;
 pub mod lakehouse_run_summary;
 
 pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
+pub use building_permit_demolition_loss::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS;
 pub use building_register_apartment_price::{
     SILVER_BUILDING_REGISTER_APARTMENT_PRICE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
 };

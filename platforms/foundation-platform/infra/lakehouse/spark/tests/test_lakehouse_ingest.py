@@ -806,7 +806,7 @@ class UndeclaredOverwriteTest(unittest.TestCase):
             block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh")
             if block is not None:
                 lanes[block["table"]] = block
-        self.assertEqual(len(lanes), 16)
+        self.assertEqual(len(lanes), 17)
         for table, block in lanes.items():
             if block["spark"]["iceberg_write_mode"] == "overwrite":
                 self.assertIn(overwrite_declaration(table), (COMPARE, FULL_REASON), table)
@@ -816,7 +816,8 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                 self.assertNotIn(FULL_REASON, block, table)
         compared = sorted(t for t, b in lanes.items() if COMPARE in b)
         # Every overwriting lane compares, and so does the exclusive-unit part lane (ADR-0318).
-        self.assertEqual(compared, ["silver.building_permit_basis_outline", "silver.building_register_exclusive_unit",
+        self.assertEqual(compared, ["silver.building_permit_basis_outline", "silver.building_permit_demolition_loss",
+                                    "silver.building_register_exclusive_unit",
                                     "silver.building_register_master",
                                     "silver.building_register_titles", "silver.building_register_unit_areas",
                                     "silver.building_register_units", "silver.land_characteristic",
