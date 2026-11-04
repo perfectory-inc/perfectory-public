@@ -36,6 +36,7 @@
     {"path": "/var/lib/foundation-jobs/switches", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the operator switches (root ADR-0282 §3); the gate and the runner only read them"},
     {"path": "/var/lib/foundation-jobs/switches/run-now.d", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the run-now requests (root ADR-0282 §4); foundation-run-now.path watches it and the gate reads it"},
     {"path": "/var/lib/foundation-platform/vworld-parcel-edition", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/parcel-editions", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/parcel-number-change", "mode": "0755"},
     {"path": "/data/foundation-platform/by-pnu-bake", "mode": "0755"},
     {"path": "/data/foundation-platform/source-sweep", "mode": "0755"},
@@ -467,6 +468,31 @@
       "enabled_since": "2026-10-16T01:00:00Z"
     },
     {
+      "id": "parcel_edition_readiness",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Whether each cadastral edition the source contract holds is all there (root ADR-0291 §2, ADR-0379, ADR-0380): source measured and not re-uploaded, Silver within the row-loss bound of the served edition, rehearsal Gold and bake passed. Reads only Trino's partition metadata of silver.parcel_boundaries, the edition collection's newest provider inventory and the tile bake journal, judges only the editions whose inputs moved since the last run, and writes the report foundation-api serves to the operator console.",
+      "systemd_service": "foundation-parcel-edition-readiness.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/parcel-editions"
+      ],
+      "schedule": "10 8 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 10,
+      "pool": "default_pool",
+      "retries": 1,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-parcel-edition-readiness"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z",
+      "started_once_after_deploy": true
+    },
+    {
       "id": "parcel_number_change_history",
       "scope": "skip-if-unchanged",
       "interruptible": false,
@@ -749,6 +775,87 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-permit-demolition-loss"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    },
+    {
+      "id": "silver_refresh_building_energy_monthly_electricity",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 월별 전기 lane `building-energy-monthly-electricity` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_electricity does not record yet (`unchanged` when every one is), stage it on a load branch, compare only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-energy-monthly-electricity.service",
+      "check_service": "foundation-silver-refresh-plan@building-energy-monthly-electricity.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-energy-monthly-electricity"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    },
+    {
+      "id": "silver_refresh_building_energy_monthly_gas",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 월별 가스 lane `building-energy-monthly-gas` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_gas does not record yet (`unchanged` when every one is), stage it on a load branch, compare only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-energy-monthly-gas.service",
+      "check_service": "foundation-silver-refresh-plan@building-energy-monthly-gas.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-energy-monthly-gas"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    },
+    {
+      "id": "silver_refresh_building_register_sub_parcel",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 부속지번 lane `building-register-sub-parcel` (root ADR-0169 ②, ADR-0395): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_sub_parcel already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the rows of the registers whose sub-parcel set changed and a removal marker per vanished register (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-sub-parcel.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-sub-parcel.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-sub-parcel"
       ],
       "enabled": true,
       "enabled_since": "2026-11-04T00:00:00Z"
@@ -1350,6 +1457,82 @@
       "disabled_reason": "New (root ADR-0361). Off until its first full build (about 120 million owner rows nationally, computed) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-ownership, root ADR-0193 §7), after silver_refresh_land_ownership loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "gold_parcel_sub_parcels_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "부속지번 kind Gold (root ADR-0399; scripts/ops/gold-panel-rebuild.sh parcel-sub-parcels): gold.parcel_sub_parcels from silver.building_register_sub_parcel, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs at either end of the rows the Silver release appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (building_sub_parcel_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_sub_parcels_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-sub-parcels-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-sub-parcel-to-gold-parcel-sub-parcels",
+        "reference-legal-dong-code-change-to-gold-parcel-sub-parcels"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0399). Off until its first full build (5.49 million rows, about 2.5 million parcels at either end, computed from the 2026-10 file) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-sub-parcels, root ADR-0193 §7), after silver_refresh_building_register_sub_parcel loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "gold_parcel_energy_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "건물 에너지 kind Gold (root ADR-0398; scripts/ops/gold-panel-rebuild.sh parcel-energy): gold.parcel_energy from silver.building_energy_monthly_electricity and _gas, when either Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the usage rows the Silver releases appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (building_energy_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_energy_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-energy-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-energy-monthly-electricity-to-gold-parcel-energy",
+        "silver-building-energy-monthly-gas-to-gold-parcel-energy",
+        "reference-legal-dong-code-change-to-gold-parcel-energy"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0398). Off until its first full build (about 1.5 million parcels with a usage row, computed from the 2026-10 files) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-energy, root ADR-0193 §7), after the two 월별 에너지 Silver lanes loaded their first releases; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "gold_parcel_demolitions_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "철거멸실 kind Gold (root ADR-0399; scripts/ops/gold-panel-rebuild.sh parcel-demolitions): gold.parcel_demolitions from silver.building_permit_demolition_loss, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the rows the Silver release appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (building_demolition_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_demolitions_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-demolitions-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-permit-demolition-loss-to-gold-parcel-demolitions",
+        "reference-legal-dong-code-change-to-gold-parcel-demolitions"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0399). Off until its first full build (425,040 parcels with a report in the 2026-10 file, measured) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-demolitions, root ADR-0193 §7), after silver_refresh_building_permit_demolition_loss loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "by_pnu_parcel_ownership_bake",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1377,6 +1560,93 @@
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0361). Off with gold_parcel_ownership_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-ownership cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_sub_parcels_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_sub_parcels (the own-producer 부속지번 kind, root ADR-0399) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-sub-parcels), as section packs (root ADR-0147, ADR-0193 §9), exactly as the ownership bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_sub_parcels_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-sub-parcels-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-sub-parcels-to-parcel-sub-parcels-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0399). Off with gold_parcel_sub_parcels_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-sub-parcels cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_energy_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_energy (the own-producer 건물 에너지 kind, root ADR-0398) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-energy), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_energy_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound, for the same reason: never beside both the panel bake and another own-producer bake (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-energy-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-energy-to-parcel-energy-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0398). Off with gold_parcel_energy_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-energy cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_demolitions_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_demolitions (the own-producer 철거멸실 kind, root ADR-0399) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-demolitions), as section packs (root ADR-0147, ADR-0193 §9), exactly as the ownership bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_demolitions_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-demolitions-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-demolitions-to-parcel-demolitions-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0399). Off with gold_parcel_demolitions_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-demolitions cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "by_pnu_serving_bake",

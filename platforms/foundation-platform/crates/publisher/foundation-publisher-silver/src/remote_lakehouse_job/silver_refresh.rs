@@ -102,7 +102,13 @@ pub(super) async fn run() -> anyhow::Result<()> {
     }
     let ledger = release::read_ledger(&pool, &contract.roles).await;
     pool.close().await;
-    let release = release::select(&contract.roles, &ledger?)?;
+    let ledger = ledger?;
+    if contract.releases_each_object {
+        let line = refresh_each_object(&contract, &ledger, &runtime, plan, deadline).await?;
+        println!("{}", if plan { as_plan(&line) } else { line });
+        return Ok(());
+    }
+    let release = release::select(&contract.roles, &ledger)?;
     for month in &release.skipped_incomplete {
         println!(
             "silver-refresh lane={} skipped_incomplete_release={}",
@@ -337,6 +343,7 @@ async fn refresh_run(
                 objects: vec![identity.clone()],
                 content_columns: content.clone(),
                 bucket_prefix_length: contract.compare_bucket_prefix_length,
+                release_buckets_only: contract.compare_release_buckets_only,
                 deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
             };
             append_changes(contract, runtime, catalog, &compare).await?
@@ -509,6 +516,43 @@ pub(super) fn part_month(prefix: &str, key: &str) -> Option<String> {
         .map(|month| month.vintage())
 }
 
+/// A lane whose objects are releases (root ADR-0396): one run loads the first object, oldest first,
+/// whose parts are not all in the table, and reports it. That one release is the run's cap: a month
+/// is 1.46M rows, the size of a hub part lane's monthly load. Every object already loaded: `unchanged`.
+async fn refresh_each_object(
+    contract: &LaneContract,
+    ledger: &[release::LedgerObject],
+    runtime: &Runtime,
+    plan: bool,
+    deadline: chrono::DateTime<chrono::Utc>,
+) -> anyhow::Result<String> {
+    let releases = release::select_each(&contract.roles, ledger)?;
+    let catalog = lakehouse_catalog()?;
+    let ingested = catalog
+        .load_ingested_batch_objects(&contract.table)
+        .await?
+        .unwrap_or_default();
+    let mut last = None;
+    for release in &releases {
+        let (decision, identity, rows) = refresh_parts(
+            contract, release, runtime, &catalog, &ingested, plan, deadline,
+        )
+        .await?;
+        let line = outcome_line(
+            contract.lane,
+            &release.vintage(),
+            &decision,
+            &identity,
+            rows,
+        );
+        if decision != Decision::Unchanged("already_loaded") {
+            return Ok(line);
+        }
+        last = Some(line);
+    }
+    last.context("a lane whose objects are releases has at least one")
+}
+
 /// A part lane: its release is in the table when every part of its manifest is recorded.
 pub(super) fn decide_parts(
     prefix: &str,
@@ -570,7 +614,11 @@ async fn refresh_parts(
     if let Some(manifest) = &manifest {
         validate_manifest(manifest, prefix, release)?;
     }
-    let decision = decide_parts(prefix, release, manifest.as_ref(), ingested);
+    let decision = match &manifest {
+        // An object is its own release: a newer one loaded first says nothing about it (ADR-0396).
+        None if contract.releases_each_object => Decision::ExportAndLoad,
+        _ => decide_parts(prefix, release, manifest.as_ref(), ingested),
+    };
     if matches!(decision, Decision::Unchanged(_)) || plan {
         return Ok((decision, key, None));
     }
@@ -648,6 +696,7 @@ async fn refresh_parts(
             objects: parts,
             content_columns: content.clone(),
             bucket_prefix_length: contract.compare_bucket_prefix_length,
+            release_buckets_only: contract.compare_release_buckets_only,
             deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
         };
         if !append_changes(contract, runtime, catalog, &compare).await? {

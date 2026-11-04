@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_demolitions_by_pnu",
+  "description": "A parcel's demolished and lost buildings as the 건축인허가 철거멸실관리대장 registers them (root ADR-0397, ADR-0399): its distinct reports newest first, each in the provider's words (철거멸실구분명, 철거시작일·철거종료일·철거멸실일, 연면적 ㎡, 건축물수, 주용도명, 구조명; data.go.kr 15044683), at most 50; demolition_total counts them all.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_demolitions_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "demolitions": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "description": "The parcel's distinct reports, newest first by the latest of their three dates, at most 50.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "demolition_kind_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "demolition_start_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "demolition_end_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "demolition_loss_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total_floor_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "main_purpose_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "structure_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "records"
+      ]
+    },
+    "demolition_total": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "demolitions"
+  ]
+}

@@ -1153,6 +1153,8 @@ pub struct OperatorActionRecord {
     pub window_start: Option<String>,
     /// A `set_window`'s end, `HH:MM` KST.
     pub window_end: Option<String>,
+    /// A `promote_edition`'s edition, `YYYYMM` (root ADR-0381).
+    pub edition: Option<String>,
 }
 
 /// Why the operator action ledger did not record a request.

@@ -83,7 +83,7 @@ class FirstReleaseIcebergTest(unittest.TestCase):
 
         args = Namespace(contract=CONTRACT, branch="load_first", source_snapshot_id=RELEASE,
                          objects="bronze/a.zip,bronze/b.zip", content_columns=",".join(CONTENT),
-                         changes_branch="changes_load_first", bucket_prefix_length=0, deadline_utc=None,
+                         changes_branch="changes_load_first", bucket_prefix_length=0, bucket_scope="table", deadline_utc=None,
                          iceberg_catalog_name="proof")
         summary = job.compare_and_append(self.spark, args)
         self.assertEqual(summary["outcome"], "staged")

@@ -25,6 +25,9 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitBasisOutline,
     RegisterMaster,
     PermitDemolitionLoss,
+    EnergyElectricity,
+    EnergyGas,
+    RegisterSubParcel,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -37,7 +40,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 17] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 20] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -46,6 +49,9 @@ impl Lane {
         Self::PermitBasisOutline,
         Self::RegisterMaster,
         Self::PermitDemolitionLoss,
+        Self::EnergyElectricity,
+        Self::EnergyGas,
+        Self::RegisterSubParcel,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -69,6 +75,9 @@ impl Lane {
             Self::PermitBasisOutline => "building-permit-basis-outline",
             Self::RegisterMaster => "building-register-master",
             Self::PermitDemolitionLoss => "building-permit-demolition-loss",
+            Self::EnergyElectricity => "building-energy-monthly-electricity",
+            Self::EnergyGas => "building-energy-monthly-gas",
+            Self::RegisterSubParcel => "building-register-sub-parcel",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -133,6 +142,18 @@ impl Lane {
             Self::PermitDemolitionLoss => (
                 "hub-building-permit-demolition-loss-source-objects.json",
                 crate::building_permit_demolition_loss_silver_export::CONTRACT_JSON,
+            ),
+            Self::EnergyElectricity => (
+                "hub-building-energy-monthly-electricity-source-objects.json",
+                crate::building_energy_monthly_silver_export::ELECTRICITY_CONTRACT_JSON,
+            ),
+            Self::EnergyGas => (
+                "hub-building-energy-monthly-gas-source-objects.json",
+                crate::building_energy_monthly_silver_export::GAS_CONTRACT_JSON,
+            ),
+            Self::RegisterSubParcel => (
+                "hub-building-register-sub-parcel-source-objects.json",
+                crate::building_register_sub_parcel_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -217,6 +238,15 @@ impl ExportKind {
             },
             "export-building-permit-demolition-loss-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_DEMOLITION_LOSS",
+            },
+            "export-building-energy-monthly-electricity-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_ENERGY_ELECTRICITY",
+            },
+            "export-building-energy-monthly-gas-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_ENERGY_GAS",
+            },
+            "export-building-register-sub-parcel-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_REGISTER_SUB_PARCEL",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {
@@ -316,6 +346,11 @@ struct Block {
     /// Why an overwriting lane still writes its release whole, and what that costs (root ADR-0311).
     #[serde(default)]
     full_reason: Option<FullReasonBlock>,
+    /// `object`: every Bronze object is a release of its own (월별 에너지: one usage month each,
+    /// a later ledger month may publish an earlier usage month again, root ADR-0396). Absent:
+    /// the newest complete provider month is the release (ADR-0169 §2).
+    #[serde(default)]
+    release_unit: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -336,6 +371,11 @@ struct CompareBlock {
     /// ADR-0318): each bucket is compared and committed alone, so a run that runs out of time
     /// resumes at the next one. 0 compares the release in one piece.
     bucket_prefix_length: u32,
+    /// `release`: only the buckets the release holds are compared, so a release that states one
+    /// usage month marks nothing of another month removed (root ADR-0396). Absent: every bucket
+    /// either side holds (ADR-0318).
+    #[serde(default)]
+    bucket_scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -374,6 +414,10 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     pub compare_content: Option<Vec<String>>,
     /// The compare's bucket width (`CompareBlock::bucket_prefix_length`); 0 without a compare.
     pub compare_bucket_prefix_length: u32,
+    /// The compare reads only the buckets the release holds (`CompareBlock::bucket_scope`).
+    pub compare_release_buckets_only: bool,
+    /// Every Bronze object is its own release, loaded oldest first (`Block::release_unit`).
+    pub releases_each_object: bool,
 }
 
 fn checked_prefix(prefix: Option<String>) -> anyhow::Result<String> {
@@ -521,7 +565,11 @@ impl LaneContract {
                 handoff_suffix,
             };
             rule.member_regex()?;
-            let (compare_content, compare_bucket_prefix_length) =
+            ensure!(
+                block.release_unit.is_none(),
+                "a land lane's release is its vintage's regions, not one object"
+            );
+            let (compare_content, compare_bucket_prefix_length, compare_release_buckets_only) =
                 checked_compare_block(&block.table, block.compare)?;
             return Ok(Self {
                 lane,
@@ -535,14 +583,29 @@ impl LaneContract {
                 spark,
                 compare_content,
                 compare_bucket_prefix_length,
+                compare_release_buckets_only,
+                releases_each_object: false,
             });
         }
         ensure!(
             block.source.is_none() && block.member_name.is_none() && block.completeness.is_none(),
             "a hub lane reads roles from the ledger month, not land member names"
         );
-        let (compare_content, compare_bucket_prefix_length) =
+        let (compare_content, compare_bucket_prefix_length, compare_release_buckets_only) =
             checked_compare_block(&block.table, block.compare)?;
+        let releases_each_object = match block.release_unit.as_deref() {
+            None => false,
+            Some("object") => true,
+            Some(other) => bail!("{}: release_unit {other:?} is not `object`", block.table),
+        };
+        // An object states one bucket's keys: compared against every bucket, the months it does not
+        // hold would all read as removed.
+        ensure!(
+            !releases_each_object
+                || (compare_release_buckets_only && compare_bucket_prefix_length > 0),
+            "{}: a lane whose objects are releases compares only the buckets each release holds",
+            block.table
+        );
         let block_roles = block
             .roles
             .context("a hub lane names the roles of its release")?;
@@ -594,6 +657,8 @@ impl LaneContract {
             spark,
             compare_content,
             compare_bucket_prefix_length,
+            compare_release_buckets_only,
+            releases_each_object,
         })
     }
 }
@@ -634,9 +699,14 @@ fn checked_full_reason(
 fn checked_compare_block(
     table: &str,
     compare: Option<CompareBlock>,
-) -> anyhow::Result<(Option<Vec<String>>, u32)> {
+) -> anyhow::Result<(Option<Vec<String>>, u32, bool)> {
     let Some(compare) = compare else {
-        return Ok((None, 0));
+        return Ok((None, 0, false));
+    };
+    let release_buckets_only = match compare.bucket_scope.as_deref() {
+        None => false,
+        Some("release") => true,
+        Some(other) => bail!("{table}: compare.bucket_scope {other:?} is not `release`"),
     };
     // A PNU's 시도 is 2 characters; a bucket narrower than a register id's whole length still splits.
     ensure!(
@@ -647,6 +717,7 @@ fn checked_compare_block(
     Ok((
         Some(checked_compare(table, compare.content_columns)?),
         compare.bucket_prefix_length,
+        release_buckets_only,
     ))
 }
 

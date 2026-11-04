@@ -5,8 +5,11 @@ import { groupBy } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Building } from "@/lib/api/buildings";
+import { type Demolitions, reportDates } from "@/lib/api/demolitions";
+import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
+import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
 import type { ZoningArea } from "@/lib/map/zoning-areas";
 import { ZONING_FAMILIES, ZONING_PENDING_LAYER_CODES } from "@/lib/map/zoning-families";
@@ -17,9 +20,12 @@ import { useParcelMapZoningAreas } from "./map-zoning";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
+  parcelDemolitionsQuery,
+  parcelEnergyQuery,
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
+  parcelSubParcelsQuery,
 } from "./queries";
 
 type Entry = Extract<PanelStackEntry, { kind: "parcel" }>;
@@ -233,6 +239,9 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const t = useTranslations("panels.parcel.summary");
   const buildings = useQuery(parcelBuildingsQuery(entry.id));
   const ownership = useQuery(parcelOwnershipQuery(entry.id));
+  const subParcels = useQuery(parcelSubParcelsQuery(entry.id));
+  const energy = useQuery(parcelEnergyQuery(entry.id));
+  const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -249,7 +258,29 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <BuildingsSection entry={entry} buildings={buildingList} landRights={landRights} />,
     });
   }
+  const links = subParcels.data;
+  if (links && links.on_other_total + links.from_other_total > 0) {
+    sections.push({
+      id: "subParcels",
+      label: t("sections.subParcels"),
+      content: <SubParcelsSection links={links} />,
+    });
+  }
   const mapZones = useParcelMapZoningAreas(entry.id);
+  if (energy.data && energy.data.months.length > 0) {
+    sections.push({
+      id: "energy",
+      label: t("sections.energy"),
+      content: <EnergySection energy={energy.data} />,
+    });
+  }
+  if (demolitions.data && demolitions.data.records.length > 0) {
+    sections.push({
+      id: "demolitions",
+      label: t("sections.demolitions"),
+      content: <DemolitionsSection demolitions={demolitions.data} />,
+    });
+  }
   if ((data.zonings?.length ?? 0) > 0 || mapZones !== null) {
     sections.push({
       id: "rules",
@@ -523,6 +554,186 @@ function BuildingsSection({
         </Group>
       )}
     </div>
+  );
+}
+
+/**
+ * 부속지번 from the 부속지번 lane (root ADR-0399), both ways: the other parcels a register on this 대지
+ * also stands on, and the registers on another 대지 that also stand here. Each names the register's
+ * 대장종류 and the other parcel's 지번, and opens that parcel when Foundation knows its PNU.
+ */
+function SubParcelsSection({ links }: { links: SubParcels }) {
+  const t = useTranslations("panels.parcel.summary");
+  const { push } = usePanelStack();
+  const list = (entries: SubParcelLink[], total: number) => (
+    <ul className="flex flex-col gap-1.5">
+      {entries.map((link) => (
+        <li
+          key={[link.mgmt_key, link.other_pnu, link.other_jibun].join("|")}
+          className="flex items-center justify-between gap-2 text-[length:var(--text-body-sm)]"
+        >
+          <span className="text-[var(--color-ink)]">
+            {[jibunLabel(link.other_jibun), link.register_kind_name].filter(Boolean).join(" · ")}
+          </span>
+          {link.other_pnu && (
+            <button
+              type="button"
+              onClick={() =>
+                push({ kind: "parcel", id: link.other_pnu as string, view: "summary" })
+              }
+              className="rounded-md border border-[var(--color-hairline)] px-2 py-0.5 text-[length:var(--text-caption)] hover:bg-[var(--color-surface-cream-strong)]"
+            >
+              {t("subParcels.open")} ›
+            </button>
+          )}
+        </li>
+      ))}
+      {total > entries.length && (
+        <li className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("subParcels.more", { shown: entries.length, total })}
+        </li>
+      )}
+    </ul>
+  );
+  return (
+    <div>
+      {links.on_other_total > 0 && (
+        <Group
+          title={t("subParcels.onOther", { count: links.on_other_total })}
+          note={t("subParcels.source")}
+        >
+          {list(links.on_other_parcels, links.on_other_total)}
+        </Group>
+      )}
+      {links.from_other_total > 0 && (
+        <Group
+          title={t("subParcels.fromOther", { count: links.from_other_total })}
+          note={t("subParcels.source")}
+        >
+          {list(links.from_other_parcels, links.from_other_total)}
+        </Group>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 건물 에너지 from the 월별 전기·가스 lane (root ADR-0398): the 지번's newest twelve months, oldest
+ * first, 전기 in the provider's kWh with a bar against the window's largest month and 가스 as the
+ * source's 사용량 (no unit is stated). A month without a row of an energy is "-", never 0. The
+ * provider's own exclusions (산업·수송·발전 uses, houses) are said beside the numbers: a factory's
+ * 산업용 meter is not in these files.
+ */
+function EnergySection({ energy }: { energy: Energy }) {
+  const t = useTranslations("panels.parcel.summary");
+  const dash = t("none");
+  const peak = electricityPeak(energy);
+  const number = (value: number | null | undefined) =>
+    value == null ? dash : value.toLocaleString("ko-KR", { maximumFractionDigits: 3 });
+  return (
+    <Group
+      title={t("energy.title")}
+      note={
+        energy.latest_use_ym
+          ? t("energy.source", { month: monthLabel(energy.latest_use_ym) })
+          : t("energy.sourceUndated")
+      }
+    >
+      <table className="w-full text-[length:var(--text-body-sm)] tabular-nums">
+        <thead className="text-[var(--color-muted)]">
+          <tr>
+            <th scope="col" className="text-left font-normal">
+              {t("energy.month")}
+            </th>
+            <th scope="col" className="text-right font-normal">
+              {t("energy.electricity", { unit: energy.electricity_unit })}
+            </th>
+            <th scope="col" className="text-right font-normal">
+              {t("energy.gas")}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {chronological(energy).map((month) => (
+            <tr key={month.use_ym}>
+              <th scope="row" className="text-left font-normal text-[var(--color-muted)]">
+                {monthLabel(month.use_ym)}
+              </th>
+              <td className="text-right text-[var(--color-ink)]">
+                <span className="inline-flex items-center justify-end gap-2">
+                  {peak > 0 && month.electricity_usage != null && (
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-1.5 rounded-sm bg-[var(--color-ink)] opacity-40"
+                      style={{ width: `${Math.max(2, (month.electricity_usage / peak) * 48)}px` }}
+                    />
+                  )}
+                  {number(month.electricity_usage)}
+                </span>
+              </td>
+              <td className="text-right text-[var(--color-ink)]">{number(month.gas_usage)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("energy.exclusions")}
+      </p>
+    </Group>
+  );
+}
+
+/**
+ * 멸실된 건물 from the 철거멸실 lane (root ADR-0399): the parcel's 철거·멸실 reports newest first, each
+ * in the provider's words: 철거멸실구분, the date, the building's 주용도·구조·연면적(㎡)·건축물수.
+ * A value the source leaves out is not shown.
+ */
+function DemolitionsSection({ demolitions }: { demolitions: Demolitions }) {
+  const t = useTranslations("panels.parcel.summary");
+  return (
+    <Group
+      title={t("demolitions.title", { count: demolitions.total })}
+      note={t("demolitions.source")}
+    >
+      <ul className="flex flex-col gap-2">
+        {demolitions.records.map((record) => (
+          <li
+            key={[
+              record.demolition_kind_name,
+              record.demolition_start_date,
+              record.demolition_end_date,
+              record.demolition_loss_date,
+              record.main_purpose_name,
+              record.total_floor_area_m2,
+            ].join("|")}
+            className="rounded-md border border-[var(--color-hairline)] px-3 py-2 text-[length:var(--text-body-sm)]"
+          >
+            <div className="font-semibold text-[var(--color-ink)]">
+              {[record.demolition_kind_name, reportDates(record)].filter(Boolean).join(" · ")}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {[
+                record.main_purpose_name,
+                record.structure_name,
+                record.total_floor_area_m2
+                  ? t("demolitions.floorArea", { area: record.total_floor_area_m2 })
+                  : null,
+                record.building_count
+                  ? t("demolitions.buildingCount", { count: record.building_count })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {demolitions.total > demolitions.records.length && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("demolitions.more", { shown: demolitions.records.length, total: demolitions.total })}
+        </p>
+      )}
+    </Group>
   );
 }
 

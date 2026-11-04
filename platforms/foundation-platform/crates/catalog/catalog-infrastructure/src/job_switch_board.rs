@@ -18,6 +18,9 @@ use catalog_domain::operator_action::OperatorAction;
 pub const OPERATOR_LOG: &str = "operator-actions.log";
 /// The directory of pending `run_now` requests inside the switch directory.
 pub const RUN_NOW_DIR: &str = "run-now.d";
+/// The directory of pending `promote_edition` requests inside the switch directory (root ADR-0381):
+/// the readiness check reads them and grants a ready edition's.
+pub const PROMOTE_DIR: &str = "promote.d";
 
 /// Writes switches under `dir` (the host's `/var/lib/foundation-jobs/switches`).
 pub struct FileJobSwitchBoard {
@@ -53,9 +56,14 @@ fn fields(record: &OperatorActionRecord) -> String {
     if record.action == OperatorAction::Pause {
         lines.push(format!("drop_pending={}", record.drop_pending));
     }
-    if let (OperatorAction::RunNow, Some(expires_at)) = (record.action, record.expires_at) {
+    if let (OperatorAction::RunNow | OperatorAction::PromoteEdition, Some(expires_at)) =
+        (record.action, record.expires_at)
+    {
         lines.push(format!("job={}", record.job_id));
         lines.push(format!("expires_at={}", expires_at.to_rfc3339()));
+    }
+    if let Some(edition) = &record.edition {
+        lines.push(format!("edition={edition}"));
     }
     lines.join("\n") + "\n"
 }
@@ -103,8 +111,12 @@ impl JobSwitchBoard for FileJobSwitchBoard {
                     Err(error) => return Err(unavailable(&window, &error)),
                 }
             }
-            OperatorAction::RunNow => {
-                let requests = self.dir.join(RUN_NOW_DIR);
+            OperatorAction::RunNow | OperatorAction::PromoteEdition => {
+                let requests = self.dir.join(if record.action == OperatorAction::RunNow {
+                    RUN_NOW_DIR
+                } else {
+                    PROMOTE_DIR
+                });
                 fs::create_dir_all(&requests).map_err(|error| unavailable(&requests, &error))?;
                 write_whole(&requests.join(record.id.to_string()), &fields(record))?;
             }
@@ -167,6 +179,7 @@ mod tests {
             expires_at: action.expires().then(|| at + chrono::Duration::minutes(10)),
             window_start: (action == OperatorAction::SetWindow).then(|| "09:00".to_owned()),
             window_end: (action == OperatorAction::SetWindow).then(|| "18:00".to_owned()),
+            edition: (action == OperatorAction::PromoteEdition).then(|| "209910".to_owned()),
         }
     }
 
@@ -241,6 +254,23 @@ mod tests {
         board.apply(&record(OperatorAction::ClearWindow))?;
         assert!(!dir.path().join("shape_ledger_check.window").exists());
         board.apply(&record(OperatorAction::ClearWindow))?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_promotion_leaves_a_request_the_readiness_check_reads(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (dir, board) = board()?;
+        board.apply(&record(OperatorAction::PromoteEdition))?;
+        let request =
+            fs::read_to_string(dir.path().join(PROMOTE_DIR).join(Uuid::nil().to_string()))?;
+        assert!(request.contains("edition=209910\n"), "{request}");
+        assert!(request.contains("reason=a supervised run\n"), "{request}");
+        assert!(request.contains("expires_at="), "{request}");
+        assert!(
+            !dir.path().join(RUN_NOW_DIR).exists(),
+            "a promotion is not a run-now request"
+        );
         Ok(())
     }
 

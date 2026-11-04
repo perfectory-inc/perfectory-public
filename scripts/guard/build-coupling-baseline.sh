@@ -307,7 +307,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # contract cannot disagree on its layers (root ADR-0362).
 # 154 -> 155: the 철거멸실관리대장 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0397).
-COMPILE_TIME_READ_BASELINE="${3:-155}"
+# 155 -> 157: the 월별 전기·가스 lanes embed their two source contracts once each (root ADR-0396).
+# 157 -> 158: the 부속지번 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0395).
+COMPILE_TIME_READ_BASELINE="${3:-158}"
 
 cd "$repo_root"
 

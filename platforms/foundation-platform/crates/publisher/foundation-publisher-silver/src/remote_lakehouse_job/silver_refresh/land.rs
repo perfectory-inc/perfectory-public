@@ -936,6 +936,7 @@ pub(in crate::remote_lakehouse_job) async fn load(
                 objects: release.object_keys(),
                 content_columns: content.clone(),
                 bucket_prefix_length: contract.compare_bucket_prefix_length,
+                release_buckets_only: contract.compare_release_buckets_only,
                 deadline_utc: Some(deadline.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
             };
             super::append_changes(contract, runtime, catalog, &compare).await?

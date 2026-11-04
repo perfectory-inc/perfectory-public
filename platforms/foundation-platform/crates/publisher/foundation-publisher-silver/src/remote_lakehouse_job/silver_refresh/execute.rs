@@ -357,6 +357,8 @@ pub(in crate::remote_lakehouse_job) struct ReleaseCompare {
     pub content_columns: Vec<String>,
     /// How many leading characters of the key's first column name a bucket; 0 is one bucket.
     pub bucket_prefix_length: u32,
+    /// Compare only the buckets the release holds (`--bucket-scope release`, root ADR-0396).
+    pub release_buckets_only: bool,
     /// After this instant (RFC 3339, UTC) no new bucket starts; the next run resumes.
     pub deadline_utc: Option<String>,
 }
@@ -412,6 +414,9 @@ pub(in crate::remote_lakehouse_job) fn compare_arguments(
         "--summary-output".to_owned(),
         summary,
     ]);
+    if compare.release_buckets_only {
+        args.extend(["--bucket-scope".to_owned(), "release".to_owned()]);
+    }
     if let Some(deadline) = &compare.deadline_utc {
         args.extend(["--deadline-utc".to_owned(), deadline.clone()]);
     }

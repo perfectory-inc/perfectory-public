@@ -99,7 +99,7 @@ class ReloadedReleaseIcebergTest(unittest.TestCase):
 
         args = Namespace(contract=self.table, branch=branch, source_snapshot_id=release, objects=",".join(objects),
                          content_columns=",".join(compare["content_columns"]), changes_branch=f"changes_{branch}",
-                         bucket_prefix_length=compare["bucket_prefix_length"], deadline_utc=deadline_utc,
+                         bucket_prefix_length=compare["bucket_prefix_length"], bucket_scope=compare.get("bucket_scope", "table"), deadline_utc=deadline_utc,
                          iceberg_catalog_name="proof")
         return job.compare_and_append(self.spark, args, now=now)
 

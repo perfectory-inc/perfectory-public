@@ -285,6 +285,10 @@ class ByPnuServingBake(unittest.TestCase):
         for part in ("infra/lakehouse/contracts", "infra/lakehouse/spark/jobs"):
             shutil.copytree(job_specs.PLATFORM_ROOT / part, release / part, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__", "tests"))
+        # The lockstep gate reads the catalog (its own test, test_edition_lockstep_gate.py); here it
+        # answers FAKE_LOCKSTEP, `ok` unless a case says otherwise (root ADR-0381).
+        (release / "scripts/ops/edition_lockstep_gate.py").write_text(
+            "import os\nprint(os.environ.get('FAKE_LOCKSTEP', 'ok'))\n")
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -694,6 +698,9 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(programs.get("by_pnu_public_auction_bake"), ["parcel-public-auction"])
         self.assertEqual(programs.get("by_pnu_unit_price_bake"), ["unit-price"])
         self.assertEqual(programs.get("by_pnu_parcel_ownership_bake"), ["parcel-ownership"])
+        self.assertEqual(programs.get("by_pnu_parcel_sub_parcels_bake"), ["parcel-sub-parcels"])
+        self.assertEqual(programs.get("by_pnu_parcel_energy_bake"), ["parcel-energy"])
+        self.assertEqual(programs.get("by_pnu_parcel_demolitions_bake"), ["parcel-demolitions"])
         for job_id, args in programs.items():
             with self.subTest(job_id):
                 self.log.unlink(missing_ok=True)
@@ -716,6 +723,9 @@ class ByPnuServingBake(unittest.TestCase):
         elsewhere = {lane: job for lane, job in elsewhere.items() if job != "by_pnu_serving_bake"}
         self.assertEqual(elsewhere, {"parcel-public-auction": "by_pnu_public_auction_bake",
                                      "parcel-ownership": "by_pnu_parcel_ownership_bake",
+                                     "parcel-sub-parcels": "by_pnu_parcel_sub_parcels_bake",
+                                     "parcel-energy": "by_pnu_parcel_energy_bake",
+                                     "parcel-demolitions": "by_pnu_parcel_demolitions_bake",
                                      "unit-price": "by_pnu_unit_price_bake"})
         baked = [lane for lane in lanes if lane not in elsewhere]
         self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],
@@ -774,6 +784,16 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertNotIn("show-parcel-zoning-by-pnu-serving-state", [call["command"] for call in calls])
         self.assertIn("by-pnu-serving-bake parcel-zoning: skipped: the parcel lane it follows failed in this run",
                       result.stdout)
+
+    def test_a_served_universe_lane_waits_while_a_promoted_edition_is_rebuilt(self):
+        # Root ADR-0381: the parcel panel's Gold moved to the promoted edition but a kind's has not;
+        # the lane publishes nothing and keeps serving what it served, until the gate opens.
+        result, calls = self.bake(FAKE_GOLD="202", FAKE_LOCKSTEP="waiting the served edition moved to "
+                                  "vworldkr__parcel-209910; not rebuilt on it yet: parcel-price (vworldkr__parcel-209906)")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.published(calls), [])
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome waiting the served edition moved to "
+                         "vworldkr__parcel-209910; not rebuilt on it yet: parcel-price (vworldkr__parcel-209906)")
 
     def test_the_unit_price_lane_bakes_only_what_the_building_lane_serves(self):
         # Root ADR-0333: its own job now, so no run order keeps the unit price documents behind the

@@ -9,12 +9,14 @@ pub mod industrial_complex_gold_pointer;
 /// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
 pub mod industrial_complex_jsonl_transport;
 
+mod building_energy_monthly;
 mod building_panel;
 mod building_permit_basis_outline;
 mod building_permit_demolition_loss;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod building_register_master;
+mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
 mod land_characteristic;
@@ -50,6 +52,9 @@ pub mod lakehouse_registry;
 /// Spark batch run summary handoff contracts.
 pub mod lakehouse_run_summary;
 
+pub use building_energy_monthly::{
+    SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY, SILVER_BUILDING_ENERGY_MONTHLY_GAS,
+};
 pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
 pub use building_permit_demolition_loss::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS;
 pub use building_register_apartment_price::{
@@ -57,6 +62,7 @@ pub use building_register_apartment_price::{
 };
 pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT;
 pub use building_register_master::SILVER_BUILDING_REGISTER_MASTER;
+pub use building_register_sub_parcel::SILVER_BUILDING_REGISTER_SUB_PARCEL;
 pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{

@@ -21,6 +21,10 @@ OUT="${FOUNDATION_PARCEL_EDITION_READINESS_PATH:-/var/lib/foundation-platform/pa
 EDITION_STATE="${FOUNDATION_VWORLD_PARCEL_EDITION_STATE_ROOT:-/var/lib/foundation-platform/vworld-parcel-edition}"
 TILE_JOURNAL="${FOUNDATION_PARCEL_TILE_BAKE_STATE_ROOT:-/var/lib/foundation-parcel-tile-bake}/journal.log"
 TRINO_CONTAINER="${FOUNDATION_PARCEL_EDITION_TRINO_CONTAINER:-foundation-platform-trino}"
+# The console's promotion requests (foundation-api writes them, root ADR-0381); this job only reads them,
+# and keeps its answers beside the report.
+REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/promote.d"
+ANSWERS="$(dirname "${OUT}")/promotions"
 PY=(python3 -E -s)
 
 work="$(mktemp -d)"
@@ -46,8 +50,25 @@ fi
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" evidence "${partitions[@]}" "${inventory[@]}" \
   --journal "${TILE_JOURNAL}" --output "${work}/evidence.json"
 mkdir -p "$(dirname "${OUT}")"
-"${PY[@]}" "${JOBS}/parcel_edition_readiness.py" readiness --evidence "${work}/evidence.json" --output "${OUT}.tmp"
-mv -f -- "${OUT}.tmp" "${OUT}"
+# Partial (root ADR-0380): an edition whose inputs did not move since the last run keeps its row; the
+# per-edition input digests live beside the report and are replaced after it.
+if [ -f "${OUT}.inputs.json" ]; then cp -- "${OUT}.inputs.json" "${work}/inputs.json"; fi
+"${PY[@]}" "${JOBS}/parcel_edition_readiness.py" readiness --evidence "${work}/evidence.json"   --previous "${OUT}" --inputs "${work}/inputs.json" --output "${work}/readiness.json" > "${work}/judged"
+# Each request asked in the console is answered once: a ready edition's is granted as the promoted contract
+# under ${ANSWERS}, for the reviewed change that serves it; the rest are refused with the reason.
+"${PY[@]}" "${JOBS}/parcel_edition_readiness.py" grant --report "${work}/readiness.json" \
+  --requests "${REQUESTS}" --answers "${ANSWERS}" > "${work}/answered"
+answered="$(cat "${work}/answered")"
+[ -z "${answered}" ] || echo "parcel-edition-readiness: answered promotion requests ${answered} (${ANSWERS})" >&2
 "${PY[@]}" -c 'import json, sys
 for row in json.load(open(sys.argv[1], encoding="utf-8"))["editions"]:
-    print(row["edition"], "ready" if row["ready"] else "not ready: " + row["first_failing_stage"])' "${OUT}"
+    print(row["edition"], "ready" if row["ready"] else "not ready: " + row["first_failing_stage"], file=sys.stderr)' "${work}/readiness.json"
+mv -f -- "${work}/readiness.json" "${OUT}"
+mv -f -- "${work}/inputs.json" "${OUT}.inputs.json"
+# The outcome (root ADR-0171): the report moved only when an edition was judged again.
+judged="$(cat "${work}/judged")"
+if [ -z "${judged}" ] && [ -z "${answered}" ]; then
+  printf 'foundation-job-outcome unchanged\n'
+else
+  printf 'foundation-job-outcome changed judged %s answered %s\n' "${judged:-none}" "${answered:-none}"
+fi

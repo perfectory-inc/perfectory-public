@@ -92,6 +92,12 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
    준비 안 됐거나, 오래됐거나, 다른 계약에서 만든 보고서면 거부하고 계약을 그대로 둔다.
 3. 바뀐 계약(서빙판 + 원장 한 줄)을 PR 로 낸다. 지도·패널·타일을 함께 옮기는 재굽기는 ADR-0291 §3 이다.
 
+콘솔에서(루트 ADR-0381): 더니어 「데이터 흐름 › 지적 판」 에서 `준비됨` 판의 승격 요청 칸에 이유를 적어 보낸다. 판정 작업
+`parcel_edition_readiness` 이 다음 실행에서 답한다(지금 답하게 하려면 그 작업을 「지금 한 번 돌리기」). 승인되면 승격된 계약이
+`/var/lib/foundation-platform/parcel-editions/promotions/<요청 id>.contract.json` 에 놓인다. 그 파일을 계약 자리에 넣는 PR 을 낸다.
+배포 뒤 필지를 읽는 Gold 가 두 판이 다른 PNU 만 다시 짓고, by-PNU 레인은 모두 지어질 때까지 기다렸다가 함께 내보낸다
+(`edition_lockstep_gate.py`, 기다리는 동안 결과는 `waiting the served edition moved to ...`).
+
 ## 4. Silver 적재 (판 하나)
 
 계약에 판이 들어간 릴리스가 `current` 인 ai-server 에서 돌린다. 두 단계 모두 같은 판 하나만 받는다. 계보 값

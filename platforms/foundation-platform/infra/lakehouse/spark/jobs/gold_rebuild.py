@@ -63,10 +63,14 @@ from typing import Any, Callable
 
 import gold_code_version
 import gold_incremental
+import vworld_parcel_editions as parcel_editions
 import section_coverage
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 
 SOURCE_SNAPSHOTS_PROPERTY = "foundation.source-iceberg-snapshots"
+# The served cadastral edition a commit reading the parcels was built from (root ADR-0381): a promotion
+# moves it without moving any Silver snapshot, so the pins alone cannot say the parcels changed.
+SERVED_EDITION_PROPERTY = "foundation.served-parcel-edition"
 PLAN_SCHEMA_VERSION = "foundation-platform.gold_rebuild_plan.v1"
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "gold-panel-rebuild.contract.json"
 # Summary counters of a commit that changes rows (Iceberg SnapshotSummary).
@@ -277,6 +281,22 @@ def input_change_since_time(snapshots: list[dict[str, Any]], head: str, built_at
     return None
 
 
+def recorded_served_edition(gold_snapshots: list[dict[str, Any]], gold_head: str,
+                            contract: dict[str, Any]) -> str | None:
+    """The served edition (its source_snapshot_id) the current Gold's pinned commit was built from: the
+    one it recorded, or, for a commit from before the record (root ADR-0381), the edition the
+    promotions ledger served when it was committed. None when the head records no pins."""
+    for snapshot in ancestry(gold_snapshots, gold_head):
+        summary = snapshot.get("summary") or {}
+        if summary.get(SOURCE_SNAPSHOTS_PROPERTY) is None:
+            continue
+        if summary.get(SERVED_EDITION_PROPERTY):
+            return summary[SERVED_EDITION_PROPERTY]
+        served = parcel_editions.served_at(contract, str(snapshot.get("committed_at") or ""))
+        return parcel_editions.snapshot_id(contract, served)
+    return None
+
+
 def recorded_code_version(gold_snapshots: list[dict[str, Any]], gold_head: str) -> str | None:
     """The code version recorded beside the newest source pins in the head's ancestry (root
     ADR-0321), or None."""
@@ -408,7 +428,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
          time_fallback: bool = True, measuring: bool = False,
          whole_table_inputs: tuple[str, ...] = (),
          pinned_gold: dict[str, Any] | None = None,
-         code_version: Callable[[list[str]], str] | None = None) -> dict[str, Any]:
+         code_version: Callable[[list[str]], str] | None = None,
+         parcel_contract: dict[str, Any] | None = None) -> dict[str, Any]:
     """Decide one Gold table's rebuild.
 
     `gold`: {"head", "snapshots", "row_count", "published_at_utc"} or None when the table does
@@ -421,6 +442,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     With `pins_from.parity_argument` every input must be pinned so, and the producer gets that flag with
     the followed table's head snapshot, against which it checks its rows before it writes.
     `code_version`: the producer's current gold_code_version value for the inputs it reads (root ADR-0321).
+    `parcel_contract`: the cadastral source contract, for a table that reads the parcels: when the edition
+    it serves is not the one the current Gold was built from, the parcels changed (root ADR-0381).
     """
     if unconditional is not None and not unconditional.strip():
         raise PlanError(f"{table}: an unconditional rebuild needs its reason")
@@ -514,6 +537,13 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                     why = input_change_since_time(silver[name]["snapshots"], pins[name], built_at)
                     if why:
                         reasons.append(f"{name}: {why}")
+    edition_moved = None
+    if previous is not None and parcel_contract is not None and "silver.parcel_boundaries" in pins:
+        built_from = recorded_served_edition(gold["snapshots"], gold["head"], parcel_contract)
+        served_now = parcel_editions.snapshot_id(parcel_contract, parcel_editions.served(parcel_contract))
+        if built_from is not None and built_from != served_now:
+            edition_moved = built_from
+            reasons.append(f"silver.parcel_boundaries: the served edition moved from {built_from} to {served_now}")
     code_changed = None
     current_code = None if code_version is None else code_version(sorted(pins))
     recorded_code = None if previous is None else recorded_code_version(gold["snapshots"], gold["head"])
@@ -527,6 +557,10 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         mode, mode_reasons, previous_pins = incremental_mode(entry, gold, silver, pins, whole_table_inputs,
                                                              unconditional)
     settings = entry.get("incremental") or {}
+    if edition_moved is not None and mode == "incremental":
+        # The comparison side reads the edition the Gold was built from: only the PNUs whose parcel
+        # inputs differ between the two editions are recomputed (root ADR-0381).
+        flags += ["--incremental-from-parcel-edition", edition_moved]
     publish = None
     if code_changed is not None:
         # Root ADR-0321 §5: which rows a code change touches is not derivable from the code, so every
@@ -573,6 +607,8 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         # How a full build reaches main: by its changed keys after a shadow branch (a code change), or
         # by overwrite (None).
         "publish": publish,
+        # Root ADR-0381: the served edition the current Gold was built from, when a promotion moved it.
+        "previous_parcel_edition": edition_moved,
     }
 
 
@@ -594,8 +630,12 @@ def pins_properties(table: str, pins: dict[str, str]) -> dict[str, str]:
     """The summary entries of a producer commit of `table` built from `pins`: the pins, and beside
     them the code version of the producer this process runs (root ADR-0321)."""
     code = gold_code_version.of_running_producer(table, pins)
+    served = {}
+    if "silver.parcel_boundaries" in pins:
+        contract = parcel_editions.load()
+        served = {SERVED_EDITION_PROPERTY: parcel_editions.snapshot_id(contract, parcel_editions.served(contract))}
     return {SOURCE_SNAPSHOTS_PROPERTY: pins_property_value(pins),
-            **({} if code is None else {gold_code_version.PROPERTY: code})}
+            **({} if code is None else {gold_code_version.PROPERTY: code}), **served}
 
 
 def write_gold_snapshot(frame: Any, table: str, mode: str, pins: dict[str, str], everything: Any,
@@ -698,7 +738,8 @@ def main(argv=None) -> int:
                         measuring=args.measuring,
                         whole_table_inputs=producer_whole_table_inputs(producer, entry), pinned_gold=pinned_gold,
                         code_version=lambda inputs: gold_code_version.value(
-                            entry["producer"], gold_code_version.settings(contract), args.gold_table, inputs))
+                            entry["producer"], gold_code_version.settings(contract), args.gold_table, inputs),
+                        parcel_contract=parcel_editions.load())
     finally:
         spark.stop()
     for path, value in ((args.pins_output, decision["source_snapshots"]), (args.plan_output, decision)):

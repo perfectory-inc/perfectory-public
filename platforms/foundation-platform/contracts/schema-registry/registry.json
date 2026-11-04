@@ -380,6 +380,166 @@
           ]
         }
       ]
+    },
+    {
+      "subject": "foundation-platform.parcel_sub_parcels_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-sub-parcels",
+        "producer": "infra/lakehouse/spark/jobs/building_sub_parcel_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_sub_parcels_by_pnu.v1",
+          "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md",
+          "reason": "the first document: a parcel's 부속지번 links from both ends, from silver.building_register_sub_parcel"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "source", "required": true},
+            {"path": "sub_parcels", "required": true},
+            {"path": "attached_via", "required": false}
+          ]
+        },
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/sub-parcels.generated.ts",
+          "reason": "the parcel panel's 함께 걸친 필지 group (root ADR-0399): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "sub_parcels", "required": true},
+            {"path": "sub_parcels.on_other_parcels", "required": true},
+            {"path": "sub_parcels.on_other_parcels[].register_kind_name", "required": false},
+            {"path": "sub_parcels.on_other_parcels[].other_pnu", "required": false},
+            {"path": "sub_parcels.on_other_parcels[].other_jibun", "required": false},
+            {"path": "sub_parcels.on_other_parcels[].mgmt_key", "required": false},
+            {"path": "sub_parcels.on_other_total", "required": true},
+            {"path": "sub_parcels.from_other_parcels", "required": true},
+            {"path": "sub_parcels.from_other_parcels[].register_kind_name", "required": false},
+            {"path": "sub_parcels.from_other_parcels[].other_pnu", "required": false},
+            {"path": "sub_parcels.from_other_parcels[].other_jibun", "required": false},
+            {"path": "sub_parcels.from_other_parcels[].mgmt_key", "required": false},
+            {"path": "sub_parcels.from_other_total", "required": true}
+          ]
+        }
+      ]
+    },
+    {
+      "subject": "foundation-platform.parcel_energy_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-energy",
+        "producer": "infra/lakehouse/spark/jobs/building_energy_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_energy_by_pnu.v1",
+          "decision": "docs/adr/0398-a-parcel-shows-twelve-months-of-building-energy-as-its-own-by-pnu-kind.md",
+          "reason": "the first document: a parcel's twelve newest usage months of 전기 (kWh) and 가스 사용량, summed per month from the 지번's rows, from silver.building_energy_monthly_electricity and _gas"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "source", "required": true},
+            {"path": "energy", "required": true},
+            {"path": "attached_via", "required": false}
+          ]
+        },
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/energy.generated.ts",
+          "reason": "the parcel panel's 에너지 사용량 group (root ADR-0398): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "energy", "required": true},
+            {"path": "energy.months", "required": true},
+            {"path": "energy.months[].use_ym", "required": true},
+            {"path": "energy.months[].electricity_usage", "required": false},
+            {"path": "energy.months[].electricity_rows", "required": true},
+            {"path": "energy.months[].gas_usage", "required": false},
+            {"path": "energy.months[].gas_rows", "required": true},
+            {"path": "energy.electricity_unit", "required": true},
+            {"path": "energy.latest_use_ym", "required": false}
+          ]
+        }
+      ]
+    },
+    {
+      "subject": "foundation-platform.parcel_demolitions_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-demolitions",
+        "producer": "infra/lakehouse/spark/jobs/building_demolition_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_demolitions_by_pnu.v1",
+          "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md",
+          "reason": "the first document: a parcel's 철거·멸실 reports from silver.building_permit_demolition_loss in the provider's words"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "source", "required": true},
+            {"path": "demolitions", "required": true},
+            {"path": "demolition_total", "required": false},
+            {"path": "attached_via", "required": false}
+          ]
+        },
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/demolitions.generated.ts",
+          "reason": "the parcel panel's 멸실된 건물 group (root ADR-0399): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {"path": "schema_version", "required": true},
+            {"path": "pnu", "required": true},
+            {"path": "demolitions", "required": true},
+            {"path": "demolitions.records", "required": true},
+            {"path": "demolitions.records[].demolition_kind_name", "required": false},
+            {"path": "demolitions.records[].demolition_start_date", "required": false},
+            {"path": "demolitions.records[].demolition_end_date", "required": false},
+            {"path": "demolitions.records[].demolition_loss_date", "required": false},
+            {"path": "demolitions.records[].total_floor_area_m2", "required": false},
+            {"path": "demolitions.records[].building_count", "required": false},
+            {"path": "demolitions.records[].main_purpose_name", "required": false},
+            {"path": "demolitions.records[].structure_name", "required": false},
+            {"path": "demolition_total", "required": false}
+          ]
+        }
+      ]
     }
   ]
 }

@@ -24,6 +24,8 @@ import test_lakehouse_schema_migrate as migration_fixtures
 BACKFILL_INPUTS = {
     ("silver.parcel_number_change_history", "source_region_code"): {
         "source_file_name": "ABPD_UNQ_NO_CHG_HIST_99_209909.txt"},
+    ("silver.unit_official_price", "vintage"): {
+        "source_snapshot_id": "price:1|exclusive:2|vintage:209909"},
 }
 
 

@@ -73,5 +73,17 @@
         }
       }
     }
+  ],
+  "promotion_requests": [
+    {
+      "request": "00000000-0000-0000-0000-000000000001",
+      "edition": "209910",
+      "by": "00000000-0000-0000-0000-000000000099",
+      "reason": "the newer edition is all there",
+      "requested_at": "2099-10-20T11:00:00+00:00",
+      "answered_at": "2099-10-20T12:00:00Z",
+      "outcome": "granted",
+      "contract": "/var/lib/foundation-platform/parcel-editions/promotions/00000000-0000-0000-0000-000000000001.contract.json"
+    }
   ]
 }

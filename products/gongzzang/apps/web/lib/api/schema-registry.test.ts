@@ -4,8 +4,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { generate } from "../../codegen/gen-schemas.mjs";
+import { DemolitionsDocumentSchema } from "./demolitions";
+import { EnergyDocumentSchema } from "./energy";
 import { OwnershipDocumentSchema } from "./ownership";
 import { PublicAuctionDocumentSchema } from "./public-auction";
+import { SubParcelsDocumentSchema } from "./sub-parcels";
 
 // Root ADR-0336. 2026-10-29: an old build of this web refused the public auction's v2 documents —
 // its own z.enum of version strings no longer matched what the foundation published. The web now
@@ -66,6 +69,30 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
     expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/ownership.generated.ts");
     const read = paths(z.toJSONSchema(OwnershipDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the sub-parcels paths its pact lists", () => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === "parcel-sub-parcels");
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/sub-parcels.generated.ts");
+    const read = paths(z.toJSONSchema(SubParcelsDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the energy paths its pact lists", () => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === "parcel-energy");
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/energy.generated.ts");
+    const read = paths(z.toJSONSchema(EnergyDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the demolitions paths its pact lists", () => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === "parcel-demolitions");
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/demolitions.generated.ts");
+    const read = paths(z.toJSONSchema(DemolitionsDocumentSchema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 });

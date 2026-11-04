@@ -5,8 +5,12 @@ mod apartment_price_tests;
 #[cfg(test)]
 mod demolition_loss_tests;
 #[cfg(test)]
+mod energy_monthly_tests;
+#[cfg(test)]
 mod exclusive_unit_tests;
 mod layout;
+#[cfg(test)]
+mod sub_parcel_tests;
 #[cfg(test)]
 mod test_support;
 mod workers;
@@ -111,6 +115,9 @@ struct Report {
     rejected_rows: u64,
     pnu_ok: u64,
     pnu_bad: u64,
+    /// Rows each extra PNU column (`Layout::extra_pnus`) got a PNU for; the rest are null.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    extra_pnu_ok: BTreeMap<String, u64>,
     parts: Vec<Part>,
     /// Where the 시군구 crosswalk came from (root ADR-0143 §5); empty for a crosswalk built in code.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -132,6 +139,11 @@ impl Report {
             rejected_rows: 0,
             pnu_ok: 0,
             pnu_bad: 0,
+            extra_pnu_ok: layout
+                .extra_pnus
+                .keys()
+                .map(|name| (name.clone(), 0))
+                .collect(),
             parts: Vec::new(),
             sigungu_crosswalk: BTreeMap::new(),
         }
@@ -259,6 +271,7 @@ struct Written {
     part_number: usize,
     part: Part,
     pnu_ok: u64,
+    extra_pnu_ok: BTreeMap<String, u64>,
 }
 
 /// Workers that encode and upload parts beside the reader, sized from the cores and the memory
@@ -294,7 +307,7 @@ fn convert<R: Read + Seek>(
     open: impl Fn(&OutputSink) -> anyhow::Result<HandoffSink> + Sync,
 ) -> anyhow::Result<Report> {
     layout.validate()?;
-    let member = zip_stream::open(source, &layout.inner_file)?;
+    let member = zip_stream::open(source, |name| layout.accepts_member(name))?;
     let mut report = Report::new(config, layout);
     report.sigungu_crosswalk = sigungu_crosswalk.provenance().clone();
     let attempt = format!("{}/attempt={}", config.object_stem()?, Uuid::new_v4());
@@ -357,6 +370,9 @@ fn convert<R: Read + Seek>(
         report.rows_emitted += part.part.rows;
         report.pnu_ok += part.pnu_ok;
         report.pnu_bad += part.part.rows - part.pnu_ok;
+        for (name, ok) in part.extra_pnu_ok {
+            *report.extra_pnu_ok.entry(name).or_default() += ok;
+        }
         report.parts.push(part.part);
     }
     ensure!(
@@ -502,12 +518,13 @@ fn write_part(
     let part_key = output_name(&output);
     let mut writer = GzEncoder::new(open(&output)?, Compression::new(GZIP_LEVEL));
     let mut pnu_ok = 0;
+    let mut extra_pnu_ok = BTreeMap::<String, u64>::new();
     let mut start = 0;
     for &(line_number, end) in &chunk.rows {
         let text = std::str::from_utf8(&chunk.bytes[start..end]).context("HUB row is not UTF-8")?;
         start = end;
         let fields: Vec<_> = text.split('|').collect();
-        let (row, ok) = make_row(
+        let (row, ok, extra) = make_row(
             layout,
             config,
             sigungu_crosswalk,
@@ -517,6 +534,9 @@ fn write_part(
             ingested_at,
         )?;
         pnu_ok += u64::from(ok);
+        for name in extra {
+            *extra_pnu_ok.entry(name.to_owned()).or_default() += 1;
+        }
         serde_json::to_writer(&mut writer, &row)?;
         writer.write_all(b"\n")?;
     }
@@ -525,6 +545,7 @@ fn write_part(
         part_number: chunk.part_number,
         part: finish_part(writer, part_key, rows)?,
         pnu_ok,
+        extra_pnu_ok,
     })
 }
 
@@ -554,25 +575,49 @@ fn valid_width(
     Ok(false)
 }
 
-fn make_row(
-    layout: &Layout,
+/// One handoff row, whether it got its `pnu`, and the extra PNU columns that got one.
+fn make_row<'l>(
+    layout: &'l Layout,
     config: &Config,
     sigungu_crosswalk: &SigunguCrosswalk,
     fields: &[&str],
     line_number: u64,
     part_key: &str,
     ingested_at: &str,
-) -> anyhow::Result<(Value, bool)> {
-    let pnu = compose_pnu(layout, sigungu_crosswalk, fields)?;
+) -> anyhow::Result<(Value, bool, Vec<&'l str>)> {
+    let pnu = compose_pnu(layout, sigungu_crosswalk, fields, PRIMARY_PNU)?;
     let pnu_ok = pnu.is_some();
     let mut row = serde_json::Map::new();
     for name in layout.columns.keys() {
         row.insert(name.clone(), json!(layout.value(fields, name)?));
     }
-    if layout.row_key == Some(layout::RowKey::Sha256OfRow) {
-        // The fields joined back are the row's text exactly: it was split on every `|`.
-        let digest = sha2::Sha256::digest(fields.join("|").as_bytes());
-        row.insert("mgmt_key".into(), json!(format!("{digest:x}")));
+    match &layout.row_key {
+        None => {}
+        Some(layout::RowKey::Sha256OfRow) => {
+            // The fields joined back are the row's text exactly: it was split on every `|`.
+            let digest = sha2::Sha256::digest(fields.join("|").as_bytes());
+            row.insert("mgmt_key".into(), json!(format!("{digest:x}")));
+        }
+        Some(layout::RowKey::JoinedColumns(names)) => {
+            let parts = names
+                .iter()
+                .map(|name| layout.value(fields, name).map(str::trim))
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            row.insert("mgmt_key".into(), json!(parts.join("|")));
+        }
+    }
+    let mut extra_ok = Vec::new();
+    for (name, inputs) in &layout.extra_pnus {
+        // Another parcel's 지번 often keeps a 시군구 code retired since (부속지번 2026-10: codes the
+        // registers' own 지번 never use). The crosswalk refusing one leaves this PNU null and
+        // counted, not the run failed; the raw codes stay for the resolver (root ADR-0395 §3).
+        let extra = compose_pnu(layout, sigungu_crosswalk, fields, inputs.names())
+            .ok()
+            .flatten();
+        if extra.is_some() {
+            extra_ok.push(name.as_str());
+        }
+        row.insert(name.clone(), json!(extra));
     }
     row.extend(GENERATED_COLUMNS.into_iter().map(str::to_owned).zip([
         json!(pnu),
@@ -584,18 +629,22 @@ fn make_row(
         json!(config.source_snapshot_id),
         json!(ingested_at),
     ]));
-    Ok((Value::Object(row), pnu_ok))
+    Ok((Value::Object(row), pnu_ok, extra_ok))
 }
+
+/// The row's own 지번, which every HUB layout consumes under these names (`Layout::validate`).
+const PRIMARY_PNU: [&str; 5] = ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon"];
 
 fn compose_pnu(
     layout: &Layout,
     sigungu_crosswalk: &SigunguCrosswalk,
     fields: &[&str],
+    [sigungu, bjdong, san, bon, bu]: [&str; 5],
 ) -> anyhow::Result<Option<String>> {
-    let sigungu = layout.value(fields, "sigungu_cd")?.trim();
-    let bjdong = layout.value(fields, "bjdong_cd")?.trim();
-    let bon = layout.value(fields, "bonbeon")?.trim();
-    let bu = layout.value(fields, "bubeon")?.trim();
+    let sigungu = layout.value(fields, sigungu)?.trim();
+    let bjdong = layout.value(fields, bjdong)?.trim();
+    let bon = layout.value(fields, bon)?.trim();
+    let bu = layout.value(fields, bu)?.trim();
     if ![(sigungu, 5, 5), (bjdong, 5, 5), (bon, 1, 4), (bu, 1, 4)]
         .into_iter()
         .all(|(value, min, max)| {
@@ -608,7 +657,7 @@ fn compose_pnu(
         sigungu_crosswalk,
         sigungu,
         bjdong,
-        layout.value(fields, "san_gubun")?,
+        layout.value(fields, san)?,
         bon,
         bu,
     )?
