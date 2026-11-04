@@ -840,15 +840,15 @@ fn rt_molit_real_transaction_collect_command_is_explicit() -> anyhow::Result<()>
     Ok(())
 }
 
-/// The registered-factory file collector (root ADR-0280).
+/// The data.go.kr file-data collector (root ADR-0280, ADR-0401).
 #[test]
-fn data_go_kr_registered_factory_collect_command_is_explicit() -> anyhow::Result<()> {
+fn data_go_kr_file_data_collect_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
-            "collect-data-go-kr-registered-factory"
+            "collect-data-go-kr-file-data"
         ])?,
-        Command::CollectDataGoKrRegisteredFactory
+        Command::CollectDataGoKrFileData
     );
     Ok(())
 }

@@ -58,6 +58,10 @@
           "mode": "0777"
         },
         {
+          "path": "/var/lib/foundation-platform/data-go-kr-file-data",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/onbid",
           "mode": "0755"
         },

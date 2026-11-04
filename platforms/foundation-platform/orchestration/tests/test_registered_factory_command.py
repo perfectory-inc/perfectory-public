@@ -37,8 +37,11 @@ import json, os, sys
 state = os.environ["FAKE_STATE"]
 with open(os.path.join(state, "calls.log"), "a", encoding="utf-8") as log:
     log.write(sys.argv[1] + "\n")
-if sys.argv[1] == "collect-data-go-kr-registered-factory":
-    out = os.environ["FOUNDATION_PLATFORM_DATA_GO_KR_REGISTERED_FACTORY_OUTPUT_DIR"]
+if sys.argv[1] == "collect-data-go-kr-file-data":
+    assert os.environ["FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA_DATASETS"] == "registered_factory"
+    state = os.environ["FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA_STATE_DIR"]
+    assert not os.path.exists(os.path.join(state, "accepted.json")), "the pre-ADR-0401 state was moved"
+    out = os.environ["FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA_OUTPUT_DIR"]
     json.dump({"objects": []}, open(os.path.join(out, "manifest.json"), "w", encoding="utf-8"))
     sys.exit(0)
 assert sys.argv[1] == "plan-silver-load-objects", sys.argv
@@ -83,8 +86,8 @@ class RegisteredFactoryCommand(unittest.TestCase):
             (release / "scripts/ops" / name).chmod(0o755)
         contracts = release / "infra/lakehouse/contracts"
         contracts.mkdir(parents=True)
-        (contracts / "data-go-kr-registered-factory.contract.json").write_bytes(
-            (PLATFORM / "infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json").read_bytes())
+        (contracts / "data-go-kr-file-data.contract.json").write_bytes(
+            (PLATFORM / "infra/lakehouse/contracts/data-go-kr-file-data.contract.json").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -128,6 +131,16 @@ class RegisteredFactoryCommand(unittest.TestCase):
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         self.assertEqual(call[call.index("--plan-dir") + 1].rsplit("/", 1)[1], "plan")
         self.assertEqual(self.copies(), [])
+
+    def test_the_state_from_before_adr_0401_is_moved_once_so_the_landed_edition_is_not_fetched_again(self):
+        old = self.state / "collector/accepted.json"
+        old.parent.mkdir(parents=True)
+        old.write_text('{"attach_file_id": "FILE_000000000000001"}')
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        moved = self.state / "collector/registered_factory/accepted.json"
+        self.assertEqual(json.loads(moved.read_text())["attach_file_id"], "FILE_000000000000001")
+        self.assertFalse(old.exists())
 
     def test_a_late_edition_is_loaded_and_fails_the_run(self):
         self.env.update(FAKE_OWED="1", FAKE_LATE="1")
