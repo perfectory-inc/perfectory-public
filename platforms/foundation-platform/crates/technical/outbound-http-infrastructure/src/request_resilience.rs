@@ -71,7 +71,7 @@ impl ResiliencePolicy {
 
 /// Resilience policy for data.go.kr JSON service APIs (spec §3.1 provider `const` SSOT).
 ///
-/// Values preserve the defaults of the deleted data.go.kr service API client (3 attempts, 30s per-attempt
+/// Values preserve the defaults of the deleted `data.go.kr` service API client (3 attempts, 30s per-attempt
 /// timeout, 250ms..5s exponential backoff, default breaker). The legacy client bounded the
 /// whole attempt with one 30s `.timeout()`, so connect/read carry the same bound here —
 /// identical effective behavior. Full jitter is newly applied per spec §5 (thundering-herd
@@ -89,7 +89,7 @@ pub const DATA_GO_KR: ResiliencePolicy = ResiliencePolicy {
 
 /// Resilience policy for V-World JSON APIs (NED attribute, 2D Data API).
 ///
-/// Values preserve the defaults of the deleted VWorld data API client (3 attempts, 30s per-attempt
+/// Values preserve the defaults of the deleted V-World data API client (3 attempts, 30s per-attempt
 /// timeout, 250ms..5s exponential backoff, default breaker) — the same envelope as
 /// `DATA_GO_KR`, kept as a distinct const because the providers tune independently. The
 /// legacy client bounded the whole attempt with one 30s `.timeout()`, so connect/read carry
@@ -308,7 +308,7 @@ pub fn redact_transport_error(error: &reqwest::Error) -> String {
 
 /// Classifies an HTTP status into a [`RetryDecision`] at the transport layer.
 ///
-/// Preserves the existing `is_retryable_status` set (the deleted data.go.kr service API client):
+/// Preserves the existing `is_retryable_status` set (the deleted `data.go.kr` service API client):
 /// 408, 429, 500, 502, 503, 504 are retryable; everything else is not. `Retry-After` parsing is
 /// layered on separately (the header is not available from a bare status).
 #[must_use]
@@ -731,8 +731,7 @@ fn retry_with_backoff(
 
 /// Exponential backoff delay for a 1-based attempt: `initial * 2^(attempt-1)`, capped at `max`.
 ///
-/// Preserves the backoff of the deleted data.go.kr service API client
-/// (the deleted data.go.kr service API client) so migrated clients keep identical timing. Saturating math
+/// Preserves the backoff of the deleted `data.go.kr` service API client so migrated clients keep identical timing. Saturating math
 /// avoids overflow/panic for large attempt counts.
 fn base_backoff(attempt: u32, initial: Duration, max: Duration) -> Duration {
     let multiplier = 1_u32
