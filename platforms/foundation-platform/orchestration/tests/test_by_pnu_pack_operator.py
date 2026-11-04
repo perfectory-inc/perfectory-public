@@ -236,6 +236,28 @@ class PackOperator(OperatorHarness):
         self.assertTrue(any(c["tool"] == "journalctl" and
                             "foundation-silver-refresh@building-register-titles.service" in c["args"] for c in calls))
 
+    def test_prices_migrate_versions_starts_its_unit_once_beside_no_spark_job(self):
+        # Root ADR-0317 stage 2: the price tables' one-time move into their versions tables holds the
+        # Spark pool for hours; it is one attended start, never beside a Spark job or a Gold rebuild.
+        result, calls = self.run_operator("prices", "migrate-versions", *fresh())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
+                         [["start", "--no-block", "foundation-unit-price-versions-migrate.service"]])
+        for active in (["foundation-silver-refresh@land-use-plan.service"],
+                       ["foundation-gold-panel-rebuild.service"],
+                       ["foundation-unit-price-versions-migrate.service"]):
+            with self.subTest(active=active):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator("prices", "migrate-versions", *fresh(), active=active)
+                self.assertEqual(result.returncode, 75, result.stderr)
+                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+        result, _ = self.run_operator("prices", "migrate-versions", flags=False)
+        self.assertNotEqual(result.returncode, 0, "a start without --requested-at and --reason is refused")
+        result, calls = self.run_operator("prices", "status")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(any(c["tool"] == "journalctl" and
+                            "foundation-unit-price-versions-migrate.service" in c["args"] for c in calls))
+
     def test_silver_start_waits_for_another_lane_and_the_gold_rebuild(self):
         for active in (["foundation-silver-refresh@land-use-plan.service"],
                        ["foundation-gold-panel-rebuild.service"]):
