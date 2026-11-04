@@ -32,6 +32,7 @@ from parcel_lineage import parse_code_list
 from platform_contracts import (
     column_names,
     create_table_columns_sql,
+    current_rows,
     evolve_iceberg_table_to_contract,
     load_lakehouse_contract,
     partition_clause_sql,
@@ -124,18 +125,26 @@ def latest_snapshot_row_count(loads: Sequence[tuple[date, datetime, str, int]]) 
     return max(loads, key=lambda load: (load[0], load[1], load[2]))[3]
 
 
+def newest_snapshot(spark, table: str) -> Any:
+    """The rows of the newest snapshot of the code list `table` (qualified): its contract's current
+    rows (`Editions` by `snapshot_date`, root ADR-0286 §3). Every reader of "the official code list"
+    in the jobs takes it from here; a load of a second table on one day is the same edition."""
+
+    return current_rows(spark.table(table), CONTRACT)
+
+
 def newest_snapshot_codes(spark, table: str) -> tuple[str | None, dict[str, tuple[str, str]]]:
     """The newest snapshot of `table` (qualified) as (its date, {region_cd: (full_name, status)}).
 
-    `(None, {})` when the table holds none. Every reader of "the official code list" goes through
-    this: the administrative matching gate and the boundary round merge.
+    `(None, {})` when the table holds none. The administrative matching gate and the boundary round
+    merge read it.
     """
 
-    newest = spark.sql(f"SELECT CAST(max(snapshot_date) AS STRING) AS d FROM {table}").collect()[0]["d"]
-    if not newest:
+    rows = newest_snapshot(spark, table).selectExpr(
+        "region_cd", "full_name", "status", "CAST(snapshot_date AS STRING) AS d").collect()
+    if not rows:
         return None, {}
-    rows = spark.sql(f"SELECT region_cd, full_name, status FROM {table} WHERE snapshot_date = DATE '{newest}'").collect()
-    return newest, {row["region_cd"]: (row["full_name"], row["status"]) for row in rows}
+    return rows[0]["d"], {row["region_cd"]: (row["full_name"], row["status"]) for row in rows}
 
 
 def previous_code_go_kr_row_count(spark, table: str, snapshot_date: date) -> int | None:

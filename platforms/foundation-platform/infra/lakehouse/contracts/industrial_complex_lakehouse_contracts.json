@@ -6692,6 +6692,7 @@
         "kind": "editions",
         "edition_column": "source_snapshot_id",
         "newest_first": [
+          "source_snapshot_id",
           "ingested_at_utc"
         ],
         "per": [],

@@ -515,11 +515,22 @@ def newest_edition(frame: Any, contract: dict[str, Any], versions: dict[str, Any
 def pinned_edition(frame: Any, contract: dict[str, Any], edition: str) -> Any:
     """The rows of the one edition the caller names, then the contract's predicate (root ADR-0286 §3)."""
 
-    from pyspark.sql import functions as F
-
-    rows = frame.where(F.col(editions_of(contract)["edition_column"]) == F.lit(edition))
+    # SQL text, as the served reader filtered before it moved here (root ADR-0379): the edition is a
+    # literal with its quotes doubled, and the column a contract name.
+    quoted = str(edition).replace("'", "''")
+    rows = frame.where(f"`{editions_of(contract)['edition_column']}` = '{quoted}'")
     predicate = current_row_predicate(contract)
-    return rows if predicate is None else rows.where(F.expr(predicate))
+    return rows if predicate is None else rows.where(predicate)
+
+
+def all_rows(frame: Any, contract: dict[str, Any]) -> Any:
+    """Every row of every version and edition, for a write that keeps them all: a schema backfill
+    rewrites the table's rows as they are, whatever it keeps (root ADR-0286 §3). Not a current read:
+    the declared access point that says so, so the reader guard can tell it from a raw read. Any
+    shape is rewritten the same way, so the contract is not consulted (a test's own table has none)."""
+
+    del contract
+    return frame
 
 
 def all_editions(frame: Any, contract: dict[str, Any]) -> Any:

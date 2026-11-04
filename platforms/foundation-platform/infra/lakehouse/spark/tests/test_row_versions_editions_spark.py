@@ -178,6 +178,22 @@ class MovedReadersPickTheOldRuleRowsTest(unittest.TestCase):
                         chosen = {row.source_snapshot_id for row in current_rows(frame, contract).collect()}
                         self.assertEqual(chosen, {old_newest([(e, at.replace(minute=1)) for e, at in held])})
 
+    def test_the_code_list_and_the_factory_pick_what_their_old_rules_did(self):
+        """Root ADR-0377: `max(snapshot_date)` (six readers) and the factory's id order, moved."""
+        from platform_contracts import current_rows, load_lakehouse_contract
+
+        codes = load_lakehouse_contract("reference.legal_dong_code_snapshot")
+        # Two tables taken on the newest day are one edition, as `WHERE snapshot_date = max` read them.
+        frame = self.spark.sql(
+            "SELECT * FROM VALUES (DATE '2099-01-01', 'a', '9900000000'), (DATE '2099-02-01', 'b', '9900000000'), "
+            "(DATE '2099-02-01', 'c', '9800000000') AS t(snapshot_date, source_record_id, region_cd)")
+        self.assertEqual(sorted(row.source_record_id for row in current_rows(frame, codes).collect()), ["b", "c"])
+        factory = load_lakehouse_contract("silver.registered_factory")
+        # The 기준일 orders the editions: an older one loaded later is not the newest (ADR-0328).
+        frame = self.editions(["source_snapshot_id", "ingested_at_utc", "row_id"],
+                              [("20991231", datetime(2099, 7, 1), "new"), ("20990630", datetime(2099, 12, 31), "old")])
+        self.assertEqual([row.row_id for row in current_rows(frame, factory).collect()], ["new"])
+
     def test_the_complex_boundary_export_reads_the_newest_editions_official_open_rows(self):
         from pyspark.sql import functions as F
 

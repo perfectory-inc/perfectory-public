@@ -47,7 +47,9 @@ pub const SILVER_REGISTERED_FACTORY: LakehouseTableContract = LakehouseTableCont
     current_row_predicate: None,
     row_versions: LakehouseRowVersions::Editions {
         edition_column: "source_snapshot_id",
-        newest_first: &["ingested_at_utc"],
+        // The edition id is the provider's 기준일 (`YYYYMMDD`); a reload of one 기준일 outranks its
+        // earlier load (root ADR-0328), and an older 기준일 loaded later never does.
+        newest_first: &["source_snapshot_id", "ingested_at_utc"],
         per: &[],
         read: LakehouseEditionRead::Newest,
     },

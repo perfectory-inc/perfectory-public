@@ -218,17 +218,18 @@ def served_rows(frame: Any, contract: Mapping[str, Any] | None = None, snapshot:
     filtered before the predicate is applied; the parcel-reads-the-served-edition guard
     refuses any other served-universe read."""
 
-    from platform_contracts import current_row_predicate, load_lakehouse_contract  # noqa: PLC0415
+    from platform_contracts import current_row_predicate, load_lakehouse_contract, pinned_edition  # noqa: PLC0415
 
-    predicate = current_row_predicate(load_lakehouse_contract("silver.parcel_boundaries"))
-    if predicate is None:
+    parcels = load_lakehouse_contract("silver.parcel_boundaries")
+    if current_row_predicate(parcels) is None:
         raise EditionError("silver.parcel_boundaries declares no current_row_predicate; the served parcels cannot be named")
     contract = contract or load()
     if snapshot is None:
         snapshot = snapshot_id(contract, served(contract))
     else:
         edition_of_snapshot_id(contract, snapshot)  # only an edition the contract holds, in its one spelling
-    return frame.where(f"source_snapshot_id = '{snapshot}'").where(predicate)
+    # The table's declared read of one edition (root ADR-0286 §3, ADR-0377): the edition, then the predicate.
+    return pinned_edition(frame, parcels, snapshot)
 
 
 def served_at(contract: Mapping[str, Any], instant: str) -> str:
