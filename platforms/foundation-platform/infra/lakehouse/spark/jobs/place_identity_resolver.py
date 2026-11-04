@@ -124,9 +124,17 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
 # when exactly one current parcel of the deal's CURRENT 법정동 fits; several or none leave the pnu null
 # with the reason. A level whose precision, measured against ground truth, is under the contract's bar
 # is not used (`enabled_levels`). The grade says which evidence linked it, so a reader labels it 추정.
+#
+# One level links a deal to a GROUP, not a parcel (root ADR-0405): `inferred_same_main_lot_group`. Its
+# evidence must still leave exactly one parcel, but what it claims is "one of the current parcels of
+# that parcel's 법정동, 산 flag and 본번" (300, 300-1, 300-2 …: one plant over two lots is its usual
+# miss), so the deal carries `pnu_group` and no `pnu`, and every parcel of the group shows it.
 
 MASKED_LOT = re.compile(r"^(산\s*)?(\d+)(\*+)$")
-INFERRED_GRADES = ("inferred_ownership_change", "inferred_attributes")
+MAIN_LOT_GROUP = "inferred_same_main_lot_group"
+INFERRED_GRADES = ("inferred_ownership_change", "inferred_attributes", MAIN_LOT_GROUP)
+# A PNU's 법정동 (10), 산 flag (1) and 본번 (4): the key of its 본번 필지 묶음.
+MAIN_LOT_KEY_LENGTH = 15
 # The evidence each level may name (the contract's `place_inference.levels[].evidence`).
 EVIDENCE = frozenset({"lot_range", "zone", "jimok", "land_area", "building_year", "floor_area",
                       "registers_agree", "ownership_change"})
@@ -155,8 +163,9 @@ def zone_name(value: Any) -> str | None:
 
 def enabled_levels(inference: Mapping[str, Any], dataset: str) -> list[dict[str, Any]]:
     """The levels a dataset may link by, strongest first: those whose measured precision for it
-    reaches the contract's bar on at least its minimum sample. A level never measured for a dataset
-    is not used."""
+    reaches the contract's bar on at least its minimum sample, judged on the lower end of its 95%
+    Wilson interval (root ADR-0370: a point estimate a hair over the bar on a small sample is not
+    a measurement over it). A level never measured for a dataset is not used."""
 
     bar = float(inference["precision_bar"])
     minimum = int(inference["min_measured_rows"])
@@ -166,7 +175,7 @@ def enabled_levels(inference: Mapping[str, Any], dataset: str) -> list[dict[str,
         if unknown or level["grade"] not in INFERRED_GRADES:
             raise ValueError(f"place_inference level {level['grade']} names {sorted(unknown) or 'an unknown grade'}")
         measured = (level.get("measured") or {}).get(dataset)
-        if measured and float(measured["precision"]) >= bar and int(measured["rows"]) >= minimum:
+        if measured and float(measured["precision_wilson_low"]) >= bar and int(measured["rows"]) >= minimum:
             levels.append(level)
     return levels
 
@@ -181,7 +190,8 @@ def unique_pick(candidates: Iterable[str]) -> tuple[str | None, str | None, int]
 
 
 def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, levels: Sequence[Mapping[str, Any]],
-                 tolerance_m2: float, ownership_window_days: tuple[int, int], ownership_causes: Sequence[str]) -> Any:
+                 tolerance_m2: float, ownership_window_days: tuple[int, int], ownership_causes: Sequence[str],
+                 group_parcels: Any | None = None) -> Any:
     """The inferred pnu of each masked deal, by the first level that leaves exactly one candidate.
 
     ``deals``: `row_id`, `legal_dong_code` (current), `lot_mountain`, `lot_low`, `lot_high`, `zone`,
@@ -190,7 +200,10 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     ``titles``: the current main buildings' `pnu`, `approval_year`, `floor_area_m2`.
     ``ownership``: the current owners' `pnu`, `ownership_changed_on` (date), `ownership_change_reason`;
     None while that Silver is absent (the level that needs it then links nothing).
-    Returns `row_id`, `pnu`, `place_identity_grade`, `pnu_unresolved_reason`, `pnu_candidate_count`.
+    ``group_parcels``: the current parcels' `pnu` a 본번 group is drawn from (default ``parcels``).
+    Returns `row_id`, `pnu`, `pnu_group` (the sorted current parcels of the 본번 group, only for
+    `MAIN_LOT_GROUP`; `pnu` is then null), `place_identity_grade`, `pnu_unresolved_reason`,
+    `pnu_candidate_count`.
     """
 
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
@@ -260,6 +273,7 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     every = deals.select("row_id")
     if not outcomes:
         return every.select("row_id", F.lit(None).cast("string").alias("pnu"),
+                            F.lit(None).cast("array<string>").alias("pnu_group"),
                             F.lit("unresolved").alias("place_identity_grade"),
                             F.lit("jibun_masked").alias("pnu_unresolved_reason"),
                             F.lit(None).cast("int").alias("pnu_candidate_count"))
@@ -271,10 +285,24 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
               .where(F.col("_n") == 1).drop("_n"))
     # Unlinked: the candidate count of the weakest level tried says ambiguous or none.
     last = tried.where(F.col("_rank") == len(levels) - 1).select("row_id", F.col("_count").alias("_last"))
+    # A group level's one parcel stands for its 본번 group: every current parcel with its key (only
+    # the keys a deal links to are read).
+    grouped = F.col("_grade") == F.lit(MAIN_LOT_GROUP)
+    linked = linked.withColumn("_key", F.when(grouped, F.substring("_pnu", 1, MAIN_LOT_KEY_LENGTH)))
+    members = ((parcels if group_parcels is None else group_parcels).select("pnu").distinct()
+               .withColumn("_key", F.substring("pnu", 1, MAIN_LOT_KEY_LENGTH))
+               .join(linked.where(F.col("_key").isNotNull()).select("_key").distinct(), "_key", "left_semi")
+               .groupBy("_key").agg(F.array_sort(F.collect_set("pnu")).alias("_members")))
+    linked = (linked.join(members, "_key", "left")
+              # The pick itself is in its group even if `group_parcels` does not hold it.
+              .withColumn("_group", F.when(grouped, F.array_sort(F.array_union(
+                  F.coalesce("_members", F.array().cast("array<string>")), F.array("_pnu")))))
+              .withColumn("_pnu", F.when(~grouped, F.col("_pnu")))
+              .drop("_key", "_members"))
     return (every.join(linked, "row_id", "left").join(last, "row_id", "left")
-            .select("row_id", F.col("_pnu").alias("pnu"),
+            .select("row_id", F.col("_pnu").alias("pnu"), F.col("_group").alias("pnu_group"),
                     F.coalesce(F.col("_grade"), F.lit("unresolved")).alias("place_identity_grade"),
-                    F.when(F.col("_pnu").isNotNull(), F.lit(None).cast("string"))
+                    F.when(F.col("_pnu").isNotNull() | F.col("_group").isNotNull(), F.lit(None).cast("string"))
                     .when(F.coalesce(F.col("_last"), F.lit(0)) > 1, F.lit("inference_ambiguous"))
                     .otherwise(F.lit("inference_no_candidate")).alias("pnu_unresolved_reason"),
                     F.coalesce(F.col("_count"), F.col("_last"), F.lit(0)).cast("int").alias("pnu_candidate_count")))
