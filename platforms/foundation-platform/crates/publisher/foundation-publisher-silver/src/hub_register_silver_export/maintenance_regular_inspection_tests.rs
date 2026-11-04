@@ -2,7 +2,7 @@ use super::*;
 
 /// A synthetic 정기점검 row: 11 columns, no 대지구분, the register key in the provider's form.
 fn row(inspection: &str, register: &str) -> String {
-    let mut fields = vec![""; 11];
+    let mut fields = [""; 11];
     fields[0] = "99999";
     fields[1] = "00101";
     fields[2] = "0012";
@@ -64,7 +64,7 @@ fn a_layout_reaches_its_parcel_by_pnu_inputs_or_by_a_link_exactly_one() -> anyho
     assert!(dangling.validate().is_err());
     // Both: a PNU-composing layout cannot also take a link.
     let mut master = crate::building_register_master_silver_export::layout()?;
-    master.parcel_link = linked.parcel_link.clone();
+    master.parcel_link = linked.parcel_link;
     assert!(master.validate().is_err());
     Ok(())
 }
