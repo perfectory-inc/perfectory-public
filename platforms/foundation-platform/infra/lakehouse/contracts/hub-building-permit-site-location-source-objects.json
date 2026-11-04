@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md",
+  "source": "bronze/source=hubgokr__building_permit_site_location",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_kcy_16",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 232,547,015 바이트, 멤버 mart_kcy_16.txt 2,083,479,922 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 13,639,544 행, 모든 행 20칸. 칸 0(관리대지위치관리번호)은 모든 행이 채워져 있고 13,639,544 개 모두 고유하다(서로 다른 행도 13,639,544). 칸 1(관리허가대장관리번호)은 76.51% 행·서로 다른 값 6,525,942 개, 칸 2(관리동별개요관리번호)는 23.37% 행·서로 다른 값 869,280 개이며 표본에서 한 행에 둘 중 하나만 있다. 표본의 칸 1 서로 다른 2,000 개 중 1,999 개가 silver.building_permit_basis_outline 의 mgmt_key 이고, 칸 2 표본 1,063 개는 모두 같은 판 동별개요의 칸 0 이다. 법정동코드는 칸 9 다: 같은 표본 1,949 행을 칸 9 로 지으면 1,415 행이 필지에 맞고 칸 8 로 지으면 0 행이다. PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자, 대지구분 0·1) 12,616,271 행(92.50%); 나머지는 대지구분 빈칸 913,577 행·대지구분 2(블록) 91,109 행 등이다. 2026-09 판과 비교: 새 키 56,051, 사라진 키 27,107, 내용이 바뀐 키 14,995(10판에만 있는 행 71,046). 표본 2,000 행의 PNU 중 78.8% 가 silver.parcel_boundaries 의 현재 행이다(대응표 없는 단순 조합, 하한값; 허가 때 적은 대지라 그 뒤 합병·분할된 필지가 많다).",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축인허가 대지위치(data.go.kr 15044686)의 속성 목록(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리대지위치관리번호·관리허가대장관리번호·관리동별개요관리번호·대표여부·주동구분코드·주동구분명·행정동코드·특수지명·블록·로트·지목코드·지목명·관련지번명·생성일자, 20개)과 2026-10 판 실측의 교차 확인. 대량 파일의 순서는 목록과 다르다: 키 세 칸·대표여부(칸 0–3), 대지위치(4), 시군구코드(5), 주동구분 코드·명(6·7), 행정동코드(8), 법정동코드(9), 대지구분·번·지(10–12), 특수지명·블록·로트(13–15), 지목 코드·명(16·17), 관련지번명(18), 생성일자(19). 값이 순서를 확인한다: 주동구분 0 주건축물·1 부속건축물, 지목 08 대·09 공장용지, 칸 8 은 99.6% 가 00 으로 끝나는 다섯 자리, 칸 9 만 필지에 맞는다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치 4·특수지명 13·블록 14·로트 15·관련지번명 18·생성일자 19)은 raw_columns 의 원래 index 로만 보존한다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_16.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 20,
+  "columns": {
+    "mgmt_key": {
+      "index": 0,
+      "meaning": "관리대지위치관리번호 원문"
+    },
+    "permit_mgmt_key": {
+      "index": 1,
+      "meaning": "관리허가대장관리번호 원문(허가의 대지 행; 건축인허가 기본개요의 mgmt_key 와 같은 키). 빈칸이면 동의 대지 행이다"
+    },
+    "building_mgmt_key": {
+      "index": 2,
+      "meaning": "관리동별개요관리번호 원문(동의 대지 행; 건축인허가 동별개요의 mgmt_key 와 같은 키). 빈칸이면 허가의 대지 행이다"
+    },
+    "representative_flag": {
+      "index": 3,
+      "meaning": "대표여부 원문(1 대표 대지·0 그 밖의 대지)"
+    },
+    "sigungu_cd": {
+      "index": 5,
+      "meaning": "시군구코드"
+    },
+    "main_building_code": {
+      "index": 6,
+      "meaning": "주동구분코드 원문(0 주건축물·1 부속건축물)"
+    },
+    "main_building_name": {
+      "index": 7,
+      "meaning": "주동구분명 원문"
+    },
+    "admin_dong_cd": {
+      "index": 8,
+      "meaning": "행정동코드 원문(다섯 자리; 법정동코드와 다른 체계라 PNU 에 쓰지 않는다)"
+    },
+    "bjdong_cd": {
+      "index": 9,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 10,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 11,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 12,
+      "meaning": "지 원문"
+    },
+    "land_category_code": {
+      "index": 16,
+      "meaning": "지목코드 원문(08 대·09 공장용지 등)"
+    },
+    "land_category_name": {
+      "index": 17,
+      "meaning": "지목명 원문(대·전·답·임야·공장용지 등)"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_site_location",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-site-location.service 의 실행 값(root ADR-0169 §3, ADR-0402). 판은 장부가 정한다. 키는 제공자의 관리대지위치관리번호(칸 0, 모든 행 채움·고유)다. 부분은 판의 load branch 에 쌓고 main 에 발행하지 않는다. compare 가 main 의 현재 행과 mgmt_key 마다 비교해 바뀐 대지 행과 사라진 대지 행의 삭제 표시만 changes branch 에 키 앞 두 자리 묶음마다 커밋하고(실측 세 묶음: 10 515만·11 518만·12 331만 행), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 첫 판 실행 시간(계산): 기본개요 첫 판(멤버 1.72 GB·653만 행)이 6분 걸렸으므로 2.08 GB·1,364만 행은 13분 안팎이다; 단위 시간 150분 안에 든다.",
+    "table": "silver.building_permit_site_location",
+    "roles": {
+      "source": "hubgokr__building_permit_site_location"
+    },
+    "export": "export-building-permit-site-location-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "permit_mgmt_key",
+        "building_mgmt_key",
+        "representative_flag",
+        "sigungu_cd",
+        "main_building_code",
+        "main_building_name",
+        "admin_dong_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "land_category_code",
+        "land_category_name",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 2
+    }
+  }
+}

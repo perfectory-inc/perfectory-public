@@ -339,6 +339,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 == lakehouse_domain::SILVER_BUILDING_PERMIT_FLOOR_OVERVIEW.table_name
             || contract.table_name
                 == lakehouse_domain::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING.table_name
+            || contract.table_name
+                == lakehouse_domain::SILVER_BUILDING_PERMIT_SITE_LOCATION.table_name
             || contract.table_name == SILVER_LAND_USE_ZONE_CODES.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS.table_name
             || contract.table_name == SILVER_UNIT_OFFICIAL_PRICE_VERSIONS.table_name
