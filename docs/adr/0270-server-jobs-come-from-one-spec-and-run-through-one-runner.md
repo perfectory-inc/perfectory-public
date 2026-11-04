@@ -362,3 +362,4 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 - 2b 운영자 스위치의 "누가 파일을 쓰나"는 [ADR-0282](./0282-operator-switches-are-issued-by-foundation-api-and-land-as-files-the-runner-reads.md)(승인 2026-10-19)가 다시 정한다: foundation-api 가 직원 신원으로만 내고, 파일은 러너가 읽는다.
 - #688 바로잡기: `lakehouse-ivy` 는 어떤 작업도 쓴 적이 없다(모든 Spark 실행이 릴리스의 jar 를 읽기 전용 ivy 캐시로 마운트). #708 이 작업 7개의 상태 경로와 `state_directories` 에서 뺐다.
 
+- 2026-11-05 개정 각주: §2 의 러너(`foundation-outbox-publisher job-run`, `foundation_jobs::{job_run,runner}`)는 어느 작업에도 배선되지 않은 채(`jobs.v1.json` 에 `command` 0, `FOUNDATION_JOB_RUN_JOB` 을 쓰는 곳 0) 지워졌다. 시간 상한·정지는 `foundation-jobs generate` 가 렌더하는 systemd 지시어가, 결과 판정은 각 작업의 결과 한 줄(ADR-0260)이 맡고, 목표 구조는 ADR-0410(#1051) §2(Dagster 자산 + `dagster-pipes` 로 systemd 실행)다.
