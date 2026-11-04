@@ -87,6 +87,8 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 regex = "1"
 rustix = { version = "=1.1.5", features = ["fs"] }
 sha2 = "0.10"
+# RFC 2104 HMAC over sha2 (RustCrypto, the same family as sha2) instead of hand-written ipad/opad.
+hmac = "0.12"
 tempfile = "3.27"
 duckdb = { version = "=1.10506.1", default-features = false }
 futures-util = "0.3"
