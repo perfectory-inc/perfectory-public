@@ -12,6 +12,8 @@ export const RealTransactionDocumentSchema = Generated.extend({ pnu: PnuSchema }
 
 export type RealTransaction = z.infer<typeof RealTransactionDocumentSchema>["real_transaction"] & {
   transactionTotal: number;
+  /** The other current parcels of this parcel's 본번 group, when a deal reached it by that group. */
+  mainLotGroupOthers: string[];
 };
 export type Deal = RealTransaction["transactions"][number];
 export type Comparable = RealTransaction["comparables"][number];
@@ -35,7 +37,23 @@ export async function fetchRealTransaction(
   return {
     ...document.real_transaction,
     transactionTotal: document.transaction_total ?? document.real_transaction.transactions.length,
+    mainLotGroupOthers: document.real_transaction.main_lot_group_pnus.filter((p) => p !== pnu),
   };
+}
+
+/** The grade of a deal linked to every parcel of its 본번 group, not to one parcel (root ADR-0405). */
+export const MAIN_LOT_GROUP_GRADE = "inferred_same_main_lot_group";
+
+/** Whether the deal reached this parcel as one of its 본번 group: the screen says 추정 · 같은 본번. */
+export function isMainLotGroup(grade: string | null | undefined): boolean {
+  return grade === MAIN_LOT_GROUP_GRADE;
+}
+
+/** A PNU's lot as a 지번: 산 flag, 본번 and 부번 (9999900000203000001 → "산 300-1"). */
+export function lotOfPnu(pnu: string): string {
+  const main = Number(pnu.slice(11, 15));
+  const sub = Number(pnu.slice(15, 19));
+  return `${pnu[10] === "2" ? "산 " : ""}${main}${sub > 0 ? `-${sub}` : ""}`;
 }
 
 /** Whether the deal reached its parcel by inference, not by the lot the provider wrote (root ADR-0351). */

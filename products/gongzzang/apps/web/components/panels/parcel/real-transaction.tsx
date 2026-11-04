@@ -8,7 +8,9 @@ import {
   formatManwon,
   industrialRegion,
   isInferred,
+  isMainLotGroup,
   isShareDeal,
+  lotOfPnu,
   type RealTransaction,
 } from "@/lib/api/real-transaction";
 import { formatAreaM2 } from "@/lib/listings/format";
@@ -51,11 +53,18 @@ export function ParcelRealTransactionsCard({ data }: { data: RealTransaction }) 
             badges={[
               deal.cancelled ? t("cancelled", { date: deal.cancel_date ?? "" }) : null,
               isShareDeal(deal) ? t("share") : null,
-              isInferred(deal.place_identity_grade) ? t("inferred") : null,
+              inferredBadge(t, deal.place_identity_grade),
             ]}
           />
         ))}
       </ul>
+      {data.transactions.some((deal) => isMainLotGroup(deal.place_identity_grade)) && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {data.mainLotGroupOthers.length > 0
+            ? t("mainLotGroupOthers", { lots: data.mainLotGroupOthers.map(lotOfPnu).join(", ") })
+            : t("mainLotGroupAlone")}
+        </p>
+      )}
       {data.transactions_omitted > 0 && (
         <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
           {t("omitted", { count: data.transactions_omitted })}
@@ -93,12 +102,23 @@ export function ParcelComparablesCard({ data }: { data: RealTransaction }) {
                 : t("datasets.real_transaction_industrial_trade")
             }
             rows={comparableRows(t, deal)}
-            badges={[isInferred(deal.place_identity_grade) ? t("inferred") : null]}
+            badges={[
+              inferredBadge(t, deal.place_identity_grade),
+              deal.main_lot_group_size != null
+                ? t("mainLotGroupSize", { count: deal.main_lot_group_size })
+                : null,
+            ]}
           />
         ))}
       </ul>
     </div>
   );
+}
+
+/** 추정 · 같은 본번 for a 본번 group link, 추정 for any other inferred one (root ADR-0351, ADR-0405). */
+function inferredBadge(t: T, grade: string | null | undefined): string | null {
+  if (isMainLotGroup(grade)) return t("inferredSameMainLot");
+  return isInferred(grade) ? t("inferred") : null;
 }
 
 function DealItem({

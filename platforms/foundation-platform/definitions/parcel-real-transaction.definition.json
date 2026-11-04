@@ -400,6 +400,10 @@
               "required": true
             },
             {
+              "path": "real_transaction.main_lot_group_pnus",
+              "required": false
+            },
+            {
               "path": "real_transaction.comparables",
               "required": true
             },
@@ -433,6 +437,10 @@
             },
             {
               "path": "real_transaction.comparables[].place_identity_grade",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].main_lot_group_size",
               "required": false
             },
             {

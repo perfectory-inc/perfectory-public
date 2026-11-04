@@ -30,6 +30,7 @@ export const ParcelRealTransactionByPnuSchema = z.object({
       place_identity_grade: z.string().nullish(),
     })),
     transactions_omitted: z.number().int(),
+    main_lot_group_pnus: z.array(z.string().regex(/^[0-9]{19}$/)),
     comparables: z.array(z.object({
       deal_date: z.string().nullish(),
       deal_amount_10k_krw: z.number().int().nullish(),
@@ -39,6 +40,7 @@ export const ParcelRealTransactionByPnuSchema = z.object({
       jibun_raw: z.string().nullish(),
       pnu: z.string().nullish(),
       place_identity_grade: z.string().nullish(),
+      main_lot_group_size: z.number().int().nullish(),
     })),
     comparables_from: z.string(),
     region: z.object({

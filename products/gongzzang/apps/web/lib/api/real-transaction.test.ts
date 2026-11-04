@@ -4,6 +4,8 @@ import {
   formatManwon,
   industrialRegion,
   isInferred,
+  isMainLotGroup,
+  lotOfPnu,
 } from "./real-transaction";
 
 vi.mock("@/lib/env", () => ({
@@ -51,6 +53,7 @@ const document = () => ({
       deal("2097-11-03", { cancelled: true, cancel_date: "2097-12-01" }),
     ],
     transactions_omitted: 0,
+    main_lot_group_pnus: [] as string[],
     comparables: [
       {
         deal_date: "2098-04-02",
@@ -63,6 +66,7 @@ const document = () => ({
         jibun_raw: "3**",
         pnu: null,
         place_identity_grade: null,
+        main_lot_group_size: null,
       },
       {
         deal_date: "2098-03-02",
@@ -75,6 +79,7 @@ const document = () => ({
         jibun_raw: "4**",
         pnu,
         place_identity_grade: "inferred_attributes",
+        main_lot_group_size: null,
       },
     ],
     comparables_from: "2095-05-01",
@@ -131,5 +136,25 @@ describe("real transaction edge", () => {
     expect(isInferred("inferred_ownership_change")).toBe(true);
     expect(isInferred("code_exact")).toBe(false);
     expect(isInferred(null)).toBe(false);
+  });
+
+  it("names a 본번 group link and the group's other parcels as 지번 (root ADR-0405)", async () => {
+    const neighbour = "9999900000100050001";
+    const grouped = document();
+    grouped.real_transaction.transactions = [
+      deal("2098-02-01", {
+        jibun_raw: "5**",
+        place_identity_grade: "inferred_same_main_lot_group",
+      }),
+    ];
+    grouped.real_transaction.main_lot_group_pnus = [pnu, neighbour];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(grouped)));
+    const found = await fetchRealTransaction(pnu);
+    expect(found?.mainLotGroupOthers).toEqual([neighbour]);
+    expect(isMainLotGroup("inferred_same_main_lot_group")).toBe(true);
+    expect(isMainLotGroup("inferred_attributes")).toBe(false);
+    expect(isInferred("inferred_same_main_lot_group")).toBe(true);
+    expect(lotOfPnu(neighbour)).toBe("5-1");
+    expect(lotOfPnu("9999900000203000000")).toBe("산 300");
   });
 });
