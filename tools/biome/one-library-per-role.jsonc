@@ -1,0 +1,40 @@
+// One library per role (docs/technology-stack.md §1.1 운영 규칙 2). Every JS/TS package's Biome
+// config extends this file, so the banned list lives here once.
+//
+// Prevents: a second library entering beside the one already chosen for that role, which is how a
+// codebase ends up with two spellings of `debounce`, two error-boundary implementations, and a
+// bundle carrying both; and (root ADR-0188) a second graph-layout library entering a screen, so the
+// same graph is drawn differently from screen to screen.
+//
+// This bans importing the alternatives; it cannot require that a hand-written `debounce` be
+// replaced by the library one — that half stays a review rule in docs/technology-stack.md §1.1.
+// Only roles §1.1 has assigned are listed. To change a canonical choice, change §1.1 and this
+// file in the same commit.
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+  "linter": {
+    "rules": {
+      "style": {
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "patterns": [
+              {
+                "group": ["lodash", "lodash/**", "lodash-*", "lodash-*/**", "lodash.*", "lodash.*/**", "underscore", "underscore/**", "ramda", "ramda/**"],
+                "message": "The canonical JS/TS utility library is es-toolkit (docs/technology-stack.md §1.1)."
+              },
+              {
+                "group": ["react-error-boundary", "react-error-boundary/**"],
+                "message": "Error boundaries are @suspensive/react (docs/technology-stack.md §1.1)."
+              },
+              {
+                "group": ["dagre", "dagre/**", "@dagrejs/dagre", "@dagrejs/dagre/**", "reactflow", "reactflow/**"],
+                "message": "A graph is @xyflow/react laid out by elkjs (docs/technology-stack.md §1.1, root ADR-0188)."
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

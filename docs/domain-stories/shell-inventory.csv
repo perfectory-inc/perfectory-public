@@ -172,8 +172,6 @@ scripts/guard/hook-isolation-self-test.sh,248,true,test-fixture,xtask,Guard self
 scripts/guard/identity-endpoints-match-the-contract-self-test.sh,118,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/import-private-feature-diff-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/intelligence-no-vector-provider-self-test.sh,62,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/intelligence-no-vector-provider.sh,50,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/judgment-position-exit-codes-self-test.sh,140,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -242,8 +240,6 @@ scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard s
 scripts/guard/tracked-paths-are-portable-self-test.sh,53,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-paths-are-portable.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/unique-package-names.sh,18,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/utility-library-policy-self-test.sh,111,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/utility-library-policy.sh,57,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/workflow-policy-self-test.sh,497,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage.sh,39,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)

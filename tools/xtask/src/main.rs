@@ -555,22 +555,22 @@ const AREAS: &[Area] = &[
         node_tests: &[
             NodeTests {
                 dir: "services/foundation-profile-gateway",
-                scripts: &["config:check", "typecheck", "test", "build:check"],
+                scripts: &["lint", "config:check", "typecheck", "test", "build:check"],
                 test_script: "test",
             },
             NodeTests {
                 dir: "services/foundation-by-pnu-gateway",
-                scripts: &["config:check", "typecheck", "test", "build:check"],
+                scripts: &["lint", "config:check", "typecheck", "test", "build:check"],
                 test_script: "test",
             },
             NodeTests {
                 dir: "services/foundation-tile-gateway",
-                scripts: &["config:check", "typecheck", "test", "build:check"],
+                scripts: &["lint", "config:check", "typecheck", "test", "build:check"],
                 test_script: "test",
             },
             NodeTests {
                 dir: "services/foundation-map-edit-gateway",
-                scripts: &["config:check", "typecheck", "test", "build:check"],
+                scripts: &["lint", "config:check", "typecheck", "test", "build:check"],
                 test_script: "test",
             },
         ],
@@ -953,7 +953,7 @@ const AREAS: &[Area] = &[
         python_tests: &[],
         node_tests: &[NodeTests {
             dir: "web",
-            scripts: &["typecheck", "test", "build", "api:check"],
+            scripts: &["lint", "typecheck", "test", "build", "api:check"],
             test_script: "test",
         }],
         live_lanes: &[],

@@ -9,7 +9,8 @@
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/foundation-platform/docs/openapi/catalog.v1.json",
-        "platforms/foundation-platform/docs/openapi/data-catalog.v1.json"
+        "platforms/foundation-platform/docs/openapi/data-catalog.v1.json",
+        "tools/biome/**"
       ]
     },
     "intelligence-ci.yml": {
@@ -89,7 +90,8 @@
         "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
         "platforms/foundation-platform/contracts/schema-registry/**",
         ".github/workflows/gongzzang-*.yml",
-        "tools/xtask/**"
+        "tools/xtask/**",
+        "tools/biome/**"
       ]
     },
     "gongzzang-sqlx-prepare.yml": {
@@ -153,7 +155,8 @@
         "scripts/ci/fetch_pinned.py",
         "tools/*.json",
         "tools/*.env",
-        "tools/sigstore/**"
+        "tools/sigstore/**",
+        "tools/biome/**"
       ]
     },
     "foundation-release-build.yml": {
@@ -359,29 +362,6 @@
         "paths": [
           "products/*/services/**",
           "platforms/*/services/**"
-        ]
-      },
-      {
-        "name": "intelligence-no-vector-provider-self-test",
-        "paths": [
-          "platforms/intelligence-platform/**/Cargo.toml"
-        ]
-      },
-      {
-        "name": "intelligence-no-vector-provider",
-        "paths": [
-          "platforms/intelligence-platform/**/Cargo.toml"
-        ]
-      },
-      {
-        "name": "utility-library-policy-self-test",
-        "paths": []
-      },
-      {
-        "name": "utility-library-policy",
-        "paths": [
-          "**/package.json",
-          "docs/technology-stack.md"
         ]
       },
       {
