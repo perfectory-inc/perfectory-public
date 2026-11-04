@@ -2,8 +2,9 @@
 //! Moved out of `lakehouse.rs` unchanged.
 
 use super::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions, LakehouseServingRole,
+    LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 pub(super) const SILVER_MAP_EDIT_LEDGER_COLUMNS: &[LakehouseColumn] = &[
@@ -81,7 +82,9 @@ pub const SILVER_MAP_EDIT_LEDGER: LakehouseTableContract = LakehouseTableContrac
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: SILVER_MAP_EDIT_LEDGER_COLUMNS,
     partition_spec: &[],
     sort_order: &["unit", "change_seq"],
@@ -160,7 +163,9 @@ pub const GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED: LakehouseTableContract =
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Projection,
         current_row_predicate: None,
-        current_row_latest: None,
+        row_versions: LakehouseRowVersions::Replaced {
+            key: LakehouseRowKey::Columns(&["complex_id"]),
+        },
         columns: GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED_COLUMNS,
         partition_spec: &[],
         sort_order: &["complex_id"],
@@ -246,7 +251,12 @@ pub const SILVER_ADMINISTRATIVE_BOUNDARIES: LakehouseTableContract = LakehouseTa
     physical_format: LakehousePhysicalFormat::GeoParquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "source_snapshot_id",
+        newest_first: &["ingested_at_utc"],
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: SILVER_ADMINISTRATIVE_BOUNDARIES_COLUMNS,
     partition_spec: &[],
     sort_order: &["source_snapshot_id", "canonical_code"],
@@ -338,7 +348,9 @@ pub const GOLD_ADMINISTRATIVE_BOUNDARY_SERVED: LakehouseTableContract = Lakehous
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["administrative_unit_id"]),
+    },
     columns: GOLD_ADMINISTRATIVE_BOUNDARY_SERVED_COLUMNS,
     partition_spec: &[],
     sort_order: &["administrative_unit_id"],
@@ -410,7 +422,9 @@ pub const GOLD_PARCEL_BOUNDARY_SERVED: LakehouseTableContract = LakehouseTableCo
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["pnu"]),
+    },
     columns: GOLD_PARCEL_BOUNDARY_SERVED_COLUMNS,
     // No partitions, for the reason silver.parcel_boundaries has none: every reader takes the
     // whole snapshot (root ADR-0066).

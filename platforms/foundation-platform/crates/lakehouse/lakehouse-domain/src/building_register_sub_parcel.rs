@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -80,7 +80,7 @@ pub const SILVER_BUILDING_REGISTER_SUB_PARCEL: LakehouseTableContract = Lakehous
     // A register's version is the set of its sub-parcel rows of its newest vintage (keep_ties,
     // ADR-0328); a monthly release appends only the registers whose set changed and a removal
     // marker per vanished register (root ADR-0318, ADR-0395).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgmt_key"],
         newest_first: &["vintage", "ingested_at_utc"],
         removal_column: Some("row_state"),

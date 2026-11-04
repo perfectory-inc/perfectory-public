@@ -2,8 +2,9 @@
 //! Moved out of `lakehouse.rs` unchanged.
 
 use super::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseEditionRead, LakehouseLayer, LakehouseLoadUnit,
+    LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions, LakehouseServingRole,
+    LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 pub(super) const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS: &[LakehouseColumn] = &[
@@ -81,7 +82,12 @@ pub const REFERENCE_LEGAL_DONG_CODE_SNAPSHOT: LakehouseTableContract = Lakehouse
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Editions {
+        edition_column: "snapshot_date",
+        newest_first: &["snapshot_date"],
+        per: &[],
+        read: LakehouseEditionRead::Newest,
+    },
     columns: REFERENCE_LEGAL_DONG_CODE_SNAPSHOT_COLUMNS,
     partition_spec: &[],
     sort_order: &["snapshot_date", "region_cd"],
@@ -174,7 +180,9 @@ pub const REFERENCE_LEGAL_DONG_CODE_CHANGE: LakehouseTableContract = LakehouseTa
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: REFERENCE_LEGAL_DONG_CODE_CHANGE_COLUMNS,
     partition_spec: &[],
     sort_order: &["effective_date", "old_code"],
@@ -271,7 +279,9 @@ pub const SILVER_PARCEL_LINEAGE: LakehouseTableContract = LakehouseTableContract
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: Some("lineage_review_queue.steward_resolved"),
+    },
     columns: SILVER_PARCEL_LINEAGE_COLUMNS,
     partition_spec: &[],
     sort_order: &["to_snapshot_id", "successor_pnu"],
@@ -350,7 +360,9 @@ pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: SILVER_PARCEL_REGISTRY_COLUMNS,
     partition_spec: &[],
     sort_order: &["pnu", "valid_from"],
@@ -418,7 +430,9 @@ pub const GOLD_PLACE_ID_REGISTRY: LakehouseTableContract = LakehouseTableContrac
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit", "scope", "place_id"]),
+    },
     columns: GOLD_PLACE_ID_REGISTRY_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
@@ -482,7 +496,9 @@ pub const GOLD_PLACE_ID_BRIDGE: LakehouseTableContract = LakehouseTableContract 
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit", "scope", "place_id", "code", "valid_from"]),
+    },
     columns: GOLD_PLACE_ID_BRIDGE_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
@@ -555,7 +571,9 @@ pub const GOLD_PLACE_ID_CHANGELOG: LakehouseTableContract = LakehouseTableContra
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: GOLD_PLACE_ID_CHANGELOG_COLUMNS,
     partition_spec: &["unit", "scope"],
     sort_order: &["place_id"],
@@ -626,7 +644,9 @@ pub const GOLD_LINEAGE_REVIEW_QUEUE: LakehouseTableContract = LakehouseTableCont
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["unit", "subject_code"]),
+    },
     columns: GOLD_LINEAGE_REVIEW_QUEUE_COLUMNS,
     partition_spec: &["unit"],
     sort_order: &["subject_code"],

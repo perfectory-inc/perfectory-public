@@ -6,7 +6,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -90,7 +90,7 @@ pub const SILVER_REAL_TRANSACTION: LakehouseTableContract = LakehouseTableContra
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["dataset_slug", "deal_ym", "row_key"],
         newest_first: &["source_snapshot_id", "ingested_at_utc"],
         removal_column: Some("row_state"),

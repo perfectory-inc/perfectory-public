@@ -82,7 +82,7 @@ impl Layout {
         // A removal marker's column is written by the release compare, never by the source (root
         // ADR-0318); the export leaves it out and the load reads it as null.
         let removal = table
-            .current_row_latest
+            .current_row_latest()
             .and_then(|latest| latest.removal_column);
         layout.expected_columns = table
             .columns
