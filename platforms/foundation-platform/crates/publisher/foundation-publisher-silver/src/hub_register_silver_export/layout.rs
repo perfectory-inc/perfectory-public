@@ -88,10 +88,12 @@ impl Layout {
             .columns
             .iter()
             .filter(|column| {
-                !super::GENERATED_COLUMNS.contains(&column.name)
-                    && Some(column.name) != removal
-                    && !(layout.row_key.is_some() && column.name == "mgmt_key")
-                    && !layout.extra_pnus.contains_key(column.name)
+                // Columns the export makes itself rather than reads from a consumed source column.
+                let made_here = super::GENERATED_COLUMNS.contains(&column.name)
+                    || Some(column.name) == removal
+                    || (layout.row_key.is_some() && column.name == "mgmt_key")
+                    || layout.extra_pnus.contains_key(column.name);
+                !made_here
             })
             .map(|column| column.name.to_owned())
             .collect();
