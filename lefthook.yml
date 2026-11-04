@@ -60,7 +60,6 @@ pre-commit:
 # laptop — no Rust build, no Docker, no full guard sweep, no JS build/test runner. Every step
 # here also runs in a required CI job; a green hook is a convenience, never a verification
 # claim. To add a check: put it in CI first, then optionally mirror it here.
-# `scripts/guard/lefthook-time-budget.sh` enforces both rules (budget class and CI twin).
 #
 # Moved to CI only by ADR-0149: the Foundation ownership boundary scan (65 s locally; one perl
 # process per Rust file) — gongzzang-ci.yml `Repo guardrails`, required/gongzzang-core.

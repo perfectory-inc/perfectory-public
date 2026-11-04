@@ -176,10 +176,6 @@ scripts/guard/intelligence-no-vector-provider-self-test.sh,62,true,test-fixture,
 scripts/guard/intelligence-no-vector-provider.sh,50,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/judgment-position-exit-codes-self-test.sh,140,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/lefthook-advisory-policy-self-test.sh,133,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/lefthook-advisory-policy.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/lefthook-time-budget-self-test.sh,72,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/lefthook-time-budget.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-self-test.sh,352,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/lib/fixture-repo.sh,173,true,ci,xtask,"Shared lib sourced by monorepo-guard.sh, the CI guard runner"

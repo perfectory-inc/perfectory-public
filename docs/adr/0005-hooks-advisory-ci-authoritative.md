@@ -58,3 +58,5 @@ Docker 안에서만 빌드하고 개발 호스트에는 cargo가 없었다. 그 
 - 권위 보장은 ADR-0004의 검증 SSOT가 재현 가능하게 만드는 CI에 있다.
 
 2026-10-28: 상태 줄 추가 — 원문에 없던 `Status`를 실물에 맞춰 적었다. 근거: 루트 `lefthook.yml`, `scripts/guard/lefthook-advisory-policy-self-test.sh`.
+
+2026-11-04: `scripts/guard/lefthook-advisory-policy-self-test.sh` → 지움(검사기 `check-lefthook-advisory-policy.py`와 함께). 훅 설정 자체를 검사하던 메타 가드였다. 훅이 도구 없이 실패하면 그 자리에서 보이고, 권위 검사는 CI에 있으므로 이 ADR의 결정은 그대로다. 규칙은 루트 `AGENTS.md` §가드 · 검증 한 줄로 남는다.

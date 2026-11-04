@@ -453,33 +453,6 @@
         ]
       },
       {
-        "name": "lefthook-advisory-policy-self-test",
-        "paths": [
-          "lefthook.yml"
-        ]
-      },
-      {
-        "name": "lefthook-advisory-policy",
-        "paths": [
-          "lefthook.yml"
-        ]
-      },
-      {
-        "name": "lefthook-time-budget-self-test",
-        "paths": [
-          "lefthook.yml"
-        ]
-      },
-      {
-        "name": "lefthook-time-budget",
-        "paths": [
-          "lefthook.yml",
-          "scripts/**",
-          ".github/workflows/**",
-          "tools/xtask/src/**"
-        ]
-      },
-      {
         "name": "package-publication-policy-self-test",
         "paths": []
       },
