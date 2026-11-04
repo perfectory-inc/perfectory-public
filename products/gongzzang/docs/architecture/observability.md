@@ -46,7 +46,6 @@ Rust 서비스는 `tracing`과 `tracing-subscriber`를 사용한다.
 
 프론트엔드는 panel 상호작용을 위한 가벼운 OpenTelemetry helper를 갖는다.
 
-- `apps/web/lib/observability/tracer.ts`
 - `apps/web/lib/panel/telemetry.ts`
 - `apps/web/instrumentation.ts`
 

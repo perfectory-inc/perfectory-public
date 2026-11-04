@@ -122,16 +122,6 @@
       "classification": "product_domain"
     },
     {
-      "path": "crates/court-auction-domain",
-      "owner": "gongzzang",
-      "classification": "product_domain"
-    },
-    {
-      "path": "crates/real-transaction-domain",
-      "owner": "gongzzang",
-      "classification": "product_domain"
-    },
-    {
       "path": "crates/bookmark-domain",
       "owner": "gongzzang",
       "classification": "product_domain"
