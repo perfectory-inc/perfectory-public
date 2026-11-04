@@ -97,6 +97,18 @@ def collection_classes(graph: dict, endpoints: list[dict]) -> dict[str, str]:
     return classes
 
 
+def reconcile_inputs(root: Path) -> set[Path]:
+    """Every file reconcile reads, relative to root: a self-test copies exactly these into its tree."""
+    graph = load_json(root / GRAPH)
+    paths = {GRAPH, ENDPOINTS, CONTRACTS, FOUNDATION / "services/foundation-outbox-publisher/src/main.rs"}
+    paths.update(p.relative_to(root) for p in (root / FOUNDATION / "migrations").glob("*.sql"))
+    paths.update(Path(step) for e in graph["edges"] for step in e.get("via", []) if (root / step).is_file())
+    # Root ADR-0400: a collection_decision names a decision record that must exist.
+    paths.update(Path(e["collection_decision"]["decision"]) for e in load_json(root / ENDPOINTS)["endpoints"]
+                 if "collection_decision" in e and (root / e["collection_decision"]["decision"]).is_file())
+    return paths
+
+
 def migration_tables(root: Path) -> set[str]:
     """Read all migrations; refuse lifecycle changes this bounded scanner cannot reconcile."""
     files = sorted((root / FOUNDATION / "migrations").glob("*.sql"))
