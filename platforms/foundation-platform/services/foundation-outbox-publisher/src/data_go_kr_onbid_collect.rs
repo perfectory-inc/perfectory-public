@@ -428,11 +428,7 @@ pub(crate) fn read_answer(codes: &ResultCodes, status: u16, body: &str) -> anyho
             body.chars().take(200).collect::<String>()
         )
     })?;
-    let value = if value["response"].is_object() {
-        value["response"].clone()
-    } else {
-        value
-    };
+    let value = value.get("response").cloned().unwrap_or(value);
     let header = if value["header"].is_object() {
         &value["header"]
     } else {
