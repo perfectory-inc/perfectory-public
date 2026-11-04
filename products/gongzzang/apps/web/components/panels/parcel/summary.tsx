@@ -9,6 +9,7 @@ import { type Demolitions, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
+import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
 import type { ZoningArea } from "@/lib/map/zoning-areas";
 import { ZONING_FAMILIES, ZONING_PENDING_LAYER_CODES } from "@/lib/map/zoning-families";
@@ -24,6 +25,7 @@ import {
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
+  parcelSubParcelsQuery,
 } from "./queries";
 
 type Entry = Extract<PanelStackEntry, { kind: "parcel" }>;
@@ -237,6 +239,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const t = useTranslations("panels.parcel.summary");
   const buildings = useQuery(parcelBuildingsQuery(entry.id));
   const ownership = useQuery(parcelOwnershipQuery(entry.id));
+  const subParcels = useQuery(parcelSubParcelsQuery(entry.id));
   const energy = useQuery(parcelEnergyQuery(entry.id));
   const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
   const sections: Section[] = [
@@ -253,6 +256,14 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       id: "buildings",
       label: t("sections.buildings"),
       content: <BuildingsSection entry={entry} buildings={buildingList} landRights={landRights} />,
+    });
+  }
+  const links = subParcels.data;
+  if (links && links.on_other_total + links.from_other_total > 0) {
+    sections.push({
+      id: "subParcels",
+      label: t("sections.subParcels"),
+      content: <SubParcelsSection links={links} />,
     });
   }
   const mapZones = useParcelMapZoningAreas(entry.id);
@@ -540,6 +551,66 @@ function BuildingsSection({
           <p className="text-[length:var(--text-body-sm)] text-[var(--color-ink)]">
             {t("buildings.landRightCount", { count: landRights })}
           </p>
+        </Group>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 부속지번 from the 부속지번 lane (root ADR-0399), both ways: the other parcels a register on this 대지
+ * also stands on, and the registers on another 대지 that also stand here. Each names the register's
+ * 대장종류 and the other parcel's 지번, and opens that parcel when Foundation knows its PNU.
+ */
+function SubParcelsSection({ links }: { links: SubParcels }) {
+  const t = useTranslations("panels.parcel.summary");
+  const { push } = usePanelStack();
+  const list = (entries: SubParcelLink[], total: number) => (
+    <ul className="flex flex-col gap-1.5">
+      {entries.map((link) => (
+        <li
+          key={[link.mgmt_key, link.other_pnu, link.other_jibun].join("|")}
+          className="flex items-center justify-between gap-2 text-[length:var(--text-body-sm)]"
+        >
+          <span className="text-[var(--color-ink)]">
+            {[jibunLabel(link.other_jibun), link.register_kind_name].filter(Boolean).join(" · ")}
+          </span>
+          {link.other_pnu && (
+            <button
+              type="button"
+              onClick={() =>
+                push({ kind: "parcel", id: link.other_pnu as string, view: "summary" })
+              }
+              className="rounded-md border border-[var(--color-hairline)] px-2 py-0.5 text-[length:var(--text-caption)] hover:bg-[var(--color-surface-cream-strong)]"
+            >
+              {t("subParcels.open")} ›
+            </button>
+          )}
+        </li>
+      ))}
+      {total > entries.length && (
+        <li className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("subParcels.more", { shown: entries.length, total })}
+        </li>
+      )}
+    </ul>
+  );
+  return (
+    <div>
+      {links.on_other_total > 0 && (
+        <Group
+          title={t("subParcels.onOther", { count: links.on_other_total })}
+          note={t("subParcels.source")}
+        >
+          {list(links.on_other_parcels, links.on_other_total)}
+        </Group>
+      )}
+      {links.from_other_total > 0 && (
+        <Group
+          title={t("subParcels.fromOther", { count: links.from_other_total })}
+          note={t("subParcels.source")}
+        >
+          {list(links.from_other_parcels, links.from_other_total)}
         </Group>
       )}
     </div>

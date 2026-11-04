@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_sub_parcels_by_pnu",
+  "description": "The buildings a parcel shares with other parcels, as the 건축물대장 부속지번 registers them (root ADR-0395, ADR-0399), read from both ends: registers whose 대지 is this parcel with the other parcels they also stand on, and registers on another 대지 whose building also stands here. Each entry names the register and the other parcel (PNU and the provider's 지번), at most 100 of each; the totals count all.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_sub_parcels_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "sub_parcels": {
+      "type": "object",
+      "properties": {
+        "on_other_parcels": {
+          "description": "Registers whose 대지 is this parcel, with each other parcel their building also stands on.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mgmt_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "register_kind_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "other_pnu": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "other_jibun": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "on_other_total": {
+          "type": "integer"
+        },
+        "from_other_parcels": {
+          "description": "Registers whose 대지 is another parcel and whose building also stands on this one.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mgmt_key": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "register_kind_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "other_pnu": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "other_jibun": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "from_other_total": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "on_other_parcels",
+        "on_other_total",
+        "from_other_parcels",
+        "from_other_total"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "sub_parcels"
+  ]
+}

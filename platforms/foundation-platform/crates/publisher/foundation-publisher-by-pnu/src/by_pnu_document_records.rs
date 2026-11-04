@@ -30,7 +30,7 @@ type Shape = BTreeMap<String, bool>;
 
 /// Pack lane JSON fields no Rust type writes: the Spark job that writes them is held to the
 /// record's subtree by its own test (lane, field, test).
-const SPARK_HELD: [(&str, &str, &str); 5] = [
+const SPARK_HELD: [(&str, &str, &str); 6] = [
     (
         "unit-price",
         "units",
@@ -45,6 +45,11 @@ const SPARK_HELD: [(&str, &str, &str); 5] = [
         "parcel-ownership",
         "ownership",
         "infra/lakehouse/spark/tests/test_land_ownership_gold.py",
+    ),
+    (
+        "parcel-sub-parcels",
+        "sub_parcels",
+        "infra/lakehouse/spark/tests/test_building_sub_parcel_gold.py",
     ),
     (
         "parcel-energy",
