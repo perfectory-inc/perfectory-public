@@ -49,16 +49,6 @@ def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def sido_prefixes(contract: Mapping[str, Any]) -> dict[str, str]:
-    """The 시도 prefixes the contract points at (one copy, the registered-factory contract's)."""
-
-    file, pointer = contract["pnu_resolution"]["sido_prefixes_from"].split("#", 1)
-    value: Any = json.loads((CONTRACTS / file).read_text(encoding="utf-8"))
-    for part in pointer.strip("/").split("/"):
-        value = value[part]
-    return dict(value)
-
-
 def text_or_none(value: Any) -> str | None:
     text = "" if value is None else str(value).strip()
     return text or None
@@ -229,16 +219,17 @@ def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> l
     return sorted(objects, key=lambda o: (o["source_snapshot_id"], o["object_key"]))
 
 
-def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], dongs: Mapping[tuple[str, str], str],
-                ingested_at: datetime) -> dict[str, Any]:
-    """What one object loads: its rows and whether its search was read completely."""
+def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes: Mapping[str, str],
+                dongs: Mapping[tuple[str, str], str], ingested_at: datetime) -> dict[str, Any]:
+    """What one object loads: its rows and whether its search was read completely. ``prefixes`` are
+    ``address_pnu.sido_prefixes`` of the 법정동 code table (root ADR-0403)."""
 
     with gzip.open(entry["path"], "rt", encoding="utf-8") as handle:
         lines = [json.loads(line) for line in handle if line.strip()]
     return {"object_key": entry["object_key"],
             "complete": search_complete(lines, contract[entry["role"]]),
             "rows": rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at,
-                            sido_prefixes(contract), dongs)}
+                            prefixes, dongs)}
 
 
 def content_columns(contract: Mapping[str, Any]) -> list[str]:
@@ -335,8 +326,9 @@ def _load(argv: Sequence[str]) -> int:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`silver`")
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
         parcels, titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
+        prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         for entry in objects:
-            search = read_object(entry, source, dongs, now)
+            search = read_object(entry, source, prefixes, dongs, now)
             role = entry["role"]
             contract_table = ROLE_TABLE[role]
             contract = load_lakehouse_contract(contract_table)
@@ -373,7 +365,7 @@ def _parse(argv: Sequence[str]) -> int:
     now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
     report = []
     for entry in planned_objects([Path(d) for d in args.plan_dir], source):
-        search = read_object(entry, source, {}, now)
+        search = read_object(entry, source, {}, {}, now)
         report.append({"object": entry["object_key"], "role": entry["role"], "rows": len(search["rows"]),
                        "complete": search["complete"]})
     _summary_line({"job": JOB_NAME, "status": "parsed", "objects": report})

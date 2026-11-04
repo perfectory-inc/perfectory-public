@@ -42,11 +42,6 @@
     "$comment": "ADR-0280 §4. The provider gives no PNU. A row's address is read as a jibun address or a road address; each step names itself in pnu_basis, and a row no step resolves keeps pnu null with pnu_unresolved_reason. Never by geometry. jibun_address: 시도·시군구·읍면동(·리) names match reference.legal_dong_code_snapshot's current full_name, plus 산 and 본번-부번, and the PNU must be a current row of silver.parcel_boundaries. road_address: 시도·시군구·도로명·건물번호 match silver.building_register_titles.road_address_raw read the same way, and every matching title must carry the same pnu. A sample of 2,829 road addresses on 2026-10-19 resolved 82.9% to one PNU, 4.7% to several, 12.4% to none.",
     "bases": ["jibun_address", "road_address"],
     "unresolved_reasons": ["no_address", "unparsed", "no_legal_dong", "parcel_absent", "road_not_found", "road_ambiguous"],
-    "sido_prefixes": {
-      "$comment": "The first address word's prefix to the two-digit 시도 code of the current codes (강원 51 since 2023-06-11, 전북 52 since 2024-01-18). A word with none of these prefixes is unparsed.",
-      "서울": "11", "부산": "26", "대구": "27", "인천": "28", "광주": "29", "대전": "30", "울산": "31", "세종": "36",
-      "경기": "41", "강원": "51", "충청북": "43", "충북": "43", "충청남": "44", "충남": "44", "전북": "52", "전라북": "52",
-      "전남": "46", "전라남": "46", "경상북": "47", "경북": "47", "경상남": "48", "경남": "48", "제주": "50"
-    }
+    "sido_prefixes_from": "address_pnu.sido_prefixes: the 법정동 code table (reference.legal_dong_code_snapshot, every status) and the recorded 시도 pairs (legal_dong_code_change_views.region_pairs), read each load; no 시도 code is written here (root ADR-0403, ADR-0103 §2)"
   }
 }

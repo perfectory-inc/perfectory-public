@@ -830,6 +830,15 @@
         "budget_seconds": 10
       },
       {
+        "name": "sido-codes-come-from-the-legal-dong-table-self-test",
+        "paths": []
+      },
+      {
+        "name": "sido-codes-come-from-the-legal-dong-table",
+        "always": "Any tracked source can gain a hand-written 시도 code table (root ADR-0403); the scan is one `git ls-files` and a read of each source file.",
+        "budget_seconds": 20
+      },
+      {
         "name": "every-job-declares-its-scope-self-test",
         "paths": [
           "platforms/foundation-platform/orchestration/jobs.v1.json",

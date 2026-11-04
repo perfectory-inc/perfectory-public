@@ -70,9 +70,9 @@ class RowTest(unittest.TestCase):
         with self.assertRaises((ValueError, KeyError)):
             job.rows_of([line([{"boCd": "B999999"}])], "bronze/k.gz", "s", NOW, PREFIXES, DONGS)
 
-    def test_the_province_prefixes_are_the_factory_contracts(self) -> None:
-        factory = json.loads((job.CONTRACTS / "data-go-kr-registered-factory.contract.json").read_text(encoding="utf-8"))
-        self.assertEqual(job.sido_prefixes(CONTRACT), factory["pnu_resolution"]["sido_prefixes"])
+    def test_no_contract_writes_a_province_code(self) -> None:
+        # Root ADR-0403: the prefixes come from the 법정동 code table each load, not from a contract.
+        self.assertNotIn("sido_prefixes", json.dumps(CONTRACT["pnu_resolution"], ensure_ascii=False).replace("sido_prefixes_from", ""))
 
     def test_every_table_column_is_built(self) -> None:
         for table in (job.ITEM_TABLE, job.RESULT_TABLE):
@@ -131,7 +131,7 @@ class PlanTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             [entry] = job.planned_objects([self.write(Path(tmp), self.ITEM, [line([item()])])], CONTRACT)
             self.assertEqual((entry["role"], entry["source_snapshot_id"]), ("item_search", "20990102T030405Z"))
-            search = job.read_object(entry, CONTRACT, DONGS, NOW)
+            search = job.read_object(entry, CONTRACT, PREFIXES, DONGS, NOW)
             self.assertFalse(search["complete"])
             self.assertEqual([r["source_record_id"] for r in search["rows"]], [self.ITEM])
 

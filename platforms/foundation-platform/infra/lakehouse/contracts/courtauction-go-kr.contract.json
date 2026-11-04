@@ -98,7 +98,6 @@
     "max_objects": 7
   },
   "pnu_resolution": {
-    "$comment": "ADR-0280 §4. The list rows carry no PNU. The 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with the representative lot (daepyoLotno) are read as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py with these 시도 prefixes (the registered-factory contract's, the same values).",
-    "sido_prefixes_from": "data-go-kr-registered-factory.contract.json#/pnu_resolution/sido_prefixes"
+    "$comment": "ADR-0280 §4. The list rows carry no PNU. The 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with the representative lot (daepyoLotno) are read as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py, whose 시도 prefixes come from the 법정동 code table and its recorded pairs each load (root ADR-0403)."
   }
 }

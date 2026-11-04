@@ -2,8 +2,8 @@
 
 Two steps, each naming itself, never geometry:
 
-- `jibun_address`: the 시도 word's code (the source contract's `sido_prefixes`, so an old name such as
-  강원도 reads as the current code), the remaining place names up to the lot matched against the
+- `jibun_address`: the 시도 word's code (`sido_prefixes`, derived from the 법정동 code table and the recorded
+  code pairs, so an old name such as 강원도 or 전라남도 reads as the current code; root ADR-0403), the remaining place names up to the lot matched against the
   current 법정동 names of `reference.legal_dong_code_snapshot`, then 산 and 본번-부번. The PNU counts only
   when `silver.parcel_boundaries` holds it as a current row.
 - `road_address`: (시도 code, 시군구, 도로명, 건물본번, 건물부번) read the same way from the source and from
@@ -40,6 +40,76 @@ class RoadKey(NamedTuple):
     road: str
     main_no: int
     sub_no: int
+
+
+# The suffixes a 시도 name ends with; what is left is the name an address may write alone (경기, 강원).
+SIDO_SUFFIXES = ("특별자치시", "특별자치도", "특별시", "광역시", "직할시", "도")
+
+
+def sido_aliases(name: str) -> set[str]:
+    """The words an address may open with for a 시도 name: the name, the name without its suffix, and
+    for a three-syllable stem the first and third syllables (충청북도 -> 충청북, 충북). A rule on the
+    name, not a table of codes (root ADR-0103 §2, ADR-0403)."""
+
+    aliases = {name}
+    stem = next((name[: -len(suffix)] for suffix in SIDO_SUFFIXES if name.endswith(suffix)), "")
+    if len(stem) >= 2:
+        aliases.add(stem)
+    if len(stem) == 3:
+        aliases.add(stem[0] + stem[2])
+    return aliases
+
+
+def sido_prefixes(names: Iterable[tuple[str, str, str]], pairs: Iterable[tuple[str, str]]) -> dict[str, str]:
+    """{address word prefix: current 2-digit 시도 code}, from the 법정동 code table and its recorded pairs.
+
+    ``names`` are (10-digit code, full name, status) of every row of the newest snapshot, abolished
+    ones too: an address keeps the name a 시도 had (전라남도). ``pairs`` are the (old, new) 시도 codes
+    the recorded code changes move between (``legal_dong_code_change_views.region_pairs(rows, 2)``,
+    pairs a supersession withdrew left out). A 시도 with current codes is itself. An abolished one
+    is where its recorded pairs lead (29, 46 -> 12 on 2026-07-01). One the record does not carry
+    (the renumberings before it began, 42 -> 51) is the one current 시도 whose name stem it shares.
+    A prefix that would name two current 시도 is left out: guessing would be a rule this has not.
+    """
+
+    rows = list(names)
+    current = {code[:2] for code, _, status in rows if status == "존재" and len(code or "") == 10}
+    sido_names: dict[str, set[str]] = {}
+    for code, full_name, _ in rows:
+        words = (full_name or "").split()
+        if words and len(code or "") == 10:
+            sido_names.setdefault(code[:2], set()).add(words[0])
+    moves: dict[str, set[str]] = {}
+    for old, new in pairs:
+        moves.setdefault(old, set()).add(new)
+
+    def followed(sido: str) -> set[str]:
+        seen, pending, found = set(), [sido], set()
+        while pending:
+            code = pending.pop()
+            if code in seen:
+                continue
+            seen.add(code)
+            if code in current:
+                found.add(code)
+            else:
+                pending.extend(moves.get(code, ()))
+        return found
+
+    current_stems = {sido: set().union(*(sido_aliases(n) for n in sido_names.get(sido, ()))) for sido in current}
+    claims: dict[str, set[str]] = {}
+    for sido, sido_words in sido_names.items():
+        targets = followed(sido)
+        for name in sido_words:
+            aliases = sido_aliases(name)
+            if not targets:
+                targets_by_name = {c for c, stems in current_stems.items() if (aliases - {name}) & stems}
+                found = targets_by_name
+            else:
+                found = targets
+            for alias in aliases:
+                claims.setdefault(alias, set()).update(found)
+    return {alias: next(iter(codes)) for alias, codes in sorted(claims.items()) if len(codes) == 1}
 
 
 def sido_code(word: str, prefixes: Mapping[str, str]) -> str | None:
@@ -165,6 +235,21 @@ def current_legal_dongs(spark: Any, catalog: str) -> list[tuple[str, str]]:
     rows = spark.sql(f"SELECT region_cd, full_name FROM {table} WHERE snapshot_date = DATE '{newest}' "
                      "AND status = '존재'").collect()
     return [(row["region_cd"], row["full_name"]) for row in rows]
+
+
+def lakehouse_sido_prefixes(spark: Any, catalog: str) -> dict[str, str]:
+    """``sido_prefixes`` from the newest 법정동 snapshot (every status) and the recorded pairs in force."""
+
+    from legal_dong_code_change_views import CHANGE_TABLE, region_pairs  # noqa: PLC0415
+
+    table = f"`{catalog}`.`reference`.`legal_dong_code_snapshot`"
+    newest = spark.sql(f"SELECT max(snapshot_date) AS d FROM {table}").collect()[0]["d"]
+    names = [(row["region_cd"], row["full_name"], row["status"]) for row in spark.sql(
+        f"SELECT region_cd, full_name, status FROM {table} WHERE snapshot_date = DATE '{newest}'").collect()]
+    schema, name = CHANGE_TABLE.split(".")
+    changes = [row.asDict() for row in spark.sql(
+        f"SELECT kind, old_code, new_code, level, effective_date, source FROM `{catalog}`.`{schema}`.`{name}`").collect()]
+    return sido_prefixes(names, region_pairs(changes, 2))
 
 
 def lakehouse_inputs(spark: Any, catalog: str) -> tuple[Any, Any]:

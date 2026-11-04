@@ -45,6 +45,51 @@ class ParseTest(unittest.TestCase):
         self.assertIsNone(a.sido_code("다른도", PREFIXES))
 
 
+class SidoPrefixTest(unittest.TestCase):
+    """Root ADR-0403: the 시도 prefixes come from the 법정동 code table and its recorded pairs.
+
+    Synthetic 시도 (codes 9x) replay the three cases the real table holds: two 시도 merged into a
+    new code by recorded pairs (광주·전남 -> 12, 2026-07-01), a renumbering before the record began
+    (강원 42 -> 51), and a three-syllable stem's short form (충청북 -> 충북)."""
+
+    NAMES = [
+        ("9100000000", "가상남도", "폐지"), ("9110110100", "가상남도 가상군 가나면", "폐지"),
+        ("9200000000", "가상광역시", "폐지"),
+        ("9300000000", "가상통합특별시", "존재"), ("9311010100", "가상통합특별시 가상군 가나면", "존재"),
+        ("9400000000", "합성도", "폐지"),
+        ("9500000000", "합성특별자치도", "존재"),
+        ("9600000000", "나다북도", "존재"),
+        ("9711010100", "세모특별자치시 세모읍", "존재"),
+    ]
+    PAIRS = [("91", "93"), ("92", "93")]
+
+    def test_a_merged_province_reads_as_the_code_its_pairs_lead_to(self) -> None:
+        prefixes = a.sido_prefixes(self.NAMES, self.PAIRS)
+        for word in ("가상남도", "가상남", "가상광역시", "가상", "가상통합특별시"):
+            self.assertEqual(a.sido_code(word, prefixes), "93", word)
+        key = a.jibun_key("가상남도 가상군 가나면 7", prefixes)
+        self.assertEqual(key.sido_code, "93")
+
+    def test_a_renumbering_the_record_lacks_follows_the_shared_stem(self) -> None:
+        prefixes = a.sido_prefixes(self.NAMES, self.PAIRS)
+        self.assertEqual(a.sido_code("합성도", prefixes), "95")
+        self.assertEqual(a.sido_code("합성", prefixes), "95")
+
+    def test_a_three_syllable_stem_reads_in_its_short_form(self) -> None:
+        prefixes = a.sido_prefixes(self.NAMES, self.PAIRS)
+        self.assertEqual((a.sido_code("나다북도", prefixes), a.sido_code("나북", prefixes)), ("96", "96"))
+        # A 시도 the table names only through its 시군구 rows still reads.
+        self.assertEqual(a.sido_code("세모", prefixes), "97")
+
+    def test_without_its_pairs_a_merged_province_is_not_guessed(self) -> None:
+        prefixes = a.sido_prefixes(self.NAMES, [])
+        self.assertIsNone(a.sido_code("가상남도", prefixes))
+
+    def test_a_stem_two_current_provinces_share_is_left_out(self) -> None:
+        names = [*self.NAMES, ("9800000000", "합성광역시", "존재")]
+        self.assertIsNone(a.sido_code("합성", a.sido_prefixes(names, self.PAIRS)))
+
+
 class CandidateTest(unittest.TestCase):
     def test_a_jibun_address_offers_its_pnu(self) -> None:
         offer = a.candidates("합성도 가상시 다라면 마바리 산 12-3", PREFIXES, DONGS)
