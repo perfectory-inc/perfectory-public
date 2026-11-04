@@ -120,6 +120,7 @@
     "foundation-ci.yml": {
       "paths": [
         "platforms/foundation-platform/**",
+        "products/gongzzang/apps/web/lib/map/zoning-families.ts",
         "scripts/deploy/**",
         "scripts/tiles/**",
         "scripts/verify/integration.sh",
@@ -159,6 +160,7 @@
       "$comment": "Root ADR-0309: the release the host installs, and so whether there is one to install. Its inputs are the Foundation Platform tree and every repository-root file the host's control checkout runs or reads to admit, install and run a release (scripts/deploy, the transport and identity, the pinned verifier, the contracts under tools/), and every repository file a Foundation source names (checked). foundation-autodeploy.sh asks the same question of the commits after the release it runs, so a commit outside this scope is neither built nor deployed.",
       "paths": [
         "platforms/foundation-platform/**",
+        "products/gongzzang/apps/web/lib/map/zoning-families.ts",
         "scripts/deploy/**",
         "scripts/github/**",
         "scripts/ci/fetch_pinned.py",
