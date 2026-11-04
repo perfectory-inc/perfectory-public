@@ -1,0 +1,31 @@
+//! Headerless HUB 공작물관리대장 through the shared streaming engine (root ADR-0402).
+
+use crate::hub_register_silver_export::{self, Layout};
+
+/// The lane's source contract, embedded once: the export reads its layout and the Silver refresh
+/// reads its release rules from these same bytes (root ADR-0169).
+pub const CONTRACT_JSON: &str =
+    include_str!("../../../../infra/lakehouse/contracts/hub-building-permit-structure-ledger-source-objects.json");
+
+pub(crate) fn layout() -> anyhow::Result<Layout> {
+    Layout::parse(
+        CONTRACT_JSON,
+        &lakehouse_domain::SILVER_BUILDING_PERMIT_STRUCTURE_LEDGER,
+    )
+}
+
+/// Exports the selected national ZIP as a complete Silver handoff.
+///
+/// # Errors
+/// Fails on invalid configuration, source layout/integrity or publication errors.
+pub async fn run() -> anyhow::Result<()> {
+    hub_register_silver_export::run("FOUNDATION_PLATFORM_PERMIT_STRUCTURE_LEDGER", layout()?).await
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_contract_layout_matches_the_silver_table() -> anyhow::Result<()> {
+        super::layout().map(drop)
+    }
+}
