@@ -3,8 +3,8 @@
 //! quartiles in 만원, written beside the 실거래 by-PNU kind by its producer from the same deals.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const fn column(name: &'static str, logical_type: &'static str, required: bool) -> LakehouseColumn {
@@ -41,7 +41,16 @@ pub const GOLD_REAL_TRANSACTION_REGION_STATS: LakehouseTableContract = Lakehouse
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    // Root ADR-0286: a run merges its 시군구's rows by the region key, replacing each in place.
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&[
+            "dataset_slug",
+            "region_level",
+            "region_code",
+            "period_kind",
+            "period",
+        ]),
+    },
     columns: GOLD_REAL_TRANSACTION_REGION_STATS_COLUMNS,
     partition_spec: &["dataset_slug"],
     sort_order: &["region_code", "period"],

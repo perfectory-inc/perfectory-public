@@ -8505,6 +8505,16 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "dataset_slug",
+          "region_level",
+          "region_code",
+          "period_kind",
+          "period"
+        ]
+      },
       "columns": [
         {
           "name": "dataset_slug",
