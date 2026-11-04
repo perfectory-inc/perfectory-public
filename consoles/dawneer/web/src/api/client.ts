@@ -42,6 +42,8 @@ export type DataQualityStatus = DataCatalogSchemas["DataQualityStatus"];
 export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
 export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
 export type ServiceChecks = DataCatalogSchemas["ServiceChecks"];
+export type ParcelEditions = DataCatalogSchemas["ParcelEditions"];
+export type ParcelEditionReadiness = DataCatalogSchemas["ParcelEditionReadiness"];
 export type EdgeHostCheck = DataCatalogSchemas["EdgeHostCheck"];
 export type CiWeek = DataCatalogSchemas["CiWeek"];
 
@@ -257,6 +259,11 @@ export class DawneerClient {
   /** How Korea reaches the live hostnames and the weekly pull request CI time (root ADR-0209). */
   serviceChecks(): Promise<ServiceChecks> {
     return this.call("service-checks", {}, "data-catalog");
+  }
+
+  /** Every cadastral edition's readiness and the promotions ledger (root ADR-0379). */
+  parcelEditions(): Promise<ParcelEditions> {
+    return this.call("parcel-editions", {}, "data-catalog");
   }
 
   /** Every data contract with its checks' latest results (root ADR-0165). */

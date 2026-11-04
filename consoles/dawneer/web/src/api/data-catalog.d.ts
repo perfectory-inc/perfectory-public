@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data-catalog/v1/parcel-editions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every cadastral edition, whether it is all there, and who served which edition when. */
+        get: operations["readParcelEditions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data-catalog/v1/quality-checks": {
         parameters: {
             query?: never;
@@ -467,6 +484,81 @@ export interface components {
             /** @description A `set_window` only: the window's start, `HH:MM` KST. */
             window_start?: string | null;
         };
+        /** @description One entry of the source contract's append-only promotions ledger. */
+        ParcelEditionPromotion: {
+            /** @description Who asked. */
+            by: string;
+            /** @description The edition served from then. */
+            edition: string;
+            /** @description The edition served before, none for the first. */
+            from_edition?: string | null;
+            /**
+             * Format: date-time
+             * @description When it was promoted.
+             */
+            promoted_at_utc: string;
+            readiness?: null | components["schemas"]["ParcelEditionPromotionReadiness"];
+            /** @description Why. */
+            reason: string;
+        };
+        /** @description The readiness a promotion rested on. */
+        ParcelEditionPromotionReadiness: {
+            /**
+             * Format: date-time
+             * @description When the report it rested on was made.
+             */
+            checked_at_utc: string;
+        };
+        /** @description One cadastral edition the source contract holds and whether it is all there. */
+        ParcelEditionReadiness: {
+            /** @description `YYYYMM`. */
+            edition: string;
+            /** @description The first stage that did not pass. */
+            first_failing_stage?: string | null;
+            /** @description `YYYY-MM`, the provider's base month. */
+            provider_base_month: string;
+            /** @description Whether every stage passed. */
+            ready: boolean;
+            /** @description Whether it is the served edition. */
+            served: boolean;
+            /** @description Each stage. */
+            stages: components["schemas"]["ParcelEditionStages"];
+        };
+        /** @description One readiness stage of a cadastral edition (root ADR-0291 §2, ADR-0379). */
+        ParcelEditionStage: {
+            /** @description What was measured, or why it did not pass. */
+            detail: string;
+            /** @description Whether the stage passed. */
+            passed: boolean;
+        };
+        /** @description The three stages, in the order they are judged. */
+        ParcelEditionStages: {
+            /** @description The rehearsal Gold and its bake passed. */
+            rehearsal: components["schemas"]["ParcelEditionStage"];
+            /** @description `silver.parcel_boundaries` holds the edition, within the row-loss bound of the served one. */
+            silver: components["schemas"]["ParcelEditionStage"];
+            /** @description Every object measured and none re-uploaded by the provider since. */
+            source: components["schemas"]["ParcelEditionStage"];
+        };
+        /**
+         * @description Every cadastral edition's readiness and the promotions ledger, as the host last measured them
+         *     (`scripts/ops/parcel-edition-readiness.sh`, root ADR-0379).
+         */
+        ParcelEditions: {
+            /**
+             * Format: date-time
+             * @description When the host last measured them.
+             */
+            checked_at_utc?: string | null;
+            /** @description Oldest first. */
+            editions: components["schemas"]["ParcelEditionReadiness"][];
+            /** @description Why the report could not be read, when it could not. */
+            error?: string | null;
+            /** @description Oldest first; the last is the served edition. */
+            promotions: components["schemas"]["ParcelEditionPromotion"][];
+            /** @description The served edition. */
+            served_edition?: string | null;
+        };
         /**
          * @description One dataset a scheduled job reads or writes: an endpoint of a pipeline-graph edge the job
          *     carries out.
@@ -799,6 +891,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
+            };
+        };
+    };
+    readParcelEditions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ParcelEditions"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

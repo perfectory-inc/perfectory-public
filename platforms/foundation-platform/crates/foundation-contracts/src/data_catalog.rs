@@ -525,3 +525,80 @@ pub struct OperatorActionRecorded {
     /// A `set_window`'s end, `HH:MM` KST.
     pub window_end: Option<String>,
 }
+
+/// One readiness stage of a cadastral edition (root ADR-0291 §2, ADR-0379).
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditionStage {
+    /// Whether the stage passed.
+    pub passed: bool,
+    /// What was measured, or why it did not pass.
+    pub detail: String,
+}
+
+/// The three stages, in the order they are judged.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditionStages {
+    /// Every object measured and none re-uploaded by the provider since.
+    pub source: ParcelEditionStage,
+    /// `silver.parcel_boundaries` holds the edition, within the row-loss bound of the served one.
+    pub silver: ParcelEditionStage,
+    /// The rehearsal Gold and its bake passed.
+    pub rehearsal: ParcelEditionStage,
+}
+
+/// One cadastral edition the source contract holds and whether it is all there.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditionReadiness {
+    /// `YYYYMM`.
+    pub edition: String,
+    /// `YYYY-MM`, the provider's base month.
+    pub provider_base_month: String,
+    /// Whether it is the served edition.
+    pub served: bool,
+    /// Whether every stage passed.
+    pub ready: bool,
+    /// The first stage that did not pass.
+    pub first_failing_stage: Option<String>,
+    /// Each stage.
+    pub stages: ParcelEditionStages,
+}
+
+/// The readiness a promotion rested on.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditionPromotionReadiness {
+    /// When the report it rested on was made.
+    pub checked_at_utc: DateTime<Utc>,
+}
+
+/// One entry of the source contract's append-only promotions ledger.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditionPromotion {
+    /// The edition served from then.
+    pub edition: String,
+    /// The edition served before, none for the first.
+    pub from_edition: Option<String>,
+    /// When it was promoted.
+    pub promoted_at_utc: DateTime<Utc>,
+    /// Who asked.
+    pub by: String,
+    /// Why.
+    pub reason: String,
+    /// The readiness it passed; none only for the promotion before the gate.
+    pub readiness: Option<ParcelEditionPromotionReadiness>,
+}
+
+/// Every cadastral edition's readiness and the promotions ledger, as the host last measured them
+/// (`scripts/ops/parcel-edition-readiness.sh`, root ADR-0379).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditions {
+    /// When the host last measured them.
+    pub checked_at_utc: Option<DateTime<Utc>>,
+    /// The served edition.
+    pub served_edition: Option<String>,
+    /// Oldest first.
+    pub editions: Vec<ParcelEditionReadiness>,
+    /// Oldest first; the last is the served edition.
+    pub promotions: Vec<ParcelEditionPromotion>,
+    /// Why the report could not be read, when it could not.
+    pub error: Option<String>,
+}

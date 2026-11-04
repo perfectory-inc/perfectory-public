@@ -18,9 +18,11 @@ use foundation_contracts::data_catalog::{
     DataCatalogNeighbourhood, DataCatalogSearchPage, DataContractQuality, DataQualityCheck,
     DataQualityDetail, DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink,
     DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks,
-    OperatorActionRecorded, OperatorActionRequest, ScheduledJobDataset, ScheduledJobProblem,
-    ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus,
-    ScheduledJobsStatus, ServiceChecks,
+    OperatorActionRecorded, OperatorActionRequest, ParcelEditionPromotion,
+    ParcelEditionPromotionReadiness, ParcelEditionReadiness, ParcelEditionStage,
+    ParcelEditionStages, ParcelEditions, ScheduledJobDataset, ScheduledJobProblem, ScheduledJobRun,
+    ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
+    ServiceChecks,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -36,6 +38,7 @@ mod facts;
 mod health;
 mod operations;
 mod operator_actions;
+mod parcel_editions;
 mod security_alerts;
 mod service_checks;
 mod snapshots;
@@ -52,7 +55,7 @@ const MAX_NEIGHBOURS: u32 = 200;
     info(
         title = "Foundation Platform staff data catalog API",
         version = "1.0.0",
-        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165); and how the live hostnames are reached from Korea and how long pull request CI takes (root ADR-0209)."
+        description = "Find data and read its description, columns and one step of lineage either way (root ADR-0117, ADR-0119); see how the scheduled jobs ran and what the data contracts' checks found (root ADR-0165); and how the live hostnames are reached from Korea and how long pull request CI takes (root ADR-0209); and whether each cadastral edition is all there and who served which (root ADR-0379)."
     ),
     paths(
         search,
@@ -61,7 +64,8 @@ const MAX_NEIGHBOURS: u32 = 200;
         operations::quality_checks,
         operator_actions::record_operator_action,
         snapshots::dataset_snapshots,
-        service_checks::service_checks
+        service_checks::service_checks,
+        parcel_editions::parcel_editions
     ),
     components(schemas(
         DataCatalogEntity,
@@ -93,6 +97,12 @@ const MAX_NEIGHBOURS: u32 = 200;
         EdgeHostCheck,
         CiTimeTrend,
         CiWeek,
+        ParcelEditions,
+        ParcelEditionReadiness,
+        ParcelEditionStages,
+        ParcelEditionStage,
+        ParcelEditionPromotion,
+        ParcelEditionPromotionReadiness,
         ApiErrorResponse,
         InternalApiErrorResponse,
     )),
@@ -152,6 +162,10 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/service-checks",
             super::protected_route(get(service_checks::service_checks), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/parcel-editions",
+            super::protected_route(get(parcel_editions::parcel_editions), state, read, None),
         )
         .route(
             "/data-catalog/v1/scheduled-jobs/{job_id}/operator-actions",
