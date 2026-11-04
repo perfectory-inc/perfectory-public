@@ -321,7 +321,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (parcel_media.renditions, root ADR-0427), as the publisher crates embed its other blocks.
 # 158 -> 159: the 건축인허가 부설주차장 lane embeds its source contract once, as every hub part lane
 # does (root ADR-0402).
-COMPILE_TIME_READ_BASELINE="${3:-159}"
+# 159 -> 160: the 건축인허가 동별개요 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+COMPILE_TIME_READ_BASELINE="${3:-160}"
 
 cd "$repo_root"
 

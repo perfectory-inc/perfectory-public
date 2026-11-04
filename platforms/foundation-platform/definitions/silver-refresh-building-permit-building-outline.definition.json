@@ -1,0 +1,91 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-permit-building-outline",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_permit_building_outline",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 건축인허가 동별개요 lane `building-permit-building-outline` (root ADR-0169 ②, ADR-0402): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_building_outline already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed buildings' rows and a removal marker per vanished building (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-permit-building-outline.service",
+      "check_service": "foundation-silver-refresh-plan@building-permit-building-outline.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-permit-building-outline"
+      ],
+      "enabled": false,
+      "disabled_reason": "New lane, never run as its unit: off until its first supervised run (runbooks/silver-refresh.md §3) has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-permit-building-outline",
+      "type": "silver_table",
+      "title": "건축인허가 동별개요",
+      "description": "허가의 동마다 한 행: 주·부속 구분, 주용도, 구조·지붕, 건축면적·연면적·용적률산정연면적, 호·가구·세대 수, 승강기 수. 필지에 허가된 건물 하나하나를 말하고 관리허가대장PK 로 기본개요의 허가에 붙는다. 원문 29칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0402).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-permit-building-outline-source-objects.json",
+        "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md"
+      ],
+      "table_name": "silver.building_permit_building_outline",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_permit_building_outline"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-permit-building-outline",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-permit-building-outline-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_permit_building_outline"
+      ],
+      "description": "건축인허가 동별개요(mart_kcy_02) 29칸을 관리동별개요PK 마다 바뀐 동만 append-only Silver 로 쌓는다(루트 ADR-0402).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; HUB 대지구분 2 (블록) composes none (FP-ADR-0023); merged, split or recoded parcels are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0402)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_permit_building_outline": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}
