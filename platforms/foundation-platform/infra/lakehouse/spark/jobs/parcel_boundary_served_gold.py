@@ -26,7 +26,7 @@ from typing import Any
 import served_gold_common as common
 import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
-from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
+from platform_contracts import admit_write, column_names, declared_geometry_srid, load_lakehouse_contract
 
 JOB_NAME = "parcel_boundary_served_gold"
 UNIT = "parcels"
@@ -298,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
             F.lit(through).cast("long").alias("edits_through_change_seq"),
             F.lit(now).cast("timestamp").alias("published_at_utc"),
         ).select(*SERVED_COLUMNS).createOrReplaceTempView("served_candidate")
+        admit_write(SERVED_CONTRACT["table_name"], "replace", target=served_table)
         spark.sql(f"INSERT OVERWRITE {served_table} SELECT {', '.join(SERVED_COLUMNS)} FROM served_candidate")
         gold_snapshot = common.current_snapshot(spark, served_table)
         written = spark.sql(f"SELECT pnu, geometry_wkb, origin FROM {served_table} VERSION AS OF {gold_snapshot}")

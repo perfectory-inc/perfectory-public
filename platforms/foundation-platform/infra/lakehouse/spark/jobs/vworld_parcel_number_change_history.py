@@ -518,7 +518,7 @@ def _load(argv: Sequence[str]) -> int:
                 frame = spark.createDataFrame([tuple(row.get(name) for name in columns) for row in rows], schema=schema)
                 fresh = unheld_rows(frame, held, F)
                 count = fresh.count()
-                if append_source_object(spark, fresh, columns, table, obj["object_key"]):
+                if append_source_object(spark, fresh, columns, table, obj["object_key"], contract_table=TABLE_CONTRACT):
                     summary["appended_files"] += 1
                     summary["appended_rows"] += count
         finally:

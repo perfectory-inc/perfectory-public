@@ -36,7 +36,7 @@ from lakehouse_ingest import (
     table_holds_rows,
     unquoted_table_name,
 )
-from platform_contracts import load_unit
+from platform_contracts import admit_write, load_unit
 import vworld_parcel_editions as editions
 
 SOURCE_CONTRACT_ENV = "VWORLD_PARCEL_SOURCE_CONTRACT"
@@ -131,6 +131,8 @@ def refuse_values_sql_cannot_carry(rewrite: dict[str, str]) -> None:
 
 
 def migrate(spark: Any, args: argparse.Namespace) -> dict[str, Any]:
+    # Rewrites a lineage value in place and records the identities: no row is added or dropped.
+    admit_write(args.table, "rewrite")
     declared = load_unit(args.table)
     if declared["unit"] != "object":
         raise ValueError(

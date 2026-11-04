@@ -66,7 +66,7 @@ from lakehouse_ingest import (
     ref_lineage,
     snapshot_property_options,
 )
-from platform_contracts import (REMOVED, CurrentRowLatest, column_names, current_row_latest, current_rows,
+from platform_contracts import (REMOVED, CurrentRowLatest, admit_write, column_names, current_row_latest, current_rows,
                                 load_lakehouse_contract)
 
 JOB_NAME = "silver-release-compare"
@@ -412,7 +412,8 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
               f"keys and {removed} removal markers", flush=True)
         write(changes, target, {**change_record_options(appended, removed),
                                 f"{SNAPSHOT_PROPERTY_PREFIX}{COMPARE_RELEASE_KEY}": args.source_snapshot_id,
-                                f"{SNAPSHOT_PROPERTY_PREFIX}{COMPARE_BUCKET_KEY}": bucket_label(bucket)})
+                                f"{SNAPSHOT_PROPERTY_PREFIX}{COMPARE_BUCKET_KEY}": bucket_label(bucket)},
+              contract=args.contract, branch=args.changes_branch)
         changes.unpersist()
         totals["changed_key_rows"] += appended
         totals["removed_keys"] += removed
@@ -424,11 +425,12 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
     seal = {**snapshot_property_options(objects, ingest_batch_token(objects)), **change_record_options(0, 0),
             **(edition_property_option(edition) if edition_at is not None else {}),
             f"{SNAPSHOT_PROPERTY_PREFIX}{RELEASE_VERSION_KEY}": version}
-    write(staged.limit(0), target, seal)
+    write(staged.limit(0), target, seal, contract=args.contract, branch=args.changes_branch)
     return {**report, "outcome": "staged", "resumed": False, "staged_rows": staged.count(), **progress, **totals}
 
 
-def write(frame: Any, target: str, options: dict[str, str]) -> None:
+def write(frame: Any, target: str, options: dict[str, str], *, contract: str, branch: str) -> None:
+    admit_write(contract, "append", target=target, branch=branch)
     writer = frame.writeTo(target)
     for option, value in options.items():
         writer = writer.option(option, value)

@@ -595,7 +595,8 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
             iceberg_catalog_name="r2",
             iceberg_namespace="silver",
             iceberg_table="building_register_units",
-            iceberg_write_mode="overwrite",
+            # The units table keeps every version (root ADR-0286, ADR-0318): its load appends.
+            iceberg_write_mode="append",
         )
         spark = FakeIcebergSpark(
             existing_columns=("unit_row_id", "row_checksum_sha256"),
@@ -612,7 +613,7 @@ class SilverScalarHandoffToLakehouseTest(unittest.TestCase):
         # statement — SQL cannot carry the options that record what a commit appended — so the
         # ordering is asserted against the writer rather than against a second statement.
         self.assertIsNotNone(frame.writer, "the append must go through the DataFrame writer")
-        self.assertEqual(frame.writer.mode, "overwritePartitions")
+        self.assertEqual(frame.writer.mode, "append")
         self.assertEqual(outcome["appended"], True)
         self.assertIn(
             "snapshot-property.foundation.ingest-batch-objects",
