@@ -50,9 +50,10 @@ def table_shapes(text: str) -> list[str]:
     return found
 
 
-# A cheap first pass: only files where a two-digit literal touches a Hangul literal, or `sido` appears.
-CANDIDATE = (r"""["'][0-9]{2}["'][[:space:]]*(:|=>|,)[[:space:]]*["'][가-힣]"""
-             r"""|[가-힣]["'][[:space:]]*(:|=>)[[:space:]]*["'][0-9]{2}["']|[Ss][Ii][Dd][Oo]""")
+# A cheap first pass: only files where a quoted two-digit literal sits next to `:`, `=>` or `,`, or
+# `sido` appears. ASCII only: a Hangul range is not a portable POSIX bracket expression.
+CANDIDATE = (r"""["'][0-9]{2}["'][[:space:]]*(:|=>|,)"""
+             r"""|(:|=>)[[:space:]]*["'][0-9]{2}["']|[Ss][Ii][Dd][Oo]""")
 
 
 def tracked(root: Path) -> list[str]:

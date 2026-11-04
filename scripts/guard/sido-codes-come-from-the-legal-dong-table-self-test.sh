@@ -16,6 +16,12 @@ fail() {
   exit 1
 }
 
+# Synthetic tables built in a loop (codes 91–98, words 가가…아아), so this file is not itself one.
+words=(가가 나나 다다 라라 마마 바바 사사 아아)
+word_to_code() { local i out=""; for i in "${!words[@]}"; do out+="${out:+, }\"${words[$i]}\": \"9$((i + 1))\""; done; printf '%s' "$out"; }
+code_to_word() { local i out=""; for i in "${!words[@]}"; do out+="${out:+, }\"9$((i + 1))\": \"${words[$i]}\""; done; printf '%s' "$out"; }
+code_list() { local i out=""; for i in "${!words[@]}"; do out+="${out:+, }\"9$((i + 1))\""; done; printf '%s' "$out"; }
+
 # A clean fixture tree in $1 with the baseline given as $2 (a JSON "files" array).
 build() {
   local repo="$1" files="${2:-[]}"
@@ -46,19 +52,17 @@ check "$clean" clean || fail "clean fixture refused: $(cat "$test_root/clean.out
 # The incident's shape: a source contract mapping address words to codes (synthetic words, codes 91–98).
 contract="$test_root/contract"
 build "$contract"
-printf '{"sido_prefixes": {"가가": "91", "나나": "92", "다다": "93", "라라": "94", "마마": "95", "바바": "96", "사사": "97", "아아": "98"}}\n' \
-  >"$contract/src/source.contract.json"
+printf '{"sido_prefixes": {%s}}\n' "$(word_to_code)" >"$contract/src/source.contract.json"
 expect_refused "$contract" "src/source.contract.json: a code-to-word mapping of 8" contract
 
 labels="$test_root/labels"
 build "$labels"
-printf 'export const LABEL = { "91": "가가", "92": "나나", "93": "다다", "94": "라라", "95": "마마", "96": "바바", "97": "사사", "98": "아아" };\n' \
-  >"$labels/src/labels.ts"
+printf 'export const LABEL = { %s };\n' "$(code_to_word)" >"$labels/src/labels.ts"
 expect_refused "$labels" "src/labels.ts: a code-to-word mapping of 8" labels
 
 list="$test_root/list"
 build "$list"
-printf 'export const SIDO_CODES = ["91", "92", "93", "94", "95", "96", "97", "98"] as const;\n' >"$list/src/sido.ts"
+printf 'export const SIDO_CODES = [%s] as const;\n' "$(code_list)" >"$list/src/sido.ts"
 expect_refused "$list" "src/sido.ts: a sido list of 8" list
 
 stale="$test_root/stale"
@@ -67,12 +71,12 @@ expect_refused "$stale" "holds no 시도 table any more" stale
 
 reasonless="$test_root/reasonless"
 build "$reasonless" '[{"path": "src/sido.ts", "reason": "", "removed_by": ""}]'
-printf 'export const SIDO_CODES = ["91", "92", "93", "94", "95", "96", "97", "98"] as const;\n' >"$reasonless/src/sido.ts"
+printf 'export const SIDO_CODES = [%s] as const;\n' "$(code_list)" >"$reasonless/src/sido.ts"
 expect_refused "$reasonless" "names no reason or removed_by" reasonless
 
 listed="$test_root/listed"
 build "$listed" '[{"path": "src/sido.ts", "reason": "r", "removed_by": "x"}]'
-printf 'export const SIDO_CODES = ["91", "92", "93", "94", "95", "96", "97", "98"] as const;\n' >"$listed/src/sido.ts"
+printf 'export const SIDO_CODES = [%s] as const;\n' "$(code_list)" >"$listed/src/sido.ts"
 check "$listed" listed || fail "a listed file was refused: $(cat "$test_root/listed.out")"
 
 echo "OK sido-codes-come-from-the-legal-dong-table-self-test"
