@@ -333,8 +333,6 @@ fn report(
         next_gates: vec![
             "bronze-public-data-ingestion",
             "silver-gold-data-collection-quality",
-            "postgis-anchor-pbf-regional-proof",
-            "regional-data-serving-load",
             "explicit-national-rollout-approval",
         ],
         evidence_limitations: vec![

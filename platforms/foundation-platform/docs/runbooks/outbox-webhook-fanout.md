@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-04
 ---
 
 # Outbox 웹훅 전달 운영 런북
@@ -54,33 +54,16 @@ cargo run -p foundation-outbox-publisher -- run
 
 ## 필지 마커 앵커 스냅샷 이벤트
 
-`export-parcel-marker-anchor-artifacts`는 변경 불가 앵커 JSONL 객체와 `manifest.json`을 기록한 뒤
-`catalog.parcel_marker_anchor.snapshot.published.v1` 이벤트를 `catalog.outbox_event`에 넣는다.
-outbox worker가 이를 Gongzzang으로 전달하고, 수신자는 내구성 있는 앵커 가져오기 작업으로 저장한다.
-
-내보내기 명령은 절대 artifact 기본 URL을 요구한다. 소비자가 제공기관별 객체 키를 알 필요가 없게 하기
-위해서다.
-
-```bash
-export FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_ARTIFACT_PUBLIC_BASE_URL="https://static.foundation-platform.example.com"
-```
-
-발행 payload는 다음 필드를 사용한다.
-
-- `anchor_snapshot_id`: `anchor-snapshot-<export_run_id>`
-- `source_geometry_version`: the configured source snapshot id
-- `artifact_manifest_url`: public base URL plus the versioned manifest object key
-- `artifact_checksum_sha256`: the export manifest checksum
-- `row_count`: accepted anchor row count
-
-이 outbox 이벤트를 우회해 Gongzzang을 직접 호출하지 않는다. outbox 행이 재시도·재생·감사의 경계다.
+이 이벤트(`catalog.parcel_marker_anchor.snapshot.published.v1`)를 내던 앵커 artifact 내보내기 명령은
+2026-11-04 root ADR-0413 으로 은퇴했다(지도에 그 층이 없고, 작업이 돌리지 않았다). 이벤트 스키마와
+수신자 계약은 소비자(Gongzzang) 쪽 정리가 끝날 때까지 남는다. 마커는 나중에 기존 타일 bake 안의
+tippecanoe `--cluster-distance` 단위로 다시 만든다.
 
 ## 검증
 
 ```bash
 cargo test -p foundation-outbox --test webhook_broadcaster
 cargo test -p foundation-outbox-publisher webhook_endpoint_specs
-cargo test -p foundation-outbox-publisher outbox_record_is_derived_from_export_summary
 ```
 
 이벤트 스키마 호환성과 웹훅 봉투·수신자 계약 fixture는 CI에서 검증한다.

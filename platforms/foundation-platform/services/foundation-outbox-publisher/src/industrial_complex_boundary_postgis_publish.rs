@@ -7,8 +7,8 @@
 //!
 //! **The reprojection happens in PostGIS, not here** (root ADR-0042). Silver carries EPSG:5186 in
 //! metres because neither this workspace nor the Spark image has a projection library; serving is
-//! EPSG:4326. `ST_Transform(ST_SetSRID(ST_GeomFromWKB(...), 5186), 4326)` is the same expression
-//! `parcel_marker_anchor_artifact_export` already uses for the same reason. A hand-written inverse
+//! EPSG:4326, so the reprojection is PostGIS's
+//! `ST_Transform(ST_SetSRID(ST_GeomFromWKB(...), 5186), 4326)`. A hand-written inverse
 //! Transverse Mercator would be wrong in ways nothing downstream can detect.
 //!
 //! The input is a JSONL file, as with `publish-administrative-boundary-postgis`. It is produced by
