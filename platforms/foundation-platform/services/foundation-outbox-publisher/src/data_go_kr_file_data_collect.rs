@@ -9,7 +9,7 @@
 //! and check its rows. Nothing here reads the CSV.
 //!
 //! The three 표준데이터 (`format: openapi_pages`) are not portal files: their rows come through the
-//! public-data OpenAPI with the platform's service key, read by the Onbid collector's answer reader.
+//! public-data `OpenAPI` with the platform's service key, read by the Onbid collector's answer reader.
 //! A run asks every page of one pass; the pass is a new edition only when its rows (their SHA-256,
 //! sorted) differ from the last pass landed, and it lands as every page's raw line in one gzip
 //! JSON-lines object (the Onbid collector's Bronze shape; a line records its request without the key).
@@ -73,7 +73,7 @@ pub(crate) struct Download {
     pub(crate) query: BTreeMap<String, String>,
 }
 
-/// How a file arrives: a zip archive, one CSV as it is, or the pages of a 표준데이터 OpenAPI pass.
+/// How a file arrives: a zip archive, one CSV as it is, or the pages of a 표준데이터 `OpenAPI` pass.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FileFormat {
@@ -82,7 +82,7 @@ pub(crate) enum FileFormat {
     OpenapiPages,
 }
 
-/// The 표준데이터 OpenAPI the `openapi_pages` files are asked through.
+/// The 표준데이터 `OpenAPI` the `openapi_pages` files are asked through.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Openapi {
     pub(crate) base_url: String,

@@ -399,7 +399,7 @@ pub(crate) enum Answer {
 
 /// Reads a response, refusing anything that is neither rows, an empty answer nor the quota answer.
 ///
-/// The data.go.kr 표준데이터 OpenAPI (the file-data collector, ADR-0401) answers the same header and
+/// The data.go.kr 표준데이터 `OpenAPI` (the file-data collector, ADR-0401) answers the same header and
 /// body under a `response` wrapper, with `body.items` the array itself.
 pub(crate) fn read_answer(codes: &ResultCodes, status: u16, body: &str) -> anyhow::Result<Answer> {
     if status == 429 {
