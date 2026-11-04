@@ -171,17 +171,14 @@ def read_source(spark, args, name, pins, after=None, batches=None):
             (row.source_snapshot_id for row in frame.select("source_snapshot_id").distinct().collect()), order)
         if batch is not None:
             frame = frame.where(F.col("source_snapshot_id") == batch)
-    elif name == FLOOR_SOURCE:
-        # Floors append one logical batch per load (root ADR-0128): the current scheme is
-        # building-register-floor-content-v1-<hash>, while the 2026-09 batch kept its legacy
-        # selection-v2 id, so the table carries more than one. The panel serves the newest
-        # generation (the batch ingested last, never the larger "v" in the id), not the refused mix.
-        # One batch carries one ingest instant; the newest batch is picked in Python.
-        batch = newest_floor_batch({row.source_snapshot_id: row.ingested_at_utc for row in
-            frame.select("source_snapshot_id", "ingested_at_utc").distinct().collect()})
-        if batch is not None:
-            frame = frame.where(F.col("source_snapshot_id") == batch)
-    # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275).
+    if name == PRICE_SOURCE and current_row_latest(contract) is None:
+        # The old full-copy table: the batch is chosen above, with the commit order its vintage ties
+        # need (`newest_batch`); the contract's edition order alone refuses those ties (root ADR-0376
+        # §1). Once the readers read the versions table (ADR-0317), its current rows apply.
+        return frame
+    # The contract's current rows, the one way a reader selects them (root ADR-0267, ADR-0275): of
+    # the floors, the newest generation by its ingest instant, never the larger "v" in the id
+    # (`Editions`, root ADR-0128, ADR-0286 §3).
     return current_rows(frame, contract)
 
 
@@ -197,17 +194,6 @@ def assert_single_snapshot(frame, name):
     if len(values) != 1 or not values[0]:
         raise ValueError(f"{name} must carry exactly one non-empty source_snapshot_id: {values}")
     return values[0]
-
-
-def newest_floor_batch(ingests):
-    """The floor batch to serve among `ingests` (source_snapshot_id -> its ingest instant): the one
-    ingested last (root ADR-0128 appends one logical floor batch per load; the 2026-09 batch kept
-    its legacy selection-v2 id). None when empty. The "v" in the id is a scheme label, not an order
-    — building-register-floor-content-v1-… is newer than …-selection-v2-… — so the ingest instant
-    orders the generations, with the id breaking a tie so the choice is deterministic."""
-    if not ingests:
-        return None
-    return max(ingests, key=lambda source: (ingests[source], source))
 
 
 def assert_unique(frame, keys, name, allow_empty=False):
@@ -646,7 +632,7 @@ def run(spark, args, pins):
                 added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
                 apply_gold_read_properties(spark, target_table)  # a table this run created
                 # The snapshot records the Silver pins it was built from (root ADR-0139).
-                outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                outcome.commit(spark, target_table, pins, args.iceberg_write_mode, contract_table=GOLD_CONTRACT_NAME)
                 committed = current_snapshot(spark, target_table)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    GOLD_CONTRACT_NAME, pins)

@@ -110,6 +110,9 @@
       "gold_public_auction_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_parcel_ownership_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_parcel_regulation_zones_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_parcel_sub_parcels_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_parcel_energy_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
+      "gold_parcel_demolitions_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "gold_unit_price_rebuild": [{"project": "foundation-platform-compute", "service": "spark"}],
       "lakehouse_maintenance": [{"project": "foundation-platform-compute", "service": "spark"}],
       "parcel_served_gold": [{"project": "foundation-platform-compute", "service": "spark"}],
@@ -127,6 +130,10 @@
       "silver_refresh_building_register_exclusive_unit": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_permit_basis_outline": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_building_register_master": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_permit_demolition_loss": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_energy_monthly_electricity": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_energy_monthly_gas": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
+      "silver_refresh_building_register_sub_parcel": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_characteristic": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_forest_ledger": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
       "silver_refresh_land_individual_price": [{"unit": "MemoryMax"}, {"project": "foundation-platform-compute", "service": "spark"}],
@@ -165,6 +172,18 @@
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ],
       "by_pnu_parcel_regulation_zones_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ],
+      "by_pnu_parcel_sub_parcels_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ],
+      "by_pnu_parcel_energy_bake": [
+        {"unit": "MemoryMax"},
+        {"project": "foundation-platform-compute", "service": "spark-small"}
+      ],
+      "by_pnu_parcel_demolitions_bake": [
         {"unit": "MemoryMax"},
         {"project": "foundation-platform-compute", "service": "spark-small"}
       ],

@@ -343,28 +343,18 @@ def read_sources(spark: Any, args: argparse.Namespace) -> tuple[Any, Any, str | 
     )
 
 
-def newest_source_snapshot(pairs: list[tuple[str, Any]]) -> str | None:
-    """The snapshot whose latest `valid_from_utc` is the latest; a tie goes to the greater id.
+def current_official_boundaries(boundaries: Any, F: Any) -> Any:
+    """The rows this export is responsible for: current, the authority's own, of the newest snapshot.
 
-    Silver appends each provider version of the boundary file as its own source snapshot and leaves
-    the earlier ones as they are (append-only, root ADR-0240), the way the administrative boundary
-    keeps every round. What is current is the newest snapshot's rows.
+    Silver appends each provider version of the boundary file as its own edition and leaves the
+    earlier ones (append-only, root ADR-0240); the contract orders them (`Editions`, newest by
+    `valid_from_utc`) and `current_rows` keeps the newest one's rows (root ADR-0286 §3).
     """
 
-    return max(pairs, key=lambda pair: (pair[1], pair[0]))[0] if pairs else None
-
-
-def current_official_boundaries(boundaries: Any, F: Any) -> Any:
-    """The rows this export is responsible for: current, the authority's own, of the newest snapshot."""
-
-    official = boundaries.where(
+    official = current_rows(boundaries, BOUNDARIES_CONTRACT).where(
         (F.col("valid_to_utc").isNull()) & (F.col("boundary_kind") == F.lit(OFFICIAL_BOUNDARY_KIND))
     )
-    newest = newest_source_snapshot([
-        (row["source_snapshot_id"], row["valid_from"])
-        for row in official.groupBy("source_snapshot_id").agg(F.max("valid_from_utc").alias("valid_from")).collect()
-    ])
-    return official.where(F.col("source_snapshot_id") == F.lit(newest)).select(
+    return official.select(
         "boundary_id",
         "complex_id",
         "boundary_kind",

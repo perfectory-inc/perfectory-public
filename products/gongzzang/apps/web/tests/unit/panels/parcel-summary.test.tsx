@@ -11,6 +11,9 @@ const reads = vi.hoisted(() => ({
   listings: { listings: [] as unknown[], total: 0 },
   publicAuction: [] as unknown[],
   ownership: null as unknown,
+  subParcels: null as unknown,
+  energy: null as unknown,
+  demolitions: null as unknown,
 }));
 vi.mock("@/components/panels/parcel/queries", () => ({
   parcelBuildingsQuery: (pnu: string) => ({
@@ -29,11 +32,24 @@ vi.mock("@/components/panels/parcel/queries", () => ({
     queryKey: ["panel", "parcel", "ownership", pnu],
     queryFn: async () => reads.ownership,
   }),
+  parcelSubParcelsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "sub-parcels", pnu],
+    queryFn: async () => reads.subParcels,
+  }),
+  parcelEnergyQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "energy", pnu],
+    queryFn: async () => reads.energy,
+  }),
+  parcelDemolitionsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "demolitions", pnu],
+    queryFn: async () => reads.demolitions,
+  }),
 }));
 
 import { ParcelSummaryCard } from "@/components/panels/parcel/summary";
 import { type ParcelDocument, parseParcelDocument } from "@/lib/api/parcels";
 import koMessages from "@/lib/i18n/ko.json";
+import { useMapStore } from "@/stores/map";
 
 // Repository-reserved synthetic PNU (99999 range, public-fixture-safety guard).
 const PNU = "9999900000100120003";
@@ -93,6 +109,53 @@ describe("parcel panel sections", () => {
     await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
   });
 
+  it("lists the map's zones over the parcel by family, and names the layers not collected", async () => {
+    const square = (x0: number, x1: number) => ({
+      type: "Polygon",
+      coordinates: [
+        [
+          [x0, 0],
+          [x1, 0],
+          [x1, 0.001],
+          [x0, 0.001],
+          [x0, 0],
+        ],
+      ],
+    });
+    const mapZone = (id: string, layerCode: string, layerName: string, zoneName: string) => ({
+      properties: {
+        zone_id: `${layerCode}:${id}`,
+        layer_code: layerCode,
+        layer_name: layerName,
+        zone_name: zoneName,
+      },
+      geometry: square(0.0005, 0.002),
+    });
+    useMapStore.setState({
+      mapbox: {
+        getSource: () => ({}),
+        querySourceFeatures: (sourceId: string) =>
+          sourceId === "parcels"
+            ? [{ properties: { pnu: PNU }, geometry: square(0, 0.001) }]
+            : [
+                mapZone("A", "D032", "시험층/개발제한구역", "개발제한구역"),
+                mapZone("B", "D335", "시험층/공장설립제한지역", "공장설립제한지역"),
+              ],
+      },
+    });
+    try {
+      renderPanel(parcel());
+      await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
+      expect(screen.getByText("지도 규제 구역")).toBeTruthy();
+      expect(screen.getByRole("heading", { level: 4, name: "개발제한구역" })).toBeTruthy();
+      expect(screen.getByRole("heading", { level: 4, name: "공장입지 규제" })).toBeTruthy();
+      expect(screen.getByText("시험층/공장설립제한지역")).toBeTruthy();
+      expect(screen.getByText("일부 구역 수집 대기: 보전·준보전산지·관리지역")).toBeTruthy();
+    } finally {
+      useMapStore.setState({ mapbox: null });
+    }
+  });
+
   it("never shows a code where the source's name is missing", () => {
     renderPanel(parcel({ forest_ledger: { ownership_kind: "06", co_owner_count: 2 } }));
     expect(screen.queryByText("06")).toBeNull();
@@ -132,6 +195,120 @@ describe("parcel panel sections", () => {
       expect(screen.queryByText("임야소유")).toBeNull();
     } finally {
       reads.ownership = null;
+    }
+  });
+
+  it("shows the 지번's monthly 전기 in kWh and 가스 as the source's 사용량, a missing month as -", async () => {
+    reads.energy = {
+      months: [
+        {
+          use_ym: "209908",
+          electricity_usage: 1234.5,
+          electricity_rows: 2,
+          gas_usage: 12,
+          gas_rows: 1,
+        },
+        {
+          use_ym: "209907",
+          electricity_usage: 900,
+          electricity_rows: 1,
+          gas_usage: null,
+          gas_rows: 0,
+        },
+      ],
+      electricity_unit: "kWh",
+      latest_use_ym: "209908",
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("건물 에너지 사용량")).toBeTruthy();
+      expect(anchors()).toContain("에너지");
+      expect(screen.getByText("전기 사용량(kWh)")).toBeTruthy();
+      expect(screen.getByText("건축HUB 건물에너지 · 2099.08 사용분까지")).toBeTruthy();
+      const july = screen.getByText("2099.07").closest("tr");
+      expect(july?.textContent).toContain("900");
+      expect(july?.textContent).toContain("-");
+      expect(screen.getByText("2099.08").closest("tr")?.textContent).toContain("1,234.5");
+      expect(screen.getByText(/산업·수송·발전·열병합·충전용/)).toBeTruthy();
+    } finally {
+      reads.energy = null;
+    }
+  });
+
+  it("shows no 에너지 anchor for a parcel without a usage document", async () => {
+    renderPanel(parcel());
+    // The lane's read settles (null: no document) before the sections are counted.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("건물 에너지 사용량")).toBeNull();
+    expect(anchors()).not.toContain("에너지");
+  });
+
+  it("shows the parcel's 멸실된 건물 in the source's words, newest first", async () => {
+    reads.demolitions = {
+      records: [
+        {
+          demolition_kind_name: "멸실",
+          demolition_loss_date: "20990505",
+          main_purpose_name: "창고시설",
+          structure_name: "일반철골구조",
+          total_floor_area_m2: "1200.5",
+          building_count: "2",
+        },
+        {
+          demolition_kind_name: "철거",
+          demolition_start_date: "20980101",
+          demolition_end_date: "20980301",
+          main_purpose_name: "공장",
+        },
+      ],
+      total: 2,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("멸실된 건물 2건")).toBeTruthy();
+      expect(anchors()).toContain("멸실 건물");
+      expect(screen.getByText("멸실 · 2099.05.05")).toBeTruthy();
+      expect(
+        screen.getByText("창고시설 · 일반철골구조 · 연면적 1200.5㎡ · 건축물수 2"),
+      ).toBeTruthy();
+      expect(screen.getByText("철거 · 2098.01.01~2098.03.01")).toBeTruthy();
+    } finally {
+      reads.demolitions = null;
+    }
+  });
+
+  it("shows 부속지번 both ways, each other parcel by its 지번 and 대장종류", async () => {
+    reads.subParcels = {
+      on_other_parcels: [
+        {
+          mgmt_key: "synthetic-1",
+          register_kind_name: "일반건축물",
+          other_pnu: "9999900000100020000",
+          other_jibun: "99999-00001-0-0002-0000",
+        },
+      ],
+      on_other_total: 1,
+      from_other_parcels: [
+        {
+          mgmt_key: "synthetic-2",
+          register_kind_name: "표제부",
+          other_pnu: null,
+          other_jibun: "99999-00001-1-0012-0003",
+        },
+      ],
+      from_other_total: 1,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("이 필지 건물이 함께 선 필지 1건")).toBeTruthy();
+      expect(anchors()).toContain("부속지번");
+      expect(screen.getByText("2 · 일반건축물")).toBeTruthy();
+      expect(screen.getByText("이 필지에 걸친 다른 필지의 건물 1건")).toBeTruthy();
+      expect(screen.getByText("산 12-3 · 표제부")).toBeTruthy();
+      // A parcel Foundation has no PNU for is named, not linked.
+      expect(screen.getAllByRole("button", { name: /필지 보기/ })).toHaveLength(1);
+    } finally {
+      reads.subParcels = null;
     }
   });
 

@@ -1,4 +1,5 @@
 import ast
+import tempfile
 import json
 import os
 import re
@@ -14,6 +15,8 @@ JOBS_DIR = SPARK_DIR / "jobs"
 sys.path.insert(0, str(JOBS_DIR))
 
 from platform_contracts import (  # noqa: E402
+    WriteRefused,
+    admit_write,
     CONTRACTS_PATH_ENV,
     column_names,
     current_row_latest,
@@ -28,6 +31,7 @@ from platform_contracts import (  # noqa: E402
     partition_column_names,
     partition_spec,
     required_string_column_names,
+    row_versions,
     sort_order,
     string_column_names,
     value_domain,
@@ -148,15 +152,24 @@ class PlatformContractsTest(unittest.TestCase):
 
 
 PIPELINE_GRAPH = SPARK_DIR.parents[2] / "docs" / "catalog" / "pipeline-graph.v1.json"
-# `rows_as_of` is the current rows as of a release (root ADR-0318).
-CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of"}
+# `rows_as_of` is the current rows as of a release (root ADR-0318); `pinned_edition`, `all_editions`
+# and `all_rows` are the declared reads of one edition, of every edition and of every row for a
+# rewrite (root ADR-0286 §3); `served_rows` is the served cadastral edition (root ADR-0379).
+CURRENT_ROW_READS = {"current_rows", "current_rows_of_versioned", "rows_as_of", "pinned_edition", "all_editions",
+                     "all_rows", "served_rows"}
 
 
 def versioned_tables() -> set[str]:
-    """Every table that keeps versions per key: its contract declares the newest-per-key rule."""
+    """Every table whose rows are not each current: it keeps versions per key or whole editions
+    (`row_versions` neither `replaced`, `events` nor `unwritten`, root ADR-0286 §3, ADR-0377).
+
+    On 2026-10-16 the complex boundary release read `silver.industrial_complexes` whole while it
+    held three versions of each complex; on 2026-11-04 six readers still picked the code list's
+    newest snapshot by their own `max(snapshot_date)`. Both are reads of every row of such a table.
+    """
     return {
         name for name, contract in load_lakehouse_artifact()["contracts"].items()
-        if current_row_latest(contract) is not None
+        if contract["row_versions"]["kind"] in ("latest_per_key", "editions")
     }
 
 
@@ -179,15 +192,89 @@ def named_tables(source: str, tables: set[str]) -> set[str]:
         if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
     }
+    # An argparse `help` text is documentation too: a generic tool's example names a table it does not read.
+    docstrings |= {
+        id(sub) for node in ast.walk(tree) if isinstance(node, ast.keyword) and node.arg == "help"
+        for sub in ast.walk(node.value) if isinstance(sub, ast.Constant)
+    }
+    # An f-string is read whole, its fields as `{}`: `f"SELECT x FROM {cat}.silver.t WHERE …"`.
+    pieces = {id(part) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for part in node.values}
     strings = [
         node.value for node in ast.walk(tree)
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+        and id(node) not in pieces
+    ] + [
+        "".join(part.value if isinstance(part, ast.Constant) else "{}" for part in node.values)
+        for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) and id(node) not in docstrings
     ]
+    def names(text: str, table: str) -> bool:
+        # A read names the table as an identifier (`silver.x`, `r2.silver.x`, the bare default `x`,
+        # an f-string piece of a path) or after FROM/JOIN/INTO/TABLE in SQL; a message that mentions
+        # it ("silver.x holds no row of this edition", root ADR-0379's readiness check) does not read it.
+        token = rf"(?<!\w)`?{re.escape(table.split('.', 1)[1])}`?(?!\w)"
+        if not re.search(token, text):
+            return False
+        return bool(re.fullmatch(r"[`\w.{}]*", text.strip())
+                    or re.search(rf"\b(FROM|JOIN|INTO|TABLE)\b[^;]*?{token}", text, re.IGNORECASE)
+                    # A SQL fragment the caller puts after FROM: `{cat}.silver.t WHERE …`.
+                    or re.search(rf"{token}\s+(WHERE|VERSION|FOR|AS|JOIN|GROUP|ORDER|LIMIT)\b", text, re.IGNORECASE))
+
+    return {table for table in tables if any(names(text, table) for text in strings)}
+
+
+def reaches_call(path: Path, names: set[str], seen: set[Path]) -> bool:
+    """Whether the module, or a job module it imports, calls one of `names` (by its last name)."""
+    if path in seen or not path.exists() or path.name == "platform_contracts.py":
+        return False
+    seen.add(path)
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            called = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None)
+            if called in names:
+                return True
+    imported = [
+        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
+    ] + [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module]
+    return any(reaches_call(path.parent / f"{module}.py", names, seen) for module in imported)
+
+
+def canonical_readers() -> dict[str, str]:
+    """table -> `module.function` for every contract whose current state is a domain fold (root ADR-0286)."""
     return {
-        table for table in tables
-        if any(re.search(rf"(?<!\w)`?{re.escape(table.split('.', 1)[1])}`?(?!\w)",
-                         text) for text in strings)
+        name: contract["row_versions"]["canonical_reader"]
+        for name, contract in load_lakehouse_artifact()["contracts"].items()
+        if contract["row_versions"].get("canonical_reader")
     }
+
+
+def readers_bypassing_canonical_reader(jobs: Path, graph: dict, readers: dict[str, str]) -> list[tuple[str, str]]:
+    """(job, table) for each job that names a table with a canonical reader, neither writes it nor
+    drives its writer (imports the producer module), and never calls into the reader's module: it
+    would fold the table its own way (root ADR-0286 §6).
+
+    shortcut: any function of the canonical module counts (the review queue folds in the same module
+    as `steward_resolved`); upgrade to a per-function check if that module gains a reader that skips
+    the fold.
+    """
+    written = producers(graph, set(readers))
+    found = []
+    for path in sorted(jobs.glob("*.py")):
+        if path.name == "platform_contracts.py":
+            continue
+        source = path.read_text(encoding="utf-8")
+        for table in sorted(named_tables(source, set(readers))):
+            module = readers[table].split(".")[0]
+            folds = {node.name for node in ast.parse((jobs / f"{module}.py").read_text(encoding="utf-8")).body
+                     if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")}
+            writers = {Path(name).stem for name, written_table in written if written_table == table}
+            imported = {alias.name for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Import)
+                        for alias in node.names}
+            if path.stem == module or path.stem in writers or imported & writers:
+                continue
+            if not reaches_call(path, folds, set()):
+                found.append((path.name, table))
+    return found
 
 
 def reaches_current_rows(path: Path, seen: set[Path]) -> bool:
@@ -223,6 +310,124 @@ def readers_bypassing_current_rows(jobs: Path, graph: dict, tables: set[str]) ->
             if (path.name, table) not in written and not reaches_current_rows(path, set()):
                 found.append((path.name, table))
     return found
+
+
+# A statement or call that changes an Iceberg table (root ADR-0286 stage 3). SQL keywords are
+# matched in upper case, as the jobs write them, so prose in a help string does not count.
+WRITE_SQL = re.compile(
+    r"\b(INSERT\s+(INTO|OVERWRITE)|MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM|"
+    r"CALL\s+\S*system\.(fast_forward|cherrypick_snapshot|rollback_to_snapshot|set_current_snapshot))\b"
+)
+WRITE_CALLS = {"writeTo", "saveAsTable", "insertInto"}
+
+
+def docstring_ids(tree: ast.AST) -> set[int]:
+    return {
+        id(node.body[0].value) for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.body and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
+    }
+
+
+def strings_of(function: ast.AST, docs: set[int]) -> list[str]:
+    """The string literals of a function, an f-string read with `{}` where it interpolates."""
+    inside = {id(part) for node in ast.walk(function) if isinstance(node, ast.JoinedStr) for part in node.values}
+    texts = []
+    for node in ast.walk(function):
+        if isinstance(node, ast.JoinedStr):
+            texts.append("".join(part.value if isinstance(part, ast.Constant) else "{}" for part in node.values))
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docs | inside:
+            texts.append(node.value)
+    return texts
+
+
+def called_name(node: ast.Call) -> str | None:
+    return getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+
+
+def unadmitted_writes(jobs: Path) -> list[str]:
+    """`module.function` for every job function that writes an Iceberg table, or builds the SQL
+    that does, without the write being admitted by `platform_contracts.admit_write`.
+
+    A function is admitted when it calls `admit_write`. A builder that only returns a statement
+    (it runs no `sql` and no writer) is admitted when it has callers and every one is admitted;
+    a call binds to the caller's own module first. shortcut: an admitted caller vouches for a
+    builder whichever table it admitted; upgrade to a per-table data-flow check if a builder ever
+    serves two tables.
+    """
+    functions = []
+    for path in sorted(jobs.glob("*.py")):
+        if path.name == "platform_contracts.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docs = docstring_ids(tree)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                called = {called_name(n) for n in ast.walk(node) if isinstance(n, ast.Call)}
+                writes = bool(WRITE_CALLS & called) or any(WRITE_SQL.search(t) for t in strings_of(node, docs))
+                # A function that runs a statement or a writer answers for it itself; only a builder
+                # that returns one leans on its callers.
+                runs = bool(({"sql"} | WRITE_CALLS) & called)
+                functions.append((f"{path.stem}.{node.name}", node.name, called, writes, runs))
+    defined = {(qualified.split(".")[0], name) for qualified, name, *_ in functions}
+
+    def calls(caller: str, called: set, name: str, module: str) -> bool:
+        # A call binds to the caller's own module first, then to a function another module defines.
+        home = caller.split(".")[0]
+        return name in called and (home == module or (home, name) not in defined)
+
+    admitted = {qualified for qualified, _, called, *_ in functions if "admit_write" in called}
+    changed = True
+    while changed:
+        changed = False
+        for qualified, name, _, _, runs in functions:
+            module = qualified.split(".")[0]
+            callers = [other for other, _, called, *_ in functions
+                       if calls(other, called, name, module) and other != qualified]
+            if not runs and qualified not in admitted and callers and all(caller in admitted for caller in callers):
+                admitted.add(qualified)
+                changed = True
+    return sorted(qualified for qualified, _, _, writes, _ in functions if writes and qualified not in admitted)
+
+
+class CanonicalReaderRuleTest(unittest.TestCase):
+    """Root ADR-0286 §6: a table whose current state is a domain fold is read through that fold.
+
+    `silver.parcel_lineage` holds derived candidates and steward decisions; a reader that folded them
+    its own way could serve a link a steward rejected (the queue, the registry, the carry and the
+    gate must agree, `lineage_review_queue.steward_resolved`).
+    """
+
+    def test_every_reader_of_a_folded_table_goes_through_its_fold(self) -> None:
+        graph = json.loads(PIPELINE_GRAPH.read_text(encoding="utf-8"))
+        self.assertEqual(readers_bypassing_canonical_reader(JOBS_DIR, graph, canonical_readers()), [])
+
+    def test_a_reader_that_folds_on_its_own_is_found(self) -> None:
+        graph = json.loads(PIPELINE_GRAPH.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            jobs = Path(directory)
+            for name in ("lineage_review_queue.py", "parcel_lineage.py"):
+                (jobs / name).write_text((JOBS_DIR / name).read_text(encoding="utf-8"), encoding="utf-8")
+            (jobs / "rogue_reader.py").write_text(
+                'def links(spark):\n    return spark.table("r2.silver.parcel_lineage").where("grade = \'A\'")\n',
+                encoding="utf-8")
+            (jobs / "good_reader.py").write_text(
+                "import lineage_review_queue as q\n\ndef links(spark):\n"
+                '    return q.steward_resolved(spark.table("r2.silver.parcel_lineage").collect())\n',
+                encoding="utf-8")
+            self.assertEqual(readers_bypassing_canonical_reader(jobs, graph, canonical_readers()),
+                             [("rogue_reader.py", "silver.parcel_lineage")])
+
+    def test_only_the_newest_derivation_run_of_a_pair_and_successor_is_folded(self) -> None:
+        import lineage_review_queue as q
+
+        old = {"from_snapshot_id": "e1", "to_snapshot_id": "e2", "successor_pnu": "9999900001", "predecessor_pnu": "a",
+               "evidence_kind": "derived", "derived_at_utc": "2026-10-20T00:00:00"}
+        new = {**old, "predecessor_pnu": "b", "derived_at_utc": "2026-11-01T00:00:00"}
+        other = {**old, "successor_pnu": "9999900002"}
+        steward = {**old, "evidence_kind": q.STEWARD, "derived_at_utc": "2026-09-01T00:00:00"}
+        self.assertEqual(q.newest_derivations([old, new, other, steward]), [new, other, steward])
+        self.assertEqual(q.newest_derivations([old, other]), [old, other], "one run per key is read as before")
 
 
 class CurrentRowRuleTest(unittest.TestCase):
@@ -270,6 +475,34 @@ class CurrentRowRuleTest(unittest.TestCase):
         self.assertIn(SILVER_INDUSTRIAL_COMPLEXES, tables)
         self.assertEqual(readers_bypassing_current_rows(JOBS_DIR, graph, tables), [])
 
+    def test_the_guard_covers_every_table_that_appends_editions(self) -> None:
+        """Root ADR-0377: the code list, the floors and the factory editions are guarded like versions.
+
+        Planted: the `max(snapshot_date)` read six jobs kept until 2026-11-04, and a whole read of the
+        factory's editions. A reader through the shared code-list reader passes.
+        """
+        tables = versioned_tables()
+        for table in ("reference.legal_dong_code_snapshot", "silver.building_register_floors",
+                      "silver.registered_factory", "silver.parcel_boundaries"):
+            self.assertIn(table, tables)
+        graph = {"nodes": [], "edges": []}
+        jobs = {
+            "raw_code_list.py": 'newest = spark.sql("SELECT max(snapshot_date) FROM r2.`reference`.`legal_dong_code_snapshot`")\n',
+            "raw_factory.py": 'rows = spark.table("r2.silver.registered_factory").count()\n',
+            "through_reader.py": "from legal_dong_code_snapshot_to_reference import newest_snapshot\n"
+                                 'codes = newest_snapshot(spark, "r2.`reference`.`legal_dong_code_snapshot`")\n',
+            "legal_dong_code_snapshot_to_reference.py":
+                "def newest_snapshot(spark, table):\n    return current_rows(spark.table(table), CONTRACT)\n",
+        }
+        with TemporaryDirectory() as tmp:
+            for name, text in jobs.items():
+                (Path(tmp) / name).write_text(text, encoding="utf-8")
+            self.assertEqual(
+                readers_bypassing_current_rows(Path(tmp), graph, tables),
+                [("raw_code_list.py", "reference.legal_dong_code_snapshot"),
+                 ("raw_factory.py", "silver.registered_factory")],
+            )
+
     def test_a_complex_reader_keeps_no_rule_of_its_own(self) -> None:
         for path in sorted(JOBS_DIR.glob("industrial_complex*.py")):
             source = path.read_text(encoding="utf-8")
@@ -295,6 +528,8 @@ class CurrentRowRuleTest(unittest.TestCase):
             "via_shared.py": 'from shared import read\nTABLE = "industrial_complexes"\n',
             "attribute.py": 'import platform_contracts as pc\nrows = pc.current_rows(spark.table("silver.industrial_complexes"), c)\n',
             "prose.py": '"""Reads silver.industrial_complexes."""\nTABLE = "silver.industrial_complex_boundaries"\n',
+            "help_text.py": 'parser.add_argument("--table", help="Logical table, e.g. silver.industrial_complexes")\n',
+            "message.py": 'raise ValueError("silver.industrial_complexes holds no row of this edition")\n',
         }
         with TemporaryDirectory() as tmp:
             for name, text in jobs.items():
@@ -303,6 +538,179 @@ class CurrentRowRuleTest(unittest.TestCase):
                 readers_bypassing_current_rows(Path(tmp), graph, tables),
                 [(name, SILVER_INDUSTRIAL_COMPLEXES) for name in ("planted.py", "planted_default.py", "planted_sql.py")],
             )
+
+
+class RowVersionsTest(unittest.TestCase):
+    """Root ADR-0286: every contract says how its rows pile up."""
+
+    def test_every_contract_declares_valid_row_versions(self) -> None:
+        for name, contract in load_lakehouse_artifact()["contracts"].items():
+            with self.subTest(table=name):
+                row_versions(contract)
+
+    def test_a_canonical_reader_is_a_function_of_a_job_module(self) -> None:
+        for name, contract in load_lakehouse_artifact()["contracts"].items():
+            reader = row_versions(contract).get("canonical_reader")
+            if reader is None:
+                continue
+            with self.subTest(table=name):
+                module, function = reader.split(".")
+                tree = ast.parse((JOBS_DIR / f"{module}.py").read_text(encoding="utf-8"))
+                self.assertIn(function, {node.name for node in tree.body if isinstance(node, ast.FunctionDef)})
+
+    def test_a_contract_without_row_versions_or_naming_a_foreign_column_is_refused(self) -> None:
+        contract = dict(load_lakehouse_contract("silver.parcel_number_change_history"))
+        missing = {key: value for key, value in contract.items() if key != "row_versions"}
+        with self.assertRaisesRegex(ValueError, "must declare row_versions"):
+            row_versions(missing)
+        for broken in (
+            {"kind": "editions", "edition_column": "no_such_column", "newest_first": ["provider_updated_on"],
+             "per": [], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+             "per": ["no_such_column"], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["provider_updated_on"],
+             "per": [], "read": "oldest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": [], "per": [], "read": "newest"},
+            {"kind": "editions", "edition_column": "source_snapshot_id", "newest_first": ["no_such_column"], "per": [],
+             "read": "newest"},
+            {"kind": "replaced", "key": ["no_such_column"]},
+            {"kind": "latest_per_key"},
+            {"kind": "scd3"},
+        ):
+            with self.subTest(broken=broken), self.assertRaises(ValueError):
+                row_versions({**contract, "row_versions": broken})
+
+
+class WriterAdmissionTest(unittest.TestCase):
+    """Root ADR-0286 stage 3: a write follows the table's `row_versions`, and every write asks."""
+
+    def test_a_table_takes_only_the_writes_its_declaration_allows(self) -> None:
+        main = "`c`.`{}`.`{}`"
+        allowed = (
+            ("gold.parcel_panel", "replace", {}),
+            ("silver.court_auction_item", "append", {}),
+            ("silver.unit_official_price", "append", {}),
+            ("silver.map_edit_ledger", "append", {}),
+            # A replacing load's batches stage on a branch; a smoke copy is the load's own.
+            ("silver.land_transfer_history", "replace", {"branch": "load-1"}),
+            ("silver.building_register_floors", "replace", {"target": "c.silver.building_register_floors_smoke"}),
+            # No row the declaration speaks about changes.
+            ("silver.court_auction_item", "rewrite", {}),
+            ("gold.parcel_panel", "record", {}),
+        )
+        for table, intent, where in allowed:
+            with self.subTest(table=table, intent=intent, where=where):
+                admit_write(table, intent, **{"target": main.format(*table.split(".")), **where})
+        refused = (
+            ("gold.parcel_panel", "append", "is Replaced"),
+            ("gold.building_panel", "append", "is Replaced"),
+            ("silver.court_auction_item", "replace", "keeps every row"),
+            ("silver.parcel_number_change_history", "replace", "keeps every row"),
+            ("silver.parcel_lineage", "replace", "keeps every row"),
+            ("silver.complex_parcel_memberships", "append", "Unwritten"),
+            ("silver.complex_parcel_memberships", "record", "Unwritten"),
+        )
+        for table, intent, message in refused:
+            with self.subTest(table=table, intent=intent), self.assertRaisesRegex(WriteRefused, message):
+                admit_write(table, intent, target=main.format(*table.split(".")))
+        with self.assertRaisesRegex(ValueError, "write intent"):
+            admit_write("gold.parcel_panel", "upsert")
+
+    def test_a_gold_change_record_only_grows(self) -> None:
+        """`gold.<t>__changes` (root ADR-0347 §4) has no contract of its own; it is a log of steps."""
+        import changelog
+        import platform_contracts
+
+        self.assertEqual(platform_contracts.CHANGE_RECORD_SUFFIX, changelog.CHANGES_SUFFIX)
+        record = "gold.parcel_panel__changes"
+        admit_write(record, "append", target="`c`.`gold`.`parcel_panel__changes`")
+        with self.assertRaisesRegex(WriteRefused, "keeps every row"):
+            admit_write(record, "replace", target="`c`.`gold`.`parcel_panel__changes`")
+        with self.assertRaisesRegex(ValueError, "only a Gold table"):
+            admit_write("silver.real_transaction__changes", "append")
+
+    def test_every_iceberg_write_in_the_jobs_is_admitted(self) -> None:
+        self.assertEqual(unadmitted_writes(JOBS_DIR), [])
+
+    def test_every_call_of_a_shared_writer_names_its_contract_table(self) -> None:
+        # `contract_table` is keyword-only and required: a job that misses it raises TypeError only
+        # when the scheduled load reaches the write (the Onbid photo append and the public-auction
+        # Gold rebuild, both landed after stage 3 was written).
+        writers = {"append_source_object", "write_gold_snapshot"}
+        missing, calls = [], 0
+        for path in sorted(JOBS_DIR.glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+                if name in writers:
+                    calls += 1
+                    if not any(keyword.arg in ("contract_table", None) for keyword in node.keywords):
+                        missing.append(f"{path.name}:{node.lineno} {name}")
+        self.assertGreater(calls, 0)
+        self.assertEqual(missing, [])
+
+    def test_the_write_guard_refuses_each_way_around_the_admission(self) -> None:
+        jobs = {
+            # The three paths that did not go through the shared writers on 2026-10-20.
+            "raw_insert.py": 'def load(spark, table):\n    spark.sql(f"INSERT INTO {table} SELECT * FROM staged")\n',
+            "direct_append.py": "def load(frame, table):\n    frame.writeTo(table).append()\n",
+            "own_source_object.py": (
+                "def append_source_object(spark, frame, table, key):\n"
+                "    writer = frame.writeTo(table)\n    writer = writer.option('k', key)\n    writer.append()\n"
+            ),
+            "update.py": 'def close(spark, table):\n    spark.sql(f"UPDATE {table} SET valid_to_utc = now()")\n',
+            "fast_forward.py": 'def publish(spark, c, t):\n    spark.sql(f"CALL {c}.system.fast_forward(\'{t}\', \'b\')")\n',
+            # A builder run by a function that does not ask.
+            "builder.py": (
+                'def statement(table):\n    return f"INSERT OVERWRITE {table} SELECT * FROM v"\n'
+                "def run(spark, table):\n    spark.sql(statement(table))\n"
+            ),
+            # Admitted: directly, and a builder run only by an admitted caller.
+            "admitted.py": (
+                'def load(spark, table):\n    admit_write("silver.map_edit_ledger", "append", target=table)\n'
+                '    spark.sql(f"INSERT INTO {table} SELECT * FROM staged")\n'
+                'def statement(table):\n    return f"MERGE INTO {table} t USING s ON t.k = s.k"\n'
+                'def merge(spark, table):\n    admit_write("gold.parcel_panel", "replace", target=table)\n'
+                "    spark.sql(statement(table))\n"
+            ),
+            # A shared helper that runs a write answers for it itself, whatever its callers admitted
+            # (the shape of the map edit ledger's append beside each served Gold's own write).
+            "shared_helper.py": (
+                'def append_rows(spark, table):\n    spark.sql(f"INSERT INTO {table} SELECT * FROM v")\n'
+                'def main(spark):\n    admit_write("gold.parcel_panel", "replace", target="t")\n'
+                '    append_rows(spark, "ledger")\n'
+            ),
+            # Prose is not SQL.
+            "prose.py": 'def help_text():\n    return "insert into the table, then update the set"\n',
+        }
+        with TemporaryDirectory() as tmp:
+            for name, text in jobs.items():
+                (Path(tmp) / name).write_text(text, encoding="utf-8")
+            self.assertEqual(unadmitted_writes(Path(tmp)), [
+                "builder.statement", "direct_append.load", "fast_forward.publish",
+                "own_source_object.append_source_object", "raw_insert.load", "shared_helper.append_rows",
+                "update.close",
+            ])
+
+    def test_a_lane_overwrites_only_a_replaced_table_or_compares_into_an_appended_one(self) -> None:
+        contracts = load_lakehouse_artifact()["contracts"]
+        lanes = sorted((SPARK_DIR.parent / "contracts").glob("*-source-objects.json"))
+        checked = 0
+        for path in lanes:
+            refresh = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh")
+            if not refresh:
+                continue
+            kind = row_versions(contracts[refresh["table"]])["kind"]
+            mode = refresh["spark"]["iceberg_write_mode"]
+            with self.subTest(lane=path.name, kind=kind, mode=mode):
+                checked += 1
+                if mode == "overwrite":
+                    # A compare lane stages the release on a branch and appends only its changes.
+                    self.assertTrue(kind == "replaced" or "compare" in refresh)
+                else:
+                    self.assertNotEqual(kind, "replaced")
+        self.assertGreater(checked, 0)
 
 
 class JsonlTransportContractTest(unittest.TestCase):

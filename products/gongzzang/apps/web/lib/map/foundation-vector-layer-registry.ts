@@ -6,7 +6,8 @@ import {
 /** One Foundation v2 layer's stable Mapbox source identity and style contract. */
 export type FoundationVectorLayerDefinition = {
   sourceId: string;
-  dynamicMartinSourceId: string;
+  /** Absent for a unit served only as static PMTiles: a dynamic source for it fails closed. */
+  dynamicMartinSourceId?: string;
   layerName: string;
   sourceLayer: string;
   promoteId: string;
@@ -41,6 +42,14 @@ export const FOUNDATION_VECTOR_LAYER_REGISTRY: Record<string, FoundationVectorLa
     layerName: "complex",
     sourceLayer: "complex",
     promoteId: "complex_id",
+  },
+  // 용도지역지구 규제 구역 (root ADR-0362 §5, ADR-0373): baked to static PMTiles only, feature id
+  // `D032:<A1>`.
+  zoning: {
+    sourceId: "zoning",
+    layerName: "zoning",
+    sourceLayer: "zoning",
+    promoteId: "zone_id",
   },
 };
 

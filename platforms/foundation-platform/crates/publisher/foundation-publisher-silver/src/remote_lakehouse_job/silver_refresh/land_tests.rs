@@ -937,7 +937,7 @@ fn the_comparing_land_lanes_never_compare_their_key_or_load_columns() -> anyhow:
             let latest = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(
                 &contract.table,
             )
-            .and_then(|table| table.current_row_latest)
+            .and_then(|table| table.current_row_latest())
             .with_context(|| format!("{lane:?} declares its current rows"))?;
             for column in latest.key.iter().copied().chain([
                 "data_reference_date",
@@ -1009,6 +1009,7 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
         objects: vec!["bronze/a.zip".to_owned(), "bronze/b.zip".to_owned()],
         content_columns: vec!["reason".to_owned(), "moved_at".to_owned()],
         bucket_prefix_length: 2,
+        release_buckets_only: false,
         deadline_utc: Some("2099-09-01T08:50:00Z".to_owned()),
     };
     let args = execute::compare_arguments(&runtime, &contract, &compare)?;
@@ -1055,7 +1056,7 @@ fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> a
         };
         let latest =
             lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(&contract.table)
-                .and_then(|table| table.current_row_latest)
+                .and_then(|table| table.current_row_latest())
                 .context("a comparing lane's table keeps versions")?;
         let expected = match rule.completeness {
             Completeness::Sido => {

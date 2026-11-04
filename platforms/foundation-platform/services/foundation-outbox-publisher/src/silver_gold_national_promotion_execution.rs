@@ -214,7 +214,6 @@ pub fn run_execute() -> anyhow::Result<()> {
         ],
         "next_gates": [
             "silver-parcel-boundaries-iceberg-write",
-            "postgis-anchor-pbf-national-rebuild",
         ],
     });
     write_json_file(&config.evidence_path, &evidence)?;
@@ -487,7 +486,6 @@ fn run_check_with_config(config: &CheckConfig) -> anyhow::Result<()> {
         "blockers": blockers,
         "next_gates": [
             "silver-parcel-boundaries-iceberg-write",
-            "postgis-anchor-pbf-national-rebuild",
         ],
     });
     write_json_file(&config.report_path, &report)?;

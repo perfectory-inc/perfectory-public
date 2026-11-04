@@ -12,7 +12,22 @@
     "max_sigungu_count_change_share": 0.05
   },
   "served_edition": "202606",
-  "served_edition_reason": "The edition the map, the parcel catalog projection, the PostGIS mirror, the parcel panel Gold and the 시군구 crosswalk's cadastral 시도 are built from. Other editions are evidence (the legal-dong pairing reads two of them) until a reviewed change moves this value.",
+  "served_edition_reason": "The edition the map, the parcel catalog projection, the PostGIS mirror, the parcel panel Gold and the 시군구 crosswalk's cadastral 시도 are built from, and the only parcel universe a served reader takes (vworld_parcel_editions.served_rows, root ADR-0291 §5). Other editions are evidence (the legal-dong pairing reads two of them). It moves only through parcel_edition_readiness.py promote, which refuses an edition that is not ready and appends to promotions (root ADR-0291 §4, ADR-0379).",
+  "readiness": {
+    "$comment": "What parcel_edition_readiness.py asks of an edition before it may be served (root ADR-0291 §2, ADR-0379). Silver: at most max_row_loss_fraction fewer rows than the served edition (202606 → 202609 measured 2026-10-21: 39.86M → 39.88M, +0.05%; 1% is about 400k parcels, a missing 시도 or two). A report older than max_report_age_hours is measured again: the table and the provider move daily.",
+    "max_row_loss_fraction": 0.01,
+    "max_report_age_hours": 48
+  },
+  "promotions": [
+    {
+      "edition": "202606",
+      "from_edition": null,
+      "promoted_at_utc": "2026-10-05T00:00:00Z",
+      "by": "reviewed pull request #339",
+      "reason": "The first edition held side by side (root ADR-0148); served before promotions were readiness-gated.",
+      "readiness": null
+    }
+  ],
   "handoff_suffix": ".jsonl.gz",
   "handoff_suffix_reason": "The converter names the object and the loader must derive the same name, so the suffix is here rather than spelled in both scripts. `.gz` also tells the converter to compress and tells Spark to decompress — one string decides both, because two would eventually disagree and produce a file the reader cannot open. Measured 2026-08-31: gzip leaves 20% of a 625 MB national parcel handoff, and the conversion is bound by wire speed.",
   "handoff_prefix_reason": "Where the converted handoff objects live. It was a default in three callers — the exporter that writes them, the batch loader that reads them, and the catalog projection command — so renaming the prefix meant editing three files and any one of them missed would have looked in a place nothing was written to. Each edition names its own: 202609 handoffs written on 2026-09-27 by hand under the 202606 prefix carry another snapshot id, and a loader that found them there would skip the conversion and load them.",

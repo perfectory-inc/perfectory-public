@@ -217,3 +217,4 @@ JSON 마커 endpoint는 관리자 진단·계약 테스트·상세 조회에서�
 ## 개정 각주
 
 - 2026-10-14: 결정 절의 "두 anchor layer는 고정된 schema-v1 manifest에 남고"는 [root ADR-0225](../../../../docs/adr/0225-the-tile-manifest-has-one-version-and-v1-retires-in-four-steps.md)가 대체한다. 마커 앵커의 출시 경로는 v2 publication unit이다.
+- 2026-11-04: 앵커 artifact 내보내기·앵커 PBF 굽기·스트리밍 재구성 크레이트(`foundation-publisher-parcel-anchor`)는 [root ADR-0413](../../../../docs/adr/0413-the-parcel-anchor-marker-tile-pipeline-retires-and-returns-as-a-cluster-unit-of-the-tile-bake.md)으로 은퇴했다. 마커는 기존 타일 bake 의 tippecanoe `--cluster-distance` 단위로 다시 만든다.

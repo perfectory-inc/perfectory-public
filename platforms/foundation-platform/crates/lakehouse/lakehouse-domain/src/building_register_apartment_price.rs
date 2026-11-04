@@ -1,9 +1,9 @@
 //! Headerless HUB apartment-price observations (root ADR-0092).
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer,
+    LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole,
+    LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const COLUMNS: &[LakehouseColumn] = &[
@@ -102,7 +102,12 @@ pub const SILVER_BUILDING_REGISTER_APARTMENT_PRICE: LakehouseTableContract =
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Canonical,
         current_row_predicate: None,
-        current_row_latest: None,
+        row_versions: LakehouseRowVersions::Editions {
+            edition_column: "vintage",
+            newest_first: &["vintage"],
+            per: &[],
+            read: LakehouseEditionRead::Newest,
+        },
         columns: COLUMNS,
         partition_spec: &["vintage"],
         sort_order: &["pnu", "mgmt_key", "base_date"],
@@ -139,7 +144,7 @@ pub const SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS: LakehouseTableContr
         // A correction notice repeats a key within a vintage, so a key's version is all of its
         // rows of one commit: ordered by the vintage, then the commit's instant (a vintage loaded
         // again after a partial load, root ADR-0185), every tie current.
-        current_row_latest: Some(LakehouseCurrentRowLatest {
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
             key: &["mgmt_key", "base_date"],
             newest_first: &["vintage", "ingested_at_utc"],
             removal_column: Some("row_state"),

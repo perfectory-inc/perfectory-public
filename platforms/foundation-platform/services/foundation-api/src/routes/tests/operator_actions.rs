@@ -390,3 +390,68 @@ async fn a_window_override_is_recorded_with_its_end_and_a_bad_one_is_refused(
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_promotion_request_names_its_edition_and_is_asked_of_the_readiness_check(
+) -> Result<(), Box<dyn Error>> {
+    // Root ADR-0381: the console asks to serve another edition; the readiness check grants it.
+    let ledger = Arc::new(RecordingLedger::default());
+    let (status, body) = ask(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        post(
+            "parcel_edition_readiness",
+            r#"{"action":"promote_edition","reason":"the newer edition is all there","edition":"209910"}"#,
+            true,
+        )?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["edition"], "209910");
+    let records = ledger.records.lock().await.clone();
+    let [record] = records.as_slice() else {
+        return Err(format!("expected one record, got {}", records.len()).into());
+    };
+    assert_eq!(
+        record
+            .expires_at
+            .map(|at| (at - record.requested_at).num_hours()),
+        Some(48)
+    );
+    for (job, body) in [
+        (
+            "parcel_edition_readiness",
+            r#"{"action":"promote_edition","reason":"r"}"#,
+        ),
+        (
+            "parcel_edition_readiness",
+            r#"{"action":"promote_edition","reason":"r","edition":"2099-10"}"#,
+        ),
+        (
+            "parcel_edition_readiness",
+            r#"{"action":"run_now","reason":"r","edition":"209910"}"#,
+        ),
+        (
+            "shape_ledger_check",
+            r#"{"action":"promote_edition","reason":"r","edition":"209910"}"#,
+        ),
+    ] {
+        let (status, answer) = ask(
+            Arc::new(StaffJobOperatorAuthorization::default()),
+            ledger.clone(),
+            post(job, body, true)?,
+        )
+        .await?;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{job} {body}: {answer}"
+        );
+    }
+    assert_eq!(
+        ledger.records.lock().await.len(),
+        1,
+        "a refused promotion was recorded"
+    );
+    Ok(())
+}

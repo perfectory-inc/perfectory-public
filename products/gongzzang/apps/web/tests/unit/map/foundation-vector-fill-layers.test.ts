@@ -87,6 +87,41 @@ function parcelsUnit() {
   };
 }
 
+/** The `zoning` unit as a static PMTiles bake (root ADR-0373): cut z10..14, drawn to z22. */
+function zoningUnit() {
+  const release = "0196e7e0-3c20-7000-8000-000000000082";
+  return {
+    data_revision: "0196e7e0-3c20-7000-8000-000000000081",
+    serving_generation: 1,
+    active_release_id: release,
+    canonical_iceberg_snapshot_id: "841361364657368626",
+    source: {
+      kind: "static_pmtiles",
+      martin_source_id: `zoning-${release}`,
+      tiles_url_template: `https://tiles.example.com/zoning-${release}/{z}/{x}/{y}`,
+      pmtiles_object_key: `gold/vector-tiles/releases/${release}/zoning-${release}.pmtiles`,
+      pmtiles_file_asset_id: "0196e7e0-3c20-7000-8000-000000000083",
+      pmtiles_sha256: "b".repeat(64),
+      pmtiles_bytes: 123,
+    },
+    layers: {
+      zoning: {
+        source_layer: "zoning",
+        feature_id_property: "zone_id",
+        tile_min_zoom: 10,
+        tile_max_zoom: 14,
+        render_min_zoom: 10,
+        render_max_zoom: 22,
+        feature_filter_properties: { layer_code: "layer_code" },
+      },
+    },
+    lineage: {
+      source_record_id: "0196e7e0-3c20-7000-8000-000000000084",
+      source_file_asset_ids: ["0196e7e0-3c20-7000-8000-000000000085"],
+    },
+  };
+}
+
 function runtimeManifest(units: Record<string, unknown>): VectorTileRuntimeManifest {
   return parseVectorTileRuntimeManifest({
     schema_version: 2,
@@ -241,6 +276,54 @@ describe("Foundation polygon layer setup", () => {
     ]);
     expect(mb.sources.has("complex")).toBe(true);
     expect(mb.sources.has("parcels")).toBe(true);
+  });
+
+  it("puts the regulation zones above the complex and under the parcels, every family off", () => {
+    const mb = fakeMapbox();
+    setupPolygonLayers(
+      mb,
+      () => undefined,
+      runtimeManifest({ parcels: parcelsUnit(), complex: complexUnit(), zoning: zoningUnit() }),
+      () => undefined,
+    );
+
+    expect(mb.layerIds()).toEqual([
+      "complex-fill",
+      "complex-outline",
+      "complex-edits-fill",
+      "complex-edits-outline",
+      "zoning-fill",
+      "zoning-outline",
+      "parcels-fill",
+    ]);
+    const emptyFilter = ["in", ["get", "layer_code"], ["literal", []]];
+    expect(mb.layer("zoning-fill")).toMatchObject({
+      type: "fill",
+      source: "zoning",
+      "source-layer": "zoning",
+      minzoom: 10,
+      maxzoom: 22,
+      promoteId: "zone_id",
+      filter: emptyFilter,
+    });
+    expect(mb.layer("zoning-outline")).toMatchObject({ type: "line", filter: emptyFilter });
+    expect(mb.sources.get("zoning")).toMatchObject({ minzoom: 10, maxzoom: 14 });
+  });
+
+  it("refuses a zoning unit served from a dynamic source, which it has no Martin id for", () => {
+    const unit = zoningUnit();
+    const dynamic = runtimeManifest({
+      zoning: {
+        ...unit,
+        source: {
+          kind: "dynamic_postgis",
+          martin_source_id: "zoning",
+          tiles_url_template: `${MARTIN_BASE}/zoning/{z}/{x}/{y}`,
+          cache_policy: "no_store",
+        },
+      },
+    });
+    expect(() => validateFoundationVectorManifest(dynamic)).toThrow(/Martin source id drift/);
   });
 
   it("leaves the rest of the map intact when nothing has promoted the complex unit", () => {

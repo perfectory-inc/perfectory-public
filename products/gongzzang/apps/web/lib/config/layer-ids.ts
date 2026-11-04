@@ -13,6 +13,7 @@ export const SOURCE_IDS = {
   parcels: "parcels",
   admin: "admin",
   complex: "complex",
+  zoning: "zoning",
 } as const;
 
 export type SourceId = (typeof SOURCE_IDS)[keyof typeof SOURCE_IDS];
@@ -28,5 +29,9 @@ export const LAYER_IDS = {
   },
   complex: {
     fill: "complex-fill",
+  },
+  zoning: {
+    fill: "zoning-fill",
+    outline: "zoning-outline",
   },
 } as const;

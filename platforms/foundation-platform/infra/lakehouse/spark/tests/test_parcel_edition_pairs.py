@@ -51,9 +51,13 @@ def edition_entry(name: str, extracted: str, latest: str | None = None) -> dict:
 def contract(*names: str, served: str | None = None) -> dict:
     dates = {"209902": "2099-02-10", "209906": "2099-06-10", "209910": "2099-10-10"}
     held = {name: edition_entry(name, dates[name]) for name in names}
+    served = served or names[0]
     return {"schema_version": 2, "load_granularity": "sigungu", "snapshot_id_prefix": "vworldkr__parcel-",
-            "served_edition": served or names[0], "handoff_suffix": ".jsonl.gz", "editions": held,
-            "new_edition_bounds": {"max_sido_set_difference": 3, "max_sigungu_count_change_share": 0.05}}
+            "served_edition": served, "handoff_suffix": ".jsonl.gz", "editions": held,
+            "new_edition_bounds": {"max_sido_set_difference": 3, "max_sigungu_count_change_share": 0.05},
+            "readiness": {"max_row_loss_fraction": 0.01, "max_report_age_hours": 48},
+            "promotions": [{"edition": served, "from_edition": None, "promoted_at_utc": "2026-10-05T00:00:00Z",
+                            "by": "synthetic", "reason": "synthetic", "readiness": None}]}
 
 
 def two_changes():
@@ -222,6 +226,7 @@ class ANewProviderEditionTest(unittest.TestCase):
         self.assertEqual(entry["granularity_counts"], {"sido": 1, "sigungu": 2})
         self.assertEqual(entry["extracted_on"], {"earliest": "2099-10-13", "latest": "2099-10-14"})
         self.assertEqual([o["region_code"] for o in entry["objects"]], ["97", "97110", "98110"])
+        self.assertTrue(entry["measured_at_utc"], "a proposal is a measurement the readiness check reads")
         # 심은 위반: 다른 판의 파일, 시군구 없는 시도, 이미 다른 판이 가진 객체.
         planted = {
             "not one shapefile of edition 209910": rows + [measured("209906", "99110")],

@@ -455,10 +455,6 @@ fn operation_spec(operation: &str) -> anyhow::Result<RealTransactionOperationSpe
         .with_context(|| format!("real-transaction operation is not supported: {operation}"))
 }
 
-pub fn default_base_uri_for_operation(operation: &str) -> anyhow::Result<String> {
-    operation_spec(operation).map(default_base_uri_for_spec)
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RealTransactionIngestConfig {
     source_slug: String,

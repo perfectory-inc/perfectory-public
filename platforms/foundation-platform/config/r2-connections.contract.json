@@ -588,6 +588,30 @@
       "producer": "regulation_zones_silver_to_gold",
       "decision": "docs/adr/0375-a-parcel-s-regulation-zones-are-their-own-by-pnu-kind.md"
     },
+    "parcel-sub-parcels": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "sub-parcels",
+      "section": "sub_parcels",
+      "columns": ["sub_parcels_json"],
+      "producer": "building_sub_parcel_silver_to_gold",
+      "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md"
+    },
+    "parcel-energy": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "energy",
+      "section": "energy",
+      "columns": ["energy_json"],
+      "producer": "building_energy_silver_to_gold",
+      "decision": "docs/adr/0398-a-parcel-shows-twelve-months-of-building-energy-as-its-own-by-pnu-kind.md"
+    },
+    "parcel-demolitions": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "demolitions",
+      "section": "demolitions",
+      "columns": ["demolitions_json", "demolition_total:long"],
+      "producer": "building_demolition_silver_to_gold",
+      "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md"
+    },
     "unit-price": {
       "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
       "pack_only": true,

@@ -12,6 +12,13 @@ pub const MAX_REASON_CHARS: usize = 300;
 /// The longest a window override lasts, in hours: the contract's window always comes back.
 pub const MAX_WINDOW_HOURS: i64 = 7 * 24;
 
+/// The job whose run consumes a promotion request: the edition readiness check (root ADR-0381).
+pub const PROMOTION_JOB: &str = "parcel_edition_readiness";
+
+/// How long a promotion request may wait for that check, in hours: the age a readiness report may
+/// have (`readiness.max_report_age_hours` of the cadastral source contract).
+pub const PROMOTION_EXPIRY_HOURS: i64 = 48;
+
 /// What an operator asks of one scheduled job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OperatorAction {
@@ -27,6 +34,9 @@ pub enum OperatorAction {
     SetWindow,
     /// End a window override early: the contract's window again.
     ClearWindow,
+    /// Serve another cadastral edition: a request the readiness check grants only for a ready
+    /// edition, and only through a reviewed change of the source contract (root ADR-0381).
+    PromoteEdition,
 }
 
 impl OperatorAction {
@@ -40,6 +50,7 @@ impl OperatorAction {
             Self::Stop => "stop",
             Self::SetWindow => "set_window",
             Self::ClearWindow => "clear_window",
+            Self::PromoteEdition => "promote_edition",
         }
     }
 
@@ -55,15 +66,17 @@ impl OperatorAction {
             "stop" => Ok(Self::Stop),
             "set_window" => Ok(Self::SetWindow),
             "clear_window" => Ok(Self::ClearWindow),
+            "promote_edition" => Ok(Self::PromoteEdition),
             _ => Err(OperatorActionError::UnknownAction),
         }
     }
 
     /// Whether the request expires: a `run_now` after [`RUN_NOW_EXPIRY_MINUTES`] (root ADR-0282 §4),
-    /// a `set_window` after the hours it asked for.
+    /// a `set_window` after the hours it asked for, a `promote_edition` after
+    /// [`PROMOTION_EXPIRY_HOURS`].
     #[must_use]
     pub const fn expires(self) -> bool {
-        matches!(self, Self::RunNow | Self::SetWindow)
+        matches!(self, Self::RunNow | Self::SetWindow | Self::PromoteEdition)
     }
 }
 
@@ -85,6 +98,27 @@ pub enum OperatorActionError {
     /// A window was given to an action other than `set_window`, or none to `set_window`.
     #[error("only set_window takes a window, and it must")]
     WindowIsASetWindow,
+    /// An edition was given to an action other than `promote_edition`, or none (or not `YYYYMM`) to
+    /// `promote_edition`.
+    #[error("only promote_edition names an edition, YYYYMM, and it must")]
+    EditionIsAPromotion,
+    /// A `promote_edition` was asked of a job other than the readiness check.
+    #[error("a promotion is asked of the parcel_edition_readiness job")]
+    PromotionIsTheReadinessChecks,
+}
+
+/// Checks a promotion's edition: `YYYYMM`, a month 01 to 12.
+///
+/// # Errors
+/// Returns [`OperatorActionError::EditionIsAPromotion`] when it is not.
+pub fn check_edition(edition: &str) -> Result<(), OperatorActionError> {
+    let bytes = edition.as_bytes();
+    let month = edition.get(4..).and_then(|month| month.parse::<u8>().ok());
+    if bytes.len() == 6 && bytes.iter().all(u8::is_ascii_digit) && matches!(month, Some(1..=12)) {
+        Ok(())
+    } else {
+        Err(OperatorActionError::EditionIsAPromotion)
+    }
 }
 
 /// A run window override: two KST clock times (start inclusive, end exclusive; across midnight
@@ -154,6 +188,7 @@ mod tests {
             OperatorAction::Stop,
             OperatorAction::SetWindow,
             OperatorAction::ClearWindow,
+            OperatorAction::PromoteEdition,
         ] {
             assert_eq!(OperatorAction::parse(action.as_str()), Ok(action));
         }
@@ -197,6 +232,23 @@ mod tests {
         }
         assert!(OperatorAction::SetWindow.expires());
         assert!(!OperatorAction::ClearWindow.expires());
+    }
+
+    #[test]
+    fn a_promotion_names_one_edition_and_expires() {
+        for good in ["209906", "209912", "202610"] {
+            assert_eq!(check_edition(good), Ok(()), "{good}");
+        }
+        for bad in [
+            "", "2099-06", "209913", "209900", "20990", "2099061", "2099ab",
+        ] {
+            assert_eq!(
+                check_edition(bad),
+                Err(OperatorActionError::EditionIsAPromotion),
+                "{bad}"
+            );
+        }
+        assert!(OperatorAction::PromoteEdition.expires());
     }
 
     #[test]

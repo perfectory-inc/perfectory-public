@@ -139,12 +139,13 @@ def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> l
 
 
 def latest_edition_rows(spark: Any, table: str) -> int | None:
-    """Rows of the newest edition (기준일) the table holds; None while it holds none."""
+    """Rows of the newest edition (기준일) the table holds, by the contract's edition order (root
+    ADR-0286 §3, ADR-0328: the 기준일, then the load instant); None while it holds none."""
 
-    from pyspark.sql import functions as F  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
 
-    latest = spark.table(table).groupBy("source_snapshot_id").count().orderBy(F.desc("source_snapshot_id")).first()
-    return int(latest["count"]) if latest else None
+    rows = current_rows(spark.table(table), load_lakehouse_contract(TABLE)).count()
+    return rows or None
 
 
 def _summary_line(summary: Mapping[str, Any]) -> None:

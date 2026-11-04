@@ -369,10 +369,11 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + 45 + 3 * (115 + 30) + (60 + 30))
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + 45 + 6 * (115 + 30) + (60 + 30))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
                                          "gold_panel_rebuild", "by_pnu_serving_bake", "by_pnu_public_auction_bake",
-                                         "by_pnu_unit_price_bake", "by_pnu_parcel_ownership_bake",
+                                         "by_pnu_unit_price_bake", "by_pnu_parcel_ownership_bake", "by_pnu_parcel_demolitions_bake",
+                                         "by_pnu_parcel_energy_bake", "by_pnu_parcel_sub_parcels_bake",
                                          "by_pnu_parcel_regulation_zones_bake",
                                          "onbid_public_auction_silver", "rt_molit_real_transaction_silver"})
         # A fold (2 slots) never waits for the bake (1): they fit together.
@@ -492,7 +493,11 @@ LAND_LANES = [
     "silver_refresh_land_use_zone_code",
 ]
 # The hub lanes root ADR-0355 adds after the five above: the same shape, one source each.
-HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline", "silver_refresh_building_register_master"]
+HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline", "silver_refresh_building_register_master",
+                   "silver_refresh_building_permit_demolition_loss",
+                   "silver_refresh_building_energy_monthly_electricity",
+                   "silver_refresh_building_energy_monthly_gas",
+                   "silver_refresh_building_register_sub_parcel"]
 ALL_LANES = LANES + LAND_LANES + HUB_ADDED_LANES
 
 
@@ -524,6 +529,9 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertEqual(specs["by_pnu_parcel_ownership_bake"].producers, ("gold_parcel_ownership_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_regulation_zones_bake"].producers,
                          ("gold_parcel_regulation_zones_rebuild",))
+        self.assertEqual(specs["by_pnu_parcel_sub_parcels_bake"].producers, ("gold_parcel_sub_parcels_rebuild",))
+        self.assertEqual(specs["by_pnu_parcel_energy_bake"].producers, ("gold_parcel_energy_rebuild",))
+        self.assertEqual(specs["by_pnu_parcel_demolitions_bake"].producers, ("gold_parcel_demolitions_rebuild",))
         self.assertEqual(specs["by_pnu_public_auction_bake"].producers, ("gold_public_auction_rebuild",))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
@@ -721,8 +729,11 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         self.assertIn("onbid_public_auction_silver", blockers)
         self.assertIn("rt_molit_real_transaction_silver", blockers)
         self.assertIn("by_pnu_parcel_ownership_bake", blockers)
+        self.assertIn("by_pnu_parcel_demolitions_bake", blockers)
+        self.assertIn("by_pnu_parcel_energy_bake", blockers)
+        self.assertIn("by_pnu_parcel_sub_parcels_bake", blockers)
         self.assertIn("by_pnu_parcel_regulation_zones_bake", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + 45 + 3 * (115 + 30) + (60 + 30))
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + 45 + 6 * (115 + 30) + (60 + 30))
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])

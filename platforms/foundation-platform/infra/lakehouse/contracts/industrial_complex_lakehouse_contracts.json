@@ -17,6 +17,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -152,6 +155,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -327,6 +333,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -480,6 +489,589 @@
         "object_suffix_separator": null
       }
     },
+    "silver.building_energy_monthly_gas": {
+      "table_name": "silver.building_energy_monthly_gas",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_ym",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_amount",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "use_ym"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_register_sub_parcel": {
+      "table_name": "silver.building_register_sub_parcel",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "register_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sub_sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sub_bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sub_san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sub_bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sub_bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sub_pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "sub_pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_energy_monthly_electricity": {
+      "table_name": "silver.building_energy_monthly_electricity",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_ym",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_amount",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "use_ym"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_demolition_loss": {
+      "table_name": "silver.building_permit_demolition_loss",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_start_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_end_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "demolition_loss_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "total_floor_area_m2",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_count",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purpose_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purpose_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.industrial_complexes": {
       "table_name": "silver.industrial_complexes",
       "physical_format": "Parquet",
@@ -495,6 +1087,9 @@
         ],
         "removal_column": null,
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -705,6 +1300,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "valid_from_utc"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "boundary_id",
@@ -830,6 +1434,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "administrative_unit_id",
@@ -919,6 +1532,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": "valid_to_utc IS NULL",
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "valid_from_utc"
+        ],
+        "per": [],
+        "read": "pinned"
+      },
       "columns": [
         {
           "name": "boundary_id",
@@ -1060,6 +1682,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -1189,6 +1814,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -1330,6 +1958,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "layer_code",
@@ -1466,6 +2097,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -1578,6 +2212,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "floor_row_id",
@@ -1715,6 +2358,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "partition_spec": [],
       "sort_order": [
@@ -1928,6 +2574,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "unit_row_id",
@@ -2130,6 +2779,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "area_row_id",
@@ -2327,6 +2979,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "unwritten",
+        "reason": "planned: the dated membership fact of root ADR-0019 and ADR-0020; no production writer yet"
+      },
       "columns": [
         {
           "name": "membership_id",
@@ -2443,6 +3099,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "unit",
@@ -2534,6 +3194,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "complex_id"
+        ]
+      },
       "columns": [
         {
           "name": "complex_id",
@@ -2725,6 +3391,10 @@
       "serving_role": "SpatialLocator",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "unwritten",
+        "reason": "planned: the complex spatial pruning locator; no production writer yet"
+      },
       "columns": [
         {
           "name": "spatial_key",
@@ -2801,6 +3471,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2908,6 +3584,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -2964,6 +3646,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3020,6 +3708,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3081,6 +3775,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3137,6 +3837,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3193,6 +3899,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3258,6 +3970,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -3439,6 +4154,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3574,6 +4292,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -3721,6 +4442,9 @@
         "removal_column": "row_state",
         "keep_ties": true
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "pnu",
@@ -3865,6 +4589,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -4037,6 +4764,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "vintage",
+        "newest_first": [
+          "vintage"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "mgmt_key",
@@ -4152,6 +4888,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "vintage"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "mgm_bldrgst_pk",
@@ -4192,6 +4937,11 @@
           "name": "source_snapshot_id",
           "logical_type": "string",
           "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": false
         },
         {
           "name": "source_record_id",
@@ -4238,6 +4988,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -4370,6 +5123,9 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "mgm_bldrgst_pk",
@@ -4462,6 +5218,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -4519,6 +5281,13 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu",
+          "building_id"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -4576,6 +5345,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "complex_id"
+        ]
+      },
       "columns": [
         {
           "name": "complex_id",
@@ -4649,6 +5424,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "administrative_unit_id"
+        ]
+      },
       "columns": [
         {
           "name": "administrative_unit_id",
@@ -4733,6 +5514,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -4801,6 +5588,15 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "snapshot_date",
+        "newest_first": [
+          "snapshot_date"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "region_cd",
@@ -4888,6 +5684,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "change_key",
@@ -4971,6 +5771,17 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "provider_updated_on"
+        ],
+        "per": [
+          "source_region_code"
+        ],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "old_pnu",
@@ -5087,6 +5898,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -5466,6 +6280,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "cltr_mng_no",
@@ -5782,6 +6599,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "cltr_mng_no",
@@ -5868,6 +6688,16 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "per": [],
+        "read": "newest"
+      },
       "columns": [
         {
           "name": "serial_no",
@@ -5976,6 +6806,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -6227,6 +7060,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "court_office_code",
@@ -6459,6 +7295,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": "lineage_review_queue.steward_resolved"
+      },
       "columns": [
         {
           "name": "predecessor_pnu",
@@ -6550,6 +7390,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "parcel_id",
@@ -6626,6 +7470,13 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit",
+          "subject_code"
+        ]
+      },
       "columns": [
         {
           "name": "unit",
@@ -6696,6 +7547,14 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit",
+          "scope",
+          "place_id"
+        ]
+      },
       "columns": [
         {
           "name": "unit",
@@ -6761,6 +7620,16 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "unit",
+          "scope",
+          "place_id",
+          "code",
+          "valid_from"
+        ]
+      },
       "columns": [
         {
           "name": "unit",
@@ -6825,6 +7694,10 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "unit",
@@ -6900,6 +7773,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -6956,6 +7835,12 @@
       "serving_role": "Projection",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
       "columns": [
         {
           "name": "pnu",
@@ -7072,6 +7957,197 @@
         "unit": "derived"
       }
     },
+    "gold.parcel_sub_parcels": {
+      "table_name": "gold.parcel_sub_parcels",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sub_parcels_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_energy": {
+      "table_name": "gold.parcel_energy",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "energy_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_demolitions": {
+      "table_name": "gold.parcel_demolitions",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "demolitions_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "demolition_total",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "silver.onbid_announcement": {
       "table_name": "silver.onbid_announcement",
       "physical_format": "Parquet",
@@ -7087,6 +8163,9 @@
         ],
         "removal_column": null,
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -7243,6 +8322,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "onbid_pbanc_no",
@@ -7386,6 +8468,9 @@
         ],
         "removal_column": null,
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -7544,6 +8629,9 @@
         ],
         "removal_column": null,
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -7859,6 +8947,9 @@
         "removal_column": null,
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "pbanc_mng_no",
@@ -8060,6 +9151,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
@@ -8350,6 +9444,10 @@
       "serving_role": "Canonical",
       "current_row_predicate": null,
       "current_row_latest": null,
+      "row_versions": {
+        "kind": "events",
+        "canonical_reader": null
+      },
       "columns": [
         {
           "name": "dataset_slug",

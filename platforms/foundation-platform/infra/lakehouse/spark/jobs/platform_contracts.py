@@ -283,6 +283,91 @@ class CurrentRowLatest:
 # A removal marker's value in its table's `removal_column`; any other value, null included, is a row.
 REMOVED = "removed"
 
+ROW_VERSION_KINDS = ("replaced", "latest_per_key", "editions", "events", "unwritten")
+
+
+def row_versions(contract: dict[str, Any]) -> dict[str, Any]:
+    """How the table's rows pile up (root ADR-0286): required on every contract, and naming only the
+    table's own columns. ``latest_per_key`` details are ``current_row_latest``."""
+
+    table = contract.get("table_name")
+    value = contract.get("row_versions")
+    if not isinstance(value, dict) or value.get("kind") not in ROW_VERSION_KINDS:
+        raise ValueError(f"lakehouse contract {table} must declare row_versions as one of {ROW_VERSION_KINDS}")
+    names = {column["name"] for column in columns(contract)}
+    kind = value["kind"]
+    named = {
+        "replaced": list(value.get("key") or []),
+        "editions": [value.get("edition_column"), *(value.get("newest_first") or [None]), *(value.get("per") or [])],
+    }.get(kind, [])
+    if any(not isinstance(name, str) or name not in names for name in named):
+        raise ValueError(f"lakehouse contract {table} row_versions must name its own columns: {named}")
+    if (kind == "latest_per_key") != (current_row_latest(contract) is not None):
+        raise ValueError(f"lakehouse contract {table}: current_row_latest belongs to latest_per_key alone")
+    if kind == "editions" and value.get("read") not in ("newest", "pinned"):
+        raise ValueError(f"lakehouse contract {table} row_versions.read must be newest or pinned")
+    return value
+
+
+
+
+# What a write does to the table's main: add rows, replace the rows it covers, commit no rows to
+# record a snapshot property, or rewrite the same rows (a schema migration's backfill).
+WRITE_INTENTS = ("append", "replace", "record", "rewrite")
+
+
+class WriteRefused(ValueError):
+    """The table's contract does not allow this write (root ADR-0286)."""
+
+
+# A Gold's change record, `gold.<t>__changes` (root ADR-0191, ADR-0347 §4): the keys each commit of
+# `gold.<t>` changed, one appended step per commit. It has no table contract of its own; its shape is
+# fixed by the Gold it records, so it is declared here once.
+CHANGE_RECORD_SUFFIX = "__changes"
+
+
+def change_record_versions(table: str) -> dict[str, Any]:
+    """`row_versions` of a Gold's change record: `Events`, one row per changed key and step."""
+
+    # The shape is the record's own, whatever the Gold: a proof table records its steps the same way.
+    if not table.startswith("gold."):
+        raise ValueError(f"{table}: only a Gold table has a change record")
+    return {"kind": "events", "canonical_reader": None}
+
+
+def admit_write(contract_table: str, intent: str, *, target: str | None = None, branch: str | None = None) -> None:
+    """Refuse a write the table's `row_versions` does not allow, before anything is written.
+
+    Every Iceberg write in a job calls this first; a guard refuses a write that does not (root
+    ADR-0286 stage 3). A `Replaced` table's load replaces what it covers and never appends; every
+    other table only appends, since replacing it would drop the versions, editions or facts it
+    keeps; an `Unwritten` table takes no write at all. A staging write (a branch other than
+    `main`, or a target that is not the contract's table, such as a `_smoke` copy) is the load's
+    own and not checked against the declaration. `record` (no rows) and `rewrite` (the same
+    rows) change no row the declaration speaks about.
+    """
+
+    if intent not in WRITE_INTENTS:
+        raise ValueError(f"write intent must be one of {WRITE_INTENTS}, not {intent!r}")
+    if intent == "rewrite":
+        # The same rows, whatever the declaration: asked before the contract is loaded, so a
+        # migration of a table the artifact does not hold (a test's own) is not refused for that.
+        return
+    declared = row_versions(load_lakehouse_contract(contract_table)) if not contract_table.endswith(
+        CHANGE_RECORD_SUFFIX) else change_record_versions(contract_table)
+    kind = declared["kind"]
+    if kind == "unwritten":
+        raise WriteRefused(f"{contract_table} is Unwritten ({declared.get('reason')}): declare how its rows pile up first")
+    staging = branch not in (None, "main") or (
+        target is not None and target.replace("`", "").split(".")[-2:] != contract_table.split(".")
+    )
+    if staging or intent in ("record", "rewrite"):
+        return
+    if kind == "replaced" and intent == "append":
+        raise WriteRefused(f"{contract_table} is Replaced: a load replaces the rows it covers, it does not append")
+    if kind != "replaced" and intent == "replace":
+        raise WriteRefused(f"{contract_table} keeps every row ({kind}): a load appends, it does not replace")
+
 
 def current_row_latest(contract: dict[str, Any]) -> CurrentRowLatest | None:
     """The contract's newest-per-key rule (root ADR-0267), or ``None`` for an unversioned table."""
@@ -346,10 +431,21 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     one key that tie on every ``newest_first`` column are refused: picking one would be a rule this
     function does not have (root ADR-0267), unless the rule keeps ties: then every tied row is
     current. A key whose newest row is a removal marker has no current row (root ADR-0275).
+    A table that appends whole editions keeps the rows of its newest edition (``newest_edition``,
+    root ADR-0286 §3); one read by a pinned edition is read through ``pinned_edition``.
     """
 
     from pyspark.sql import Window, functions as F
 
+    # The artifact never carries both (`row_versions` checks it); a newest-per-key rule decides first.
+    versions = contract.get("row_versions") or {}
+    if versions.get("kind") == "editions" and contract.get("current_row_latest") is None:
+        if versions["read"] == "newest":
+            return newest_edition(frame, contract, versions)
+        # A pinned table has no default edition: its predicate's rows of every edition, each edition
+        # current by its own predicate (root ADR-0148), or a refusal when it declares none (ADR-0376 §2).
+        if current_row_predicate(contract) is None:
+            raise ValueError(f"{contract.get('table_name')} is read one pinned edition at a time: use pinned_edition")
     predicate = current_row_predicate(contract)
     if predicate is not None:
         frame = frame.where(F.expr(predicate))
@@ -373,6 +469,75 @@ def current_rows(frame: Any, contract: dict[str, Any]) -> Any:
     if latest.removal_column is None:
         return ranked
     return ranked.where(F.col(latest.removal_column).isNull() | (F.col(latest.removal_column) != F.lit(REMOVED)))
+
+
+def editions_of(contract: dict[str, Any]) -> dict[str, Any]:
+    """The `Editions` declaration of ``contract``; any other table is refused (root ADR-0286)."""
+
+    versions = row_versions(contract)
+    if versions["kind"] != "editions":
+        raise ValueError(f"{contract.get('table_name')} does not append editions ({versions['kind']})")
+    return versions
+
+
+def newest_edition(frame: Any, contract: dict[str, Any], versions: dict[str, Any] | None = None) -> Any:
+    """The rows of ``frame``'s newest edition, per ``per`` group, then the contract's predicate.
+
+    Editions are ordered by their maxima of ``newest_first``, compared in turn (Hudi's ordering field
+    applied per edition, root ADR-0286 §1); never by the edition id, which is not in time order. Two
+    editions of one group tied on every column are refused, as ``current_rows`` refuses a tie: the
+    commit-order tiebreak of ADR-0286 §1 needs a per-row commit sequence, which Iceberg exposes only
+    with v3 row lineage (shortcut: refuse until the tables are v3, then order the tie by
+    ``_last_updated_sequence_number``). The edition is chosen first and the predicate after it, so an
+    edition whose every row is closed is not passed over for an older one.
+    """
+
+    from pyspark.sql import Window, functions as F
+
+    versions = versions or editions_of(contract)
+    edition, order, per = versions["edition_column"], list(versions["newest_first"]), list(versions["per"])
+    maxima = [f"_edition_newest_{index}" for index in range(len(order))]
+    editions = frame.groupBy(*per, edition).agg(*(F.max(column).alias(name) for column, name in zip(order, maxima)))
+    ranked = editions.withColumn("_edition_rank", F.rank().over(
+        Window.partitionBy(*per).orderBy(*(F.col(name).desc_nulls_last() for name in maxima)))).where("_edition_rank = 1")
+    tied = ranked.groupBy(*per).count().where(F.col("count") > 1)
+    if tied.limit(1).count():
+        samples = [str(sample) for sample in (ranked.join(tied, per, "left_semi") if per else ranked).limit(5).toJSON().collect()]
+        raise ValueError(f"{contract.get('table_name')} holds editions tied on {order}, so none is the newest. "
+                         f"samples={samples}")
+    chosen = ranked.select(*(F.col(c).alias(f"_chosen_{c}") for c in [*per, edition]))
+    matches = [frame[c].eqNullSafe(chosen[f"_chosen_{c}"]) for c in [*per, edition]]
+    rows = frame.join(F.broadcast(chosen), matches, "left_semi")
+    predicate = current_row_predicate(contract)
+    return rows if predicate is None else rows.where(F.expr(predicate))
+
+
+def pinned_edition(frame: Any, contract: dict[str, Any], edition: str) -> Any:
+    """The rows of the one edition the caller names, then the contract's predicate (root ADR-0286 §3)."""
+
+    # SQL text, as the served reader filtered before it moved here (root ADR-0379): the edition is a
+    # literal with its quotes doubled, and the column a contract name.
+    quoted = str(edition).replace("'", "''")
+    rows = frame.where(f"`{editions_of(contract)['edition_column']}` = '{quoted}'")
+    predicate = current_row_predicate(contract)
+    return rows if predicate is None else rows.where(predicate)
+
+
+def all_rows(frame: Any, contract: dict[str, Any]) -> Any:
+    """Every row of every version and edition, for a write that keeps them all: a schema backfill
+    rewrites the table's rows as they are, whatever it keeps (root ADR-0286 §3). Not a current read:
+    the declared access point that says so, so the reader guard can tell it from a raw read. Any
+    shape is rewritten the same way, so the contract is not consulted (a test's own table has none)."""
+
+    del contract
+    return frame
+
+
+def all_editions(frame: Any, contract: dict[str, Any]) -> Any:
+    """Every edition, for a reader that reads them as history: the declared access point for it."""
+
+    editions_of(contract)
+    return frame
 
 
 def rows_as_of(frame: Any, contract: dict[str, Any], release: str) -> Any:

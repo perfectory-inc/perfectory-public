@@ -298,7 +298,7 @@ def run(spark, args, pins):
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
                 added = ensure_contract_table(spark, target_table, GOLD_CONTRACT)
                 panel.apply_gold_read_properties(spark, target_table)
-                outcome.commit(spark, target_table, pins, args.iceberg_write_mode)
+                outcome.commit(spark, target_table, pins, args.iceberg_write_mode, contract_table=GOLD_CONTRACT_NAME)
                 committed = current_snapshot(spark, target_table)
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    GOLD_CONTRACT_NAME, pins)

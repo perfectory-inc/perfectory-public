@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -164,7 +164,7 @@ pub const SILVER_LAND_CHARACTERISTIC: LakehouseTableContract = LakehouseTableCon
     current_row_predicate: None,
     // A release appends only the rows of its changed keys and a removal marker per vanished key
     // (root ADR-0275, ADR-0311); a key's version is every row of its newest release.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["pnu"],
         // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
         newest_first: &["source_snapshot_id", "ingested_at_utc"],

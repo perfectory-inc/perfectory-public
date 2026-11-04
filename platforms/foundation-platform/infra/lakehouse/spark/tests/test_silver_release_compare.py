@@ -61,9 +61,13 @@ class VersionOrderTest(unittest.TestCase):
                 latest = current_row_latest(load_lakehouse_contract(block["table"]))
                 editions[block["table"]] = job.edition_column(latest)
         self.assertEqual(editions, {
+            "silver.building_energy_monthly_electricity": "vintage",
+            "silver.building_energy_monthly_gas": "vintage",
             "silver.building_permit_basis_outline": "vintage",
+            "silver.building_permit_demolition_loss": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
+            "silver.building_register_sub_parcel": "vintage",
             "silver.building_register_titles": "valid_from_utc",
             "silver.building_register_unit_areas": "valid_from_utc",
             "silver.building_register_units": "valid_from_utc",
@@ -111,6 +115,18 @@ class BucketTest(unittest.TestCase):
             job.parse_args([*ARGS, "--deadline-utc", "2099-01-01T00:00:00"])
         with self.assertRaises(ValueError):
             job.parse_args([*ARGS, "--bucket-prefix-length", "-1"])
+
+    def test_a_release_scoped_compare_reads_only_the_release_buckets(self):
+        # 월별 에너지: a 202606 release says nothing of 202605's keys, so main is not a side.
+        staged, main = object(), object()
+        self.assertEqual(job.compared_sides("release", staged, main), [staged])
+        self.assertEqual(job.compared_sides("table", staged, main), [staged, main])
+
+    def test_a_release_scope_needs_buckets(self):
+        base = [*ARGS, "--bucket-scope", "release"]
+        with self.assertRaisesRegex(ValueError, "bucket-prefix-length"):
+            job.parse_args(base)
+        self.assertEqual(job.parse_args([*base, "--bucket-prefix-length", "6"]).bucket_scope, "release")
 
     def test_the_null_bucket_and_the_empty_bucket_are_two_names(self):
         self.assertEqual(job.bucket_label(None), "null")

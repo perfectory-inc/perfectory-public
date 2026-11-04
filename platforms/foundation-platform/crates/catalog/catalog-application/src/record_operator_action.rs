@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use catalog_domain::operator_action::{
-    check_reason, check_window, OperatorAction, OperatorActionError, RunWindow,
-    RUN_NOW_EXPIRY_MINUTES,
+    check_edition, check_reason, check_window, OperatorAction, OperatorActionError, RunWindow,
+    PROMOTION_EXPIRY_HOURS, PROMOTION_JOB, RUN_NOW_EXPIRY_MINUTES,
 };
 use chrono::{DateTime, Duration, Utc};
 use foundation_shared_kernel::ids::StaffId;
@@ -23,6 +23,8 @@ pub struct RecordOperatorActionInput {
     pub action: String,
     /// The window a `set_window` sets; none for the other actions.
     pub window: Option<RunWindow>,
+    /// The edition a `promote_edition` asks to serve, `YYYYMM`; none for the other actions.
+    pub edition: Option<String>,
     /// Drop the pending runs too (a pause only).
     pub drop_pending: bool,
     /// Why, in one line.
@@ -84,9 +86,22 @@ impl RecordOperatorAction {
         if let Some(window) = &input.window {
             check_window(window)?;
         }
+        match (&input.edition, action) {
+            (Some(edition), OperatorAction::PromoteEdition) => check_edition(edition)?,
+            (None, OperatorAction::PromoteEdition) | (Some(_), _) => {
+                return Err(OperatorActionError::EditionIsAPromotion.into())
+            }
+            (None, _) => {}
+        }
+        if action == OperatorAction::PromoteEdition && input.job_id != PROMOTION_JOB {
+            return Err(OperatorActionError::PromotionIsTheReadinessChecks.into());
+        }
         let expires_at = match (&input.window, action) {
             (Some(window), _) => Some(now + Duration::hours(window.hours)),
             (None, OperatorAction::RunNow) => Some(now + Duration::minutes(RUN_NOW_EXPIRY_MINUTES)),
+            (None, OperatorAction::PromoteEdition) => {
+                Some(now + Duration::hours(PROMOTION_EXPIRY_HOURS))
+            }
             (None, _) => None,
         };
         let record = OperatorActionRecord {
@@ -100,6 +115,7 @@ impl RecordOperatorAction {
             expires_at,
             window_start: input.window.as_ref().map(|window| window.start.clone()),
             window_end: input.window.map(|window| window.end),
+            edition: input.edition,
         };
         self.switches.ready()?;
         self.ledger.record(&record).await?;

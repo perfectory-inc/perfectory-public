@@ -262,8 +262,11 @@ def authenticate_registered_source(spark: Any, receipt: dict, witness: dict,
                   "retention_kind": "registered_append", "derivation": derivation}
     else:
         from pyspark.sql import functions as F
-        current = (spark.read.format("iceberg").option("snapshot-id", str(head)).load(name)
-                   .where(F.col("source_snapshot_id") == receipt["source_snapshot_id"]))
+        from platform_contracts import load_lakehouse_contract, pinned_edition
+        # The receipt names one generation of the floors (`Editions`, root ADR-0286 §3).
+        current = pinned_edition(spark.read.format("iceberg").option("snapshot-id", str(head)).load(name),
+                                 load_lakehouse_contract("silver.building_register_floors"),
+                                 receipt["source_snapshot_id"])
         # Snapshot expiry may remove the registry without removing the rows. Never reappend
         # such a source under the assumption that a missing registry means unprocessed.
         if derivation is None and current.limit(1).count():

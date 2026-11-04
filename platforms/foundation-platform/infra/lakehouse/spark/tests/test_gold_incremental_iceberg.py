@@ -17,8 +17,10 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 SILVER = "silver"
 
@@ -286,7 +288,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         data = self.building_v1()
         batch_a, batch_b = "price:1|exclusive:2|vintage:202501", "price:3|exclusive:4|vintage:202601"
         prices_a = [{**row, "source_snapshot_id": batch_a} for row in data["prices"]]
-        # Floor batches are ordered by their ingest instant (newest_floor_batch).
+        # Floor batches are ordered by their ingest instant (the floors contract's `newest_first`).
         floors_a = [{**row, "ingested_at_utc": datetime(2098, 1, 1)} for row in data["floors"]]
         data = {**data, "prices": prices_a, "floors": floors_a}
         pins1 = {names[k]: self.put(names[k], rows) for k, rows in data.items()}
@@ -467,6 +469,62 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
                                       {pnu(i) for i in range(0, 41) if i != 2}, fraction=1.0)
         self.assertEqual(json.loads(self.rows("parcel_panel", job)[pnu(1)].legal_dong_json),
                          {"name": "synthetic-si new-dong", "lowest_name": None})
+
+    def test_a_promotion_merges_only_the_parcels_the_two_editions_differ_in(self):
+        """Root ADR-0381: the served edition moves while no Silver snapshot does. The comparison side
+        reads the edition the Gold was built from, so exactly the PNUs one edition holds and the other
+        does not are recomputed, and the merge equals a full rebuild on the new edition."""
+        import parcel_edition_readiness as readiness
+        import parcel_panel_silver_to_gold as job
+        import vworld_parcel_editions as editions
+        from test_parcel_edition_readiness import CANDIDATE, NOW, SERVED, contract, evidence
+
+        held = contract()
+        promoted = readiness.promote(held, readiness.readiness(held, evidence(), NOW), CANDIDATE, "op", "why", NOW)
+        paths = {}
+        for name, value in (("held", held), ("promoted", promoted)):
+            paths[name] = Path(self.directory.name) / f"parcel-contract-{name}.json"
+            paths[name].write_text(json.dumps(value), encoding="utf-8")
+        old, new = editions.snapshot_id(held, SERVED), editions.snapshot_id(held, CANDIDATE)
+
+        for name in (*job.ALL_SOURCES, job.LINEAGE_SOURCE):
+            self.create(name)
+        # 209906 holds PNUs 1-20; 209910 retired 20 and added 21. Every other parcel is in both.
+        parcels = ([{"pnu": pnu(i), "boundary_id": f"a{i}", "source_snapshot_id": old} for i in range(1, 21)]
+                   + [{"pnu": pnu(i), "boundary_id": f"b{i}", "source_snapshot_id": new} for i in [*range(1, 20), 21]])
+        prices = [{"pnu": pnu(i), "base_year": "2025", "base_month": "1", "price_per_m2": str(100 * i),
+                   "announced_date": "2025-05-31", "source_snapshot_id": "price-v1", "source_record_id": f"p{i}"}
+                  for i in range(1, 22)]
+        names = [{"region_cd": "9999900000", "full_name": "synthetic-si synthetic-dong", "status": "존재",
+                  "snapshot_date": date(2099, 1, 1), "source_record_id": "synthetic-b",
+                  "ingested_at_utc": datetime(2099, 1, 1), "lowest_name": "synthetic-dong"}]
+        data = {job.PARCEL_SOURCE: parcels, job.PRICE_SOURCE: prices, job.LEGAL_DONG_SOURCE: names,
+                job.ZONE_CODE_SOURCE: [{"ucode": "UQA100", "parent_ucode": "000000", "uname": "zone",
+                                        "source_snapshot_id": "zc-v1"}]}
+        pins = {name: self.put(name, data.get(name, [])) for name in (*job.ALL_SOURCES, job.LINEAGE_SOURCE)}
+
+        with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(paths["held"])}):
+            self.run_job(job, pins, "parcel_promotion", "2099-08-01T00:00:00Z")
+        self.assertEqual(self.gold_head("parcel_promotion").summary["foundation.served-parcel-edition"], old)
+        before = self.rows("parcel_promotion", job)
+        self.assertIn(pnu(20), before)
+        self.assertNotIn(pnu(21), before)
+
+        with mock.patch.dict(os.environ, {editions.CONTRACT_ENV: str(paths["promoted"])}):
+            merged = self.run_job(job, pins, "parcel_promotion", "2099-09-01T00:00:00Z", previous=pins,
+                                  extra=("--incremental-from-parcel-edition", old))
+            self.run_job(job, pins, "parcel_promotion_full", "2099-09-01T00:00:00Z")
+        self.assertEqual(merged["rebuild"]["mode"], "incremental", merged["rebuild"])
+        self.assertEqual(merged["rebuild"]["changed_inputs"], [job.PARCEL_SOURCE], merged["rebuild"])
+        self.assertEqual(merged["rebuild"]["counts"]["affected_pnus"], 2, merged["rebuild"])
+        self.assertEqual((merged["rebuild"]["counts"]["deleted_pnus"], merged["rebuild"]["counts"]["inserted_pnus"]), (1, 1))
+        self.assertEqual(self.content("parcel_promotion", job), self.content("parcel_promotion_full", job))
+        self.assertEqual(self.gold_head("parcel_promotion").summary["foundation.served-parcel-edition"], new)
+        after = self.rows("parcel_promotion", job)
+        self.assertNotIn(pnu(20), after)
+        self.assertIn(pnu(21), after)
+        for key in sorted(set(before) - {pnu(20), pnu(21)}):
+            self.assertEqual(after[key], before[key], f"{key} is in both editions but its row changed")
 
     def assert_merge_equals_full(self, job, pins, previous, published, reached, fraction=0.9):
         """Merges `pins` over `previous` incrementally, reaching exactly `reached`, and compares every

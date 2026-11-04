@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0395-the-building-register-sub-parcels-land-in-silver-with-both-parcels.md",
+  "source": "bronze/source=hubgokr__building_register_sub_parcel",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_djy_05",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 123,423,078 바이트, 멤버 mart_djy_05.txt 1,354,013,295 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 5,492,042 행, 모든 행 33칸, 관리건축물대장PK 1,298,409 개(한 키에 최대 774 행), 같은 행이 통째로 되풀이되는 것 11,748 행. 대장 대지의 PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 5,491,984 행(99.999%), 부속 지번의 PNU 입력 5,483,195 행(99.84%). 칸 뜻은 건축HUB 건축물대장 부속지번 API(getBrAtchJibunInfo) 항목 순서와 표본 행의 값(대장종류 1–4, 대지구분 0/1/2, 생성일자 YYYYMMDD)으로 맞췄다. 2026-09 판과 비교하면 키 1,294,600 → 1,298,409, 새 키 5,406·바뀐 키 2,182·사라진 키 1,597 이다.",
+  "field_layout_authority": "건축HUB 건축물대장 부속지번 항목 순서와 2026-10 판 실측 표본의 교차 확인",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대장구분·대지위치·도로명대지위치·건물명·특수지명·블록·로트·새주소·부속대장구분·부속 특수지명·블록·로트·기타지번명·생성일자)은 뜻을 추정하지 않고 raw_columns 의 원래 index 로만 보존한다. 칸 7(건물명)에는 개인 이름이 들어 있는 행이 있다: 화면에 내보내지 않는다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_djy_05.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 33,
+  "columns": {
+    "mgmt_key": {
+      "index": 0,
+      "meaning": "관리건축물대장PK 원문"
+    },
+    "register_kind_code": {
+      "index": 3,
+      "meaning": "대장종류코드 원문(1 총괄표제부·2 일반건축물·3 표제부·4 전유부)"
+    },
+    "register_kind_name": {
+      "index": 4,
+      "meaning": "대장종류명 원문"
+    },
+    "sigungu_cd": {
+      "index": 8,
+      "meaning": "대장 대지의 시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 9,
+      "meaning": "대장 대지의 법정동코드"
+    },
+    "san_gubun": {
+      "index": 10,
+      "meaning": "대장 대지의 HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 11,
+      "meaning": "대장 대지의 번 원문"
+    },
+    "bubeon": {
+      "index": 12,
+      "meaning": "대장 대지의 지 원문"
+    },
+    "sub_sigungu_cd": {
+      "index": 23,
+      "meaning": "부속 시군구코드 — 건물이 함께 선 다른 필지"
+    },
+    "sub_bjdong_cd": {
+      "index": 24,
+      "meaning": "부속 법정동코드"
+    },
+    "sub_san_gubun": {
+      "index": 25,
+      "meaning": "부속 HUB 대지구분코드(0 대지·1 산·2 블록; 실측 2026-10 에 3–9·'-'·빈칸 25,711 행이 섞여 있다)"
+    },
+    "sub_bonbeon": {
+      "index": 26,
+      "meaning": "부속 번 원문"
+    },
+    "sub_bubeon": {
+      "index": 27,
+      "meaning": "부속 지 원문"
+    }
+  },
+  "extra_pnus": {
+    "sub_pnu": {
+      "sigungu_cd": "sub_sigungu_cd",
+      "bjdong_cd": "sub_bjdong_cd",
+      "san_gubun": "sub_san_gubun",
+      "bonbeon": "sub_bonbeon",
+      "bubeon": "sub_bubeon"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_register_sub_parcel",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-register-sub-parcel.service 의 실행 값(root ADR-0169 §3, ADR-0395). 판은 장부가 정한다. 부분은 판의 load branch 에 쌓고, compare 가 main 의 현재 행과 mgmt_key 마다 그 대장의 부속지번 행 묶음(되풀이 포함)을 비교해 바뀐 대장의 행과 사라진 대장의 삭제 표시만 changes branch 에 키 앞 두 자리 묶음마다 커밋하고(실측 세 묶음: 10 355,295·11 550,768·12 392,346 키), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 판마다 바뀌는 vintage·적재 열은 content_columns 에 넣지 않는다.",
+    "table": "silver.building_register_sub_parcel",
+    "roles": {
+      "source": "hubgokr__building_register_sub_parcel"
+    },
+    "export": "export-building-register-sub-parcel-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "register_kind_code",
+        "register_kind_name",
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "sub_sigungu_cd",
+        "sub_bjdong_cd",
+        "sub_san_gubun",
+        "sub_bonbeon",
+        "sub_bubeon",
+        "pnu",
+        "sub_pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 2
+    }
+  }
+}

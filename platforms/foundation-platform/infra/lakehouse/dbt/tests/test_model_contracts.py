@@ -563,6 +563,35 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
         self.assertIsNone(self.DIRECT_SOURCE.search("from {{ foundation_current_rows('unit_official_price') }}"))
         self.assertIsNone(self.DIRECT_SOURCE.search("from {{ source('gongzzang', 'court_auction_property') }}"))
 
+    def test_an_editions_table_renders_its_newest_edition_by_its_order(self) -> None:
+        """Root ADR-0286 §3: the unit price batches are editions ordered by `vintage`, not by their id."""
+        macro = self.render.render()
+        self.assertIn("'unit_official_price': {'predicate': none, 'key': none, 'newest_first': ['vintage'], "
+                      "'removal': none, 'edition': 'source_snapshot_id', 'per': []},", macro)
+        self.assertIn("max({{ column }}) desc nulls last", macro)
+        # A one-row array, not a join: Trino built a join's hash on the 1.2B-row table (2026-11-04).
+        self.assertIn("where contains((", macro)
+        self.assertIn("select array_agg(row({{ group | join(', ') }}))", macro)
+
+    def test_the_key_test_covers_every_source_whose_current_key_is_unique(self) -> None:
+        """Root ADR-0286 §4: `rank() = 1` keeps tied rows; dbt checks the key Spark refuses ties on."""
+        checked_in = (DBT_ROOT / "tests" / "foundation_current_keys_are_unique.sql").read_text(encoding="utf-8")
+        sources = self.render.foundation_tables(self.render.SOURCES.read_text(encoding="utf-8"))
+        self.assertEqual(checked_in, self.render.render_key_test(sources), "run python render_current_rows.py")
+        real = self.render.load_lakehouse_contract
+
+        def strict(name):
+            contract = copy.deepcopy(real(name))
+            if name == "silver.land_right_registration":
+                contract["current_row_latest"] = {**contract["current_row_latest"], "keep_ties": False}
+            return contract
+
+        with mock.patch.object(self.render, "load_lakehouse_contract", side_effect=strict):
+            planted = self.render.render_key_test(sources)
+        self.assertIn("from {{ foundation_current_rows('land_right_registration') }}\ngroup by pnu, right_serial_no\n"
+                      "having count(*) > 1", planted)
+        self.assertNotIn("building_register_unit'", planted, "a source that keeps ties is not checked")
+
     def test_a_declared_newest_per_key_rule_renders_the_newest_row_per_key(self) -> None:
         real = self.render.load_lakehouse_contract
 
@@ -579,6 +608,5 @@ class FoundationCurrentRowsMacroTest(unittest.TestCase):
                       "'newest_first': ['ingested_at_utc'], 'removal': 'source_record_id'},", macro)
         # A key whose newest row is a removal marker has no current row, as in Spark (ADR-0275).
         self.assertIn("and ({{ rule['removal'] }} is null or {{ rule['removal'] }} <> 'removed')", macro)
-        self.assertIn("'unit_official_price': none,", macro, "an unversioned table is read as it is")
         self.assertIn("rank() over (", macro)
         self.assertIn("where _current_row_rank = 1", macro)

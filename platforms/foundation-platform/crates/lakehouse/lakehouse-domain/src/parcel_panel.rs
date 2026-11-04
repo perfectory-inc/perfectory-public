@@ -6,8 +6,8 @@
 //! baked object, so a section the API could not serve cannot be baked either.
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const GOLD_PARCEL_PANEL_COLUMNS: &[LakehouseColumn] = &[
@@ -116,7 +116,9 @@ pub const GOLD_PARCEL_PANEL: LakehouseTableContract = LakehouseTableContract {
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Projection,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Replaced {
+        key: LakehouseRowKey::Columns(&["pnu"]),
+    },
     columns: GOLD_PARCEL_PANEL_COLUMNS,
     // Follows the canonical parcel table it projects: the snapshot the rows were built from.
     partition_spec: &["source_snapshot_id"],

@@ -160,20 +160,23 @@ def candidates(address: str, prefixes: Mapping[str, str], dongs: Mapping[tuple[s
 def current_legal_dongs(spark: Any, catalog: str) -> list[tuple[str, str]]:
     """(code, full name) of the newest snapshot's current 법정동 codes."""
 
-    table = f"`{catalog}`.`reference`.`legal_dong_code_snapshot`"
-    newest = spark.sql(f"SELECT max(snapshot_date) AS d FROM {table}").collect()[0]["d"]
-    rows = spark.sql(f"SELECT region_cd, full_name FROM {table} WHERE snapshot_date = DATE '{newest}' "
-                     "AND status = '존재'").collect()
+    from legal_dong_code_snapshot_to_reference import newest_snapshot  # noqa: PLC0415
+
+    rows = (newest_snapshot(spark, f"`{catalog}`.`reference`.`legal_dong_code_snapshot`")
+            .where("status = '존재'").select("region_cd", "full_name").collect())
     return [(row["region_cd"], row["full_name"]) for row in rows]
 
 
 def lakehouse_inputs(spark: Any, catalog: str) -> tuple[Any, Any]:
-    """The current parcels' PNUs and the building register titles, as ``resolve`` reads them."""
+    """The served parcels' PNUs and the building register titles, as ``resolve`` reads them.
+
+    A PNU resolves only to a parcel of the served edition (root ADR-0291 §5): every edition's rows
+    are current, and a parcel only a newer edition holds is one the map does not serve."""
 
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from vworld_parcel_editions import served_rows  # noqa: PLC0415
 
-    parcels = current_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`"),
-                           load_lakehouse_contract("silver.parcel_boundaries")).select("pnu").distinct()
+    parcels = served_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`")).select("pnu").distinct()
     # The register appends only each release's changed buildings (root ADR-0318): its current rows.
     titles = current_rows(spark.table(f"`{catalog}`.`silver`.`building_register_titles`"),
                           load_lakehouse_contract("silver.building_register_titles")).select("pnu", "road_address_raw")

@@ -4,7 +4,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const fn column(name: &'static str, logical_type: &'static str, required: bool) -> LakehouseColumn {
@@ -33,7 +33,9 @@ pub const SILVER_REAL_TRANSACTION_REJECTED: LakehouseTableContract = LakehouseTa
     physical_format: LakehousePhysicalFormat::Parquet,
     serving_role: LakehouseServingRole::Canonical,
     current_row_predicate: None,
-    current_row_latest: None,
+    row_versions: LakehouseRowVersions::Events {
+        canonical_reader: None,
+    },
     columns: SILVER_REAL_TRANSACTION_REJECTED_COLUMNS,
     partition_spec: &[],
     sort_order: &["source_record_id", "source_line_number"],

@@ -63,6 +63,7 @@ from typing import Any, Callable
 
 from changelog import CHANGES_SUFFIX, FROM_SNAPSHOT, TO_SNAPSHOT, chain
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
+from platform_contracts import admit_write
 
 KEY = "pnu"
 DELETE_FLAG = "_foundation_delete"
@@ -95,6 +96,10 @@ def add_arguments(parser: Any) -> None:
     parser.add_argument("--incremental-from-snapshots",
                         help="JSON file of the Silver pins the current Gold was built from: recompute only "
                              "the PNUs whose inputs changed since, and merge them (root ADR-0180).")
+    parser.add_argument("--incremental-from-parcel-edition", default=None,
+                        help="The served cadastral edition (its source_snapshot_id) the current Gold was built "
+                             "from, when the contract serves another now: the comparison side reads it, so a "
+                             "promotion recomputes only the PNUs whose parcel inputs differ (root ADR-0381).")
     parser.add_argument("--max-changed-key-fraction", type=float, default=None,
                         help="Above this fraction of the Gold's PNUs, run the full rebuild instead.")
     parser.add_argument("--parity-sample-keys", type=int, default=0,
@@ -138,7 +143,16 @@ def validate_arguments(args: Any, sources: tuple[str, ...]) -> dict[str, str] | 
     unknown = sorted(set(previous) - set(sources))
     if unknown:
         raise ValueError(f"--incremental-from-snapshots names inputs this producer does not read: {unknown}")
-    return {name: snapshot_id(value) for name, value in previous.items()}
+    pins = {name: snapshot_id(value) for name, value in previous.items()}
+    edition = getattr(args, "incremental_from_parcel_edition", None)
+    if edition is not None:
+        import vworld_parcel_editions as parcel_editions  # noqa: PLC0415
+
+        if parcel_editions.PARCEL_TABLE not in pins:
+            raise ValueError("--incremental-from-parcel-edition names the edition of an input this run does not pin")
+        parcel_editions.edition_of_snapshot_id(parcel_editions.load(), edition)
+        pins[parcel_editions.SERVED_EDITION_PIN] = edition
+    return pins
 
 
 def input_tag(gold_table: str) -> str:
@@ -146,12 +160,32 @@ def input_tag(gold_table: str) -> str:
     return INPUT_TAG_PREFIX + gold_table.replace(".", "-")
 
 
-def changed_inputs(previous: dict[str, str], current: dict[str, str]) -> list[str]:
-    """Inputs whose pinned snapshot moved. Every current input must have a previous pin."""
+def changed_inputs(previous: dict[str, str], current: dict[str, str], served_edition: str | None = None) -> list[str]:
+    """Inputs whose pinned snapshot moved. Every current input must have a previous pin.
+
+    The parcels also change when the served edition moved (a promotion, root ADR-0381): their Silver
+    snapshot is the same, both editions being loaded, but the served universe is another edition.
+    `previous` then names the edition the current Gold was built from; `served_edition` is the one
+    served now."""
+    from vworld_parcel_editions import PARCEL_TABLE, SERVED_EDITION_PIN  # noqa: PLC0415
+
     missing = sorted(set(current) - set(previous))
     if missing:
         raise IncrementalRefusal(f"the current Gold was not built from {missing}")
-    return sorted(name for name in current if previous[name] != current[name])
+    moved = {name for name in current if previous[name] != current[name]}
+    if PARCEL_TABLE in current and previous.get(SERVED_EDITION_PIN, served_edition) != served_edition:
+        moved.add(PARCEL_TABLE)
+    return sorted(moved)
+
+
+def served_parcel_snapshot(previous: dict[str, str]) -> str | None:
+    """The served edition's snapshot id, read only when the previous pins name an edition."""
+    import vworld_parcel_editions as parcel_editions  # noqa: PLC0415
+
+    if parcel_editions.SERVED_EDITION_PIN not in previous:
+        return None
+    contract = parcel_editions.load()
+    return parcel_editions.snapshot_id(contract, parcel_editions.served(contract))
 
 
 def change_fraction_verdict(affected: int, gold_rows: int, max_fraction: float) -> str | None:
@@ -341,7 +375,7 @@ class Outcome:
     # A whole overwrite's changed keys, as it recorded them (root ADR-0347).
     overwrite_changes: dict[str, int] | None = None
 
-    def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str) -> None:
+    def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str, *, contract_table: str) -> None:
         """Write the full Gold in `write_mode`, or merge the changed PNUs; one snapshot either way.
 
         Root ADR-0274 §1: a full build whose content fingerprint equals the current Gold's rewrites
@@ -361,15 +395,16 @@ class Outcome:
             properties = {} if built is None else {gold_fingerprint.PROPERTY: built}
             self.content_unchanged = built is not None and built == current
             if self.content_unchanged:
-                write_gold_snapshot(spark.table(table).limit(0), table, "append", pins, F.lit(True), properties)
+                write_gold_snapshot(spark.table(table).limit(0), table, "append", pins, F.lit(True), properties,
+                                    contract_table=contract_table, record=True)
                 record_changes(spark, table, None)
                 if self.publish_changed_keys is not None:
                     self.merged, self.published = False, {"by": "metadata", "counts": {"affected_pnus": 0}}
                 return
             if self.publish_changed_keys is not None and spark.catalog.tableExists(table.replace("`", "")):
-                self.publish_by_key(spark, table, pins, properties)
+                self.publish_by_key(spark, table, pins, properties, contract_table=contract_table)
                 return
-            self.overwrite_recording_changes(spark, table, write_mode, pins, properties)
+            self.overwrite_recording_changes(spark, table, write_mode, pins, properties, contract_table=contract_table)
             return
         started = time.monotonic()
         # An empty merge leaves the content as it is, so it keeps the current fingerprint.
@@ -378,12 +413,12 @@ class Outcome:
                                       {**pins_properties(table, pins),
                                        KEYS_CHANGED_PROPERTY: str(keys_changed(self.merge["counts"]))},
                                       self.merge["row_key"],
-                                      unchanged)
+                                      unchanged, contract_table=contract_table)
         phase_done("merge", started)
         record_changes(spark, table, self.merge["source"] if self.merged else None)
 
     def overwrite_recording_changes(self, spark: Any, table: str, write_mode: str, pins: dict[str, str],
-                                    properties: dict[str, str]) -> None:
+                                    properties: dict[str, str], *, contract_table: str) -> None:
         """Write the full Gold whole, and record the keys it changed like any other commit (root ADR-0347).
 
         The keys are the publish's own difference (`merge_source`: `row_key` and `row_digest` against
@@ -400,7 +435,8 @@ class Outcome:
         from gold_rebuild import write_gold_snapshot
 
         if not spark.catalog.tableExists(table.replace("`", "")):
-            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties)
+            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), properties,
+                                contract_table=contract_table)
             return
         started = time.monotonic()
         stages = Stages(spark)
@@ -419,14 +455,16 @@ class Outcome:
                 changed = None
             started = phase_done("overwrite-diff", started)
             recorded = {} if changed is None else {KEYS_CHANGED_PROPERTY: str(keys_changed(counts))}
-            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), {**properties, **recorded})
+            write_gold_snapshot(self.gold, table, write_mode, pins, F.lit(True), {**properties, **recorded},
+                                contract_table=contract_table)
             phase_done("overwrite", started)
             if changed is not None:
                 record_changes(spark, table, changed)
         finally:
             stages.remove()
 
-    def publish_by_key(self, spark: Any, table: str, pins: dict[str, str], properties: dict[str, str]) -> None:
+    def publish_by_key(self, spark: Any, table: str, pins: dict[str, str], properties: dict[str, str], *,
+                       contract_table: str) -> None:
         """Write-Audit-Publish a full build (root ADR-0321 §5, Netflix's Iceberg WAP).
 
         Write: the build goes to the shadow branch AUDIT_BRANCH, made from main's head; main and its
@@ -448,7 +486,8 @@ class Outcome:
         branch = checked_ref(AUDIT_BRANCH)
         head = int(current_snapshot(spark, table))
         spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE BRANCH `{branch}` AS OF VERSION {head}")
-        write_gold_snapshot(self.gold, table, "overwrite", pins, F.lit(True), properties, branch=branch)
+        write_gold_snapshot(self.gold, table, "overwrite", pins, F.lit(True), properties, branch=branch,
+                            contract_table=contract_table)
         shadow = spark.table(f"{table}.`branch_{branch}`")
         written = shadow.count()
         if written != self.row_count:
@@ -465,12 +504,14 @@ class Outcome:
             started = phase_done("diff", started)
             if changed > self.publish_changed_keys * max(gold_pnus, 1):
                 catalog, namespace, name = table.replace("`", "").split(".")
+                # Main becomes the shadow's full write: it replaces every row (root ADR-0286).
+                admit_write(contract_table, "replace", target=table)
                 spark.sql(f"CALL `{catalog}`.system.fast_forward('{namespace}.{name}', 'main', '{branch}')")
                 self.merged, by = True, "fast_forward"
             else:
                 self.merged = merge_into_gold(spark, table, source, {**pins_properties(table, pins), **properties,
                                                                      KEYS_CHANGED_PROPERTY: str(keys_changed(counts))},
-                                              self.row_key)
+                                              self.row_key, contract_table=contract_table)
                 by = "merge" if self.merged else "metadata"
             phase_done("publish", started)
             record_changes(spark, table, source if self.merged else None)
@@ -524,7 +565,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     reason, changed, appended = None, [], []
     if previous is not None:
         try:
-            changed = changed_inputs(previous, pins)
+            changed = changed_inputs(previous, pins, served_parcel_snapshot(previous))
             whole = [name for name in changed if name in lane.whole_table_inputs]
             if whole:
                 raise IncrementalRefusal(f"{whole} changed, and a change there is not mapped to PNUs")
@@ -824,7 +865,8 @@ def merge_sql(table: str, columns: list[str], row_key: tuple[str, ...] = (KEY,))
 
 
 def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, str],
-                    row_key: tuple[str, ...] = (KEY,), unchanged_properties: dict[str, str] | None = None) -> bool:
+                    row_key: tuple[str, ...] = (KEY,), unchanged_properties: dict[str, str] | None = None,
+                    *, contract_table: str) -> bool:
     """Merge `source` into `table` by `row_key` in one snapshot carrying `properties`. False when
     it was empty.
 
@@ -832,6 +874,8 @@ def merge_into_gold(spark: Any, table: str, source: Any, properties: dict[str, s
     `unchanged_properties`, what stays true of unchanged content), so the Gold records that it
     reflects the new Silver pins and the next plan starts from them.
     """
+    # A merge replaces the changed keys' rows (root ADR-0286).
+    admit_write(contract_table, "replace", target=table)
     apply_row_level_mode(spark, table, contract_row_level_mode())
     if source.limit(1).count() == 0:
         empty = spark.table(table).limit(0)
@@ -886,6 +930,7 @@ def record_changes(spark: Any, table: str, changed: Any | None) -> None:
         head = int(current_snapshot(spark, table))
         parent = spark.sql(f"SELECT parent_id FROM {table}.snapshots WHERE snapshot_id = {head}").first()[0]
         target = changes_table(table)
+        admit_write(".".join(target.replace("`", "").split(".")[-2:]), "append", target=target)
         spark.sql(f"CREATE TABLE IF NOT EXISTS {target} ({KEY} string, {FROM_SNAPSHOT} bigint, "
                   f"{TO_SNAPSHOT} bigint) USING iceberg PARTITIONED BY ({TO_SNAPSHOT})")
         marker = spark.createDataFrame([(None,)], f"{KEY} string")

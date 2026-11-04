@@ -9,11 +9,14 @@ pub mod industrial_complex_gold_pointer;
 /// JSONL transport contract for the industrial-complex Bronze-to-Silver job.
 pub mod industrial_complex_jsonl_transport;
 
+mod building_energy_monthly;
 mod building_panel;
 mod building_permit_basis_outline;
+mod building_permit_demolition_loss;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod building_register_master;
+mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
 mod land_characteristic;
@@ -34,9 +37,6 @@ mod unit_price_panel;
 /// Provider-neutral table contracts.
 pub mod lakehouse;
 
-/// Lakehouse maintenance planning contracts.
-pub mod lakehouse_maintenance;
-
 /// Provider-neutral Lakehouse lineage event contract.
 pub mod lakehouse_lineage_event;
 
@@ -49,12 +49,17 @@ pub mod lakehouse_registry;
 /// Spark batch run summary handoff contracts.
 pub mod lakehouse_run_summary;
 
+pub use building_energy_monthly::{
+    SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY, SILVER_BUILDING_ENERGY_MONTHLY_GAS,
+};
 pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
+pub use building_permit_demolition_loss::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS;
 pub use building_register_apartment_price::{
     SILVER_BUILDING_REGISTER_APARTMENT_PRICE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
 };
 pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT;
 pub use building_register_master::SILVER_BUILDING_REGISTER_MASTER;
+pub use building_register_sub_parcel::SILVER_BUILDING_REGISTER_SUB_PARCEL;
 pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
@@ -68,10 +73,11 @@ pub use industrial_complex_jsonl_transport::{
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,
-    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    LakehouseWriteDistribution, GOLD_ADMINISTRATIVE_BOUNDARY_SERVED, GOLD_BUILDING_PANEL,
-    GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer,
+    LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution, NewestEditionError,
+    GOLD_ADMINISTRATIVE_BOUNDARY_SERVED, GOLD_BUILDING_PANEL, GOLD_COMPLEX_CATALOG,
+    GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     GOLD_LINEAGE_REVIEW_QUEUE, GOLD_PARCEL_PANEL, GOLD_PLACE_ID_BRIDGE, GOLD_PLACE_ID_CHANGELOG,
     GOLD_PLACE_ID_REGISTRY, REFERENCE_LEGAL_DONG_CODE_CHANGE, REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
     SILVER_ADMINISTRATIVE_BOUNDARIES, SILVER_BUILDING_REGISTER_FLOORS,
@@ -92,11 +98,6 @@ pub use lakehouse::{
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,
     LAKEHOUSE_LINEAGE_EVENT_SCHEMA_VERSION, LAKEHOUSE_LINEAGE_EVENT_TYPE,
-};
-pub use lakehouse_maintenance::{
-    plan_lakehouse_maintenance, BasisPoints, LakehouseMaintenanceAction,
-    LakehouseMaintenanceActionKind, LakehouseMaintenancePlan, LakehouseMaintenancePolicy,
-    LakehouseTableHealth, LakehouseTableHealthError, LakehouseTableHealthMetrics,
 };
 pub use lakehouse_quality::{
     evaluate_lakehouse_quality_rules, LakehouseQualityError, LakehouseQualityEvaluation,

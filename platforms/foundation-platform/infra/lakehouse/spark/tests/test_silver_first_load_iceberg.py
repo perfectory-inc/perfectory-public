@@ -323,13 +323,13 @@ class ObjectFirstLoadTest(unittest.TestCase):
                 ensure_contract_table(self.spark, table, contract)
                 columns = column_names(contract)
                 with_rows = frame(self.spark, contract, "bronze/first-a.json.gz", [1, 2])
-                self.assertTrue(ingest.append_source_object(self.spark, with_rows, columns, table, "bronze/first-a.json.gz"))
+                self.assertTrue(ingest.append_source_object(self.spark, with_rows, columns, table, "bronze/first-a.json.gz", contract_table=contract_name))
                 # An object with nothing new is still recorded, so it is not fetched again.
-                self.assertTrue(ingest.append_source_object(self.spark, with_rows.limit(0), columns, table, "bronze/first-b.json.gz"))
+                self.assertTrue(ingest.append_source_object(self.spark, with_rows.limit(0), columns, table, "bronze/first-b.json.gz", contract_table=contract_name))
                 self.assertEqual(set(ingest.read_ingested_objects(self.spark, table, unquoted)),
                                  {"bronze/first-a.json.gz", "bronze/first-b.json.gz"})
                 self.assertEqual(len(main_snapshots(self.spark, table)), 2, "one commit per object")
-                self.assertFalse(ingest.append_source_object(self.spark, with_rows, columns, table, "bronze/first-a.json.gz"))
+                self.assertFalse(ingest.append_source_object(self.spark, with_rows, columns, table, "bronze/first-a.json.gz", contract_table=contract_name))
                 self.assertEqual(self.spark.table(table).count(), 2)
 
 

@@ -1,0 +1,23 @@
+[Unit]
+Description=Foundation Platform cadastral edition readiness: judge each edition the source contract holds, only those whose inputs moved, and write the report the operator console shows (ADR-0379, ADR-0380)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+ExecStart=/opt/foundation-platform/current/scripts/ops/parcel-edition-readiness.sh
+# Measured 2026-11-04: the partition metadata query and both judgements together take seconds.
+TimeoutStartSec=10m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/parcel-editions
+
+[Install]
+WantedBy=multi-user.target

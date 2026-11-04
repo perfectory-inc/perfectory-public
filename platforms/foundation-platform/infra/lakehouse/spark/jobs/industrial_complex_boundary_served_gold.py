@@ -37,7 +37,7 @@ from industrial_complex_boundaries_silver_to_postgis_handoff import (
     validate_identifier,
 )
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
-from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
+from platform_contracts import admit_write, column_names, declared_geometry_srid, load_lakehouse_contract
 
 JOB_NAME = "industrial_complex_boundary_served_gold"
 UNIT = "complex"
@@ -226,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             ],
             schema=contract_schema(SERVED_CONTRACT),
         ).select(*SERVED_COLUMNS).createOrReplaceTempView("served_candidate")
+        admit_write(SERVED_CONTRACT["table_name"], "replace", target=served_table)
         spark.sql(f"INSERT OVERWRITE {served_table} SELECT {', '.join(SERVED_COLUMNS)} FROM served_candidate")
         persisted = spark.sql(f"SELECT count(*) AS n FROM {served_table}").collect()[0]["n"]
         if persisted != len(served):

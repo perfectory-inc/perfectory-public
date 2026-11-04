@@ -23,6 +23,9 @@
       "!apps/web/lib/api/public-auction.generated.ts",
       "!apps/web/lib/api/ownership.generated.ts",
       "!apps/web/lib/api/regulation-zones.generated.ts",
+      "!apps/web/lib/api/sub-parcels.generated.ts",
+      "!apps/web/lib/api/energy.generated.ts",
+      "!apps/web/lib/api/demolitions.generated.ts",
       "!services/gongzzang-api/openapi.json",
       "!packages/api-types/generated/schema.ts",
       "!pnpm-lock.yaml"

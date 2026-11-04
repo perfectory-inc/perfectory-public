@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -82,7 +82,7 @@ pub const SILVER_BUILDING_PERMIT_BASIS_OUTLINE: LakehouseTableContract = Lakehou
     current_row_predicate: None,
     // A monthly release appends only its changed permits and a removal marker per vanished permit
     // (root ADR-0318); a permit's version is its newest vintage's rows (ADR-0328).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgmt_key"],
         newest_first: &["vintage", "ingested_at_utc"],
         removal_column: Some("row_state"),

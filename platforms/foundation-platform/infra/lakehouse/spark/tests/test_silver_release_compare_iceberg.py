@@ -78,12 +78,12 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
                                            write_mode="overwrite", branch=branch)
         self.assertEqual(outcome["ref"], branch)
 
-    def compare(self, vintage, branch, bucket_prefix_length=0, deadline_utc=None, now=None):
+    def compare(self, vintage, branch, bucket_prefix_length=0, deadline_utc=None, now=None, bucket_scope="table"):
         import silver_release_compare as job
 
         args = Namespace(contract=CONTRACT, branch=branch, source_snapshot_id=release(vintage),
                          objects=f"bronze/{vintage}.zip", content_columns=",".join(CONTENT),
-                         changes_branch=f"changes_{branch}", bucket_prefix_length=bucket_prefix_length,
+                         changes_branch=f"changes_{branch}", bucket_prefix_length=bucket_prefix_length, bucket_scope=bucket_scope,
                          deadline_utc=deadline_utc, iceberg_catalog_name="proof")
         return job.compare_and_append(self.spark, args, now=now)
 
@@ -154,12 +154,24 @@ class SilverReleaseCompareIcebergTest(unittest.TestCase):
         # Both records chain from the September pin's parent: an empty step reads nothing.
         self.assertEqual(changelog.changes_between(self.spark, TABLE, before, self.head()).count(), 5)
 
+        # A release that states one bucket only (월별 에너지: one usage month, root ADR-0396) compares
+        # that bucket alone: lot 3 changes, and no other lot is marked removed.
+        scoped = [(3, 1, "merge, worded a third time")]
+        self.stage("21000101", scoped, "load_scoped")
+        summary = self.compare("21000101", "load_scoped", 15, bucket_scope="release")
+        self.assertEqual((summary["outcome"], summary["buckets"], summary["changed_key_rows"], summary["removed_keys"]),
+                         ("staged", 1, 1, 0))
+        self.publish("load_scoped")
+        expected = Counter((lot(n), s, r) for n, s, r in september if n != 3) + Counter((lot(n), s, r) for n, s, r in scoped)
+        self.assertEqual(self.current(), expected)
+
     def test_an_overwrite_of_main_by_a_comparing_lane_is_refused(self):
         import lakehouse_ingest as ingest
 
         if not self.spark.table(UNQUOTED).count():
             ingest.append_batch_once(self.spark, self.frame("20990301", [(9, 1, "x")]), self.columns, TABLE, CONTRACT)
-        with self.assertRaisesRegex(ValueError, "on main"):
+        # The declaration refuses it first (root ADR-0286): the table keeps every version.
+        with self.assertRaisesRegex(ValueError, "keeps every row"):
             ingest.append_batch_once(self.spark, self.frame("20990401", [(9, 1, "y")]), self.columns, TABLE,
                                      CONTRACT, write_mode="overwrite")
 

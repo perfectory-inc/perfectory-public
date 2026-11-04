@@ -13,6 +13,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+# The proof tables are not the contract's table, so admit_write treats them as staging (root ADR-0286).
+CONTRACT = "gold.parcel_panel"
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
 SCHEMA = "pnu string, payload string, row_digest string"
@@ -57,7 +60,7 @@ class CodeChangePublishIcebergTest(unittest.TestCase):
         self.spark.sql(f"CREATE TABLE {table} ({SCHEMA}) USING iceberg")
         with mock.patch("gold_code_version.of_running_producer", return_value="V1"):
             incremental.Outcome(mode="full", row_count=len(V1), metrics={},
-                                gold=self.frame(V1).repartitionByRange(4, "pnu")).commit(self.spark, table, PINS, "overwrite")
+                                gold=self.frame(V1).repartitionByRange(4, "pnu")).commit(self.spark, table, PINS, "overwrite", contract_table=CONTRACT)
         return table
 
     def frame(self, rows):
@@ -69,7 +72,7 @@ class CodeChangePublishIcebergTest(unittest.TestCase):
         outcome = incremental.Outcome(mode="full", row_count=len(rows), metrics={}, gold=self.frame(rows).cache(),
                                       publish_changed_keys=fraction)
         with mock.patch("gold_code_version.of_running_producer", return_value="V2"):
-            outcome.commit(self.spark, table, {"silver.example": "12"}, "overwrite")
+            outcome.commit(self.spark, table, {"silver.example": "12"}, "overwrite", contract_table=CONTRACT)
         return outcome
 
     def head(self, table):
