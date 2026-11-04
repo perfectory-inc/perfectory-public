@@ -197,7 +197,6 @@ scripts/guard/no-subdir-github.sh,12,true,ci,xtask,Guard run by monorepo-guard.s
 scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides.sh,14,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/osv-vulnerability-ratchet-self-test.sh,127,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/package-publication-policy-self-test.sh,122,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/pinned-downloads-self-test.sh,84,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/pinned-downloads.sh,6,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)

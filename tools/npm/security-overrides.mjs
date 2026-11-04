@@ -19,7 +19,6 @@ import { fileURLToPath } from "node:url";
 
 export const CONTRACT_PATH = "tools/npm/security-overrides.contract.json";
 export const TECHNOLOGY_CONTRACT_PATH = "tools/technology-versions.contract.json";
-export const BASELINE_PATH = "tools/osv-vulnerability-baseline.tsv";
 const KINDS = new Set(["security", "technology-pin"]);
 const ADVISORY = /^(GHSA(-[23456789cfghjmpqrvwx]{4}){3}|CVE-\d{4}-\d{4,})$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -368,16 +367,6 @@ export function check(root) {
 
 // ---------------------------------------------------------------- OSV report -> contract proposal
 
-export function readBaselineGroups(text) {
-  const groups = new Set();
-  for (const line of text.split(/\r?\n/)) {
-    if (!line || line.startsWith("#")) continue;
-    const [ecosystem, name, group] = line.split("\t");
-    groups.add(`${ecosystem}\t${name}\t${group}`);
-  }
-  return groups;
-}
-
 // The fixed release of the affected range that contains `version`; null when that range has
 // no fix or the advisory does not cover the version.
 export function fixedVersionFor(vulnerability, name, version) {
@@ -411,8 +400,8 @@ export function fixedVersionFor(vulnerability, name, version) {
 }
 
 // Returns { contract, changes, unfixable } without writing anything. Only npm findings in a
-// pnpm lockfile whose advisory group is not already accepted in the OSV baseline count.
-export function proposeFromReport(contract, report, baselineGroups, today) {
+// pnpm lockfile count; the report already leaves out what `osv-scanner.toml` accepts (root ADR-0414).
+export function proposeFromReport(contract, report, today) {
   const findings = new Map();
   const unfixable = [];
   for (const result of report.results ?? []) {
@@ -422,7 +411,6 @@ export function proposeFromReport(contract, report, baselineGroups, today) {
       if (ecosystem !== "npm" || !parseVersion(version ?? "")) continue;
       for (const group of finding.groups ?? []) {
         const ids = [...new Set(group.ids ?? [])].sort();
-        if (baselineGroups.has(`npm\t${name}\t${ids.join(",")}`)) continue;
         let fixed = null;
         let blocked = false;
         for (const vulnerability of finding.vulnerabilities ?? []) {
@@ -555,13 +543,7 @@ export function main(argv) {
       const today = options.today ?? new Date().toISOString().slice(0, 10);
       if (!DATE.test(today)) throw new ContractError("--today must be YYYY-MM-DD");
       const contractPath = join(root, CONTRACT_PATH);
-      const baselinePath = join(root, BASELINE_PATH);
-      const { contract, changes, unfixable } = proposeFromReport(
-        loadJson(contractPath),
-        loadJson(options.report),
-        readBaselineGroups(existsSync(baselinePath) ? readFileSync(baselinePath, "utf8") : ""),
-        today,
-      );
+      const { contract, changes, unfixable } = proposeFromReport(loadJson(contractPath), loadJson(options.report), today);
       // A proposal that breaks the contract must not reach the disk.
       validateContract(contract, loadJson(join(root, TECHNOLOGY_CONTRACT_PATH)), trackedTrees(root));
       const lines = [

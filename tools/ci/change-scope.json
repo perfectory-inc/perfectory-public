@@ -682,13 +682,6 @@
         ]
       },
       {
-        "name": "osv-vulnerability-ratchet-self-test",
-        "paths": [
-          "tools/xtask/src/ci.rs",
-          "tools/osv-vulnerability-baseline.tsv"
-        ]
-      },
-      {
         "name": "npm-security-overrides-self-test",
         "paths": [
           "tools/npm/**"

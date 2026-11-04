@@ -4,8 +4,9 @@
 //!   Actions job's PATH; the one pinned fetcher (`scripts/ci/fetch_pinned.py`, root ADR-0197) downloads
 //!   and checks the archive before anything is extracted (root ADR-0155).
 //! - `osv-gate [--report-path <path>] [repository]` scans every tracked `Cargo.lock` and `pnpm-lock.yaml`
-//!   with the pinned OSV-Scanner and holds the findings to `tools/osv-vulnerability-baseline.tsv`
-//!   (root ADR-0028). Threat model: honest-mistake detection, not unpublished flaws or a compromised OSV.
+//!   with the pinned OSV-Scanner under the one allow list `osv-scanner.toml` (root ADR-0414): an advisory
+//!   it does not list, or one whose `ignoreUntil` has passed, fails. Threat model: honest-mistake
+//!   detection, not unpublished flaws or a compromised OSV.
 //! - `postgres-production-shape <database url> <base commit>` (root ADR-0259 §8): when the change touches
 //!   Foundation's migrations or this gate, a self-test (a planted nullable column applies onto seeded
 //!   rows, a planted required one fails), then the change's new migrations onto main's schema holding
@@ -163,14 +164,16 @@ fn scan_and_check(
         "error",
         "--output-file",
     ])
-    .arg(&report);
+    .arg(&report)
+    .arg("--config")
+    .arg(root.join("osv-scanner.toml"));
     for lockfile in lockfiles {
         scan.arg("-L").arg(target.join(lockfile));
     }
     let status = scan
         .status()
         .map_err(|error| format!("cannot run OSV-Scanner: {error}"))?;
-    // 1 means findings; the baseline check below decides whether they are allowed.
+    // 0 = nothing outside the allow list; 1 = findings the allow list does not cover.
     if !matches!(status.code(), Some(0 | 1)) {
         return Err(format!("OSV-Scanner exited {status}"));
     }
@@ -180,16 +183,27 @@ fn scan_and_check(
         lockfiles.len(),
         report.display()
     );
-    Ok(Command::new("python3")
-        .arg(root.join("scripts/guard/check-osv-vulnerability-baseline.py"))
-        .arg("--baseline")
-        .arg(root.join("tools/osv-vulnerability-baseline.tsv"))
-        .arg("--report")
-        .arg(&report)
-        .status()
-        .map_err(|error| format!("cannot run the baseline check: {error}"))?
-        .success())
+    if status.code() == Some(0) {
+        return Ok(true);
+    }
+    // One `advisory` annotation per finding: the host's service checks read them from the daily
+    // run on main and page #alerts (root ADR-0278). The report holds only what the allow list does not.
+    if std::env::var("GITHUB_ACTIONS").as_deref() == Ok("true") {
+        succeed(
+            Command::new("python3").args(["-c", ANNOTATE]).arg(&report),
+            "OSV advisory annotations",
+        )?;
+    }
+    Ok(false)
 }
+
+const ANNOTATE: &str = "import json, sys
+report = json.load(open(sys.argv[1], encoding='utf-8'))
+seen = sorted({(','.join(sorted(set(g['ids']))), p['package']['ecosystem'] + '/' + p['package']['name'])
+               for r in report['results'] for p in r['packages'] for g in p['groups']})
+for ids, package in seen:
+    print(f'::error title=advisory::{ids} {package}')
+";
 
 fn postgres_production_shape(root: &Path, url: &str, base: &str) -> Result<(), String> {
     let gate = root.join("scripts/ci/foundation_postgres_production_shape.py");
