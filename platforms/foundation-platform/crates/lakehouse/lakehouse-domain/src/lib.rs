@@ -22,6 +22,7 @@ mod building_register_master;
 mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
+mod data_go_kr_file_data;
 mod land_characteristic;
 mod land_forest_ledger;
 mod land_ownership;
@@ -68,6 +69,11 @@ pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNI
 pub use building_register_master::SILVER_BUILDING_REGISTER_MASTER;
 pub use building_register_sub_parcel::SILVER_BUILDING_REGISTER_SUB_PARCEL;
 pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
+pub use data_go_kr_file_data::{
+    DATA_GO_KR_FILE_DATA_TABLES, SILVER_ADM_DONG_CODE_LINKAGE, SILVER_AIRPORT,
+    SILVER_COMMERCIAL_DISTRICT, SILVER_DONG_POPULATION, SILVER_HIGHWAY_ACCESS_POINT,
+    SILVER_HOUSEHOLD_COUNT, SILVER_PORT, SILVER_RAILWAY_STATION,
+};
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,

@@ -1072,6 +1072,698 @@
         "object_suffix_separator": null
       }
     },
+    "silver.highway_access_point": {
+      "table_name": "silver.highway_access_point",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "administrative_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.household_count": {
+      "table_name": "silver.household_count",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "administrative_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.dong_population": {
+      "table_name": "silver.dong_population",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "administrative_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.railway_station": {
+      "table_name": "silver.railway_station",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_basis",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.port": {
+      "table_name": "silver.port",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_basis",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.airport": {
+      "table_name": "silver.airport",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_basis",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.commercial_district": {
+      "table_name": "silver.commercial_district",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_basis",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.adm_dong_code_linkage": {
+      "table_name": "silver.adm_dong_code_linkage",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "row_key"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "columns": [
+        {
+          "name": "row_key",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "provider_fields_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "administrative_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_unresolved_reason",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "row_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "only new or changed keys and removal markers are appended",
+        "provider_fields_json holds every header column"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_permit_parking": {
       "table_name": "silver.building_permit_parking",
       "physical_format": "Parquet",
