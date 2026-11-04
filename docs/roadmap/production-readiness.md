@@ -152,6 +152,11 @@ last_reviewed: 2026-10-31
 | 열쇠 오프사이트 보관(Zitadel masterkey·백업 키) | 사장 "나중에"(10-12) | 실사용자 오픈 전, 직원 추가, 서버 이전 | 결정 기록 없음 |
 | 크기 상한 건물 묶음(256 KiB 넘는 동 분할) | Workers Paid 라 실트래픽 근거를 기다림(10-06) | 큰 동에서 p95/p99 문제가 보일 때 | 결정 기록 없음 |
 
+### 8. 하이엔드 정리 (사장 지시 2026-11-04)
+
+- 결정: [ADR-0410](../adr/0410-the-repository-is-held-to-five-testable-cleanup-rules-and-every-artifact-comes-from-one-declared-definition.md)(정리 규칙 다섯 개, 선언 하나에서 생성, 범주마다 0 을 지키는 가드).
+- 전수 목록과 순서: [하이엔드 정리 인벤토리](./high-end-cleanup-inventory.md). 항목·순서·진행은 거기가 정본이다.
+
 ## 우선순위 0 — 출시 전 필수 게이트
 
 ### Kafka 이벤트 전달
