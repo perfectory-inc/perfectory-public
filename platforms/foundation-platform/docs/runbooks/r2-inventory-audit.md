@@ -26,7 +26,7 @@ Cloudflare R2 bucket의 현재 object를 읽기 전용으로 수집한 뒤 Found
 | `control/evidence/bronze-catalog-recovery/<kind>/<file>` | `bronze_catalog_recovery_evidence` | `keep` | Bronze Catalog 복구 적용의 내용 주소 증거 |
 | `control/evidence/` | `control_evidence` | `keep` | 운영 증거. 지우지 않는다 |
 | `gold/manifest.json` | `runtime_manifest_pointer` | `keep` | canonical runtime manifest pointer |
-| by-PNU 서빙 키(manifest·base 객체·patch 객체·교체된 manifest 이력, pack 레인 manifest·이력) | `*_by_pnu_serving_*` | `keep` | `r2_layout::by_pnu` 가 알아보는 키 (루트 ADR-0096·0141·0190) |
+| by-PNU 서빙 키(manifest·base 객체·patch 객체·교체된 manifest 이력, pack 레인 manifest·이력) | `*_by_pnu_serving_*` | `keep` | `r2_layout::by_pnu` 가 알아보는 키 (루트 ADR-0147·0141·0190) |
 | `gold/vector-tiles/artifacts/`, `gold/vector-tiles/manifests/`, `gold/vector-tiles/releases/`, `gold/parcel-marker-anchors/artifacts/` | `runtime_spatial_artifact` | `keep` | 불변 공간 산출물·manifest |
 | `gold/v<숫자>/…`, `gold/parcel-marker-anchor-pbf/`, `gold/parcel-marker-anchor-aggregate-pbf/`, `gold/parcel-marker-anchor-runtime/`, `artifacts/` 밖의 `gold/parcel-marker-anchors/` | `legacy_gold_artifact` | `review` | 옛 Gold 배치. **보호 대상이 아니다** — 아래 "보호되는 것과 아닌 것" |
 | `silver-handoff/` | `silver_handoff_artifact` | `keep` | 재생 가능한 승격 입력·감사 출력 |

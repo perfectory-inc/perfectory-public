@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: reference
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # perfectory 역할별 기술 스택·환경 기준표
@@ -18,7 +18,7 @@ local/CI/staging/production에서 어떤 backend를 바라보는지를 한 곳�
 2. local/CI/staging/production의 차이는 endpoint, credentials, tenancy, capacity뿐이다.
 3. 다른 major/minor 버전이나 다른 제품을 쓰려면 먼저 ADR·호환성 검증·마이그레이션을 남긴다.
 4. `Redis`라는 환경변수·crate명은 Redis wire protocol client 계약일 뿐, runtime 제품은
-   Valkey 8이다.
+   Valkey 다.
 5. `local/CI 전용`과 `production 선정·배선 완료`를 같은 상태로 기록하지 않는다.
 
 출시 전 임시 운영 정책: 개발자 PC에서 실행하더라도 현재 private `.env.local`은
@@ -37,28 +37,28 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 
 ## 1. canonical 버전 기준
 
-| 역할 | canonical 기술/버전 | 근거·현재 상태 |
+| 역할 | canonical 기술(버전은 계약이 소유) | 근거·현재 상태 |
 |---|---|---|
 | Rust backend/toolchain | Rust (`tools/technology-versions.contract.json` 의 `rust_toolchain`) | 루트 `rust-toolchain.toml`, Docker builder, `docs/adr/0001`가 단일 기준. 실행 중 |
-| HTTP backend | Axum `0.8`, Tokio workspace | 네 플랫폼의 API/worker Cargo manifest. 실행 중 |
+| HTTP backend | Axum, Tokio — 판은 각 Cargo workspace 가 소유 | 네 플랫폼의 API/worker Cargo manifest. 실행 중 |
 | JavaScript runtime | Node — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | `.nvmrc`·CI `node-version`·package `engines`가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | JavaScript package manager | pnpm — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | `packageManager`가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | Frontend core | Next.js, React/React DOM, TypeScript — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | 매니페스트가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
 | Frontend build/test | Tailwind, Vite, Vitest, Turborepo, Biome — 정확한 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json)만 소유 | 매니페스트가 계약 값과 일치하는지 guard가 대조 (ADR-0097) |
-| Relational database | PostgreSQL `17` | 모노레포 ADR 0001의 전역 규칙. 모든 Compose DB 이미지 통일 |
-| Spatial database | PostGIS `3.5` on PostgreSQL `17` | Foundation/Gongzzang/tile proof Compose 통일 |
+| Relational database | PostgreSQL — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | 모노레포 ADR 0001의 전역 규칙. 모든 Compose DB 이미지 통일 |
+| Spatial database | PostGIS on PostgreSQL — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Foundation/Gongzzang/tile proof Compose 통일 |
 | Static tile release toolchain | `martin-cp`, `mbtiles`, `pmtiles` | 버전·배포물·실행 파일·이미지 신원은 [`static-release-toolchain.contract.json`](../platforms/foundation-platform/config/static-release-toolchain.contract.json)만 소유 |
-| Cache | Valkey `8` (Redis protocol) | Gongzzang ADR 0007 및 모든 앱 Compose 통일 |
+| Cache | Valkey (Redis protocol) — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Gongzzang ADR 0007 및 모든 앱 Compose 통일 |
 | Object storage | Cloudflare R2, S3 API | `aws-sdk-s3` adapter. 출시 전에는 private 설정으로 production R2 공유; 이후 dev R2 분리. MinIO 미채택 |
-| C2 broker | Redpanda `v24.3.6` | Intelligence local/CI compose 전용 |
-| C2 schema registry | Karapace `6.2.0` | Intelligence local/CI compose 전용 |
-| Lakehouse compute | Spark `3.5.6`, Trino `481` | Foundation lakehouse Compose |
+| C2 broker | Redpanda — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Intelligence local/CI compose 전용 |
+| C2 schema registry | Karapace — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Intelligence local/CI compose 전용 |
+| Lakehouse compute | Spark, Trino — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Foundation lakehouse Compose |
 | 층 자료 임시 그룹 처리 | DuckDB — 정확한 crate 버전은 [Foundation Cargo workspace](../platforms/foundation-platform/Cargo.toml)가 소유 | 기존 Rust 정규화에 완전한 건물 그룹을 전달. 영속 원장 아님. [ADR-0127](./adr/0127-floor-duckdb-staging-preserves-normalization-and-native-resource-contracts.md), 기존 Cargo 검증 경로에서 검사하며 운영 설치·실행은 별도 확인 |
 | Unix 입력 파일 열기 | [rustix](https://github.com/bytecodealliance/rustix) — 버전은 Foundation Cargo workspace/lockfile 소유 | 파일 교체 중에도 no-follow·nonblocking open을 보장. 직접 syscall/OS 숫자 상수를 만들지 않음 |
-| Lakehouse table/catalog | Iceberg Spark runtime `1.6.1`, R2 REST catalog 설정 | 자격증명 주입 시 실행; 기본 Compose는 shell |
-| SQL transform | dbt-trino project | 9개 model, staging/intermediate/silver만 존재 |
-| Observability | Prometheus `v3.5.0`, Alertmanager `v0.28.1`, tracing/OpenTelemetry/Sentry adapters | Compose/manifest 실행 경로 확인 |
-| Identity provider | Zitadel `v2.65.1` local image | local Compose만 실행 중; production provider/version 배선 미완료 |
+| Lakehouse table/catalog | Iceberg Spark runtime — 판과 최소 판은 [lakehouse-engine.contract.json](../platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json) `iceberg` 만 소유, R2 REST catalog 설정 | 자격증명 주입 시 실행; 기본 Compose는 shell |
+| SQL transform | dbt-trino project | 모델 목록은 `platforms/foundation-platform/infra/lakehouse/dbt/models` 가 소유 |
+| Observability | Prometheus, Alertmanager — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유; tracing/OpenTelemetry/Sentry adapters | Compose/manifest 실행 경로 확인 |
+| Identity provider | Zitadel local image — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | local Compose만 실행 중; production provider/version 배선 미완료 |
 
 ## 1.1 채택 애플리케이션 라이브러리 — 직접 만들기 전에 여기부터 본다
 
@@ -115,7 +115,7 @@ es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필�
 |---|---|---|---|---|---|
 | 공공 source HTTP / Foundation | `reqwest` + rustls로 VWorld/data.go.kr/hub.go.kr/rt.molit 호출 | mock/fixture 또는 보호된 live smoke | 같은 HTTP adapter + staging credentials | 같은 HTTP adapter + production credentials/quota | 실행 중. provider credential은 환경별 |
 | Bronze raw bytes / Foundation | 기준은 원격 dev R2지만 출시 전 private 설정은 production R2 공유 | 보호된 live smoke는 전용 CI R2, credential-free smoke는 logging adapter | 전용 staging R2 bucket | 전용 production R2 bucket | 실행 중. `FOUNDATION_PLATFORM_RUNTIME_ENV`와 bucket guard가 강제 |
-| Bronze ledger / Foundation | PostgreSQL 17 + SQLx | ephemeral PostgreSQL | staging PostgreSQL 17 | production PostgreSQL 17 | 실행 중. DB endpoint만 변경 |
+| Bronze ledger / Foundation | PostgreSQL + SQLx | ephemeral PostgreSQL | staging PostgreSQL | production PostgreSQL | 실행 중. DB endpoint만 변경 |
 | outbox/event ledger / Foundation | PostgreSQL outbox + 선택형 Kafka 전달기 + 기존 웹훅/로그 전달기 | 고정 Redpanda/Karapace 실브로커 + Postgres round-trip + outage 계약 테스트 | 관리형 Kafka 호스트와 인증정보 필요 | 관리형 Kafka와 주제/권한 운영 필요 | Kafka는 명시적으로 켤 때만 사용하며 Postgres outbox가 원장; 운영 전 `kafka-integration` 게이트 필수 |
 | collection JobBus / Foundation | 실행 중인 hub.go.kr bulk collector가 PostgresJobBus claim/ack를 사용 | 메모리/fixture + 폐기 가능한 Postgres 계약 테스트 | staging PostgreSQL을 쓰는 같은 adapter | production PostgreSQL을 쓰는 같은 adapter | 레거시 API executor는 비활성화했고 dry-run은 의도적으로 DB/JobBus를 건너뜀 |
 | Silver handoff / Foundation | Spark/Python fixture·JSONL/Parquet | 결정론적 fixture 작업 | Spark batch runtime + R2/Iceberg 자격증명 필요 | 관리형 Spark 호환 runtime + R2/Iceberg | batch 코드는 있으나 실제 backend 종단 간 증거는 제한적 |
@@ -125,10 +125,10 @@ es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필�
 | Catalog publish / Foundation | 기준은 dev R2 + local Postgres지만 출시 전 private 설정은 production R2/catalog 공유 | logging/protected smoke | staging R2/Postgres | production R2/Postgres | code path 실행 중, production rollout gate 필요 |
 | normalization proposal / Intelligence | local PostgreSQL workflow + mock/provider gateway | mock or explicit protected LLM lane | LLM provider credentials 필요 | LLM provider/quotas/approval policy 필요 | proposal adapter/worker 존재, provider standard 미선정 |
 | normalization review/apply / Foundation | review/apply against local Postgres | fixture DB | staging approval gate | production approval gate | Foundation write authority; Intelligence write 권한 없음 |
-| C2 event broker / Intelligence·Foundation | 개발·검증은 Redpanda `v24.3.6`; 운영은 관리형 Kafka 호환 브로커 | Redpanda/Karapace 실브로커 계약 테스트 + Postgres outbox live gate | 운영 브로커 주소·인증·주제 권한 필요 | 운영 브로커·보존·권한 정책 필요 | 로컬 Redpanda는 운영 대체가 아니며 Foundation 전달기는 선택형; Kafka 원장은 Postgres outbox |
-| C2 schema registry / Intelligence·Foundation | 개발·검증은 Karapace `6.2.0`; 운영은 관리형 호환 등록소 | Karapace 계약·실등록 테스트 | 운영 등록소 주소·인증 필요 | 운영 등록소와 호환성 정책 필요 | 개발용과 운영용을 같은 이름으로 섞지 않음 |
-| Identity / Auth | Zitadel `v2.65.1` + PostgreSQL 17 + Valkey 8 Compose | mock/protected identity tests | Zitadel deployment/issuer 필요 | Zitadel deployment/issuer 필요 | local IdP 실행, production 배선 미완료 |
-| App cache/session / Gongzzang | Valkey 8; code env is `REDIS_URL` | test fixture or isolated cache | managed Valkey 8 endpoint | managed Valkey 8 endpoint | runtime version 통일, endpoint만 변경 |
+| C2 event broker / Intelligence·Foundation | 개발·검증은 Redpanda; 운영은 관리형 Kafka 호환 브로커 | Redpanda/Karapace 실브로커 계약 테스트 + Postgres outbox live gate | 운영 브로커 주소·인증·주제 권한 필요 | 운영 브로커·보존·권한 정책 필요 | 로컬 Redpanda는 운영 대체가 아니며 Foundation 전달기는 선택형; Kafka 원장은 Postgres outbox |
+| C2 schema registry / Intelligence·Foundation | 개발·검증은 Karapace; 운영은 관리형 호환 등록소 | Karapace 계약·실등록 테스트 | 운영 등록소 주소·인증 필요 | 운영 등록소와 호환성 정책 필요 | 개발용과 운영용을 같은 이름으로 섞지 않음 |
+| Identity / Auth | Zitadel + PostgreSQL + Valkey Compose | mock/protected identity tests | Zitadel deployment/issuer 필요 | Zitadel deployment/issuer 필요 | local IdP 실행, production 배선 미완료 |
+| App cache/session / Gongzzang | Valkey; code env is `REDIS_URL` | test fixture or isolated cache | managed Valkey endpoint | managed Valkey endpoint | runtime version 통일, endpoint만 변경 |
 | Search | PostgreSQL 전문검색(`simple`) 신호 3종(형태소·원문·제목) + `lindera` `5.1` 한국어 형태소(mecab-ko-dic), RRF(k=60) 융합; Meilisearch ADR only | 인메모리·Postgres 공유 계약 테스트 | provider 미선정 | provider 미선정 | 비계 테넌트 한정. HTTP route 없음. 벡터·재순위 없음. 결과 조립은 출처별 상한 3 + 이웃 문맥. 근거는 [ADR-0003](../platforms/intelligence-platform/docs/adr/0003-korean-morphology-in-rust.md)·[ADR-0004](../platforms/intelligence-platform/docs/adr/0004-retriever-fusion-over-a-single-scorer.md)·[ADR-0005](../platforms/intelligence-platform/docs/adr/0005-result-assembly-diversity-and-context.md) |
 | Embedding/LLM | developer-owned gateway/Ollama tools | mock/protected lane | provider credentials 필요 | provider/모델/비용 정책 미선정 | 계획·미연결 |
 | Metrics/alerts | Prometheus + Alertmanager Compose | CI smoke/metrics checks | managed scrape/alert target 필요 | managed scrape/alert target 필요 | local Compose 실행, production target 별도 |
@@ -137,9 +137,9 @@ es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필�
 
 | 소유자 | 애플리케이션 | canonical data/backend |
 |---|---|---|
-| Gongzzang | Rust/Axum API·worker, Next.js web | PostgreSQL 17/PostGIS, Valkey 8, listing R2 namespace |
-| Foundation | collection, Bronze, Catalog, normalization apply, lakehouse control | PostgreSQL 17/PostGIS ledger, R2 raw/object, Iceberg/Spark/Trino contracts |
-| Identity | identity-api, policy worker, provisioner/migrator | PostgreSQL 17 identity schema, Zitadel issuer contract |
+| Gongzzang | Rust/Axum API·worker, Next.js web | PostgreSQL/PostGIS, Valkey, listing R2 namespace |
+| Foundation | collection, Bronze, Catalog, normalization apply, lakehouse control | PostgreSQL/PostGIS ledger, R2 raw/object, Iceberg/Spark/Trino contracts |
+| Identity | identity-api, policy worker, provisioner/migrator | PostgreSQL identity schema, Zitadel issuer contract |
 | Intelligence | intelligence-api/worker, proposal normalization | PostgreSQL workflow state, Valkey-compatible rate-limit adapter, Foundation proposal contract |
 
 플랫폼 간 직접 DB/Cargo path 결합은 금지하고 published HTTP/event contract만 사용한다.
