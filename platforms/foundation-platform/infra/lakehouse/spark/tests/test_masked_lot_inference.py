@@ -83,6 +83,24 @@ class TheBarIsInTheContract(unittest.TestCase):
         with self.assertRaises(ValueError):
             r.enabled_levels(bad, "real_transaction_land_trade")
 
+    def test_the_main_lot_group_level_is_on_only_where_its_lower_bound_clears_the_bar(self) -> None:
+        # 2026-11-04 (ADR-0405): the 본번 group's Wilson low is 99.53 / 99.08 / 99.33%; 토지 is unmeasured.
+        on = {dataset: [lv["grade"] for lv in r.enabled_levels(INFERENCE, dataset)]
+              for dataset in ("real_transaction_industrial_trade", "real_transaction_commercial_trade",
+                              "real_transaction_detached_house_trade", "real_transaction_land_trade")}
+        self.assertEqual(on, {"real_transaction_industrial_trade": [r.MAIN_LOT_GROUP],
+                              "real_transaction_commercial_trade": [r.MAIN_LOT_GROUP],
+                              "real_transaction_detached_house_trade": [r.MAIN_LOT_GROUP],
+                              "real_transaction_land_trade": []})
+        group = next(lv for lv in INFERENCE["levels"] if lv["grade"] == r.MAIN_LOT_GROUP)
+        ownership = next(lv for lv in INFERENCE["levels"] if lv["grade"] == "inferred_ownership_change")
+        # The same evidence as the ownership level: only the claim of the link differs.
+        self.assertEqual(group["evidence"], ownership["evidence"])
+        for dataset, measured in group["measured"].items():
+            check = INFERENCE["evidence_checks"][dataset]["lot_group"]
+            self.assertEqual((measured["rows"], measured["right"], measured["precision_wilson_low"]),
+                             (check["rows"], check["right"], check["precision_wilson_low"]), dataset)
+
     def test_every_enabled_level_carries_its_measurement(self) -> None:
         for level in INFERENCE["levels"]:
             for dataset, measured in (level.get("measured") or {}).items():
@@ -120,6 +138,8 @@ class InfersInSpark(unittest.TestCase):
             ("9999933021103020000", "공장용지", 1000.0, "계획관리지역"),
             ("9999933021101010000", "공장용지", 500.0, "계획관리지역"),
             ("9999933021101020000", "공장용지", 500.0, "계획관리지역"),
+            # 102-1: the same 본번 as 102, another area (the evidence never picks it).
+            ("9999933021101020001", "공장용지", 900.0, "계획관리지역"),
             ("9999933021104010000", "공장용지", 800.0, "계획관리지역"),
             ("9999933021104020000", "공장용지", 700.0, "계획관리지역"),
         ], "pnu string, land_category string, area_m2 double, zone_name_1 string")
@@ -135,9 +155,10 @@ class InfersInSpark(unittest.TestCase):
         ], "pnu string, ownership_changed_on string, ownership_change_reason string")
         return deals, parcels, titles, ownership
 
-    def run_levels(self, levels, ownership=True):
+    def run_levels(self, levels, ownership=True, group_parcels=None):
         deals, parcels, titles, owners = self.frames()
-        out = r.infer_masked(deals, parcels, titles, owners if ownership else None, levels, 0.05, (0, 120), INFERENCE["ownership_causes"])
+        out = r.infer_masked(deals, parcels, titles, owners if ownership else None, levels, 0.05, (0, 120),
+                             INFERENCE["ownership_causes"], group_parcels)
         return {row["row_id"]: row.asDict() for row in out.collect()}
 
     def test_registers_must_agree_on_one_parcel(self) -> None:
@@ -157,6 +178,30 @@ class InfersInSpark(unittest.TestCase):
         self.assertEqual(got[1]["place_identity_grade"], "inferred_attributes")
         # Without the ownership Silver, that level links nothing and the tie stays.
         self.assertIsNone(self.run_levels(levels, ownership=False)[2]["pnu"])
+
+    def test_the_group_level_links_a_deal_to_every_parcel_of_its_main_lot(self) -> None:
+        level = {"grade": r.MAIN_LOT_GROUP, "evidence": ["lot_range", "zone", "land_area", "ownership_change"]}
+        got = self.run_levels([level])
+        # The evidence leaves 101-02 (102); the deal claims the 본번 102 group, not one PNU.
+        self.assertEqual((got[2]["pnu"], got[2]["place_identity_grade"], got[2]["pnu_unresolved_reason"]),
+                         (None, r.MAIN_LOT_GROUP, None))
+        self.assertEqual(got[2]["pnu_group"], ["9999933021101020000", "9999933021101020001"])
+        # Evidence leaving no parcel links no group.
+        self.assertEqual((got[4]["pnu_group"], got[4]["pnu_unresolved_reason"]), (None, "inference_no_candidate"))
+
+    def test_the_group_is_drawn_from_the_served_parcels(self) -> None:
+        level = {"grade": r.MAIN_LOT_GROUP, "evidence": ["lot_range", "zone", "land_area", "ownership_change"]}
+        served = self.spark.createDataFrame([("9999933021101020000",), ("9999933021101020002",),
+                                             ("9999933021201020000",)], "pnu string")
+        # 102-2 has no land row but is a current parcel; 산 102 is another group.
+        got = self.run_levels([level], group_parcels=served)
+        self.assertEqual(got[2]["pnu_group"], ["9999933021101020000", "9999933021101020002"])
+
+    def test_a_single_parcel_level_still_comes_before_the_group(self) -> None:
+        levels = [{"grade": "inferred_ownership_change", "evidence": ["lot_range", "zone", "land_area", "ownership_change"]},
+                  {"grade": r.MAIN_LOT_GROUP, "evidence": ["lot_range", "zone", "land_area", "ownership_change"]}]
+        got = self.run_levels(levels)
+        self.assertEqual((got[2]["pnu"], got[2]["pnu_group"]), ("9999933021101020000", None))
 
 
 if __name__ == "__main__":

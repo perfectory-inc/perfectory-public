@@ -151,10 +151,57 @@
           }
         },
         "not_measured_reason": "real_transaction_land_trade: bare land has no building register to cross-check; it waits for the ownership level"
+      },
+      {
+        "grade": "inferred_same_main_lot_group",
+        "$comment": "Root ADR-0405 (사장 결정 2026-11-04): the ownership level's evidence, but the link is to the 본번 필지 묶음 of the one parcel it leaves (every current parcel of that 법정동, 산 flag and 본번; place_identity_resolver.MAIN_LOT_GROUP), not to that parcel: the deal carries pnu_group and no pnu, and every parcel of the group shows it as 추정 · 같은 본번 with the others. Enabled for a dataset only on its own measurement, like every level.",
+        "evidence": [
+          "lot_range",
+          "zone",
+          "jimok",
+          "land_area",
+          "ownership_change"
+        ],
+        "measured": {
+          "real_transaction_industrial_trade": {
+            "precision": 0.9963,
+            "precision_wilson_low": 0.9953,
+            "rows": 19483,
+            "right": 19411,
+            "deals": 94458,
+            "coverage": 0.3439,
+            "ambiguous": 0.0037,
+            "method": "independent_registers, scored by group (root ADR-0405, the evidence_checks `lot_group` row): of the masked deals (지분 거래 excluded) the ownership evidence (본번 range, 용도지역, 지목, 대지면적 ±0.05 m², a 소유권이전 0-120 days after the contract) and the building register (사용승인 연도, 연면적 ±0.05 m²) each narrow to one parcel, the share where the building register's parcel is in the 본번 group (법정동, 산, 본번) of the ownership evidence's parcel; coverage and ambiguous are the ownership level's, since this level links exactly the deals that evidence narrows to one parcel; silver.real_transaction 일반 deals 2010-2026 (coverage: 2012-06..2024-09-02)",
+            "measured_on": "2026-11-04"
+          },
+          "real_transaction_commercial_trade": {
+            "precision": 0.995,
+            "precision_wilson_low": 0.9908,
+            "rows": 1986,
+            "right": 1976,
+            "deals": 4679,
+            "coverage": 0.5738,
+            "ambiguous": 0.0135,
+            "method": "independent_registers, scored by group (root ADR-0405, the evidence_checks `lot_group` row): of the masked deals (지분 거래 excluded) the ownership evidence (본번 range, 용도지역, 지목, 대지면적 ±0.05 m², a 소유권이전 0-120 days after the contract) and the building register (사용승인 연도, 연면적 ±0.05 m²) each narrow to one parcel, the share where the building register's parcel is in the 본번 group (법정동, 산, 본번) of the ownership evidence's parcel; coverage and ambiguous are the ownership level's, since this level links exactly the deals that evidence narrows to one parcel; rt.molit exports 2024-01..2024-04, nationwide",
+            "measured_on": "2026-11-04"
+          },
+          "real_transaction_detached_house_trade": {
+            "precision": 0.9949,
+            "precision_wilson_low": 0.9933,
+            "rows": 10337,
+            "right": 10284,
+            "deals": 22968,
+            "coverage": 0.6569,
+            "ambiguous": 0.027,
+            "method": "independent_registers, scored by group (root ADR-0405, the evidence_checks `lot_group` row): of the masked deals (지분 거래 excluded) the ownership evidence (본번 range, 용도지역, 지목, 대지면적 ±0.05 m², a 소유권이전 0-120 days after the contract) and the building register (사용승인 연도, 연면적 ±0.05 m²) each narrow to one parcel, the share where the building register's parcel is in the 본번 group (법정동, 산, 본번) of the ownership evidence's parcel; coverage and ambiguous are the ownership level's, since this level links exactly the deals that evidence narrows to one parcel; rt.molit exports 2024-01..2024-06, nationwide",
+            "measured_on": "2026-11-04"
+          }
+        },
+        "not_measured_reason": "real_transaction_land_trade: bare land has no building register to measure the group against (root ADR-0370 §토지)"
       }
     ],
     "evidence_checks": {
-      "$comment": "Root ADR-0370 §4 (2026-11-04, read-only): other evidence weighed for the ownership level, measured as the level is (agreement with the building register's one parcel on masked deals, 지분 excluded). None is used by enabled_levels: a check, not a level. `lot_group` scores a disagreement whose two parcels share the 본번 (300 and 300-1: one plant over two lots) as agreement, i.e. the precision of linking a deal to the 본번 필지 묶음 instead of one PNU; turning that on changes what a link claims and is the owner's decision.",
+      "$comment": "Root ADR-0370 §4 (2026-11-04, read-only): other evidence weighed for the ownership level, measured as the level is (agreement with the building register's one parcel on masked deals, 지분 excluded). None is used by enabled_levels: a check, not a level. `lot_group` scores a disagreement whose two parcels share the 본번 (300 and 300-1: one plant over two lots) as agreement, i.e. the precision of linking a deal to the 본번 필지 묶음 instead of one PNU; the owner turned it on as its own level, inferred_same_main_lot_group (root ADR-0405, 2026-11-04).",
       "real_transaction_industrial_trade": {
         "period": "silver.real_transaction 일반 deals 2010-2026 (backfill as of 2026-11-04)",
         "single_parcel": {

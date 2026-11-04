@@ -85,3 +85,8 @@ ADR-0351 은 토지소유 Silver 가 운영에 실리면 `inferred_ownership_cha
   아니면 엇갈림을 줄이는 참조를 쓴다(건축물대장이 이웃 필지에 적힌 공장).
 - 사장 확인: 점 추정(공장창고 99.08%, 상업업무 99.04%)으로 켤지. 기본값은 하한 판정, 끄는 것이다.
 - 측정 SQL 은 운영 기록 쪽에 둔다(ADR-0351 §4 와 같다). 계약의 `method` 가 같은 내용을 글로 적는다.
+
+---
+
+- 2026-11-04 덧붙임: 사장이 본번 필지 묶음 연결을 켰다. 새 등급 `inferred_same_main_lot_group` 이다.
+  [ADR-0405](./0405-a-masked-deal-links-to-its-main-lot-group-when-one-parcel-is-not-measured-enough.md) 를 본다.
