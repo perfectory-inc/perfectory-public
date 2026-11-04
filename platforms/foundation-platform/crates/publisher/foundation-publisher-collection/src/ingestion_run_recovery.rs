@@ -86,7 +86,7 @@ where
     Ok(cancelled)
 }
 
-/// Runs the `abandon-ingestion-run` operator command.
+/// Abandons one ingestion run from its environment (its CLI command had no caller and was removed).
 ///
 /// # Errors
 /// Returns an error when the run id is missing/invalid, confirmation is absent, the database is

@@ -31,11 +31,6 @@ const FORBIDDEN_SOURCE_PROVIDERS: &[&str] = &[
     "vworld_parcel_boundaries_silver_handoff_jsonl",
 ];
 
-pub fn check() -> anyhow::Result<()> {
-    let config = CheckConfig::from_env()?;
-    verify_registry(&config)
-}
-
 pub fn write() -> anyhow::Result<()> {
     let config = WriteConfig::from_env()?;
     RegistryWriter::new(config)?.run()
@@ -45,31 +40,6 @@ struct CheckConfig {
     root: PathBuf,
     registry_path: PathBuf,
     evidence_path: PathBuf,
-}
-
-impl CheckConfig {
-    fn from_env() -> anyhow::Result<Self> {
-        let root = repo_root()?;
-        Ok(Self {
-            registry_path: resolve_repo_path(
-                &root,
-                &env_path(
-                    "FOUNDATION_PLATFORM_ADMINISTRATIVE_SPATIAL_SCOPE_REGISTRY_PATH",
-                    DEFAULT_REGISTRY_PATH,
-                )?,
-                "RegistryPath",
-            )?,
-            evidence_path: resolve_repo_path(
-                &root,
-                &env_path(
-                    "FOUNDATION_PLATFORM_ADMINISTRATIVE_SPATIAL_SCOPE_REGISTRY_EVIDENCE_PATH",
-                    DEFAULT_EVIDENCE_PATH,
-                )?,
-                "EvidencePath",
-            )?,
-            root,
-        })
-    }
 }
 
 struct WriteConfig {
