@@ -49,7 +49,6 @@ last_reviewed: 2026-07-30
 |---|---|---:|---|---|
 | `building-hub-bulk` | enabled | true | hub.go.kr | building_hub_bulk |
 | `vworld-dataset-file` | enabled | true | vworld.kr | vworld_dataset |
-| `vworld-ned-open-api` | planned | false | vworld.kr | vworld_ned_open_api |
 
 ## 취급 데이터 묶음
 

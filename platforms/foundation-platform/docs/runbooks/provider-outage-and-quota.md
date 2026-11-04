@@ -41,11 +41,8 @@ V-World·data.go.kr 또는 다른 공공데이터 공급자가 unavailable·rate
 circuit breaker를 사용한다. 재시도 횟수를 다 쓰면 회로가 열린 동안 다음 요청은 공급자를
 즉시 다시 호출하지 않고 빠르게 실패한다.
 
-현재 적용 범위는 다음과 같다.
-
-- `DataGoKrServiceApiClient`
-- `VWorldDataApiClient`
-- `VWorldNedAttributeClient`
+적용 범위는 `crates/technical/outbound-http-infrastructure` 의 `request_resilience` 를 쓰는 수집 클라이언트 전부다
+(호출하는 곳은 그 크레이트를 의존하는 곳이 정본이라 여기 다시 적지 않는다).
 
 circuit breaker는 프로세스 로컬이다. 영속 DLQ/quarantine 테이블·pod 간 공급자 장애 상태·
 운영자용 장애 기록을 대체하지 않는다.
@@ -56,10 +53,8 @@ circuit breaker는 프로세스 로컬이다. 영속 DLQ/quarantine 테이블·p
 
 - 공급자 레인·초기/최대 속도·쿼터 신호·재시도 정책·defer-without-drop 동작의 SSOT는
   `docs/catalog/provider-rate-policy.v1.json`으로 취급한다.
-- 국가 Bronze 수집 재개에는 기본 `ProviderLaneMode=provider_policy`인
-  `foundation-outbox-publisher resume-national-data-collection-ledger`를 사용한다. 이 명령은
-  chunk를 레인 단위로 만들고 레인을 분리 스케줄링하며 레인에서 계산한
-  `ProviderMinPageIntervalMs` 상한을 ledger executor에 전달한다.
+- 국가 Bronze 수집은 파일 일괄 레인만 쓴다. 공공 API 전국 수집 ledger(`resume-national-data-collection-ledger` 등)는
+  bulk 전용 정책으로 2026-11 삭제됐다.
 - fixture 테스트 또는 명시적으로 기록된 증명 실행 외에는 국가 수집에
   `ProviderLaneMode=off`를 사용하지 않는다.
 - 공급자 속도·신호 규칙을 바꾼 뒤에는 `foundation-outbox-publisher provider-rate-controller`로

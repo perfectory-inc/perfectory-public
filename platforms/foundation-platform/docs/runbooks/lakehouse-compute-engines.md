@@ -329,8 +329,7 @@ docker compose -f compose.lakehouse.yml --profile lakehouse-batch run --rm \
   --lineage-output /workspace/target/lakehouse/smoke/summaries/industrial_complexes_iceberg_lineage.json
 ```
 
-write smoke가 성공하면 read-only smoke는 같은 전용 테이블을 다음
-`smoke-vworld-cadastral` / `smoke-r2` subcommands or a direct Trino read:
+write smoke가 성공하면 read-only smoke는 같은 전용 테이블을 `smoke-r2` 하위 명령이나 Trino 직접 읽기로 확인한다:
 
 ```sql
 SELECT * FROM r2.silver.industrial_complexes_smoke LIMIT 1;

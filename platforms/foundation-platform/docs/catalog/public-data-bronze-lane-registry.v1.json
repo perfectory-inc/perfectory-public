@@ -66,22 +66,6 @@
       "live_write_gate_env": "FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_LIVE_WRITE",
       "completion_claim_allowed": false,
       "national_rollout_allowed": false
-    },
-    {
-      "lane_id": "vworld-ned-open-api",
-      "status": "planned",
-      "include_by_default": false,
-      "provider": "vworld.kr",
-      "source_acquisition_lanes": ["open_api_only"],
-      "endpoint_groups": ["vworld_ned_open_api"],
-      "command": "ingest-vworld-ned-attribute",
-      "command_args": [
-        "ingest-vworld-ned-attribute"
-      ],
-      "inner_parallel_env": "FOUNDATION_PLATFORM_VWORLD_NED_ATTRIBUTE_MAX_IN_FLIGHT",
-      "planned_blocker": "single-batch command exists, national lane executor is not generalized yet",
-      "completion_claim_allowed": false,
-      "national_rollout_allowed": false
     }
   ]
 }

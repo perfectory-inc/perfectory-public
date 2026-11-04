@@ -410,30 +410,6 @@ fn probe_spatial_tile_wap_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn run_national_data_collection_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "run-national-data-collection"
-        ])?,
-        Command::RunNationalDataCollection
-    );
-    Ok(())
-}
-
-#[test]
-fn write_national_data_collection_scope_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-national-data-collection-scope"
-        ])?,
-        Command::WriteNationalDataCollectionScope
-    );
-    Ok(())
-}
-
-#[test]
 fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Result<()> {
     let cases = [
         (
@@ -465,20 +441,12 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             Command::PromoteIndustrialComplexBoundaryRuntime,
         ),
         (
-            "check-bounded-live-ingestion-gate",
-            Command::CheckBoundedLiveIngestionGate,
-        ),
-        (
             "rebuild-postgis-parcel-boundary-mirror",
             Command::RebuildPostgisParcelBoundaryMirror,
         ),
         (
             "evaluate-lakehouse-quality-rules",
             Command::EvaluateLakehouseQualityRules,
-        ),
-        (
-            "run-building-register-local-bronze-proof",
-            Command::RunBuildingRegisterLocalBronzeProof,
         ),
     ];
     for (raw, expected) in cases {
@@ -487,54 +455,6 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
             expected
         );
     }
-    Ok(())
-}
-
-#[test]
-fn write_national_bronze_object_manifest_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-national-bronze-object-manifest"
-        ])?,
-        Command::WriteNationalBronzeObjectManifest
-    );
-    Ok(())
-}
-
-#[test]
-fn check_national_bronze_object_manifest_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "check-national-bronze-object-manifest"
-        ])?,
-        Command::CheckNationalBronzeObjectManifest
-    );
-    Ok(())
-}
-
-#[test]
-fn check_silver_gold_national_promotion_plan_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "check-silver-gold-national-promotion-plan"
-        ])?,
-        Command::CheckSilverGoldNationalPromotionPlan
-    );
-    Ok(())
-}
-
-#[test]
-fn write_silver_gold_national_promotion_plan_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-silver-gold-national-promotion-plan"
-        ])?,
-        Command::WriteSilverGoldNationalPromotionPlan
-    );
     Ok(())
 }
 
@@ -678,27 +598,6 @@ fn r2_billing_usage_metrics_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn public_api_metric_writer_commands_are_explicit() -> anyhow::Result<()> {
-    let cases = [
-        (
-            "write-public-api-quota-metric",
-            Command::WritePublicApiQuotaMetric,
-        ),
-        (
-            "write-public-api-dependency-metric",
-            Command::WritePublicApiDependencyMetric,
-        ),
-    ];
-    for (raw, expected) in cases {
-        assert_eq!(
-            parse_command(["foundation-outbox-publisher", raw])?,
-            expected
-        );
-    }
-    Ok(())
-}
-
-#[test]
 fn publish_lakehouse_lineage_event_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
@@ -706,102 +605,6 @@ fn publish_lakehouse_lineage_event_command_is_explicit() -> anyhow::Result<()> {
             "publish-lakehouse-lineage-event"
         ])?,
         Command::PublishLakehouseLineageEvent
-    );
-    Ok(())
-}
-
-#[test]
-fn check_silver_gold_national_promotion_execution_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "check-silver-gold-national-promotion-execution"
-        ])?,
-        Command::CheckSilverGoldNationalPromotionExecution
-    );
-    Ok(())
-}
-
-#[test]
-fn execute_silver_gold_national_promotion_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "execute-silver-gold-national-promotion"
-        ])?,
-        Command::ExecuteSilverGoldNationalPromotion
-    );
-    Ok(())
-}
-
-#[test]
-fn write_national_data_collection_rollout_approval_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-national-data-collection-rollout-approval"
-        ])?,
-        Command::WriteNationalDataCollectionRolloutApproval
-    );
-    Ok(())
-}
-
-#[test]
-fn resume_national_data_collection_ledger_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "resume-national-data-collection-ledger"
-        ])?,
-        Command::ResumeNationalDataCollectionLedger
-    );
-    Ok(())
-}
-
-#[test]
-fn write_national_data_collection_shard_manifest_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-national-data-collection-shard-manifest"
-        ])?,
-        Command::WriteNationalDataCollectionShardManifest
-    );
-    Ok(())
-}
-
-#[test]
-fn execute_national_data_collection_ledger_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "execute-national-data-collection-ledger"
-        ])?,
-        Command::ExecuteNationalDataCollectionLedger
-    );
-    Ok(())
-}
-
-#[test]
-fn write_building_register_page_count_plan_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-building-register-page-count-plan"
-        ])?,
-        Command::WriteBuildingRegisterPageCountPlan
-    );
-    Ok(())
-}
-
-#[test]
-fn write_national_page_count_plan_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-national-page-count-plan"
-        ])?,
-        Command::WriteNationalPageCountPlan
     );
     Ok(())
 }
@@ -830,12 +633,10 @@ fn unknown_command_is_rejected() -> anyhow::Result<()> {
 #[test]
 fn remaining_commands_are_explicit() -> anyhow::Result<()> {
     let cases = [
-        ("ingest-building-register", Command::IngestBuildingRegister),
         (
             "ingest-building-hub-bulk-file",
             Command::IngestBuildingHubBulkFile,
         ),
-        ("building-register-smoke", Command::BuildingRegisterSmoke),
         (
             "ingest-building-hub-bulk-collection",
             Command::IngestBuildingHubBulkCollection,
@@ -847,18 +648,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
         (
             "plan-vworld-dataset-collection",
             Command::PlanVWorldDatasetCollection,
-        ),
-        (
-            "compile-national-data-collection-plan",
-            Command::CompileNationalDataCollectionPlan,
-        ),
-        (
-            "check-national-data-collection-coverage-ledger",
-            Command::CheckNationalDataCollectionCoverageLedger,
-        ),
-        (
-            "check-national-data-collection-rollout-approval",
-            Command::CheckNationalDataCollectionRolloutApproval,
         ),
         ("provider-rate-controller", Command::ProviderRateController),
         (
@@ -873,33 +662,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             "ingest-vworld-dataset-files",
             Command::IngestVWorldDatasetFiles,
         ),
-        ("ingest-real-transaction", Command::IngestRealTransaction),
-        (
-            "probe-building-register-page-count",
-            Command::ProbeBuildingRegisterPageCount,
-        ),
-        (
-            "probe-building-register-page-count-batch",
-            Command::ProbeBuildingRegisterPageCountBatch,
-        ),
-        (
-            "probe-vworld-page-count-batch",
-            Command::ProbeVWorldPageCountBatch,
-        ),
-        (
-            "ingest-vworld-land-register",
-            Command::IngestVWorldLandRegister,
-        ),
-        ("ingest-vworld-cadastral", Command::IngestVWorldCadastral),
-        (
-            "ingest-vworld-ned-attribute",
-            Command::IngestVWorldNedAttribute,
-        ),
-        ("smoke-vworld-cadastral", Command::SmokeVWorldCadastral),
-        (
-            "reconcile-building-register",
-            Command::ReconcileBuildingRegister,
-        ),
         (
             "export-industrial-complex-silver-handoff",
             Command::ExportIndustrialComplexSilverHandoff,
@@ -911,10 +673,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
         (
             "stage-building-register-floor-inputs",
             Command::StageBuildingRegisterFloorInputs,
-        ),
-        (
-            "export-vworld-cadastral-silver-handoff",
-            Command::ExportVWorldCadastralSilverHandoff,
         ),
         (
             "export-vworld-cadastral-silver-handoff-shard",

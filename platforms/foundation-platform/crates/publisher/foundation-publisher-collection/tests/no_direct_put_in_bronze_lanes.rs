@@ -24,7 +24,7 @@
 //! every `.put_object(` inside a `#[cfg(test)]`-attributed item (e.g. the trailing
 //! `#[cfg(test)] mod tests { … }`, or a `#[tokio::test]` fn within it) is ignored.
 //! A naive "split on the first `#[cfg(test)]`" is deliberately NOT used: several
-//! lanes (notably `building_register_ingest.rs`) place `#[cfg(test)] use …;`
+//! lanes place `#[cfg(test)] use …;`
 //! test-only imports near the top of the file, so splitting there would discard
 //! real production code and could hide a reintroduced production put.
 
@@ -72,15 +72,6 @@ fn guarded_files() -> Vec<GuardedFile> {
     }
 
     vec![
-        // building-register lane (top module + its put-bearing submodules)
-        guarded!("building_register_ingest.rs"),
-        guarded!("building_register_ingest/plan.rs"),
-        guarded!("building_register_ingest/persist.rs"),
-        // single-file lanes
-        guarded!("real_transaction_ingest.rs"),
-        guarded!("vworld_cadastral_ingest.rs"),
-        guarded!("vworld_ned_attribute_ingest.rs"),
-        guarded!("vworld_land_register_ingest.rs"),
         // building-hub bulk lane (top module; submodule dir holds only tests.rs)
         guarded!("building_hub_bulk_ingest.rs"),
         // vworld dataset-file lane (top module; submodule dir holds only tests.rs)
