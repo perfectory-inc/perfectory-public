@@ -31,12 +31,9 @@
 #[cfg(test)]
 use foundation_publisher_core::test_support;
 use foundation_publisher_core::{
-    free_space, public_data_control_support, r2_command_support, r2_layout, runtime_environment,
+    free_space, public_data_control_support, r2_command_support, runtime_environment,
 };
 
-pub mod bronze_catalog_recovery_evidence;
-pub mod bronze_catalog_recovery_execute;
-pub mod bronze_catalog_recovery_manifest;
 pub mod bronze_object_members;
 pub mod bronze_object_storage;
 pub mod bronze_schema_profile;
@@ -64,7 +61,6 @@ pub mod page_count_plan_contract;
 pub mod pagination_guard;
 pub mod provider_acquisition_import;
 pub mod provider_acquisition_plan;
-pub mod provider_file_bronze_catalog_recovery;
 pub mod provider_lane;
 pub mod provider_request_spacing;
 pub mod public_api_metric_writer;
@@ -76,7 +72,6 @@ pub mod real_transaction_ingest;
 pub mod rt_molit_real_transaction_collect;
 pub mod rt_molit_real_transaction_export_collection_plan;
 pub mod rt_molit_real_transaction_export_ingest;
-pub mod vworld_bronze_catalog_recovery;
 pub mod vworld_cadastral_ingest;
 pub mod vworld_cadastral_silver_export;
 pub mod vworld_cadastral_silver_shard_export;

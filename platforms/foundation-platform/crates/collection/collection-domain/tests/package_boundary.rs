@@ -18,7 +18,6 @@ const FORBIDDEN_DOMAIN_ERROR_VARIANTS: &[&str] = &[
 ];
 
 const FORBIDDEN_APPLICATION_MODULES: &[&str] = &[
-    "pub mod bronze_catalog_recovery;",
     "pub mod bronze_committer;",
     "pub mod building_hub_bulk_collection_plan;",
     "pub mod building_register_bronze_plan;",

@@ -7,9 +7,6 @@ use crate::runtime_environment::{
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use collection_application::{
-    bronze_catalog_recovery::{
-        BronzeCatalogRecoveryObjectReader, BronzeCatalogRecoveryStorageError, ExistingBronzeObject,
-    },
     BronzeRawObjectWriter, BronzeStorageError, BronzeWriteMode, BronzeWriteOutcome,
     BronzeWriteRequest,
 };
@@ -76,72 +73,6 @@ where
             .read_object_sha256(key)
             .await
             .map_err(|error| BronzeStorageError(error.to_string()))
-    }
-}
-
-/// Read-only adapter used to verify existing Bronze bytes before Catalog metadata recovery.
-pub struct BronzeCatalogRecoveryObjectStorageReader<'a, Storage: ?Sized> {
-    storage: &'a Storage,
-}
-
-impl<'a, Storage> BronzeCatalogRecoveryObjectStorageReader<'a, Storage>
-where
-    Storage: ObjectStorageStreamingService + ?Sized,
-{
-    /// Wraps an existing bounded-memory object storage reader.
-    pub const fn new(storage: &'a Storage) -> Self {
-        Self { storage }
-    }
-}
-
-#[async_trait]
-impl<Storage> BronzeCatalogRecoveryObjectReader
-    for BronzeCatalogRecoveryObjectStorageReader<'_, Storage>
-where
-    Storage: ObjectStorageStreamingService + ?Sized,
-{
-    async fn read_existing_object(
-        &self,
-        key: &str,
-    ) -> Result<Option<ExistingBronzeObject>, BronzeCatalogRecoveryStorageError> {
-        let object = self
-            .storage
-            .read_object_sha256_and_size_by_rehash(key)
-            .await
-            .map_err(|error| BronzeCatalogRecoveryStorageError(error.to_string()))?;
-        object
-            .map(|object| {
-                let observed_r2_etag = object.observed_e_tag.ok_or_else(|| {
-                    BronzeCatalogRecoveryStorageError(format!(
-                        "object storage did not report ETag for {key}"
-                    ))
-                })?;
-                if observed_r2_etag.trim().is_empty() || observed_r2_etag.trim() != observed_r2_etag
-                {
-                    return Err(BronzeCatalogRecoveryStorageError(format!(
-                        "object storage returned a non-canonical ETag for {key}"
-                    )));
-                }
-                let observed = object.observed_last_modified.ok_or_else(|| {
-                    BronzeCatalogRecoveryStorageError(format!(
-                        "object storage did not report last_modified for {key}"
-                    ))
-                })?;
-                let observed_r2_last_modified = chrono::DateTime::parse_from_rfc3339(&observed)
-                    .map_err(|error| {
-                        BronzeCatalogRecoveryStorageError(format!(
-                            "object storage returned invalid last_modified for {key}: {error}"
-                        ))
-                    })?
-                    .with_timezone(&chrono::Utc);
-                Ok(ExistingBronzeObject {
-                    checksum_sha256: object.checksum_sha256,
-                    size_bytes: object.size_bytes,
-                    observed_r2_etag,
-                    observed_r2_last_modified,
-                })
-            })
-            .transpose()
     }
 }
 
@@ -314,51 +245,15 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs, path::PathBuf};
+    use std::collections::BTreeMap;
 
-    use collection_application::bronze_catalog_recovery::BronzeCatalogRecoveryObjectReader;
-    use foundation_outbox::FileObjectStorage;
     use lakehouse_domain::LakehouseOwnerService;
-    use sha2::{Digest as _, Sha256};
 
-    use super::{
-        live_write_target_preflight, require_r2_env, BronzeCatalogRecoveryObjectStorageReader,
-    };
+    use super::{live_write_target_preflight, require_r2_env};
     use crate::runtime_environment::{
         ExecutionContext, RuntimeEnvironment, EXECUTION_CONTEXT_ENV, PRELAUNCH_SHARED_ENV,
         RUNTIME_ENVIRONMENT_ENV,
     };
-
-    #[tokio::test]
-    async fn catalog_recovery_reader_maps_existing_storage_rehash_without_writing() {
-        let root = PathBuf::from("target/bronze-catalog-recovery-reader-test");
-        let key = "bronze/source=vworldkr__parcel/fixture.zip";
-        let path = root.join(key.replace('/', std::path::MAIN_SEPARATOR_STR));
-        if root.exists() {
-            fs::remove_dir_all(&root).expect("remove stale recovery reader fixture");
-        }
-        fs::create_dir_all(path.parent().expect("fixture parent"))
-            .expect("create recovery reader fixture parent");
-        fs::write(&path, b"existing-bronze-bytes").expect("write recovery reader fixture");
-        let storage = FileObjectStorage::new(&root).expect("file object storage");
-        let reader = BronzeCatalogRecoveryObjectStorageReader::new(&storage);
-
-        let observed = reader
-            .read_existing_object(key)
-            .await
-            .expect("read existing Bronze object")
-            .expect("existing object must be returned");
-        let expected_checksum = format!("{:x}", Sha256::digest(b"existing-bronze-bytes"));
-
-        assert_eq!(observed.checksum_sha256, expected_checksum);
-        assert_eq!(observed.size_bytes, 21);
-        assert!(reader
-            .read_existing_object("bronze/source=vworldkr__parcel/missing.zip")
-            .await
-            .expect("missing read must not fail")
-            .is_none());
-        fs::remove_dir_all(root).expect("remove recovery reader fixture");
-    }
 
     fn lookup_from(map: BTreeMap<String, String>) -> impl Fn(&str) -> Result<String, ()> {
         move |name: &str| map.get(name).cloned().ok_or(())
