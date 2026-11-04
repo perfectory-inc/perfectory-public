@@ -129,6 +129,9 @@ last_reviewed: 2026-10-31
 - **기타 공공 일괄 12종.** 원천마다 실제 제공자를 먼저 적고 data.go.kr 파일 수집기를 넓힌다(ADR-0355 §4). 미착수.
 - **법원경매.** 수집·Silver 켜기 #969, 재수집 목록은 lakehouse 에서 계산 ADR-0352 #967, 필지 패널 경매 칸
   ADR-0353·0382 #978. 사진은 물건상세 수집(ADR-0289/0290 2단계) 뒤.
+- **공장 가동 신호.** 건축HUB 에너지 파일에는 산업용이 빠져 있다. 원천 조사는
+  [ADR-0406](../adr/0406-the-factory-operating-signal-comes-from-pension-workplaces-and-kicox-complex-statistics-not-electricity.md)
+  (Proposed)다. 추천은 필지에 국민연금 사업장, 단지에 KICOX 가동률·현황통계다. 사장의 순위 결정을 기다린다.
 - **규칙: 모든 데이터셋은 법정동 코드 변경을 따른다.** 대체가 닿는 코드 아래 PNU 만 다시 계산한다
   (ADR-0329 §3 `views.changed_codes`). 지금 쓰는 곳은 필지 패널 Gold 하나다. 실거래 Gold(ADR-0350)는
   여기에 배선해야 한다.
