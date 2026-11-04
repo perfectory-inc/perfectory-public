@@ -45,7 +45,8 @@ if sys.argv[1] == "collect-data-go-kr-file-data":
     landed = [s for s in os.environ.get("FAKE_LANDED", "").split(",") if s]
     for slug in landed:
         open(os.path.join(out, "objects", slug + ".csv"), "wb").write(b"x")
-    json.dump({"files": [{"dataset_slug": s} for s in landed], "failed": []},
+    failed = ["school_location: SERVICE_KEY_IS_NOT_REGISTERED_ERROR"] if os.environ.get("FAKE_FAIL") == "1" else []
+    json.dump({"files": [{"dataset_slug": s} for s in landed], "failed": failed},
               open(os.path.join(out, "manifest.json"), "w", encoding="utf-8"))
     if os.environ.get("FAKE_FAIL") == "1":
         sys.exit(1)
@@ -134,7 +135,7 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         self.assertEqual((command, datasets.split(",")), ("collect-data-go-kr-file-data", expected))
         self.assertEqual([c.split(" ")[1] for c in calls[1:]], ["silver." + slug for slug in expected])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
-        self.assertEqual(call.count("--plan-dir"), 8, "one Spark run for every table, for the code-change follow-up too")
+        self.assertEqual(call.count("--plan-dir"), 11, "one Spark run for every table, for the code-change follow-up too")
         self.assertEqual(sorted(self.state.rglob("*.csv")), [])
 
     def test_a_landed_owed_or_followed_run_is_a_change(self):
@@ -154,6 +155,14 @@ class DataGoKrFileDataCommand(unittest.TestCase):
                 self.assertNotIn("foundation-job-outcome", failed.stdout)
                 self.assertIn("FAILED", (self.state / "journal.log").read_text(encoding="utf-8"))
                 self.assertEqual(sorted(self.state.rglob("*.csv")), [])
+
+    def test_one_files_failed_collection_still_loads_what_landed_then_fails(self):
+        failed = self.run_job({**self.env, "FAKE_LANDED": "airport", "FAKE_FAIL": "1"})
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("spark-submit", (self.fake / "docker.log").read_text(), "the files that landed are loaded")
+        journal = (self.state / "journal.log").read_text(encoding="utf-8")
+        self.assertIn("COLLECT FAILED", journal)
+        self.assertIn("school_location: SERVICE_KEY_IS_NOT_REGISTERED_ERROR", journal)
 
     def test_a_missing_variable_stops_the_run_before_anything_reaches_the_portal(self):
         self.assertLessEqual(set(REQUIRED), set(NEEDS))

@@ -128,8 +128,21 @@ pub const SILVER_COMMERCIAL_DISTRICT: LakehouseTableContract =
 pub const SILVER_ADM_DONG_CODE_LINKAGE: LakehouseTableContract =
     table("silver.adm_dong_code_linkage", AREA_COLUMNS, false);
 
-/// The eight tables, in the contract's file order.
-pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 8] = [
+/// 한국교육시설안전원 전국초중등학교위치 (표준데이터 OpenAPI), one row per 학교ID, with the PNU its
+/// 지번 then 도로명 address resolved to.
+pub const SILVER_SCHOOL_LOCATION: LakehouseTableContract =
+    table("silver.school_location", PARCEL_COLUMNS, false);
+/// 전국대학및전문대학정보 (표준데이터 OpenAPI), one row per (학교명, 본분교구분명), with the PNU its
+/// address resolved to.
+pub const SILVER_UNIVERSITY: LakehouseTableContract =
+    table("silver.university", PARCEL_COLUMNS, false);
+/// 전국도시철도역사정보 (표준데이터 OpenAPI), keyed by the row's SHA-256 (no provider key), with the
+/// PNU its road address resolved to.
+pub const SILVER_SUBWAY_STATION: LakehouseTableContract =
+    table("silver.subway_station", PARCEL_COLUMNS, true);
+
+/// The eleven tables, in the contract's file order.
+pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 11] = [
     SILVER_HIGHWAY_ACCESS_POINT,
     SILVER_HOUSEHOLD_COUNT,
     SILVER_DONG_POPULATION,
@@ -138,4 +151,7 @@ pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 8] = [
     SILVER_AIRPORT,
     SILVER_COMMERCIAL_DISTRICT,
     SILVER_ADM_DONG_CODE_LINKAGE,
+    SILVER_SCHOOL_LOCATION,
+    SILVER_UNIVERSITY,
+    SILVER_SUBWAY_STATION,
 ];

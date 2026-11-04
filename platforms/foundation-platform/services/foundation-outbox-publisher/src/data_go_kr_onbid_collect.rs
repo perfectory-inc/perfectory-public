@@ -398,18 +398,28 @@ pub(crate) enum Answer {
 }
 
 /// Reads a response, refusing anything that is neither rows, an empty answer nor the quota answer.
-pub(crate) fn read_answer(
-    contract: &SourceContract,
-    status: u16,
-    body: &str,
-) -> anyhow::Result<Answer> {
+///
+/// The data.go.kr 표준데이터 OpenAPI (the file-data collector, ADR-0401) answers the same header and
+/// body under a `response` wrapper, with `body.items` the array itself.
+pub(crate) fn read_answer(codes: &ResultCodes, status: u16, body: &str) -> anyhow::Result<Answer> {
     if status == 429 {
         return Ok(Answer::QuotaRefused);
     }
-    ensure!(
-        (200..300).contains(&status),
-        "the provider answered HTTP {status}"
-    );
+    if !(200..300).contains(&status) {
+        // The gateway's refusal names itself (SERVICE_KEY_IS_NOT_REGISTERED_ERROR, say); it never
+        // carries the key.
+        let refusal = serde_json::from_str::<JsonValue>(body)
+            .ok()
+            .and_then(|value| {
+                value["OpenAPI_ServiceResponse"]["cmmMsgHeader"]["errMsg"]
+                    .as_str()
+                    .map(str::to_owned)
+            });
+        bail!(
+            "the provider answered HTTP {status}{}",
+            refusal.map(|text| format!(" {text}")).unwrap_or_default()
+        );
+    }
     let value: JsonValue = serde_json::from_str(body).map_err(|_| {
         // An XML body here is the gateway's own error (an unregistered key, say); its text is the
         // only description, and it never carries the key.
@@ -418,16 +428,21 @@ pub(crate) fn read_answer(
             body.chars().take(200).collect::<String>()
         )
     })?;
+    let value = if value["response"].is_object() {
+        value["response"].clone()
+    } else {
+        value
+    };
     let header = if value["header"].is_object() {
         &value["header"]
     } else {
         &value["result"]
     };
     let code = header["resultCode"].as_str().unwrap_or_default();
-    if code == contract.result_codes.no_data {
+    if code == codes.no_data {
         return Ok(Answer::NoData);
     }
-    if code != contract.result_codes.ok {
+    if code != codes.ok {
         bail!(
             "the provider refused the request: resultCode {code:?} {:?}",
             header["resultMsg"].as_str().unwrap_or_default()
@@ -441,9 +456,9 @@ pub(crate) fn read_answer(
     }
     .context("a 00 answer carries no totalCount")?;
     // One item comes back as an object, several as an array, none as an empty string.
-    let items = match &body["items"]["item"] {
-        JsonValue::Array(items) => items.clone(),
-        JsonValue::Object(_) => vec![body["items"]["item"].clone()],
+    let items = match (&body["items"], &body["items"]["item"]) {
+        (JsonValue::Array(items), _) | (_, JsonValue::Array(items)) => items.clone(),
+        (_, JsonValue::Object(_)) => vec![body["items"]["item"].clone()],
         _ => Vec::new(),
     };
     Ok(Answer::Rows { items, total })
@@ -641,7 +656,7 @@ impl<'a> Fetcher<'a> {
             .entry(api)
             .or_default()
             .push(serde_json::to_string(&line)?);
-        let answer = read_answer(self.contract, status, &body)
+        let answer = read_answer(&self.contract.result_codes, status, &body)
             .with_context(|| format!("{} {:?}", api.name(), params))?;
         if answer == Answer::QuotaRefused {
             state.budget.quota_refused.insert(api.name().to_owned());

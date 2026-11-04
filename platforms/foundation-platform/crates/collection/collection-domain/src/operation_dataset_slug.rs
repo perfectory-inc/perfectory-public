@@ -129,6 +129,10 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15002851" => Some("airport"),
         "fileData15083033" => Some("commercial_district"),
         "fileData15136368" => Some("adm_dong_code_linkage"),
+        // The three 표준데이터 the same collector asks through the public-data OpenAPI (ADR-0401).
+        "tn_pubr_public_elesch_mskul_lc_api" => Some("school_location"),
+        "tn_pubr_public_univ_info_api" => Some("university"),
+        "tn_pubr_public_ctyrlroad_statn_api" => Some("subway_station"),
         _ => None,
     }
 }

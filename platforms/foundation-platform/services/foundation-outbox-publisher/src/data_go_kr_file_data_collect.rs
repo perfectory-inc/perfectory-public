@@ -8,6 +8,12 @@
 //! Bronze as received, under its own source (`datagokr__<dataset_slug>`): the Silver loads open it
 //! and check its rows. Nothing here reads the CSV.
 //!
+//! The three 표준데이터 (`format: openapi_pages`) are not portal files: their rows come through the
+//! public-data OpenAPI with the platform's service key, read by the Onbid collector's answer reader.
+//! A run asks every page of one pass; the pass is a new edition only when its rows (their SHA-256,
+//! sorted) differ from the last pass landed, and it lands as every page's raw line in one gzip
+//! JSON-lines object (the Onbid collector's Bronze shape; a line records its request without the key).
+//!
 //! One file's failure does not stop the others (each commits on its own); the run fails at the end
 //! naming every file that failed. A run writes `..._OUTPUT_DIR/manifest.json` and a local copy of
 //! each file it fetched; its last stdout line says whether it landed a new file.
@@ -41,6 +47,7 @@ use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_target_preflight,
     BronzeObjectStorageWriter,
 };
+use crate::data_go_kr_onbid_collect::{gzip_lines, read_answer, Answer, ResultCodes};
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
@@ -53,6 +60,7 @@ const MANIFEST_SCHEMA: &str = "foundation-platform.data_go_kr_file_data_collect.
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const ZIP_MAGIC: &[u8] = b"PK\x03\x04";
+const SERVICE_KEY_ENV: &str = "DATA_GO_KR_SERVICE_KEY";
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Metadata {
@@ -65,12 +73,29 @@ pub(crate) struct Download {
     pub(crate) query: BTreeMap<String, String>,
 }
 
-/// How a file arrives: a zip archive, or one CSV as it is.
+/// How a file arrives: a zip archive, one CSV as it is, or the pages of a 표준데이터 OpenAPI pass.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum FileFormat {
     Zip,
     Csv,
+    OpenapiPages,
+}
+
+/// The 표준데이터 OpenAPI the `openapi_pages` files are asked through.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Openapi {
+    pub(crate) base_url: String,
+    pub(crate) query: BTreeMap<String, String>,
+    pub(crate) result_codes: ResultCodes,
+}
+
+/// One `openapi_pages` file's operation and its per-run cap.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct OpenapiFile {
+    pub(crate) path: String,
+    pub(crate) page_size: u64,
+    pub(crate) max_pages: u64,
 }
 
 /// One file of the contract. The Silver-side fields (header, bounds, keys) are not read here.
@@ -82,8 +107,11 @@ pub(crate) struct ContractFile {
     pub(crate) operation: String,
     pub(crate) name_ko: String,
     pub(crate) published: String,
+    /// The portal metadata ask; an `openapi_pages` file has none.
+    #[serde(default)]
     pub(crate) metadata_query: BTreeMap<String, String>,
     pub(crate) format: FileFormat,
+    pub(crate) openapi: Option<OpenapiFile>,
     /// A file too large for the contract-wide timeout states its own.
     pub(crate) request_timeout_seconds: Option<u64>,
 }
@@ -96,6 +124,7 @@ pub(crate) struct SourceContract {
     pub(crate) request_timeout_seconds: u64,
     pub(crate) metadata: Metadata,
     pub(crate) download: Download,
+    pub(crate) openapi: Openapi,
     pub(crate) files: BTreeMap<String, ContractFile>,
 }
 
@@ -179,6 +208,7 @@ fn extension(file: &ContractFile) -> &'static str {
     match file.format {
         FileFormat::Zip => "zip",
         FileFormat::Csv => "csv",
+        FileFormat::OpenapiPages => "gz",
     }
 }
 
@@ -200,6 +230,8 @@ fn last_accepted(state_dir: &Path, file: &ContractFile) -> anyhow::Result<Option
 
 struct Config {
     base_uri: String,
+    openapi_base_uri: String,
+    service_key: Option<String>,
     request_spacing: ProviderRequestSpacing,
     live_write: bool,
     output_dir: PathBuf,
@@ -214,6 +246,11 @@ impl Config {
                 .unwrap_or_else(|| contract.base_url.clone())
                 .trim_end_matches('/')
                 .to_owned(),
+            openapi_base_uri: optional_env_value(&format!("{PREFIX}_OPENAPI_BASE_URI"))?
+                .unwrap_or_else(|| contract.openapi.base_url.clone())
+                .trim_end_matches('/')
+                .to_owned(),
+            service_key: optional_env_value(SERVICE_KEY_ENV)?.filter(|key| !key.trim().is_empty()),
             request_spacing: ProviderRequestSpacing::try_new(Duration::from_secs(
                 contract.request_spacing_seconds,
             ))?,
@@ -240,6 +277,8 @@ fn check_download(file: &ContractFile, bytes: &[u8]) -> anyhow::Result<()> {
             file.dataset_slug,
             bytes.len()
         ),
+        // Read page by page in `fetch_pages`.
+        FileFormat::OpenapiPages => {}
         FileFormat::Csv => {
             let head = bytes.trim_ascii_start();
             ensure!(
@@ -251,6 +290,116 @@ fn check_download(file: &ContractFile, bytes: &[u8]) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The edition id of a pass: the start of the SHA-256 of its rows, sorted, so a pass the provider
+/// merely reorders is the same edition.
+pub(crate) fn pass_id(items: &[JsonValue]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut rows = items.iter().map(JsonValue::to_string).collect::<Vec<_>>();
+    rows.sort_unstable();
+    let mut digest = Sha256::new();
+    for row in &rows {
+        digest.update(row.as_bytes());
+        digest.update(b"\n");
+    }
+    let hex = format!("{:x}", digest.finalize());
+    format!("rows_{}", &hex[..16])
+}
+
+/// Asks every page of one `openapi_pages` file's pass. `None` when its rows are the last landed
+/// pass's; otherwise the pass and every page's raw line, gzipped.
+pub(crate) async fn fetch_pages(
+    contract: &SourceContract,
+    file: &ContractFile,
+    base_uri: &str,
+    service_key: Option<&str>,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+    last: Option<&str>,
+) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
+    let slug = &file.dataset_slug;
+    let api = file
+        .openapi
+        .as_ref()
+        .with_context(|| format!("{slug} is openapi_pages without an openapi entry"))?;
+    let key = service_key
+        .with_context(|| format!("{SERVICE_KEY_ENV} is required for the {slug} OpenAPI"))?;
+    let http = reqwest::Client::builder()
+        .user_agent(contract.user_agent.clone())
+        .timeout(Duration::from_secs(contract.request_timeout_seconds))
+        .build()
+        .context("failed to build the data.go.kr HTTP client")?;
+    let mut items = Vec::new();
+    let mut lines = Vec::new();
+    let mut complete = false;
+    for page in 1..=api.max_pages {
+        let mut params = contract.openapi.query.clone();
+        params.insert("pageNo".to_owned(), page.to_string());
+        params.insert("numOfRows".to_owned(), api.page_size.to_string());
+        spacing.wait_before_request(*requests).await;
+        *requests += 1;
+        let response = http
+            .get(format!("{base_uri}{}", api.path))
+            .query(&[("serviceKey", key)])
+            .query(&params)
+            .send()
+            .await
+            // The URL holds the key; an error must never print it.
+            .map_err(|error| {
+                anyhow::anyhow!("{slug} page {page} failed: {}", error.without_url())
+            })?;
+        let status = response.status().as_u16();
+        let body = response.text().await.map_err(|error| {
+            anyhow::anyhow!("{slug} page {page} body failed: {}", error.without_url())
+        })?;
+        lines.push(serde_json::to_string(&json!({
+            "operation": file.operation,
+            "request": params,
+            "requested_at_utc": Utc::now().to_rfc3339(),
+            "http_status": status,
+            "body": body,
+        }))?);
+        match read_answer(&contract.openapi.result_codes, status, &body)
+            .with_context(|| format!("{slug} page {page}"))?
+        {
+            Answer::QuotaRefused => bail!("{slug} page {page}: the daily quota is spent"),
+            Answer::NoData => {
+                complete = true;
+                break;
+            }
+            Answer::Rows { items: got, total } => {
+                let empty = got.is_empty();
+                items.extend(got);
+                if empty || items.len() as u64 >= total {
+                    ensure!(
+                        items.len() as u64 == total,
+                        "{slug} ended with {} rows of the {total} it reports",
+                        items.len()
+                    );
+                    complete = true;
+                    break;
+                }
+            }
+        }
+    }
+    ensure!(
+        complete,
+        "{slug} needs more than its {} pages (the per-run cap)",
+        api.max_pages
+    );
+    ensure!(!items.is_empty(), "{slug} answered no rows");
+    let id = pass_id(&items);
+    if last == Some(id.as_str()) {
+        return Ok(None);
+    }
+    Ok(Some((
+        Announced {
+            attach_file_id: id,
+            updated_at: None,
+        },
+        gzip_lines(&lines)?,
+    )))
 }
 
 /// Asks one file's metadata, and the file when it is new. `None` when the last landed file is
@@ -338,6 +487,7 @@ fn content_type(file: &ContractFile) -> &'static str {
     match file.format {
         FileFormat::Zip => "application/zip",
         FileFormat::Csv => "text/csv",
+        FileFormat::OpenapiPages => "application/gzip",
     }
 }
 
@@ -471,11 +621,20 @@ fn source_catalog_entry(
         name: file.name_ko.clone(),
         provider: PROVIDER.to_owned(),
         dataset_name: file.dataset_slug.clone(),
-        base_url: Some(contract.base_url.clone()),
-        auth_kind: SourceAuthKind::NoAuth,
+        base_url: Some(if file.format == FileFormat::OpenapiPages {
+            contract.openapi.base_url.clone()
+        } else {
+            contract.base_url.clone()
+        }),
+        auth_kind: if file.format == FileFormat::OpenapiPages {
+            SourceAuthKind::ServiceKey
+        } else {
+            SourceAuthKind::NoAuth
+        },
         payload_format: match file.format {
             FileFormat::Zip => SourcePayloadFormat::Zip,
             FileFormat::Csv => SourcePayloadFormat::Csv,
+            FileFormat::OpenapiPages => SourcePayloadFormat::Json,
         },
         license_name: None,
         license_url: None,
@@ -525,16 +684,29 @@ async fn collect_one(
     now: DateTime<Utc>,
 ) -> anyhow::Result<Option<JsonValue>> {
     let last = last_accepted(&config.state_dir, file)?;
-    let Some((announced, bytes)) = fetch(
-        contract,
-        file,
-        &config.base_uri,
-        config.request_spacing,
-        requests,
-        last.as_deref(),
-    )
-    .await?
-    else {
+    let fetched = if file.format == FileFormat::OpenapiPages {
+        fetch_pages(
+            contract,
+            file,
+            &config.openapi_base_uri,
+            config.service_key.as_deref(),
+            config.request_spacing,
+            requests,
+            last.as_deref(),
+        )
+        .await?
+    } else {
+        fetch(
+            contract,
+            file,
+            &config.base_uri,
+            config.request_spacing,
+            requests,
+            last.as_deref(),
+        )
+        .await?
+    };
+    let Some((announced, bytes)) = fetched else {
         return Ok(None);
     };
     let size = bytes.len();

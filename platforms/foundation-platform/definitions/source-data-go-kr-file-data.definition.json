@@ -7,7 +7,7 @@
       "id": "source-data-go-kr-file-data",
       "type": "source_group",
       "title": "data.go.kr 파일 데이터",
-      "description": "data.go.kr 의 파일 데이터(일괄 내려받기). 수집기 하나가 계약(data-go-kr-file-data.contract.json)의 파일 9개를 돈다(루트 ADR-0280 §4, ADR-0401): 한국산업단지공단 전국등록공장현황(15105482)과 기타 공공 일괄 8개 — 고속도로 출입시설·행정동 세대수·행정동 인구·철도역(역↔노선은 같은 파일의 관련노선 칸)·항만·공항·상가(상권)·법정동 연계정보. 파일마다 Silver 표 하나에 바뀐 행만 쌓는다(ADR-0401 §3–4). 표를 읽는 소비자(by-PNU 섹션)가 아직 없어 partial 이다.",
+      "description": "data.go.kr 의 파일 데이터. 수집기 하나가 계약(data-go-kr-file-data.contract.json)의 파일 12개를 돈다(루트 ADR-0280 §4, ADR-0401): 한국산업단지공단 전국등록공장현황(15105482)과 기타 공공 일괄 8개 — 고속도로 출입시설·행정동 세대수·행정동 인구·철도역(역↔노선은 같은 파일의 관련노선 칸)·항만·공항·상가(상권)·법정동 연계정보 — 는 포털 파일 두 단계로, 표준데이터 3개 — 초중등학교 위치·대학·도시철도역 — 는 공공데이터 OpenAPI 의 쪽 전부로 받는다. 파일마다 Silver 표 하나에 바뀐 행만 쌓는다(ADR-0401 §3–4). 표준데이터 OpenAPI 는 2026-11-04 우리 키에 SERVICE_KEY_IS_NOT_REGISTERED 로 답한다(사장의 활용신청이 먼저). 표를 읽는 소비자(by-PNU 섹션)가 아직 없어 partial 이다.",
       "status": "partial",
       "owner": "foundation-platform",
       "evidence_refs": [
