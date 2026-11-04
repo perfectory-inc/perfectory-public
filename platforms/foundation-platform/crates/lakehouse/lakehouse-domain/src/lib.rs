@@ -37,9 +37,6 @@ mod unit_price_panel;
 /// Provider-neutral table contracts.
 pub mod lakehouse;
 
-/// Lakehouse maintenance planning contracts.
-pub mod lakehouse_maintenance;
-
 /// Provider-neutral Lakehouse lineage event contract.
 pub mod lakehouse_lineage_event;
 
@@ -101,11 +98,6 @@ pub use lakehouse::{
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,
     LAKEHOUSE_LINEAGE_EVENT_SCHEMA_VERSION, LAKEHOUSE_LINEAGE_EVENT_TYPE,
-};
-pub use lakehouse_maintenance::{
-    plan_lakehouse_maintenance, BasisPoints, LakehouseMaintenanceAction,
-    LakehouseMaintenanceActionKind, LakehouseMaintenancePlan, LakehouseMaintenancePolicy,
-    LakehouseTableHealth, LakehouseTableHealthError, LakehouseTableHealthMetrics,
 };
 pub use lakehouse_quality::{
     evaluate_lakehouse_quality_rules, LakehouseQualityError, LakehouseQualityEvaluation,

@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-02
+last_reviewed: 2026-11-04
 ---
 
 # Lakehouse Compute Engines
@@ -873,7 +873,7 @@ sudo chmod -R u+w "/opt/foundation-platform/artifacts/${sha:?}" && sudo rm -rf "
 1. R2 Data Catalog credential 로 Trino catalog smoke 를 통과시킨다.
 2. `silver.industrial_complexes` 를 Trino 에서 조회한다.
 3. Spark 로 Bronze sample 을 Silver Iceberg smoke table 로 쓰는 PoC 를 통과시킨다.
-4. Rust `LakehouseMaintenancePolicy` plan 을 Spark rewrite job 실행과 연결한다.
+4. 정비는 정기 작업 `lakehouse_maintenance`(`lakehouse_maintenance.py`, root ADR-0238)가 한다.
 
 ## 참고
 

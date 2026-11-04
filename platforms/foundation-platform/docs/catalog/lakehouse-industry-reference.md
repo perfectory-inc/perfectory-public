@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-04
 ---
 
 # Lakehouse Industry Reference
@@ -114,14 +114,12 @@ Iceberg commit, R2 object write, PostGIS mirror write는 `foundation-platform`�
    - rewrite 결과가 품질 gate를 통과해야 Gold/serving pointer를 갱신한다.
    - 실패하면 이전 snapshot으로 rollback 가능해야 한다.
 
-초기 코드 계약:
+현재 실행:
 
-- `lakehouse-domain::LakehouseTableHealth`
-- `lakehouse-domain::LakehouseMaintenancePolicy`
-- `lakehouse-domain::plan_lakehouse_maintenance`
-
-이 계약은 Cloudflare, R2, Spark, SQL에 의존하지 않는다. Infra worker는 이 plan을 받아 실제
-Iceberg rewrite job, manifest rewrite, snapshot expiration을 실행한다.
+- 정기 작업 `lakehouse_maintenance`(`orchestration/jobs.v1.json`)가
+  `infra/lakehouse/spark/jobs/lakehouse_maintenance.py` 로 Iceberg `rewrite_data_files`·`expire_snapshots`·
+  `remove_orphan_files` 를 부른다.
+- 임계값과 보존 규칙은 `infra/lakehouse/contracts/lakehouse-maintenance.contract.json` 하나에 있다(root ADR-0238·0237).
 
 ## 적용하지 않는 것
 
