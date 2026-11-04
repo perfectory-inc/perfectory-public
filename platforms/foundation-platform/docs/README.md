@@ -31,6 +31,7 @@ docs/
 - [공공 소스 endpoint 카탈로그](./catalog/public-source-endpoint-catalog.v1.json)
 - [Bronze 수집 레인 레지스트리](./catalog/public-data-bronze-lane-registry.v1.json)
 - [공공데이터 Bronze 수집 런북](./runbooks/public-data-bronze-lane-orchestration.md)
+- [정본 부동산 데이터 플랫폼 북극성](./canonical-property-data-platform-northstar.md) — 목표 구조(현행 작업 순서는 루트 [운영 준비 작업 목록](../../../docs/roadmap/production-readiness.md))
 - [전체 모노레포 문서 색인 생성 안내](../../../docs/README.md)
 - [문서 유형별 진입점](./adr/README.md) · [아키텍처](./architecture/README.md) ·
   [카탈로그](./catalog/README.md) · [런북](./runbooks/README.md)

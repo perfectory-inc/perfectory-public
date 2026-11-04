@@ -96,7 +96,7 @@ packages/                    ← TS 라이브러리 (ui, api-types 생성물 등
 ```
 
 > API 계약 + 에러 코드 SSOT 는 별도 crate 가 아니라 `services/gongzzang-api` 안에 있다
-> (utoipa 매크로 + `src/http/problem.rs`). `crates/api-types`·`crates/data-clients` 는
+> (utoipa 매크로 + `src/http/problem.rs`). `crates/data-clients` 는
 > README-only 자리표시자로, 워크스페이스 멤버가 아니다 (capability-layout 가드가 강제).
 
 ---

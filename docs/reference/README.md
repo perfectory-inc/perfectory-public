@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: README
-last_reviewed: 2026-07-31
+last_reviewed: 2026-11-05
 ---
 
 # 전역 조회용 레퍼런스
@@ -15,6 +15,8 @@ last_reviewed: 2026-07-31
 ## 문서
 
 - [디자인시스템 벤치마킹](./design-system-benchmarks.md) — 외부 디자인시스템의 공개 계약과 설계 선택
+- [지리 정체성 1차 기술 설계](./geography-identity-wave1-technical-design.md) — 법정동·행정동·PNU 정체성 변환 설계
+- [지리 정체성 대기업 사례 조사](./geography-identity-enterprise-survey.md) — ONS·WOF·LADM·LINZ 등 1차 자료
 - [지식 검색·RAG 사례](./knowledge-search-industry-cases.md) — Cerebras·Cursor·Slack·Uber·Anthropic·LinkedIn의 검색 파이프라인과 측정치
 
 ## 배치 기준

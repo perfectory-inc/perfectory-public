@@ -56,7 +56,7 @@ Headers:
 ## 클라이언트 SDK 사용 (Next.js)
 
 ```tsx
-// packages/map/src/naver-map.tsx
+// apps/web 의 지도 컴포넌트(예시)
 import Script from "next/script";
 
 export function NaverMap({ children }: Props) {
