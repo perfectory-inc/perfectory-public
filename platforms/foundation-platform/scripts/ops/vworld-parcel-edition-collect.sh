@@ -96,16 +96,23 @@ export FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH="${work}/inventory
 read -r edition held < <(editions provider-edition --inventory "${work}/inventory.json")
 if [ "${held}" = held ]; then
   job_journal "${journal}" "vworld-parcel-edition provider=${edition} held run=${run_id}"
-  # 제공자가 같은 기준월로 파일을 다시 올렸으면 계약은 앞 업로드를 말한다. 막지 않고 요약에 경고로 남긴다.
+  # 제공자가 같은 기준월로 파일을 다시 올렸으면 계약은 앞 업로드를 말한다. 요약에 경고로 남긴다.
   reuploads="$(editions held-reuploads --edition "${edition}" --inventory "${work}/inventory.json")"
   if [ -n "${reuploads}" ]; then
     printf '%s vworld-parcel-edition WARNING provider re-uploaded %s file(s) of held edition %s after its extraction: %s run=%s\n' \
       "$(date -u +%FT%TZ)" "$(printf '%s\n' "${reuploads}" | wc -l)" "${edition}" "$(printf '%s' "${reuploads}" | tr '\n' ',')" \
       "${run_id}" | tee -a "${journal}" >&2
   fi
-  # Silver did not move: a run that does not say so counts as changed and starts what reads it (ADR-0171).
-  printf 'foundation-job-outcome unchanged\n'
-  exit 0
+  # 아직 아무도 서빙하지 않는 판의 파일을 제공자가 갈았으면 다시 받아 다시 제안한다: 계약 항목은 앞 업로드를
+  # 말하므로 적재도 준비도 영영 안 된다(202610: 272 파일 전부 10-14~16 재업로드, 매일 경고만, 루트 ADR-0380).
+  # Bronze 키가 내용이라 앞 업로드의 객체는 남고 같은 파일은 건너뛴다. 서빙판은 여기서 다시 제안하지 않는다 —
+  # 서빙판을 옮기는 것은 승격이다(루트 ADR-0379).
+  if [ -z "${reuploads}" ] || [ "${edition}" = "$(editions served)" ]; then
+    # Silver did not move: a run that does not say so counts as changed and starts what reads it (ADR-0171).
+    printf 'foundation-job-outcome unchanged\n'
+    exit 0
+  fi
+  job_journal "${journal}" "vworld-parcel-edition provider=${edition} held but re-uploaded: collecting it again run=${run_id}"
 fi
 
 # 2. 수집. 이 판의 파일만 담은 목록으로 ingest 를 부른다.

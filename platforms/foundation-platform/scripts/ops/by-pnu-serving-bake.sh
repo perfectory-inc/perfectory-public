@@ -502,6 +502,19 @@ if [[ "${OWN_RUN}" == true && "${UNIT}" != parcel && "${UNIT}" != building ]]; t
   fi
 fi
 
+# Root ADR-0381: a lane built from the served parcels publishes a promoted edition only together with
+# every other such lane (scripts/ops/edition_lockstep_gate.py). Until each of their Golds is rebuilt on
+# it, the lane waits and keeps serving what it served; the asset reconciler starts it again, since its
+# Gold has moved past what it reflects. On a day without a promotion the gate always opens.
+lockstep="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/edition_lockstep_gate.py" "${UNIT}")" \
+  || { log "refused: cannot tell whether every served-universe lane is on the served edition"; exit 65; }
+if [[ "${lockstep}" == waiting* ]]; then
+  log "${lockstep}"
+  record_read "${reflected}"
+  LANE_WAITING="${lockstep#waiting }"
+  exit 0
+fi
+
 # Every choice and count of this run, for the run summary.
 declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}" [gold_now_iceberg_snapshot_id]="${gold_now}"
   [reflected_gold_iceberg_snapshot_id]="${reflected}" [base_generation]="${base}"

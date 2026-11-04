@@ -36,6 +36,7 @@
     {"path": "/var/lib/foundation-jobs/switches", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the operator switches (root ADR-0282 §3); the gate and the runner only read them"},
     {"path": "/var/lib/foundation-jobs/switches/run-now.d", "mode": "0755", "owner": "foundation-api", "written_by": "foundation-api, the run-now requests (root ADR-0282 §4); foundation-run-now.path watches it and the gate reads it"},
     {"path": "/var/lib/foundation-platform/vworld-parcel-edition", "mode": "0755"},
+    {"path": "/var/lib/foundation-platform/parcel-editions", "mode": "0755"},
     {"path": "/var/lib/foundation-platform/parcel-number-change", "mode": "0755"},
     {"path": "/data/foundation-platform/by-pnu-bake", "mode": "0755"},
     {"path": "/data/foundation-platform/source-sweep", "mode": "0755"},
@@ -465,6 +466,31 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-16T01:00:00Z"
+    },
+    {
+      "id": "parcel_edition_readiness",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Whether each cadastral edition the source contract holds is all there (root ADR-0291 §2, ADR-0379, ADR-0380): source measured and not re-uploaded, Silver within the row-loss bound of the served edition, rehearsal Gold and bake passed. Reads only Trino's partition metadata of silver.parcel_boundaries, the edition collection's newest provider inventory and the tile bake journal, judges only the editions whose inputs moved since the last run, and writes the report foundation-api serves to the operator console.",
+      "systemd_service": "foundation-parcel-edition-readiness.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/parcel-editions"
+      ],
+      "schedule": "10 8 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 10,
+      "pool": "default_pool",
+      "retries": 1,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-parcel-edition-readiness"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z",
+      "started_once_after_deploy": true
     },
     {
       "id": "parcel_number_change_history",

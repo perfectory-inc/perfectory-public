@@ -19,10 +19,10 @@ use foundation_contracts::data_catalog::{
     DataQualityDetail, DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink,
     DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks,
     OperatorActionRecorded, OperatorActionRequest, ParcelEditionPromotion,
-    ParcelEditionPromotionReadiness, ParcelEditionReadiness, ParcelEditionStage,
-    ParcelEditionStages, ParcelEditions, ScheduledJobDataset, ScheduledJobProblem, ScheduledJobRun,
-    ScheduledJobRunOutcome, ScheduledJobStart, ScheduledJobStatus, ScheduledJobsStatus,
-    ServiceChecks,
+    ParcelEditionPromotionReadiness, ParcelEditionPromotionRequest, ParcelEditionReadiness,
+    ParcelEditionStage, ParcelEditionStages, ParcelEditions, ScheduledJobDataset,
+    ScheduledJobProblem, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
+    ScheduledJobStatus, ScheduledJobsStatus, ServiceChecks,
 };
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
 use serde::Deserialize;
@@ -103,6 +103,7 @@ const MAX_NEIGHBOURS: u32 = 200;
         ParcelEditionStage,
         ParcelEditionPromotion,
         ParcelEditionPromotionReadiness,
+        ParcelEditionPromotionRequest,
         ApiErrorResponse,
         InternalApiErrorResponse,
     )),

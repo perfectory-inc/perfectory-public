@@ -426,7 +426,9 @@ def read_served_parcels(
     rebuild fails.
     """
 
-    served = parcel_editions.served_rows(read_source(spark, args, PARCEL_SOURCE, pins), source)
+    # At an incremental run's previous pins, the edition the current Gold was built from (root ADR-0381).
+    served = parcel_editions.served_rows(read_source(spark, args, PARCEL_SOURCE, pins), source,
+                                         pins.get(parcel_editions.SERVED_EDITION_PIN))
     return filtered_by_region(served, args.region_prefix) if region else served
 
 

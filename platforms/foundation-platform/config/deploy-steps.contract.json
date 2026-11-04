@@ -60,6 +60,11 @@
     "start-once.shape_ledger_check": {
       "inputs": ["scripts/ops/shape-ledger-check.py", "infra/systemd/foundation-shape-ledger-check.service",
                  "infra/lakehouse/contracts", "config/postgres-production-shape.json", "migrations"]
+    },
+    "start-once.parcel_edition_readiness": {
+      "inputs": ["scripts/ops/parcel-edition-readiness.sh", "infra/systemd/foundation-parcel-edition-readiness.service",
+                 "infra/lakehouse/spark/jobs/parcel_edition_readiness.py", "infra/lakehouse/spark/jobs/vworld_parcel_editions.py",
+                 "infra/lakehouse/contracts/vworld-parcel-source-objects.json"]
     }
   }
 }

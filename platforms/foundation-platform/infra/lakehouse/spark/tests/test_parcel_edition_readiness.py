@@ -116,6 +116,30 @@ class EvidenceTest(unittest.TestCase):
         self.assertTrue(row(report, SERVED)["stages"]["rehearsal"]["passed"])
 
 
+class PartialRunTest(unittest.TestCase):
+    """The scheduled check judges only the editions whose inputs moved (root ADR-0380)."""
+
+    def test_an_edition_whose_inputs_did_not_move_keeps_its_row(self):
+        held, found = contract(), evidence()
+        first = readiness.readiness(held, found, NOW)
+        digests = {name: readiness.edition_inputs(held, name, found) for name in editions.names(held)}
+        # Mark the kept rows, so a row judged again shows itself by losing the mark.
+        for entry in first["editions"]:
+            entry["stages"]["source"]["detail"] = "kept"
+        moved = copy.deepcopy(found)
+        moved["rehearsals"][CANDIDATE]["bake"] = {"passed": False, "detail": "equivalence differs"}
+        second = readiness.readiness(held, moved, NOW, previous=first, previous_inputs=digests)
+        self.assertEqual(row(second, SERVED)["stages"]["source"]["detail"], "kept")
+        self.assertNotEqual(row(second, CANDIDATE)["stages"]["source"]["detail"], "kept")
+        self.assertEqual(row(second, CANDIDATE)["first_failing_stage"], "rehearsal")
+
+    def test_a_moved_served_edition_judges_every_edition_again(self):
+        held, found = contract(), evidence()
+        digests = {name: readiness.edition_inputs(held, name, found) for name in editions.names(held)}
+        moved = readiness.promote(held, readiness.readiness(held, found, NOW), CANDIDATE, "op", "why", NOW)
+        self.assertTrue(all(readiness.edition_inputs(moved, name, found) != digests[name] for name in digests))
+
+
 class PromotionTest(unittest.TestCase):
     def promote(self, held: dict, report: dict, now: datetime = NOW) -> dict:
         return readiness.promote(held, report, CANDIDATE, "operator@synthetic", "the newer edition is all there", now)
@@ -194,9 +218,48 @@ class ConsoleShapeTest(unittest.TestCase):
         example = json.loads((Path(__file__).resolve().parents[4] / "services/foundation-api/src/routes/data_catalog/"
                               "parcel-editions.example.json").read_text(encoding="utf-8"))
         made = readiness.readiness(contract(), evidence(), NOW)
-        self.assertEqual(sorted(made), sorted(example))
+        # `promotion_requests` is added by `grant`, which runs after the judgement (root ADR-0381).
+        self.assertEqual(sorted([*made, "promotion_requests"]), sorted(example))
         self.assertEqual(sorted(made["editions"][0]), sorted(example["editions"][0]))
         self.assertEqual(sorted(made["editions"][0]["stages"]), sorted(example["editions"][0]["stages"]))
+
+
+class ConsoleRequestTest(unittest.TestCase):
+    """A promotion asked in the console is granted by the readiness check, once (root ADR-0381)."""
+
+    def request(self, folder: Path, request_id: str, **overrides) -> None:
+        fields = {"request": request_id, "actor": "00000000-0000-0000-0000-000000000099",
+                  "requested_at": "2099-10-20T11:00:00+00:00", "reason": "the newer edition is all there",
+                  "job": "parcel_edition_readiness", "expires_at": "2099-10-22T11:00:00+00:00", "edition": CANDIDATE}
+        fields.update(overrides)
+        (folder / request_id).write_text("".join(f"{key}={value}\n" for key, value in fields.items()), encoding="utf-8")
+
+    def test_each_request_is_answered_once_and_only_a_ready_edition_is_granted(self):
+        held = contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            requests, answers = root / "promote.d", root / "promotions"
+            requests.mkdir()
+            report = root / "readiness.json"
+            report.write_text(json.dumps(readiness.readiness(held, evidence(), datetime.now(timezone.utc))), encoding="utf-8")
+            self.request(requests, "a")
+            self.request(requests, "b", edition=SERVED)
+            self.request(requests, "c", expires_at="2000-01-01T00:00:00+00:00")
+            self.request(requests, "d", job="shape_ledger_check")
+            self.assertEqual(readiness.grant(held, report, requests, answers), ["a", "b", "c", "d"])
+            outcome = {row["request"]: row["outcome"] for row in json.loads(report.read_text(encoding="utf-8"))["promotion_requests"]}
+            self.assertEqual(outcome["a"], "granted")
+            self.assertTrue(outcome["b"].startswith("refused: ") and "already the served edition" in outcome["b"])
+            self.assertEqual(outcome["c"], "expired")
+            self.assertTrue(outcome["d"].startswith("refused: asked of shape_ledger_check"))
+            granted = json.loads((answers / "a.contract.json").read_text(encoding="utf-8"))
+            self.assertEqual(granted["served_edition"], CANDIDATE)
+            self.assertEqual(granted["promotions"][-1]["by"], "00000000-0000-0000-0000-000000000099")
+            editions.validate(granted)
+            self.assertFalse((answers / "b.contract.json").exists())
+            # A second run answers nothing again and keeps every answer.
+            self.assertEqual(readiness.grant(held, report, requests, answers), [])
+            self.assertEqual(len(json.loads(report.read_text(encoding="utf-8"))["promotion_requests"]), 4)
 
 
 class CommandLineTest(unittest.TestCase):

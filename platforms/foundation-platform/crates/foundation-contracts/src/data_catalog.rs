@@ -501,6 +501,10 @@ pub struct OperatorActionRequest {
     /// is back.
     #[serde(default)]
     pub window_hours: Option<i64>,
+    /// A `promote_edition` of `parcel_edition_readiness` only: the cadastral edition to serve,
+    /// `YYYYMM` (root ADR-0381). The readiness check grants it only for a ready edition.
+    #[serde(default)]
+    pub edition: Option<String>,
 }
 
 /// The ledger's record of an operator request.
@@ -524,6 +528,8 @@ pub struct OperatorActionRecorded {
     pub window_start: Option<String>,
     /// A `set_window`'s end, `HH:MM` KST.
     pub window_end: Option<String>,
+    /// A `promote_edition`'s edition, `YYYYMM`.
+    pub edition: Option<String>,
 }
 
 /// One readiness stage of a cadastral edition (root ADR-0291 §2, ADR-0379).
@@ -587,6 +593,27 @@ pub struct ParcelEditionPromotion {
     pub readiness: Option<ParcelEditionPromotionReadiness>,
 }
 
+/// How the readiness check answered one promotion asked in the console (root ADR-0381).
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize, ToSchema)]
+pub struct ParcelEditionPromotionRequest {
+    /// The request's id in the operator action ledger.
+    pub request: String,
+    /// The edition asked for, `YYYYMM`.
+    pub edition: Option<String>,
+    /// The staff member who asked.
+    pub by: Option<String>,
+    /// Why.
+    pub reason: Option<String>,
+    /// When it was asked.
+    pub requested_at: Option<String>,
+    /// When the readiness check answered it.
+    pub answered_at: String,
+    /// `granted`, `expired`, or `refused: <why>`.
+    pub outcome: String,
+    /// For a granted request, the promoted source contract on the host, for the reviewed change.
+    pub contract: Option<String>,
+}
+
 /// Every cadastral edition's readiness and the promotions ledger, as the host last measured them
 /// (`scripts/ops/parcel-edition-readiness.sh`, root ADR-0379).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
@@ -599,6 +626,9 @@ pub struct ParcelEditions {
     pub editions: Vec<ParcelEditionReadiness>,
     /// Oldest first; the last is the served edition.
     pub promotions: Vec<ParcelEditionPromotion>,
+    /// The promotions asked in the console and how each was answered, oldest first.
+    #[serde(default)]
+    pub promotion_requests: Vec<ParcelEditionPromotionRequest>,
     /// Why the report could not be read, when it could not.
     pub error: Option<String>,
 }
