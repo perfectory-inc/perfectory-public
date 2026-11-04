@@ -563,22 +563,22 @@ mod tests {
             "status": "ready",
             "owner": "foundation-platform",
             "lanes": [{
-                "lane_id": "data-go-kr-api",
+                "lane_id": "fixture-env-lane",
                 "status": "enabled",
                 "include_by_default": true,
                 "provider": "data.go.kr",
                 "source_acquisition_lanes": ["open_api_only"],
                 "endpoint_groups": ["real_transaction_open_api"],
-                "command": "execute-national-data-collection-async",
-                "command_args": ["execute-national-data-collection-async"],
-                "inner_parallel_env": "FOUNDATION_PLATFORM_NATIONAL_ASYNC_MAX_IN_FLIGHT",
+                "command": "fixture-env-command",
+                "command_args": ["fixture-env-command"],
+                "inner_parallel_env": "FOUNDATION_PLATFORM_FIXTURE_MAX_IN_FLIGHT",
                 "execution_gate": "ConfirmPublicDataBronzeLaneExecution",
-                "live_write_gate_env": "FOUNDATION_PLATFORM_NATIONAL_ASYNC_LIVE_WRITE",
+                "live_write_gate_env": "FOUNDATION_PLATFORM_FIXTURE_LIVE_WRITE",
                 "completion_claim_allowed": false,
                 "national_rollout_allowed": false,
                 "environment": {
-                    "FOUNDATION_PLATFORM_NATIONAL_ASYNC_PLAN_PATH": "target/audit/real-transaction-plan.json",
-                    "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EXECUTE": "1"
+                    "FOUNDATION_PLATFORM_FIXTURE_PLAN_PATH": "target/audit/real-transaction-plan.json",
+                    "FOUNDATION_PLATFORM_FIXTURE_EXECUTE": "1"
                 }
             }]
         }))?;
@@ -590,15 +590,15 @@ mod tests {
             selected[0]
                 .lane
                 .environment
-                .get("FOUNDATION_PLATFORM_NATIONAL_ASYNC_PLAN_PATH")
+                .get("FOUNDATION_PLATFORM_FIXTURE_PLAN_PATH")
                 .map(String::as_str),
             Some("target/audit/real-transaction-plan.json")
         );
         assert_eq!(
             report.environment_keys,
             vec![
-                "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EXECUTE".to_owned(),
-                "FOUNDATION_PLATFORM_NATIONAL_ASYNC_PLAN_PATH".to_owned()
+                "FOUNDATION_PLATFORM_FIXTURE_EXECUTE".to_owned(),
+                "FOUNDATION_PLATFORM_FIXTURE_PLAN_PATH".to_owned()
             ]
         );
         Ok(())

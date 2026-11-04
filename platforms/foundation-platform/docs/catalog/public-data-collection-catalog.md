@@ -47,7 +47,6 @@ last_reviewed: 2026-07-30
 
 | 레인 | 상태 | 기본 포함 | 제공기관 | endpoint 그룹 |
 |---|---|---:|---|---|
-| `data-go-kr-api` | planned | false | data.go.kr | real_transaction_open_api |
 | `building-hub-bulk` | enabled | true | hub.go.kr | building_hub_bulk |
 | `vworld-dataset-file` | enabled | true | vworld.kr | vworld_dataset |
 | `vworld-ned-open-api` | planned | false | vworld.kr | vworld_ned_open_api |

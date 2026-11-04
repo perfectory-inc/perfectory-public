@@ -1,21 +1,5 @@
 use anyhow::{bail, Context};
 
-/// Value passed for `allow_partial_page_window` by the async collection lanes
-/// (`national_data_collection_async`), which collect page-window SHARD FRAGMENTS rather than a
-/// full provider scope. With this set, [`assert_page_window_slice_complete`] intentionally does
-/// NOT assert full provider coverage: a single async run only ever sees one shard/window, so it
-/// cannot — and must not — claim "전국 누락 없음" (no national gaps).
-///
-/// **The single arbiter of full national completeness is the national coverage manifest**
-/// (`national_bronze_object_manifest`, checked by `check-national-bronze-object-manifest`). An
-/// async run's own evidence must never be read as a completeness claim; only the manifest check
-/// asserts the full scope was collected with no gaps.
-///
-/// The sync `ingest-building-register` path does NOT use this constant — it passes its own
-/// runtime `config.allow_partial_page_window` and, when that is `false`, runs the full coverage
-/// check here (the check that bails on `max_pages=1`).
-pub const ASYNC_SHARD_WINDOW_DEFERS_TO_COVERAGE_MANIFEST: bool = true;
-
 pub fn assert_page_window_complete(
     source_name: &str,
     last_page: u32,
@@ -49,11 +33,11 @@ pub fn assert_page_window_complete(
 ///
 /// When `allow_partial_page_window == true` this guard returns `Ok(())` immediately, after the
 /// invariant checks (`page_size`/`max_pages`), WITHOUT asserting provider coverage. That is the
-/// SHARD-FRAGMENT mode used by the async lanes, which pass
-/// [`ASYNC_SHARD_WINDOW_DEFERS_TO_COVERAGE_MANIFEST`]: an async run collects one window/shard and
-/// is *not* a full-scope claim. **Full "전국 누락 없음" completeness is asserted only by the
-/// national coverage manifest (`check-national-bronze-object-manifest`)**, never by an individual
-/// async run's evidence. The sync path passes `false` here and gets the full coverage check.
+/// SHARD-FRAGMENT mode (`ingest-building-register` with its runtime
+/// `config.allow_partial_page_window`): a run that collects one window/shard is *not* a full-scope
+/// claim. **Full "전국 누락 없음" completeness is asserted only by the national coverage manifest
+/// (`check-national-bronze-object-manifest`)**, never by an individual run's evidence. Passing
+/// `false` here runs the full coverage check.
 pub fn assert_page_window_slice_complete(
     source_name: &str,
     last_page: u32,
@@ -73,7 +57,7 @@ pub fn assert_page_window_slice_complete(
     if allow_partial_page_window {
         // Shard-fragment mode: do NOT assert provider coverage here. Full national completeness is
         // the national coverage manifest's job (check-national-bronze-object-manifest), not this
-        // per-run guard. See ASYNC_SHARD_WINDOW_DEFERS_TO_COVERAGE_MANIFEST.
+        // per-run guard.
         return Ok(());
     }
 

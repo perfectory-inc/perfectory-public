@@ -1003,10 +1003,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             "ingest-vworld-dataset-files",
             Command::IngestVWorldDatasetFiles,
         ),
-        (
-            "execute-national-data-collection-async",
-            Command::ExecuteNationalDataCollectionAsync,
-        ),
         ("ingest-real-transaction", Command::IngestRealTransaction),
         (
             "probe-building-register-page-count",

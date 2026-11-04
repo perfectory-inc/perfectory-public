@@ -32,34 +32,6 @@
   ],
   "lanes": [
     {
-      "lane_id": "data-go-kr-api",
-      "status": "planned",
-      "include_by_default": false,
-      "provider": "data.go.kr",
-      "source_acquisition_lanes": ["open_api_only"],
-      "endpoint_groups": ["real_transaction_open_api"],
-      "command": "execute-national-data-collection-async",
-      "command_args": [
-        "execute-national-data-collection-async"
-      ],
-      "inner_parallel_env": "FOUNDATION_PLATFORM_NATIONAL_ASYNC_MAX_IN_FLIGHT",
-      "execution_gate": "ConfirmPublicDataBronzeLaneExecution",
-      "environment": {
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_PLAN_PATH": "target/audit/national-data-collection-plan-real-transaction-allops-20260604-002.json",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EVENT_LOG_PATH": "target/audit/public-data-bronze-lane-real-transaction-events.jsonl",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EVIDENCE_PATH": "target/audit/public-data-bronze-lane-real-transaction-evidence.json",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EVIDENCE_SCAN_DIR": "target/audit",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_PAGE_QUEUE": "1",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_MAX_JOBS": "100",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_REQUEST_CAP": "1000",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_EXECUTE": "1",
-        "FOUNDATION_PLATFORM_NATIONAL_ASYNC_CONFIRM_PUBLIC_API_QUOTA_IMPACT": "1"
-      },
-      "planned_blocker": "legacy data.go.kr API executor is disabled by the bulk-only national policy; use rt.molit.go.kr CSV export for national Bronze when it covers the same provider facts",
-      "completion_claim_allowed": false,
-      "national_rollout_allowed": false
-    },
-    {
       "lane_id": "building-hub-bulk",
       "status": "enabled",
       "include_by_default": true,
