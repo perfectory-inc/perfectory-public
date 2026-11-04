@@ -789,7 +789,8 @@ class TheWholeDeploy(unittest.TestCase):
         (running / "scripts/deploy").mkdir(parents=True)
         once = {"source_sweep": 5, "outbox_publish": 1}
         jobs = [{"id": job, "enabled": job in self.ENABLED, "systemd_service": f"foundation-{job}.service",
-                 "timeout_minutes": once.get(job, 30), "started_once_after_deploy": job in once,
+                 "time_limit_minutes": once.get(job, 30), "stop_grace_minutes": 0,
+                 "started_once_after_deploy": job in once,
                  "interruptible": job == "source_sweep"}
                 for job in self.ENABLED + self.DISABLED]
         (running / "orchestration/jobs.v1.json").write_text(json.dumps({"jobs": jobs}))
