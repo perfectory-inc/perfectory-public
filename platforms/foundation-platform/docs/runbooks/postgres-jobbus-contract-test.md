@@ -2,21 +2,17 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-04
 ---
 
 # Postgres JobBus 계약 테스트
 
-`foundation_outbox::PostgresJobBus`는 내구성 있는 수집 디스패치 어댑터다. 벌크 우선 정책에 따라
-기존 data.go.kr 국가 비동기 명령은 비활성화되어 있으므로 해당 JobBus 설정으로 운영 수집을
-실행하면 안 된다. 현재 `hub.go.kr` 벌크 수집 명령은 벌크 스트리밍 경로를 사용하고,
+`foundation_outbox::PostgresJobBus`는 내구성 있는 수집 디스패치 어댑터다. 현재 `hub.go.kr` 벌크
+수집 명령은 벌크 스트리밍 경로를 사용하고,
 실시간 쓰기 모드에서는 `PostgresJobBus`로 claim/ack한다. 아래 증명은 자격증명 없는 단위
 테스트가 아니라 보호된 통합 테스트다. 일회용 PostgreSQL을 시작하고 저장소 마이그레이션을
 적용한 뒤 lease fencing, 재시도·dead-letter 동작, 트랜잭션 `collection.raw_written` outbox
 삽입을 검증한다.
-
-기존 Postgres 모드는 여전히 `FOUNDATION_PLATFORM_NATIONAL_ASYNC_PAGE_QUEUE=1`과 호환되지
-않는다. 명령은 공급자 요청을 만들기 전에 전체 레거시 API executor를 거부한다.
 
 저장소 루트에서 Docker Desktop을 실행한 상태로 진행한다.
 

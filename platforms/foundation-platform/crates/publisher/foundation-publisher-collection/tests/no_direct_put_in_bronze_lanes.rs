@@ -85,18 +85,6 @@ fn guarded_files() -> Vec<GuardedFile> {
         guarded!("building_hub_bulk_ingest.rs"),
         // vworld dataset-file lane (top module; submodule dir holds only tests.rs)
         guarded!("vworld_dataset_file_ingest.rs"),
-        // national async lane (every .rs)
-        guarded!("national_data_collection_async/bronze_ingest.rs"),
-        guarded!("national_data_collection_async/building_register.rs"),
-        guarded!("national_data_collection_async/config.rs"),
-        guarded!("national_data_collection_async/env.rs"),
-        guarded!("national_data_collection_async/events.rs"),
-        guarded!("national_data_collection_async/evidence.rs"),
-        guarded!("national_data_collection_async/ledger.rs"),
-        guarded!("national_data_collection_async/ledger_job_bus.rs"),
-        guarded!("national_data_collection_async/page_queue.rs"),
-        guarded!("national_data_collection_async/plan.rs"),
-        guarded!("national_data_collection_async/real_transaction.rs"),
     ]
 }
 

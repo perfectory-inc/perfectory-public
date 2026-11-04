@@ -117,7 +117,6 @@ mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 use foundation_publisher_collection::national_bronze_object_manifest;
-use foundation_publisher_collection::national_data_collection_async;
 use foundation_publisher_collection::national_data_collection_coverage_ledger_check;
 use foundation_publisher_collection::national_data_collection_ledger_execute;
 use foundation_publisher_collection::national_data_collection_ledger_resume;
@@ -264,7 +263,6 @@ enum Command {
     ExportLandTransferHistorySilverHandoff,
     ExportLandRightRegistrationSilverHandoff,
     ExportLandOwnershipSilverHandoff,
-    ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
     ExecuteSilverGoldNationalPromotion,
@@ -608,9 +606,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportLandIndividualPriceSilverHandoff => {
             Box::pin(land_use_silver_export::run_price())
-        }
-        Command::ExecuteNationalDataCollectionAsync => {
-            Box::pin(national_data_collection_async::run())
         }
         Command::ExecuteNationalDataCollectionLedger => {
             Box::pin(async { national_data_collection_ledger_execute::run() })
@@ -1209,9 +1204,6 @@ where
         }
         Some("export-vworld-cadastral-silver-handoff-shard") => {
             Ok(Command::ExportVWorldCadastralSilverHandoffShard)
-        }
-        Some("execute-national-data-collection-async") => {
-            Ok(Command::ExecuteNationalDataCollectionAsync)
         }
         Some("import-industrial-complex-catalog-seed") => {
             Ok(Command::ImportIndustrialComplexCatalogSeed)
