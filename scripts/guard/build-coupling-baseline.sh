@@ -319,7 +319,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 159 -> 157: the retired spatial tile WAP probe read its own source and its evidence contract.
 # 157 -> 158: the photo rendition step embeds the connection contract's ladder once
 # (parcel_media.renditions, root ADR-0427), as the publisher crates embed its other blocks.
-COMPILE_TIME_READ_BASELINE="${3:-158}"
+# 158 -> 159: the 건축인허가 부설주차장 lane embeds its source contract once, as every hub part lane
+# does (root ADR-0402).
+COMPILE_TIME_READ_BASELINE="${3:-159}"
 
 cd "$repo_root"
 
