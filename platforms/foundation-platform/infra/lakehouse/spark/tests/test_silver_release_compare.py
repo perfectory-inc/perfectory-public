@@ -68,6 +68,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.building_permit_parking": "vintage",
             "silver.building_permit_annex_parking": "vintage",
             "silver.building_permit_building_outline": "vintage",
+            "silver.building_permit_major_repair": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
             "silver.building_register_sub_parcel": "vintage",

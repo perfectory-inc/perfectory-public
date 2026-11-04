@@ -31,6 +31,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitParking,
     PermitAnnexParking,
     PermitBuildingOutline,
+    PermitMajorRepair,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -43,7 +44,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 23] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 24] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -58,6 +59,7 @@ impl Lane {
         Self::PermitParking,
         Self::PermitAnnexParking,
         Self::PermitBuildingOutline,
+        Self::PermitMajorRepair,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -87,6 +89,7 @@ impl Lane {
             Self::PermitParking => "building-permit-parking",
             Self::PermitAnnexParking => "building-permit-annex-parking",
             Self::PermitBuildingOutline => "building-permit-building-outline",
+            Self::PermitMajorRepair => "building-permit-major-repair",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -175,6 +178,10 @@ impl Lane {
             Self::PermitBuildingOutline => (
                 "hub-building-permit-building-outline-source-objects.json",
                 crate::building_permit_building_outline_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitMajorRepair => (
+                "hub-building-permit-major-repair-source-objects.json",
+                crate::building_permit_major_repair_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -278,6 +285,9 @@ impl ExportKind {
             },
             "export-building-permit-building-outline-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_BUILDING_OUTLINE",
+            },
+            "export-building-permit-major-repair-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_MAJOR_REPAIR",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {
