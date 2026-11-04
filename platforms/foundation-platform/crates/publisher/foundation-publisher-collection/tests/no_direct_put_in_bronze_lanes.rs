@@ -11,7 +11,7 @@
 //!
 //! Those two adapter files are NOT in the guarded lane set below — they ARE the
 //! single allowed Bronze write point. Mutable non-Bronze writers (vector-tile
-//! manifest pointer, `parcel_marker_anchor_*` artifacts, smoke, cadastral silver
+//! manifest pointer, smoke, cadastral silver
 //! shard export) legitimately call `put_object(OverwriteAllowed)` and are also
 //! out of scope.
 //!
