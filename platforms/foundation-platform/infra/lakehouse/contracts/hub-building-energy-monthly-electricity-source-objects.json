@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0396-monthly-building-energy-lands-in-silver-one-usage-month-per-release.md",
+  "source": "bronze/source=hubgokr__building_energy_monthly_electricity",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "eais_elcty",
+  "how_measured": "운영 장부의 2026-10 판 두 객체를 R2 읽기 전용 키로 받아 끝까지 읽었다. 202606 사용분(21,167,230 바이트, 멤버 eais_elcty_202606.txt 170,343,713 바이트)은 1,462,015 행, 모든 행 17칸, PNU 입력 100%. (사용 월·지번·칸 1 순번)은 행마다 고유하나 순번은 판 사이에 같은 건물을 가리키지 않는다: 202605 사용분을 2026-09 판과 2026-10 판에서 비교하면 1,461,326 → 1,464,190 행, 사용량이 바뀐 행 399,708, 같은 (지번·순번)의 도로명이 바뀐 행 64,356. 그래서 키는 (사용 월, 지번)이고 그 지번의 행 묶음이 한 판이다. 칸 뜻은 값으로 맞췄다: 칸 0 사용년월(모든 행 202606), 칸 2·3 시군구·법정동코드, 칸 4–6 시도·시군구·읍면동명, 칸 7 대지구분(0 1,446,742·1 15,203·2 70), 칸 8·9 번·지, 칸 10–15 도로명 주소, 칸 16 사용량.",
+  "field_layout_authority": "2026-10 판 실측 표본의 값(사용년월·지번·도로명 주소 칸)",
+  "unmapped_columns": "이름을 붙이지 않은 칸(순번·시도·시군구·읍면동명·도로명코드·도로명·지하여부·지상/지하·건물본번·부번)은 뜻을 추정하지 않고 raw_columns 의 원래 index 로만 보존한다. 순번(칸 1)은 판 사이에 같은 건물을 가리키지 않아 키에 넣지 않는다.",
+  "load_granularity": "national",
+  "release_rule": "판 하나는 Bronze 장부(catalog.bronze_object)의 객체 하나다(release_unit object). 객체 하나는 사용 월 하나를 싣고, 나중 장부 월이 앞 사용 월을 다시 싣기도 한다(2026-10 장부: 202605·202606). run 마다 장부 월, 객체 키 순으로 아직 표에 없는 첫 객체를 적재한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM(장부 월)이라 다시 실린 사용 월이 앞 판보다 앞선다(root ADR-0396, ADR-0328).",
+  "inner_file": "eais_elcty_{YYYYMM}.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 17,
+  "row_key": {
+    "joined_columns": [
+      "use_ym",
+      "sigungu_cd",
+      "bjdong_cd",
+      "san_gubun",
+      "bonbeon",
+      "bubeon"
+    ]
+  },
+  "columns": {
+    "use_ym": {
+      "index": 0,
+      "meaning": "사용년월 YYYYMM 원문"
+    },
+    "sigungu_cd": {
+      "index": 2,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 3,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 7,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 8,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 9,
+      "meaning": "지 원문"
+    },
+    "usage_amount": {
+      "index": 16,
+      "meaning": "사용량 원문(단위는 제공자 명세로 확인한 화면 PR 이 적는다)"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_energy_monthly_electricity",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-energy-monthly-electricity.service 의 실행 값(root ADR-0169 §3, ADR-0396). 객체 하나가 판 하나다(release_unit object). 부분은 판의 load branch 에 쌓고, compare 가 그 판이 가진 사용 월 묶음(키 앞 여섯 자리)만 main 의 현재 행과 지번마다 비교해 바뀐 지번의 행과 그 달에서 사라진 지번의 삭제 표시만 changes branch 에 커밋하고(bucket_scope release: 다른 달은 읽지도 지우지도 않는다), 다 되면 main 으로 한 번에 발행한다(ADR-0318).",
+    "table": "silver.building_energy_monthly_electricity",
+    "roles": {
+      "source": "hubgokr__building_energy_monthly_electricity"
+    },
+    "export": "export-building-energy-monthly-electricity-silver-handoff",
+    "release_unit": "object",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "use_ym",
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "usage_amount",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 6,
+      "bucket_scope": "release"
+    }
+  }
+}

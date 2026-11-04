@@ -240,6 +240,25 @@ fn permit_demolition_loss_streaming_export_command_is_explicit() -> anyhow::Resu
 }
 
 #[test]
+fn energy_monthly_streaming_export_commands_are_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-energy-monthly-electricity-silver-handoff"
+        ])?,
+        Command::ExportBuildingEnergyMonthlyElectricitySilverHandoff
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-energy-monthly-gas-silver-handoff"
+        ])?,
+        Command::ExportBuildingEnergyMonthlyGasSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

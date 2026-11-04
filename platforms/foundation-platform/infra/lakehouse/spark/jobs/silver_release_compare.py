@@ -20,6 +20,9 @@ A run that reaches `--deadline-utc` starts no new bucket and reports `deadline`;
 compares only the buckets the branch does not record yet. The 2026-10-21 compare of 131,664,668 rows
 took 87 minutes in one piece, and `silver.land_use_plan` (247.58M) would not fit the unit's 150.
 
+With `--bucket-scope release` only the buckets the staged release holds are compared (root ADR-0396):
+a release that states one usage month leaves every other month's keys as they are.
+
 When every bucket is recorded, a last empty commit records every Bronze object of the release in
 its snapshot summary, as `append_batch_once` does (`staged`). The lane then publishes the changes
 branch as `main` in one fast-forward (`publish_branch`, root ADR-0183), so a reader never sees half
@@ -86,6 +89,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--changes-branch", required=True, help="The branch the changes are staged on until published")
     parser.add_argument("--bucket-prefix-length", type=int, default=0,
                         help="Compare bucket by bucket: the leading characters of the key's first column (0: one)")
+    parser.add_argument("--bucket-scope", choices=("table", "release"), default="table",
+                        help="Which buckets: every bucket either side holds, or only the release's (root ADR-0396)")
     parser.add_argument("--deadline-utc", help="ISO-8601 instant after which no new bucket starts")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
@@ -100,6 +105,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         raise ValueError("the release is staged on a load branch and its changes on another branch, neither main")
     if args.bucket_prefix_length < 0:
         raise ValueError("--bucket-prefix-length is 0 or more")
+    if args.bucket_scope == "release" and args.bucket_prefix_length == 0:
+        # One bucket is the whole table: every key the release lacks would read as removed.
+        raise ValueError("--bucket-scope release splits by a key prefix (--bucket-prefix-length > 0)")
     if args.deadline_utc is not None:
         args.deadline_utc = deadline(args.deadline_utc)
     return args
@@ -146,6 +154,13 @@ def buckets(frames: list[Any], column: str, length: int) -> list[str | None]:
     for frame in frames:
         found |= {row["_bucket"] for row in frame.select(prefix).distinct().collect()}
     return ordered_buckets(found)
+
+
+def compared_sides(scope: str, staged: Any, main: Any) -> list[Any]:
+    """The frames whose buckets are compared. A release that states only its own buckets (one
+    usage month of 월별 에너지, root ADR-0396) is compared on those alone: `main`'s other months are
+    not in it and are not removed by it."""
+    return [staged] if scope == "release" else [staged, main]
 
 
 def recorded_buckets(snapshots: list[dict[str, Any]], lineage: set[int], source_snapshot_id: str) -> set[str]:
@@ -356,7 +371,7 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
               .where(F.col("source_snapshot_id") == args.source_snapshot_id).select(*columns))
     main = spark.table(unquoted)
     length = args.bucket_prefix_length
-    every = buckets([staged, main], key[0], length)
+    every = buckets(compared_sides(args.bucket_scope, staged, main), key[0], length)
     snapshots = [{"snapshot_id": r.snapshot_id, "summary": r.summary or {}}
                  for r in spark.sql(f"SELECT snapshot_id, summary FROM {qualified}.snapshots").collect()]
     done = recorded_buckets(snapshots, ref_lineage(spark, qualified, args.changes_branch), args.source_snapshot_id)

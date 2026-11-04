@@ -11,18 +11,20 @@ pub(super) struct Member<R: Read> {
 }
 
 /// `zip` owns ZIP64 and central-directory interpretation; this adapter only opens the
-/// single raw-deflate byte range and cross-checks its local framing (APPNOTE 4.3.7).
-pub(super) fn open<R: Read + Seek>(source: R, expected_name: &str) -> anyhow::Result<Member<R>> {
+/// single raw-deflate byte range and cross-checks its local framing (APPNOTE 4.3.7). The one
+/// member's name must be one `accepts` takes (`Layout::accepts_member`).
+pub(super) fn open<R: Read + Seek>(
+    source: R,
+    accepts: impl Fn(&str) -> bool,
+) -> anyhow::Result<Member<R>> {
     let mut archive = zip::ZipArchive::new(source).context("invalid HUB ZIP directory")?;
     ensure!(
         archive.len() == 1,
         "HUB ZIP must contain exactly one member"
     );
     let member = archive.by_index(0).context("invalid HUB ZIP member")?;
-    ensure!(
-        member.name().context("undecodable HUB ZIP member name")? == expected_name,
-        "unexpected HUB ZIP member name"
-    );
+    let expected_name = String::from(member.name().context("undecodable HUB ZIP member name")?);
+    ensure!(accepts(&expected_name), "unexpected HUB ZIP member name");
     ensure!(
         !member.encrypted() && member.compression() == zip::CompressionMethod::Deflated,
         "HUB ZIP requires unencrypted raw deflate"

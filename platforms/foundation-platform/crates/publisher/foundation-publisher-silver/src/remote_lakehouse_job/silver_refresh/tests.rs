@@ -131,6 +131,58 @@ fn two_objects_with_the_same_or_no_update_date_are_refused() -> anyhow::Result<(
 }
 
 #[test]
+fn every_object_of_an_object_lane_is_a_release_in_publication_order() -> anyhow::Result<()> {
+    // 월별 에너지 (root ADR-0396): each object is one usage month; a later ledger month may carry an
+    // earlier usage month again, with no provider update date to tell them apart.
+    const ENERGY: &str = "hubgokr__building_energy_monthly_electricity";
+    let energy = roles(&[("source", ENERGY)]);
+    let mut republished = object(ENERGY, "20990913", None)?;
+    republished.object_key = format!("bronze/source={ENERGY}/OPN20990913A.zip");
+    let newest = object(ENERGY, "20990913", None)?;
+    let first = object(ENERGY, "20990807", None)?;
+    let releases = release::select_each(
+        &energy,
+        &[newest.clone(), first.clone(), republished.clone()],
+    )?;
+    let keys: Vec<&str> = releases
+        .iter()
+        .map(|release| release.object("source").map(|o| o.object_key.as_str()))
+        .collect::<anyhow::Result<_>>()?;
+    assert_eq!(
+        keys,
+        [
+            first.object_key.as_str(),
+            republished.object_key.as_str(),
+            newest.object_key.as_str()
+        ]
+    );
+    assert_eq!(
+        releases.iter().map(Release::vintage).collect::<Vec<_>>(),
+        ["209908", "209909", "209909"]
+    );
+    // One source only: a release of two roles is a month's, not an object's.
+    assert!(release::select_each(&unit_roles(), &[first]).is_err());
+    Ok(())
+}
+
+#[test]
+fn an_object_lane_compares_only_the_buckets_its_release_holds() -> anyhow::Result<()> {
+    let contract = Lane::EnergyElectricity.contract()?;
+    assert!(contract.releases_each_object && contract.compare_release_buckets_only);
+    assert_eq!(contract.compare_bucket_prefix_length, 6);
+    // Without the release scope every month the object lacks would read as removed.
+    let unscoped = crate::building_energy_monthly_silver_export::ELECTRICITY_CONTRACT_JSON
+        .replace(",\n      \"bucket_scope\": \"release\"", "");
+    assert_ne!(
+        unscoped,
+        crate::building_energy_monthly_silver_export::ELECTRICITY_CONTRACT_JSON
+    );
+    assert!(LaneContract::parse(Lane::EnergyElectricity, &unscoped).is_err());
+    assert!(!Lane::RegisterMaster.contract()?.releases_each_object);
+    Ok(())
+}
+
+#[test]
 fn a_release_whose_files_name_different_export_days_is_refused() -> anyhow::Result<()> {
     let ledger = [
         object(UNIT, "20990720", None)?,
