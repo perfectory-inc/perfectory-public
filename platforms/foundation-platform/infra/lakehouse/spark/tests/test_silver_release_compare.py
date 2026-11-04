@@ -73,6 +73,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.building_permit_floor_overview": "vintage",
             "silver.building_permit_temporary_building": "vintage",
             "silver.building_permit_site_location": "vintage",
+            "silver.building_maintenance_regular_inspection_history": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
             "silver.building_register_sub_parcel": "vintage",

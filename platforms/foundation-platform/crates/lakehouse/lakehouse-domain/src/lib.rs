@@ -10,6 +10,7 @@ pub mod industrial_complex_gold_pointer;
 pub mod industrial_complex_jsonl_transport;
 
 mod building_energy_monthly;
+mod building_maintenance_regular_inspection_history;
 mod building_panel;
 mod building_permit_annex_parking;
 mod building_permit_basis_outline;
@@ -62,6 +63,7 @@ pub mod lakehouse_run_summary;
 pub use building_energy_monthly::{
     SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY, SILVER_BUILDING_ENERGY_MONTHLY_GAS,
 };
+pub use building_maintenance_regular_inspection_history::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY;
 pub use building_permit_annex_parking::SILVER_BUILDING_PERMIT_ANNEX_PARKING;
 pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
 pub use building_permit_building_outline::SILVER_BUILDING_PERMIT_BUILDING_OUTLINE;
