@@ -11,6 +11,7 @@ const reads = vi.hoisted(() => ({
   listings: { listings: [] as unknown[], total: 0 },
   publicAuction: [] as unknown[],
   ownership: null as unknown,
+  demolitions: null as unknown,
 }));
 vi.mock("@/components/panels/parcel/queries", () => ({
   parcelBuildingsQuery: (pnu: string) => ({
@@ -28,6 +29,10 @@ vi.mock("@/components/panels/parcel/queries", () => ({
   parcelOwnershipQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "ownership", pnu],
     queryFn: async () => reads.ownership,
+  }),
+  parcelDemolitionsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "demolitions", pnu],
+    queryFn: async () => reads.demolitions,
   }),
 }));
 
@@ -180,6 +185,40 @@ describe("parcel panel sections", () => {
       expect(screen.queryByText("임야소유")).toBeNull();
     } finally {
       reads.ownership = null;
+    }
+  });
+
+  it("shows the parcel's 멸실된 건물 in the source's words, newest first", async () => {
+    reads.demolitions = {
+      records: [
+        {
+          demolition_kind_name: "멸실",
+          demolition_loss_date: "20990505",
+          main_purpose_name: "창고시설",
+          structure_name: "일반철골구조",
+          total_floor_area_m2: "1200.5",
+          building_count: "2",
+        },
+        {
+          demolition_kind_name: "철거",
+          demolition_start_date: "20980101",
+          demolition_end_date: "20980301",
+          main_purpose_name: "공장",
+        },
+      ],
+      total: 2,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("멸실된 건물 2건")).toBeTruthy();
+      expect(anchors()).toContain("멸실 건물");
+      expect(screen.getByText("멸실 · 2099.05.05")).toBeTruthy();
+      expect(
+        screen.getByText("창고시설 · 일반철골구조 · 연면적 1200.5㎡ · 건축물수 2"),
+      ).toBeTruthy();
+      expect(screen.getByText("철거 · 2098.01.01~2098.03.01")).toBeTruthy();
+    } finally {
+      reads.demolitions = null;
     }
   });
 
