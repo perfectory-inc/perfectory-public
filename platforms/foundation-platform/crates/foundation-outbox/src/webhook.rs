@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{SecondsFormat, Utc};
+use hmac::{Hmac, Mac};
 use reqwest::Url;
 use serde_json::json;
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 use crate::{
     broadcaster::{EventBroadcaster, EventEnvelope},
@@ -15,7 +16,6 @@ use crate::{
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
-const HMAC_SHA256_BLOCK_BYTES: usize = 64;
 
 #[derive(Clone, Debug)]
 /// Publishes outbox events to one or more HTTP webhook endpoints.
@@ -255,47 +255,85 @@ pub fn sign_webhook_body(
         ));
     }
 
-    let key = normalized_hmac_key(secret.as_bytes());
-    let mut inner_pad = [0x36_u8; HMAC_SHA256_BLOCK_BYTES];
-    let mut outer_pad = [0x5c_u8; HMAC_SHA256_BLOCK_BYTES];
-    for (index, byte) in key.iter().enumerate() {
-        inner_pad[index] ^= byte;
-        outer_pad[index] ^= byte;
-    }
-
-    let mut inner = Sha256::new();
-    inner.update(inner_pad);
-    inner.update(timestamp.as_bytes());
-    inner.update(b".");
-    inner.update(body.as_bytes());
-    let inner_digest = inner.finalize();
-
-    let mut outer = Sha256::new();
-    outer.update(outer_pad);
-    outer.update(inner_digest);
-    Ok(hex_lower(&outer.finalize()))
+    let digest = hmac_sha256(
+        secret.as_bytes(),
+        &[timestamp.as_bytes(), b".", body.as_bytes()],
+    )
+    .map_err(|error| PublishError::Infrastructure(format!("webhook signature key: {error}")))?;
+    Ok(format!("{digest:x}"))
 }
 
-fn normalized_hmac_key(key: &[u8]) -> Vec<u8> {
-    if key.len() > HMAC_SHA256_BLOCK_BYTES {
-        Sha256::digest(key).to_vec()
-    } else {
-        key.to_vec()
+/// RFC 2104 HMAC-SHA256 over the concatenated `message` parts, from the RustCrypto `hmac` crate.
+fn hmac_sha256(
+    key: &[u8],
+    message: &[&[u8]],
+) -> Result<hmac::digest::Output<Sha256>, hmac::digest::InvalidLength> {
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(key)?;
+    for part in message {
+        mac.update(part);
     }
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    bytes
-        .iter()
-        .fold(String::with_capacity(bytes.len() * 2), |mut hex, byte| {
-            use std::fmt::Write as _;
-            let _ = write!(&mut hex, "{byte:02x}");
-            hex
-        })
+    Ok(mac.finalize().into_bytes())
 }
 
 const fn scope_name(scope: OutboxScope) -> &'static str {
     match scope {
         OutboxScope::Catalog => "catalog",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hmac_sha256;
+
+    type TestResult = Result<(), hmac::digest::InvalidLength>;
+
+    fn hex(key: &[u8], message: &[u8]) -> Result<String, hmac::digest::InvalidLength> {
+        Ok(format!("{:x}", hmac_sha256(key, &[message])?))
+    }
+
+    // RFC 4231 §4 HMAC-SHA-256 test cases (case 5 is a truncated output and is not used here).
+    #[test]
+    fn hmac_sha256_matches_rfc_4231_test_vectors() -> TestResult {
+        assert_eq!(
+            hex(&[0x0b; 20], b"Hi There")?,
+            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
+        );
+        assert_eq!(
+            hex(b"Jefe", b"what do ya want for nothing?")?,
+            "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843"
+        );
+        assert_eq!(
+            hex(&[0xaa; 20], &[0xdd; 50])?,
+            "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"
+        );
+        let case_4_key: Vec<u8> = (0x01..=0x19).collect();
+        assert_eq!(
+            hex(&case_4_key, &[0xcd; 50])?,
+            "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b"
+        );
+        assert_eq!(
+            hex(
+                &[0xaa; 131],
+                b"Test Using Larger Than Block-Size Key - Hash Key First"
+            )?,
+            "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54"
+        );
+        assert_eq!(
+            hex(
+                &[0xaa; 131],
+                b"This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm."
+            )?,
+            "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn hmac_sha256_over_parts_equals_hmac_over_the_joined_message() -> TestResult {
+        assert_eq!(
+            hmac_sha256(b"Jefe", &[b"what do ya ", b"want for nothing?"])?,
+            hmac_sha256(b"Jefe", &[b"what do ya want for nothing?"])?
+        );
+        Ok(())
     }
 }

@@ -1855,6 +1855,7 @@ dependencies = [
  "foundation-contracts",
  "foundation-shared-kernel",
  "foundation-workspace-hack",
+ "hmac 0.12.1",
  "lakehouse-domain",
  "rdkafka",
  "reqwest",
