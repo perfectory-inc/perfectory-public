@@ -12,6 +12,8 @@ mod demolition_loss_tests;
 mod energy_monthly_tests;
 #[cfg(test)]
 mod exclusive_unit_tests;
+#[cfg(test)]
+mod floor_overview_tests;
 mod layout;
 #[cfg(test)]
 mod major_repair_tests;

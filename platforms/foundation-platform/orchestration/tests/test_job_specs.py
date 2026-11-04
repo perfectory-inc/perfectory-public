@@ -512,7 +512,8 @@ HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline",
                    "silver_refresh_building_permit_annex_parking",
                    "silver_refresh_building_permit_building_outline",
                    "silver_refresh_building_permit_major_repair",
-                   "silver_refresh_building_permit_structure_ledger"]
+                   "silver_refresh_building_permit_structure_ledger",
+                   "silver_refresh_building_permit_floor_overview"]
 ALL_LANES = LANES + LAND_LANES + HUB_ADDED_LANES
 
 
