@@ -185,8 +185,8 @@ class SparkRows(unittest.TestCase):
                                                          ["9", "합성선", "합성도", "합성시", "없는동", "가상IC", "2099"]])
         frame = self.spark.createDataFrame(rows)
         linked = {r["row_key"]: r for r in job.link(frame, entry, self.Inputs()).collect()}
-        self.assertEqual(sorted((r["legal_dong_code"], r["legal_dong_unresolved_reason"]) for r in linked.values()),
-                         [(None, "no_legal_dong"), ("9999910100", None)])
+        self.assertEqual({(r["legal_dong_code"], r["legal_dong_unresolved_reason"]) for r in linked.values()},
+                         {(None, "no_legal_dong"), ("9999910100", None)})
         header = FILES["household_count"]["header"]
         rows, entry = self.rows("household_count", [["9999951000", "2099-01-31", *(["합성"] * 3), *(["1"] * (len(header) - 5))]])
         [area] = job.link(self.spark.createDataFrame(rows), entry, self.Inputs()).collect()
