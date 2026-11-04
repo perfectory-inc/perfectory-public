@@ -60,6 +60,22 @@ def sido_aliases(name: str) -> set[str]:
     return aliases
 
 
+def current_successors(sido: str, current: set[str], moves: Mapping[str, set[str]]) -> set[str]:
+    """The current 시도 codes ``sido`` is, itself or through the recorded moves from it."""
+
+    seen, pending, found = set(), [sido], set()
+    while pending:
+        code = pending.pop()
+        if code in seen:
+            continue
+        seen.add(code)
+        if code in current:
+            found.add(code)
+        else:
+            pending.extend(moves.get(code, ()))
+    return found
+
+
 def sido_prefixes(names: Iterable[tuple[str, str, str]], pairs: Iterable[tuple[str, str]]) -> dict[str, str]:
     """{address word prefix: current 2-digit 시도 code}, from the 법정동 code table and its recorded pairs.
 
@@ -83,23 +99,10 @@ def sido_prefixes(names: Iterable[tuple[str, str, str]], pairs: Iterable[tuple[s
     for old, new in pairs:
         moves.setdefault(old, set()).add(new)
 
-    def followed(sido: str) -> set[str]:
-        seen, pending, found = set(), [sido], set()
-        while pending:
-            code = pending.pop()
-            if code in seen:
-                continue
-            seen.add(code)
-            if code in current:
-                found.add(code)
-            else:
-                pending.extend(moves.get(code, ()))
-        return found
-
     current_stems = {sido: set().union(*(sido_aliases(n) for n in sido_names.get(sido, ()))) for sido in current}
     claims: dict[str, set[str]] = {}
     for sido, sido_words in sido_names.items():
-        targets = followed(sido)
+        targets = current_successors(sido, current, moves)
         for name in sido_words:
             aliases = sido_aliases(name)
             if not targets:
