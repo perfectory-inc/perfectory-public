@@ -32,7 +32,7 @@
 | `orchestration/job-dependencies.v1.json` | 작업 62 | 이미 생성물(`job_specs.py --write-dependencies`) |
 | `docs/data-pipeline-map.md` | — | 이미 생성물(`render-pipeline-map.py`) |
 
-`parcel-energy` 레인 하나의 사실은 이 중 7개 파일에 흩어져 있다(아래 `declared.py measure`).
+`parcel-energy` 레인 하나의 사실은 이 중 7개 파일에 흩어져 있다(아래 `declared_definitions.py measure`).
 
 ## Decision
 
@@ -40,7 +40,8 @@
 
 `platforms/foundation-platform/definitions/<group>.definition.json` 하나가 한 묶음의 모든 사실을 가진다.
 묶음은 Dagster 의 asset group 이고, by-PNU 레인이면 레인 이름, 아니면 작업이나 노드 이름이다.
-스키마는 `definitions/definition.v1.schema.json`(JSON Schema 2020-12)이다.
+스키마는 `scripts/catalog/definition.v1.schema.json`(JSON Schema 2020-12)이다. 생성기는 같은 디렉터리의 형제 렌더러(`render-pipeline-map.py`, `pipeline_graph.py`) 곁에 있는
+`scripts/catalog/declared_definitions.py` 다. 1단계에는 정의 디렉터리가 아직 없다(§4).
 
 | 절 | 담는 것 | 생성하는 사본 | Dagster 에서 |
 |---|---|---|---|
@@ -61,7 +62,7 @@
 
 ### 2. 처음 묶음 나누기는 지금 파일이 이미 말하는 것에서 정한다
 
-`declared.py split` 의 규칙(사람의 판단 없음):
+`declared_definitions.py split` 의 규칙(사람의 판단 없음):
 
 1. by-PNU 레인 `L` 의 묶음은 레인 줄, 서빙 노드 `L-by-pnu-section-packs`, Gold 노드 `gold-L`, 주제 `foundation-platform.<L 의 - 를 _>_by_pnu` 를 가진다.
 2. 작업은 자기가 쓰는(엣지 `to`) 첫 노드 중 묶음이 있는 노드의 묶음에, 없으면 자기 이름의 묶음에 든다.
@@ -73,7 +74,7 @@
 
 ### 3. 생성기는 새로 쓰지 않고 있는 렌더러를 부른다
 
-`definitions/declared.py generate` 가 정의에서 위 다섯 사본을 만들고, 이미 생성물이던 두 파일은
+`declared_definitions.py generate` 가 정의에서 위 다섯 사본을 만들고, 이미 생성물이던 두 파일은
 **그 파일의 렌더러**로 만든다: `job_specs.rendered_dependencies()`, `render-pipeline-map.py` 의 `render()`.
 두 번째 구현은 없다. systemd 유닛의 `TimeoutStartSec=`·`ReadWritePaths=` 는 지금처럼 `foundation-jobs generate`(Rust)가
 `jobs.v1.json` 에서 렌더하므로, 그 파일이 생성물이 되어도 사슬은 그대로다.
@@ -98,7 +99,7 @@ PR 마다 커밋된 사본을 정의로 나누고, 정의를 **파일로 쓰고 
 | 단계 | 내용 | 시작 조건 | 되돌리기 |
 |---|---|---|---|
 | 1(이 ADR) | 정의 형식·생성기·등가 가드. 새 파일만 | 없음 | PR 되돌리기 하나. 운영 영향 없음 |
-| 2 전환(PR 하나) | `split` 결과를 커밋하고, 다섯 원천 사본과 두 생성 파일·그래프 예제를 지운다(`.gitignore`). CI·배포(`foundation-release-build`)·Worker 빌드·`cargo` 빌드 스크립트가 `declared.py generate` 로 만든다. 사본 대조 가드(인벤토리 E 24개)와 손 개수 기준선을 은퇴한다. Python·셸·TS·Rust 의 레인 목록(인벤토리 B-F02, 37 파일)은 생성된 레인 색인 하나를 읽는다 | 코디네이터가 새 레인을 얼린 창, 열린 레인 PR 이 빠진 뒤(에스컬레이션) | 전환 PR 되돌리기: 사본이 다시 커밋되고, 1단계 가드가 그 사본에서 다시 돈다. 생성 결과가 사본과 같다는 것이 1단계에서 이미 증명되어 데이터 차이 없음 |
+| 2 전환(PR 하나) | `split` 결과를 커밋하고, 다섯 원천 사본과 두 생성 파일·그래프 예제를 지운다(`.gitignore`). CI·배포(`foundation-release-build`)·Worker 빌드·`cargo` 빌드 스크립트가 `declared_definitions.py generate` 로 만든다. 사본 대조 가드(인벤토리 E 24개)와 손 개수 기준선을 은퇴한다. Python·셸·TS·Rust 의 레인 목록(인벤토리 B-F02, 37 파일)은 생성된 레인 색인 하나를 읽는다 | 코디네이터가 새 레인을 얼린 창, 열린 레인 PR 이 빠진 뒤(에스컬레이션) | 전환 PR 되돌리기: 사본이 다시 커밋되고, 1단계 가드가 그 사본에서 다시 돈다. 생성 결과가 사본과 같다는 것이 1단계에서 이미 증명되어 데이터 차이 없음 |
 | 3 Dagster | ai-server 에 compose 로 Dagster(웹서버·데몬·코드 위치 gRPC, 저장소는 기존 Postgres 의 별도 DB). 코드 위치가 정의 디렉터리를 읽어 묶음마다 자산을 만든다. 실행기는 지금의 systemd 유닛: op 가 ADR-0122 의 SSH forced command 로 유닛을 시작하고, 결과는 Dagster Pipes 의 사용자 정의 message reader 가 유닛 저널에서 읽는다(지금의 `foundation-job-outcome` 줄을 대체). #946 airlift observe 를 다리로 DAG 하나씩 옮긴다. 발행 데이터셋마다 `@asset_check(blocking=True)`: 첫째 공매 사진(사진 Silver 에 행이 있으면 발행 묶음의 사진이 비지 않음), 용도지역 현재 키 유일성 | 2단계 병합 | DAG 하나씩: 옮긴 DAG 를 Airflow 에서 다시 켜고 Dagster 자산의 자동 실행을 끈다(airlift 의 proxy 되돌리기) |
 | 3 끝 | `asset_reconcile.py`, 작업 결과 줄 프로토콜, run-now 디스패치를 은퇴(Dagster 의 Declarative Automation·Pipes·launch 가 맡음) | 모든 DAG 이전 | 은퇴 PR 되돌리기 |
 
@@ -123,7 +124,7 @@ Dagster Components YAML 을 지금 바로 정본으로 쓰기(Dagster 가 아직
 
 | 지표 | 지금(잰 값) | 2단계 뒤(목표) | 재는 법 |
 |---|---:|---:|---|
-| 새 by-PNU 레인의 손 편집(이 ADR 이 다루는 파일) | 7 파일(`parcel-energy`) | 정의 1 | `declared.py measure` |
+| 새 by-PNU 레인의 손 편집(이 ADR 이 다루는 파일) | 7 파일(`parcel-energy`) | 정의 1 | `declared_definitions.py measure` |
 | 새 레인의 손 편집(전부) | 약 14곳(인벤토리) | 정의 1 + 유닛 템플릿 인스턴스 0 | 2단계 PR 이 다시 잰다 |
 | 사본 대조 가드(E) | 24 | 0 | `change-scope.json` `class: copy-check` |
 | 스케줄 지연 | 3단계 전에 Airflow 에서 잰다 | Dagster 센서·자동화 주기 | 3단계 PR |

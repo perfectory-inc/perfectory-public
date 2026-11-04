@@ -18,7 +18,7 @@ inputs=(
   "tools/host-memory-budget.contract.json"
   "platforms/foundation-platform/contracts/schema-registry/registry.json"
   "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
-  "platforms/foundation-platform/definitions/declared.py"
+  "scripts/catalog/declared_definitions.py"
   "platforms/foundation-platform/orchestration/dags/job_specs.py"
   "platforms/foundation-platform/infra/datahub/dataset_names.py"
   "scripts/catalog/render-pipeline-map.py"

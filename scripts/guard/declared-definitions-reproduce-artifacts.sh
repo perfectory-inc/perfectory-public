@@ -9,7 +9,7 @@
 set -euo pipefail
 
 root="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
-checker="$(cd "$(dirname "$0")/../.." && pwd)/platforms/foundation-platform/definitions/declared.py"
+checker="$(cd "$(dirname "$0")/../.." && pwd)/scripts/catalog/declared_definitions.py"
 
 if command -v python3 >/dev/null 2>&1; then
   exec python3 "$checker" check --root "$root"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One declared definition per dataset group; every listed artifact is generated from them (root ADR-0415).
 
-A definition file (`<group>.definition.json`, schema `definition.v1.schema.json`) holds every fact
+A definition file (`<group>.definition.json`, schema `scripts/catalog/definition.v1.schema.json`) holds every fact
 of one group of datasets: its pipeline-graph nodes (the Dagster asset keys), the graph edges into
 them (their `deps`), the jobs that materialize them (the systemd unit Dagster launches), and its
 by-PNU lane, published schemas and host memory entries. `platform.definition.json` holds what no
@@ -29,7 +29,8 @@ import pathlib
 import sys
 import tempfile
 
-PLATFORM = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+SCHEMA = "scripts/catalog/definition.v1.schema.json"
 DEFINITION = "foundation-platform.definition.v1"
 PLATFORM_FILE = "platform.definition.json"
 SUFFIX = ".definition.json"
@@ -267,7 +268,7 @@ def write_definitions(directory, platform, definitions):
     (directory / PLATFORM_FILE).write_text(dump(platform), encoding="utf-8")
     for group, definition in definitions.items():
         (directory / f"{group}{SUFFIX}").write_text(
-            dump({"$schema": "./definition.v1.schema.json", **definition}), encoding="utf-8")
+            dump({"$schema": SCHEMA, **definition}), encoding="utf-8")
 
 
 def read_definitions(directory):
@@ -344,7 +345,7 @@ def measure(root):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("command", choices=("check", "split", "generate", "measure"))
-    parser.add_argument("--root", type=pathlib.Path, default=PLATFORM.parents[1])
+    parser.add_argument("--root", type=pathlib.Path, default=ROOT)
     parser.add_argument("--definitions", type=pathlib.Path, help="split: write here; generate: read here")
     parser.add_argument("--out", type=pathlib.Path, help="generate: write the artifacts under this root")
     parser.add_argument("--sorted", action="store_true", help="generate: sort by id, ignoring the order list")

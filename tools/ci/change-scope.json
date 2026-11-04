@@ -805,7 +805,8 @@
       {
         "name": "declared-definitions-reproduce-artifacts-self-test",
         "paths": [
-          "platforms/foundation-platform/definitions/**",
+          "scripts/catalog/declared_definitions.py",
+          "scripts/catalog/definition.v1.schema.json",
           "platforms/foundation-platform/orchestration/jobs.v1.json",
           "platforms/foundation-platform/orchestration/job-dependencies.v1.json",
           "platforms/foundation-platform/orchestration/dags/job_specs.py",
@@ -824,7 +825,8 @@
       {
         "name": "declared-definitions-reproduce-artifacts",
         "paths": [
-          "platforms/foundation-platform/definitions/**",
+          "scripts/catalog/declared_definitions.py",
+          "scripts/catalog/definition.v1.schema.json",
           "platforms/foundation-platform/orchestration/jobs.v1.json",
           "platforms/foundation-platform/orchestration/job-dependencies.v1.json",
           "platforms/foundation-platform/orchestration/dags/job_specs.py",
