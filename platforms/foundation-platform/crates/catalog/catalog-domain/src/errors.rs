@@ -38,10 +38,6 @@ pub enum CatalogError {
     #[error("invalid industrial complex input: {0}")]
     InvalidIndustrialComplexInput(String),
 
-    /// Parcel marker anchor rebuild command failed validation.
-    #[error("invalid parcel marker anchor rebuild: {0}")]
-    InvalidParcelMarkerAnchorRebuild(String),
-
     /// Vector tile manifest version already exists.
     #[error("vector tile manifest already exists ({0})")]
     VectorTileManifestAlreadyExists(String),

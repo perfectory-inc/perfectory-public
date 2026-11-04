@@ -1,10 +1,6 @@
 //! Contract tests for marker tile DTOs.
 
-use foundation_contracts::catalog::{
-    MarkerTileContractResponse, MarkerTileFeatureResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse,
-};
-use uuid::Uuid;
+use foundation_contracts::catalog::{MarkerTileContractResponse, MarkerTileFeatureResponse};
 
 #[test]
 fn marker_tile_contract_response_exposes_pbf_and_pnu_anchor_contract(
@@ -72,56 +68,5 @@ fn marker_tile_feature_response_uses_pnu_and_completeness_metadata() -> Result<(
     assert!(json.get("latitude").is_none());
     assert!(json.get("longitude").is_none());
     assert!(json.get("geom_point").is_none());
-    Ok(())
-}
-
-#[test]
-fn parcel_marker_anchor_rebuild_contract_is_snapshot_and_algorithm_only(
-) -> Result<(), serde_json::Error> {
-    let request = ParcelMarkerAnchorRebuildRequest {
-        source_snapshot_id: "iceberg:parcel-boundary-snapshot-20260522".to_owned(),
-        algorithm_version: "postgis-st_maximuminscribedcircle-v1".to_owned(),
-    };
-
-    let request_json = serde_json::to_value(request)?;
-
-    assert_eq!(
-        request_json["source_snapshot_id"].as_str(),
-        Some("iceberg:parcel-boundary-snapshot-20260522")
-    );
-    assert_eq!(
-        request_json["algorithm_version"].as_str(),
-        Some("postgis-st_maximuminscribedcircle-v1")
-    );
-    assert!(request_json.get("bbox").is_none());
-    assert!(request_json.get("bounds").is_none());
-    assert!(request_json.get("latitude").is_none());
-    assert!(request_json.get("longitude").is_none());
-
-    let generation_run_id = Uuid::now_v7();
-    let response = ParcelMarkerAnchorRebuildResponse {
-        generation_run_id,
-        source_snapshot_id: "iceberg:parcel-boundary-snapshot-20260522".to_owned(),
-        source_table: "silver.parcel_boundaries".to_owned(),
-        algorithm: "polylabel".to_owned(),
-        algorithm_version: "postgis-st_maximuminscribedcircle-v1".to_owned(),
-        scanned_row_count: 100,
-        loaded_row_count: 100,
-        rejected_row_count: 0,
-        superseded_row_count: 12,
-    };
-
-    let response_json = serde_json::to_value(response)?;
-    let generation_run_id_string = generation_run_id.to_string();
-
-    assert_eq!(
-        response_json["generation_run_id"].as_str(),
-        Some(generation_run_id_string.as_str())
-    );
-    assert_eq!(response_json["algorithm"].as_str(), Some("polylabel"));
-    assert_eq!(response_json["scanned_row_count"].as_u64(), Some(100));
-    assert_eq!(response_json["loaded_row_count"].as_u64(), Some(100));
-    assert_eq!(response_json["rejected_row_count"].as_u64(), Some(0));
-    assert_eq!(response_json["superseded_row_count"].as_u64(), Some(12));
     Ok(())
 }

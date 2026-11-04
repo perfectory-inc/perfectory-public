@@ -73,30 +73,6 @@ async fn router_routes_marker_tile_pbf_requests() -> Result<(), Box<dyn Error>> 
 }
 
 #[tokio::test]
-async fn router_routes_parcel_marker_anchor_rebuild_requests() -> Result<(), Box<dyn Error>> {
-    let state = Arc::new(AppState::bootstrap_for_test()?);
-    let app = router(state);
-
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri("/catalog/v1/parcel-marker-anchors:rebuild")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(
-                    r#"{
-                        "source_snapshot_id":"iceberg:parcel-boundary-snapshot-20260522",
-                        "algorithm_version":"postgis-st_maximuminscribedcircle-v1"
-                    }"#,
-                ))?,
-        )
-        .await?;
-
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    Ok(())
-}
-
-#[tokio::test]
 async fn router_rejects_lakehouse_artifact_registration_without_service_identity(
 ) -> Result<(), Box<dyn Error>> {
     let state = Arc::new(AppState::bootstrap_for_test()?);

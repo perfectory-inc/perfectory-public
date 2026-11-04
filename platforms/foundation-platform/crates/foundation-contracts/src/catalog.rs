@@ -815,38 +815,6 @@ pub struct MarkerTileFeatureResponse {
     pub detail_ref: String,
 }
 
-/// Request body for rebuilding parcel marker anchors from an approved mirror snapshot.
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct ParcelMarkerAnchorRebuildRequest {
-    /// Approved Iceberg snapshot represented by the `PostGIS` mirror rows.
-    pub source_snapshot_id: String,
-    /// Stable algorithm implementation version.
-    pub algorithm_version: String,
-}
-
-/// Response body returned after a parcel marker anchor rebuild finishes.
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct ParcelMarkerAnchorRebuildResponse {
-    /// Generation run persisted for traceability.
-    pub generation_run_id: Uuid,
-    /// Approved Iceberg snapshot represented by the rebuild.
-    pub source_snapshot_id: String,
-    /// Canonical source table represented by the rebuild.
-    pub source_table: String,
-    /// Anchor derivation algorithm.
-    pub algorithm: String,
-    /// Stable algorithm implementation version.
-    pub algorithm_version: String,
-    /// Mirror rows inspected for this snapshot.
-    pub scanned_row_count: u64,
-    /// Anchor rows inserted or updated.
-    pub loaded_row_count: u64,
-    /// Mirror rows rejected before writing anchors.
-    pub rejected_row_count: u64,
-    /// Previously active anchors superseded for the same PNUs.
-    pub superseded_row_count: u64,
-}
-
 /// Request body for manually rolling back the active vector tile manifest.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct RollbackVectorTileManifestRequest {
