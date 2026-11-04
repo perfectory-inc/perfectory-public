@@ -110,11 +110,6 @@ if scripts/ci/actionlint.sh "$test_root/actionlint-duplicate" >/dev/null 2>&1; t
   exit 1
 fi
 
-mkdir "$test_root/unsafe-checkout"
-sed '/persist-credentials: false/d' "$test_root/valid/example.yml" \
-  >"$test_root/unsafe-checkout/example.yml"
-expect_rejected named-step-checkout "$test_root/unsafe-checkout"
-
 mkdir "$test_root/mutable-action"
 sed 's#example/tool@1111111111111111111111111111111111111111#example/tool@v1#' \
   "$test_root/valid/example.yml" >"$test_root/mutable-action/example.yml"
@@ -305,11 +300,6 @@ sed '0,/      - run: echo synthetic/{s/      - run: echo synthetic/      - if : 
   "$test_root/valid/example.yml" >"$test_root/spaced-if-colon/example.yml"
 expect_rejected spaced-if-colon "$test_root/spaced-if-colon"
 
-mkdir "$test_root/checkout-env-spoof"
-sed 's/^        with:$/        env:/' "$test_root/valid/example.yml" \
-  >"$test_root/checkout-env-spoof/example.yml"
-expect_rejected checkout-env-spoof "$test_root/checkout-env-spoof"
-
 mkdir "$test_root/no-pull-request"
 sed '/^  pull_request:$/,+1d' "$test_root/valid/example.yml" \
   >"$test_root/no-pull-request/example.yml"
@@ -407,11 +397,6 @@ mkdir "$test_root/unsafe-defaults"
 sed '/^jobs:$/i\defaults:\n  run:\n    shell: bash' \
   "$test_root/valid/example.yml" >"$test_root/unsafe-defaults/example.yml"
 expect_rejected unsafe-defaults "$test_root/unsafe-defaults"
-
-mkdir "$test_root/mutable-service"
-sed '0,/    runs-on: ubuntu-24.04/{s#    runs-on: ubuntu-24.04#    runs-on: ubuntu-24.04\n    services:\n      postgres:\n        image: postgres:17#}' \
-  "$test_root/valid/example.yml" >"$test_root/mutable-service/example.yml"
-expect_rejected mutable-service-image "$test_root/mutable-service"
 
 mkdir "$test_root/single-required-conditional"
 cat >"$test_root/single-required-conditional/example.yml" <<'YAML'

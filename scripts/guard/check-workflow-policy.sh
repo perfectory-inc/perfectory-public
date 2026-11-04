@@ -651,43 +651,6 @@ for workflow in "${workflows[@]}"; do
       print action "\t" file ":" NR
     }
   ' "$workflow" >>"$all_uses"
-
-  # Checkout credentials are disabled only when the value is under the same
-  # step's exact `with:` block; an env key with the same spelling is rejected.
-  unsafe_checkout="$(awk -v file="$workflow" '
-    function flush_step() {
-      if (checkout_line && (with_count != 1 || persist_count != 1)) {
-        print file ":" checkout_line ": checkout requires one with.persist-credentials=false"
-      }
-      checkout_line=0; with_count=0; persist_count=0; in_with=0
-    }
-    /^    steps:[[:space:]]*$/ { in_steps=1; next }
-    in_steps && /^    [A-Za-z0-9_-]+:/ { flush_step(); in_steps=0 }
-    in_steps && /^      -([[:space:]]|$)/ { flush_step(); in_step=1 }
-    in_steps && in_step && /^(      - uses:|        uses:)[[:space:]]*actions\/checkout@/ { checkout_line=NR }
-    in_steps && in_step && /^        with:[[:space:]]*$/ { with_count++; in_with=1; next }
-    in_steps && in_step && /^        [A-Za-z0-9_-]+:/ { in_with=0 }
-    in_steps && in_step && in_with && /^          persist-credentials:[[:space:]]*false[[:space:]]*$/ { persist_count++ }
-    END { flush_step() }
-  ' "$workflow")"
-  if [ -n "$unsafe_checkout" ]; then
-    printf 'FAIL workflow-policy: %s\n' "$unsafe_checkout" >&2
-    exit 1
-  fi
-
-  while IFS= read -r image_line; do
-    [ -n "$image_line" ] || continue
-    image_ref="$(printf '%s\n' "$image_line" | sed -E 's/^[^:]+:[[:space:]]*//; s/[[:space:]#].*$//')"
-    case "$image_ref" in
-      *:local) ;;
-      *)
-        if ! grep -Eq '^[a-z0-9][a-z0-9./_-]*:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$' <<<"$image_ref"; then
-          echo "FAIL workflow-policy: mutable workflow service image: $workflow: $image_ref" >&2
-          exit 1
-        fi
-        ;;
-    esac
-  done < <(grep -E '^[[:space:]]+image:[[:space:]]*' "$workflow" || true)
 done
 
 sort -o "$actual_contexts" "$actual_contexts"
@@ -726,18 +689,10 @@ while IFS=$'\t' read -r action location; do
       echo "FAIL workflow-policy: local Actions are not admitted by the audited allowlist: $location" >&2
       exit 1
       ;;
-    docker://*)
-      if ! grep -Eq '^docker://[^[:space:]@]+(:[^[:space:]@]+)?@sha256:[0-9a-f]{64}$' <<<"$action"; then
-        echo "FAIL workflow-policy: mutable Docker action at $location: $action" >&2
-        exit 1
-      fi
-      continue
-      ;;
+    # SHA and digest pinning of every Action and docker:// action is zizmor's `unpinned-uses`
+    # (scripts/guard/zizmor-workflows.sh); a docker:// action is not an allowlisted Action.
+    docker://*) continue ;;
   esac
-  if ! grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.\/-]+@[0-9a-f]{40}$' <<<"$action"; then
-    echo "FAIL workflow-policy: external Action must use a full commit SHA at $location: $action" >&2
-    exit 1
-  fi
   case "$action" in
     actions/*|github/*) ;;
     *) printf '%s\n' "$action" >>"$actual_actions" ;;

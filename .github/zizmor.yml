@@ -1,0 +1,11 @@
+# zizmor (tools/zizmor.env) audits every workflow under .github/workflows; scripts/guard/zizmor-workflows.sh
+# runs it and fails on any finding. Repository-specific contracts (required contexts, the third-party
+# Action allowlist, area working directories, no write permissions or secrets in public workflows)
+# stay in scripts/guard/check-workflow-policy.sh.
+rules:
+  unpinned-uses:
+    config:
+      # Every Action, first-party included, and every docker:// action is pinned to a full commit
+      # SHA or image digest: a tag can be moved under us (tj-actions/changed-files, 2025-03-14).
+      policies:
+        "*": hash-pin
