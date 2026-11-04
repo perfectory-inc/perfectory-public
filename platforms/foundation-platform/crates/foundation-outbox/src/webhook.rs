@@ -263,7 +263,7 @@ pub fn sign_webhook_body(
     Ok(format!("{digest:x}"))
 }
 
-/// RFC 2104 HMAC-SHA256 over the concatenated `message` parts, from the RustCrypto `hmac` crate.
+/// RFC 2104 HMAC-SHA256 over the concatenated `message` parts, from the `RustCrypto` `hmac` crate.
 fn hmac_sha256(
     key: &[u8],
     message: &[&[u8]],
