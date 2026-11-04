@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_energy_by_pnu",
+  "description": "A parcel's building energy as the 건축HUB 월별 전기·가스 files publish it per 지번 (root ADR-0396, ADR-0398): the newest twelve usage months, each with the sum of the month's 사용량 rows and their count per energy. 전기 is in kWh, the provider's stated unit; 가스 carries no unit the provider states. The provider leaves out 산업·수송·발전·열병합·충전 uses and houses.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_energy_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "energy": {
+      "type": "object",
+      "properties": {
+        "months": {
+          "description": "The newest twelve usage months with a row of either energy, newest first. An energy with no row in a month is null, not 0.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "use_ym": {
+                "type": "string"
+              },
+              "electricity_usage": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "electricity_rows": {
+                "type": "integer"
+              },
+              "gas_usage": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "gas_rows": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "use_ym",
+              "electricity_rows",
+              "gas_rows"
+            ]
+          }
+        },
+        "electricity_unit": {
+          "description": "The provider's stated unit of 전기 사용량 (data.go.kr 15135963).",
+          "type": "string"
+        },
+        "latest_use_ym": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unparsed_usage_rows": {
+          "description": "Rows whose 사용량 is not a number, left out of the sums.",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "months",
+        "electricity_unit"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "energy"
+  ]
+}

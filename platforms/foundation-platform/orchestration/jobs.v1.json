@@ -1457,6 +1457,32 @@
       "disabled_reason": "New (root ADR-0361). Off until its first full build (about 120 million owner rows nationally, computed) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-ownership, root ADR-0193 §7), after silver_refresh_land_ownership loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "gold_parcel_energy_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "건물 에너지 kind Gold (root ADR-0398; scripts/ops/gold-panel-rebuild.sh parcel-energy): gold.parcel_energy from silver.building_energy_monthly_electricity and _gas, when either Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the usage rows the Silver releases appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (building_energy_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_energy_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-energy-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "55 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-energy-monthly-electricity-to-gold-parcel-energy",
+        "silver-building-energy-monthly-gas-to-gold-parcel-energy",
+        "reference-legal-dong-code-change-to-gold-parcel-energy"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0398). Off until its first full build (about 1.5 million parcels with a usage row, computed from the 2026-10 files) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-energy, root ADR-0193 §7), after the two 월별 에너지 Silver lanes loaded their first releases; switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "gold_parcel_demolitions_rebuild",
       "scope": "changed-keys",
       "interruptible": true,
@@ -1509,6 +1535,35 @@
       ],
       "enabled": false,
       "disabled_reason": "New (root ADR-0361). Off with gold_parcel_ownership_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-ownership cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_energy_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_energy (the own-producer 건물 에너지 kind, root ADR-0398) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-energy), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_energy_rebuild commits a new snapshot, and at 10:55 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound, for the same reason: never beside both the panel bake and another own-producer bake (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-energy-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "55 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-energy-to-parcel-energy-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0398). Off with gold_parcel_energy_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-energy cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
     },
     {
       "id": "by_pnu_parcel_demolitions_bake",
