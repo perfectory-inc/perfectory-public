@@ -40,6 +40,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-permit-major-repair` | `silver.building_permit_major_repair` | 대수선 `mart_kcy_05` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-structure-ledger` | `silver.building_permit_structure_ledger` | 공작물관리대장 `mart_kcy_06` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-floor-overview` | `silver.building_permit_floor_overview` | 건축인허가 층별개요 `mart_kcy_03` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 층만 main 에 (`compare`, 묶음 = 관리층별개요PK 앞 두 자리) |
+| `building-permit-temporary-building` | `silver.building_permit_temporary_building` | 가설건축물 `mart_kcy_08` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-basis-outline` | `silver.building_permit_basis_outline` | 건축인허가 기본개요 `mart_kcy_01` (루트 ADR-0356) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275, ADR-0311) |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |

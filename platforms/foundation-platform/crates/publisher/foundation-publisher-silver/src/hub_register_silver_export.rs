@@ -24,6 +24,8 @@ mod structure_ledger_tests;
 #[cfg(test)]
 mod sub_parcel_tests;
 #[cfg(test)]
+mod temporary_building_tests;
+#[cfg(test)]
 mod test_support;
 mod workers;
 mod zip_stream;
