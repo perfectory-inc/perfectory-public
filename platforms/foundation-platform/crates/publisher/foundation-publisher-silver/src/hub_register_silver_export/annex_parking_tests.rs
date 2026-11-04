@@ -2,7 +2,7 @@ use super::*;
 
 /// A synthetic 부설주차장 row: one permit (column 0) may hold several annex rows.
 fn row(permit: &str, related: &str) -> String {
-    let mut fields = vec![""; 12];
+    let mut fields = [""; 12];
     fields[0] = permit;
     fields[1] = "가상 대지위치";
     fields[2] = "99999";
