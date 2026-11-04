@@ -28,6 +28,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     EnergyElectricity,
     EnergyGas,
     RegisterSubParcel,
+    PermitParking,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -40,7 +41,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 20] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 21] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -52,6 +53,7 @@ impl Lane {
         Self::EnergyElectricity,
         Self::EnergyGas,
         Self::RegisterSubParcel,
+        Self::PermitParking,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -78,6 +80,7 @@ impl Lane {
             Self::EnergyElectricity => "building-energy-monthly-electricity",
             Self::EnergyGas => "building-energy-monthly-gas",
             Self::RegisterSubParcel => "building-register-sub-parcel",
+            Self::PermitParking => "building-permit-parking",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -154,6 +157,10 @@ impl Lane {
             Self::RegisterSubParcel => (
                 "hub-building-register-sub-parcel-source-objects.json",
                 crate::building_register_sub_parcel_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitParking => (
+                "hub-building-permit-parking-source-objects.json",
+                crate::building_permit_parking_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -247,6 +254,9 @@ impl ExportKind {
             },
             "export-building-register-sub-parcel-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_REGISTER_SUB_PARCEL",
+            },
+            "export-building-permit-parking-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_PARKING",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {

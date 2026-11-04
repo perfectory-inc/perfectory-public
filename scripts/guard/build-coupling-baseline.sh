@@ -311,7 +311,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 157 -> 158: the 부속지번 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0395).
 # 158 -> 157: the retired data.go.kr API async executor's test read its own real_transaction.rs.
-COMPILE_TIME_READ_BASELINE="${3:-157}"
+# 157 -> 158: the 건축인허가 주차장 lane embeds its source contract once, as every hub part lane
+# does (root ADR-0402).
+COMPILE_TIME_READ_BASELINE="${3:-158}"
 
 cd "$repo_root"
 
