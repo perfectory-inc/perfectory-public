@@ -9,6 +9,7 @@ import {
   PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
 } from "@/lib/map/marker-tile-style";
 import type { VectorTileRuntimeManifest, VectorTileSource } from "@/lib/map/vector-tile-manifest";
+import { zoningColorExpression, zoningLayerFilter } from "@/lib/map/zoning-families";
 
 /**
  * How one Foundation polygon unit is painted, and where it sits in the stack.
@@ -20,9 +21,16 @@ import type { VectorTileRuntimeManifest, VectorTileSource } from "@/lib/map/vect
  * manifest and a v1 static manifest, which is six registrations and was six chances to disagree.
  */
 export type FoundationVectorFillStyle = {
-  fillColor: string;
+  /** A colour, or a Mapbox expression for a unit whose features differ in kind (`zoning`). */
+  fillColor: string | unknown[];
   fillOpacity: number;
-  outlineColor: string;
+  outlineColor: string | unknown[];
+  /**
+   * The filter both layers start with. `zoning` starts matching nothing and its toggles widen it:
+   * a filter, not `visibility: none`, so the source's tiles still load and the parcel panel can
+   * read the zones under a parcel while every toggle is off.
+   */
+  filter?: unknown[];
   /**
    * Draws a separate `line` layer at this width on top of the fill.
    *
@@ -104,7 +112,29 @@ export const FOUNDATION_VECTOR_FILL_STYLES: Record<string, FoundationVectorFillS
       LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
     ],
   },
+  // Regulation zones sit above the base fills (`complex`, registered before them) and under the
+  // parcels: the parcel a user clicks stays the top polygon, and a zone tints it from below.
+  zoning: {
+    fillColor: zoningColorExpression(),
+    fillOpacity: 0.2,
+    outlineColor: zoningColorExpression(),
+    outlineWidth: 1.2,
+    filter: zoningLayerFilter(new Set()),
+    insertBelowLayerIds: [
+      foundationVectorFillLayerId("parcels"),
+      foundationVectorFillLayerId("admin"),
+      PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
+      LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
+      LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
+    ],
+  },
 };
+
+/** The layers a zoning toggle filters. */
+export const ZONING_LAYER_IDS: readonly string[] = [
+  foundationVectorFillLayerId("zoning"),
+  foundationVectorOutlineLayerId("zoning"),
+];
 
 /** The mapbox-gl surface this module needs, so callers can pass their own bridge type. */
 export type FoundationVectorLayerBridge = {
@@ -149,6 +179,7 @@ export function registerFoundationVectorFillLayers(
     "source-layer": registration.sourceLayer,
     minzoom: registration.minzoom,
     maxzoom: registration.maxzoom,
+    ...(style.filter ? { filter: style.filter } : {}),
   };
 
   const fillLayerId = foundationVectorFillLayerId(unitName);

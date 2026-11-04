@@ -1,6 +1,7 @@
 "use client";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
+import { foundationVectorFillLayerId } from "@/lib/map/foundation-vector-fill-layers";
 import { type MapboxGLLike, setupMapboxRuntime } from "@/lib/map/listing-map-runtime";
 import { buildListingMarkerLayerFilter } from "@/lib/map/listing-marker-filter";
 import {
@@ -20,6 +21,8 @@ import {
 import { loadNaverMaps } from "@/lib/naver-maps";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
 import { useListingsStore } from "@/stores/listings";
+import { useMapStore } from "@/stores/map";
+import { ZoningLayerToggle } from "./zoning-layer-toggle";
 
 function initialMarkerServerState(): ListingMarkerServerState {
   return {
@@ -58,6 +61,10 @@ export function ListingMap() {
   useEffect(() => {
     pushPanelRef.current = pushPanel;
   }, [pushPanel]);
+
+  useEffect(() => {
+    useMapStore.setState({ mapbox: mapboxInstance });
+  }, [mapboxInstance]);
 
   useEffect(() => {
     const mb = mapboxInstance;
@@ -163,6 +170,9 @@ export function ListingMap() {
     // panel laid over the page (z-50) is never under it.
     <div className="relative isolate h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      {mapboxInstance?.getLayer?.(foundationVectorFillLayerId("zoning")) ? (
+        <ZoningLayerToggle mapbox={mapboxInstance} />
+      ) : null}
       <MapAttribution />
     </div>
   );

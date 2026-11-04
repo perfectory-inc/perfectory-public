@@ -37,6 +37,10 @@ export type MapboxGLLike = {
   getLayer?: (id: string) => unknown;
   getCanvas?: () => HTMLCanvasElement | null;
   on?: (event: string, layer: string, handler: (e: unknown) => void) => void;
+  querySourceFeatures?: (
+    sourceId: string,
+    options?: { sourceLayer?: string; filter?: unknown[] },
+  ) => readonly unknown[];
   isStyleLoaded?: () => boolean;
   once?: (event: string, handler: () => void) => void;
   setFilter?: (layerId: string, filter: unknown[] | null) => void;
@@ -165,6 +169,8 @@ export function setupPolygonLayers(
   // an industrial complex is the context a listing sits in, and it must never be what a user's
   // click or eye lands on instead of the parcel or the marker.
   setupComplexLayers(mb, runtime, onComplexClick);
+  // Regulation zones next: above the complex context, under the parcels (root ADR-0373).
+  setupZoningLayers(mb, runtime);
   setupParcelLayers(mb, onParcelClick, runtime);
   setupAdminLayers(mb, runtime);
 }
@@ -229,6 +235,22 @@ function setupAdminLayers(mb: MapboxLayerApi, runtimeManifest: VectorTileRuntime
     if (registered.length > 0) registerMapEditOverlayLayers(mb, "admin");
   } catch (err) {
     logMapLayerFailure("admin-fill", err, { kind: "optional", source: "admin" });
+  }
+}
+
+/**
+ * Draws the 용도지역지구 regulation zones, every family filtered out until its toggle is pressed.
+ * An environment that has not promoted the unit draws none and keeps everything else.
+ */
+function setupZoningLayers(mb: MapboxLayerApi, runtimeManifest: VectorTileRuntimeManifest): void {
+  try {
+    if (!runtimeManifest.publication_units.zoning) {
+      logMapLayerUnavailable("zoning");
+      return;
+    }
+    registerFoundationVectorRuntimeUnit(mb, runtimeManifest, "zoning");
+  } catch (err) {
+    logMapLayerFailure("zoning-fill", err, { kind: "optional", source: "zoning" });
   }
 }
 
