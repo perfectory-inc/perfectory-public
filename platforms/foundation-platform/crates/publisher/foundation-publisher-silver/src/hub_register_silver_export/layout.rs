@@ -25,6 +25,29 @@ pub(super) enum RowKey {
     JoinedColumns(Vec<String>),
 }
 
+/// The consumed columns one PNU is composed from: the five 지번 parts of a row.
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PnuInputs {
+    pub(super) sigungu_cd: String,
+    pub(super) bjdong_cd: String,
+    pub(super) san_gubun: String,
+    pub(super) bonbeon: String,
+    pub(super) bubeon: String,
+}
+
+impl PnuInputs {
+    pub(super) fn names(&self) -> [&str; 5] {
+        [
+            &self.sigungu_cd,
+            &self.bjdong_cd,
+            &self.san_gubun,
+            &self.bonbeon,
+            &self.bubeon,
+        ]
+    }
+}
+
 /// The file layout of one hub national register (root ADR-0092). Which ZIP to read is not here:
 /// the Silver refresh picks it from the Bronze ledger and passes it in (root ADR-0169 §2).
 #[derive(Clone, Deserialize)]
@@ -41,6 +64,10 @@ pub struct Layout {
     pub(super) columns: BTreeMap<String, Column>,
     #[serde(default)]
     pub(super) row_key: Option<RowKey>,
+    /// A second parcel a row names (부속지번's other 지번, root ADR-0395): each Silver column here is
+    /// composed like `pnu`, from its own consumed columns.
+    #[serde(default)]
+    pub(super) extra_pnus: BTreeMap<String, PnuInputs>,
     pub(super) handoff_suffix: String,
     pub(super) rows_per_part: u64,
     pub(super) max_row_bytes: u64,
@@ -61,9 +88,12 @@ impl Layout {
             .columns
             .iter()
             .filter(|column| {
-                !super::GENERATED_COLUMNS.contains(&column.name)
-                    && Some(column.name) != removal
-                    && !(layout.row_key.is_some() && column.name == "mgmt_key")
+                // Columns the export makes itself rather than reads from a consumed source column.
+                let made_here = super::GENERATED_COLUMNS.contains(&column.name)
+                    || Some(column.name) == removal
+                    || (layout.row_key.is_some() && column.name == "mgmt_key")
+                    || layout.extra_pnus.contains_key(column.name);
+                !made_here
             })
             .map(|column| column.name.to_owned())
             .collect();
@@ -119,6 +149,17 @@ impl Layout {
         ensure!(
             self.columns.contains_key("mgmt_key") != self.row_key.is_some(),
             "a HUB layout reads its mgmt_key from a column or makes it from the row, not both"
+        );
+        ensure!(
+            self.extra_pnus.iter().all(|(name, inputs)| {
+                !self.columns.contains_key(name)
+                    && !super::GENERATED_COLUMNS.contains(&name.as_str())
+                    && inputs
+                        .names()
+                        .iter()
+                        .all(|input| self.columns.contains_key(*input))
+            }),
+            "an extra PNU must be its own column composed from consumed columns"
         );
         let positions: BTreeSet<_> = self.columns.values().map(|c| c.index).collect();
         ensure!(

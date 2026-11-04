@@ -27,6 +27,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitDemolitionLoss,
     EnergyElectricity,
     EnergyGas,
+    RegisterSubParcel,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -39,7 +40,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 19] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 20] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -50,6 +51,7 @@ impl Lane {
         Self::PermitDemolitionLoss,
         Self::EnergyElectricity,
         Self::EnergyGas,
+        Self::RegisterSubParcel,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -75,6 +77,7 @@ impl Lane {
             Self::PermitDemolitionLoss => "building-permit-demolition-loss",
             Self::EnergyElectricity => "building-energy-monthly-electricity",
             Self::EnergyGas => "building-energy-monthly-gas",
+            Self::RegisterSubParcel => "building-register-sub-parcel",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -147,6 +150,10 @@ impl Lane {
             Self::EnergyGas => (
                 "hub-building-energy-monthly-gas-source-objects.json",
                 crate::building_energy_monthly_silver_export::GAS_CONTRACT_JSON,
+            ),
+            Self::RegisterSubParcel => (
+                "hub-building-register-sub-parcel-source-objects.json",
+                crate::building_register_sub_parcel_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -237,6 +244,9 @@ impl ExportKind {
             },
             "export-building-energy-monthly-gas-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_ENERGY_GAS",
+            },
+            "export-building-register-sub-parcel-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_REGISTER_SUB_PARCEL",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {

@@ -67,6 +67,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.building_permit_demolition_loss": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
+            "silver.building_register_sub_parcel": "vintage",
             "silver.building_register_titles": "valid_from_utc",
             "silver.building_register_unit_areas": "valid_from_utc",
             "silver.building_register_units": "valid_from_utc",
