@@ -288,7 +288,7 @@ class IncrementalGoldIcebergTest(unittest.TestCase):
         data = self.building_v1()
         batch_a, batch_b = "price:1|exclusive:2|vintage:202501", "price:3|exclusive:4|vintage:202601"
         prices_a = [{**row, "source_snapshot_id": batch_a} for row in data["prices"]]
-        # Floor batches are ordered by their ingest instant (newest_floor_batch).
+        # Floor batches are ordered by their ingest instant (the floors contract's `newest_first`).
         floors_a = [{**row, "ingested_at_utc": datetime(2098, 1, 1)} for row in data["floors"]]
         data = {**data, "prices": prices_a, "floors": floors_a}
         pins1 = {names[k]: self.put(names[k], rows) for k, rows in data.items()}
