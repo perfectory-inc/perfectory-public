@@ -1,0 +1,72 @@
+# A test that did not run must not read as a test that passed (root ADR-0010).
+#
+# Prevents: ADR-0004 unified the verification command but deferred live-backend tests, and in that
+# gap one area's tests read a connection variable, printed a notice and returned — cargo reported
+# PASSED, so a whole transport could rot untested behind a green check. foundation-outbox's
+# publish_roundtrip carried the let-else form for six contract tests, and intelligence's
+# knowledge_source_registry_contract carried the rustfmt-wrapped print form that a line-based
+# guard walked past.
+#
+# Only two gates keep "did not run" distinct from "passed": `#[ignore]` (run with `--ignored`
+# through `cargo xtask integration`) and fail-loud (`.expect(..)`, `?` on the `Result`, or a
+# returned `Err`). Production code may log a skip, so only test files are in scope.
+rules:
+  - id: a-test-does-not-print-a-skip
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A test prints a skip notice; the early return beside it reads as a pass. Gate it with
+      #[ignore] and run it through `cargo xtask integration`, or fail on the missing resource.
+    paths:
+      include: &test_files
+        - "**/tests/**"
+        - "**/tests.rs"
+        - "**/*_tests.rs"
+    # A regex, not `eprintln!(...)`: the engine does not look inside a `let .. else { .. }` block,
+    # which is where this print usually sits. `[^;]*` spans the lines rustfmt splits it across.
+    pattern-regex: (?i)\be?println!\s*\([^;]*skip
+
+  - id: a-test-does-not-swallow-a-missing-variable
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      `env::var(..).ok()` turns a missing resource into None and the caller returns early, with no
+      trace. Read it with `.expect(..)` or `?` on the Result instead.
+    paths:
+      include: *test_files
+    patterns:
+      - pattern: std::env::var(...).ok()
+      # `.ok().filter(..).expect(..)` reads it, rejects an empty value and panics when absent:
+      # that is fail-loud, the sanctioned shape.
+      - pattern-not-inside: $CHAIN.expect(...)
+      - pattern-not-inside: $CHAIN.unwrap()
+
+  - id: a-test-does-not-let-else-a-missing-variable
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      `let Ok(..) = env::var(..) else { .. }` makes a missing resource leave the test early. Use
+      `env::var(..)?` or `.expect(..)`.
+    paths:
+      include: *test_files
+    pattern: let Ok($VALUE) = std::env::var(...) else { ... };
+
+  - id: a-test-does-not-pass-when-a-variable-is-unset
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      An environment probe guards an early success return, so a run that forgot the switch is a
+      green test that reached nothing. Return an Err there, or gate the test with #[ignore].
+    paths:
+      include: *test_files
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if $COND { ... return; }
+          - pattern: |
+              if $COND { ... return Ok(()); }
+      - metavariable-pattern:
+          metavariable: $COND
+          pattern-either:
+            - pattern: std::env::var(...)
+            - pattern: std::env::var_os(...)
