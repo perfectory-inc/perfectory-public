@@ -8,7 +8,7 @@ The parcel document's schema does not change, so adding this kind never re-bakes
 What a PNU's document holds (`regulation_zones`): every zone of the zone table's current rows (the
 contract's `current_rows`, root ADR-0275) whose polygon covers part of the parcel's polygon, in the
 provider's words: the layer's code and name, the zone's code and name as the provider wrote them,
-`<layer_code>:<zone_feature_id>` (the id the zoning map tiles give the same zone, root ADR-0362 §5),
+`<layer_code>:<zone_feature_id>:<sigungu_code>` (the id the zoning map tiles give the same zone, root ADR-0362 §5),
 and the date of the release (판) the zone's current row came from. At most ZONE_PAGE_BOUND zones are
 listed; `zone_total` (the Gold column) counts all.
 
@@ -43,7 +43,9 @@ ZONE_SOURCE = "silver.land_use_zone_area"
 PARCEL_SOURCE = "silver.parcel_boundaries"
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
 SECTION = "regulation_zones"
-ZONE_KEY = ("layer_code", "zone_feature_id")
+# The Silver key: an area split at a 시군구 boundary ships as two polygons sharing its number
+# (ADR-0362 revision 2026-11-05), so the 시군구 is part of a zone's identity.
+ZONE_KEY = ("layer_code", "zone_feature_id", "sigungu_code")
 BOX = ("bbox_min_x", "bbox_min_y", "bbox_max_x", "bbox_max_y")
 # The grid a zone is cut into (degrees, about 220 x 280 m). Measured 2026-11-03 (Trino, read-only)
 # in the westernmost longitude band (a 2.5-degree-wide strip): 0.01° gave 6.15M parcel-piece pairs whose boxes meet, at 167 piece vertices a
@@ -66,7 +68,8 @@ BUILD_COLUMNS = {
 }
 RINGS = "array<array<double>>"
 PIECES = f"array<struct<i:bigint,j:bigint,rings:{RINGS}>>"
-PAIRS = "array<struct<pnu:string,layer_code:string,zone_feature_id:string,overlap_m2:double,area_m2:double>>"
+PAIRS = ("array<struct<pnu:string,layer_code:string,zone_feature_id:string,sigungu_code:string,overlap_m2:double,"
+         "area_m2:double>>")
 # How a document is written: nulls too, so its paths are always the registry's.
 WRITTEN = {"ignoreNullFields": "false"}
 
@@ -153,7 +156,7 @@ def cell_pairs(i: int, j: int, parcels: list, pieces: list) -> list[tuple]:
 
     found = zone_overlap.cell_overlaps((i * CELL_DEGREES, j * CELL_DEGREES), [unflat(p.rings) for p in parcels],
                                        [unflat(q.rings) for q in pieces])
-    return [(parcels[a].pnu, pieces[b].layer_code, pieces[b].zone_feature_id,
+    return [(parcels[a].pnu, pieces[b].layer_code, pieces[b].zone_feature_id, pieces[b].sigungu_code,
              zone_overlap.square_metres(area, parcels[a].latitude), parcels[a].area_m2) for a, b, area in found]
 
 
@@ -217,7 +220,7 @@ def gold_rows(frames: dict[str, Any], source_snapshot_id: str, published_at_utc:
     entries = covered.join(words, list(ZONE_KEY)).select(
         "pnu", F.struct(
             "layer_code", "zone_code", "zone_feature_id",
-            F.concat_ws(":", "layer_code", "zone_feature_id").alias("zone_id"), "layer_name", "zone_name",
+            F.concat_ws(":", *ZONE_KEY).alias("zone_id"), "layer_name", "zone_name",
             F.when(release != "", F.concat_ws("-", release, F.regexp_extract("_release", RELEASE_DATE, 2),
                                               F.regexp_extract("_release", RELEASE_DATE, 3))).alias("release_date"),
         ).alias("_zone"))

@@ -81,16 +81,16 @@ class InputsTest(unittest.TestCase):
         import zone_overlap
 
         parcel = namedtuple("Parcel", "pnu rings area_m2 latitude")
-        piece = namedtuple("Piece", "layer_code zone_feature_id rings")
+        piece = namedtuple("Piece", "layer_code zone_feature_id sigungu_code rings")
         inside_rings, inside_area = job.parcel_shape(square(0.0002, 0.0002, 0.0002)[0])
         apart_rings, apart_area = job.parcel_shape(square(0.0012, 0.0002, 0.0002)[0])
         zone = zone_overlap.rings_of(square(0, 0, 0.0010)[0])
         i, j = int(X0 // job.CELL_DEGREES), int(Y0 // job.CELL_DEGREES)
         parcels = [parcel(pnu(1), inside_rings, inside_area, Y0), parcel(pnu(2), apart_rings, apart_area, Y0)]
-        pairs = job.cell_pairs(i, j, parcels, [piece("D999", "99999-0001", job.flat(zone))])
+        pairs = job.cell_pairs(i, j, parcels, [piece("D999", "99999-0001", "99999", job.flat(zone))])
         self.assertEqual(len(pairs), 1)
-        found, layer, feature, overlap, area = pairs[0]
-        self.assertEqual((found, layer, feature), (pnu(1), "D999", "99999-0001"))
+        found, layer, feature, sigungu, overlap, area = pairs[0]
+        self.assertEqual((found, layer, feature, sigungu), (pnu(1), "D999", "99999-0001", "99999"))
         # The test hands the cell latitude Y0, the area is measured at the parcel centre.
         self.assertAlmostEqual(overlap, area, delta=area * 1e-5)
 
@@ -158,12 +158,12 @@ class DocumentSparkTest(unittest.TestCase):
         "across": (pnu(4), square(0.0007, 0.0032, 0.0006)),
     }
 
-    def zone(self, layer, feature, shape, release="20261009", code="UQA100", name="제1종일반주거지역"):
+    def zone(self, layer, feature, shape, release="20261009", code="UQA100", name="제1종일반주거지역", sigungu="99999"):
         wkb, *box = shape
-        return (layer, feature, f"국토계획/{layer}", code, name, wkb, *box, f"vworldkr-land-use-zone:{release}")
+        return (layer, feature, sigungu, f"국토계획/{layer}", code, name, wkb, *box, f"vworldkr-land-use-zone:{release}")
 
     def frames(self, zones, parcels=None):
-        zone_schema = ("layer_code string, zone_feature_id string, layer_name string, zone_code string, "
+        zone_schema = ("layer_code string, zone_feature_id string, sigungu_code string, layer_name string, zone_code string, "
                        "zone_name string, geometry_wkb binary, bbox_min_x double, bbox_min_y double, "
                        "bbox_max_x double, bbox_max_y double, source_snapshot_id string")
         parcel_schema = ("pnu string, geometry_wkb binary, bbox_min_x double, bbox_min_y double, "
@@ -187,12 +187,23 @@ class DocumentSparkTest(unittest.TestCase):
         inside, total = documents[pnu(1)]
         self.assertEqual(total, 1)
         self.assertEqual(inside["zones"], [{
-            "zone_id": "D999:99999-0001", "layer_code": "D999", "layer_name": "국토계획/D999",
+            "zone_id": "D999:99999-0001:99999", "layer_code": "D999", "layer_name": "국토계획/D999",
             "zone_code": "UQA100", "zone_name": "제1종일반주거지역", "release_date": "2026-10-09"}])
         across, _ = documents[pnu(4)]
         self.assertEqual([(z["zone_id"], z["release_date"]) for z in across["zones"]],
-                         [("D998:99999-0002", "2026-06-09")])
+                         [("D998:99999-0002:99999", "2026-06-09")])
         self.assertEqual(tuple(gold.columns), GOLD_COLUMNS)
+
+    def test_one_area_split_at_a_sigungu_boundary_is_two_zones(self):
+        # 2026-11-03: the provider ships an area split at a 시군구 boundary as two polygons sharing
+        # A1 (308 pairs in D036 of 20261009); keyed without the 시군구 they were one zone.
+        west = self.zone("D999", "99999-0001", square(0, 0, 0.0020), sigungu="99998")
+        east = self.zone("D999", "99999-0001", square(0, 0, 0.0020), sigungu="99999", name="합성 동쪽")
+        documents, _ = self.documents([west, east])
+        listed, total = documents[pnu(1)]
+        self.assertEqual(total, 2)
+        self.assertEqual(sorted(z["zone_id"] for z in listed["zones"]),
+                         ["D999:99999-0001:99998", "D999:99999-0001:99999"])
 
     def test_zones_are_listed_by_layer_and_bounded(self):
         many = [self.zone("D999", f"99999-{n:04d}", square(0, 0, 0.0020)) for n in range(job.ZONE_PAGE_BOUND + 3)]
