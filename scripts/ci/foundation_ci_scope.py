@@ -158,6 +158,7 @@ RULES = {
             "platforms/foundation-platform/orchestration/jobs.v1.json",
             "platforms/foundation-platform/orchestration/tests/test_dagster_observe.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_publish_checks.py",
+            "platforms/foundation-platform/orchestration/tests/test_dagster_systemd_pipes.py",
             "scripts/verify/foundation-dagster-observe.sh",
         ],
         "prefixes": [
