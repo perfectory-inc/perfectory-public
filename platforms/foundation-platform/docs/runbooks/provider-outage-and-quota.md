@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 공급자 장애·쿼터 런북
@@ -55,8 +55,6 @@ circuit breaker는 프로세스 로컬이다. 영속 DLQ/quarantine 테이블·p
   `docs/catalog/provider-rate-policy.v1.json`으로 취급한다.
 - 국가 Bronze 수집은 파일 일괄 레인만 쓴다. 공공 API 전국 수집 ledger(`resume-national-data-collection-ledger` 등)는
   bulk 전용 정책으로 2026-11 삭제됐다.
-- fixture 테스트 또는 명시적으로 기록된 증명 실행 외에는 국가 수집에
-  `ProviderLaneMode=off`를 사용하지 않는다.
 - 공급자 속도·신호 규칙을 바꾼 뒤에는 `foundation-outbox-publisher provider-rate-controller`로
   변경 정책을 실행한다(변경된 레인마다 initialize 모드). 이 명령은
   `docs/catalog/provider-rate-policy.v1.json` 파싱 실패나 알 수 없는 레인 ID에서 빠르게
@@ -67,10 +65,6 @@ circuit breaker는 프로세스 로컬이다. 영속 DLQ/quarantine 테이블·p
 - 실시간 공급자 호출보다 읽기 전용 smoke 확인을 우선한다.
 - data.go.kr·V-World 실시간 요청 전에 공급자 대상 서브커맨드가 명시적 쿼터 영향 확인을
   요구하는지 확인한다.
-- 승인된 실시간 smoke에서 명령의 `*_QUOTA_METRICS_PATH` 환경변수를 설정해 Prometheus 호환
-  쿼터/의존성 산출물을 쓴다. 산출물에는 `foundation_platform_public_api_quota_request_total`,
-  `foundation_platform_public_api_dependency_request_duration_seconds`,
-  `foundation_platform_public_api_dependency_error_total`이 포함된다.
 - 같은 공급자에 대해 병렬 수집을 실행하는 운영자가 없는지 확인한다.
 
 ## 계정 조치 (root ADR-0363)
