@@ -19,9 +19,9 @@ import courtauction_go_kr as court  # noqa: E402
 import data_go_kr_registered_factory as factory  # noqa: E402
 
 NOW = datetime(2099, 1, 2, 3, 4, 5)
-NAMES = [("9100000000", "가상남도", "폐지"), ("9110110100", "가상남도 가상군 가나면", "폐지"),
-         ("9300000000", "가상통합특별시", "존재"), ("9311010100", "가상통합특별시 가상군 가나면", "존재")]
-PREFIXES = address_pnu.sido_prefixes(NAMES, [("91", "93")])
+NAMES = [("9800000000", "가상남도", "폐지"), ("9899910100", "가상남도 가상군 가나면", "폐지"),
+         ("9900000000", "가상통합특별시", "존재"), ("9999910100", "가상통합특별시 가상군 가나면", "존재")]
+PREFIXES = address_pnu.sido_prefixes(NAMES, [("98", "99")])
 DONGS = address_pnu.legal_dong_index([(c, n) for c, n, s in NAMES if s == "존재"])
 
 
@@ -37,12 +37,12 @@ class RecordTest(unittest.TestCase):
         self.assertIsNone(follow.changed_prefixes(None, "c", None, 7, "job"))
 
     def test_only_the_codes_that_changed_are_followed(self) -> None:
-        before = [{"kind": "pair", "old_code": "9110110100", "new_code": "9311010100", "level": "eupmyeondong"}]
-        after = [*before, {"kind": "pair", "old_code": "9110120100", "new_code": "9311020100", "level": "eupmyeondong"}]
+        before = [{"kind": "pair", "old_code": "9110110100", "new_code": "9999910100", "level": "eupmyeondong"}]
+        after = [*before, {"kind": "pair", "old_code": "9899920100", "new_code": "9999920100", "level": "eupmyeondong"}]
         import legal_dong_code_change_views as views  # noqa: PLC0415
 
         self.assertEqual(follow.prefixes_from_changes(before, after),
-                         {views.code_prefix("9110120100"), views.code_prefix("9311020100")})
+                         {views.code_prefix("9899920100"), views.code_prefix("9999920100")})
         self.assertEqual(follow.prefixes_from_changes(before, before), set())
 
 
@@ -54,8 +54,8 @@ class RelinkTest(unittest.TestCase):
                "appraisal_amount_krw": 1, "legal_dong_code": None, "pnu": None, "source_record_id": "bronze/old.gz",
                "source_snapshot_id": "20990101T000000Z"}
         [again] = court.relinked_rows([row], "follow:x", "20990102T030405Z", NOW, PREFIXES, DONGS)
-        self.assertEqual(again["jibun_pnu"], "9311010100100070000")
-        self.assertEqual(again["legal_dong_code"], "9311010100")
+        self.assertEqual(again["jibun_pnu"], "9999910100100070000")
+        self.assertEqual(again["legal_dong_code"], "9999910100")
         self.assertEqual(again["appraisal_amount_krw"], 1)
         self.assertEqual((again["source_record_id"], again["source_snapshot_id"]), ("follow:x", "20990102T030405Z"))
 
@@ -63,7 +63,7 @@ class RelinkTest(unittest.TestCase):
         row = {"serial_no": 1, "company_name": "합성공업", "complex_name": None, "products": "부품",
                "factory_address_raw": "가상남도 가상군 가나면 7", "source_line_number": 2}
         [again] = factory.relinked_offers([row], PREFIXES, DONGS)
-        self.assertEqual(again["jibun_pnu"], "9311010100100070000")
+        self.assertEqual(again["jibun_pnu"], "9999910100100070000")
         self.assertEqual((again["company_name"], again["source_line_number"]), ("합성공업", 2))
         built = set(again) | {"pnu", "pnu_basis", "pnu_unresolved_reason", "pnu_candidate_count",
                               "source_record_id", "source_snapshot_id", "ingested_at_utc"}
