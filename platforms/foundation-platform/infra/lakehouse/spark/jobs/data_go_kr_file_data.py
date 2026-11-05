@@ -260,10 +260,18 @@ def field(header_name: str) -> Any:
 class LinkInputs:
     """What the links read, read once per run and only when a table needs it."""
 
-    def __init__(self, spark: Any, catalog: str, contract: Mapping[str, Any]) -> None:
+    def __init__(self, spark: Any, catalog: str) -> None:
         self.spark, self.catalog = spark, catalog
-        self.prefixes = contract["files"][OWN_JOB]["pnu_resolution"]["sido_prefixes"]
-        self._dongs = self._lakehouse = self._pairs = None
+        self._prefixes = self._dongs = self._lakehouse = self._pairs = None
+
+    @property
+    def prefixes(self) -> dict[str, str]:
+        """The 시도 prefixes of the 법정동 code table and its recorded pairs (root ADR-0403)."""
+        import address_pnu  # noqa: PLC0415
+
+        if self._prefixes is None:
+            self._prefixes = address_pnu.lakehouse_sido_prefixes(self.spark, self.catalog)
+        return self._prefixes
 
     @property
     def dongs(self) -> dict[tuple[str, str], str]:
@@ -455,7 +463,7 @@ def _load(argv: Sequence[str]) -> int:
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
     spark = apply_catalog_settings(builder, catalog).getOrCreate()
     try:
-        inputs = LinkInputs(spark, catalog, source)
+        inputs = LinkInputs(spark, catalog)
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{catalog}`.`silver`")
         tables = {}
         for slug in entries:
