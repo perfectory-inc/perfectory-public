@@ -50,6 +50,7 @@ perfectory/
 - [전역 용어집](./docs/glossary.md)
 - [전역 ADR](./docs/adr/README.md)
 - [검증 SSOT](./docs/adr/0004-verification-ssot.md)
+- [기여 안내](./CONTRIBUTING.md) · [보안 신고](./SECURITY.md)
 - Rust 검증: `bash scripts/verify/cargo-verify.sh <area-dir>` (Docker 필요)
 
 ## License
