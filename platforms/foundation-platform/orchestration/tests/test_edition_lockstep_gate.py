@@ -6,10 +6,13 @@ Gold as soon as it was rebuilt and served mixed editions (the 2026-10-21 공매 
 """
 
 import importlib.util
+import io
 import json
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest import mock
 
 PLATFORM = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/tests"))
@@ -18,6 +21,7 @@ gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gate)
 
 import gold_rebuild  # noqa: E402
+import iceberg_metadata  # noqa: E402
 import parcel_edition_readiness as readiness  # noqa: E402
 from test_parcel_edition_readiness import CANDIDATE, NOW, contract, evidence  # noqa: E402
 
@@ -73,6 +77,59 @@ class LockstepGateTest(unittest.TestCase):
         self.assertEqual(gate.verdict("building", self.promoted, lambda table: gold(OLD)), "ok")
         histories = {table: {"head": None, "snapshots": []} for table in self.tables.values()}
         self.assertEqual(gate.verdict(gate.PARCEL_LANE, self.promoted, histories.__getitem__), "ok")
+
+
+def not_found(kind: str) -> urllib.error.HTTPError:
+    """The Iceberg REST ErrorModel a loadTable 404 answers with."""
+    body = json.dumps({"error": {"message": "not found", "type": kind, "code": 404}}).encode()
+    return urllib.error.HTTPError("https://catalog.invalid/t", 404, "Not Found", {}, io.BytesIO(body))
+
+
+class AbsentGoldTest(unittest.TestCase):
+    """2026-11-04..05: four by-PNU kinds were defined (regulation zones, sub-parcels, energy,
+    demolitions) before their Gold was ever built. The catalog answered 404 for each, the gate said
+    it "cannot tell" and the 공매 lane refused every bake for two days, serving its pre-photo
+    documents of 2026-10-28 (photos: [] on every round)."""
+
+    def setUp(self):
+        self.environ = {"FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI": "https://catalog.invalid",
+                        "FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE": "w", "TOKEN": "t"}
+
+    def catalog(self, missing: set[str], kind: str = "NoSuchTableException"):
+        def get(_self, url):
+            if "/v1/config" in url:
+                return {"overrides": {"prefix": "p"}}
+            if url.rsplit("/", 1)[1] in missing:
+                raise not_found(kind)
+            return {"metadata": {"current-snapshot-id": -1, "snapshots": []}}
+        return mock.patch.object(iceberg_metadata.Catalog, "_get", get)
+
+    def test_a_table_never_created_reads_as_never_committed_only_when_asked(self):
+        catalog = iceberg_metadata.Catalog("TOKEN", "test", self.environ)
+        with self.catalog({"parcel_energy"}):
+            self.assertEqual(catalog.table("gold.parcel_energy", absent_ok=True), {"head": None, "snapshots": []})
+            with self.assertRaises(urllib.error.HTTPError):
+                catalog.table("gold.parcel_energy")
+
+    def test_a_missing_namespace_is_never_an_absent_table(self):
+        catalog = iceberg_metadata.Catalog("TOKEN", "test", self.environ)
+        with self.catalog({"parcel_energy"}, "NoSuchNamespaceException"), self.assertRaises(urllib.error.HTTPError):
+            catalog.table("gold.parcel_energy", absent_ok=True)
+
+    def run_gate(self, missing: set[str]) -> int:
+        with self.catalog(missing), mock.patch.dict("os.environ", self.environ | {
+                "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN": "t"}),                 mock.patch("sys.stdout", io.StringIO()) as out, mock.patch("sys.stderr", io.StringIO()):
+            code = gate.main(["parcel-public-auction"])
+        self.output = out.getvalue().strip()
+        return code
+
+    def test_a_kind_whose_gold_was_never_built_does_not_stop_the_other_lanes(self):
+        kinds = {table.split(".", 1)[1] for lane, table in gate.lockstep_tables().items() if lane != gate.PARCEL_LANE}
+        self.assertEqual(self.run_gate(set(sorted(kinds)[:4])), 0)
+        self.assertEqual(self.output, "ok")
+
+    def test_an_absent_parcel_panel_is_a_wrong_catalog_and_the_gate_cannot_tell(self):
+        self.assertEqual(self.run_gate({gate.PARCEL_PANEL.split(".", 1)[1]}), 65)
 
 
 if __name__ == "__main__":

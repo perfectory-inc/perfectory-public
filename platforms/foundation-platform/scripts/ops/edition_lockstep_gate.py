@@ -48,7 +48,9 @@ def lockstep_tables() -> dict[str, str]:
 
 def verdict(lane: str, contract: Mapping[str, Any], history: Callable[[str], dict]) -> str:
     """`ok`, or `waiting <reason>` naming the lanes whose Gold is not yet on the served edition. A lane
-    outside the served universe, and a Gold with no pinned commit (nothing of it served), never wait."""
+    outside the served universe, and a Gold with no pinned commit (nothing of it served), never wait.
+    `history(table)` reads a kind's Gold that was never created as one with no commit (`absent_ok`):
+    a kind defined before its first build serves nothing, so it holds no barrier."""
 
     lanes = lockstep_tables()
     if lane not in lanes:
@@ -73,7 +75,11 @@ def main(argv: list[str]) -> int:
         return 64
     try:
         catalog = iceberg_metadata.Catalog("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN", "foundation-edition-lockstep-gate")
-        print(verdict(argv[0], editions.load(), catalog.table))
+        # The parcel panel is the universe itself: absent, the catalog is not the one the lanes serve.
+        def history(table: str) -> dict:
+            return catalog.table(table, absent_ok=table != PARCEL_PANEL)
+
+        print(verdict(argv[0], editions.load(), history))
     except (OSError, KeyError, ValueError, editions.EditionError) as error:
         print(f"edition_lockstep_gate: cannot tell whether {argv[0]} may publish: {type(error).__name__}: {error}",
               file=sys.stderr)
