@@ -554,7 +554,9 @@
         "name": "workflow-policy-self-test",
         "paths": [
           ".github/workflows/**",
-          "tools/github/**"
+          "tools/github/**",
+          "tools/conftest/workflow/**",
+          "tools/conftest.env"
         ]
       },
       {
