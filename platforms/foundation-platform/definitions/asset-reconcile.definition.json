@@ -26,6 +26,8 @@
         "gold_unit_price_rebuild",
         "by_pnu_unit_price_bake",
         "by_pnu_public_auction_bake",
+        "gold_court_auction_rebuild",
+        "by_pnu_court_auction_bake",
         "by_pnu_serving_bake"
       ],
       "enabled": true,
