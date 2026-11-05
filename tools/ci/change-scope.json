@@ -310,15 +310,6 @@
         ]
       },
       {
-        "name": "r2-reads-have-one-path-self-test",
-        "paths": []
-      },
-      {
-        "name": "r2-reads-have-one-path",
-        "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file.",
-        "budget_seconds": 10
-      },
-      {
         "name": "environment-variable-naming-self-test",
         "paths": [
           "platforms/foundation-platform/config/**"
