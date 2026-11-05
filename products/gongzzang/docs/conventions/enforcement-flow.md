@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang
 doc_type: convention
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 자동 강제 흐름 (Enforcement Flow)
@@ -13,19 +13,21 @@ last_reviewed: 2026-07-29
 
 ```
 1. 에디터        rust-analyzer + Biome 확장        실시간 lint/format
-2. pre-commit    lefthook + gitleaks               format + 빠른 lint + 시크릿 스캔 + 파일 크기
-3. pre-push      lefthook                          수 초짜리 래칫·문서 신선도·영역 grep만 (루트 ADR-0098, ADR-0149)
-4. CI (PR)       GitHub Actions                    풀스택 (lint/type/test/SAST/SCA/cargo-deny/SBOM)
-5. CI (merge)    GitHub Actions                    이미지 빌드 + 서명 + 배포
+2. pre-commit    lefthook                          gitleaks + Biome + rustfmt + markdownlint + panel 가드
+3. pre-push      lefthook                          수 초짜리 래칫(파일 크기 포함)·문서 무결성·영역 grep만 (루트 ADR-0098, ADR-0149)
+4. CI (PR·큐)    GitHub Actions                    fmt/clippy/test, Biome·타입·단위, 마이그레이션, cargo-deny, OSV, gitleaks
 ```
+
+훅 정의 정본은 루트 `lefthook.yml`, 필수 CI 체크 목록 정본은 `tools/github/main-ruleset.json`이다.
+Gongzzang CI는 SBOM/SLSA 첨부를 일부러 뺐다(`.github/workflows/gongzzang-ci.yml` 머리말).
 
 컨벤션별 도구 매핑: [README.md](./README.md)의 "자동 강제 도구 매핑" 표.
 
 ## 1500줄 안티패턴 경보
 
-`docs/schema.md` 1349줄, `docs/site-builder.md` 1447줄 같은 거대 SSOT 파일(legacy repo 사례 —
-현 트리에는 없음) = **이름만 SSOT**. 폴더 단위 SSOT가 진짜 SSOT.
+1,300~1,400줄짜리 단일 SSOT 파일(legacy repo 사례 — 현 트리에는 없음) = **이름만 SSOT**. 폴더 단위 SSOT가
+진짜 SSOT.
 
 - 500줄 도달 → 분해 검토
-- 1500줄 도달 → CI가 차단
+- 1500줄 도달 → CI가 차단 (`scripts/guard/file-line-limit.sh`, 예외 목록 `tools/ci/file-line-limit.exceptions.json`)
 - *처음부터* 폴더로 시작

@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 공간 데이터 파이프라인
@@ -106,6 +106,5 @@ Gongzzang은 Foundation Platform 추출 이후의 정적 vector tile ETL을 소�
 ## 7. Guardrails
 
 PNU-anchor PBF marker 계약과 Foundation Platform 의존성 경계를 유지한다. Foundation Platform catalog
-경계는
-`scripts/lefthook/foundation-ownership-boundary.sh` and the boundary contract
-`docs/architecture/foundation-platform-boundary.v1.json`.
+경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와 경계 계약
+`docs/architecture/foundation-platform-boundary.v1.json`이 CI에서 강제한다.

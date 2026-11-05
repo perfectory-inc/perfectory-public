@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Frontend Auth Integration — 운영 SSOT
@@ -29,7 +29,7 @@ umask 077
     'ZITADEL_REDIS_HOST_PORT=6379'
 } > infra/zitadel/.env
 
-# 2. Zitadel + Valkey 8 dev container 시작
+# 2. Zitadel + Valkey dev container 시작
 docker compose --env-file infra/zitadel/.env \
   -f infra/zitadel/docker-compose.yml up -d
 
@@ -55,9 +55,10 @@ cargo run -p gongzzang-api
 pnpm --filter=@gongzzang/web dev
 ```
 
-`zitadel-db`는 PostgreSQL 17로 통일됐다. 기존 PostgreSQL 16 개발 볼륨이 있으면
-마이그레이션 전에 백업하거나 disposable 로컬 볼륨을 새로 만들어야 한다. Valkey 세션
-볼륨은 캐시이므로 서비스명 변경 시 새 볼륨이 생겨도 인증 세션을 재로그인하면 된다.
+`zitadel-db`·Zitadel·Valkey 이미지 핀은 `infra/zitadel/docker-compose.yml`과
+`../../../../tools/technology-versions.contract.json`이 소유한다. Postgres 주 버전이 바뀌면 기존 개발 볼륨을
+백업하거나 disposable 로컬 볼륨을 새로 만들어야 한다. Valkey 세션 볼륨은 캐시이므로 새 볼륨이 생겨도
+재로그인하면 된다.
 
 브라우저로 `http://localhost:3000/login`을 열고, 커밋되지 않은
 `infra/zitadel/.env`의 `ZITADEL_ADMIN_EMAIL`과 `ZITADEL_ADMIN_PASSWORD`로 로그인한다.
@@ -85,39 +86,41 @@ Linux/macOS 는 `docker-compose.yml` 의 ports 를 8443/5433 으로 변경 가�
 사용자 → /login → POST /api/auth/login (PKCE start, HMAC-signed tmp cookie 발급)
        → 302 → Zitadel /oauth/v2/authorize
        → 사용자 인증 → 302 → /api/auth/callback?code=&state=
-       → state CSRF 검증 (timingSafeEqual) → token exchange → Valkey 8 session 발급 (sid)
-       → Set-Cookie __Host-sid → 302 → returnTo (sanitizeReturnTo, default /profile)
+       → state CSRF 검증 (timingSafeEqual) → token exchange → Valkey session 발급 (sid)
+       → Set-Cookie __Host-sid (dev: sid) → 302 → returnTo (sanitizeReturnTo, default /profile)
 ```
 
 **보안 layer 4종**:
 
-1. `__Host-` cookie prefix + Secure + HttpOnly + SameSite=Strict + Partitioned
+1. session cookie: `__Host-` prefix + Secure + HttpOnly + SameSite=Strict + Partitioned (`apps/web/lib/session/cookie.ts`)
 2. PKCE code\_verifier (43+ chars, S256 challenge)
-3. State CSRF 검증 (timing-safe HMAC tmp cookie)
+3. State CSRF 검증 (HMAC 서명된 auth-state cookie `__Secure-auth-state`, dev: `auth-state`, Path=/api/auth/)
 4. Backend Verifier (Zitadel JWT signature + JTI denylist)
 
 ## 3. 디버깅
 
 | 증상 | 원인 후보 | 확인 방법 |
 | --- | --- | --- |
-| `/login` 누르면 401 state mismatch | tmp cookie 만료 (10분) 또는 HMAC tampered | `__Host-auth-tmp` 쿠키 존재 + verifyTempPayload 결과 확인 |
+| `/login` 누르면 401 state mismatch | auth-state cookie 만료 (10분) 또는 HMAC tampered | `__Secure-auth-state` 쿠키 존재 + `verifyAuthStatePayload` 결과 확인 |
 | `/profile` 가 무한 redirect | Valkey 연결 실패 → session null | `valkey-cli ping`, proxy fail-closed |
 | 401 token revoked | logout 후 재사용, 또는 role 변경 직후 | `valkey-cli GET jti:deny:<jti>` 확인 |
 | 403 forbidden | role 이 admin/broker/operator 아님 | profile 화면에서 role 확인 |
-| 429 rate limit | login 5/min/IP, callback 10/min/IP, refresh 30/min/sid 초과 | `valkey-cli ZRANGE rate:login:<ip> 0 -1 WITHSCORES` |
+| 429 rate limit | auth 경로별 한도 초과 (한도 정본: `docs/architecture/traffic-auth-policy-registry.v1.json`) | `valkey-cli ZRANGE rate:auth:login:<ip> 0 -1 WITHSCORES` |
 
 ## 4. 장애 대응
 
 ### Zitadel 다운
 
-- 기존 session 은 access\_token TTL (5분) 까지 동작
+- 기존 session 은 access\_token 만료까지 동작
 - 만료 후 refresh 시도 → fail → frontend 가 /login redirect → Zitadel 다운 시 503 ProblemDetails (idp-unavailable)
 - 영향: 신규 로그인 + token refresh 차단. 기존 세션 처리는 가용
 
 ### Valkey 다운
 
 - frontend `getSession` fail → proxy 가 /login redirect (closed-fail, session lookup 차원)
-- backend JTI denylist check → tracing::warn! + JWT 검증 통과 (fail-open, 가용성 우선)
+- backend JTI denylist check 실패 → production 은 fail-closed(요청 거부, `tracing::error!`), dev 는
+  fail-open(`tracing::warn!` 후 통과) — `crates/product-identity-infrastructure/src/middleware.rs`,
+  `fail_closed_on_denylist_error`
 - audit\_log emit fail → tracing::warn 로깅, 사용자 영향 없음
 
 ### Postgres 다운
@@ -141,29 +144,24 @@ psql -c "SELECT after_state->>'jti' FROM audit_log
            AND created_at > now() - interval '30 days';"
 ```
 
-## 6. 모니터링 (SP7-i 통합 후)
+## 6. 감사 action
 
-| 메트릭 | 임계 | 의미 |
-| --- | --- | --- |
-| `auth.login.failure_rate` | > 5% | Zitadel 또는 frontend 버그 |
-| `auth.refresh.failure_rate` | > 1% | Zitadel down 또는 refresh\_token 만료 비율 비정상 |
-| `auth.role_guard.denied` | spike | 권한 설정 오류 또는 공격 |
-| `valkey.session.miss_rate` | > 0.1% | Valkey 데이터 손실 또는 TTL 설정 오류 |
+인증 이벤트는 `audit_log`에 action 이름으로 남는다(`auth.login`, `auth.refresh.succeeded`,
+`auth.role_guard.denied` 등 — 정본: `crates/product-identity-infrastructure/src/audit.rs`). 메트릭 임계값은
+아직 정의되지 않았다.
 
 ## 7. 미래 sub-project 의 자리
 
-- **SP6-CI** (KISA 본인확인): `users.ci` 채움. NICE/Toss SDK 통합 + CI state machine.
-- **SP6-Social**: 카카오/네이버/Google federation. `external_account` 가 매 provider 채워짐. 동일인 매칭 = `users.ci` UNIQUE.
-- **SP6-org**: organization 분리, JWT `org_id` claim, org switcher UI.
-- **SP6-iam-infra**: Zitadel self-host 의 Pulumi 코드화, JWKS rotation, DB backup, alert.
+- **SP6-CI** (KISA 본인확인): `"user".ci` 채움 (컬럼만 있음).
+- **SP6-Social**: 카카오/네이버/Google federation. `external_account` 가 provider 별로 채워짐. 동일인 매칭 = `"user".ci` UNIQUE.
 
 ## 8. 의존성
 
 | 외부 시스템 | 역할 | SSOT |
 | --- | --- | --- |
-| Zitadel | Identity (사용자 인증) | dev: docker-compose, prod: SP6-iam-infra Pulumi |
-| Valkey 8 (Redis protocol) | Active session + JTI denylist + ratelimit | dev: docker-compose, prod: SP6-iam-infra |
-| PostgreSQL 17 | users.role authorization, audit\_log | 기존 SP1-3 |
+| Zitadel | Identity (사용자 인증) | dev: `infra/zitadel/docker-compose.yml`, 운영: Identity Platform (루트 ADR-0228) |
+| Valkey (Redis protocol) | Active session + JTI denylist + ratelimit | dev: `infra/zitadel/docker-compose.yml` |
+| PostgreSQL | `"user".roles` authorization, audit\_log | `infrastructure/docker/docker-compose.yml` |
 
 ## 9. 현행 계약 참조
 

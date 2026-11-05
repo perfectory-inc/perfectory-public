@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 공급망 원천 게이트

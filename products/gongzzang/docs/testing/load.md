@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 부하 테스트
@@ -12,8 +12,8 @@ last_reviewed: 2026-07-29
 이 저장소는 재사용 가능한 k6 시나리오 코드·시나리오 registry schema·안전 검증을 소유한다.
 배포별 target host·credential·측정 capacity 상한·실행 증거·출시 결정은 private operations가 소유한다.
 
-따라서 커밋된 registry는 라우팅되지 않는 `.invalid` target과 의도적으로 낮은 synthetic 안전 상한을
-사용한다. 이는 측정 capacity가 아니며 출시 추정치로 제시하면 안 된다. private load runner가 실행
+따라서 커밋된 registry(`tests/load/scenarios.v1.json`)는 라우팅되지 않는 `.invalid` target과 의도적으로 낮은
+synthetic 안전 상한을 사용한다. 이 성질은 `scripts/guard/public-fixture-safety.py`가 검사한다. 이는 측정 capacity가 아니며 출시 추정치로 제시하면 안 된다. private load runner가 실행
 시점에 승인 target과 검토된 capacity profile을 주입하고 두 값을 이 저장소에 다시 쓰지 않는다.
 
 ## 안전 규칙
@@ -24,8 +24,11 @@ last_reviewed: 2026-07-29
 - local·CI smoke 결과는 시나리오 검증으로만 취급한다.
 - target allowlist·측정 상한·원시 결과·출시 증거는 private operations 경계에 둔다.
 
-운영자가 승인 target을 주지 않으면 runner는 fail-closed해야 한다. k6 시작 전에 URL credential·path·query·
-fragment·production host를 거부한다. 인증 시나리오는 private runner 환경에서만 token을 받는다.
+운영자가 승인 target을 주지 않으면 runner는 fail-closed해야 한다. 커밋된 코드가 강제하는 것은 일부다:
+`tests/load/lib/env.js`는 `TARGET_BASE_URL`이 없거나 production host(`gongzzang.com`)면 멈추고,
+`capacity-stress`는 `ALLOW_STRESS=true` 없이는 멈춘다. 승인 host 목록(`LOAD_APPROVED_TARGET_HOSTS`) 대조와
+URL credential·path·query·fragment 거부는 private runner가 k6 시작 전에 한다. 인증 시나리오는 private runner
+환경에서만 token(`LOAD_AUTH_BEARER_TOKEN`)을 받는다. 환경변수 목록은 [`tests/load/README.md`](../../tests/load/README.md).
 
 ## 실행 유형
 

@@ -2,26 +2,27 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # SQL 컨벤션 (PostgreSQL + PostGIS)
 
 ## 1. 도구
 
-- **DB**: PostgreSQL 17 + PostGIS 3.5+ + pgvector (Phase 3+)
-- **마이그레이션**: sqlx migrate (Atlas 병용 검토 — sub-project 2)
-- **lint·format**: sqlfluff (PostgreSQL 방언, sub-project 2+)
-- **타입 검증**: SQLx compile-time (Rust)
+- **DB**: PostgreSQL + PostGIS (이미지 핀 정본: `tools/technology-versions.contract.json`). pgvector 는 미도입.
+- **마이그레이션**: sqlx migrate (`migrations/`, 추가 절차는 루트 `add-migration` 스킬)
+- **lint·format**: 자동 SQL lint 없음. CI 는 전체 마이그레이션 적용 + 스키마 불변식 시험
+  (`tests/migrations/test_v001_full.sh`, `.github/workflows/gongzzang-db-migrations.yml`)
+- **타입 검증**: SQLx compile-time (Rust, `gongzzang-sqlx-prepare.yml`)
 
 ## 2. 네이밍
 
 - 테이블: `snake_case` 단수 (`listing`, NOT `listings`)
 - 컬럼: `snake_case` (`created_at`, `owner_id`)
-- 인덱스: `<table>_<columns>_<type>_idx` (`listing_pnu_btree_idx`, `parcel_geom_gist_idx`)
-- 제약: `<table>_<column>_<rule>` (`listing_price_krw_positive_check`)
-- FK: `<table>_<column>_fkey`
-- 시퀀스: `<table>_<column>_seq`
+- 인덱스: `<table>_<column 또는 목적>_idx`, B-Tree 외 종류는 종류를 넣는다
+  (`listing_pnu_idx`, `listing_owner_idx`, `search_history_user_time_brin_idx`)
+- 제약·FK·시퀀스: 이름 있는 제약은 `<table>_<column>_<rule>` (`parcel_marker_anchor_srid_chk`), 그 밖에는
+  PostgreSQL 기본 이름(`<table>_<column>_check`, `<table>_<column>_fkey`, `<table>_<column>_seq`)
 
 ## 3. 키워드 케이스
 
@@ -37,19 +38,15 @@ last_reviewed: 2026-07-29
 - 타일: 3857 (Web Mercator)
 
 ```sql
-create table parcel (
-    pnu char(19) primary key,
-    -- ✅ SRID 명시
-    geom geometry(Polygon, 4326) not null,
-    -- ❌ SRID 없음 (CI 차단)
-    -- geom geometry not null,
-    area_m2 numeric(12, 2),
-    created_at timestamptz not null default now()
-);
-
--- ✅ GIST 인덱스 (공간)
-create index parcel_geom_gist_idx on parcel using gist (geom);
+-- migrations/20260719000115_parcel_marker_anchor_projection.sql 형태
+-- ✅ SRID 명시
+anchor_point geometry(Point, 4326) not null,
+-- ❌ SRID 없음
+-- anchor_point geometry not null,
 ```
+
+CI 마이그레이션 시험이 공간 표별 SRID 제약 존재를 확인한다(`tests/migrations/test_v001_full.sh`). 필지
+geometry 정본은 Foundation Platform 이 소유하므로 Gongzzang 에 `parcel` 표를 만들지 않는다.
 
 ## 5. 인덱스 정책
 
@@ -59,7 +56,7 @@ create index parcel_geom_gist_idx on parcel using gist (geom);
 | **GIST** | PostGIS 공간 데이터 |
 | **GIN** | JSONB, 배열, 전문 검색 |
 | **BRIN** | 시계열 (audit_log, real_transaction) |
-| **HNSW** | pgvector 임베딩 (Phase 3+) |
+| **HNSW** | pgvector 임베딩 (미도입) |
 
 ## 6. 마이그레이션 안전성
 
@@ -67,7 +64,7 @@ create index parcel_geom_gist_idx on parcel using gist (geom);
   1. NULL 허용 컬럼 추가
   2. 백필 (`update ... set ... where ... is null`)
   3. NOT NULL 제약 추가
-- 큰 테이블 ALTER → `pg-osc` (sub-project 8+)
+- 큰 테이블 ALTER → 잠금 시간 검토 후 단계 분리
 - 인덱스 생성 → `concurrently`
 - 컬럼 삭제 → 사용 코드 제거 후 별도 PR (3단계)
 
@@ -96,20 +93,22 @@ where id = $2 and version = $3;
 
 ## 9. Soft Delete
 
-- 도메인 테이블: `deleted_at TIMESTAMPTZ NULL` 컬럼
+- soft delete 대상 표: `deleted_at TIMESTAMPTZ NULL` 컬럼
 - 쿼리: 항상 `where deleted_at is null` (또는 별도 view `_active`)
 - audit_log: hard delete 불가, 무한 보존
 
-## 10. 감사 컬럼 (모든 도메인 테이블)
+## 10. 감사 컬럼
+
+현행 도메인 표(예: `listing`)의 공통 컬럼은 다음이다(`migrations/20260719000102_core_tables.sql`).
 
 ```sql
 created_at timestamptz not null default now(),
-created_by char(30) not null references "user"(id),
 updated_at timestamptz not null default now(),
-updated_by char(30) not null references "user"(id),
-version bigint not null default 1,
-deleted_at timestamptz null
+version bigint not null default 1
 ```
+
+- `deleted_at`은 soft delete 를 쓰는 표에만 둔다(현재 `"user"`).
+- 행위자 기록은 `created_by`/`updated_by` 컬럼이 아니라 `audit_log`가 맡는다(소유자는 `owner_id`).
 
 ## 11. Gongzzang-owned external response archive
 

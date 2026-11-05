@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Circuit Breaker
@@ -51,44 +51,30 @@ raw source adapter와 raw lineage는 Foundation Platform에 속한다.
 
 ## 3. 현재 정책
 
-현재 기본 제공 정책은 `Policy::foundation_platform_default()`다.
-
-| 필드 | 값 |
-|---|---:|
-| `timeout_ms` | `5_000` |
-| `max_retries` | `1` |
-| `retry_base_ms` | `500` |
-| `open_threshold` | `5` |
-| `open_window_ms` | `10_000` |
-| `open_cooldown_ms` | `30_000` |
+현재 기본 제공 정책은 `Policy::foundation_platform_default()`다. 필드 값(`timeout_ms`·`max_retries`·
+`retry_base_ms`·`open_threshold`·`open_window_ms`·`open_cooldown_ms`)의 정본은
+`crates/circuit-breaker/src/policy.rs`이며 이 문서는 값을 복사하지 않는다.
 
 의미:
 
-- 한 요청 시도는 최대 5초 실행된다.
-- 500ms 기본 backoff 뒤 retry 한 번을 허용한다.
-- 10초 안에 5회 실패하면 circuit을 연다.
-- 열린 circuit은 30초 동안 호출을 막고 half-open 시험을 허용한다.
+- 한 요청 시도는 `timeout_ms` 안에 끝나야 한다.
+- `retry_base_ms` 기본 backoff 뒤 `max_retries` 번까지 retry한다.
+- `open_window_ms` 안에 `open_threshold` 회 실패하면 circuit을 연다.
+- 열린 circuit은 `open_cooldown_ms` 동안 호출을 막고 half-open 시험을 허용한다.
 
 ## 4. 어댑터 형태
 
 outbound 어댑터는 재사용 가능한 `reqwest::Client` 하나, `Breaker` 하나와 이름 있는 `Policy` 하나를
 소유해야 한다.
 
-호출 경로는 다음 형태다.
+호출 경로는 다음 형태다(`crates/foundation-platform-client/src/catalog.rs`).
 
 ```rust
-let response = execute(
-    &self.breaker,
-    &self.policy,
-    "foundation_platform.catalog.get_parcel_by_pnu",
-    || {
-        let client = self.client.clone();
-        let url = url.clone();
-        let auth = self.auth.clone();
-        async move { send_provider_get(&client, url, auth.as_ref()).await }
-    },
-)
-.await?;
+execute(&self.breaker, &self.policy, operation_name, || {
+    self.send_get_attempt(relative_path, query)
+})
+.await
+.map_err(|source| FoundationCatalogClientRequestError::Circuit { source })
 ```
 
 요청마다 새 breaker를 만들지 않는다. 요청별 breaker는 최근 실패를 기억하지 못하므로 진짜 circuit
@@ -98,7 +84,8 @@ breaker가 아니다.
 
 제공기관 어댑터는 `execute`에 전달하는 closure 안에서 재시도할 HTTP 상태를 오류로 변환해야 한다.
 
-현재 Foundation Platform adapter는 다음 상태를 retry 대상으로 취급한다.
+현재 Foundation Platform client(`crates/foundation-platform-client`)와 lakehouse registry adapter는 다음 상태를
+retry 대상으로 취급한다.
 
 - HTTP 5xx
 - HTTP 429
@@ -148,17 +135,15 @@ ADR 승인 archive/lineage 계약이 필요하다.
 
 따라야 할 현재 예시:
 
-- `services/gongzzang-api/src/foundation_parcel_lookup.rs`
-- `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs`
-
-이 어댑터는 Foundation Platform 호출을 서비스 소유 경계 뒤에 두고 `reqwest::Client`, `Breaker`,
-`Policy`를 재사용한다.
+- `crates/foundation-platform-client/src/catalog.rs` — `reqwest::Client`, `Breaker`, `Policy`를 client 하나에 두고 재사용
+- `services/gongzzang-outbox-publisher/src/foundation_lakehouse_registry.rs` — 같은 형태를 서비스 안에 둔 adapter
+- `services/gongzzang-api/src/foundation_parcel_lookup.rs` — 위 client를 쓰고 HTTP 404를 `Ok(None)`으로 매핑
 
 ## 10. Verification
 
 외부 호출 동작을 바꾼 뒤에도 Foundation Platform 의존성 경계와 platform-integration 정책을 유지한다.
 Foundation Platform Catalog 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와
-`docs/architecture/foundation-platform-boundary.v1.json` 계약이 강제한다.
+`docs/architecture/foundation-platform-boundary.v1.json` 계약이 CI에서 강제한다.
 
 회로 차단 crate와 영향을 받은 service에 Rust 검사를 실행한다.
 

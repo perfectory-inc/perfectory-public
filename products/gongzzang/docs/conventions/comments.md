@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 주석 컨벤션
@@ -25,30 +25,22 @@ listing.status = ListingStatus::Active;
 listing.activate_after_external_verification();
 ```
 
-## 2. TODO 컨벤션
+## 2. 남은 일은 코드 밖에 적는다
 
-```
-// TODO(YYYY-Q?, #issue-id): 짧은 설명
-```
-
-- 만료일(분기) + 이슈 번호 **필수**
-- 만료 후 자동 PR 생성 (Phase 2+ 자체 도구)
-
-```rust
-// TODO(2026-Q3, #142): pgvector HNSW 인덱스 도입 후 임베딩 fallback 제거
-fn fallback_embedding_search(...) -> Vec<Listing> { ... }
-```
+코드 안에 `TODO` 주석을 남기지 않는다. 남은 일은 루트
+[운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)이나 이슈에 등록하고, 코드에는 필요하면
+현재 제약(Why)만 적는다.
 
 ## 3. 금지 키워드
 
+`.github`·`apps`·`services`·`crates`·`packages` 아래에서 `TODO`·`HACK`·`XXX`·`TEMP`·
+`ALLOWED_FOR_FRONTEND_TEMP`·`임시` 마커는 금지다. 정본 목록과 검사는
+`scripts/lefthook/check-forbidden-implementation-markers.sh`(pre-push + CI)이다.
+
 | ❌ | ✅ 대신 |
 |---|--------|
-| `HACK` | TODO + 명확한 이유 |
-| `XXX` | TODO + 명확한 이유 |
-| `FIXME` | TODO 또는 즉시 수정 |
-| `HACK_ALLOWED_FOR_FRONTEND_TEMP` | (v2 안티패턴) — 절대 금지 |
-
-→ Rust clippy + Biome 자체 룰에서 keyword 검출 시 deny.
+| `TODO` / `HACK` / `XXX` / `TEMP` | 작업 목록·이슈 등록 + 코드엔 제약(Why)만 |
+| `FIXME` | 즉시 수정 |
 
 ## 4. 도메인 결정 근거
 
@@ -108,17 +100,18 @@ pub struct Listing { ... }
 /**
  * 매물 상세 카드. 매물 클릭 시 모달로 띄우거나 페이지 전환.
  *
- * @see docs/frontend/canvas-markers.md — Canvas 마커와 연동
+ * @see docs/frontend/listings-search.md — 매물 검색 화면과 연동
  */
 export function ListingCard({ listing }: Props) { ... }
 ```
 
 ## 10. 자동 강제
 
-- Rust: `clippy::missing_docs_in_private_items` (warn), `missing_docs` (warn for public)
+정본은 `Cargo.toml [workspace.lints]`와 위 금지 마커 스크립트다.
+
+- Rust: `missing_docs` (warn)
 - Rust: clippy lint `clippy::todo`, `clippy::unimplemented` deny
-- Biome: TODO 형식 검출 (Phase 2+ 자체 룰)
-- CI: 만료된 TODO grep + 알림 (Phase 2+)
+- 금지 마커: `scripts/lefthook/check-forbidden-implementation-markers.sh` (pre-push + CI)
 
 ## 11. 좋은 주석 vs 나쁜 주석 비교
 
