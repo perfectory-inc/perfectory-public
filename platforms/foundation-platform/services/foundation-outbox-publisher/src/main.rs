@@ -174,6 +174,7 @@ enum Command {
     RunSilverRefresh,
     StopSilverRefresh,
     StopParcelTileBake,
+    StopUnitPriceVersions,
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingPermitBasisOutlineSilverHandoff,
@@ -461,6 +462,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::StopParcelTileBake => {
             Box::pin(async { remote_lakehouse_job::stop_parcel_tile_bake() })
         }
+        Command::StopUnitPriceVersions => {
+            Box::pin(async { remote_lakehouse_job::stop_unit_price_versions() })
+        }
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
@@ -610,6 +614,7 @@ where
         Some("run-silver-refresh") => Ok(Command::RunSilverRefresh),
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
         Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
+        Some("stop-unit-price-versions") => Ok(Command::StopUnitPriceVersions),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)

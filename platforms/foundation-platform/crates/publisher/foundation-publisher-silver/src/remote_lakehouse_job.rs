@@ -461,6 +461,12 @@ pub fn stop_parcel_tile_bake() -> anyhow::Result<()> {
     invocation_cleanup::run(invocation_cleanup::Job::ParcelTileBake)
 }
 
+/// `ExecStopPost` of foundation-unit-price-versions-migrate.service: remove the Spark container a
+/// timed-out or killed run left behind (root ADR-0317 §5.2).
+pub fn stop_unit_price_versions() -> anyhow::Result<()> {
+    invocation_cleanup::run(invocation_cleanup::Job::UnitPriceVersions)
+}
+
 pub async fn run_floor_cycle() -> anyhow::Result<()> {
     floor_cycle::run().await
 }

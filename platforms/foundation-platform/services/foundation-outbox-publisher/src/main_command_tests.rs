@@ -18,6 +18,11 @@ fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result
     );
     assert!(parse_command(["publisher", "stop-lakehouse-maintenance", "all"]).is_err());
     assert_eq!(
+        parse_command(["publisher", "stop-unit-price-versions"])?,
+        Command::StopUnitPriceVersions
+    );
+    assert!(parse_command(["publisher", "stop-unit-price-versions", "all"]).is_err());
+    assert_eq!(
         parse_command(["publisher", "run-building-register-floor-cycle"])?,
         Command::RunBuildingRegisterFloorCycle
     );

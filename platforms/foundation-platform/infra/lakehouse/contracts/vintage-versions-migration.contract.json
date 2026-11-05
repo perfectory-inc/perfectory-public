@@ -1,0 +1,29 @@
+{
+  "schema_version": "foundation-platform.vintage_versions_migration.v1",
+  "decision": "Root ADR-0317 §5.2: the one-time move of both price tables' vintages into their versions tables. The job unit_price_versions_migration (orchestration/jobs.v1.json) runs it, one bounded run at a time; this file is how a run is sized and cut. infra/lakehouse/spark/jobs/vintage_versions.py reads it (load_contract), and scripts/ops/unit-price-versions-migrate.sh takes the Spark size from it.",
+  "spark": {
+    "master": "local[8,8]",
+    "driver_memory": "16g",
+    "$reason": "The compose `spark` service (20g cap) the price lane and the Gold rebuilds use with the same settings (hub-building-register-apartment-price-source-objects.json silver_refresh.spark, gold-panel-rebuild.contract.json). The job takes all three spark slots, so nothing shares the cap."
+  },
+  "run_time_budget_seconds": 8640,
+  "$run_time_budget": "A step (one shard of one vintage's write, or one vintage's parity check) starts only while the elapsed run time plus that step's cost stays within this budget: 90% of the job's 160-minute time_limit_minutes (jobs.v1.json). 160 is the most a job taking all three spark slots may hold them: one minute more and the map-edit folds may wait past 20 of their hourly runs (orchestration/dags/job_specs.py pool_starvation), the bound gold_panel_rebuild sits at. A step's cost is the figure below until the run has taken a step of that kind, then the longest such step of the run. A step in flight is never cut; the next run starts from the first step not recorded.",
+  "parity_buckets": 4096,
+  "$parity_buckets": "The parity check compares, per bucket of the key's hash, the row count and two 64-bit sums of each row's key-and-content hash (data-diff's checksum segments). Only a bucket whose checksums differ is compared row for row (exceptAll), so an equal vintage is two narrow aggregations, never a shuffle of its rows.",
+  "targets": [
+    {
+      "table": "silver.building_register_apartment_price_versions",
+      "write_seconds": 13226,
+      "write_shards": 4,
+      "parity_seconds": 3600,
+      "$measured": "write: 2026-11-04 the first vintage (202608, 202,102,050 rows, 5.73 GB appended) committed 13,226 s after the run started at 11:11:38Z (Iceberg $snapshots 14:52:04Z), beside gold_panel_rebuild (11:37-14:17Z) and the onbid and rt-molit Silver loads the pool did not count; a vintage is written in 4 key-hash shards of a quarter of that each (3,307 s), so a shard fits a run with room for a parity check. parity: before the checksums, the 202608 check (rows_as_of ranked over the wide rows, then exceptAll both ways, each a shuffle of all 202M rows with raw_columns) ran 15,574 s from that commit to the kill at 19:11:38Z without finishing, beside lakehouse_maintenance (its 18:26:45Z rewrite of this table). With the checksums: computed, one read of the vintage's partition and of the versions as of it, narrowed to the key and two hashes, plus two 4,096-row aggregations. The vintages after the first are compared with the versions (release_changes); the first is its rows (vintage_changes first), so 202609 and 202610 are planned at the first's figure until a run measures one."
+    },
+    {
+      "table": "silver.unit_official_price_versions",
+      "write_seconds": 3600,
+      "write_shards": 1,
+      "parity_seconds": 1800,
+      "$measured": "computed: one batch of silver.unit_official_price is 188.7M narrow rows (0.50 GB of 3.14 GB, Iceberg $files 2026-11-04); the table is partitioned by sido, so a batch's read scans the whole 3.14 GB once."
+    }
+  ]
+}
