@@ -358,11 +358,16 @@
         ]
       },
       {
-        "name": "health-route-conformance",
+        "name": "semgrep-rules-self-test",
         "paths": [
-          "products/*/services/**",
-          "platforms/*/services/**"
+          "tools/semgrep/**",
+          "tools/opengrep.env"
         ]
+      },
+      {
+        "name": "semgrep-rules",
+        "always": "Code-pattern rules (tools/semgrep/rules) span every language and area, so any tracked file can match one.",
+        "budget_seconds": 60
       },
       {
         "name": "hand-rolled-error-boundary-self-test",

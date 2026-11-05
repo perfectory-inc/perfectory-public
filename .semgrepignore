@@ -1,0 +1,4 @@
+# Semgrep/Opengrep scan every git-tracked file (scripts/guard/semgrep-rules.sh). Without this file
+# the engine falls back to its built-in ignore list, which skips tests/, build/, vendor/ and more:
+# a rule would silently miss a violation planted in a test directory. Keep it empty of patterns;
+# a rule that must not see a path says so itself under `paths.exclude`.

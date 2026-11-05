@@ -72,11 +72,15 @@ before "fixing" anything.
   `../../platforms/...`). There is no history exclusion: private history is not
   tracked in the public tree.
 
-### 6. health-route-conformance
+### 6. semgrep-rules (e.g. `health-routes-are-healthz-and-readyz`)
 
-- Failing means: a service registers `/health`, `/health/live`,
-  `/health/ready`, `/ready`, or `/healthz/ready` routes (observed 4 styles
-  across 4 areas; probes/monitors must not need per-area knowledge).
+- Failing means: a code-pattern rule under `tools/semgrep/rules/` matched; the
+  finding names the rule. Each rule file states the incident it prevents. For
+  `health-routes-are-healthz-and-readyz`: a service registers `/health`,
+  `/health/live`, `/health/ready`, `/ready`, or `/healthz/ready` routes
+  (observed 4 styles across 4 areas; probes/monitors must not need per-area
+  knowledge). Never add a `nosemgrep` comment to pass; fix the code or change
+  the rule (with its fixture) in a reviewed PR.
 - Fix: liveness `/healthz`, readiness `/readyz`, metrics `/metrics`;
   dependency-specific diagnostics nest under `/readyz/<dep>` (ADR-0001 §5).
 
