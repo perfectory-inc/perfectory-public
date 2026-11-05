@@ -10,8 +10,10 @@ cd "$root"
   echo "FAIL semgrep-rules: .semgrepignore is missing, so the engine would skip tests/ and build/" >&2
   exit 1
 }
+# The rule directory holds each rule's `--test` fixture, which plants its incident on purpose;
+# semgrep-rules-self-test.sh runs those, so the scan of the tree leaves them out.
 if ! bash scripts/ci/opengrep.sh scan --config tools/semgrep/rules --error --quiet \
-  --disable-version-check .; then
+  --disable-version-check --exclude=tools/semgrep/rules .; then
   echo "FAIL semgrep-rules: a rule under tools/semgrep/rules matched (see the findings above)" >&2
   exit 1
 fi
