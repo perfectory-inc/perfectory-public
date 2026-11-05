@@ -43,8 +43,7 @@ class GeneratedFiles(unittest.TestCase):
         def signed_generated(release_id):
             self.fetches += 1
             return dict(self.signed)
-        for name, value in (("signed_generated", mock.Mock(side_effect=signed_generated)),
-                            ("generated_paths", mock.Mock(return_value={JOBS, GRAPH, OUTSIDE}))):
+        for name, value in (("signed_generated", mock.Mock(side_effect=signed_generated)),):
             patcher = mock.patch.object(self.module, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -148,17 +147,21 @@ class GeneratedFiles(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "holds generated files"):
             self.verify(self.before, target)
 
-    def test_a_signed_release_that_is_not_the_generators_files_is_refused(self):
-        del self.signed[GRAPH]
-        with self.assertRaisesRegex(ValueError, "missing"):
-            self.module.generated_release_files(self.declared, self.files(self.declared))
-        self.signed[GRAPH] = b"{}\n"
-        self.signed[f"{SUBTREE}/scripts/extra.sh"] = b"echo\n"
-        with self.assertRaisesRegex(ValueError, "extra"):
-            self.module.generated_release_files(self.declared, self.files(self.declared))
+    def test_a_signed_release_cannot_name_a_path_outside_the_tree(self):
+        for name in ("../escape.json", "/etc/passwd", f"{SUBTREE}/./x.json", ".git/config", f"{SUBTREE}/.hidden"):
+            with self.subTest(name=name):
+                self.signed = {JOBS: b"{}\n", name: b"x"}
+                with self.assertRaisesRegex(ValueError, "unsafe generated path"):
+                    self.module.generated_release_files(self.declared, self.files(self.declared))
+
+    def test_an_artifact_a_newer_release_adds_installs_under_an_older_control(self):
+        # The running control's generator may list fewer artifacts than the release (root ADR-0419 §2).
+        self.signed[f"{SUBTREE}/config/by-pnu-lane-index.v1.json"] = b'{"lanes": []}\n'
+        target = self.install(self.declared)
+        self.verify(self.declared, target)
+        self.assertTrue((target / "config/by-pnu-lane-index.v1.json").is_file())
 
     def test_a_generated_file_the_commit_also_holds_is_refused(self):
-        self.module.generated_paths.return_value = {JOBS, GRAPH, OUTSIDE, f"{SUBTREE}/scripts/job.py"}
         self.signed[f"{SUBTREE}/scripts/job.py"] = b"print('generated')\n"
         with self.assertRaisesRegex(ValueError, "also committed"):
             self.module.generated_release_files(self.declared, self.files(self.declared))

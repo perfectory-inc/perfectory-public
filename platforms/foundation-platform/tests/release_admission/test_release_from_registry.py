@@ -234,14 +234,11 @@ class GeneratedFromTheRegistry(FromTheRegistry):
     def setUp(self):
         super().setUp()
         self.use(Registry(generated=GENERATED))
-        patcher = mock.patch.object(self.module, "generated_paths", return_value=set(GENERATED))
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
-    def test_r2_verifies_the_generated_files_against_the_generators_list(self):
+    def test_r2_verifies_the_generated_files_and_refuses_an_unsafe_path(self):
         self.assertIn("generated=2", self.module.verify_registry(COMMIT))
-        self.module.generated_paths.return_value = set(GENERATED) | {"platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"}
-        with self.assertRaisesRegex(ValueError, "missing"):
+        self.use(Registry(generated={**GENERATED, "../escape.json": b"x"}))
+        with self.assertRaisesRegex(ValueError, "unsafe generated path"):
             self.module.verify_registry(COMMIT)
 
     def test_the_signed_generated_files_are_returned_by_their_digests(self):

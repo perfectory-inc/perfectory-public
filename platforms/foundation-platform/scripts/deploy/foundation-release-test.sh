@@ -77,12 +77,11 @@ def immutable(path):
 module.set_immutable, module.immutable = set_immutable, immutable
 # The release CI built and signed, as far as its generated files go (root ADR-0419): a directory per
 # release id holding them at their repository paths; the registry and signature are proven by
-# tests/release_admission/test_release_from_registry.py. The generator's list is the rehearsal's.
+# tests/release_admission/test_release_from_registry.py.
 def signed_generated(release_id):
     root = pathlib.Path(os.environ["REHEARSAL_SIGNED_GENERATED"]) / release_id
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()} if root.is_dir() else {}
 module.signed_generated = signed_generated
-module.generated_paths = lambda: set(os.environ["REHEARSAL_GENERATED_PATHS"].split())
 def git(*args):
     return subprocess.check_output(["git", "-C", os.environ["REHEARSAL_CANONICAL"], *args])
 def main():
@@ -126,7 +125,6 @@ export REHEARSAL_BUILD_LOCK="${test_root}/release-build.lock"
 export REHEARSAL_SEALED="${test_root}/sealed"
 export REHEARSAL_CANONICAL="${canonical}"
 export REHEARSAL_SIGNED_GENERATED="${test_root}/signed-generated"
-export REHEARSAL_GENERATED_PATHS="platforms/foundation-platform/orchestration/jobs.v1.json tools/host-memory-budget.contract.json"
 # The control checkout records the canonical commit it was installed from; the first commit on
 # main is an ancestor of every rehearsal release.
 export REHEARSAL_CONTROL_ROOT="${test_root}/control"

@@ -68,8 +68,6 @@ MARKERS = {ID_FILE, ARCHIVE_FILE}
 # definitions; a release from before them has none.
 GENERATED_FILE = ".foundation-release-generated-sha256.json"
 DEFINITIONS = "definitions/"
-# Which files are generated, from the control checkout's own generator: a signed manifest names no other.
-GENERATOR = CONTROL_ROOT / "scripts/catalog/declared_definitions.py"
 
 
 def require_sha(value: str) -> None:
@@ -150,22 +148,18 @@ def declared(files) -> bool:
     return any(name.startswith(DEFINITIONS) for name in files)
 
 
-def generated_paths() -> set[str]:
-    """Every generated artifact, as a repository path, per the control checkout's generator."""
-    protected_path(GENERATOR.resolve())
-    spec = importlib.util.spec_from_file_location("declared_definitions", GENERATOR)
-    module = importlib.util.module_from_spec(spec)
-    sys.dont_write_bytecode = True
-    spec.loader.exec_module(module)
-    return set(module.GENERATED)
-
-
 def checked_generated(found: dict[str, bytes]) -> dict[str, bytes]:
-    """`found` (repository path -> bytes, from a signed release) when it is exactly the generated artifacts."""
-    wanted = generated_paths()
-    if set(found) != wanted:
-        raise ValueError(f"the signed release's generated files are not the generator's: "
-                         f"missing {sorted(wanted - set(found))}, extra {sorted(set(found) - wanted)}")
+    """`found` (repository path -> bytes, from a signed release) when every path is a plain repository path.
+
+    Which files are generated is the signed release's to say: its build refuses one the checkout lacks.
+    The control checkout's own generator list is not consulted: it is one deploy behind a release that
+    adds an artifact, and would refuse that release mid-deploy (root ADR-0419 §2).
+    """
+    for name in found:
+        path = PurePosixPath(name)
+        if (not name or path.is_absolute() or ".." in path.parts or "\\" in name or path.as_posix() != name
+                or any(part.startswith(".") for part in path.parts)):
+            raise ValueError(f"the signed release names an unsafe generated path: {name!r}")
     return found
 
 
