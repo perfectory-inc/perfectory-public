@@ -7169,6 +7169,11 @@
           "name": "row_state",
           "logical_type": "string",
           "required": false
+        },
+        {
+          "name": "source_code_pnu_raw",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -7183,6 +7188,215 @@
         "pnu is set exactly when pnu_basis is set and pnu_unresolved_reason is not",
         "(court_office_code, case_no, property_seq, item_seq, source_snapshot_id) unique",
         "removal markers only from a complete pass"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_item_detail": {
+      "table_name": "silver.court_auction_item_detail",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no",
+          "property_seq"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "property_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "requested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "read_outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "list_fingerprint",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "photo_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "property_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "one row per 물건상세 read, failed reads included (root ADR-0352 §2)",
+        "(court_office_code, case_no, property_seq, source_snapshot_id, source_line_number) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_item_photo": {
+      "table_name": "silver.court_auction_item_photo",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no",
+          "sha256"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "photo_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sequence",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "page_sequence",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "title",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "size_bytes",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "photo_kind_code",
+        "sequence"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, sha256, source_snapshot_id) unique"
       ],
       "load": {
         "unit": "object",
@@ -7936,6 +8150,68 @@
         },
         {
           "name": "public_auction_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_court_auction": {
+      "table_name": "gold.parcel_court_auction",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "court_auction_json",
           "logical_type": "string",
           "required": true
         },

@@ -64,7 +64,7 @@ async fn site(pages: usize) -> anyhow::Result<MockServer> {
 fn the_contract_keeps_the_manners_adr_0281_names() -> anyhow::Result<()> {
     let contract = source_contract()?;
     assert!(contract.manners.request_spacing_seconds >= 3);
-    assert!(contract.manners.max_requests_per_run <= 2500);
+    assert!(contract.manners.max_requests_per_run <= 3500);
     assert!(contract.manners.network_retries <= 2);
     for status in [403, 429, 503] {
         assert!(contract.refusal.http_statuses.contains(&status));

@@ -7,14 +7,22 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
 
 - reads the rows (`data.dlt_srchResult`) of every 200 answer, one row per 물건 (court office, case,
   property and item sequence), the later answer winning when the list shifted between pages;
-- gives each row the PNU its address resolves to (`address_pnu`): the 행정구역 names with the
-  representative lot as a jibun address, else the road name with the building number;
+- gives each row its PNU through the one place-identity resolver (root ADR-0288, ADR-0382): the
+  representative parcel's legal-dong code with its lot (`source_code_pnu_raw`) carried to the current
+  code (`place_identity_resolver.resolve`); a row that path leaves unresolved, by its address
+  (`address_pnu`): the 행정구역 names with the representative lot as a jibun address, else the road
+  name with the building number;
 - appends to `silver.court_auction_item` the rows whose content changed and, only when the night read
   the item search completely, a removal marker for each 물건 that left it (root ADR-0275); to
   `silver.court_auction_sale_result` the rows whose content changed, never a marker; whether the
   night read the item search completely is read from the lines themselves (every condition read to
   its last page);
-- commits each object on its own, empty if need be, so the table records it.
+- commits each object on its own, empty if need be, so the table records it;
+- for a 물건상세 object (root ADR-0384): appends to `silver.court_auction_item_photo` the case photos
+  (by content hash) not yet recorded, then to `silver.court_auction_item_detail` one row per read,
+  failed reads included: the record the collector's next detail frontier is computed from
+  (root ADR-0352). The photo table commits first, so an object the detail table records has its
+  photos.
 
 `parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
 """
@@ -31,6 +39,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import address_pnu
+import place_identity_resolver
 
 JOB_NAME = "courtauction_go_kr"
 ITEM_TABLE = "silver.court_auction_item"
@@ -43,10 +52,17 @@ IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 KEY = ("court_office_code", "case_no", "property_seq", "item_seq")
 LOAD_COLUMNS = ("source_record_id", "source_line_number", "source_snapshot_id", "ingested_at_utc", "row_state")
 ROLE_TABLE = {"item_search": ITEM_TABLE, "sale_result_search": RESULT_TABLE}
+DETAIL_ROLE = "item_detail"
+DETAIL_TABLE = "silver.court_auction_item_detail"
+PHOTO_TABLE = "silver.court_auction_item_photo"
+PHOTO_KEY = ("court_office_code", "case_no", "sha256")
 
 
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+FROM_CODE = load_source_contract()["pnu_resolution"]["from_code"]
 
 
 def text_or_none(value: Any) -> str | None:
@@ -74,9 +90,20 @@ def ymd(value: Any) -> date | None:
         return None
 
 
+def code_of(item: Mapping[str, Any], from_code: Mapping[str, Any]) -> str | None:
+    """The row's 10-digit legal-dong code from its four code fields, each of its width, or None."""
+
+    parts = [str(item.get(name) or "").strip() for name in from_code["legal_dong_code_fields"]]
+    if [len(p) for p in parts] != list(from_code["legal_dong_code_widths"]) or not all(p.isdigit() for p in parts):
+        return None
+    return "".join(parts)
+
+
 def item_row(item: Mapping[str, Any]) -> dict[str, Any]:
     sold = whole(item.get("maeAmt"))
     return {
+        "source_code_pnu_raw": place_identity_resolver.code_lot_pnu(code_of(item, FROM_CODE),
+                                                                    item.get(FROM_CODE["lot_field"])),
         "court_office_code": str(item["boCd"]).strip(), "case_no": str(item["saNo"]).strip(),
         "property_seq": whole(item["maemulSer"]), "item_seq": whole(item["mokmulSer"]),
         "user_case_no": text_or_none(item.get("srnSaNo")), "court_name": text_or_none(item.get("jiwonNm")),
@@ -189,7 +216,7 @@ def search_complete(lines: Sequence[Mapping[str, Any]], search: Mapping[str, Any
 def search_roles(contract: Mapping[str, Any]) -> dict[str, str]:
     """Source slug → the search its objects hold (root ADR-0014 `{provider}__{dataset}`)."""
 
-    return {f"courtauctiongokr__{contract[role]['dataset_slug']}": role for role in ROLE_TABLE}
+    return {f"courtauctiongokr__{contract[role]['dataset_slug']}": role for role in (*ROLE_TABLE, DETAIL_ROLE)}
 
 
 def snapshot_id(object_key: str) -> str:
@@ -226,10 +253,70 @@ def read_object(entry: Mapping[str, Any], contract: Mapping[str, Any], prefixes:
 
     with gzip.open(entry["path"], "rt", encoding="utf-8") as handle:
         lines = [json.loads(line) for line in handle if line.strip()]
+    if entry["role"] == DETAIL_ROLE:
+        rows = detail_rows_of(lines, contract[DETAIL_ROLE], entry["object_key"], entry["source_snapshot_id"], ingested_at)
+        return {"object_key": entry["object_key"], "complete": True, **rows}
     return {"object_key": entry["object_key"],
             "complete": search_complete(lines, contract[entry["role"]]),
             "rows": rows_of(lines, entry["object_key"], entry["source_snapshot_id"], ingested_at,
                             prefixes, dongs)}
+
+
+def detail_rows_of(lines: Sequence[Mapping[str, Any]], detail: Mapping[str, Any], object_key: str, snapshot_id: str,
+                   ingested_at: datetime) -> dict[str, list[dict[str, Any]]]:
+    """A 물건상세 object's rows: one detail row per read (line), and one photo row per stored photo of
+    a case, the last line naming it winning. The request key is read back from the line's request
+    (`item_detail.key_fields`), so a failed read still names its property."""
+
+    photos = detail["photos"]
+    request_field = {source: request for request, source in detail["key_fields"].items()}
+    details: list[dict[str, Any]] = []
+    found: dict[tuple, dict[str, Any]] = {}
+    for number, line in enumerate(lines, start=1):
+        asked = (line.get("request") or {}).get(detail["request_object"]) or {}
+        court, case, seq = (asked.get(request_field[name]) for name in ("boCd", "saNo", "maemulSer"))
+        if not court or not case or whole(seq) is None:
+            raise ValueError(f"{object_key} line {number}: a detail read without its key")
+        load = {"source_record_id": object_key, "source_line_number": number, "source_snapshot_id": snapshot_id,
+                "ingested_at_utc": ingested_at}
+        details.append({"court_office_code": str(court), "case_no": str(case), "property_seq": whole(seq),
+                        "requested_at_utc": _utc(line.get("requested_at_utc")) or ingested_at,
+                        "http_status": whole(line.get("http_status")), "read_outcome": line.get("read_outcome") or "read",
+                        "list_fingerprint": text_or_none(line.get("list_fingerprint")),
+                        "photo_count": whole(line.get("photo_count")), **load})
+        if line.get("read_outcome") != "read":
+            continue
+        try:
+            body = json.loads(line.get("body") or "")
+        except ValueError:
+            continue
+        result = body
+        for part in detail["result_pointer"].strip("/").split("/"):
+            result = result.get(part) if isinstance(result, dict) else None
+        for photo in (result or {}).get(photos["list_field"]) or []:
+            sha256 = text_or_none(photo.get("sha256"))
+            if not sha256 or not text_or_none(photo.get("media_format")):
+                continue  # not stored (the collector counted it), so nothing to point at
+            row = {"court_office_code": text_or_none(photo.get("cortOfcCd")) or str(court),
+                   "case_no": text_or_none(photo.get("csNo")) or str(case), "sha256": sha256,
+                   "photo_kind_code": text_or_none(photo.get(photos["kind_field"])),
+                   "sequence": whole(photo.get(photos["sequence_field"])),
+                   "page_sequence": whole(photo.get(photos["page_field"])),
+                   "title": text_or_none(photo.get(photos["title_field"])),
+                   "media_format": photo["media_format"], "size_bytes": whole(photo.get("size_bytes")), **load}
+            found[(row["court_office_code"], row["case_no"], sha256)] = row
+    return {"rows": details, "photo_rows": list(found.values())}
+
+
+def _utc(value: Any) -> datetime | None:
+    """An RFC 3339 time as a naive UTC datetime, the tables' timestamp form."""
+
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)).astimezone(timezone.utc).replace(tzinfo=None)
+    except ValueError:
+        return None
 
 
 def content_columns(contract: Mapping[str, Any]) -> list[str]:
@@ -260,11 +347,14 @@ def offered_schema(contract: Mapping[str, Any]) -> tuple[list[str], str]:
 
 
 def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: Mapping[str, Any], parcels: Any,
-                   titles: Any, current: Any, snapshot_id: str, now: datetime) -> tuple[Any, Any]:
+                   titles: Any, current: Any, snapshot_id: str, now: datetime,
+                   crosswalk: tuple[Mapping[str, str], Any] = ({}, ())) -> tuple[Any, Any]:
     """(staged rows, the rows to append) for one search of one night.
 
-    The rows go through the joins (``address_pnu.resolve``) and are compared with the table's
-    current rows (``release_changes``). A removal marker survives only for a complete item search.
+    The rows go through the code path (``place_identity_resolver.resolve`` with ``crosswalk``, the
+    pairs of ``pairs_from_lakehouse``), then the address joins (``address_pnu.resolve``) for what
+    it leaves unresolved, and are compared with the table's current rows (``release_changes``). A
+    removal marker survives only for a complete item search.
     """
 
     from platform_contracts import column_names  # noqa: PLC0415
@@ -279,6 +369,24 @@ def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: M
     resolved = address_pnu.resolve(
         offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
         parcels, titles)
+    if "source_code_pnu_raw" in names:
+        remap, ambiguous = crosswalk
+        by_code = place_identity_resolver.resolve(
+            offered.select("row_id", F.col("source_code_pnu_raw").alias("pnu")), remap, ambiguous, parcels
+        ).select("row_id", F.col("pnu").alias("_code_pnu"), F.col("place_identity_grade").alias("_grade"))
+        resolved = resolved.join(by_code, "row_id", "left")
+        by_code_ok = F.col("_code_pnu").isNotNull()
+        resolved = (resolved
+                    .withColumn("pnu", F.coalesce(F.col("_code_pnu"), F.col("pnu")))
+                    .withColumn("pnu_basis", F.when(by_code_ok & (F.col("_grade") == F.lit("code_superseded")),
+                                                    F.lit("legal_dong_code_superseded"))
+                                .when(by_code_ok, F.lit("legal_dong_code")).otherwise(F.col("pnu_basis")))
+                    .withColumn("pnu_candidate_count", F.when(by_code_ok, F.lit(1)).otherwise(F.col("pnu_candidate_count")))
+                    .withColumn("pnu_unresolved_reason",
+                                F.when(by_code_ok, F.lit(None).cast("string")).otherwise(F.col("pnu_unresolved_reason")))
+                    .withColumn("legal_dong_code",
+                                F.when(by_code_ok, F.substring(F.col("pnu"), 1, 10)).otherwise(F.col("legal_dong_code")))
+                    .drop("_code_pnu", "_grade"))
     staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
               .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
     changes = release_changes(staged, current, key=KEY, content=content_columns(contract), removal="row_state",
@@ -287,6 +395,37 @@ def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: M
         # Only a complete item search says what left it; the result search never does.
         changes = changes.join(staged.select(*KEY).distinct(), list(KEY), "left_semi")
     return staged, changes
+
+
+def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, Any],
+                       search: Mapping[str, Any]) -> dict[str, Any]:
+    """Commits one 물건상세 object: its new photos, then its reads (root ADR-0384)."""
+
+    from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
+    from lakehouse_ingest import append_source_object  # noqa: PLC0415
+    from platform_contracts import (  # noqa: PLC0415
+        column_names, current_rows, ensure_contract_table, load_lakehouse_contract, spark_sql_type,
+    )
+
+    counts: dict[str, Any] = {"object": entry["object_key"], "role": DETAIL_ROLE, "rows": len(search["rows"]),
+                              "photos": len(search["photo_rows"])}
+    for name, rows in ((PHOTO_TABLE, search["photo_rows"]), (DETAIL_TABLE, search["rows"])):
+        contract = load_lakehouse_contract(name)
+        table = f"`{args.iceberg_catalog_name}`.`silver`.`{name.split('.', 1)[1]}{args.table_suffix}`"
+        ensure_contract_table(spark, table, contract)
+        columns = list(column_names(contract))
+        ddl = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
+        staged = spark.createDataFrame([tuple(row.get(c) for c in columns) for row in rows], ddl)
+        if name == PHOTO_TABLE:
+            content = [c for c in columns if c not in (*PHOTO_KEY, *LOAD_COLUMNS)]
+            staged = changed_only(staged, current_rows(spark.table(table), contract), PHOTO_KEY, content)
+        staged = staged.select(*columns).cache()
+        short = name.split(".", 1)[1]
+        counts[f"{short}_appended_rows"] = staged.count()
+        counts[f"{short}_appended"] = append_source_object(spark, staged, columns, table, entry["object_key"],
+                                                           contract_table=name)
+        staged.unpersist()
+    return counts
 
 
 def plan_dir_arguments(parser: argparse.ArgumentParser) -> None:
@@ -327,9 +466,14 @@ def _load(argv: Sequence[str]) -> int:
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
         parcels, titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
+        # ADR-0288 §1: the code pairs are read once for the run, as every parcel source does.
+        crosswalk = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
         for entry in objects:
             search = read_object(entry, source, prefixes, dongs, now)
             role = entry["role"]
+            if role == DETAIL_ROLE:
+                summary["objects"].append(load_detail_object(spark, args, entry, search))
+                continue
             contract_table = ROLE_TABLE[role]
             contract = load_lakehouse_contract(contract_table)
             table = f"`{args.iceberg_catalog_name}`.`silver`.`{contract_table.split('.', 1)[1]}{args.table_suffix}`"
@@ -340,7 +484,7 @@ def _load(argv: Sequence[str]) -> int:
             if search["rows"]:
                 current = current_rows(spark.table(table), contract)
                 staged, changes = search_changes(spark, role, search, contract, parcels, titles, current,
-                                                 entry["source_snapshot_id"], now)
+                                                 entry["source_snapshot_id"], now, crosswalk)
                 changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).select(*columns).cache()
                 counts.update(changes=changes.count(), with_pnu=staged.where(F.col("pnu").isNotNull()).count())
                 if "row_state" in columns:

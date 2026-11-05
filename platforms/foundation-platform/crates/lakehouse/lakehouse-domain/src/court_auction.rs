@@ -77,6 +77,8 @@ const KEY: &[&str] = &["court_office_code", "case_no", "property_seq", "item_seq
 const SILVER_COURT_AUCTION_ITEM_COLUMNS: &[LakehouseColumn] = court_auction_columns!(
     // `removed` on a removal marker (root ADR-0275); null on every row the source holds.
     column("row_state", "string", false),
+    // The PNU the row's own legal-dong code and lot name, before the resolver (root ADR-0382).
+    column("source_code_pnu_raw", "string", false),
 );
 
 const SILVER_COURT_AUCTION_SALE_RESULT_COLUMNS: &[LakehouseColumn] = court_auction_columns!();
@@ -132,6 +134,106 @@ pub const SILVER_COURT_AUCTION_SALE_RESULT: LakehouseTableContract = LakehouseTa
         "append_only",
         "pnu is set exactly when pnu_basis is set and pnu_unresolved_reason is not",
         "(court_office_code, case_no, property_seq, item_seq, source_snapshot_id) unique",
+    ],
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+/// The load columns every table of this source carries, in one order.
+macro_rules! with_load_columns {
+    ($($column:expr),* $(,)?) => {
+        &[
+            $($column,)*
+            column("source_record_id", "string", true),
+            column("source_line_number", "int", true),
+            column("source_snapshot_id", "string", true),
+            column("ingested_at_utc", "timestamp", true),
+        ]
+    };
+}
+
+const DETAIL_KEY: &[&str] = &["court_office_code", "case_no", "property_seq"];
+const PHOTO_KEY: &[&str] = &["court_office_code", "case_no", "sha256"];
+const LATEST: &[&str] = &["source_snapshot_id", "source_line_number"];
+
+/// One row per 물건상세 read, failed reads included: the record the next run's detail frontier is
+/// computed from (root ADR-0352, ADR-0384).
+pub const SILVER_COURT_AUCTION_ITEM_DETAIL: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_item_detail",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: DETAIL_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("property_seq", "int", true),
+        column("requested_at_utc", "timestamp", true),
+        column("http_status", "int", false),
+        column("read_outcome", "string", true),
+        column("list_fingerprint", "string", false),
+        column("photo_count", "int", false),
+    ),
+    partition_spec: &[],
+    sort_order: DETAIL_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "one row per 물건상세 read, failed reads included (root ADR-0352 §2)",
+        "(court_office_code, case_no, property_seq, source_snapshot_id, source_line_number) unique",
+    ],
+    load: LakehouseLoadUnit::Object {
+        column: "source_record_id",
+        object_prefix: None,
+        object_suffix_separator: None,
+    },
+};
+
+/// A case's photos, one row per content hash, as the 물건상세 lists them; the bytes live once in the
+/// shared content-addressed media store (root ADR-0290 §7, ADR-0298).
+pub const SILVER_COURT_AUCTION_ITEM_PHOTO: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_item_photo",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: PHOTO_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        column("court_office_code", "string", true),
+        column("case_no", "string", true),
+        column("sha256", "string", true),
+        column("photo_kind_code", "string", false),
+        column("sequence", "int", false),
+        column("page_sequence", "int", false),
+        column("title", "string", false),
+        column("media_format", "string", true),
+        column("size_bytes", "long", true),
+    ),
+    partition_spec: &[],
+    sort_order: &[
+        "court_office_code",
+        "case_no",
+        "photo_kind_code",
+        "sequence",
+    ],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(court_office_code, case_no, sha256, source_snapshot_id) unique",
     ],
     load: LakehouseLoadUnit::Object {
         column: "source_record_id",

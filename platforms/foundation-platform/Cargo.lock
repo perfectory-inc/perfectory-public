@@ -1866,6 +1866,7 @@ dependencies = [
  "arrow-array 60.1.0",
  "arrow-schema 60.1.0",
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "calamine",
  "catalog-application",

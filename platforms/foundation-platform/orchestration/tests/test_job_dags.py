@@ -287,7 +287,7 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
     def test_it_covers_every_by_pnu_bake_and_the_unit_price_assets(self):
         self.assertEqual(set(self.spec.reconciles),
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
-                          "by_pnu_serving_bake"})
+                          "gold_court_auction_rebuild", "by_pnu_court_auction_bake", "by_pnu_serving_bake"})
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).

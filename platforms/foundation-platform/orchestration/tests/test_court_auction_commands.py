@@ -53,7 +53,8 @@ assert sys.argv[1] == "plan-silver-load-objects", sys.argv
 prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
 assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auction_item"},
-                         {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"}), (table, slug)
+                         {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"},
+                         {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
@@ -182,7 +183,8 @@ class CourtAuctionCommands(unittest.TestCase):
         self.assertEqual(self.copies(), [])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
-        self.assertEqual(plans, ["items", "results"])
+        # The 물건상세 objects are planned against their read record (root ADR-0384).
+        self.assertEqual(plans, ["items", "results", "details"])
 
 
 if __name__ == "__main__":

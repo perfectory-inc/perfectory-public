@@ -2,6 +2,7 @@
 // The parcel views' reads, keyed as `PanelEntryView` keys a view (`["panel", kind, view, id]`), so
 // the panel's own sections and the pushed views share one cache entry per read.
 import { fetchBuildings } from "@/lib/api/buildings";
+import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchEnergy } from "@/lib/api/energy";
 import { fetchOwnership } from "@/lib/api/ownership";
@@ -61,6 +62,12 @@ export const parcelRegulationZonesQuery = (pnu: string) => ({
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchRegulationZones(pnu, signal),
   // The lane changes when a 용도지역지구 release does, once a month (root ADR-0362, ADR-0375).
   staleTime: 60 * 60_000,
+});
+
+export const parcelCourtAuctionQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "court-auction", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchCourtAuction(pnu, signal),
+  staleTime: 60_000,
 });
 
 export function fetchParcelListings(pnu: string, signal?: AbortSignal) {

@@ -57,5 +57,24 @@ class CandidatePnus(unittest.TestCase):
         self.assertEqual(asked, {"9999900200109120008", "9999900300100010000"})
 
 
+class CodeLotPnu(unittest.TestCase):
+    """Root ADR-0382 §1: a source's legal-dong code and lot text assemble its pnu, prose never does."""
+
+    def test_a_flat_and_a_mountain_lot_assemble(self) -> None:
+        self.assertEqual(r.code_lot_pnu("9999910100", "66-8"), "9999910100100660008")
+        self.assertEqual(r.code_lot_pnu("9999910100", "산 12"), "9999910100200120000")
+
+    def test_prose_a_short_code_or_nothing_does_not(self) -> None:
+        for code, lot in (("9999910100", "외 6필지"), ("9999910100", "31-27^31-28"), ("99999101", "1"),
+                          ("99999101AB", "1"), ("9999910100", None), (None, "1")):
+            self.assertIsNone(r.code_lot_pnu(code, lot), (code, lot))
+
+    def test_the_crosswalk_of_rows_reads_only_pairs_in_force(self) -> None:
+        rows = [{"kind": "pair", "old_code": "9999920100", "new_code": "9999910100", "source": "derived"},
+                {"kind": "pair", "old_code": "9999930100", "new_code": "9999940100", "source": "derived"},
+                {"kind": "supersession", "old_code": "9999930100", "new_code": "9999940100"}]
+        self.assertEqual(r.crosswalk_of(rows), ({"9999920100": "9999910100"}, set()))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,8 +7,8 @@
       "id": "source-courtauction-go-kr",
       "type": "source_group",
       "title": "법원경매정보 (courtauction.go.kr)",
-      "description": "법원경매정보의 물건 검색·매각결과 검색 목록을 신원을 밝히고 천천히, 새벽에만, 거절당하면 멈추며 받는다(루트 ADR-0280, ADR-0281). 수집기와 적재가 있고, 연락처가 놓이고 첫 감독 밤이 끝날 때까지 작업이 꺼져 있다.",
-      "status": "disabled",
+      "description": "법원경매정보의 물건 검색·매각결과 검색 목록을 신원을 밝히고 천천히, 새벽에만, 거절당하면 멈추며 받는다(루트 ADR-0280, ADR-0281). 수집기와 적재가 돌고, 물건 표를 필지 경매 종류 표(gold.parcel_court_auction)가 읽는다(루트 ADR-0353). 매각결과 표는 아직 읽는 소비자가 없다.",
+      "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"

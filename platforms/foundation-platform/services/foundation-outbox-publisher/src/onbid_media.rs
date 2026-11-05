@@ -179,7 +179,7 @@ impl From<&MediaRef> for StoredMedia {
     }
 }
 
-enum Stored {
+pub(crate) enum Stored {
     New(StoredMedia),
     Deduplicated(StoredMedia),
     Oversize,
@@ -561,14 +561,26 @@ async fn download_and_store(
         .bytes()
         .await
         .context("reading the media body failed")?;
+    store_bytes(&bytes, prefix, storage, max_file_bytes).await
+}
+
+/// Stores media bytes already in hand once, under their content hash (`<prefix>/sha256/<hex>.<ext>`,
+/// write-once, root ADR-0298): an over-cap file or an unknown format is not stored, an existing key
+/// is a dedup. The 공매 download and the 경매 base64 photos (root ADR-0384) both end here.
+pub(crate) async fn store_bytes(
+    bytes: &[u8],
+    prefix: &ObjectKeyPrefix,
+    storage: &dyn ObjectStorageService,
+    max_file_bytes: u64,
+) -> anyhow::Result<Stored> {
     // A chunked response carries no length; the same cap still holds once the bytes are in hand.
     if bytes.len() as u64 > max_file_bytes {
         return Ok(Stored::Oversize);
     }
-    let Some(format) = MediaFormat::sniff(&bytes) else {
+    let Some(format) = MediaFormat::sniff(bytes) else {
         return Ok(Stored::UnknownFormat);
     };
-    let hash_hex = sha256_hex(&bytes);
+    let hash_hex = sha256_hex(bytes);
     let hash = Sha256Hex::parse(&hash_hex).context("sha-256 is not canonical")?;
     let key =
         content_addressed_key(prefix, &hash, format).context("media object key is invalid")?;
