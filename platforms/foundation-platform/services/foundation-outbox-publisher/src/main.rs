@@ -46,12 +46,9 @@ mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
 use foundation_publisher_tiles::boundary_static_release_publish;
 mod bounded_live_ingestion_gate_check;
-use foundation_publisher_collection::bronze_catalog_recovery_execute;
-use foundation_publisher_collection::bronze_catalog_recovery_manifest;
 use foundation_publisher_collection::bronze_object_members;
 use foundation_publisher_collection::bronze_object_storage;
 use foundation_publisher_collection::bronze_schema_profile;
-mod building_hub_bronze_catalog_recovery;
 use foundation_publisher_collection::building_hub_bulk_collection_plan;
 use foundation_publisher_collection::building_hub_bulk_ingest;
 use foundation_publisher_collection::building_register_ingest;
@@ -142,7 +139,6 @@ mod postgis_parcel_boundary_mirror_national_rebuild;
 mod postgis_parcel_boundary_mirror_rebuild;
 use foundation_publisher_collection::provider_acquisition_import;
 use foundation_publisher_collection::provider_acquisition_plan;
-use foundation_publisher_collection::provider_file_bronze_catalog_recovery;
 use foundation_publisher_collection::provider_request_spacing;
 use foundation_publisher_collection::public_api_metric_writer;
 use foundation_publisher_collection::public_data_bronze_lane_orchestrator;
@@ -183,7 +179,6 @@ use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
 mod trino_ready_wait;
 mod unit_official_price_projection_load;
-use foundation_publisher_collection::vworld_bronze_catalog_recovery;
 use foundation_publisher_collection::vworld_cadastral_ingest;
 use foundation_publisher_collection::vworld_cadastral_silver_export;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
@@ -273,12 +268,7 @@ enum Command {
     ResumeNationalDataCollectionLedger,
     RunNationalDataCollection,
     RunRemoteLakehouseJob,
-    CollectBuildingHubBronzeCatalogRecoveryInventory,
-    CollectVWorldBronzeCatalogRecoveryInventory,
     CompileNationalDataCollectionPlan,
-    CompileBuildingHubBronzeCatalogRecoveryManifest,
-    CompileVWorldBronzeCatalogRecoveryManifest,
-    RecoverBronzeCatalog,
     CheckNationalDataCollectionRolloutApproval,
     CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
@@ -620,22 +610,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(async { remote_lakehouse_job::stop_parcel_tile_bake() })
         }
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
-        Command::CollectBuildingHubBronzeCatalogRecoveryInventory => {
-            Box::pin(building_hub_bronze_catalog_recovery::collect_inventory())
-        }
-        Command::CollectVWorldBronzeCatalogRecoveryInventory => {
-            Box::pin(vworld_bronze_catalog_recovery::collect_inventory())
-        }
         Command::CompileNationalDataCollectionPlan => {
             Box::pin(async { national_data_collection_plan_compile::run() })
         }
-        Command::CompileBuildingHubBronzeCatalogRecoveryManifest => {
-            Box::pin(building_hub_bronze_catalog_recovery::run())
-        }
-        Command::CompileVWorldBronzeCatalogRecoveryManifest => {
-            Box::pin(vworld_bronze_catalog_recovery::run())
-        }
-        Command::RecoverBronzeCatalog => Box::pin(bronze_catalog_recovery_execute::run()),
         Command::CheckNationalDataCollectionRolloutApproval => {
             Box::pin(async { national_data_collection_rollout_approval_check::run() })
         }
@@ -898,22 +875,9 @@ where
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
         Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
-        Some("collect-building-hub-bronze-catalog-recovery-inventory") => {
-            Ok(Command::CollectBuildingHubBronzeCatalogRecoveryInventory)
-        }
-        Some("collect-vworld-bronze-catalog-recovery-inventory") => {
-            Ok(Command::CollectVWorldBronzeCatalogRecoveryInventory)
-        }
         Some("compile-national-data-collection-plan") => {
             Ok(Command::CompileNationalDataCollectionPlan)
         }
-        Some("compile-building-hub-bronze-catalog-recovery-manifest") => {
-            Ok(Command::CompileBuildingHubBronzeCatalogRecoveryManifest)
-        }
-        Some("compile-vworld-bronze-catalog-recovery-manifest") => {
-            Ok(Command::CompileVWorldBronzeCatalogRecoveryManifest)
-        }
-        Some("recover-bronze-catalog") => Ok(Command::RecoverBronzeCatalog),
         Some("check-national-data-collection-rollout-approval") => {
             Ok(Command::CheckNationalDataCollectionRolloutApproval)
         }

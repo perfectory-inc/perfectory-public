@@ -1,14 +1,9 @@
 //! `SQLx` repository and unit-of-work implementations for Collection Bronze ingestion metadata.
 
 use async_trait::async_trait;
-use collection_application::{
-    bronze_catalog_recovery::{
-        ApplyBronzeCatalogRecoveryCommand, BronzeCatalogRecoveryCatalogWriter,
-    },
-    ports::{
-        BronzeIngestRepository, BronzeIngestUnitOfWork, BronzeMonthCandidate,
-        CompleteIngestionRunCommand,
-    },
+use collection_application::ports::{
+    BronzeIngestRepository, BronzeIngestUnitOfWork, BronzeMonthCandidate,
+    CompleteIngestionRunCommand,
 };
 use collection_domain::{
     BronzeObject, CollectionError, IngestionRun, IngestionRunStatus, SchemaProfile,
@@ -331,40 +326,6 @@ impl BronzeIngestUnitOfWork for PgBronzeIngestUnitOfWork {
     }
 }
 
-#[async_trait]
-impl BronzeCatalogRecoveryCatalogWriter for PgBronzeIngestUnitOfWork {
-    async fn apply_recovery(
-        &self,
-        command: ApplyBronzeCatalogRecoveryCommand,
-    ) -> Result<IngestionRun, CollectionError> {
-        validate_recovery_command(&command)?;
-        let ApplyBronzeCatalogRecoveryCommand {
-            source,
-            mut run,
-            mut objects,
-            completion,
-        } = command;
-
-        let mut transaction = self.pool.begin().await.map_err(|error| map_sqlx(&error))?;
-        let source = upsert_source_catalog_entry_on(&mut transaction, &source).await?;
-        run.source_catalog_id = source.id;
-        let run = create_ingestion_run_on(&mut transaction, &run).await?;
-
-        for object in &mut objects {
-            object.source_catalog_id = source.id;
-            object.ingestion_run_id = run.id;
-            record_bronze_object_on(&mut transaction, object).await?;
-        }
-
-        let completed = complete_ingestion_run_on(&mut transaction, &completion).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|error| map_sqlx(&error))?;
-        Ok(completed)
-    }
-}
-
 async fn upsert_source_catalog_entry_on(
     connection: &mut PgConnection,
     entry: &SourceCatalogEntry,
@@ -526,47 +487,6 @@ async fn record_bronze_object_on(
         })?;
 
     row_to_bronze_object(&row)
-}
-
-fn validate_recovery_command(
-    command: &ApplyBronzeCatalogRecoveryCommand,
-) -> Result<(), CollectionError> {
-    if command.run.status != IngestionRunStatus::Running {
-        return Err(CollectionError::Infrastructure(
-            "Bronze Catalog recovery run must start in running status".to_owned(),
-        ));
-    }
-    if command.completion.id != command.run.id {
-        return Err(CollectionError::Infrastructure(
-            "Bronze Catalog recovery completion run id does not match".to_owned(),
-        ));
-    }
-    if command.completion.status != IngestionRunStatus::Succeeded {
-        return Err(CollectionError::Infrastructure(
-            "Bronze Catalog recovery atomic batch must complete as succeeded".to_owned(),
-        ));
-    }
-    let object_count = u64::try_from(command.objects.len()).map_err(|_| {
-        CollectionError::Infrastructure("Bronze Catalog recovery object count overflow".to_owned())
-    })?;
-    if command.completion.logical_records_seen != object_count
-        || command.completion.objects_written != 0
-    {
-        return Err(CollectionError::Infrastructure(
-            "Bronze Catalog recovery completion metrics are inconsistent".to_owned(),
-        ));
-    }
-    if command.run.source_catalog_id != command.source.id
-        || command.objects.iter().any(|object| {
-            object.source_catalog_id != command.source.id
-                || object.ingestion_run_id != command.run.id
-        })
-    {
-        return Err(CollectionError::Infrastructure(
-            "Bronze Catalog recovery batch ids are inconsistent".to_owned(),
-        ));
-    }
-    Ok(())
 }
 
 fn record_bronze_object_query() -> String {

@@ -651,10 +651,6 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget::Test {
                         package: "collection-infrastructure",
-                        test: "bronze_catalog_recovery_atomicity",
-                    },
-                    LaneTarget::Test {
-                        package: "collection-infrastructure",
                         test: "bronze_ingest_round_trip",
                     },
                     LaneTarget::Test {
