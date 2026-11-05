@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "vector-tile-manifest-rollback",
+  "assets": [
+    {
+      "id": "vector-tile-manifest-rollback",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "지도 타일 되돌림",
+      "description": "이전 타일 매니페스트 버전으로 되돌린다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md"
+      ],
+      "surface_kind": "catalog_pointer"
+    }
+  ]
+}

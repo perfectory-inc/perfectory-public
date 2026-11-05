@@ -1,0 +1,31 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-industrial-complex",
+  "assets": [
+    {
+      "id": "serving-industrial-complex",
+      "type": "serving_group",
+      "title": "산업단지",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "catalog.industrial_complex",
+        "catalog.industrial_complex_retired_id"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-industrial-complexes",
+      "to": "serving-industrial-complex",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "load-industrial-complex-canonical"
+      ]
+    }
+  ]
+}

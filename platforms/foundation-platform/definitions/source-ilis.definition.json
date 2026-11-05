@@ -1,0 +1,18 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-ilis",
+  "assets": [
+    {
+      "id": "source-ilis",
+      "type": "source_group",
+      "title": "산업입지정보 산업단지",
+      "description": "목록·고시·상세는 브이월드 산업단지의 주소 해석 근거로 연결된다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "ilis",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

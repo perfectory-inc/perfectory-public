@@ -1,0 +1,18 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-mois-standard-code",
+  "assets": [
+    {
+      "id": "source-mois-standard-code",
+      "type": "source_group",
+      "title": "행정표준코드 법정동",
+      "description": "법정동코드 전체자료(getStanReginCdList)가 등록부 레인의 입력이다. 추출 입력은 수동이며 전용 API 수집기는 아직 없다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "mois_standard_code_open_api",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

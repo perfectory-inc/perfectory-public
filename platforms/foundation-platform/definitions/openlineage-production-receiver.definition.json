@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "openlineage-production-receiver",
+  "assets": [
+    {
+      "id": "openlineage-production-receiver",
+      "type": "serving_surface",
+      "status": "missing",
+      "owner": "foundation-platform",
+      "title": "운영 계보 수신기",
+      "description": "운영 수신·보존 증거가 아직 첨부되지 않았다.",
+      "blocking_reason": "No production receiver endpoint, acknowledgement, or retention evidence exists.",
+      "target_state": "Durable receiver records lineage events and exposes retention evidence.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": [],
+      "surface_kind": "missing_capability"
+    }
+  ]
+}

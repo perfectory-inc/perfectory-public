@@ -1,0 +1,25 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-complex-parcel-memberships",
+  "assets": [
+    {
+      "id": "silver-complex-parcel-memberships",
+      "type": "silver_table",
+      "title": "산업단지와 필지 소속",
+      "description": "계약은 있으나 현재 Rust·Spark 코드에서 생산 레인을 찾지 못했다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "silver.complex_parcel_memberships",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.complex_parcel_memberships"
+        }
+      ]
+    }
+  ]
+}

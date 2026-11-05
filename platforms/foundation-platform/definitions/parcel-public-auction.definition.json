@@ -1,0 +1,1323 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-public-auction",
+  "jobs": [
+    {
+      "id": "gold_public_auction_rebuild",
+      "scope": "full",
+      "full_reason": "Each daily build overwrites the whole 공매 Gold: the producer reads its item, photo and document Silver whole (onbid_public_auction_silver_to_gold.lane_inputs), those change every hour, so the plan is full every day (2026-10-28 21:35: \"changed, and the producer does not map a change there to PNUs\").",
+      "full_cost": "measured 2026-10-28 21:38 (journal and read-only Trino $snapshots): 143 s, 4,713 rows, 1.30 MB written (100%); 2026-10-28 00:40 511 s for 4,613 rows.",
+      "full_tracked_by": "justified while gold.parcel_public_auction is under 10,000 rows and its run under 10 minutes: the run is mostly Spark start and the lineage walk (about 85 s, root ADR-0312), which a partial build pays too; past either bound, map the item Silver's appended rows to PNUs (root ADR-0312 §2)",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "공매 kind Gold (root ADR-0287; scripts/ops/gold-panel-rebuild.sh parcel-public-auction): gold.parcel_public_auction from the Onbid item history, once a day after the night's item passes, the rounds open as of the build placed on their PNUs (lineage and merges followed, lineage_missing kept). Its own job because its Silver commits hourly: as an input of gold_kind_rebuild it would start that job, and the bake, every hour. by_pnu_serving_bake serves its commit.",
+      "systemd_service": "foundation-gold-public-auction-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "35 21 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 65,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-onbid-real-estate-item-to-gold-parcel-public-auction",
+        "silver-onbid-real-estate-item-photo-to-gold-parcel-public-auction",
+        "silver-onbid-item-bid-result-to-gold-parcel-public-auction",
+        "silver-onbid-announcement-to-gold-parcel-public-auction",
+        "silver-onbid-announcement-bid-result-to-gold-parcel-public-auction",
+        "silver-onbid-announcement-detail-to-gold-parcel-public-auction",
+        "silver-onbid-real-estate-item-detail-to-gold-parcel-public-auction",
+        "silver-onbid-item-bid-info-to-gold-parcel-public-auction"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-20T16:12:59Z"
+    },
+    {
+      "id": "by_pnu_public_auction_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_public_auction (the own-producer public-auction kind, root ADR-0287) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-public-auction), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job so it bakes concurrently with the panel/parcel bake instead of waiting behind it in `by_pnu_serving_bake all` (root ADR-0303): a slow national parcel re-bake no longer holds public-auction serving for hours (2026-10-28). Own-producer because its servability is resolved at Gold: servable() keeps only the PNUs the served parcel edition carries, which the Gold build reads from Silver (root ADR-0292); the bake reads no parcel lane state, so a PNU of a parcel edition not served yet may 404 until the parcel lane catches up (accepted, root ADR-0303 §2). Started when gold_public_auction_rebuild commits a new snapshot, and at 10:45 as the fallback (root ADR-0171), apart from the panel bake's 10:15 so the two clock starts do not crowd the host at once; each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). It does not take turns: one slot for at most two hours, which the folds run beside and FLOOR waits out within the pool's starvation bound. One slot and MemoryMax=5G, so it runs beside the panel bake inside the host memory budget (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-public-auction-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "45 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-28T00:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-public-auction",
+      "type": "gold_table",
+      "title": "필지 공매 by-PNU 표",
+      "description": "PNU마다 빌드 시각에 열려 있는 온비드 공매 회차를 마감이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287). 계약의 종류 한 줄(parcel-public-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 온비드 Silver 에서 만든다. 폐지된 PNU 의 회차는 필지 이력과 합병을 따라 지금 필지에 더해진다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_public_auction",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_public_auction"
+        }
+      ]
+    },
+    {
+      "id": "parcel-public-auction-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 공매 by-PNU 묶음 파일",
+      "description": "gold.parcel_public_auction 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/public-auction/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0287). 첫 발행은 비용 승인 뒤 운영자의 묶음 전용 관문을 거친다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-onbid-real-estate-item",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py"
+      ],
+      "description": "자기 생산자를 가진 종류(루트 ADR-0287): 물건 이력 전체에서 회차마다 PNU 를 정하고, 열린 회차만 PNU 문서로 묶는다. 필지 패널에 고정되지 않고 늘 전량 생성한다."
+    },
+    {
+      "from": "silver-onbid-real-estate-item-photo",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "회차의 사진·감정평가서(photos[])와 물건의 위치도·지적도·360·동영상(items[].media[])을 내용해시로 싣는다."
+    },
+    {
+      "from": "silver-onbid-item-bid-result",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "같은 물건의 끝난 회차 결과(유찰·낙찰가·입찰자 수·개찰일시)를 items[].history[] 로 싣는다(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-announcement",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "회차가 이름 짓는 공고 회차의 공고명·기관·담당부점·공고일·개찰일시를 announcements[] 로 싣는다(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-announcement-bid-result",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "공고 회차의 개찰 집행상태를 announcements[] 에 더한다(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-announcement-detail",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "공고문 전문(상한 안)·첨부(내용해시)·참가자격·취소사유를 announcements[] 에 더한다(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-real-estate-item-detail",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "물건상세(부대조건·유의사항·공매재산명세서·임대차·점유·등기·배분요구·면적·정정·감정평가)를 items[].detail 로 싣는다(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "silver-onbid-item-bid-info",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py"
+      ],
+      "description": "입찰정보(입찰보증금·잔대금·제한·제출서류·평가·이전 회차·회차별 일정)를 items[].bid_info 로 싣는다(루트 ADR-0340 §7)."
+    },
+    {
+      "from": "gold-parcel-public-auction",
+      "to": "parcel-public-auction-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-public-auction": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "public-auction",
+      "section": "public_auction",
+      "columns": [
+        "public_auction_json"
+      ],
+      "producer": "onbid_public_auction_silver_to_gold",
+      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md"
+    }
+  },
+  "host_memory": {
+    "gold_public_auction_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_public_auction_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_public_auction_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-public-auction",
+        "producer": "infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
+          "legacy": true,
+          "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v1.json",
+          "decision": "docs/adr/0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md",
+          "reason": "the first served document: a parcel's open onbid rounds, the Gold JSON column as written"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v2",
+          "legacy": true,
+          "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v2.json",
+          "decision": "docs/adr/0296-public-auction-serves-full-info-and-shares-one-content-addressed-media-store.md",
+          "reason": "each round gains its media index (rounds[].photos[], content-addressed by sha256), an optional field: an expansion of revision 1 served under its own string before the registry existed"
+        },
+        {
+          "major": 1,
+          "revision": 3,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
+          "decision": "docs/adr/0340-every-onbid-field-is-carried-to-the-screen-or-says-why-not.md",
+          "reason": "every collected Onbid field a buyer reads, all optional: each round gains the rest of its list row (the provider's code names, bid conditions, organisations); the document gains items[] (detail with the 공매재산명세서, tenancy, occupancy, rights, areas, corrections and appraisals; bid information with earlier rounds and every round's schedule; closed rounds' results; maps) and announcements[] (text, attachments, organisation, opening), once each for the rounds that name them"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/public-auction.generated.ts",
+          "reason": "the 공매 panel: generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "public_auction",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].item_name",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].appraisal_amount_krw",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].lowest_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].bid_begins_at",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].bid_ends_at",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].pbct_nsq",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].land_area_m2",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].building_area_m2",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].share_item_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].usg_scls_ctgr_name",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].usg_mcls_ctgr_name",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].usg_lcls_ctgr_name",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].photos",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].photos[].sha256",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].photos[].media_kind",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].photos[].sequence",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].photos[].title",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].photos[].media_format",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].photos[].size_bytes",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].cltr_mng_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].onbid_pbanc_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].pbct_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].first_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].usbd_nft",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].prpt_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].dsps_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].cptn_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].bid_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].bid_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].pbct_stat_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].org_name",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].rqst_org_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].apsl_prc_ctrs_lowst_bid_rto",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].fee_rate",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].dtbt_rqr_edtm_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].evc_rsby_trgt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].pvct_trgt_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].batc_bid_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].crtn_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].eltr_grpr_use_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].collb_bid_psbl_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].subt_bid_psbl_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].twtm_gthr_bid_psbl_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].rent_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].rent_perd_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].cltr_mng_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].media",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.zadr_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.cltr_radr",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.loc_vnty_pscd_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.utlz_pscd_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.icdl_cdtn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.pytn_mtrs_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dspl_vld_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.purr_qlfc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.cltr_etc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.frst_pbanc_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.sqms_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.sqms_list[].cland_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.sqms_list[].sqms_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.sqms_list[].purs_alc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.sqms_list[].dtl_cltr_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list[].apsl_evl_org_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list[].apsl_appr_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list[].apsl_evl_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list[].apsl_evl_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list[].sha256",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.apsl_evl_clg_list[].media_format",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list[].irst_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list[].bid_grtee_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list[].mthr_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list[].conv_grtee_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list[].cfmtn_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.leas_inf_list[].mvin_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.rgst_prmr_inf_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.rgst_prmr_inf_list[].irst_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.rgst_prmr_inf_list[].rgst_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.rgst_prmr_inf_list[].inpr_stng_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].rgt_rel_cd_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].stng_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].bond_dclr_stng_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].dtbt_rqr_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].dtbt_rqr_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].dtbt_rqr_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].ersr_psbl_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.dtbt_rqr_mtrs_list[].etc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].ocpy_rel_cd_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].ctrt_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].mvin_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].cfmtn_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].acpm_grtee_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].rnt_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.ocpy_rel_list[].lsd_part_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].dlgt_org_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].mng_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].pbanc_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].dtbt_rqr_edtm_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].pbct_tdps",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].zadr",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].alc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].pbct_espc",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].bid_perd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].opbd_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].dodisp_dudt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].ersr_excl_rgt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].stty_ebr_vld_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].pytn_mtrs_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].prcv_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].etc_smry_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.paps_inf[].szr_prpt_indct_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].cltr_mng_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].onbid_cltr_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].apsl_evl_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].land_sqms",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].bld_sqms",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.crtn_lst_clg_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.crtn_lst_clg_list[].crtn_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.crtn_lst_clg_list[].crtn_item_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.crtn_lst_clg_list[].bfmdf_lst_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.crtn_lst_clg_list[].afmdf_lst_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.pbct_tdps_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.pcmt_pay_mtd_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.pcmt_pay_term_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_vld_crtr_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.qlfc_lmt_cdtn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.rgn_lmt_cdtn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.etc_lmt_cdtn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.ptct_cmsn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_rltn_dcmt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.nrnk_aply_psbl_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.tdps_sbtn_dcmt_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_ptct_aply_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.pytn_mtrs_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].pbct_nsq",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].bid_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].cltr_bid_bgng_dt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].cltr_bid_end_dt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].cltr_opbd_dt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].pbct_opbd_plc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].lowst_bid_prc_indct_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.cseq_bid_inf_clg_list[].cltr_dodisp_dt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].pbct_nsq",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].cltr_opbd_dt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].pbct_stat_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].lowst_bid_prc_indct_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].scfb_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].pbct_nsq",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].pbct_stat_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].opened_at",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].lowest_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].winning_bid_amount_krw",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].valid_bidder_count",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].invalid_bidder_count",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].rtrcn_rsn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].media[].sha256",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].media[].media_kind",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].media[].sequence",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].media[].media_format",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].onbid_pbanc_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbct_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_mng_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].onbid_pbanc_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_kind_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].org_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].rspb_sbr_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_ymd",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].cltr_opbd_dt",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].exct_stat_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_ptct_qlfc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].ptct_cmsn",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_rtrcn_rsn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].anncm_al_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].anncm_al_cont_omitted",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].atch_file_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].atch_file_list[].btbd_atch_file_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].atch_file_list[].sha256",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].atch_file_list[].media_format",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].totalamt_unpc_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].bid_prgn_nft",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].frst_ctrs_lowst_bid_prc_rto",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].prpt_div_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].dsps_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].cltr_usg_scls_ctgr_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].detail.batc_bid_cltr_clg_list[].usbd_nft",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.smns_ip_dpcn_bid_blckt_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.tdps_sbtn_dcmt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.tdps_sbtn_dcmt_sbmsn_term_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.tdps_sbtn_dcmt_sbmsn_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_ptct_aply_dcmt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_ptct_aply_term_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_ptct_dcmt_sbmsn_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_rltn_dcmt_sbmsn_term_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_rltn_dcmt_sbmsn_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.collb_mthod_dcmt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.collb_dcmt_sbmsn_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.collb_dcmt_sbmsn_term_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.subt_bid_dcmt_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.subt_bid_dcmt_sbmsn_mthod_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.subt_bid_dcmt_sbmsn_term_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.evl_ptdb_clg_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.evl_perd_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_prc_asmc_calcw_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.min_esure_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.min_esure_rate",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.crtr_amt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.crtr_rate",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.rsv_prc_rng_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.rsv_prc_chc_num",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.rsv_prc_etmt_num",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.tplm_crrt",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.rsnb_hghprc_cfct",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.crtr_amt_bid_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.opsn_cltr_bid_psbl_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.bid_psbl_cltr_qnty",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_nsq_bid_rslt_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_nsq_lowst_bid_prc",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].apsl_prc_ctrs_lowst_bid_rto",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prcn_bid_clg_list[].frst_ctrs_lowst_bid_prc_rto",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prpsl_evl_item_clg_list",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prpsl_evl_item_clg_list[].evl_item_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prpsl_evl_item_clg_list[].evl_item_ptdb_scr",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prpsl_evl_item_clg_list[].evl_item_desc_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].bid_info.prpsl_evl_item_clg_list[].evl_item_rmk_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].apsl_prc_ctrs_scfb_prc_rto",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].lowst_bid_ctrs_scfb_prc_rto",
+              "required": false
+            },
+            {
+              "path": "public_auction.items[].history[].afsb_rtrcn_rsn_cont",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_org_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].bid_amt_rls_yn",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].pbanc_nsq_nm",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].rltn_pbanc_mng_no",
+              "required": false
+            },
+            {
+              "path": "public_auction.announcements[].rltn_pbanc_nm",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "foundation-publisher",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back, the serving monitor (foundation-by-pnu-serving-monitor@parcel-public-auction) and the Worker autodeploy smoke hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "source",
+              "required": true
+            },
+            {
+              "path": "public_auction",
+              "required": true
+            },
+            {
+              "path": "attached_via",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "foundation-by-pnu-gateway",
+          "at": "platforms/foundation-platform/services/foundation-by-pnu-gateway/src/schemas.ts",
+          "reason": "the parcel Worker serves the document bytes as they are and reads none of its fields; it holds the manifest's record of the document schema to the subject's majors and names them at its capabilities path, which the publisher asks before it publishes a major the Worker has not read (can-i-deploy)",
+          "reads": []
+        },
+        {
+          "name": "by-pnu-edge-probe",
+          "at": "platforms/foundation-platform/scripts/ops/by-pnu-edge-probe.py",
+          "reason": "the quarter-hourly probe and the Worker deploy's smoke name the first media blob the lane's sample documents carry",
+          "reads": [
+            {
+              "path": "public_auction.rounds[].photos",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].photos[].sha256",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].photos[].media_format",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "building-register-bronze-ingest",
+  "assets": [
+    {
+      "id": "building-register-bronze-ingest",
+      "type": "source_group",
+      "title": "건축물대장 API",
+      "description": "파일 수집과 중복되어 비활성화된 API이다.",
+      "status": "disabled",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "building_register_open_api",
+      "unmapped_status": "collected_only",
+      "runtime_bindings": [
+        {
+          "kind": "ingestion_source",
+          "value": "data-go-kr-building-register"
+        },
+        {
+          "kind": "ingestion_source",
+          "value": "building-register"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-other-bulk",
+  "assets": [
+    {
+      "id": "source-other-bulk",
+      "type": "source_group",
+      "title": "기타 공공 일괄 파일",
+      "description": "받은 객체 0, 수집기 없음. 카탈로그 제공자가 mixed_public_source 라 어느 기관의 어느 파일인지 적힌 적이 없다. 원천마다 실제 제공자를 적고 data.go.kr 파일 데이터 수집기(루트 ADR-0280 §4)를 넓혀 받는다. 고속도로 IC·항만·공항·역·행정동 인구는 나중 연결, 나머지는 보관만이다(루트 ADR-0355).",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0355-the-building-hub-juso-map-and-other-bulk-sources-are-judged-one-by-one-and-connected-in-order.md"
+      ],
+      "endpoint_catalog_group": "other_bulk",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

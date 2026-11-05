@@ -1,0 +1,81 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-sweep",
+  "jobs": [
+    {
+      "id": "source_sweep",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Daily source sweep: re-plan the hub.go.kr list and the VWorld datasets the endpoint catalog marks source_sweep, skip files already held, land every new one in Bronze; a stopped run resumes (root ADR-0077, ADR-0168, ADR-0172).",
+      "systemd_service": "foundation-source-sweep.service",
+      "systemd_timer": "foundation-source-sweep.timer",
+      "state_paths": [
+        "/var/lib/foundation-platform/source-sweep",
+        "/data/foundation-platform/source-sweep"
+      ],
+      "schedule": "40 3 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 480,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "daily-source-sweep-to-source-building-hub-bulk",
+        "daily-source-sweep-to-source-vworld-dataset"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "source-building-hub-bulk",
+      "type": "source_group",
+      "title": "건축HUB 파일",
+      "description": "일일 원천 수집이 57개 파일을 매달 받는다(2026-10-30 장부: 다섯 판 78.16 GB, 최신 판 16.04 GB). 연도별 에너지 2개는 제공자 목록에 없다. 표제부·층·호·면적·공동주택가격·전유부(기본개요는 호 레인의 입력)에 Silver 레인이 있다. 나머지의 판정과 연결 순서(인허가 기본개요→총괄표제부→부속지번→월별 에너지→철거멸실)는 루트 ADR-0355 에 있다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0355-the-building-hub-juso-map-and-other-bulk-sources-are-judged-one-by-one-and-connected-in-order.md"
+      ],
+      "endpoint_catalog_group": "building_hub_bulk",
+      "unmapped_status": "collected_only"
+    },
+    {
+      "id": "source-vworld-dataset",
+      "type": "source_group",
+      "title": "브이월드 공간·토지 파일",
+      "description": "필지·토지이용계획·공시지가·토지특성·임야·이동연혁·대지권·행정경계·산업단지 프로필과 경계의 실행 경로가 있다. 자기 작업이 받는 연속지적도·필지고유번호변동연혁을 뺀 23개 파일 데이터셋을 매일 훑기가 받는다(루트 ADR-0359). 500MB 를 넘는 파일은 RAON 레인이 감독 실행으로 잴 때까지 보류된다(루트 ADR-0170). 나머지는 수집 단계에 남는다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "vworld_dataset",
+      "unmapped_status": "collected_only"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "daily-source-sweep",
+      "to": "source-building-hub-bulk",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/daily-source-sweep.sh"
+      ]
+    },
+    {
+      "from": "daily-source-sweep",
+      "to": "source-vworld-dataset",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/daily-source-sweep.sh",
+        "plan-vworld-dataset-collection",
+        "inventory-vworld-dataset-files",
+        "ingest-vworld-dataset-files"
+      ]
+    }
+  ]
+}

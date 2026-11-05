@@ -1,0 +1,38 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "gold-complex-catalog",
+  "assets": [
+    {
+      "id": "gold-complex-catalog",
+      "type": "gold_table",
+      "title": "산업단지 제공용 프로필",
+      "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.",
+      "status": "implemented",
+      "unscheduled": "on_event",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.complex_catalog",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.complex_catalog"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-industrial-complexes",
+      "to": "gold-complex-catalog",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"
+      ]
+    }
+  ]
+}

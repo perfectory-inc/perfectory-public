@@ -1,0 +1,101 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "outbox-publish",
+  "jobs": [
+    {
+      "id": "outbox_publish",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Outbox publish tick: deliver pending catalog events to their receivers (root ADR-0079).",
+      "systemd_service": "foundation-outbox-publish.service",
+      "systemd_timer": "foundation-outbox-publish.timer",
+      "state_paths": [],
+      "schedule": "0,30 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 15,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "outbox-catalog-event-fanout-to-event-fabric-registry",
+        "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
+        "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-01T09:45:24Z",
+      "started_once_after_deploy": true
+    }
+  ],
+  "assets": [
+    {
+      "id": "event-fabric-registry",
+      "type": "serving_surface",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "title": "이벤트 계약 등록부",
+      "description": "현재 webhook 및 향후 브로커 연결의 이벤트 계약을 기록한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/events/event-fabric-registry.v1.example.json"
+      ],
+      "surface_kind": "event_fabric_registry"
+    },
+    {
+      "id": "gongzzang-catalog-consumer-receiver",
+      "type": "serving_surface",
+      "status": "unknown",
+      "owner": "foundation-platform",
+      "title": "공짱 이벤트 수신기",
+      "description": "공짱에서 카탈로그 변경을 수신한다. 배포된 수신기 검증은 별도 증거가 필요하다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/events/webhook"
+      ],
+      "surface_kind": "consumer_receiver"
+    },
+    {
+      "id": "dawneer-catalog-consumer-receiver",
+      "type": "serving_surface",
+      "status": "unknown",
+      "owner": "foundation-platform",
+      "title": "다우니어 이벤트 수신기",
+      "description": "다우니어 수신 계약이며 실제 배포 상태는 확인되지 않았다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/events/webhook"
+      ],
+      "surface_kind": "consumer_receiver"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "outbox-catalog-event-fanout",
+      "to": "event-fabric-registry",
+      "relation": "adapts",
+      "status": "implemented",
+      "via": [
+        "publish-outbox-once"
+      ]
+    },
+    {
+      "from": "outbox-catalog-event-fanout",
+      "to": "gongzzang-catalog-consumer-receiver",
+      "relation": "consumes",
+      "status": "implemented",
+      "via": [
+        "publish-outbox-once"
+      ]
+    },
+    {
+      "from": "outbox-catalog-event-fanout",
+      "to": "dawneer-catalog-consumer-receiver",
+      "relation": "consumes",
+      "status": "implemented",
+      "via": [
+        "publish-outbox-once"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-industrial-complexes",
+  "assets": [
+    {
+      "id": "silver-industrial-complexes",
+      "type": "silver_table",
+      "title": "산업단지 기본 정보",
+      "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.",
+      "status": "implemented",
+      "unscheduled": "on_event",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-compute-engines.md",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "silver.industrial_complexes",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.industrial_complexes"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-ilis",
+      "to": "silver-industrial-complexes",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "build-industrial-complex-address-resolution",
+        "export-industrial-complex-bronze-raw-jsonl",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+      ],
+      "source_slugs": [
+        "industrylandorkr__industrial_complex_list",
+        "industrylandorkr__industrial_complex_notice",
+        "industrylandorkr__industrial_complex_detail"
+      ],
+      "description": "ILIS 목록·고시·상세는 산업단지 주소 해석의 근거이다. 프로필 본문은 브이월드에서 온다."
+    },
+    {
+      "from": "source-vworld-dataset",
+      "to": "silver-industrial-complexes",
+      "relation": "feeds",
+      "status": "implemented",
+      "source_slugs": [
+        "vworldkr__sandan_profile",
+        "vworldkr__boundary_sigungu"
+      ],
+      "via": [
+        "build-industrial-complex-address-resolution",
+        "export-industrial-complex-bronze-raw-jsonl",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_bronze_to_silver.py"
+      ],
+      "description": "산업단지 프로필 원본을 변환하며 시군구 경계의 DBF를 주소 행정구역 판정에 사용한다."
+    }
+  ]
+}

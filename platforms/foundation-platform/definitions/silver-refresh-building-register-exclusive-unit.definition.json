@@ -1,0 +1,85 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-register-exclusive-unit",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_register_exclusive_unit",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 전유부 다리 lane `building-register-exclusive-unit` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_exclusive_unit already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed keys' rows and a removal marker per vanished key (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-exclusive-unit.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-exclusive-unit.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-exclusive-unit"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-register-exclusive-unit",
+      "type": "silver_table",
+      "title": "건축물대장 전유부",
+      "description": "관리번호와 동호를 보존하는 전유부 사전이다. 전국 관리번호 정체성 1:1 실측을 바탕으로 세대 공시가격 재색인에 사용한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "docs/adr/0094-the-exclusive-register-bridges-prices-and-units.md",
+        "docs/adr/0095-unit-official-prices-are-reindexed-through-the-exclusive-register.md"
+      ],
+      "table_name": "silver.building_register_exclusive_unit",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_register_exclusive_unit"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-register-exclusive-unit",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-building-register-exclusive-unit-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_register_exclusive_unit"
+      ],
+      "description": "전유부 원문 27칸과 관리번호·동호를 완료 manifest 부분 목록을 통해 append-only Silver로 적재한다.",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_register_exclusive_unit": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

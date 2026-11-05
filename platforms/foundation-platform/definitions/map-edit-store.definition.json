@@ -1,0 +1,19 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "map-edit-store",
+  "assets": [
+    {
+      "id": "map-edit-store",
+      "type": "serving_surface",
+      "title": "지도 편집 저장소",
+      "description": "관리자가 고친 폴리곤을 타일에 접히기 전까지 담는다(루트 ADR-0112). 손님 지도는 여기서 오버레이를 읽는다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/services/foundation-map-edit-gateway/README.md"
+      ],
+      "surface_kind": "gateway"
+    }
+  ]
+}

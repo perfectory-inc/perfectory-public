@@ -1,0 +1,146 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "map-edit-fold-admin",
+  "jobs": [
+    {
+      "id": "map_edit_fold_admin",
+      "scope": "skip-if-unchanged",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Fold staff polygon edits into the administrative boundary tiles (root ADR-0112).",
+      "systemd_service": "foundation-map-edit-fold@admin.service",
+      "systemd_timer": "foundation-map-edit-fold-admin.timer",
+      "state_paths": [
+        "/var/lib/foundation-platform/map-edit-fold"
+      ],
+      "schedule": "35 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 120,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 5,
+      "pipeline_graph_edges": [
+        "map-edit-store-to-silver-map-edit-ledger",
+        "silver-map-edit-ledger-to-gold-administrative-boundary-served",
+        "gold-administrative-boundary-served-to-admin-tiles"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-01T10:33:44Z",
+      "started_once_after_deploy": true
+    }
+  ],
+  "assets": [
+    {
+      "id": "admin-tiles",
+      "type": "serving_surface",
+      "title": "행정경계 지도 타일",
+      "description": "읍면동 경계를 제공한다. 최초 통합 매니페스트 세대는 3이다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "surface_kind": "tiles"
+    },
+    {
+      "id": "silver-map-edit-ledger",
+      "type": "silver_table",
+      "title": "지도 편집 원장",
+      "description": "관리자 폴리곤 편집을 덧붙이기만 하는 원장이다. 접기가 편집 저장소를 비워도 편집은 여기 남는다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "silver.map_edit_ledger",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.map_edit_ledger"
+        }
+      ]
+    },
+    {
+      "id": "gold-administrative-boundary-served",
+      "type": "gold_table",
+      "title": "행정경계 서빙본",
+      "description": "최신 읍면동 경계 스냅숏에 원장의 편집을 모두 적용한 모습이다. 타일은 이 스냅숏에서 굽는다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.administrative_boundary_served",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.administrative_boundary_served"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "serving-admin-boundary",
+      "to": "admin-tiles",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "promote-administrative-boundary-runtime"
+      ]
+    },
+    {
+      "from": "map-edit-store",
+      "to": "silver-map-edit-ledger",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-map-edit-handoff",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundary_served_gold.py"
+      ]
+    },
+    {
+      "from": "silver-administrative-boundaries",
+      "to": "gold-administrative-boundary-served",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundary_served_gold.py"
+      ]
+    },
+    {
+      "from": "silver-map-edit-ledger",
+      "to": "gold-administrative-boundary-served",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundary_served_gold.py"
+      ]
+    },
+    {
+      "from": "gold-administrative-boundary-served",
+      "to": "admin-tiles",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "bake-lakehouse-tiles",
+        "platforms/foundation-platform/scripts/ops/map-edit-fold.sh"
+      ]
+    }
+  ],
+  "host_memory": {
+    "map_edit_fold_admin": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      },
+      {
+        "contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json",
+        "containers": [
+          "images"
+        ]
+      }
+    ]
+  }
+}

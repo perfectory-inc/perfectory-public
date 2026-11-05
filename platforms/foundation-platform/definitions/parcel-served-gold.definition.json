@@ -1,0 +1,96 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-served-gold",
+  "jobs": [
+    {
+      "id": "parcel_served_gold",
+      "scope": "full",
+      "full_reason": "A new cadastral edition rebuilds the national served Gold and its matching gate over every 시도; an edition already baked or waiting does nothing.",
+      "full_cost": "measured 2026-10-13 (root ADR-0322 §4, the job is disabled since): the matching gate 13.5 minutes and the served Gold 59 minutes per edition, over about 39.9M parcels; the 2026-10-16 rehearsal failed before measuring.",
+      "full_tracked_by": "PR #953 (plan: root ADR-0322 §4, a fingerprint per 시도 so the gate and the served Gold redo only the 시도 whose inputs changed)",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. Nothing reads PostGIS.",
+      "systemd_service": "foundation-parcel-tile-bake@gold.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/tile-bake"
+      ],
+      "schedule": "30 7 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-gold-parcel-boundary-served",
+        "silver-map-edit-ledger-to-gold-parcel-boundary-served",
+        "silver-parcel-registry-to-gold-parcel-boundary-served"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0253). Off until the supervised rehearsal of the edition the contract will serve (runbook parcel-tile-bake.md §2) has measured both halves within the unit's 115-minute limit and the owner has moved served_edition; switching it on is a separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-boundary-served",
+      "type": "gold_table",
+      "title": "필지 서빙본",
+      "description": "필지 경계 Silver 한 판에 원장의 필지 편집을 적용한 모습이다. 굽기 입력은 여러 조각으로 넘긴다(루트 ADR-0133 2항).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.parcel_boundary_served",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_boundary_served"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-boundary-served",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py"
+      ]
+    },
+    {
+      "from": "silver-map-edit-ledger",
+      "to": "gold-parcel-boundary-served",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-parcel-boundary-served",
+      "relation": "validates",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_matching_gate.py"
+      ],
+      "description": "서빙본을 만들기 전 대조 관문의 (b) 검사가 필지마다 현재 parcel_id 를 하나씩 갖는지 본다. 그 표가 아직 없으면 관문이 돌지 않고 기다린다(루트 ADR-0265)."
+    }
+  ],
+  "host_memory": {
+    "parcel_served_gold": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

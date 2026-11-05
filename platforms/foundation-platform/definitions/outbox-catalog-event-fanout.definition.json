@@ -1,0 +1,37 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "outbox-catalog-event-fanout",
+  "assets": [
+    {
+      "id": "outbox-catalog-event-fanout",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "카탈로그 변경 전달",
+      "description": "카탈로그 변경 이벤트를 제품 수신기로 전달한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/events/webhook/outbox-webhook-envelope.v1.example.json"
+      ],
+      "runtime_bindings": [
+        {
+          "kind": "outbox_scope",
+          "value": "catalog"
+        }
+      ],
+      "surface_kind": "outbox_event"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "industrial-complex-gold-pointer-publish",
+      "to": "outbox-catalog-event-fanout",
+      "relation": "emits",
+      "status": "implemented",
+      "via": [
+        "publish-industrial-complex-gold-pointer"
+      ]
+    }
+  ]
+}

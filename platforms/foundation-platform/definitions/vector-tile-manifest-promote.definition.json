@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "vector-tile-manifest-promote",
+  "assets": [
+    {
+      "id": "vector-tile-manifest-promote",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "지도 타일 승격",
+      "description": "검증된 타일 매니페스트 버전을 현재 제공 버전으로 승격한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/catalog/pipeline-graph-control-plane.md"
+      ],
+      "surface_kind": "catalog_pointer"
+    }
+  ]
+}

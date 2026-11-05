@@ -1,0 +1,28 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "profile-gateway",
+  "assets": [
+    {
+      "id": "profile-gateway",
+      "type": "serving_surface",
+      "title": "산업단지 프로필 게이트웨이",
+      "description": "비공개 Gold 프로필 객체를 HTTP로 제공한다. 현재 공짱 패널의 직접 읽기 경로는 확인되지 않았다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "surface_kind": "gateway"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "serving-industrial-complex-gold-pointer",
+      "to": "profile-gateway",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-profile-gateway/src/index.ts"
+      ]
+    }
+  ]
+}

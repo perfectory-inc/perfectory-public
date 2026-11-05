@@ -1,0 +1,19 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-spatial-load",
+  "assets": [
+    {
+      "id": "serving-spatial-load",
+      "type": "serving_group",
+      "title": "공간 적재 원장",
+      "description": "타일 제공을 위한 PostGIS 투영 및 적재 원장이다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "serving_postgis.spatial_projection_load"
+      ]
+    }
+  ]
+}

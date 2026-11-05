@@ -1,0 +1,1446 @@
+{
+  "definition": "foundation-platform.definition.v1",
+  "$comment": "public-repository-safety: reviewed-runtime-coordinate-inputs (the configured extents of the artifacts below, not places)",
+  "artifacts": {
+    "platforms/foundation-platform/orchestration/jobs.v1.json": {
+      "schema_version": "foundation-platform.orchestration_jobs.v1",
+      "dag_id_prefix": "foundation_",
+      "dag_id_prefix_means": "A job's Airflow DAG id is this prefix and its id. orchestration/dags/job_specs.py names the DAGs with it, and foundation-api (GET /data-catalog/v1/scheduled-jobs, root ADR-0165) finds each job's run records in the data catalog under the flow its DAG reports as.",
+      "description": "Every scheduled data job (root ADR-0118, ADR-0122). What a job runs, as whom and with which environment is its systemd service in infra/systemd. Its time limit is time_limit_minutes here, rendered into the unit (root ADR-0270 §1). This list adds when it runs, its resource pool, the pipeline-graph edges it carries out (its lineage, read from docs/catalog/pipeline-graph.v1.json) and whether Airflow runs it yet. A job that checks data rather than moving it names no edges and sets reads_data_contracts: its inputs are the tables the data contracts cover.",
+      "pools": {
+        "spark": {
+          "slots": 3,
+          "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild and each hub Silver refresh lane take all three (20g Spark) and run alone. The host memory guard checks every combination these slots allow."
+        }
+      },
+      "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Silver refresh lanes, the lanes above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
+      "time_limit_minutes_means": "How long one run may run, in minutes: the one number for it (root ADR-0270 §1). The crate foundation-jobs renders it into the TimeoutStartSec= line of the job's systemd unit (`cargo run -p foundation-jobs -- generate`) and its test refuses a unit that says anything else, and jobs that share a unit with different limits. The scheduler's limit for one start is time_limit_minutes + stop_grace_minutes (see stop_grace_minutes_means).",
+      "stop_grace_minutes_means": "How much longer than time_limit_minutes the scheduler gives one start, in minutes: for the unit to stop and clean up (its TimeoutStopSec) and for the outcome to come back. One start's limit is time_limit_minutes + stop_grace_minutes, and every reader adds the two: the DAG's execution_timeout and SSH timeout and the starvation bound (orchestration/dags/job_specs.py scheduler_timeout_minutes), the deploy's wait for a started-once job (scripts/deploy/foundation-deploy.sh), and when the operations map calls a job late (foundation-api data_catalog/operations.rs). The crate foundation-jobs refuses a grace not longer than the unit's TimeoutStopSec (root ADR-0270 §1). It replaced timeout_minutes, which stated the sum by hand.",
+      "wait_limit_minutes_means": "How long one scheduled start may wait for the host before its run begins, in minutes (root ADR-0270 §2b, deploy D4): for a release build to finish or for its pool to have room. A start that is still blocked then runs nothing and says so. 0: it never waits. The rule here: a daily default_pool job waits up to 60 minutes (a release build took 2,590 s, measured 2026-10-03 in tools/release-build.contract.json); a job due every hour or half hour waits 0, since its next period is its retry; a spark-pool job waits 0, because a waiting start holds its pool slots and the folds' starvation bound (job_specs) has no room for it — one due during a build is deferred and started by the deploy, until the build leaves the host (root ADR-0276). The scheduler's limit for one start is this plus time_limit_minutes plus stop_grace_minutes (orchestration/dags/job_specs.py scheduler_timeout_minutes); a start the deploy makes directly does not wait and takes the run's limit alone (run_limit_minutes).",
+      "state_paths_means": "Where a job writes and keeps state across runs, as absolute paths (root ADR-0266). The crate foundation-jobs renders them into the ReadWritePaths= line of the job's ProtectSystem=strict systemd unit and its test refuses a unit that says anything else, and jobs that share a unit with other paths (root ADR-0270 §1). orchestration/dags/job_specs.py refuses a job script whose state root comes from an EnvironmentFile or defaults outside these paths.",
+      "state_directories_means": "Every directory the host makes for the jobs, with its mode and owner (account and group of that name; foundation-platform when not stated) (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group. No job writes /var/lib/foundation-platform/lakehouse-ivy: every Spark run mounts its release's frozen jars read-only as its Ivy cache (root ADR-0134), so that path is no state path and the release no longer makes it (2026-10-18; the folder is left on the host).",
+      "commits_means": "When a run commits what it writes (root ADR-0301, ADR-0308). at_end: one commit when the run finishes, so a run stopped midway loses all its work (the onbid collector, 2026-10-26: a timed-out run committed nothing); such a job is never interruptible. as_it_goes: it commits file by file, table by table or pack by pack, or writes nothing a stop could lose, so a stopped run loses at most the unit in progress and its next run continues. Every job states it, so a new collector cannot reach production without saying which; orchestration/tests/test_job_specs.py refuses a job that does not, and an at_end job that is interruptible.",
+      "scope_means": "What one run of the job processes when it has work (root ADR-0314): `changed-keys` only the keys whose content changed since the run before; `new-objects` only the source objects no earlier run recorded; `skip-if-unchanged` one indivisible input (a file, a release, a round, a table snapshot), and nothing when it is unchanged; `full` everything on every run, an exception that states full_reason (why), full_cost (what it measurably costs, dated) and full_tracked_by (the change that makes it partial, or why full is the right unit). scripts/guard/every-job-declares-its-scope.sh refuses a job without a scope, a full job without those three, and a full job tools/ci/full-scope-jobs.baseline.json does not list; that list only shrinks.",
+      "interruptible_means": "Whether a deploy may stop this job mid-run instead of waiting for it to finish (root ADR-0301). true: the job is append-only/resumable and a partial run is safe (a bake, rebuild, silver load, map-edit fold, boundary release, lakehouse maintenance, lineage, or a per-file-commit source sweep), so a deploy whose release holds it stops it at step 0, records it as owed a run and starts it when it gives the schedule back (root ADR-0308). false: stopping loses a run or leaves a half-written canonical result, so the deploy waits for it; every job whose `commits` is at_end is one (the collectors that commit at the end; they are short), and a few others. Every job states it; orchestration/tests/test_job_specs.py refuses a job that does not.",
+      "state_directories": [
+        {
+          "path": "/var/lib/foundation-platform/map-edit-fold",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/map-edit-fold/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-platform/lineage-stewardship",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/lineage-stewardship/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-platform/court-auction",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/court-auction/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-platform/registered-factory",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/registered-factory/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-platform/onbid",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/onbid/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-platform/real-transaction",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/real-transaction/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/metrics",
+          "mode": "0755",
+          "written_by": "the scheduled jobs' own Prometheus textfiles, each job one <name>.prom it replaces whole (root ADR-0330 §4); node-exporter reads the directory beside the deploy's (root ADR-0321 §5)"
+        },
+        {
+          "path": "/var/lib/foundation-platform/legal-dong-code",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/switches",
+          "mode": "0755",
+          "owner": "foundation-api",
+          "written_by": "foundation-api, the operator switches (root ADR-0282 §3); the gate and the runner only read them"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/switches/run-now.d",
+          "mode": "0755",
+          "owner": "foundation-api",
+          "written_by": "foundation-api, the run-now requests (root ADR-0282 §4); foundation-run-now.path watches it and the gate reads it"
+        },
+        {
+          "path": "/var/lib/foundation-platform/vworld-parcel-edition",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/parcel-editions",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/parcel-number-change",
+          "mode": "0755"
+        },
+        {
+          "path": "/data/foundation-platform/by-pnu-bake",
+          "mode": "0755"
+        },
+        {
+          "path": "/data/foundation-platform/source-sweep",
+          "mode": "0755"
+        },
+        {
+          "path": "/data/foundation-platform/silver-refresh",
+          "mode": "2770"
+        },
+        {
+          "path": "/data/foundation-platform/tile-bake",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/source-sweep",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/asset-reconcile",
+          "mode": "0755"
+        }
+      ],
+      "state_paths_not_created_here": {},
+      "enabled_means": "Airflow starts the job's service on the schedule here; its systemd timer is gone from infra/systemd and the release retires it from the host (ADR-0122 §4). A job runs in exactly one of the two places.",
+      "enabled_since_means": "When the job was switched on, UTC (root ADR-0239): every enabled job states it and a disabled job does not. A scheduled start before it is not a start the job missed, so the operations map never calls a job late for a slot from before it was on. The pull request that switches a job on sets it to the time it is merged; job_specs.py refuses an enabled job without it.",
+      "check_service_means": "A systemd service that only decides whether the job has work, and a run of it takes no pool slot (root ADR-0277). When a job names one, its DAG runs it first in default_pool as task `check`, through the same host command (`<job> check`, scripts/ops/start-scheduled-job.sh); its last line `foundation-job-check unchanged` skips the run, so a run with nothing to do never waits for its pool. Any other answer, or none, starts the run, which decides again for itself: the check only saves the wait. foundation-release.sh timers grants the scheduler the service as it grants the job's, and every job service's release admission applies to it.",
+      "started_by_means": "What starts a job (root ADR-0171). `schedule`: Airflow starts it at its schedule. `inputs`: Airflow starts it as soon as a run of another job reports that it changed one of the job's inputs (the pipeline-graph nodes its edges start from), and at its schedule as well, the fallback for what no event announces: a hand load, a run outside Airflow, a run while its DAG was paused, a failed or deferred run. Each input and output is an Airflow asset named by its data catalog dataset; which job feeds which is read from the edges here, never written down a second time. A run says whether it changed its outputs with a last line `foundation-job-outcome changed|unchanged`; only `unchanged` withholds its output events, so a job that does not say counts as changed. orchestration/dags/job_specs.py refuses an `inputs` job no listed job feeds, an enabled one whose feeders are all off, one that writes its own input, and jobs that start each other in a circle.",
+      "jobs": null,
+      "reconciles_means": "The jobs the asset reconciler starts by state rather than by event (root ADR-0333 §7, Kubernetes controllers and Dagster declarative automation are level-triggered the same way). Each named job is an enabled `inputs` job that makes exactly one asset (one output node of the pipeline graph): a Gold table, whose read versions are the source pins its commits record, or a by-PNU lane's section packs, whose read version is the Gold snapshot the lane's last run left served (by-pnu-serving-bake.sh appends it to the lane's reads.jsonl, and a failed run's failure); or a by-PNU bake whose every output is a lane's serving, each lane its own asset (by_pnu_serving_bake, until its lanes are jobs of their own). A job naming `reconciles` carries no pipeline-graph edges: it reads the inputs and outputs of the jobs it reconciles. orchestration/dags/job_specs.py refuses any other shape; scripts/ops/asset_reconcile.py and the reconciler's DAG read this list and nothing else.",
+      "started_once_after_deploy_means": "The release deploy (scripts/deploy/foundation-deploy.sh, root ADR-0159) starts the job once under the new release, after the switch and before the DAGs are unpaused; a failed run alerts through the unit's own OnFailure and the DAGs are unpaused regardless (root ADR-0173). It marks the jobs short enough to run inside a deploy; the long jobs are left to their schedule (the daily source sweep since root ADR-0172 lets it fetch everything it lacks, which can take hours).",
+      "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
+      "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
+      "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
+      "serving_surfaces_without_a_job": []
+    },
+    "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json": {
+      "schema_version": 2,
+      "generated_at_utc": "2026-09-12T00:00:00Z",
+      "owner": "foundation-platform",
+      "viewer_policy": {
+        "canonical_store": "foundation-platform",
+        "ui_state_store": "product-viewer"
+      },
+      "status_policy": "implemented는 코드 경로의 존재만 뜻한다. 운영 성공·배포 완료는 runtime 증거로 판단한다.",
+      "migration_notes": [
+        "v1의 원천별 수집·변환 작업 노드는 원천 그룹과 via로 합쳤다. 운영 조회에 쓰이는 노드 ID와 runtime_bindings는 보존했다.",
+        "silver.building_footprints와 JUSO 변환은 계약·생산자가 없어 제거했다.",
+        "canonical-silver-gold-live-write 및 postgis-mirror-and-dlq-schema의 과거 정적 차단 상태는 최신 계약·마이그레이션·runtime 증거로 대체한다.",
+        "silver.complex_parcel_memberships 및 gold.complex_spatial_locator는 생산자 없이 계약만 있어 연결선을 만들지 않는다.",
+        "vworldkr__sandan_profile·sandan_boundary 및 ILIS 주소 근거는 실제 생산 코드에서 확인한 연결이다. 다른 sandan 원천까지 연결되었다고 추정하지 않는다.",
+        "gold.building_panel·gold.parcel_panel의 by-PNU 서빙 내보내기(ADR-0096·0100)를 서빙 접점 노드로 추가했다. 이제 가드가 연결성(비-contract_only 표는 생산자·소비자 각 1개 이상)을 강제한다.",
+        "지역 코드 변경의 정본은 reference.legal_dong_code_change 하나다(루트 ADR-0145). ADR-0103 Wave 1 의 법정동코드 등록부와 저장된 시군구 대응표는 폐기했다: 읽는 곳이 없었고 운영 카탈로그에 표가 없었다. 시군구 대응표는 변경표의 view 이며 투영 파일이 그 파일 형태다. 폐기 대상 목록은 infra/lakehouse/contracts/region-code-holders.json 에 있다."
+      ],
+      "nodes": null,
+      "edges": null
+    },
+    "platforms/foundation-platform/config/r2-connections.contract.json": {
+      "schema_version": 2,
+      "provider": "cloudflare-r2",
+      "environment": "production",
+      "purpose": "Non-secret R2 connection metadata and environment-key contract for Foundation Platform.",
+      "profile_gateway": {
+        "worker_name": "foundation-profile-gateway",
+        "connection": "lakehouse",
+        "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+        "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+        "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+        "compatibility_date": "2026-04-26",
+        "object_key": {
+          "root": "gold/industrial-complex/profiles",
+          "artifact_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+          "suffix": ".json"
+        },
+        "cors": {
+          "grammar": "comma-separated-serialized-http-origins-v1",
+          "allow_wildcard": false,
+          "accepted": [
+            "https://app.example.test",
+            " http://localhost:3000 , https://app.example.test "
+          ],
+          "rejected": [
+            "*",
+            "file:///tmp/app",
+            "https://app.example.test/path"
+          ]
+        },
+        "content_type": "application/json; charset=utf-8",
+        "cache_control": "public, max-age=31536000, immutable"
+      },
+      "parcel_by_pnu_gateway": {
+        "worker_name": "foundation-parcel-gateway",
+        "public_hostname": "catalog.perfectory.io",
+        "public_hostname_aliases": [
+          "catalog.gongzzang.app"
+        ],
+        "connection": "lakehouse",
+        "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+        "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+        "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+        "compatibility_date": "2026-04-26",
+        "placement": {
+          "region": "aws:ap-northeast-1"
+        },
+        "placement_reason": "the same bucket and the same Korean traffic as the building gateway (building_by_pnu_gateway.placement_reason, measured 2026-10-06): an R2 read is ~40 ms at Tokyo against ~190 ms at LAX. Placement travels with the uploaded version, so the parcel Worker's code phase rolls it out and back like any other change",
+        "version_metadata_binding": "FOUNDATION_PLATFORM_WORKER_VERSION",
+        "version_header": "Foundation-Worker-Version",
+        "version_header_reason": "as the building gateway's (root ADR-0157): a canary step counts its pinned reads by the version that answered them",
+        "cpu_limit_ms": 50,
+        "cpu_limit_reason": "as the building gateway's (Workers Paid, root ADR-0151 Revision): an explicit limit of the contract's, inherited by the preview so the gate measures what the live Worker runs",
+        "object_key": {
+          "root": "serving/parcels/by-pnu",
+          "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+          "patch_dir_pattern": "p[1-9][0-9]{0,17}",
+          "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
+          "suffix": ".json",
+          "manifest_object": "serving/parcels/by-pnu/manifest.json",
+          "manifest_history_dir": "serving/parcels/by-pnu/manifest-history"
+        },
+        "request_path": {
+          "prefix": "/parcels/by-pnu/",
+          "capabilities": "/parcels/by-pnu/_capabilities",
+          "accepted_queries": []
+        },
+        "cors": {
+          "grammar": "comma-separated-serialized-http-origins-v1",
+          "allow_wildcard": false,
+          "accepted": [
+            "https://app.example.test",
+            " http://localhost:3000 , https://app.example.test "
+          ],
+          "rejected": [
+            "*",
+            "file:///tmp/app",
+            "https://app.example.test/path"
+          ]
+        },
+        "content_type": "application/json; charset=utf-8",
+        "cache_control": "public, max-age=3600",
+        "manifest_cache_control": "no-cache, max-age=0",
+        "manifest_edge_cache_seconds": 60,
+        "pack_only": true,
+        "pack_only_reason": "root ADR-0274: the section-pack bake no longer writes the per-PNU objects, so after a pack bake they hold an older document and are no rollback lever; the Worker answers from packs or not at all, and a rollback publishes the previous pack state (the publish command with ROLLBACK_TO_PREVIOUS_PACK_STATE), never objects. The objects stay in R2 untouched: deleting them is an owner decision, no sooner than 30 days after this cut-over deployed (append-only)",
+        "section_packs": {
+          "root": "serving/parcels/packs",
+          "sections": [
+            "documents"
+          ],
+          "anchor_section": "documents",
+          "sections_reason": "the parcel document is already one joined document per PNU (zonings, price, characteristics, forest ledger, transfer history, land rights), and the building lane showed that the Worker must hand out the stored member as it is rather than join fragments per request (root ADR-0151); one section holds it whole",
+          "preview_binding": "FOUNDATION_PLATFORM_PARCEL_PACK_PREVIEW",
+          "canary": {
+            "steps_percent": [
+              1,
+              10,
+              50,
+              100
+            ],
+            "hold_seconds": 900,
+            "min_requests_per_step": 200,
+            "reason": "as the building lane's (root ADR-0151 Revision, ADR-0157): a step holds 15 minutes, then needs min_requests_per_step pinned reads answered by the new version itself before its error rate, CPU and wall time are compared with the old one",
+            "analytics_min_coverage": 0.3,
+            "analytics_min_coverage_reason": "as the building lane's: Workers analytics is sampled and late, so whether reads reached the new version is judged from the pinned answers and analytics only for CPU, cut-offs and errors",
+            "synthetic_load": {
+              "requests_per_second": 5,
+              "duration_seconds": 60,
+              "max_in_flight": 16,
+              "reason": "as the building lane's: before launch the live hostname carries too few requests for a step to reach min_requests_per_step, so each step reads 300 gate-sample PNUs, drawn by the new version id, from the live hostname pinned to each version"
+            }
+          },
+          "monitor": {
+            "pnus": 20,
+            "latency_p95_max_ms": 3000,
+            "reason": "as the building lane's: hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance parcel), 20 PNUs from the gate sample read from the live hostname and held to the document the lane serves (the packs once the manifest names them); a 5xx, a document that differs, or a p95 above the bound is an alert. The per-PNU objects are not compared: the section-pack bake no longer writes them, so after a pack bake they hold an older document (2026-10-17)"
+          },
+          "preview_worker": {
+            "wrangler_env": "preview",
+            "worker_name": "foundation-parcel-gateway-preview",
+            "public_hostname": "catalog-preview.perfectory.io"
+          },
+          "scheduled_bake": {
+            "job": "by_pnu_serving_bake",
+            "capability": "parcel_section_pack_patches"
+          }
+        }
+      },
+      "parcel_media": {
+        "purpose": "content-addressed 미디어(경매·공매 공용, 내용해시 write-once)를 공개 서빙한다. 파일명이 곧 내용해시라 immutable·1년 캐시·egress 0 이고, 필지 엣지(parcel lane = catalog.perfectory.io)에서 해시 규칙 하나로 서빙한다(ADR-0296 §5 / ADR-0297 §5, 새 호스트·새 버킷 없음 — parcel_by_pnu_gateway 가 이미 바인딩한 lakehouse 버킷의 onbid/media 를 읽기만 한다). 원본 서빙 MVP: 표시 크기 사다리·엣지 변환은 디자인이 정해지면 가산적으로(ADR-0297 §4). SSOT: 미디어 키·형식 판정 = foundation-shared-kernel media.rs, 쓰기 접두어 = data-go-kr-onbid.contract.json media.object_prefix(onbid/media).",
+        "lane": "parcel",
+        "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+        "path_pattern": "onbid/media/sha256/[0-9a-f]{64}\\.(?:jpg|png|gif|pdf)",
+        "cache_control": "public, max-age=31536000, immutable",
+        "decision": "docs/adr/0297-parcel-media-captures-originals-first-and-pre-generates-display-sizes.md"
+      },
+      "connections": {
+        "lakehouse": {
+          "required_env": [
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ACCOUNT_ID",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_ENDPOINT",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_WRITER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_LAKEHOUSE_READER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_PARCEL_PUBLICATION_EVIDENCE_WRITER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL"
+          ],
+          "expected_values": {
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET": "foundation-platform-lakehouse-prod",
+            "FOUNDATION_PLATFORM_R2_LAKEHOUSE_REGION": "auto"
+          }
+        },
+        "tile_derivatives": {
+          "required_env": [
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ACCOUNT_ID",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_ENDPOINT",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX",
+            "FOUNDATION_PLATFORM_TILE_DERIVATIVES_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_TILE_DERIVATIVES_WRITER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_TILE_DERIVATIVES_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_TILE_DERIVATIVES_READER_SECRET_ACCESS_KEY"
+          ],
+          "expected_values": {
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET": "foundation-platform-tile-derivatives-prod",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_REGION": "auto",
+            "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX": "gold/vector-tiles/releases"
+          }
+        },
+        "postgres_recovery": {
+          "required_env": [
+            "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET",
+            "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST",
+            "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_WRITER_SECRET_ACCESS_KEY",
+            "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_POSTGRES_RECOVERY_READER_SECRET_ACCESS_KEY"
+          ],
+          "expected_values": {
+            "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET": "foundation-platform-postgres-recovery-prod"
+          }
+        },
+        "shape_ledger": {
+          "required_env": [
+            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET",
+            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST",
+            "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_ACCESS_KEY_ID",
+            "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_SECRET_ACCESS_KEY"
+          ],
+          "expected_values": {
+            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET": "foundation-platform-shape-ledger-prod"
+          }
+        }
+      },
+      "by_pnu_serving_patches": {
+        "decision": "docs/adr/0141-by-pnu-serving-publishes-changed-documents-as-patch-generations.md",
+        "manifest_schema_version": 2,
+        "max_patches": 7,
+        "manifest_patch_ceiling": 64,
+        "max_cumulative_change_ratio": 0.25,
+        "cumulative_change_break_even_ratio": 0.29,
+        "max_cumulative_change_ratio_reason": "Root ADR-0274 §2, measured in the bake journal 2026-10-08..17: a full bake of a one-section lane runs at 7.8-9.1 thousand documents per second (parcel generation 3, 39,861,511 in 85m05s; transfer history generation 3, 39,802,785 in 72m54s); a patch at 2.6 thousand per second (forest ledger, 250,845 in 1m38s) to 4.7 thousand per second after a fixed 5m22s (parcel). The patch stops being cheaper at 11.4M-20.6M of a 40M lane, 29-52% of the base: cumulative_change_break_even_ratio is the low end, and the bound sits under it. Read cost is bounded by max_patches and the Worker's per-prefix patch skip, not by this ratio. On 2026-10-17 transfer history's 7,173,987 changes (18%) went full at 0.05 (73 minutes); at 0.25 they are a patch (25-46 minutes). Measured on lanes of one section; the contract refuses a lane of more sections until they are measured.",
+        "max_delta_fraction": 0.5,
+        "over_max_delta_fraction": {
+          "decision": "docs/adr/0346-a-change-set-over-the-delta-bound-goes-full-when-a-record-explains-it.md",
+          "explained_by": [
+            "recorded_change_set",
+            "code_version",
+            "document_schema"
+          ],
+          "reason": "Root ADR-0346: a change set over max_delta_fraction is past the measured break-even (cumulative_change_break_even_ratio), so a full bake is the cheaper way to publish it (building: 19 minutes, measured 2026-10-29). It goes full when a record explains it: every Gold commit between the two snapshots recorded its changed keys (ADR-0312), the code version both commits record differs (ADR-0321), or the bake states a document schema revision (ADR-0320; 2026-10-29 parcel-forest-ledger v1 -> v2, 39,715,931 of 39,703,956). Otherwise it is refused and the run names the counts and the records it checked: same code, same document schema and no recorded change set is a fingerprint drift or a wrong baseline (ADR-0099 §5). On 2026-10-29 the building lane was refused so: 5,946,006 of 5,945,309 differed between two whole overwrites that recorded nothing, 99.8% of it (measured in sido 41) source file-line ids in the documents (ADR-0331)."
+        },
+        "pnu_prefix_length": 5,
+        "tombstone_schema_version": "foundation-platform.by_pnu_serving_tombstone.v1",
+        "tombstone_max_bytes": 512
+      },
+      "by_pnu_section_packs": {
+        "decision": "docs/adr/0147-by-pnu-documents-are-served-from-section-packs.md",
+        "magic": "FPNUPACK",
+        "format_version": 1,
+        "wide_key_format_version": 2,
+        "max_key_bytes": 64,
+        "wide_key_format_version_reason": "root ADR-0204: a lane whose document key is a PNU and a suffix (unit-price: the 19-digit PNU and a 36-character building id) writes format 2, whose header states key_length; its index entries are key_length + 9 bytes. A pack whose keys are 19-digit PNUs stays format 1 byte for byte, so the parcel and building packs already served are never re-baked. Every key of one pack has one length; a key begins with the 19-digit PNU of the pack's dong and its suffix is printable ASCII without '/'. max_key_bytes bounds a key so an index entry stays small",
+        "manifest_section_packs_schema_version": 3,
+        "manifest_section_packs_parted_schema_version": 4,
+        "manifest_section_packs_parted_schema_version_reason": "a section_packs block whose sections name a parts index is version 4 (root ADR-0163): a Worker that reads only 3 would look a parted dong up under its unparted key and miss, so it must refuse the block instead. A block without parts stays 3, so the daily bake of an unparted generation never needs a newer Worker",
+        "parts": {
+          "part_target_bytes": 131072,
+          "part_target_bytes_reason": "half of read_path.whole_pack_max_bytes (262144): a dong of total size S is cut into ceil(S / 131072) parts by hash, so a part averages at most 128 KiB and stays under the 256 KiB whole-read bound with room for the hash's spread; the bake refuses any part above whole_pack_max_bytes rather than serve it by head and range (root ADR-0163)",
+          "hash": "fnv1a32",
+          "hash_definition": "FNV-1a, 32 bit: h = 0x811c9dc5; for each ASCII byte b of the 19-digit PNU: h = (h xor b) * 0x01000193 mod 2^32. A PNU's part is h mod K, K the dong's part count",
+          "hash_test_vectors": [
+            {
+              "input": "a",
+              "fnv1a32": 3826002220
+            },
+            {
+              "input": "foobar",
+              "fnv1a32": 3214735720
+            },
+            {
+              "input": "9999900000100000000",
+              "fnv1a32": 3542029603
+            },
+            {
+              "input": "9999900000100010000",
+              "fnv1a32": 4070446944
+            },
+            {
+              "input": "9999900000200000000",
+              "fnv1a32": 4072006550
+            }
+          ],
+          "unit_pattern": "[0-9]{10}(-[0-9]{1,4})?",
+          "unit_pattern_reason": "a dong of one part keeps its unparted unit (the dong code); a dong of K > 1 parts writes one pack per part under {dong}-{part}, part in 0..K-1",
+          "index_file_name": "parts.json",
+          "index_schema_version": "foundation-platform.by_pnu_pack_parts.v1",
+          "index_reason": "the part count of every dong with more than one part, one immutable object per section generation ({root}/{section}/g{n}/parts.json, create-only); the manifest names it by key and sha256 and the Worker reads it once per isolate, since the manifest itself is parsed on every request and cannot carry ~19,000 counts"
+        },
+        "unit_prefix_length": 10,
+        "compression": "gzip",
+        "suffix": ".pack",
+        "generation_dir_pattern": "g[1-9][0-9]{0,17}",
+        "patch_dir_pattern": "p[1-9][0-9]{0,17}",
+        "content_type": "application/octet-stream",
+        "cache_control": "public, max-age=31536000, immutable",
+        "max_index_entries": 1000000,
+        "freshness_budget_hours": 48,
+        "freshness_budget_hours_reason": "root ADR-0306: the hourly serving monitor (foundation-by-pnu-serving-monitor@<lane>) fails when a lane's served manifest was published longer ago than this. Every lane is refreshed by the one daily by_pnu_serving_bake (orchestration/jobs.v1.json, 10:15 UTC), whose every publish (patch, full or reflect) rewrites published_at_utc, and its Gold is rebuilt daily; so a healthy lane is at most about 24 h plus one bake old, and a full bake took 13 h and more (2026-10-23), which 36 h would report as a breach. 48 h is two daily turns: one whole missed turn fires it, on the second day. public-auction is collected hourly but rebuilt and baked daily like the rest, so it gets no tighter bound until it bakes more often. 2026-10-28: every lane served a 10-16..10-18 manifest for 10-12 days while each monitor run passed",
+        "edge_probe": {
+          "decision": "docs/adr/0327-a-worker-deploy-and-a-quarter-hourly-probe-read-what-users-read-twice.md",
+          "reads": 2,
+          "reads_reason": "2026-10-29: every onbid photo GET after the first answered 500 on catalog.perfectory.io (the version header was set on a cache hit's immutable headers), while the HEAD check after the change and every first read passed. The edge copy is shared by every version, so the first read of a version may already be a hit and the second always is: each probe reads a document and a blob twice with GET and holds both answers",
+          "read_timeout_seconds": 20,
+          "user_agent": "perfectory-edge-probe/1 (root ADR-0327)",
+          "scan_documents": 20,
+          "scan_documents_reason": "the probe reads a lane's gate sample (written on the host at the cut-over, so no PNU enters the repository) in order and holds the first entry the edge does not answer 404: a public auction ends and its PNU's document goes, so the first entry alone would alert on a lane that serves. At most this many single reads before the lane is a failure",
+          "media": {
+            "documents_lane": "parcel-public-auction",
+            "reason": "the blobs the parcel edge serves (parcel_media) are named by the served public auction documents (rounds[].photos[], sha256 and media_format); the probe takes the first one the lane's sample documents name, read from the edge within scan_documents, so no hash enters the repository. A sample that names none has no blob a user can reach, and the media read is skipped and said so"
+          }
+        },
+        "superseded_generation_keep_days": 7,
+        "superseded_generation_keep_days_reason": "root ADR-0242: a pack generation the manifest no longer names is kept this long after the generation that replaced it went live (the first manifest naming it), as the rollback, and then its objects are deleted by retire-<lane>-superseded-pack-generations: serving copies are rebuilt from Gold, which stays the source, so a second full copy is not kept for good",
+        "preview_query_parameter": "packs",
+        "cloudflare_analytics": {
+          "account_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ACCOUNT_ID",
+          "api_token_env": "FOUNDATION_PLATFORM_ANALYTICS_READER_TOKEN",
+          "zone_id_env": "FOUNDATION_PLATFORM_CLOUDFLARE_ZONE_ID",
+          "token_scope": "Account > Account Analytics: Read (the account's Workers invocations) and Zone > Analytics: Read on the live hostname's zone (its HTTP responses by status)",
+          "reason": "the gate reads the preview Worker's CPU and cut-offs from Workers analytics, and a canary step also counts the live hostname's 5xx from zone analytics, because a Worker's own 503 is a success invocation in Workers analytics; Cloudflare's GraphQL Analytics API serves account datasets to Account Analytics and zone datasets to zone Analytics, so the canary needs both and its preflight runs both queries. The token is read only through the environment file config/runtime-secrets.contract.json names for these variables (group cloudflare-analytics, root:root 0600), never from the repository or a shell; the zone id is required beside it for a canary step"
+        },
+        "read_path": {
+          "whole_pack_max_bytes": 262144,
+          "whole_pack_max_bytes_reason": "the bound a part of a dong cut into parts (root ADR-0163) was held to so the Worker could read it whole; since root ADR-0233 the Worker reads every pack by head and range and a base bake no longer cuts, so it only bounds a patch over a generation baked in parts, and retires with the last such generation",
+          "request_cpu_budget": {
+            "document_max_bytes": 262144,
+            "pack_head_max_bytes": 1048576,
+            "reason": "root ADR-0233: every pack is read by one rule, its head (prefix, header and index, kept in isolate memory) then the one document by range, passed through as stored; a request's Worker CPU must not grow with the data, so the bytes a request copies are bounded here and the bake refuses a document or a pack head past them: a document (its gzip member) at most 256 KiB, a head at most 1 MiB. Measured 2026-10-14 on the served bytes: the largest document 256,326 bytes (building), the largest head 720,333 bytes (parcel bundle, about 25,700 entries). The Worker never decompresses a member: a client that does not accept gzip is answered by the edge's own conversion (gunzip cost 5.8 ms per decompressed MB in V8, and building documents reach 11.5 MB)",
+            "pages": {
+              "decision": "docs/adr/0325-a-document-past-one-request-is-served-as-pages.md",
+              "page_target_bytes": 196608,
+              "max_pages": 64,
+              "request_path": "<prefix><pnu>/<page>, page a decimal from 2 to max_pages without a leading zero; the bare <prefix><pnu> is page 1",
+              "reason": "root ADR-0325: on 2026-10-28 one building document (a PNU of a large complex) compressed to 268,404 bytes, above document_max_bytes, and PackWriter refused it six times, so the whole building lane published nothing and served 585-hour-old documents. A document whose gzip member passes document_max_bytes is now served as pages instead: each page is a whole document of its own schema (building_by_pnu_page) naming its index and the page count, its member at most page_target_bytes (75% of document_max_bytes, the warning line of root ADR-0252 §6, so a page that grows by a quarter still fits), and the pack header's pages table names each page's member length, so a request still copies one member and the head it already holds. Measured 2026-10-28 on Gold (read-only, calibrated to the refused document): 17 building documents are above document_max_bytes (largest about 483 KB, 3 pages), 63 above 75% of it, 248 above half; every other is below 75 KB. max_pages bounds what a client follows; a document that cannot be paged within it is withheld (root ADR-0325 §4), never refused for the whole lane"
+            }
+          },
+          "memory_budget_bytes": 33554432,
+          "r2_attempts": 3,
+          "r2_retry_base_ms": 40,
+          "r2_deadline_ms": 6000,
+          "r2_attempt_timeout_ms": 2000,
+          "r2_retry_scope": "the manifest read and every pack read of one request share these attempts and one deadline",
+          "r2_retry_scope_reason": "the manifest read had no retry while the pack reads did, so one transient R2 error on it answered 503 at once: on 2026-10-18 18:19Z the hourly parcel-transfer-history monitor got one 503 of 20 on the live hostname, Workers analytics showed no exception (the Worker answered the 503 itself), the same request answered 200 a minute later, and the Worker had no outage class to say which read it was",
+          "outage_header": "Foundation-Outage",
+          "outage_header_reason": "every 503 names its class (manifest-unavailable, manifest-invalid, no-section-packs, r2-unavailable, pack-inconsistent, unexpected) on the live route too, and the monitor and canary record it beside the status: the 2026-10-18 503 could not be traced because only a preview version said why it answered as it did",
+          "r2_attempt_timeout_reason": "each R2 attempt was bounded only by what was left of r2_deadline_ms, so one stalled read spent the whole deadline and no retry ever started: the one 503 of the 2026-10-05 1,000-PNU preview probe took 6.44 s at the client, the deadline plus the client path, on a 1 MiB pack (head + range). Measured 2026-10-06 over 3,000 preview reads (LAX and Tokyo placement), a single R2 attempt took at most 1.4 s (p99 1.3 s, a first read of a never-read pack); 2 s abandons only a stall and leaves room for a second attempt within the deadline"
+        },
+        "cutover_gate": {
+          "evidence_schema_version": "foundation-platform.by_pnu_section_pack_gate_evidence.v1",
+          "latency_sample_size": 10000,
+          "sample_seed": "foundation-platform.section-pack-cutover.v1",
+          "sample_candidates_per_million": 2000,
+          "probe_concurrency": 8,
+          "probe_concurrency_reason": "the 2026-10-05 sequential probe took 3h45m for 10,000 PNUs; 8 requests in flight finish the sample within 30 minutes while each read is still timed on its own",
+          "worker_cpu_p99_max_ms": 10,
+          "worker_cpu_reason": "on 2026-10-05, under Workers Free (10 ms CPU per request), the preview's old join path (CPU p50 8.0 ms, p99 19.8 ms) hit 325 exceededResources (error 1102, HTTP 503) in 11 minutes. The account is on Workers Paid since 2026-10-06, which has no 10 ms cut-off (cpu_limit_ms is ours). The first bound, 5 ms, was set from the object path at LAX (CPU p50 1.95 ms) and sat below the paths themselves at the placement the Worker now runs at: on 2026-10-06 the canary's code phase measured the live object path at Tokyo (aws:ap-northeast-1) at p50 2.93 ms and p99 5.67 ms against 1.76 and 3.70 ms for the old version at LAX, and the preview's pack path at Tokyo at p99 6.4 ms, so the gate rolled back a version that held every other bound. 10 ms is above every measured healthy path with about half again as headroom, and five times below cpu_limit_ms. The gate demands p99 within it and no exceededResources, read from Workers analytics for the probe window",
+          "worker_cpu_p99_max_increase_ms": 4,
+          "worker_cpu_increase_reason": "a canary step also holds the new version's CPU p99 to the old version's p99 plus this much, both read from Workers analytics over the step, so a version that doubles the cost of a cheap path is refused even while it stays under worker_cpu_p99_max_ms. 2026-10-06: the code phase's new version measured p99 5.67 ms against 3.70 ms for the old (+1.97 ms, the same object-path code moved from LAX to Tokyo placement), and single minutes of it reached 12.9 ms, so 4 ms admits a placement move and still refuses a path that adds a full old p99 on top",
+          "comparison_reason": "the pack path is compared with the object path it replaces as served by the same preview Worker (its URL without the pack query): same code, same placement, edge copies named by its own version, both sides saying in Server-Timing where they answered from. 2026-10-07: compared with the production route, whose edge copies of the fixed sample earlier probes had warmed, the pack side read R2 for every cold read (5,816 of 5,816) while the object side could not say how it answered; cold p50 +42 ms and warm p50 +54 ms measured R2 reads against cache hits. The gate holds both sides' cold reads to cold_reads_not_from_r2_max_share, and only the preview's object path says where it answered from",
+          "no_gzip_sample_size": 200,
+          "no_gzip_sample_reason": "the paired reads and the load phase ask for gzip as browsers do, so the pack answer must be the stored member passed through (Content-Encoding: gzip); a client that does not accept gzip is answered by the edge's conversion of that member (root ADR-0233: the Worker never decompresses), and 200 of the sample PNUs read that way must answer 200 without Content-Encoding and with the same content",
+          "slo": {
+            "availability_min": 0.9995,
+            "availability_reason": "the owner's bound for the pack path: at most one non-200 answer in 2,000 for PNUs the lane serves, counted over the paired probe and the load phase",
+            "latency_max_increase_ms": {
+              "cold": {
+                "p50": 50,
+                "p95": 50,
+                "p99": 150
+              },
+              "warm": {
+                "p50": 50,
+                "p95": 50,
+                "p99": 150
+              }
+            },
+            "latency_reason": "the pack path may not be noticeably slower than the object path it replaces: 50 ms at p50 and p95 is below a perceptible panel delay; p99 gets 150 ms because the tail is dominated by the client-to-edge path (2026-10-05: ai-server to LAX p95 3-4 s on both routes)",
+            "cold_reads_not_from_r2_max_share": 0.01,
+            "cold_reads_not_from_r2_reason": "the cold bound is about a first read, which the Worker answers from R2; a cold read the preview answered from its edge copy or from isolate memory was warmed by an earlier run and measures a cache instead. 2026-10-07: gate (b) passed with 9,952 of 10,000 cold reads answered from edge copies that earlier runs of the same sample had left under the preview's fingerprint, so the pack path's first read was measured 45 times. The probe counts each cold read by where its sections came from (Server-Timing) and the gate holds the share not read from R2 to this bound; the preview's fingerprint names its Worker version, so a fresh preview upload starts cold"
+          },
+          "load_test": {
+            "requests_per_second": 25,
+            "duration_seconds": 600,
+            "max_in_flight": 64,
+            "reason": "25 requests/s for 10 minutes is 15,000 reads, the Workers Free daily cap (100,000) compressed into a tenth of an hour, and above any launch-day panel rate the product has planned; the PNUs are the gate sample drawn with replacement, so legal dongs repeat and the mix holds cold and warm reads"
+          },
+          "latency_waivers": [
+            {
+              "lane": "parcel-by-pnu",
+              "generation": 1,
+              "latency_evidence_sha256": "64482ef5c9d0a896b6ce0a9196eb6b8797b768f26cf7716176effe146d3c427c",
+              "decided_on": "2026-10-08",
+              "reason": "owner decision before launch: publish parcel documents/g1 although cold first reads are +214 ms at p50 and +206 ms at p95 (bound +50) and Worker CPU p99 is 10.9 ms (bound 10). Content matched for all 39,861,511 PNUs (gate 가) and for every probe answer; warm reads are 114 ms faster. Cause: parcel packs are large (median 1.67 MB, 3% within the 256 KiB one-read size), so a cold read takes two R2 round trips; splitting large packs is deferred by the owner"
+            }
+          ],
+          "latency_waivers_reason": "a waiver is the owner accepting one measurement, pinned by the evidence file's sha256: it accepts that file's latency and CPU verdict and nothing else (lane, generation, sample, environment and every compared answer must still hold), and a new measurement is judged again (root ADR-0162)"
+        }
+      },
+      "building_by_pnu_gateway": {
+        "worker_name": "foundation-building-gateway",
+        "public_hostname": "buildings.perfectory.io",
+        "public_hostname_aliases": [
+          "buildings.gongzzang.app"
+        ],
+        "connection": "lakehouse",
+        "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+        "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+        "public_base_url_env": "FOUNDATION_PLATFORM_R2_LAKEHOUSE_PUBLIC_BASE_URL",
+        "compatibility_date": "2026-04-26",
+        "placement": {
+          "region": "aws:ap-northeast-1"
+        },
+        "placement_reason": "the bucket's location is APAC and the Worker reads it on every cold answer, while this zone's Korean traffic enters at LAX. Measured 2026-10-06 from ai-server, 1,000 PNUs per run, live copy and preview at the same placement: an R2 read of an object read before takes ~190 ms run at LAX, ~40 ms at Tokyo (aws:ap-northeast-1), ~70 ms at Seoul (aws:ap-northeast-2) and ~120 ms at Singapore (aws:ap-southeast-1). At Tokyo a cold pack answer is within the cut-over bounds of the object path (ADR-0154); the object path's own edge-cache hits pay the LAX-Tokyo hop (warm p50 444 -> 553 ms), which is what makes the pack path's edge copies affordable to drop. Placement travels with the uploaded version (2026-10-06, a throwaway Worker split 50/50 between an unplaced version and one uploaded with this hint answered both unplaced and remote-NRT), so the canary's code phase rolls it out and back like any other change",
+        "version_metadata_binding": "FOUNDATION_PLATFORM_WORKER_VERSION",
+        "version_header": "Foundation-Worker-Version",
+        "version_header_reason": "every answer names the Worker version that produced it (the version metadata binding's id), so a canary step counts its pinned reads by the version that actually served them instead of trusting Workers analytics to have counted them, which is sampled and minutes late (2026-10-06: 137 of 300). A version id is not a secret: Cloudflare's own version-override header that pins a request takes the same id",
+        "cpu_limit_ms": 50,
+        "cpu_limit_reason": "the account is on Workers Paid (2026-10-06), whose default CPU limit is 30 s per request; an explicit limit keeps a runaway request from billing seconds of CPU. 50 ms is five times the cut-over gate's CPU p99 bound (worker_cpu_p99_max_ms) and above every measured path: the object path runs at CPU p50 1.95 ms, the pack path passes the gzip member through, and the decompressing path for a client without gzip does one gunzip and no parse, a subset of the old four-section join that measured CPU p99 37.5 ms",
+        "object_key": {
+          "root": "serving/buildings/by-pnu",
+          "generation_dir_pattern": "v[1-9][0-9]{0,17}",
+          "patch_dir_pattern": "p[1-9][0-9]{0,17}",
+          "pnu_pattern": "[0-9]{10}[1289][0-9]{8}",
+          "suffix": ".json",
+          "manifest_object": "serving/buildings/by-pnu/manifest.json",
+          "manifest_history_dir": "serving/buildings/by-pnu/manifest-history"
+        },
+        "request_path": {
+          "prefix": "/buildings/by-pnu/",
+          "capabilities": "/buildings/by-pnu/_capabilities",
+          "accepted_queries": [
+            "schema=2"
+          ],
+          "accepted_queries_reason": "the exact schema query separates v2 browser and edge caches from year-only documents; any other query is refused, so a client cannot shape the cache"
+        },
+        "cors": {
+          "grammar": "comma-separated-serialized-http-origins-v1",
+          "allow_wildcard": false,
+          "accepted": [
+            "https://app.example.test",
+            " http://localhost:3000 , https://app.example.test "
+          ],
+          "rejected": [
+            "*",
+            "file:///tmp/app",
+            "https://app.example.test/path"
+          ]
+        },
+        "content_type": "application/json; charset=utf-8",
+        "cache_control": "public, max-age=3600",
+        "manifest_cache_control": "no-cache, max-age=0",
+        "manifest_edge_cache_seconds": 60,
+        "pack_only": true,
+        "pack_only_reason": "as the parcel gateway's (root ADR-0274): the pack bake no longer writes the per-PNU objects, so the Worker answers from packs or not at all and a rollback publishes the previous pack state, never objects; the objects stay in R2 untouched until an owner decides, no sooner than 30 days after this cut-over deployed (append-only)",
+        "section_packs": {
+          "root": "serving/buildings/packs",
+          "sections": [
+            "documents"
+          ],
+          "anchor_section": "documents",
+          "preview_binding": "FOUNDATION_PLATFORM_BUILDING_PACK_PREVIEW",
+          "canary": {
+            "steps_percent": [
+              1,
+              10,
+              50,
+              100
+            ],
+            "hold_seconds": 900,
+            "min_requests_per_step": 200,
+            "reason": "Cloudflare gradual deployments split by request; a step holds 15 minutes, then needs min_requests_per_step pinned reads answered by the new version itself (each answer names the version that served it in version_header) before its error rate, CPU and wall time are compared with the old one",
+            "analytics_min_coverage": 0.3,
+            "analytics_min_coverage_reason": "Workers analytics (workersInvocationsAdaptive) is sampled and late: its sum of requests is already scaled by the sample interval, but on 2026-10-06 it had counted 137 of the 300 pinned reads the new version answered (old version: 296 of 300) when the gate's ten-minute wait ran out, and 304 once the late rows arrived. So whether reads reached the new version is judged from the pinned answers, and analytics is used only for CPU, cut-offs and errors, which a sample answers; it must still have counted this share of the new version's pinned answers, so an analytics answer about the wrong version or window cannot pass as clean",
+            "synthetic_load": {
+              "requests_per_second": 5,
+              "duration_seconds": 60,
+              "max_in_flight": 16,
+              "reason": "before launch the live hostname carries a few requests an hour, so 1% of real traffic never reaches min_requests_per_step (it would take about 20,000 live requests in a 15-minute hold). Each step therefore reads 300 gate-sample PNUs from the live hostname at each of the two versions, pinned with Cloudflare's Cloudflare-Workers-Version-Overrides header (honoured only for a version in the current deployment), counts the answers that name the new version in version_header (a misdirected pin shows up as too few of them), and judges each version on its own answers (every one 200 and gzip) as well as on analytics. The PNUs are drawn by the new version id (load::canary_draw): with one fixed draw every rollout read the PNUs earlier runs had left in the old version's edge copies while the new version read them from R2, and on 2026-10-07 the 1% step refused a healthy version on CPU, cold against warm"
+            }
+          },
+          "monitor": {
+            "pnus": 20,
+            "latency_p95_max_ms": 3000,
+            "reason": "hourly (infra/systemd/foundation-by-pnu-serving-monitor@.timer, instance building), 20 PNUs from the gate sample read from the live hostname and held to the document the lane serves (the packs once the manifest names them; the per-PNU objects are not compared, the section-pack bake no longer writes them): a 5xx, a document that differs, or a p95 above what the ai-server-to-edge path shows on a good hour (2026-10-05: about 1-3 s) is an alert"
+          },
+          "preview_worker": {
+            "wrangler_env": "preview",
+            "worker_name": "foundation-building-gateway-preview",
+            "public_hostname": "buildings-preview.perfectory.io"
+          },
+          "scheduled_bake": {
+            "job": "by_pnu_serving_bake",
+            "capability": "building_section_pack_patches"
+          }
+        }
+      },
+      "vector_tile_gateway": {
+        "worker_name": "foundation-tile-gateway",
+        "public_hostname": "tiles.perfectory.io",
+        "public_hostname_aliases": [
+          "tiles.gongzzang.app"
+        ],
+        "connection": "tile_derivatives",
+        "r2_binding": "FOUNDATION_PLATFORM_TILE_DERIVATIVES",
+        "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+        "compatibility_date": "2026-04-26",
+        "object_key": {
+          "root": {
+            "expected_value": "FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX"
+          },
+          "source_id_pattern": "[a-z][a-z0-9_]{0,63}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+          "suffix": ".pmtiles"
+        },
+        "max_zoom": 24,
+        "content_type": "application/vnd.mapbox-vector-tile",
+        "cache_control": "public, max-age=31536000, immutable",
+        "cors": {
+          "grammar": "comma-separated-serialized-http-origins-v1",
+          "allow_wildcard": false,
+          "accepted": [
+            "https://app.example.test",
+            " http://localhost:3000 , https://app.example.test "
+          ],
+          "rejected": [
+            "*",
+            "file:///tmp/app",
+            "https://app.example.test/path"
+          ]
+        },
+        "patches": {
+          "decision": "docs/adr/0323-parcel-tiles-patch-only-the-tiles-changed-parcels-touch.md",
+          "units": [
+            "parcels",
+            "zoning"
+          ],
+          "manifest_suffix": ".patches.json",
+          "manifest_schema_version": "foundation-platform.vector_tile_patches.v1",
+          "patch_infix": ".patch-",
+          "manifest_cache_seconds": 60,
+          "cache_control": "public, max-age=3600",
+          "max_patched_tile_ratio": 0.05,
+          "max_patched_tile_ratio_reason": "Root ADR-0111 §9's initial compaction point (5% of the base's tiles), under Mapbox Tiling Service's advice to retile in full above 15% changed. Above it the bake is a full one and makes a new base. The 202606 to 202609 editions moved 0.26% of PNUs in and out where no region was reorganized and 16.2% where one was (root ADR-0251): the first is a patch, the second a new base."
+        }
+      },
+      "map_edit_gateway": {
+        "worker_name": "foundation-map-edit-gateway",
+        "public_hostname": "map-edits.perfectory.io",
+        "public_hostname_aliases": [],
+        "d1_binding": "FOUNDATION_PLATFORM_MAP_EDITS",
+        "d1_database_name": "foundation-map-edits",
+        "allowed_origins_binding": "FOUNDATION_PLATFORM_CORS_ALLOWED_ORIGINS",
+        "write_token_binding": "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN",
+        "compatibility_date": "2026-04-26",
+        "units": {
+          "complex": {
+            "feature_id_property": "complex_id",
+            "feature_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "properties": {
+              "official_complex_code": "string"
+            }
+          },
+          "admin": {
+            "feature_id_property": "administrative_unit_id",
+            "feature_id_pattern": "[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+            "properties": {
+              "scope_kind": "string",
+              "canonical_code": "string",
+              "display_name": "string"
+            }
+          }
+        },
+        "geometry": {
+          "types": [
+            "Polygon",
+            "MultiPolygon"
+          ],
+          "bounds_wgs84": [
+            124.0,
+            32.9,
+            132.0,
+            38.9
+          ],
+          "bounds_wgs84_review": "public-repository-safety: reviewed-runtime-coordinate — the national extent an edit must fall inside, not a place",
+          "max_vertices": 20000,
+          "max_body_bytes": 1048576
+        },
+        "max_pending_edits_per_unit": 5000,
+        "real_user_metrics": {
+          "path": "/rum",
+          "analytics_engine_binding": "GONGZZANG_WEB_RUM",
+          "analytics_engine_dataset": "gongzzang_web_rum",
+          "metrics": [
+            "LCP",
+            "INP",
+            "CLS",
+            "TTFB",
+            "panel_data_ready"
+          ],
+          "lane_pattern": "[a-z][a-z-]{0,23}[.][a-z][a-z-]{0,23}",
+          "max_body_bytes": 4096,
+          "max_metrics": 32,
+          "max_value": 600000
+        },
+        "overlay_cache_control": "public, max-age=0, must-revalidate",
+        "content_type": "application/json; charset=utf-8",
+        "cors": {
+          "grammar": "comma-separated-serialized-http-origins-v1",
+          "allow_wildcard": false,
+          "accepted": [
+            "https://app.example.test",
+            " http://localhost:3000 , https://app.example.test "
+          ],
+          "rejected": [
+            "*",
+            "file:///tmp/app",
+            "https://app.example.test/path"
+          ]
+        }
+      },
+      "by_pnu_lane_rule": {
+        "decision": "docs/adr/0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md",
+        "kind_line": "A data kind is one by_pnu_lanes line: host, kind, the host panel's section it is, and that section's content columns (a *_json field first, <name>:long for a count). Everything else follows from it: its Gold table gold.<lane with - as _> (lakehouse-domain by_pnu_kind.rs; a parcel kind adds attached_via), its rebuild (gold-panel-rebuild.contract.json kind_tables), its producer (by_pnu_kind_silver_to_gold.py, the host panel's own section function), and its lane below. documents_follow_lane may name another lane; it defaults to the host's.",
+        "latency_p95_max_ms": 1400,
+        "latency_p95_max_ms_reason": "every kind lane's pack-only gate (나) bound on its own cold and warm p95, with the host lane as its baseline (the same Worker and placement serve both): the slowest cold pack p95 a lane served at its cut-over (parcel generation 1, 1,379 ms from ai-server, root ADR-0162), so a slow host read cannot hide a slow kind inside the increase bound",
+        "purpose": "A by_pnu_lanes entry that names a host and a kind writes only what differs per lane; everything else is its host's gateway block with the kind inserted as a path segment before the last by-pnu segment of request_path.prefix, request_path.capabilities, object_key.root, object_key.manifest_object and object_key.manifest_history_dir, and before the last packs segment of section_packs.root; one documents section; request_path.accepted_queries empty; scheduled_bake.capability by_pnu_kind_section_pack_patches (one job capability for every kind lane); document_schema_version foundation-platform.<lane with - as _>_by_pnu.v1, unless the line states a later version of that name with its reason (document_schema_version, document_schema_version_reason): a document that gains, loses or renames a field is a new version (contracts/by-pnu-documents). The publisher (by_pnu_gateway_contract.rs resolve_lane_entry) and the Worker (lane.ts resolveLane) both apply it; these vectors hold both to it.",
+        "test_vectors": [
+          {
+            "lane": "parcel-example",
+            "host": "parcel_by_pnu_gateway",
+            "kind": "example",
+            "request_prefix": "/parcels/example/by-pnu/",
+            "capabilities": "/parcels/example/by-pnu/_capabilities",
+            "manifest_object": "serving/parcels/example/by-pnu/manifest.json",
+            "pack_root": "serving/parcels/example/packs",
+            "document_schema_version": "foundation-platform.parcel_example_by_pnu.v1",
+            "scheduled_bake_capability": "by_pnu_kind_section_pack_patches"
+          },
+          {
+            "lane": "building-example-two",
+            "host": "building_by_pnu_gateway",
+            "kind": "example-two",
+            "request_prefix": "/buildings/example-two/by-pnu/",
+            "capabilities": "/buildings/example-two/by-pnu/_capabilities",
+            "manifest_object": "serving/buildings/example-two/by-pnu/manifest.json",
+            "pack_root": "serving/buildings/example-two/packs",
+            "document_schema_version": "foundation-platform.building_example_two_by_pnu.v1",
+            "scheduled_bake_capability": "by_pnu_kind_section_pack_patches"
+          }
+        ]
+      },
+      "by_pnu_lanes": null
+    },
+    "tools/host-memory-budget.contract.json": {
+      "schema_version": 1,
+      "decision": "docs/adr/0118-scheduled-data-work-runs-in-airflow-and-reports-lineage.md",
+      "rule": "Every compose service states mem_limit. On the shared host, the caps of the services that stay up, plus the largest one-shot job, plus host_reserved, fit in physical_memory. Compose states literal caps or required parameters whose numeric values live in the referenced source contract; this file names those bindings, the host, which compose projects run there, and what is outside the caps.",
+      "memory_parameters": {
+        "FOUNDATION_PLATFORM_NATIVE_MEMORY_MIB": {
+          "contract": "platforms/foundation-platform/infra/lakehouse/contracts/lakehouse-engine.contract.json",
+          "json_path": [
+            "execution_profile",
+            "memory_mib"
+          ]
+        }
+      },
+      "host": {
+        "name": "ai-server",
+        "physical_memory": "62g",
+        "host_reserved": "5g",
+        "host_reserved_covers": "The OS, the Docker daemon and containerd, the publisher commands the default_pool jobs and the fold and lineage cycles run outside containers (the by-PNU bake, which holds gigabytes, is counted by its MemoryMax under scheduled_jobs instead), and the non-Docker AI services (Open WebUI, LiteLLM) at their measured size. Ollama is not covered: see uncapped.",
+        "uncapped": [
+          {
+            "what": "ollama.service",
+            "why": "A systemd service, not a container, with MemoryMax=infinity. Models larger than the 8GB GPU spill into host memory; the largest pulled model is 23GB. Left uncapped by decision on 2026-10-01: loading a large model while Spark loads can exhaust the host, and nothing here prevents it."
+          },
+          {
+            "what": "martin-static, martin-complex",
+            "why": "Started by hand with docker run (September 2026), in no compose file and no script, so this guard cannot see them: no memory cap, no log cap, restart no, host network listening on 0.0.0.0:3110 and 3111 with a healthcheck on port 3000 that has always failed. Measured 2026-10-29: 16.7MiB and 5.5MiB (peaks 57MiB and 56MiB over 13 days), no open connection; map tiles are served from R2 by the Worker (root ADR-0111 §10). Removing them was decided in root ADR-0112 §10 and ADR-0133 with the owner's go at the time it is done; root ADR-0343 §5 asks for it. Not capped in place: capping means recreating a container nothing uses."
+          },
+          {
+            "what": "the identity signed-OIDC smoke's containers",
+            "script": "platforms/foundation-platform/scripts/smoke/identity-foundation-signed-oidc.sh",
+            "why": "A disposable cross-repository smoke an operator runs by hand (no unit, timer or workflow starts it); it removes every container it starts on exit. Its Zitadel, Postgres and relays are not measured in this shape, so they are not capped here; it must not run beside the Spark loads."
+          }
+        ]
+      },
+      "projects": [
+        {
+          "name": "foundation-platform-runtime",
+          "files": [
+            "platforms/foundation-platform/docker-compose.yml",
+            "platforms/foundation-platform/compose.recovery.yml",
+            "platforms/foundation-platform/compose.identity-bridge.yml",
+            "platforms/foundation-platform/compose.metadata-bridge.yml",
+            "platforms/foundation-platform/compose.orchestration-bridge.yml"
+          ],
+          "profiles": [
+            "recovery"
+          ]
+        },
+        {
+          "name": "foundation-platform-compute",
+          "files": [
+            "platforms/foundation-platform/compose.lakehouse.yml",
+            "platforms/foundation-platform/compose.lakehouse-native.yml"
+          ],
+          "profiles": [
+            "lakehouse-query",
+            "lakehouse-batch",
+            "lakehouse-control"
+          ]
+        },
+        {
+          "name": "datahub",
+          "files": [
+            "platforms/foundation-platform/infra/datahub/compose.yml"
+          ],
+          "profiles": []
+        },
+        {
+          "name": "airflow",
+          "files": [
+            "platforms/foundation-platform/compose.orchestration.yml"
+          ],
+          "profiles": []
+        },
+        {
+          "name": "identity-platform-runtime",
+          "files": [
+            "platforms/identity-platform/docker-compose.yml",
+            "platforms/identity-platform/compose.server.yml"
+          ],
+          "profiles": []
+        },
+        {
+          "name": "zitadel-platform",
+          "files": [
+            "platforms/identity-platform/infra/zitadel/docker-compose.yml"
+          ],
+          "profiles": []
+        }
+      ],
+      "one_shot_contracts": [
+        {
+          "contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json",
+          "containers": [
+            "images"
+          ],
+          "why": "The lakehouse tile bake starts GDAL then tippecanoe itself, one at a time, under the caps this contract states (root ADR-0133 §3). They run after the served-Gold Spark job of the same timer finishes, so they count as one-shot jobs."
+        },
+        {
+          "contract": "tools/release-build.contract.json",
+          "containers": [
+            "builders"
+          ],
+          "why": "The release admission starts the publisher builder, then the tippecanoe builder, then the dependency resolver, one at a time, under the caps this contract states (root ADR-0137). It refuses to start while any registered job's unit is active, so it is the host's one-shot job while it runs."
+        },
+        {
+          "contract": "platforms/foundation-platform/config/worker-deploys.contract.json",
+          "containers": [
+            "containers"
+          ],
+          "why": "The Worker deploy runs one Wrangler container at a time, for one gateway at a time (root ADR-0175). The host's deploy waits while it runs, so it never overlaps the release build."
+        }
+      ],
+      "scheduled_jobs": {
+        "decision": "docs/adr/0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md",
+        "jobs": "platforms/foundation-platform/orchestration/jobs.v1.json",
+        "units": "platforms/foundation-platform/infra/systemd",
+        "memory": null,
+        "why": "What each job in a declared Airflow pool runs, one at a time: compose services by host project, containers a contract caps, or its systemd unit's MemoryMax. The guard sums every set of a pool's jobs whose pool_slots fit its slots and counts the largest instead of the largest one-shot job when it is larger. The release build refuses to start while a registered job runs (ADR-0137) and manual Spark loads run with the DAGs paused, so neither adds to it."
+      },
+      "host_scripts": {
+        "paths": [
+          "platforms/foundation-platform/scripts/"
+        ],
+        "why": "The scripts the release ships to the host: every container they start with `docker run` states its --memory at the run site, with the measurement it comes from beside it."
+      },
+      "not_on_host": [
+        {
+          "files": [
+            "scripts/tiles/compose.yaml"
+          ],
+          "why": "The tile slice proof stack runs on a developer machine or CI runner only. It still states caps: Docker Desktop's VM is the whole budget there."
+        }
+      ],
+      "outside_scope": [
+        {
+          "path_prefix": "products/gongzzang/",
+          "why": "Gongzzang's production runs on AWS and is not changed from here; its local compose files belong to that product's own decision."
+        }
+      ]
+    },
+    "platforms/foundation-platform/contracts/schema-registry/registry.json": {
+      "$comment": "Root ADR-0336: the one registry of the schemas Foundation publishes to users and downstream. A subject is one kind of published document; its revisions are append-only (a merged revision and its schema file never change, scripts/guard/schema-registry.sh) and each one is held to the subject's compatibility mode against every earlier revision of its major (scripts/schema_registry.py check). A document names its subject and major in `schema_version` (`<subject>.v<major>`), and from the first revision registered here on its revision in `schema_revision`; consumers check the subject and the major only. A revision marked `legacy` was served before the registry and keeps the string it was served under, a frozen alias of its major: no new revision may be legacy, and no later major may take a number a legacy string already holds. `consumers` is each reader's pact: the paths it reads, a `required` one being a path it cannot do without, which every revision of the subject's major must guarantee. `record` names the pre-registry field record a legacy revision was translated from (contracts/by-pnu-documents), held equal to it. The subjects not listed here keep their earlier mechanism (config/r2-connections.contract.json document_schema_version, contracts/by-pnu-documents) until they are moved one at a time.",
+      "schema_version": 1,
+      "decision": "docs/adr/0336-every-published-schema-lives-in-one-registry-and-ci-holds-every-consumer-to-it.md",
+      "subjects": null
+    }
+  },
+  "order": {
+    "jobs": [
+      "building_register_floor",
+      "source_sweep",
+      "outbox_publish",
+      "map_edit_fold_admin",
+      "map_edit_fold_complex",
+      "lineage_stewardship",
+      "legal_dong_code_changes",
+      "court_auction_collect",
+      "court_auction_silver",
+      "registered_factory",
+      "onbid_public_auction_collect",
+      "onbid_public_auction_silver",
+      "rt_molit_real_transaction_collect",
+      "rt_molit_real_transaction_silver",
+      "vworld_parcel_edition",
+      "parcel_edition_readiness",
+      "parcel_number_change_history",
+      "data_quality",
+      "shape_ledger_check",
+      "silver_refresh_building_register_titles",
+      "silver_refresh_building_register_units",
+      "silver_refresh_building_register_unit_areas",
+      "silver_refresh_building_register_apartment_price",
+      "silver_refresh_building_register_exclusive_unit",
+      "silver_refresh_building_permit_basis_outline",
+      "silver_refresh_building_register_master",
+      "silver_refresh_building_permit_demolition_loss",
+      "silver_refresh_building_energy_monthly_electricity",
+      "silver_refresh_building_energy_monthly_gas",
+      "silver_refresh_building_register_sub_parcel",
+      "silver_refresh_building_permit_parking",
+      "silver_refresh_land_characteristic",
+      "silver_refresh_land_forest_ledger",
+      "silver_refresh_land_individual_price",
+      "silver_refresh_land_ownership",
+      "silver_refresh_land_right_registration",
+      "silver_refresh_land_transfer_history",
+      "silver_refresh_land_use_plan",
+      "silver_refresh_land_use_zone_area",
+      "silver_refresh_land_use_zone_code",
+      "gold_panel_rebuild",
+      "gold_unit_price_rebuild",
+      "admin_boundary_release",
+      "parcel_registry",
+      "complex_boundary_release",
+      "parcel_served_gold",
+      "zoning_tile_bake",
+      "parcel_tile_bake",
+      "gold_public_auction_rebuild",
+      "gold_kind_rebuild",
+      "lakehouse_maintenance",
+      "gold_parcel_ownership_rebuild",
+      "gold_parcel_sub_parcels_rebuild",
+      "gold_parcel_energy_rebuild",
+      "gold_parcel_demolitions_rebuild",
+      "by_pnu_parcel_ownership_bake",
+      "gold_parcel_regulation_zones_rebuild",
+      "by_pnu_parcel_regulation_zones_bake",
+      "by_pnu_parcel_sub_parcels_bake",
+      "by_pnu_parcel_energy_bake",
+      "by_pnu_parcel_demolitions_bake",
+      "by_pnu_serving_bake",
+      "by_pnu_public_auction_bake",
+      "by_pnu_unit_price_bake",
+      "asset_reconcile"
+    ],
+    "nodes": [
+      "gold-building-panel",
+      "gold-unit-price-panel",
+      "source-building-hub-bulk",
+      "silver-building-register-apartment-price",
+      "silver-building-register-exclusive-unit",
+      "silver-building-permit-basis-outline",
+      "silver-building-register-master",
+      "silver-building-energy-monthly-gas",
+      "silver-building-energy-monthly-electricity",
+      "silver-building-permit-demolition-loss",
+      "silver-building-register-sub-parcel",
+      "silver-building-permit-parking",
+      "silver-unit-official-price",
+      "silver-building-register-apartment-price-versions",
+      "silver-unit-official-price-versions",
+      "building-register-bronze-ingest",
+      "source-ilis",
+      "source-code-go-kr",
+      "source-data-go-kr-onbid",
+      "source-courtauction-go-kr",
+      "silver-court-auction-item",
+      "silver-court-auction-sale-result",
+      "source-data-go-kr-file-data",
+      "silver-registered-factory",
+      "silver-onbid-real-estate-item",
+      "silver-onbid-real-estate-item-photo",
+      "silver-onbid-item-bid-result",
+      "silver-onbid-announcement",
+      "silver-onbid-announcement-bid-result",
+      "silver-onbid-announcement-detail",
+      "silver-onbid-real-estate-item-detail",
+      "silver-onbid-item-bid-info",
+      "source-juso-electronic-map-bulk",
+      "source-other-bulk",
+      "source-rt-molit-bulk",
+      "silver-real-transaction-rejected",
+      "silver-real-transaction",
+      "source-real-transaction-open-api",
+      "source-vworld-dataset",
+      "source-vworld-ned-open-api",
+      "silver-industrial-complexes",
+      "silver-industrial-complex-boundaries",
+      "silver-parcel-boundaries",
+      "silver-land-use-plan",
+      "silver-land-use-zone-area",
+      "silver-land-use-zone-code",
+      "silver-land-individual-price",
+      "silver-land-characteristic",
+      "silver-land-forest-ledger",
+      "silver-land-transfer-history",
+      "silver-land-right-registration",
+      "silver-land-ownership",
+      "silver-building-register-floors",
+      "silver-building-register-titles",
+      "silver-building-register-units",
+      "silver-building-register-unit-areas",
+      "silver-complex-parcel-memberships",
+      "gold-complex-catalog",
+      "gold-complex-spatial-locator",
+      "gold-parcel-panel",
+      "gold-parcel-zoning",
+      "gold-parcel-price",
+      "gold-parcel-public-auction",
+      "gold-parcel-characteristics",
+      "gold-parcel-forest-ledger",
+      "gold-parcel-transfer-history",
+      "gold-parcel-land-rights",
+      "gold-parcel-ownership",
+      "gold-parcel-regulation-zones",
+      "gold-parcel-sub-parcels",
+      "gold-parcel-energy",
+      "gold-parcel-demolitions",
+      "serving-parcel",
+      "serving-unit-official-price",
+      "serving-industrial-complex",
+      "serving-industrial-complex-gold-pointer",
+      "serving-complex-membership",
+      "serving-industry",
+      "serving-manufacturer",
+      "serving-complex-notice",
+      "serving-building-assets",
+      "serving-administrative-unit",
+      "serving-administrative-revision",
+      "serving-source-catalog",
+      "serving-source-record",
+      "serving-file-asset",
+      "serving-bronze-object",
+      "serving-collection-job",
+      "serving-ingestion-run",
+      "serving-lakehouse-registry",
+      "serving-lakehouse-storage",
+      "serving-lakehouse-runs",
+      "serving-catalog-edits",
+      "serving-operator-actions",
+      "serving-lineage-stewardship",
+      "serving-normalization",
+      "serving-outbox",
+      "serving-parcel-marker",
+      "serving-publication",
+      "serving-spatial-schema",
+      "serving-tile-artifact",
+      "serving-tile-build",
+      "serving-tile-release",
+      "serving-tile-manifest",
+      "serving-parcel-boundary",
+      "serving-admin-boundary",
+      "serving-complex-boundary",
+      "serving-spatial-load",
+      "industrial-complex-gold-pointer-publish",
+      "vector-tile-manifest-promote",
+      "vector-tile-manifest-rollback",
+      "lakehouse-quality-gate",
+      "parcel-edition-readiness",
+      "lakehouse-lineage-event",
+      "r2-inventory-audit",
+      "lakehouse-slo-policy",
+      "grafana-lakehouse-dashboard",
+      "outbox-catalog-event-fanout",
+      "event-fabric-registry",
+      "future-event-fabric-consumers",
+      "gongzzang-catalog-consumer-receiver",
+      "dawneer-catalog-consumer-receiver",
+      "openlineage-production-receiver",
+      "production-orchestrator",
+      "consumer-deployed-receiver-e2e",
+      "production-dashboard-deployment",
+      "supply-chain-release-gates",
+      "production-alert-routing",
+      "parcel-tiles",
+      "admin-tiles",
+      "complex-tiles",
+      "catalog-read-api-smoke",
+      "profile-gateway",
+      "gongzzang-panel",
+      "daily-source-sweep",
+      "lakehouse-object-registry",
+      "building-by-pnu-serving",
+      "building-by-pnu-section-packs",
+      "unit-price-by-pnu-section-packs",
+      "parcel-by-pnu-serving",
+      "parcel-by-pnu-section-packs",
+      "parcel-zoning-by-pnu-section-packs",
+      "parcel-price-by-pnu-section-packs",
+      "parcel-public-auction-by-pnu-section-packs",
+      "parcel-characteristics-by-pnu-section-packs",
+      "parcel-forest-ledger-by-pnu-section-packs",
+      "parcel-transfer-history-by-pnu-section-packs",
+      "parcel-land-rights-by-pnu-section-packs",
+      "parcel-ownership-by-pnu-section-packs",
+      "parcel-regulation-zones-by-pnu-section-packs",
+      "parcel-sub-parcels-by-pnu-section-packs",
+      "parcel-energy-by-pnu-section-packs",
+      "parcel-demolitions-by-pnu-section-packs",
+      "source-mois-standard-code",
+      "map-edit-store",
+      "silver-map-edit-ledger",
+      "gold-industrial-complex-boundary-served",
+      "silver-administrative-boundaries",
+      "gold-administrative-boundary-served",
+      "gold-parcel-boundary-served",
+      "reference-legal-dong-code-snapshot",
+      "silver-parcel-number-change-history",
+      "reference-legal-dong-code-change",
+      "silver-parcel-lineage",
+      "gold-place-id-registry",
+      "gold-place-id-bridge",
+      "gold-place-id-changelog",
+      "gold-lineage-review-queue",
+      "steward-review-surface",
+      "zoning-overlay-tiles",
+      "silver-parcel-registry"
+    ],
+    "edges": [
+      "silver-building-register-titles-to-gold-building-panel",
+      "silver-building-register-floors-to-gold-building-panel",
+      "silver-building-register-units-to-gold-building-panel",
+      "silver-building-register-unit-areas-to-gold-building-panel",
+      "silver-unit-official-price-to-gold-building-panel",
+      "silver-building-register-titles-to-gold-unit-price-panel",
+      "silver-building-register-units-to-gold-unit-price-panel",
+      "silver-unit-official-price-to-gold-unit-price-panel",
+      "gold-building-panel-to-gold-unit-price-panel",
+      "source-building-hub-bulk-to-silver-building-register-apartment-price",
+      "source-building-hub-bulk-to-silver-building-register-exclusive-unit",
+      "source-building-hub-bulk-to-silver-building-permit-basis-outline",
+      "source-building-hub-bulk-to-silver-building-register-master",
+      "source-building-hub-bulk-to-silver-building-energy-monthly-gas",
+      "source-building-hub-bulk-to-silver-building-energy-monthly-electricity",
+      "source-building-hub-bulk-to-silver-building-permit-demolition-loss",
+      "source-building-hub-bulk-to-silver-building-register-sub-parcel",
+      "source-building-hub-bulk-to-silver-building-permit-parking",
+      "source-vworld-dataset-to-silver-parcel-boundaries",
+      "source-vworld-dataset-to-silver-land-use-plan",
+      "source-vworld-dataset-to-silver-land-use-zone-area",
+      "source-vworld-dataset-to-silver-land-use-zone-code",
+      "source-vworld-dataset-to-silver-land-individual-price",
+      "source-vworld-dataset-to-silver-land-characteristic",
+      "source-vworld-dataset-to-silver-land-forest-ledger",
+      "source-vworld-dataset-to-silver-land-transfer-history",
+      "source-vworld-dataset-to-silver-land-right-registration",
+      "source-vworld-dataset-to-silver-land-ownership",
+      "source-building-hub-bulk-to-silver-building-register-titles",
+      "source-building-hub-bulk-to-silver-building-register-floors",
+      "source-building-hub-bulk-to-silver-building-register-units",
+      "source-building-hub-bulk-to-silver-building-register-unit-areas",
+      "source-ilis-to-silver-industrial-complexes",
+      "source-vworld-dataset-to-silver-industrial-complex-boundaries",
+      "silver-industrial-complexes-to-silver-industrial-complex-boundaries",
+      "silver-parcel-boundaries-to-gold-parcel-panel",
+      "silver-land-use-plan-to-gold-parcel-panel",
+      "silver-land-use-zone-code-to-gold-parcel-panel",
+      "silver-land-individual-price-to-gold-parcel-panel",
+      "silver-land-characteristic-to-gold-parcel-panel",
+      "silver-land-forest-ledger-to-gold-parcel-panel",
+      "silver-land-transfer-history-to-gold-parcel-panel",
+      "silver-land-right-registration-to-gold-parcel-panel",
+      "reference-legal-dong-code-change-to-gold-parcel-panel",
+      "reference-legal-dong-code-snapshot-to-gold-parcel-panel",
+      "gold-parcel-panel-to-gold-parcel-zoning",
+      "gold-parcel-panel-to-gold-parcel-price",
+      "silver-onbid-real-estate-item-to-gold-parcel-public-auction",
+      "silver-onbid-real-estate-item-photo-to-gold-parcel-public-auction",
+      "silver-onbid-item-bid-result-to-gold-parcel-public-auction",
+      "silver-onbid-announcement-to-gold-parcel-public-auction",
+      "silver-onbid-announcement-bid-result-to-gold-parcel-public-auction",
+      "silver-onbid-announcement-detail-to-gold-parcel-public-auction",
+      "silver-onbid-real-estate-item-detail-to-gold-parcel-public-auction",
+      "silver-onbid-item-bid-info-to-gold-parcel-public-auction",
+      "gold-parcel-panel-to-gold-parcel-characteristics",
+      "gold-parcel-panel-to-gold-parcel-forest-ledger",
+      "gold-parcel-panel-to-gold-parcel-transfer-history",
+      "gold-parcel-panel-to-gold-parcel-land-rights",
+      "silver-land-ownership-to-gold-parcel-ownership",
+      "reference-legal-dong-code-change-to-gold-parcel-ownership",
+      "silver-land-use-zone-area-to-gold-parcel-regulation-zones",
+      "silver-parcel-boundaries-to-gold-parcel-regulation-zones",
+      "reference-legal-dong-code-change-to-gold-parcel-regulation-zones",
+      "silver-building-register-sub-parcel-to-gold-parcel-sub-parcels",
+      "reference-legal-dong-code-change-to-gold-parcel-sub-parcels",
+      "silver-building-energy-monthly-electricity-to-gold-parcel-energy",
+      "silver-building-energy-monthly-gas-to-gold-parcel-energy",
+      "reference-legal-dong-code-change-to-gold-parcel-energy",
+      "silver-building-permit-demolition-loss-to-gold-parcel-demolitions",
+      "reference-legal-dong-code-change-to-gold-parcel-demolitions",
+      "silver-industrial-complexes-to-gold-complex-catalog",
+      "silver-parcel-boundaries-to-serving-parcel-boundary",
+      "silver-building-register-apartment-price-to-silver-unit-official-price",
+      "silver-building-register-exclusive-unit-to-silver-unit-official-price",
+      "silver-unit-official-price-to-serving-unit-official-price",
+      "silver-building-register-apartment-price-to-silver-building-register-apartment-price-versions",
+      "silver-unit-official-price-to-silver-unit-official-price-versions",
+      "silver-industrial-complexes-to-serving-industrial-complex",
+      "silver-industrial-complex-boundaries-to-serving-complex-boundary",
+      "gold-complex-catalog-to-industrial-complex-gold-pointer-publish",
+      "industrial-complex-gold-pointer-publish-to-serving-industrial-complex-gold-pointer",
+      "source-vworld-dataset-to-serving-admin-boundary",
+      "serving-parcel-boundary-to-parcel-tiles",
+      "serving-admin-boundary-to-admin-tiles",
+      "serving-complex-boundary-to-complex-tiles",
+      "serving-industrial-complex-to-catalog-read-api-smoke",
+      "serving-industrial-complex-gold-pointer-to-profile-gateway",
+      "parcel-tiles-to-gongzzang-panel",
+      "admin-tiles-to-gongzzang-panel",
+      "complex-tiles-to-gongzzang-panel",
+      "catalog-read-api-smoke-to-gongzzang-panel",
+      "daily-source-sweep-to-source-building-hub-bulk",
+      "daily-source-sweep-to-source-vworld-dataset",
+      "serving-bronze-object-to-lakehouse-object-registry",
+      "lakehouse-object-registry-to-serving-lakehouse-registry",
+      "gold-complex-catalog-to-lakehouse-quality-gate",
+      "lakehouse-quality-gate-to-industrial-complex-gold-pointer-publish",
+      "gold-complex-catalog-to-lakehouse-lineage-event",
+      "industrial-complex-gold-pointer-publish-to-outbox-catalog-event-fanout",
+      "outbox-catalog-event-fanout-to-event-fabric-registry",
+      "outbox-catalog-event-fanout-to-gongzzang-catalog-consumer-receiver",
+      "outbox-catalog-event-fanout-to-dawneer-catalog-consumer-receiver",
+      "source-vworld-dataset-to-silver-industrial-complexes",
+      "gold-building-panel-to-building-by-pnu-serving",
+      "gold-parcel-panel-to-parcel-by-pnu-section-packs",
+      "gold-parcel-zoning-to-parcel-zoning-by-pnu-section-packs",
+      "gold-parcel-price-to-parcel-price-by-pnu-section-packs",
+      "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs",
+      "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
+      "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
+      "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
+      "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs",
+      "gold-parcel-ownership-to-parcel-ownership-by-pnu-section-packs",
+      "gold-parcel-regulation-zones-to-parcel-regulation-zones-by-pnu-section-packs",
+      "gold-parcel-sub-parcels-to-parcel-sub-parcels-by-pnu-section-packs",
+      "gold-parcel-energy-to-parcel-energy-by-pnu-section-packs",
+      "gold-parcel-demolitions-to-parcel-demolitions-by-pnu-section-packs",
+      "gold-building-panel-to-building-by-pnu-section-packs",
+      "building-by-pnu-section-packs-to-gongzzang-panel",
+      "unit-price-by-pnu-section-packs-to-gongzzang-panel",
+      "parcel-by-pnu-section-packs-to-gongzzang-panel",
+      "gold-unit-price-panel-to-unit-price-by-pnu-section-packs",
+      "gold-parcel-panel-to-parcel-by-pnu-serving",
+      "map-edit-store-to-silver-map-edit-ledger",
+      "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",
+      "silver-industrial-complex-boundaries-to-gold-industrial-complex-boundary-served",
+      "gold-industrial-complex-boundary-served-to-complex-tiles",
+      "source-vworld-dataset-to-silver-administrative-boundaries",
+      "silver-administrative-boundaries-to-gold-administrative-boundary-served",
+      "silver-map-edit-ledger-to-gold-administrative-boundary-served",
+      "gold-administrative-boundary-served-to-admin-tiles",
+      "silver-parcel-boundaries-to-gold-parcel-boundary-served",
+      "silver-map-edit-ledger-to-gold-parcel-boundary-served",
+      "silver-parcel-registry-to-gold-parcel-boundary-served",
+      "silver-parcel-boundaries-to-parcel-edition-readiness",
+      "gold-parcel-boundary-served-to-parcel-tiles",
+      "source-mois-standard-code-to-reference-legal-dong-code-snapshot",
+      "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
+      "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-photo",
+      "source-data-go-kr-onbid-to-silver-onbid-item-bid-result",
+      "source-data-go-kr-onbid-to-silver-onbid-announcement",
+      "source-data-go-kr-onbid-to-silver-onbid-announcement-bid-result",
+      "source-data-go-kr-onbid-to-silver-onbid-announcement-detail",
+      "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-detail",
+      "source-data-go-kr-onbid-to-silver-onbid-item-bid-info",
+      "source-rt-molit-bulk-to-silver-real-transaction",
+      "source-rt-molit-bulk-to-silver-real-transaction-rejected",
+      "source-data-go-kr-file-data-to-silver-registered-factory",
+      "source-courtauction-go-kr-to-silver-court-auction-item",
+      "source-courtauction-go-kr-to-silver-court-auction-sale-result",
+      "source-code-go-kr-to-reference-legal-dong-code-snapshot",
+      "silver-parcel-boundaries-to-reference-legal-dong-code-change",
+      "source-vworld-dataset-to-silver-parcel-number-change-history",
+      "silver-parcel-number-change-history-to-reference-legal-dong-code-change",
+      "reference-legal-dong-code-snapshot-to-reference-legal-dong-code-change",
+      "reference-legal-dong-code-change-to-silver-parcel-lineage",
+      "reference-legal-dong-code-change-to-silver-administrative-boundaries",
+      "silver-parcel-boundaries-to-silver-parcel-lineage",
+      "silver-land-transfer-history-to-silver-parcel-lineage",
+      "silver-building-register-titles-to-silver-parcel-lineage",
+      "silver-parcel-lineage-to-gold-parcel-panel",
+      "silver-parcel-boundaries-to-silver-parcel-registry",
+      "silver-parcel-lineage-to-silver-parcel-registry",
+      "silver-parcel-registry-to-gold-place-id-registry",
+      "silver-administrative-boundaries-to-gold-place-id-registry",
+      "silver-parcel-registry-to-gold-place-id-bridge",
+      "silver-administrative-boundaries-to-gold-place-id-bridge",
+      "silver-parcel-registry-to-gold-place-id-changelog",
+      "silver-administrative-boundaries-to-gold-place-id-changelog",
+      "gold-place-id-registry-to-gongzzang-panel",
+      "gold-place-id-bridge-to-gongzzang-panel",
+      "gold-place-id-changelog-to-gongzzang-panel",
+      "silver-parcel-lineage-to-gold-lineage-review-queue",
+      "reference-legal-dong-code-snapshot-to-serving-lineage-stewardship",
+      "serving-lineage-stewardship-to-reference-legal-dong-code-change",
+      "gold-lineage-review-queue-to-serving-lineage-stewardship",
+      "serving-lineage-stewardship-to-silver-parcel-lineage",
+      "gold-lineage-review-queue-to-steward-review-surface",
+      "silver-land-use-zone-area-to-zoning-overlay-tiles",
+      "silver-parcel-registry-to-gold-parcel-panel"
+    ],
+    "by_pnu_lanes": [
+      "parcel-zoning",
+      "parcel-price",
+      "parcel-characteristics",
+      "parcel-forest-ledger",
+      "parcel-transfer-history",
+      "parcel-land-rights",
+      "parcel-public-auction",
+      "parcel-ownership",
+      "parcel-regulation-zones",
+      "parcel-sub-parcels",
+      "parcel-energy",
+      "parcel-demolitions",
+      "unit-price"
+    ],
+    "host_memory": [
+      "building_register_floor",
+      "lineage_stewardship",
+      "parcel_registry",
+      "onbid_public_auction_silver",
+      "rt_molit_real_transaction_silver",
+      "registered_factory",
+      "court_auction_silver",
+      "gold_panel_rebuild",
+      "gold_kind_rebuild",
+      "gold_public_auction_rebuild",
+      "gold_parcel_ownership_rebuild",
+      "gold_parcel_regulation_zones_rebuild",
+      "gold_parcel_sub_parcels_rebuild",
+      "gold_parcel_energy_rebuild",
+      "gold_parcel_demolitions_rebuild",
+      "gold_unit_price_rebuild",
+      "lakehouse_maintenance",
+      "parcel_served_gold",
+      "parcel_tile_bake",
+      "zoning_tile_bake",
+      "silver_refresh_building_register_titles",
+      "silver_refresh_building_register_units",
+      "silver_refresh_building_register_unit_areas",
+      "silver_refresh_building_register_apartment_price",
+      "silver_refresh_building_register_exclusive_unit",
+      "silver_refresh_building_permit_basis_outline",
+      "silver_refresh_building_register_master",
+      "silver_refresh_building_permit_demolition_loss",
+      "silver_refresh_building_energy_monthly_electricity",
+      "silver_refresh_building_energy_monthly_gas",
+      "silver_refresh_building_register_sub_parcel",
+      "silver_refresh_building_permit_parking",
+      "silver_refresh_land_characteristic",
+      "silver_refresh_land_forest_ledger",
+      "silver_refresh_land_individual_price",
+      "silver_refresh_land_ownership",
+      "silver_refresh_land_right_registration",
+      "silver_refresh_land_transfer_history",
+      "silver_refresh_land_use_plan",
+      "silver_refresh_land_use_zone_area",
+      "silver_refresh_land_use_zone_code",
+      "admin_boundary_release",
+      "complex_boundary_release",
+      "map_edit_fold_admin",
+      "map_edit_fold_complex",
+      "by_pnu_serving_bake",
+      "by_pnu_public_auction_bake",
+      "by_pnu_parcel_ownership_bake",
+      "by_pnu_parcel_regulation_zones_bake",
+      "by_pnu_parcel_sub_parcels_bake",
+      "by_pnu_parcel_energy_bake",
+      "by_pnu_parcel_demolitions_bake",
+      "by_pnu_unit_price_bake"
+    ],
+    "subjects": [
+      "foundation-platform.parcel_public_auction_by_pnu",
+      "foundation-platform.parcel_ownership_by_pnu",
+      "foundation-platform.parcel_regulation_zones_by_pnu",
+      "foundation-platform.parcel_sub_parcels_by_pnu",
+      "foundation-platform.parcel_energy_by_pnu",
+      "foundation-platform.parcel_demolitions_by_pnu"
+    ]
+  }
+}

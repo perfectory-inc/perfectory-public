@@ -1,0 +1,29 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "lakehouse-object-registry",
+  "assets": [
+    {
+      "id": "lakehouse-object-registry",
+      "type": "serving_surface",
+      "title": "수집 객체 등록부",
+      "description": "수집 원장 전체에서 객체 재고를 등록·대조한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "surface_kind": "registry"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "serving-bronze-object",
+      "to": "lakehouse-object-registry",
+      "relation": "registers",
+      "status": "implemented",
+      "via": [
+        "seed-lakehouse-registry",
+        "verify-lakehouse-registry"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-register-apartment-price",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_register_apartment_price",
+      "scope": "full",
+      "full_reason": "A new release appends every row of it, changed or not: the price lane is a part lane whose contract names no compare yet (root ADR-0317 moves it to versions).",
+      "full_cost": "measured 2026-10-29 from silver.building_register_apartment_price$snapshots (read-only Trino), every commit of the load: the 2026-10-20 release appended 202,058,239 rows, 6.841 GB in six commits (five of 40,000,000 rows and one of 2,058,239); the 2026-10-11 release the same size. The 2026-10-28 figure (2,058,239 rows) was only its last commit.",
+      "full_tracked_by": "PR #919 (root ADR-0317 stage 3: the price lane compares into a versions table and appends only the changed keys)",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-apartment-price.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-apartment-price"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-14T02:51:17Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-register-apartment-price",
+      "type": "silver_table",
+      "title": "건축물대장 공동주택가격",
+      "description": "헤더 없는 원천을 레이아웃 계약과 스트리밍으로 변환하는 코드 경로가 있다. 운영 적재량·조인율은 실행 증거로 확인한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "docs/adr/0092-hub-registers-land-through-layout-contracts-and-streams.md"
+      ],
+      "table_name": "silver.building_register_apartment_price",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_register_apartment_price"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-register-apartment-price",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-building-register-apartment-price-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_register_apartment_price"
+      ],
+      "description": "장부의 가장 새 완전한 판(root ADR-0169) 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다.",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_register_apartment_price": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

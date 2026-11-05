@@ -1,0 +1,49 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-transfer-history",
+  "assets": [
+    {
+      "id": "gold-parcel-transfer-history",
+      "type": "gold_table",
+      "title": "필지 토지이동이력 by-PNU 표",
+      "description": "PNU마다 토지이동이력 전부만 담는 데이터 종류 표(루트 ADR-0193). 계약의 종류 한 줄(parcel-transfer-history)에서 유도되고, 필지 패널의 같은 섹션 함수로 만든다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_transfer_history",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_transfer_history"
+        }
+      ]
+    },
+    {
+      "id": "parcel-transfer-history-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 토지이동이력 by-PNU 묶음 파일",
+      "description": "gold.parcel_transfer_history 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/transfer-history/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-transfer-history": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "transfer-history",
+      "section": "transfer_history",
+      "columns": [
+        "transfer_history_json"
+      ]
+    }
+  }
+}

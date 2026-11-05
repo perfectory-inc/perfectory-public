@@ -1,0 +1,24 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-bronze-object",
+  "assets": [
+    {
+      "id": "serving-bronze-object",
+      "type": "serving_group",
+      "title": "수집 객체 원장",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다. ZIP 객체의 안 파일 이름·크기·날짜는 measure-bronze-object-members 가 범위 읽기로 재어 옆 표에 쌓는다(루트 ADR-0169 1항).",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0169-silver-lanes-pick-their-source-release-from-the-ledger-and-refresh-themselves.md"
+      ],
+      "tables": [
+        "catalog.bronze_object",
+        "catalog.bronze_object_measurement",
+        "catalog.bronze_object_member",
+        "catalog.bronze_object_version"
+      ]
+    }
+  ]
+}

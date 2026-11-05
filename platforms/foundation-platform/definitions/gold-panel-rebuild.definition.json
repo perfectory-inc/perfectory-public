@@ -1,0 +1,297 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "gold-panel-rebuild",
+  "jobs": [
+    {
+      "id": "gold_panel_rebuild",
+      "scope": "full",
+      "full_reason": "It computes only the changed PNUs (root ADR-0180, ADR-0312), but writes whole: the copy-on-write MERGE rewrites every data file holding a changed PNU, and a national vintage's changes reach every file even in PNU range order (#896; about 1,400 changed PNUs a file, computed). Its unit price join appends a whole vintage whenever a hub price snapshot moves, and while that join and the hub registers were rewritten whole, root ADR-0326 sent the building panel to a full rebuild.",
+      "full_cost": "measured 2026-10-29 (journal and read-only Trino $snapshots): gold.parcel_panel 2026-10-26 incremental, 48,477 PNUs changed (0.12%), 3,096 s, wrote 4.266 GB of 4.266 GB (100%); gold.building_panel 2026-10-28 full, 6,667 s, 5,945,309 rows, 1.967 GB (100%); silver.unit_official_price appended 188,745,290 rows, 0.503 GB per join, five joins 2026-10-12..21. The shape-ledger check of 2026-10-29 12:36 still reports 100% bytes on the last commit of both panels.",
+      "full_tracked_by": "PR #951 (plan: Gold MERGE writes merge-on-read deletes, compaction folds them) and PR #919 (root ADR-0317: the unit price join appends only changed keys)",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet, and the unit price rebuild (gold_unit_price_rebuild), which is its own job since root ADR-0333: on 2026-10-28 two runs of this job timed out under one 160-minute limit and cut gold.unit_price off both times.",
+      "systemd_service": "foundation-gold-panel-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "45 8 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 3,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-titles-to-gold-building-panel",
+        "silver-building-register-floors-to-gold-building-panel",
+        "silver-building-register-units-to-gold-building-panel",
+        "silver-building-register-unit-areas-to-gold-building-panel",
+        "silver-unit-official-price-to-gold-building-panel",
+        "silver-building-register-apartment-price-to-silver-unit-official-price",
+        "silver-building-register-exclusive-unit-to-silver-unit-official-price",
+        "silver-parcel-boundaries-to-gold-parcel-panel",
+        "silver-land-use-plan-to-gold-parcel-panel",
+        "silver-land-use-zone-code-to-gold-parcel-panel",
+        "silver-land-individual-price-to-gold-parcel-panel",
+        "silver-land-characteristic-to-gold-parcel-panel",
+        "silver-land-forest-ledger-to-gold-parcel-panel",
+        "silver-land-transfer-history-to-gold-parcel-panel",
+        "silver-land-right-registration-to-gold-parcel-panel",
+        "reference-legal-dong-code-change-to-gold-parcel-panel",
+        "reference-legal-dong-code-snapshot-to-gold-parcel-panel",
+        "silver-parcel-lineage-to-gold-parcel-panel"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-07T19:55:24Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-building-panel",
+      "type": "gold_table",
+      "title": "건물·층·호 by-PNU 제공용 패널",
+      "description": "ADR-0100의 독립 R2 서빙 문서 원천이다. 미연결 호도 명시하며 운영 적재 여부는 실행 증거로 판단한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py"
+      ],
+      "table_name": "gold.building_panel",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.building_panel"
+        }
+      ]
+    },
+    {
+      "id": "silver-unit-official-price",
+      "type": "silver_table",
+      "title": "세대별 기준일 공시가격",
+      "description": "전유부 관리번호 사전으로 시도별 재색인한 가격 관측이다. 같은 관리번호·기준일의 정정공시만 확정하며 서로 다른 기준일은 모두 보존한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0101-unit-prices-preserve-every-reference-date.md",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py"
+      ],
+      "table_name": "silver.unit_official_price",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.unit_official_price"
+        }
+      ]
+    },
+    {
+      "id": "gold-parcel-panel",
+      "type": "gold_table",
+      "title": "필지 by-PNU 제공용 패널",
+      "description": "루트 ADR-0096 R2 미리굽기 레인의 원천 표. 저장소에 변환 실행 경로가 있다(parcel_panel_silver_to_gold.py). 운영 적재는 아직 없다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_panel",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_panel"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-building-register-titles",
+      "to": "gold-building-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-building-register-floors",
+      "to": "gold-building-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-building-register-units",
+      "to": "gold-building-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-building-register-unit-areas",
+      "to": "gold-building-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-unit-official-price",
+      "to": "gold-building-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-use-plan",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-use-zone-code",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-individual-price",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-characteristic",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-forest-ledger",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-transfer-history",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-land-right-registration",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ]
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "Silver 레인이 제 판의 코드로, 지도가 served 필지판의 코드로 PNU 를 쓰므로 1:1 로 번호만 바뀐 동·리는 served 판의 코드로 읽는다(2026-10-16: 시도 12 의 대지권이 202606 판의 29·46 과 맞지 않아 빠졌다). 분할·통합은 필지 계보(ADR-0113)의 몫이다."
+    },
+    {
+      "from": "reference-legal-dong-code-snapshot",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py"
+      ],
+      "description": "필지 문서의 legal_dong: PNU 앞 10자리 법정동 코드의 이름(full_name)과 최하위 이름(lowest_name)을 가장 새 스냅숏의 존재 코드에서 원천이 쓴 그대로 붙인다. 화면이 코드를 보여 주지 않게 한다."
+    },
+    {
+      "from": "silver-building-register-apartment-price",
+      "to": "silver-unit-official-price",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py"
+      ]
+    },
+    {
+      "from": "silver-building-register-exclusive-unit",
+      "to": "silver-unit-official-price",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_official_price.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-lineage",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_panel_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_attribute_carry.py"
+      ],
+      "description": "지도 PNU 에 값이 없으면 계보의 효력 연결을 따라 옛 번호의 값을 붙이고, 붙은 경로를 attached_via_json 에 남긴다(루트 ADR-0113 6항). 합병은 건너지 않는다."
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-parcel-panel",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
+      ],
+      "description": "속성을 parcel_id 로 붙이고 스냅숏마다 ID 목록·연결 파일·변경 내역을 낸다(루트 ADR-0113 6·8항)."
+    }
+  ],
+  "host_memory": {
+    "gold_panel_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

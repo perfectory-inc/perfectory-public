@@ -1,0 +1,76 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "zoning-tile-bake",
+  "jobs": [
+    {
+      "id": "zoning_tile_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The regulation-zone map tiles (root ADR-0373; scripts/ops/zoning-tile-bake.sh): unless the tiles already show silver.land_use_zone_area's current snapshot (`unchanged`, nothing read), hand its current zones to bake-lakehouse-tiles as unit `zoning` (land_use_zone_area_tile_handoff.py, feature id <layer_code>:<zone_feature_id>:<sigungu_code>). The first run registers the unit with its first release (root ADR-0374); every later run publishes only the tiles the changed zones touch as a patch (root ADR-0323), and when the patch bounds say a new base, rebakes only the layers whose rows changed (partitioned by layer, root ADR-0316). The layers the lane does not load yet (lane contract pending_regions, RAON only) are named in the run's summary and journal. Started when the Silver lane reports a change, and daily as the fallback.",
+      "systemd_service": "foundation-zoning-tile-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/tile-bake"
+      ],
+      "schedule": "20 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-use-zone-area-to-zoning-overlay-tiles"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "zoning-overlay-tiles",
+      "type": "serving_surface",
+      "title": "규제 구역 지도 타일",
+      "description": "용도지역지구 구역(지금 15개 층)을 정적 PMTiles 유닛 zoning 으로 굽는다. 첫 굽기가 유닛을 낳고(루트 ADR-0374), 그 뒤로는 바뀐 구역이 닿는 타일만 패치로 내며(루트 ADR-0323) 새 기본판이 필요하면 행이 바뀐 층만 다시 굽는다(루트 ADR-0316 의 층 접두사 분할). 공짱 지도가 계열마다 켜는 규제 오버레이다(루트 ADR-0373).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/tile-bake-containers.contract.json",
+        "platforms/foundation-platform/config/r2-connections.contract.json"
+      ],
+      "surface_kind": "tiles"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-land-use-zone-area",
+      "to": "zoning-overlay-tiles",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/land_use_zone_area_tile_handoff.py",
+        "bake-lakehouse-tiles",
+        "platforms/foundation-platform/scripts/ops/zoning-tile-bake.sh"
+      ],
+      "description": "Silver 현재 행을 한 스냅숏에 고정해 넘기고, 바뀐 구역이 닿는 타일만 패치로 낸다(루트 ADR-0373, ADR-0323). 서빙 Gold 표는 두지 않는다: 편집이 없어 Silver 현재 행이 곧 타일이다."
+    }
+  ],
+  "host_memory": {
+    "zoning_tile_bake": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      },
+      {
+        "contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json",
+        "containers": [
+          "images"
+        ]
+      }
+    ]
+  }
+}

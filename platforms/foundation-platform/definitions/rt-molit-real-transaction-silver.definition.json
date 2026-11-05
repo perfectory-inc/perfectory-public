@@ -1,0 +1,94 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "rt-molit-real-transaction-silver",
+  "jobs": [
+    {
+      "id": "rt_molit_real_transaction_silver",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver load of 국토교통부 실거래가 (root ADR-0349; scripts/ops/rt-molit-silver-load.sh, infra/lakehouse/spark/jobs/rt_molit_real_transaction.py): the Bronze exports no commit of silver.real_transaction records (plan-silver-load-objects, R2 alone), oldest landing first, each in its own commit: for its (dataset, 계약 달) the rows whose name is new or whose content changed (a cancellation is a new version of the same row) and a removal marker for a name the month's export no longer holds, compared with that month's current rows only; the 법정동 code and PNU of each row from the one place-identity resolver (root ADR-0288). Hourly, after the collector; `unchanged` without starting Spark when nothing is owed. A load whose unmasked lots link below the contract's bound lands its rows and fails so it is seen.",
+      "systemd_service": "foundation-rt-molit-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/real-transaction",
+        "/var/lib/foundation-jobs/metrics"
+      ],
+      "schedule": "55 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 40,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 10,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-rt-molit-bulk-to-silver-real-transaction",
+        "source-rt-molit-bulk-to-silver-real-transaction-rejected"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T15:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-real-transaction-rejected",
+      "type": "silver_table",
+      "title": "실거래가 적재 거부 줄",
+      "description": "실거래 내보내기에서 싣지 않은 줄(칸 수가 머리줄과 다름, NO 가 1..N 을 잇지 않음, 계약년월이 내보내기의 달 밖)과 통째로 거부한 내보내기를, Bronze 객체와 줄 번호와 원문으로 남긴다(루트 ADR-0364). 나머지 줄은 실린다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/rt-molit-real-transaction.contract.json"
+      ],
+      "table_name": "silver.real_transaction_rejected",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.real_transaction_rejected"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-rt-molit-bulk",
+      "to": "silver-real-transaction-rejected",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-rt-molit-real-transaction",
+        "platforms/foundation-platform/scripts/ops/rt-molit-collect.sh",
+        "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "source_slugs": [
+        "rtmolitgokr__real_transaction_apartment_presale",
+        "rtmolitgokr__real_transaction_apartment_rent",
+        "rtmolitgokr__real_transaction_apartment_trade",
+        "rtmolitgokr__real_transaction_commercial_trade",
+        "rtmolitgokr__real_transaction_detached_house_rent",
+        "rtmolitgokr__real_transaction_detached_house_trade",
+        "rtmolitgokr__real_transaction_industrial_trade",
+        "rtmolitgokr__real_transaction_land_trade",
+        "rtmolitgokr__real_transaction_officetel_rent",
+        "rtmolitgokr__real_transaction_officetel_trade",
+        "rtmolitgokr__real_transaction_row_house_rent",
+        "rtmolitgokr__real_transaction_row_house_trade"
+      ],
+      "description": "적재가 싣지 않은 줄을 Bronze 참조와 함께 남긴다(루트 ADR-0364)."
+    }
+  ],
+  "host_memory": {
+    "rt_molit_real_transaction_silver": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  }
+}

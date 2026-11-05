@@ -1,0 +1,30 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-industrial-complex-gold-pointer",
+  "assets": [
+    {
+      "id": "serving-industrial-complex-gold-pointer",
+      "type": "serving_group",
+      "title": "산업단지 프로필 포인터",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "catalog.industrial_complex_gold_pointer"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "industrial-complex-gold-pointer-publish",
+      "to": "serving-industrial-complex-gold-pointer",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "publish-industrial-complex-gold-pointer"
+      ]
+    }
+  ]
+}

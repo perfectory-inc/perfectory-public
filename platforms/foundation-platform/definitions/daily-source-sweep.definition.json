@@ -1,0 +1,17 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "daily-source-sweep",
+  "assets": [
+    {
+      "id": "daily-source-sweep",
+      "type": "serving_surface",
+      "title": "매일 원천 확인",
+      "description": "건축HUB 목록과, 엔드포인트 카탈로그가 source_sweep 으로 표시한 VWorld 토지 데이터셋 목록을 매일 살펴 Bronze 가 아직 갖지 않은 파일을 수집한다. 바이트 예산 없이 가지지 않은 것을 전부 받고, 멈춘 실행은 다음 실행이 이어 받는다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "surface_kind": "scheduler"
+    }
+  ]
+}

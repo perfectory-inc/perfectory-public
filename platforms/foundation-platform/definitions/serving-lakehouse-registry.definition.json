@@ -1,0 +1,32 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-lakehouse-registry",
+  "assets": [
+    {
+      "id": "serving-lakehouse-registry",
+      "type": "serving_group",
+      "title": "레이크하우스 자산·버전",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "catalog.lakehouse_data_asset",
+        "catalog.lakehouse_dataset_version",
+        "catalog.lakehouse_object_artifact"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "lakehouse-object-registry",
+      "to": "serving-lakehouse-registry",
+      "relation": "registers",
+      "status": "implemented",
+      "via": [
+        "seed-lakehouse-registry"
+      ]
+    }
+  ]
+}

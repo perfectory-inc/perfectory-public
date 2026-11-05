@@ -1,0 +1,59 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-edition-readiness",
+  "jobs": [
+    {
+      "id": "parcel_edition_readiness",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Whether each cadastral edition the source contract holds is all there (root ADR-0291 §2, ADR-0379, ADR-0380): source measured and not re-uploaded, Silver within the row-loss bound of the served edition, rehearsal Gold and bake passed. Reads only Trino's partition metadata of silver.parcel_boundaries, the edition collection's newest provider inventory and the tile bake journal, judges only the editions whose inputs moved since the last run, and writes the report foundation-api serves to the operator console.",
+      "systemd_service": "foundation-parcel-edition-readiness.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/parcel-editions"
+      ],
+      "schedule": "10 8 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 10,
+      "pool": "default_pool",
+      "retries": 1,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-parcel-edition-readiness"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z",
+      "started_once_after_deploy": true
+    }
+  ],
+  "assets": [
+    {
+      "id": "parcel-edition-readiness",
+      "type": "serving_surface",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "title": "지적 판 준비 판정",
+      "description": "지적 판마다 원천·Silver·리허설이 다 있는지 판정하고, 준비된 판만 서빙판으로 승격할 수 있게 한다(루트 ADR-0379, ADR-0380). 더니어 「지적 판」 탭이 보인다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/vworld-parcel-editions.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_edition_readiness.py"
+      ],
+      "surface_kind": "quality_gate"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "parcel-edition-readiness",
+      "relation": "validates",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/parcel-edition-readiness.sh"
+      ],
+      "description": "판마다 행 수를 표의 파티션 메타데이터로만 잰다(데이터 파일을 읽지 않는다). 입력이 바뀐 판만 다시 판정한다."
+    }
+  ]
+}

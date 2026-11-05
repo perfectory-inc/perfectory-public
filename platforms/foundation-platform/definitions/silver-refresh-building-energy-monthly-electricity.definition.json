@@ -1,0 +1,84 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-energy-monthly-electricity",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_energy_monthly_electricity",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 월별 전기 lane `building-energy-monthly-electricity` (root ADR-0169 ②, ADR-0396): every Bronze object is a release of one usage month; load the first object, oldest ledger month first, whose parts silver.building_energy_monthly_electricity does not record yet (`unchanged` when every one is), stage it on a load branch, compare only that usage month's bucket with the table's current rows and append to main the rows of the 지번 whose month changed and a removal marker per 지번 that month no longer holds (compare.bucket_scope release; root ADR-0318), and read it back (`changed`). One release per run is the cap: a month is 1.46M rows, a hub part lane's monthly size. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-energy-monthly-electricity.service",
+      "check_service": "foundation-silver-refresh-plan@building-energy-monthly-electricity.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-energy-monthly-electricity"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-energy-monthly-electricity",
+      "type": "silver_table",
+      "title": "건물 전기 사용량(월별)",
+      "description": "지번마다 사용 월의 전기 사용량 행 묶음: 사용년월·지번·사용량. 공장이 돌고 있는지(가동·공실)의 신호다. 판 하나가 사용 월 하나이고, 다시 실린 달은 그 달만 비교한다. 원문 17칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0396).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-energy-monthly-electricity-source-objects.json",
+        "docs/adr/0396-monthly-building-energy-lands-in-silver-one-usage-month-per-release.md"
+      ],
+      "table_name": "silver.building_energy_monthly_electricity",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_energy_monthly_electricity"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-energy-monthly-electricity",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-energy-monthly-electricity-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_energy_monthly_electricity"
+      ],
+      "description": "월별 전기 사용량(eais_elcty_{YYYYMM}.txt) 17칸을 사용 월마다, 그 달의 바뀐 지번만 append-only Silver 로 쌓는다(루트 ADR-0396).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; the consumer carries a retired legal-dong code to the current pnu through the place-identity resolver and follows views.changed_codes (ADR-0288, ADR-0329, ADR-0396)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_energy_monthly_electricity": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

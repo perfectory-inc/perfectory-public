@@ -1,0 +1,84 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-register-sub-parcel",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_register_sub_parcel",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 부속지번 lane `building-register-sub-parcel` (root ADR-0169 ②, ADR-0395): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_sub_parcel already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the rows of the registers whose sub-parcel set changed and a removal marker per vanished register (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-sub-parcel.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-sub-parcel.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-sub-parcel"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-register-sub-parcel",
+      "type": "silver_table",
+      "title": "건축물대장 부속지번",
+      "description": "건물이 함께 선 다른 필지(부속지번)를 대장(관리건축물대장PK)마다 여러 행으로: 대장 대지의 PNU 와 부속 필지의 PNU(sub_pnu) 둘을 싣는다. 건물↔필지 다리다(place-identity, 루트 ADR-0288). 원문 33칸 보존. 읽는 소비자(필지·건물 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0395).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-register-sub-parcel-source-objects.json",
+        "docs/adr/0395-the-building-register-sub-parcels-land-in-silver-with-both-parcels.md"
+      ],
+      "table_name": "silver.building_register_sub_parcel",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_register_sub_parcel"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-register-sub-parcel",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-register-sub-parcel-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_register_sub_parcel"
+      ],
+      "description": "부속지번(mart_djy_05) 33칸을 관리건축물대장PK 마다 바뀐 대장의 행 묶음만 append-only Silver 로 쌓는다(루트 ADR-0395).",
+      "pnu_resolution": "pnu and sub_pnu composed at Silver by the Rust hub export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; sub_pnu is null where the 시군구 crosswalk refuses a retired code and its raw codes stay for the place-identity resolver at the consumer (ADR-0288, ADR-0395 §3)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_register_sub_parcel": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-land-ownership",
+  "jobs": [
+    {
+      "id": "silver_refresh_land_ownership",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 토지소유 lane `land-ownership` (root ADR-0169 ③, ADR-0360): pick the newest vintage whose AL_D161 objects cover every 시도 the lane contract requires, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_ownership already records it or a newer one (`unchanged`), export each object, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed parcels' rows and a removal marker per vanished parcel (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-ownership.service",
+      "check_service": "foundation-silver-refresh-plan@land-ownership.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-ownership"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-land-ownership",
+      "type": "silver_table",
+      "title": "필지별 토지소유",
+      "description": "토지소유 AL_D161 CSV 의 필지·공유인(집합건물이면 호)마다 소유구분·거주지구분·국가기관구분·소유권변동원인·변동일자·공유인수를 쌓는다(루트 ADR-0360). 사람 이름은 원천에 없다. 판이 오면 바뀐 필지의 행만 덧붙인다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-ownership-source-objects.json"
+      ],
+      "table_name": "silver.land_ownership",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.land_ownership"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-vworld-dataset",
+      "to": "silver-land-ownership",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-land-ownership-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "vworldkr__land_ownership"
+      ],
+      "description": "D161 CSV만 연결한다. 같은 원천의 D160 도형은 Bronze에 남는다. 지목·면적·공시지가는 토지특성·개별공시지가가 가지므로 버린다.",
+      "pnu_resolution": "the provider's 고유번호 column is the 19-digit PNU, parsed and refused when malformed at Silver (export-land-ownership-silver-handoff); subdivision convergence tracked by ADR-0288"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_land_ownership": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-number-change-history",
+  "jobs": [
+    {
+      "id": "parcel_number_change_history",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "VWorld 필지고유번호변동연혁 (MK/30527; root ADR-0144 §4, ADR-0145), the collection half: list the dataset's 시도 files, and only when a file's provider update date changed (the provider reuses file numbers), land it in Bronze, read it back with the reader key, refuse a file whose shape changed, that shrank past the contract's bound or whose dateless rows exceed it, and write a pending-load handoff. No Spark: lineage_stewardship loads the handoff into silver.parcel_number_change_history under its spark slots and the 법정동 code pairing reads the window's links as its official step.",
+      "systemd_service": "foundation-parcel-number-change.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/parcel-number-change"
+      ],
+      "schedule": "25 5 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 45,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-parcel-number-change-history"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-06T17:08:23Z"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-real-transaction-open-api",
+  "assets": [
+    {
+      "id": "source-real-transaction-open-api",
+      "type": "source_group",
+      "title": "실거래가 API",
+      "description": "카탈로그에서 중복 API로 비활성화되어 있다.",
+      "status": "disabled",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "real_transaction_open_api",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

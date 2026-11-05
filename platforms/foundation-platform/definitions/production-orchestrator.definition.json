@@ -1,0 +1,23 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "production-orchestrator",
+  "assets": [
+    {
+      "id": "production-orchestrator",
+      "type": "serving_surface",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "title": "전체 파이프라인 운영 조율",
+      "description": "Airflow 3 이 작업 목록(orchestration/jobs.v1.json)의 예약 작업 다섯을 일정대로 서버의 systemd 서비스로 시작시키고, 실행 기록과 계보를 데이터 카탈로그로 보낸다(루트 ADR-0118, ADR-0122). 큰 Spark 적재는 아직 사람이 띄운다.",
+      "blocking_reason": "The large Spark loads are still started by hand on the server; they are not Airflow DAGs yet.",
+      "target_state": "Every scheduled job and Spark load runs as an Airflow DAG with retry, run history and lineage; no systemd timer runs data work.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/production-orchestrator-cutover.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/orchestration/jobs.v1.json",
+        "platforms/foundation-platform/orchestration/dags/foundation_jobs.py"
+      ],
+      "surface_kind": "missing_capability"
+    }
+  ]
+}

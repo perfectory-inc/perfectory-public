@@ -1,0 +1,18 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-vworld-ned-open-api",
+  "assets": [
+    {
+      "id": "source-vworld-ned-open-api",
+      "type": "source_group",
+      "title": "브이월드 토지대장 API",
+      "description": "PNU 하나씩 묻는 API라 전국 수집에 맞지 않고, 같은 사실(지목·면적은 토지특성, 소유구분·공유인수·변동일자는 토지소유 파일)을 파일이 전국으로 주므로 수집하지 않는다(루트 ADR-0359).",
+      "status": "disabled",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "endpoint_catalog_group": "vworld_ned_open_api",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

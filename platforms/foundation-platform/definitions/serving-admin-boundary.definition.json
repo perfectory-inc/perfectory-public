@@ -1,0 +1,38 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-admin-boundary",
+  "assets": [
+    {
+      "id": "serving-admin-boundary",
+      "type": "serving_group",
+      "title": "행정경계 서빙",
+      "description": "타일 제공을 위한 PostGIS 투영 및 적재 원장이다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "serving_postgis.administrative_unit_boundary_publication"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-vworld-dataset",
+      "to": "serving-admin-boundary",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/tiles/admin-boundary/convert.sh",
+        "platforms/foundation-platform/scripts/tiles/admin-boundary/merge.py",
+        "write-official-administrative-boundary-source-snapshot",
+        "register-serving-source-lineage",
+        "publish-administrative-boundary-postgis"
+      ],
+      "source_slugs": [
+        "vworldkr__boundary_emd"
+      ],
+      "description": "Silver 표를 거치지 않는 행정경계 직접 서빙 레인이다."
+    }
+  ]
+}

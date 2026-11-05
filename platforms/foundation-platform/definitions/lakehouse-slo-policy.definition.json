@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "lakehouse-slo-policy",
+  "assets": [
+    {
+      "id": "lakehouse-slo-policy",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "신선도·실행시간 기준",
+      "description": "수집과 변환의 지연·실패 신호를 관측한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/observability/slo-policy.v1.example.json"
+      ],
+      "surface_kind": "slo_objective"
+    }
+  ]
+}

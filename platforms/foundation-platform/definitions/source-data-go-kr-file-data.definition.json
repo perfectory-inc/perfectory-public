@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-data-go-kr-file-data",
+  "assets": [
+    {
+      "id": "source-data-go-kr-file-data",
+      "type": "source_group",
+      "title": "data.go.kr 파일 데이터",
+      "description": "data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json"
+      ],
+      "endpoint_catalog_group": "data_go_kr_file_data",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

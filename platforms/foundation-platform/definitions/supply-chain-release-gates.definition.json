@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "supply-chain-release-gates",
+  "assets": [
+    {
+      "id": "supply-chain-release-gates",
+      "type": "serving_surface",
+      "status": "manual_approval",
+      "owner": "foundation-platform",
+      "title": "릴리스 공급망 검사",
+      "description": "릴리스 차단·서명·소프트웨어 구성 명세의 승인 증거를 요구한다.",
+      "blocking_reason": "No approved supply-chain release gate evidence artifact is attached.",
+      "target_state": "Supply-chain tools are CI-blocking and release artifacts have SBOM and signature evidence.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": [],
+      "surface_kind": "missing_capability"
+    }
+  ]
+}
