@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
@@ -38,6 +39,20 @@ def history(metadata: dict) -> dict:
             "summary": summary,
         })
     return {"head": None if head in (None, -1) else str(head), "snapshots": snapshots}
+
+
+def table_absent(error: urllib.error.HTTPError) -> bool:
+    """Does this loadTable error say the table does not exist? The Iceberg REST spec answers 404 with
+    an ErrorModel; as the Iceberg Java client reads it (ErrorHandlers.tableErrorHandler), a 404 is a
+    missing table unless its type says the namespace is missing — which is a wrong catalog or
+    namespace, not an absent table, and stays an error."""
+    if error.code != 404:
+        return False
+    try:
+        kind = (json.loads(error.read() or b"{}").get("error") or {}).get("type")
+    except (ValueError, AttributeError):
+        kind = None
+    return kind != "NoSuchNamespaceException"
 
 
 def committed_epoch(snapshot: dict) -> float:
@@ -63,10 +78,20 @@ class Catalog:
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
 
-    def table(self, name: str) -> dict:
-        """The {"head", "snapshots"} of `namespace.table`."""
+    def table(self, name: str, absent_ok: bool = False) -> dict:
+        """The {"head", "snapshots"} of `namespace.table`. `absent_ok`: a table never created reads as
+        one never committed to ({"head": None, "snapshots": []}) instead of raising — for a caller to
+        whom a table that does not exist yet holds nothing, as a defined by-PNU kind whose Gold was
+        never built (2026-11-04..05: four such kinds made edition_lockstep_gate.py refuse the 공매 lane
+        for 404, and its served documents stayed on a pre-photo Gold)."""
         if self.prefix is None:
             config = self._get(f"{self.uri}/v1/config?warehouse={urllib.parse.quote(self.warehouse)}")
             self.prefix = config["overrides"]["prefix"]
         namespace, table = name.split(".", 1)
-        return history(self._get(f"{self.uri}/v1/{self.prefix}/namespaces/{namespace}/tables/{table}")["metadata"])
+        try:
+            metadata = self._get(f"{self.uri}/v1/{self.prefix}/namespaces/{namespace}/tables/{table}")["metadata"]
+        except urllib.error.HTTPError as error:
+            if absent_ok and table_absent(error):
+                return {"head": None, "snapshots": []}
+            raise
+        return history(metadata)

@@ -294,6 +294,30 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertEqual([p.sha256[0] for p in filled[("A", 1)]], ["a", "b"])
         self.assertEqual(filled[("A", 2)], filled[("A", 1)])
 
+    def test_the_document_of_an_item_the_photo_silver_holds_carries_its_photos(self):
+        """The Silver-to-document path end to end: current photo rows, grouped by item, joined to the
+        rounds and written. 2026-11-05: 공매 documents served `photos: []` on every round while the
+        photo Silver held the item's rows — a document built from them must never be empty."""
+        import json
+        from pyspark.sql import functions as F
+        from platform_contracts import current_rows, load_lakehouse_contract
+
+        photo_schema = ("cltr_mng_no string, pbct_cdtn_no long, sha256 string, media_kind string, "
+                        "sequence int, title string, media_format string, size_bytes bigint, "
+                        "source_snapshot_id string, source_line_number int")
+        silver = self.spark.createDataFrame([
+            ("A", 7, "a" * 64, "photo", 0, None, "jpg", 10, "snap-1", 1),
+            ("A", 7, "b" * 64, "photo", 1, None, "jpg", 20, "snap-1", 2)], photo_schema)
+        photos = job.photos_by_item(current_rows(silver, load_lakehouse_contract(job.PHOTO_SOURCE)))
+        rounds = self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=()),
+                              round_row("NONE", True, datetime(2099, 1, 6), photos=())]).drop("photos")
+        rows = job.with_usage_names(job.with_photos(rounds, photos), None)
+        placed = rows.withColumn("pnu", F.col("cltr_mng_no")).withColumn("attached_via", F.lit(None).cast("string"))
+        documents = {r.pnu: json.loads(r.public_auction_json)["rounds"] for r in job.document_rows(placed).collect()}
+        self.assertEqual([p["sha256"][0] for p in documents["A"][0]["photos"]], ["a", "b"],
+                         "the item's Silver photos reach every round of its document")
+        self.assertEqual(documents["NONE"][0]["photos"], [], "an item without media still carries the field")
+
     def test_the_current_media_are_one_row_per_item_and_hash(self):
         from platform_contracts import current_rows, load_lakehouse_contract
 
