@@ -265,7 +265,6 @@ enum Command {
     RebuildPostgisParcelBoundaryMirror,
     RebuildPostgisParcelBoundaryMirrorNational,
     RebuildPostgisParcelBoundaryMirrorNationalFromContract,
-    RecordLakehouseBronzeRunEvidence,
     RegisterServingSourceLineage,
     RunPublisher,
     InventoryLakehouse,
@@ -559,9 +558,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::IngestVWorldDatasetFiles => Box::pin(vworld_dataset_file_ingest::run()),
         Command::InventoryVWorldDatasetFiles => Box::pin(vworld_dataset_file_inventory::run()),
         Command::ProbeSpatialTileWap => Box::pin(async { spatial_tile_wap_command::run() }),
-        Command::RecordLakehouseBronzeRunEvidence => {
-            Box::pin(lakehouse_registry_control::record_bronze_run_evidence())
-        }
         Command::RegisterServingSourceLineage => Box::pin(serving_source_lineage_register::run()),
         Command::RunPublisher => Box::pin(run_publisher()),
         // main() runs it before any runtime starts and exits with its outcome.
@@ -806,9 +802,6 @@ where
         }
         Some("rebuild-postgis-parcel-boundary-mirror-national-from-contract") => {
             Ok(Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract)
-        }
-        Some("record-lakehouse-bronze-run-evidence") => {
-            Ok(Command::RecordLakehouseBronzeRunEvidence)
         }
         Some("register-serving-source-lineage") => Ok(Command::RegisterServingSourceLineage),
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),

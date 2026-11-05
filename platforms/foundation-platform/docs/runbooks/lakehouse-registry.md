@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-08-26
+last_reviewed: 2026-11-05
 ---
 
 # Lakehouse Registry Runbook
@@ -73,10 +73,10 @@ cargo run -p foundation-outbox-publisher -- verify-lakehouse-registry
 - namespace 상태가 `active`다.
 - `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`은 `foundation-platform-lakehouse-prod`와 일치한다.
 
-## 전국 수집 전 Preflight
+## Registry 확인 보고서
 
-공공 API 전국 수집 경로(`run-national-data-collection` 과 그 ledger·계획 명령)는 bulk 전용 정책으로 2026-11 삭제됐다
-(원천은 hub.go.kr·rt.molit.go.kr·VWorld 파일 일괄). Registry 확인은 `foundation-outbox-publisher verify-lakehouse-registry` 로 직접 한다.
+`foundation-outbox-publisher verify-lakehouse-registry` 는 보고서 JSON(`schema_version: foundation-platform.lakehouse_registry_verify.v1`, `status` 는 `ready` 또는 `blocked`, `namespaces`, `blockers`)을
+표준 출력에 쓰고, `FOUNDATION_PLATFORM_LAKEHOUSE_REGISTRY_VERIFY_OUTPUT_PATH` 가 있으면 그 경로에도 쓴다. `blocked` 이면 실패로 끝난다.
 
 ## Iceberg Table Inventory
 
@@ -126,70 +126,3 @@ key, account id와 실제 자격증명 값이 없다.
   ]
 }
 ```
-
-정상 출력 예:
-
-```text
-lakehouse-registry-ok namespaces=3 output=target/audit/lakehouse-registry-verify.json
-```
-
-전국 수집 evidence에는 다음 필드가 포함된다.
-
-```json
-{
-  "lakehouse_registry_preflight": {
-    "status": "ready",
-    "report_path": "target/audit/lakehouse-registry-verify.json",
-    "namespace_count": 3,
-    "blocker_count": 0
-  }
-}
-```
-
-## Bronze Evidence Registry Record
-
-수집이 끝나면 runner는 `national-data-collection-run-evidence.json`을 먼저 작성한 뒤,
-다음 Rust 명령으로 Bronze object metadata를 Registry에 등재한다.
-
-```bash
-export FOUNDATION_PLATFORM_LAKEHOUSE_BRONZE_RUN_EVIDENCE_PATH="target/audit/national-data-collection-run-evidence.json"
-
-cargo run -p foundation-outbox-publisher -- record-lakehouse-bronze-run-evidence
-```
-
-이 명령이 하는 일:
-
-- provider별 `source_slug`를 `foundation_platform.bronze.<source_slug>` asset 이름으로 정규화한다.
-- asset을 `lakehouse_data_asset`에 upsert한다.
-- ingestion run id를 dataset version으로 기록하고 active pointer를 갱신한다.
-- Bronze object key, checksum, byte size, logical record count를 `lakehouse_object_artifact`에 기록한다.
-- 같은 object key가 다른 checksum이나 version으로 다시 들어오면 덮어쓰지 않고 실패한다.
-
-정상 출력 예:
-
-```json
-{
-  "schema_version": "foundation-platform.lakehouse_bronze_evidence_registry_record.v1",
-  "status": "ready",
-  "provider_count": 1,
-  "artifact_count": 18
-}
-```
-
-최종 전국 수집 evidence에는 다음 필드도 포함된다.
-
-```json
-{
-  "lakehouse_registry_record": {
-    "status": "ready",
-    "report_path": "target/audit/lakehouse-bronze-evidence-registry-record.json",
-    "provider_count": 1,
-    "artifact_count": 18
-  }
-}
-```
-
-> 참고: 별도 gate 커맨드였던 `check-national-data-collection-run-evidence`는 producer 자신의
-> 출력을 재검사하는 ceremony로 판정되어 2026-06-22 self-verifying evidence-gate 정리에서
-> 삭제되었다. `lakehouse_registry_preflight`와 `lakehouse_registry_record` 필드는 위의 producer
-> 명령(`record-lakehouse-bronze-run-evidence`)이 evidence에 직접 기록한다.
