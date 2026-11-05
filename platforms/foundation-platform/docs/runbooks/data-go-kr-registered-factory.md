@@ -8,7 +8,8 @@ last_reviewed: 2026-10-19
 # 전국등록공장현황 (data.go.kr) — 수집·주소로 PNU 찾기·적재 런북
 
 루트 ADR-0280 §4(원천이 PNU 를 주지 않으면 주소로 찾되, 어느 단계가 찾았는지 남긴다)의 운영 절차다. 받는 곳·멤버 형식·행 수
-한계·시도 접두어는 `infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json` 하나에 있다.
+한계는 `infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json` 하나에 있다. 주소 첫 낱말의 시도 코드는
+적재마다 법정동 표와 기록된 코드 쌍에서 계산한다(`address_pnu.sido_prefixes`, 루트 ADR-0403).
 
 ## 흐름
 

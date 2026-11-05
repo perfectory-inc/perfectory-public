@@ -61,12 +61,11 @@ class MemberTest(unittest.TestCase):
 
 class RowTest(unittest.TestCase):
     def test_rows_carry_what_the_address_offers(self) -> None:
-        prefixes = {**CONTRACT["pnu_resolution"]["sido_prefixes"], "합성": "99"}
-        contract = {**CONTRACT, "pnu_resolution": {**CONTRACT["pnu_resolution"], "sido_prefixes": prefixes}}
+        prefixes = {"합성": "99"}
         dongs = address_pnu.legal_dong_index([("9999910100", "합성도 가상시 가나동")])
         rows = job.factory_rows([["1", "합성공업", "", "부품", "합성도 가상시 가나동 7"],
                                  ["2", "합성상사", "합성단지", "", "합성도 가상시 가나대로 3 (가나동)"],
-                                 ["3", "", "", "", ""]], contract, dongs)
+                                 ["3", "", "", "", ""]], prefixes, dongs)
         self.assertEqual([r["source_line_number"] for r in rows], [2, 3, 4])
         self.assertEqual(rows[0]["jibun_pnu"], "9999910100100070000")
         self.assertEqual((rows[1]["road_name"], rows[1]["road_main_no"]), ("가나대로", 3))
@@ -82,7 +81,7 @@ class RowTest(unittest.TestCase):
 
     def test_the_load_writes_every_table_column(self) -> None:
         names = {c["name"] for c in load_lakehouse_contract(job.TABLE)["columns"]}
-        built = set(job.factory_rows([["1", "", "", "", ""]], CONTRACT, {})[0])
+        built = set(job.factory_rows([["1", "", "", "", ""]], {}, {})[0])
         resolved = {"pnu", "pnu_basis", "pnu_unresolved_reason", "pnu_candidate_count"}
         loaded = {"source_record_id", "source_snapshot_id", "ingested_at_utc"}
         self.assertLessEqual(names, built | resolved | loaded)

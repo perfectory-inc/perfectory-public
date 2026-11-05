@@ -85,11 +85,12 @@ def text_or_none(value: str) -> str | None:
     return text or None
 
 
-def factory_rows(rows: Sequence[Sequence[str]], contract: Mapping[str, Any],
+def factory_rows(rows: Sequence[Sequence[str]], prefixes: Mapping[str, str],
                  dongs: Mapping[tuple[str, str], str]) -> list[dict[str, Any]]:
-    """One row per data line (line 2 is the first), with what the address offers the joins."""
+    """One row per data line (line 2 is the first), with what the address offers the joins.
 
-    prefixes = contract["pnu_resolution"]["sido_prefixes"]
+    ``prefixes`` are ``address_pnu.sido_prefixes`` of the 법정동 code table (root ADR-0403)."""
+
     out = []
     for number, row in enumerate(rows, start=2):
         cells = list(row) + [""] * (5 - len(row))
@@ -202,10 +203,11 @@ def _load(argv: Sequence[str]) -> int:
                   "'write.parquet.compression-codec' = 'zstd')")
         evolve_iceberg_table_to_contract(spark, table, contract)
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+        prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         for entry in objects:
             snapshot, rows = read_member(entry["path"].read_bytes(), source)
             check_bounds(len(rows), latest_edition_rows(spark, table), source)
-            offered = spark.createDataFrame(factory_rows(rows, source, dongs),
+            offered = spark.createDataFrame(factory_rows(rows, prefixes, dongs),
                                             schema=("row_id int, serial_no long, company_name string, complex_name string, "
                                                     "products string, factory_address_raw string, legal_dong_code string, "
                                                     "jibun_pnu string, reason string, road_sido string, road_sigungu string, "
