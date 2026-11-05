@@ -417,6 +417,9 @@ pub(in crate::remote_lakehouse_job) fn compare_arguments(
     if compare.release_buckets_only {
         args.extend(["--bucket-scope".to_owned(), "release".to_owned()]);
     }
+    if let Some(tolerance) = &contract.compare_geometry_tolerance {
+        args.extend(["--geometry-tolerance".to_owned(), tolerance.clone()]);
+    }
     if let Some(deadline) = &compare.deadline_utc {
         args.extend(["--deadline-utc".to_owned(), deadline.clone()]);
     }

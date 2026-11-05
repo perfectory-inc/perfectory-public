@@ -39,7 +39,13 @@
         "field_a9",
         "geometry_checksum_sha256"
       ],
-      "bucket_prefix_length": 4
+      "bucket_prefix_length": 4,
+      "geometry_tolerance": {
+        "geometry_column": "geometry_wkb",
+        "checksum_column": "geometry_checksum_sha256",
+        "metres": 0.1,
+        "reason": "2026-11-05 측정(판 20260609→20261009, 읽기 전용 Trino): 두 판에 다 있는 구역의 98% 이상이 속성은 같고 도형 checksum 만 달랐다(D032 564/566, D036 46,232/46,661, D126 87,474/87,583). 도형은 제공처 좌표 변환 차이로 한꺼번에 밀렸다: bbox 이동 p99 D032 0.066 m, D036 0.069 m, 면적 상대 변화 ~1.8e-7 일정. 좌표를 1e-6° 로 반올림해도 ~1% 만 같아진다(격자선 근처 꼭짓점이 갈라짐). 그래서 checksum 만 다른 키는 두 도형의 꼭짓점이 모두 0.1 m 안에 있으면(같은 유형·부분·링·꼭짓점 수) 바뀌지 않은 것으로 본다(JTS equalsExact(other, tolerance)): 잰 일괄 이동 p99 0.069 m 보다 크고, 다룰 만한 실제 경계 변경보다 작다. 판 사이 실측 결과는 PR 본문."
+      }
     }
   }
 }

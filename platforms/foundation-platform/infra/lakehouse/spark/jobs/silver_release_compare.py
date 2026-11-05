@@ -12,6 +12,14 @@ the lane's content columns, and stages on the release's changes branch:
 
 A key whose rows are unchanged gets nothing. No row of `main` is rewritten or deleted.
 
+**Geometry tolerance.** With `--geometry-tolerance GEOMETRY,CHECKSUM,METRES` (the lane contract's
+`compare.geometry_tolerance`), a key whose only differing content is the geometry's checksum is
+unchanged when its two geometries are the same shape with every vertex within METRES
+(`geometry_tolerance.within_tolerance`, JTS `equalsExact(other, tolerance)`). A provider that
+re-projects by a few centimetres (2026-11-05: 5-7 cm on every zone of `silver.land_use_zone_area`)
+then appends nothing, and the older row stays current. The summary counts those keys
+(`tolerated_keys`).
+
 **Buckets (ADR-0318).** With `--bucket-prefix-length N` the keys are split by the first N characters
 of the key's first column (a 시도 lane: the PNU's 시도, N = 2), and each bucket is compared alone and
 committed alone to the changes branch, naming its bucket in the commit's summary. Each bucket reads
@@ -92,6 +100,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--bucket-scope", choices=("table", "release"), default="table",
                         help="Which buckets: every bucket either side holds, or only the release's (root ADR-0396)")
     parser.add_argument("--deadline-utc", help="ISO-8601 instant after which no new bucket starts")
+    parser.add_argument("--geometry-tolerance",
+                        help="GEOMETRY,CHECKSUM,METRES: a checksum-only change within METRES is no change")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
     parser.add_argument("--summary-output")
@@ -110,7 +120,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         raise ValueError("--bucket-scope release splits by a key prefix (--bucket-prefix-length > 0)")
     if args.deadline_utc is not None:
         args.deadline_utc = deadline(args.deadline_utc)
+    if args.geometry_tolerance is not None:
+        args.geometry_tolerance = geometry_tolerance(args.geometry_tolerance)
     return args
+
+
+def geometry_tolerance(raw: str) -> tuple[str, str, float]:
+    """`GEOMETRY,CHECKSUM,METRES`, with METRES above 0 and at most 1: a wider tolerance would hide
+    a real boundary change."""
+    parts = raw.split(",")
+    if len(parts) != 3 or not all(parts):
+        raise ValueError(f"--geometry-tolerance {raw!r} is GEOMETRY,CHECKSUM,METRES")
+    metres = float(parts[2])
+    if not 0 < metres <= 1:
+        raise ValueError(f"--geometry-tolerance metres {metres} is not above 0 and at most 1")
+    return parts[0], parts[1], metres
 
 
 def deadline(raw: str) -> datetime:
@@ -206,11 +230,27 @@ def compare_rule(contract: dict[str, Any], content: list[str]) -> tuple[tuple[st
     return latest.key, latest.removal_column
 
 
-def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content: list[str], removal: str,
-                    source_snapshot_id: str, ingested_at: Any, columns: list[str],
-                    stamp: dict[str, Any] | None = None) -> Any:
-    """The rows to append: every staged row of a key that is new or whose rows changed, and one
-    removal marker per key with current rows and none staged.
+def check_tolerance(contract: dict[str, Any], content: list[str], tolerance: tuple[str, str, float]) -> None:
+    """The checksum is a content column and the geometry a column of the table that is not."""
+    geometry, checksum, _ = tolerance
+    if checksum not in content or geometry in content or geometry not in column_names(contract):
+        raise ValueError(f"{contract.get('table_name')}: the geometry tolerance compares {geometry}, a column outside "
+                         f"the content, when {checksum}, a content column, is the only difference")
+
+
+def release_changes(staged: Any, current: Any, **rule: Any) -> Any:
+    """`compared_changes`' rows to append, for a caller that keeps no count of tolerated keys."""
+    return compared_changes(staged, current, **rule)[0]
+
+
+def compared_changes(staged: Any, current: Any, *, key: tuple[str, ...], content: list[str], removal: str,
+                     source_snapshot_id: str, ingested_at: Any, columns: list[str],
+                     stamp: dict[str, Any] | None = None,
+                     tolerance: tuple[str, str, float] | None = None) -> tuple[Any, Any]:
+    """The rows to append, and the keys `tolerance` kept unchanged (None without one).
+
+    The rows are every staged row of a key that is new or whose rows changed, and one removal
+    marker per key with current rows and none staged.
 
     A key's release is a set of rows (the source repeats a key, root ADR-0090), so a key is compared
     by the multiset of its rows' content fingerprints, repeats counted. Keys match null-safe: a
@@ -219,6 +259,10 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
     sets columns on every appended row, changed and marker alike, each cast to its column's type
     (`commit_stamp`): the release's edition and the commit's instant, so a marker outranks the row
     it removes (ADR-0328).
+
+    `tolerance` (GEOMETRY, CHECKSUM, METRES) is asked only of a changed key whose rows differ in
+    CHECKSUM alone, one row on each side; a key of repeated rows has no one pairing of geometries
+    and stays an exact compare.
     """
 
     from pyspark.sql import Window  # noqa: PLC0415
@@ -229,7 +273,14 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
     renamed = [f"_key{index}" for index in range(len(key))]
 
     def signatures(frame: Any, name: str) -> Any:
-        return frame.groupBy(*key).agg(F.xxhash64(F.sort_array(F.collect_list(fingerprint))).alias(name))
+        found = [F.xxhash64(F.sort_array(F.collect_list(fingerprint))).alias(name)]
+        if tolerance:
+            # The content but the checksum, and the rows: what makes a key a tolerance candidate.
+            rest = [c for c in content if c != tolerance[1]]
+            others = F.xxhash64(F.lit(0), *(F.col(c).isNull() for c in rest), *(F.col(c) for c in rest))
+            found += [F.xxhash64(F.sort_array(F.collect_list(others))).alias(f"{name}_others"),
+                      F.count(F.lit(1)).alias(f"{name}_rows")]
+        return frame.groupBy(*key).agg(*found)
 
     def keys_of(frame: Any) -> Any:
         # Renamed, so a join of two frames of one lineage never compares a column with itself.
@@ -240,10 +291,15 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
 
     staged_signatures = signatures(staged, "_staged")
     old = signatures(current, "_current")
-    old = old.select(*(F.col(k).alias(r) for k, r in zip(key, renamed)), "_current")
-    changed_keys = (staged_signatures.join(old, matching(staged_signatures, old), "left")
-                    .where(F.col("_current").isNull() | (F.col("_current") != F.col("_staged")))
-                    .select(*(staged_signatures[k].alias(r) for k, r in zip(key, renamed))))
+    old = old.select(*(F.col(k).alias(r) for k, r in zip(key, renamed)), *(c for c in old.columns if c not in key))
+    differing = (staged_signatures.join(old, matching(staged_signatures, old), "left")
+                 .where(F.col("_current").isNull() | (F.col("_current") != F.col("_staged"))))
+    changed_keys = differing.select(*(staged_signatures[k].alias(r) for k, r in zip(key, renamed)))
+    kept = None
+    if tolerance:
+        kept = tolerated(staged, current, differing, key, tolerance)
+        same = reduce(and_, (changed_keys[r].eqNullSafe(kept[f"_kept{i}"]) for i, r in enumerate(renamed)))
+        changed_keys = changed_keys.join(kept, same, "left_anti")
     changed = staged.join(changed_keys, matching(staged, changed_keys), "left_semi")
     # One marker per vanished key, made from one of its current rows (the required columns need values).
     first = Window.partitionBy(*key).orderBy(fingerprint)
@@ -256,7 +312,37 @@ def release_changes(staged: Any, current: Any, *, key: tuple[str, ...], content:
     for column, value in (stamp or {}).items():
         typed = value.cast(current.schema[column].dataType)
         changed, removed = changed.withColumn(column, typed), removed.withColumn(column, typed)
-    return changed.select(*columns).unionByName(removed.select(*columns))
+    return changed.select(*columns).unionByName(removed.select(*columns)), kept
+
+
+def tolerated(staged: Any, current: Any, differing: Any, key: tuple[str, ...],
+              tolerance: tuple[str, str, float]) -> Any:
+    """The keys of `differing` (staged and current signatures side by side) whose one row on each
+    side differs in the checksum alone, with geometries within the tolerance: as `_kept0`, `_kept1`,
+    ... The geometries are read and parsed only for those candidates."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+    from pyspark.sql import types as T  # noqa: PLC0415
+
+    import geometry_tolerance  # noqa: PLC0415
+
+    geometry, _, metres = tolerance
+    # The kernel runs in the Python workers, which import it by name (as `parcel_land`'s area).
+    staged.sparkSession.sparkContext.addPyFile(geometry_tolerance.__file__)
+    within = F.udf(lambda old, new: geometry_tolerance.within_tolerance(old, new, metres), T.BooleanType())
+    candidates = differing.where((F.col("_current_others") == F.col("_staged_others"))
+                                 & (F.col("_current_rows") == 1) & (F.col("_staged_rows") == 1))
+    kept_names = [f"_kept{i}" for i in range(len(key))]
+    candidates = candidates.select(*(candidates[k].alias(n) for k, n in zip(key, kept_names)))
+
+    def geometries(frame: Any, name: str) -> Any:
+        side = frame.select(*(F.col(k).alias(f"{name}{i}") for i, k in enumerate(key)), F.col(geometry).alias(name))
+        same = reduce(and_, (candidates[n].eqNullSafe(side[f"{name}{i}"]) for i, n in enumerate(kept_names)))
+        return candidates.join(side, same, "inner").select(*kept_names, name)
+
+    new, old = geometries(staged, "_new"), geometries(current, "_old")
+    paired = new.join(old, kept_names, "inner")
+    return paired.where(within(F.col("_old"), F.col("_new"))).select(*kept_names)
 
 
 def commit_stamp(latest: CurrentRowLatest, edition: str | None, ingested_at: Any) -> tuple[dict[str, Any], str | None]:
@@ -337,6 +423,9 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
     contract = load_lakehouse_contract(args.contract)
     content = [c for c in args.content_columns.split(",") if c]
     key, removal = compare_rule(contract, content)
+    tolerance = getattr(args, "geometry_tolerance", None)
+    if tolerance is not None:
+        check_tolerance(contract, content, tolerance)
     objects = sorted(o for o in args.objects.split(",") if o)
     namespace, name = args.contract.split(".", 1)
     unquoted = f"{args.iceberg_catalog_name}.{namespace}.{name}"
@@ -389,7 +478,7 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
     if edition_at is not None:
         refuse_older_edition(edition, held_editions(spark, main, qualified, unquoted, edition_at))
         report["edition"] = edition
-    totals = {"changed_key_rows": 0, "removed_keys": 0}
+    totals = {"changed_key_rows": 0, "removed_keys": 0, **({"tolerated_keys": 0} if tolerance else {})}
     progress = {"buckets": len(every), "buckets_done": len(every) - len(pending)}
     for bucket in pending:
         if args.deadline_utc is not None and now() >= args.deadline_utc:
@@ -401,10 +490,14 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
             staged_part, main_part = staged.where(predicate), main.where(predicate)
         # A key's rows all share its first column, so a bucket's current rows are the table's for it.
         current = current_rows(main_part, contract).select(*columns)
-        changes = release_changes(staged_part, current, key=key, content=content, removal=removal,
-                                  source_snapshot_id=args.source_snapshot_id,
-                                  ingested_at=instant, columns=columns,
-                                  stamp=stamp).persist(StorageLevel.DISK_ONLY)
+        changes, kept = compared_changes(staged_part, current, key=key, content=content, removal=removal,
+                                         source_snapshot_id=args.source_snapshot_id,
+                                         ingested_at=instant, columns=columns,
+                                         stamp=stamp, tolerance=tolerance)
+        if kept is not None:
+            kept = kept.persist(StorageLevel.DISK_ONLY)
+            totals["tolerated_keys"] += kept.count()
+        changes = changes.persist(StorageLevel.DISK_ONLY)
         counts = changes.groupBy(F.col(removal) == F.lit(REMOVED)).count().collect()
         removed = sum(row["count"] for row in counts if row[0])
         appended = sum(row["count"] for row in counts if not row[0])
@@ -415,6 +508,8 @@ def compare_and_append(spark: Any, args: argparse.Namespace, now: Any = None) ->
                                 f"{SNAPSHOT_PROPERTY_PREFIX}{COMPARE_BUCKET_KEY}": bucket_label(bucket)},
               contract=args.contract, branch=args.changes_branch)
         changes.unpersist()
+        if kept is not None:
+            kept.unpersist()
         totals["changed_key_rows"] += appended
         totals["removed_keys"] += removed
         progress["buckets_done"] += 1

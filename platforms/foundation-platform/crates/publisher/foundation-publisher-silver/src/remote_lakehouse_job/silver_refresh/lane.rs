@@ -376,6 +376,21 @@ struct CompareBlock {
     /// either side holds (ADR-0318).
     #[serde(default)]
     bucket_scope: Option<String>,
+    /// A key whose only differing content is `checksum_column` is unchanged when its two
+    /// geometries are the same shape with every vertex within `metres` (JTS `equalsExact` with a
+    /// tolerance): a provider's re-projection moved every zone 5-7 cm between two vintages.
+    #[serde(default)]
+    geometry_tolerance: Option<GeometryToleranceBlock>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GeometryToleranceBlock {
+    geometry_column: String,
+    checksum_column: String,
+    metres: f64,
+    /// The measurement the tolerance rests on: a tolerance nobody measured hides real changes.
+    reason: String,
 }
 
 #[derive(Deserialize)]
@@ -416,6 +431,9 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     pub compare_bucket_prefix_length: u32,
     /// The compare reads only the buckets the release holds (`CompareBlock::bucket_scope`).
     pub compare_release_buckets_only: bool,
+    /// The compare's `--geometry-tolerance` value, `GEOMETRY,CHECKSUM,METRES`
+    /// (`CompareBlock::geometry_tolerance`).
+    pub compare_geometry_tolerance: Option<String>,
     /// Every Bronze object is its own release, loaded oldest first (`Block::release_unit`).
     pub releases_each_object: bool,
 }
@@ -569,8 +587,12 @@ impl LaneContract {
                 block.release_unit.is_none(),
                 "a land lane's release is its vintage's regions, not one object"
             );
-            let (compare_content, compare_bucket_prefix_length, compare_release_buckets_only) =
-                checked_compare_block(&block.table, block.compare)?;
+            let (
+                compare_content,
+                compare_bucket_prefix_length,
+                compare_release_buckets_only,
+                compare_geometry_tolerance,
+            ) = checked_compare_block(&block.table, block.compare)?;
             return Ok(Self {
                 lane,
                 table: block.table,
@@ -584,6 +606,7 @@ impl LaneContract {
                 compare_content,
                 compare_bucket_prefix_length,
                 compare_release_buckets_only,
+                compare_geometry_tolerance,
                 releases_each_object: false,
             });
         }
@@ -591,8 +614,12 @@ impl LaneContract {
             block.source.is_none() && block.member_name.is_none() && block.completeness.is_none(),
             "a hub lane reads roles from the ledger month, not land member names"
         );
-        let (compare_content, compare_bucket_prefix_length, compare_release_buckets_only) =
-            checked_compare_block(&block.table, block.compare)?;
+        let (
+            compare_content,
+            compare_bucket_prefix_length,
+            compare_release_buckets_only,
+            compare_geometry_tolerance,
+        ) = checked_compare_block(&block.table, block.compare)?;
         let releases_each_object = match block.release_unit.as_deref() {
             None => false,
             Some("object") => true,
@@ -658,6 +685,7 @@ impl LaneContract {
             compare_content,
             compare_bucket_prefix_length,
             compare_release_buckets_only,
+            compare_geometry_tolerance,
             releases_each_object,
         })
     }
@@ -696,12 +724,14 @@ fn checked_full_reason(
     }
 }
 
+type CheckedCompare = (Option<Vec<String>>, u32, bool, Option<String>);
+
 fn checked_compare_block(
     table: &str,
     compare: Option<CompareBlock>,
-) -> anyhow::Result<(Option<Vec<String>>, u32, bool)> {
+) -> anyhow::Result<CheckedCompare> {
     let Some(compare) = compare else {
-        return Ok((None, 0, false));
+        return Ok((None, 0, false, None));
     };
     let release_buckets_only = match compare.bucket_scope.as_deref() {
         None => false,
@@ -714,11 +744,49 @@ fn checked_compare_block(
         "{table}: compare.bucket_prefix_length {} is wider than any key it buckets",
         compare.bucket_prefix_length
     );
+    let content = checked_compare(table, compare.content_columns)?;
+    let tolerance = compare
+        .geometry_tolerance
+        .map(|tolerance| checked_tolerance(table, &content, &tolerance))
+        .transpose()?;
     Ok((
-        Some(checked_compare(table, compare.content_columns)?),
+        Some(content),
         compare.bucket_prefix_length,
         release_buckets_only,
+        tolerance,
     ))
+}
+
+/// A tolerance above 0 and at most 1 m, with a measured reason, over a geometry column of the
+/// table outside the content whose checksum is a content column; as `GEOMETRY,CHECKSUM,METRES`.
+fn checked_tolerance(
+    table: &str,
+    content: &[String],
+    tolerance: &GeometryToleranceBlock,
+) -> anyhow::Result<String> {
+    let contract = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
+        .with_context(|| format!("{table} has no lakehouse contract"))?;
+    let GeometryToleranceBlock {
+        geometry_column: geometry,
+        checksum_column: checksum,
+        metres,
+        reason,
+    } = tolerance;
+    ensure!(
+        *metres > 0.0 && *metres <= 1.0,
+        "{table}: compare.geometry_tolerance.metres {metres} is not above 0 and at most 1"
+    );
+    ensure!(
+        !reason.trim().is_empty(),
+        "{table}: compare.geometry_tolerance states the measurement it rests on (reason)"
+    );
+    ensure!(
+        content.contains(checksum)
+            && !content.contains(geometry)
+            && contract.columns.iter().any(|c| c.name == geometry.as_str()),
+        "{table}: compare.geometry_tolerance compares {geometry}, a column outside the content,          when {checksum}, a content column, is the only difference"
+    );
+    Ok(format!("{geometry},{checksum},{metres}"))
 }
 
 /// Content columns a lane may compare: its table's own, the table marks vanished keys, and none is

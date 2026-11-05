@@ -989,6 +989,53 @@ fn a_compare_the_table_cannot_answer_is_refused() -> anyhow::Result<()> {
 }
 
 #[test]
+fn a_geometry_tolerance_is_measured_bounded_and_over_the_tables_geometry() -> anyhow::Result<()> {
+    // The zone lane tolerates a provider's few-centimetre re-projection; no other lane does.
+    for lane in Lane::ALL {
+        let expected = (lane == Lane::LandUseZoneArea)
+            .then(|| "geometry_wkb,geometry_checksum_sha256,0.1".to_owned());
+        assert_eq!(
+            lane.contract()?.compare_geometry_tolerance,
+            expected,
+            "{}",
+            lane.id()
+        );
+    }
+    let tolerance = |edit: fn(&mut serde_json::Value)| {
+        move |v: &mut serde_json::Value| {
+            edit(&mut v["silver_refresh"]["compare"]["geometry_tolerance"])
+        }
+    };
+    let refused: [fn(&mut serde_json::Value); 8] = [
+        |t| t["metres"] = 0.0.into(),
+        |t| t["metres"] = (-0.1).into(),
+        |t| t["metres"] = 1.5.into(),
+        |t| t["reason"] = " ".into(),
+        // a checksum outside the content, a geometry the table lacks, the content as the geometry
+        |t| t["checksum_column"] = "zone_name_checksum".into(),
+        |t| t["geometry_column"] = "no_such_geometry".into(),
+        |t| t["geometry_column"] = "zone_name".into(),
+        |t| t["unknown"] = true.into(),
+    ];
+    for edit in refused {
+        let text = planted(Lane::LandUseZoneArea, tolerance(edit))?;
+        assert!(
+            LaneContract::parse(Lane::LandUseZoneArea, &text).is_err(),
+            "accepted {text}"
+        );
+    }
+    let at_most_one = planted(
+        Lane::LandUseZoneArea,
+        tolerance(|t| t["metres"] = 1.0.into()),
+    )?;
+    assert_eq!(
+        LaneContract::parse(Lane::LandUseZoneArea, &at_most_one)?.compare_geometry_tolerance,
+        Some("geometry_wkb,geometry_checksum_sha256,1".to_owned())
+    );
+    Ok(())
+}
+
+#[test]
 fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Result<()> {
     let runtime = Runtime {
         release_root: PathBuf::from("/opt/foundation-platform/releases/synthetic"),
@@ -1041,6 +1088,14 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
         compare.changes_branch.strip_prefix("changes_"),
         compare.branch.strip_prefix("load_")
     );
+    // A lane without a tolerance compares exactly; the zone lane passes its contract's.
+    assert!(!args.iter().any(|a| a == "--geometry-tolerance"));
+    let zones = execute::compare_arguments(&runtime, &Lane::LandUseZoneArea.contract()?, &compare)?;
+    let pair = [
+        "--geometry-tolerance",
+        "geometry_wkb,geometry_checksum_sha256,0.1",
+    ];
+    assert!(zones.windows(2).any(|w| w == pair), "missing {pair:?}");
     compare.objects.push("bronze/c,d.zip".to_owned());
     assert!(execute::compare_arguments(&runtime, &contract, &compare).is_err());
     Ok(())
