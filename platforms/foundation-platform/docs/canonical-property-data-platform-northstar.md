@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 캐노니컬 부동산 데이터 플랫폼 — 북극성 (North Star)
@@ -114,8 +114,8 @@ Owner: foundation-platform (데이터 파운데이션) · 소비: gongzzang / da
 - 의미 사전 = DataHub 패턴 / Palantir 온톨로지
 - 지저분한 이름 연결 = Splink(영국 MoJ, 정부 데이터)
 - AI = 잔여물만, 고정밀 임계값 자동조치(Amazon AutoKnow), 확률 자동수리 배제(Google)
-- 현행 구현 근거: [건축물대장 일관성 규칙](./catalog/building-register-consistency-rules.v1.draft.md)과
-  [층 정규화 규칙](./catalog/building-register-floor-normalization-rules.v1.md)
+- 현행 규칙: [층 정규화 규칙](./catalog/building-register-floor-normalization-rules.v1.md);
+  초안: [건축물대장 일관성 규칙](./catalog/building-register-consistency-rules.v1.draft.md)
 
 ## 7. 관련 문서 색인
 
@@ -135,6 +135,5 @@ Owner: foundation-platform (데이터 파운데이션) · 소비: gongzzang / da
 
 ## 8. 열린 결정 (소유자)
 - G3 정책: 다락·중층·복수층 스팬 표준 어휘
-- juso.building(건물 폴리곤) 수집 여부 (UI 지도용)
 - Splink 채택 시점 (전유부 동 fuzzy = Building 조립 단계)
 - 관계형 vs 온톨로지 그래프 (캐노니컬 엔티티 층 — Building 조립 시점 카드)
