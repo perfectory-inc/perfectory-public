@@ -240,7 +240,7 @@ class GeneratedFromTheRegistry(FromTheRegistry):
 
     def test_r2_verifies_the_generated_files_against_the_generators_list(self):
         self.assertIn("generated=2", self.module.verify_registry(COMMIT))
-        self.module.generated_paths.return_value = set(GENERATED) | {"docs/data-pipeline-map.md"}
+        self.module.generated_paths.return_value = set(GENERATED) | {"platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"}
         with self.assertRaisesRegex(ValueError, "missing"):
             self.module.verify_registry(COMMIT)
 
