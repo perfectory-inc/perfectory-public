@@ -1157,7 +1157,8 @@ case "${command}" in
       foundation-gold-parcel-sub-parcels-rebuild foundation-gold-parcel-energy-rebuild \
       foundation-gold-parcel-demolitions-rebuild; do
       [[ -e "/etc/systemd/system/${unit}.service" ]] || continue
-      if systemctl is-active --quiet "${unit}.service"; then
+      # The host's one answer to whether a unit runs (job_units.py); no answer keeps the unit too.
+      if ! still="$(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" running "${unit}.service")"         || [[ -n "${still}" ]]; then
         printf 'foundation-release: %s.service still runs; it is retired by the next deploy\n' "${unit}" >&2
         continue
       fi
