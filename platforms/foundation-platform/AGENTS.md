@@ -18,7 +18,7 @@ expanded as generic foundation data concerns.
 
 - [ADR 0008 - PNU Anchor PBF Marker Tile Contract](./docs/adr/0008-pnu-anchor-pbf-marker-tile-contract.md)
 - [Gongzzang ADR 0037 - PNU Anchor PBF Marker Tiles](../../products/gongzzang/docs/adr/0037-pnu-anchor-pbf-marker-tiles.md)
-- [Gongzzang ADR 0038 - Listing Marker Serving Index and Filter Mask](../../products/gongzzang/docs/adr/0038-listing-marker-serving-index-filter-mask.md)
+- [GZ-ADR-0038 - Listing Marker Serving Index and Filter Mask](../../products/gongzzang/docs/adr/0038-listing-marker-serving-index-filter-mask.md)
 
 규칙:
 
