@@ -1,0 +1,54 @@
+# Cargo's test, clippy and fmt run through `cargo xtask` (root ADR-0004, ADR-0011): the xtask lane
+# table is the one definition of which targets run with which flags.
+#
+# Prevents: verification drift. Raw `cargo clippy`/`cargo fmt` in workflows is how the lint flags
+# drifted across areas and broke local/CI parity (ADR-0004). A raw `cargo test` picks its own
+# targets: identity-ci declared two lane targets and ran one named test inside one of them, so
+# `live_provisioning` had never executed; the former scripts/verify/foundation-kafka-live.sh kept a
+# private copy of the same three target names beside the lane (ADR-0011).
+#
+# The rules read commands, not text: a comment explaining the drift, an `echo`, or a file name like
+# cargo-verify-isolation-self-test.sh is not a command.
+rules:
+  - id: workflows-run-cargo-through-xtask
+    languages: [yaml]
+    severity: ERROR
+    message: >-
+      A workflow step runs `cargo $SUB` directly; run it through `cargo xtask` (root ADR-0004,
+      ADR-0011).
+    paths:
+      include:
+        - /.github/workflows/
+    patterns:
+      - pattern: "run: $SCRIPT"
+      - metavariable-pattern:
+          metavariable: $SCRIPT
+          language: bash
+          patterns:
+            - pattern-either:
+                - pattern: cargo $SUB $...ARGS
+                - patterns:
+                    - pattern: cargo $TOOLCHAIN $SUB $...ARGS
+                    - metavariable-regex:
+                        metavariable: $TOOLCHAIN
+                        regex: ^\+
+            - metavariable-regex:
+                metavariable: $SUB
+                regex: ^(test|clippy|fmt)$
+
+  - id: scripts-run-cargo-test-through-xtask
+    languages: [bash]
+    severity: ERROR
+    message: >-
+      A script runs `cargo test` directly; the xtask lane table owns which test targets run
+      (root ADR-0011).
+    paths:
+      include:
+        - /scripts/
+    pattern-either:
+      - pattern: cargo test $...ARGS
+      - patterns:
+          - pattern: cargo $TOOLCHAIN test $...ARGS
+          - metavariable-regex:
+              metavariable: $TOOLCHAIN
+              regex: ^\+

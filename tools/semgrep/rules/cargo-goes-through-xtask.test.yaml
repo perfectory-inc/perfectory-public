@@ -1,0 +1,23 @@
+# Fixture for tools/semgrep/rules/cargo-goes-through-xtask.yml (`opengrep scan --test`).
+# `.test.yaml`, so the engine reads it as a target, not as a rule file.
+jobs:
+  drifted:
+    steps:
+      # ruleid: workflows-run-cargo-through-xtask
+      - run: cargo clippy --workspace -- -D warnings
+      # ruleid: workflows-run-cargo-through-xtask
+      - run: cargo +nightly fmt --check
+      # ruleid: workflows-run-cargo-through-xtask
+      - run: |
+          echo "building"
+          cargo test -p identity-api --test live_provisioning
+  lane:
+    steps:
+      # ok: workflows-run-cargo-through-xtask
+      - run: cargo xtask verify --area identity
+      # ok: workflows-run-cargo-through-xtask
+      - run: bash scripts/guard/cargo-verify-isolation-self-test.sh
+      # ok: workflows-run-cargo-through-xtask
+      - run: |
+          # A raw `cargo test` here once skipped live_provisioning; the lane runs it now.
+          cargo xtask integration --area identity

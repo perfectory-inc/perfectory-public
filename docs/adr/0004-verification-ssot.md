@@ -116,3 +116,5 @@ CI의 시간 제한은 캐시가 없는 최초 네이티브 컴파일과 전체 
 실제 검증 명령과 시험 범위는 기존 `cargo xtask verify foundation`을 그대로 사용한다.
 
 2026-10-28: 상태 줄 추가 — 원문에 없던 `Status`를 실물에 맞춰 적었다. 근거: `tools/xtask/src/main.rs`의 `verify` 하위 명령, 각 영역 CI 워크플로가 `cargo xtask verify`를 부른다.
+
+2026-11-05: `scripts/guard/no-adhoc-cargo-lint.sh` → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/cargo-goes-through-xtask.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 맡는다. 워크플로 `run:` 은 bash 로 읽어 주석·`echo`·파일 이름이 명령으로 읽히지 않는다. 결정은 그대로다.
