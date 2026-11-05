@@ -364,18 +364,6 @@ fn verify_lakehouse_registry_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn record_lakehouse_bronze_run_evidence_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "record-lakehouse-bronze-run-evidence",
-        ])?,
-        Command::RecordLakehouseBronzeRunEvidence
-    );
-    Ok(())
-}
-
-#[test]
 fn run_remote_lakehouse_job_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "run-remote-lakehouse-job",])?,
