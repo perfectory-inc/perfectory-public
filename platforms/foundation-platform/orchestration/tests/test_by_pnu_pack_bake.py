@@ -105,9 +105,14 @@ class PackBake(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("by-pnu-pack-bake.sh", "by-pnu-bake-shards.sh", "admitted-writer-runtime.sh", "held-lock.sh"):
+        for name in ("by-pnu-pack-bake.sh", "by-pnu-bake-shards.sh", "admitted-writer-runtime.sh", "held-lock.sh",
+                     "by-pnu-lane-index.sh"):
             (release / "scripts/ops" / name).write_bytes((OPS / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
+        # The lanes and their environment prefixes, from the lane index the definitions generate (root ADR-0418).
+        (release / "config").mkdir(parents=True, exist_ok=True)
+        (release / "config/by-pnu-lane-index.v1.json").write_bytes(
+            (OPS.parents[1] / "config/by-pnu-lane-index.v1.json").read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)

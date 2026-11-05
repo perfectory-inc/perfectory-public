@@ -267,9 +267,17 @@ class ByPnuServingBake(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
-        for name in ("by-pnu-serving-bake.sh", "admitted-writer-runtime.sh", "by-pnu-bake-shards.sh", "held-lock.sh"):
+        for name in ("by-pnu-serving-bake.sh", "admitted-writer-runtime.sh", "by-pnu-bake-shards.sh", "held-lock.sh",
+                     "by-pnu-lane-index.sh"):
             (release / "scripts/ops" / name).write_bytes((OPS / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
+        # The lanes and their environment prefixes, from the lane index the definitions generate (root
+        # ADR-0418): the host lanes only, as this release holds no pack-only lane's contract; a case that
+        # copies the whole config below takes every lane.
+        (release / "config").mkdir(parents=True, exist_ok=True)
+        index = json.loads((OPS.parents[1] / "config/by-pnu-lane-index.v1.json").read_text(encoding="utf-8"))
+        index["lanes"] = [lane for lane in index["lanes"] if lane["lane"] in ("parcel", "building")]
+        (release / "config/by-pnu-lane-index.v1.json").write_text(json.dumps(index), encoding="utf-8")
         # A lane's derived fields (the lane it follows) are read through it (root ADR-0193 §9).
         (release / "infra/lakehouse/spark/jobs").mkdir(parents=True)
         (release / "infra/lakehouse/spark/jobs/by_pnu_kinds.py").write_bytes(
@@ -688,7 +696,7 @@ class ByPnuServingBake(unittest.TestCase):
         # Root ADR-0260: a run without the line is failed. by_pnu_serving_bake runs `all`, and the
         # own-producer public-auction bake one lane as its whole program (root ADR-0303), which must
         # end with the line itself, exactly once.
-        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config", dirs_exist_ok=True)
         programs = {}
         for spec in job_specs.load_specs():
             unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
@@ -712,7 +720,7 @@ class ByPnuServingBake(unittest.TestCase):
 
     def test_only_a_pack_only_lane_that_says_it_is_not_cut_over_waits_for_the_operator(self):
         # Root ADR-0190. The release ships the contract that names the pack-only lanes.
-        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config", dirs_exist_ok=True)
         result, calls = self.bake("all", FAKE_GOLD="101", FAKE_NOT_CUT_OVER="show-parcel-zoning-by-pnu-serving-state")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         # Every lane of the contract in its order; a kind line (root ADR-0193 §4) is baked like the
@@ -779,7 +787,7 @@ class ByPnuServingBake(unittest.TestCase):
     def test_a_lane_whose_documents_follow_the_parcel_lane_waits_when_that_lane_failed(self):
         # Root ADR-0193 §9: a kind's documents are its host's section; a run whose parcel lane
         # failed does not publish them ahead of it.
-        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config", dirs_exist_ok=True)
         result, calls = self.bake("all", FAKE_SHORT_PREFIX="9999913", FAKE_SHORT_LANE="PARCEL",
                                   FAKE_NOT_CUT_OVER="show-parcel-zoning-by-pnu-serving-state")
         self.assertNotEqual(result.returncode, 0)
@@ -801,7 +809,7 @@ class ByPnuServingBake(unittest.TestCase):
         # Root ADR-0333: its own job now, so no run order keeps the unit price documents behind the
         # building documents; the gate (lane_follow_gate.py, its own test) compares the registers both
         # Golds were built from. Waiting is recorded, and the lane is baked once the gate says ok.
-        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config", dirs_exist_ok=True)
         gate = self.script.parent / "lane_follow_gate.py"
         gate.write_text("import os, sys\n"
                         "print('building' if sys.argv[2:] == ['--follows'] else os.environ['FAKE_GATE'])\n")
@@ -1108,7 +1116,7 @@ class ByPnuServingBake(unittest.TestCase):
         # 2026-10-19: an operator's attended full parcel bake held the lane; the scheduled run beside it
         # exited 75, showed red and sent a failure notice. Waiting for that run is not a failure.
         import fcntl
-        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config")
+        shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config", dirs_exist_ok=True)
         for lane in ("parcel", "building"):
             with self.subTest(held=lane):
                 lock = self.state_root / lane / "lane.lock"

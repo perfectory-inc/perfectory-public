@@ -38,3 +38,4 @@ docs/superpowers/
 /platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json
 /platforms/foundation-platform/orchestration/job-dependencies.v1.json
 /docs/data-pipeline-map.md
+/platforms/foundation-platform/config/by-pnu-lane-index.v1.json

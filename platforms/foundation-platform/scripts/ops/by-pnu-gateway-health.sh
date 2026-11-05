@@ -19,14 +19,14 @@
 set -euo pipefail
 USAGE="usage: by-pnu-gateway-health.sh <building|parcel|a by_pnu_lanes lane> <new-version-id> [<old-version-id>] | --preflight"
 LANE="${1:-}"
-# The parcel and building lanes, and every pack-only lane the contract this script ships with names (root ADR-0190).
-python3 -I -c 'import json, sys; sys.exit(sys.argv[2] not in ["parcel", "building", *json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {})])' \
-  "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" "${LANE}" || { echo "${USAGE}" >&2; exit 64; }
+# The parcel and building lanes, and every pack-only lane, from the lane index this script ships with (root ADR-0190, ADR-0418).
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-lane-index.sh"
+by_pnu_lane_known "${LANE}" || { echo "${USAGE}" >&2; exit 64; }
 NEW="${2:?${USAGE}}"
 OLD="${3:-}"
 # The publisher's command and environment names carry the lane (section_packs.rs).
 COMMAND="check-${LANE}-gateway-version-health"
-PREFIX="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${LANE}")_BY_PNU_SERVING"
+PREFIX="$(by_pnu_lane_env_prefix "${LANE}")"
 PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The file is named once, by the runtime-secrets contract (root ADR-0153), group cloudflare-analytics.
 ENV_FILE="$(python3 -c 'import json,sys; print(next(g["path"] for g in json.load(open(sys.argv[1]))["groups"] if g["name"] == "cloudflare-analytics"))' \
