@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: README
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # perfectory
@@ -21,6 +21,7 @@ perfectory/
 ├── consoles/dawneer/                   직원 통합 콘솔 (ADR-0114, 0116)
 ├── docs/                               전역 문서·ADR·기술 기준
 ├── scripts/                            검증·가드·자동화
+├── tools/                              버전 핀·CI 계약·xtask
 └── .github/                            전역 CI/CD
 ```
 

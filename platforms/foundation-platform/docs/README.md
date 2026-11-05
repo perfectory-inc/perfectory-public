@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # Foundation Platform 문서 지도
@@ -21,8 +21,7 @@ docs/
 ├── events/          이벤트 계약
 ├── openapi/         HTTP 계약
 ├── observability/   SLO·관측성
-├── runbooks/        운영 절차
-└── security/        보안·공급망
+└── runbooks/        운영 절차
 ```
 
 ## 가장 먼저 보는 문서
@@ -48,8 +47,7 @@ docs/
 | `events/` | 이벤트와 웹훅 계약 |
 | `openapi/` | 외부 HTTP 계약 |
 | `observability/` | SLO와 관측성 계약 |
-| `runbooks/` | 실행·장애 대응·복구 절차 |
-| `security/` | 보안·공급망 계약 |
+| `runbooks/` | 실행·장애 대응·복구 절차 (보안 권고 알림은 `runbooks/security-advisories.md`) |
 
 ## SSOT 원칙
 
