@@ -55,6 +55,30 @@ highlight = "simplest-path"
 deny = [
     { crate = "openssl", use-instead = "rustls", wrappers = ["native-tls"] },
     { crate = "openssl-sys", use-instead = "rustls", wrappers = ["native-tls", "openssl"] },
+    # Vector index / embedding provider crates (Intelligence ADR-0002). Prevents: the honest mistake of
+    # pinning an unapproved embedding provider or vector index without the engine ADR that ADR-0002
+    # makes its approval condition. Matches the resolved graph (direct, dev, build, transitive and
+    # renamed `package =` dependencies), so naming one in prose — chat_policy.rs ALLOWED_LATIN_TERMS
+    # lists qdrant and pgvector as spelling data — is not a dependency. Lifting a ban: write the
+    # engine ADR first, then update docs/technology-stack.md and this list in the same commit.
+    { crate = "qdrant", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "qdrant-client", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "pgvector", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "lancedb", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "lance", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "milvus", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "weaviate", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "weaviate-client", reason = "Intelligence ADR-0002: no unapproved vector index" },
+    { crate = "meilisearch", reason = "Intelligence ADR-0002: no unapproved search index" },
+    { crate = "tantivy", reason = "Intelligence ADR-0002: no unapproved search index" },
+    { crate = "opensearch", reason = "Intelligence ADR-0002: no unapproved search index" },
+    { crate = "elasticsearch", reason = "Intelligence ADR-0002: no unapproved search index" },
+    { crate = "fastembed", reason = "Intelligence ADR-0002: no unapproved embedding provider" },
+    { crate = "candle-core", reason = "Intelligence ADR-0002: no unapproved embedding provider" },
+    { crate = "candle-transformers", reason = "Intelligence ADR-0002: no unapproved embedding provider" },
+    { crate = "tiktoken-rs", reason = "Intelligence ADR-0002: no unapproved embedding provider" },
+    { crate = "async-openai", reason = "Intelligence ADR-0002: no unapproved embedding provider" },
+    { crate = "openai-api-rs", reason = "Intelligence ADR-0002: no unapproved embedding provider" },
 ]
 
 [bans.workspace-dependencies]

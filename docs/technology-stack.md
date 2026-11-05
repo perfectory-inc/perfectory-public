@@ -85,9 +85,10 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
    없다. 남은 두 라이브러리는 아직 어느 manifest에도 없으므로 첫 도입 커밋이 그 정확한 버전을
    표에 더한다. `overlay-kit` peer 범위는 `^16.8 || ^17 || ^18 || ^19`, `es-hangul`은 런타임
    의존성이 없고, 넷 다 MIT다.
-2. **같은 역할의 두 번째 라이브러리는 들어올 수 없다.** `scripts/guard/utility-library-policy.sh`가
-   package manifest의 dependency key만 읽어 거부한다.
-3. **표를 바꾸는 것이 결정이다.** 다른 것을 쓰려면 이 표와 가드를 같은 커밋에서 함께 고친다.
+2. **같은 역할의 두 번째 라이브러리는 들어올 수 없다.** Biome `noRestrictedImports`가 그 import를
+   오류로 거부한다. 거부 목록은 [`tools/biome/one-library-per-role.jsonc`](../tools/biome/one-library-per-role.jsonc)
+   하나이고, 모든 JS/TS 패키지의 `biome.json`이 그것을 `extends`한다.
+3. **표를 바꾸는 것이 결정이다.** 다른 것을 쓰려면 이 표와 거부 목록을 같은 커밋에서 함께 고친다.
    리뷰에서 라이브러리 선택을 매번 다시 논쟁하지 않기 위한 표다.
 
 ### AI 도구용 1차 자료
@@ -170,12 +171,14 @@ SSOT로 사용한다. 이 표는 기술 현황을, 로드맵은 실제 다음 �
   `rust-toolchain.toml`, 모든 Cargo.toml `rust-version`, Docker builder의 `rust:` 태그를 검사한다.
 - 같은 guard가 `cargo_version_requirements`(여러 Cargo 워크스페이스가 함께 쓰는 크레이트, 예: `utoipa`)를 읽어
   모든 Cargo.toml의 리터럴 요구 버전이 그 값과 같은지 검사한다(루트 ADR-0256).
-- `scripts/guard/utility-library-policy.sh`가 tracked package manifest의 dependency
-  key만 읽어, canonical 유틸리티 라이브러리 옆에 같은 역할의 두 번째 라이브러리가 들어오는
-  것을 거부한다. 산문·주석·버전 값에는 반응하지 않으므로 이 문단처럼 이력을 적을 수 있다.
-  손으로 쓴 `debounce`를 라이브러리 것으로 바꾸라는 쪽은 기계가 판정할 수 없어 리뷰 규칙으로
-  남는다 — **새 유틸리티가 필요하면 직접 구현하기 전에 es-toolkit에 있는지 먼저 본다.**
-- 두 guard와 self-test는 `scripts/guard/monorepo-guard.sh`를 통해 기존 CI 검증 SSOT에 포함된다.
+- Biome `noRestrictedImports`([`tools/biome/one-library-per-role.jsonc`](../tools/biome/one-library-per-role.jsonc))가
+  canonical 유틸리티 라이브러리 옆에 같은 역할의 두 번째 라이브러리를 import 하는 것을 거부한다.
+  gongzzang은 `pnpm biome check .`(frontend CI), 더니어 화면과 Foundation 게이트웨이는 각 패키지의
+  `lint` 스크립트(`cargo xtask verify`)가 돌린다. 산문·주석·manifest 값에는 반응하지 않으므로 이
+  문단처럼 이력을 적을 수 있다. 손으로 쓴 `debounce`를 라이브러리 것으로 바꾸라는 쪽은 기계가
+  판정할 수 없어 리뷰 규칙으로 남는다 — **새 유틸리티가 필요하면 직접 구현하기 전에 es-toolkit에
+  있는지 먼저 본다.**
+- `technology-version-consistency` guard와 self-test는 `scripts/guard/monorepo-guard.sh`를 통해 기존 CI 검증 SSOT에 포함된다.
 - 새 버전 도입은 이 문서 갱신 → ADR/마이그레이션 → local/CI/staging 검증 → production rollout
   순서로 한다. Compose에 임의의 두 번째 버전을 추가하지 않는다.
 - Foundation의 환경/bucket policy는
