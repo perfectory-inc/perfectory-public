@@ -25,9 +25,9 @@ import { ParcelListingsCard } from "./listings";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
+  parcelCourtAuctionQuery,
   parcelDemolitionsQuery,
   parcelEnergyQuery,
-  parcelCourtAuctionQuery,
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
