@@ -75,25 +75,8 @@ cargo run -p foundation-outbox-publisher -- verify-lakehouse-registry
 
 ## 전국 수집 전 Preflight
 
-`foundation-outbox-publisher run-national-data-collection --execute`는 이제 public API 수집 전에
-Lakehouse Registry preflight를 자동으로 실행한다.
-
-실행 순서:
-
-1. 승인 파일과 실행 확인 플래그를 검증한다.
-2. `.env.local`을 로드하고 필수 env를 확인한다.
-3. `foundation-outbox-publisher verify-lakehouse-registry`를 실행한다.
-4. `target/audit/lakehouse-registry-verify.json` evidence를 남긴다.
-5. Registry가 `ready`일 때만 public API quota metric과 Bronze 수집으로 넘어간다.
-
-preflight가 실패하면 public API 호출과 Bronze object write는 시작하지 않는다.
-이 경로에는 우회 스위치가 없다.
-
-수동 확인 명령:
-
-```bash
-cargo run -p foundation-outbox-publisher -- verify-lakehouse-registry
-```
+공공 API 전국 수집 경로(`run-national-data-collection` 과 그 ledger·계획 명령)는 bulk 전용 정책으로 2026-11 삭제됐다
+(원천은 hub.go.kr·rt.molit.go.kr·VWorld 파일 일괄). Registry 확인은 `foundation-outbox-publisher verify-lakehouse-registry` 로 직접 한다.
 
 ## Iceberg Table Inventory
 
@@ -209,4 +192,4 @@ cargo run -p foundation-outbox-publisher -- record-lakehouse-bronze-run-evidence
 > 참고: 별도 gate 커맨드였던 `check-national-data-collection-run-evidence`는 producer 자신의
 > 출력을 재검사하는 ceremony로 판정되어 2026-06-22 self-verifying evidence-gate 정리에서
 > 삭제되었다. `lakehouse_registry_preflight`와 `lakehouse_registry_record` 필드는 위의 producer
-> 명령(`run-national-data-collection`, `record-lakehouse-bronze-run-evidence`)이 evidence에 직접 기록한다.
+> 명령(`record-lakehouse-bronze-run-evidence`)이 evidence에 직접 기록한다.

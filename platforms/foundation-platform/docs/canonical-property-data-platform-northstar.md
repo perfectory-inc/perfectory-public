@@ -121,7 +121,6 @@ Owner: foundation-platform (데이터 파운데이션) · 소비: gongzzang / da
 
 **현행 계약/규칙 (foundation-platform)**
 - 정규화 소유권: `docs/adr/0027-normalization-capability-ownership.md`
-- 전국 정규화 계약: `docs/catalog/national-data-normalization-contract.v1.json`
 - 층 정규화 규칙과 모순 해소: `docs/catalog/building-register-floor-normalization-rules.v1.md`
 - 대장 필드 매핑 초안: [building-register-field-mapping.v1.draft.md](./catalog/building-register-field-mapping.v1.draft.md)
 - 일관성 규칙 초안: [building-register-consistency-rules.v1.draft.md](./catalog/building-register-consistency-rules.v1.draft.md)

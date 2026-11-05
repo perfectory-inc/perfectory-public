@@ -806,7 +806,7 @@ const AREAS: &[Area] = &[
             // Diagnostic, not a gate. Every one of the 22 data.go.kr endpoints in
             // `public-source-endpoint-catalog.v1.json` — ten building-register and twelve
             // real-transaction — carries `source_acquisition_lane: disabled_api_duplicate`, and
-            // `national_data_collection_ledger_execute` refuses to select any of them. Bulk is the
+            // no collector selects any of them (the API national-collection path is deleted). Bulk is the
             // source for both: hub.go.kr for the building register, rt.molit.go.kr for real
             // transactions. This lane therefore proves the provider still answers, which is worth
             // knowing and is not worth blocking on.

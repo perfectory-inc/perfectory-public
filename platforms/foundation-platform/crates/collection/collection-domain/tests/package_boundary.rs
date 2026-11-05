@@ -36,12 +36,7 @@ const FORBIDDEN_APPLICATION_MODULES: &[&str] = &[
 const FORBIDDEN_INFRASTRUCTURE_MODULES: &[&str] = &[
     "pub mod bronze_repository;",
     "pub mod building_hub_bulk;",
-    "pub mod data_go_kr_building_register;",
-    "pub mod data_go_kr_odcloud_api;",
-    "pub mod data_go_kr_service_api;",
-    "pub mod vworld_data_api;",
     "pub mod vworld_dataset_file;",
-    "pub mod vworld_ned_attribute;",
 ];
 
 #[test]

@@ -43,20 +43,14 @@ mod administrative_boundary_postgis_publish;
 mod administrative_boundary_runtime_promote;
 mod administrative_boundary_static_release_publish;
 mod administrative_spatial_scope_registry;
-use foundation_publisher_tiles::boundary_static_release_publish;
-mod bounded_live_ingestion_gate_check;
 use foundation_publisher_collection::bronze_object_members;
 use foundation_publisher_collection::bronze_object_storage;
 use foundation_publisher_collection::bronze_schema_profile;
 use foundation_publisher_collection::building_hub_bulk_collection_plan;
 use foundation_publisher_collection::building_hub_bulk_ingest;
-use foundation_publisher_collection::building_register_ingest;
 use foundation_publisher_silver::building_register_floor_silver_export;
-mod building_register_local_bronze_proof;
-use foundation_publisher_collection::building_register_page_count_batch;
-use foundation_publisher_collection::building_register_page_count_plan_writer;
-mod building_register_smoke;
 use foundation_publisher_silver::hub_provider_release;
+use foundation_publisher_tiles::boundary_static_release_publish;
 mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
@@ -103,16 +97,7 @@ use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
-use foundation_publisher_collection::national_bronze_object_manifest;
-use foundation_publisher_collection::national_data_collection_coverage_ledger_check;
-use foundation_publisher_collection::national_data_collection_ledger_execute;
-use foundation_publisher_collection::national_data_collection_ledger_resume;
-use foundation_publisher_collection::national_data_collection_plan_compile;
 use foundation_publisher_collection::national_data_collection_rollout_approval_check;
-use foundation_publisher_collection::national_data_collection_run;
-use foundation_publisher_collection::national_data_collection_scope_writer;
-use foundation_publisher_collection::national_data_collection_shard_manifest_writer;
-use foundation_publisher_collection::national_page_count_plan_writer;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
 mod parcel_boundary_handoff;
@@ -129,7 +114,6 @@ mod postgis_parcel_boundary_mirror_rebuild;
 use foundation_publisher_collection::provider_acquisition_import;
 use foundation_publisher_collection::provider_acquisition_plan;
 use foundation_publisher_collection::provider_request_spacing;
-use foundation_publisher_collection::public_api_metric_writer;
 use foundation_publisher_collection::public_data_bronze_lane_orchestrator;
 use foundation_publisher_collection::public_provider_rate_controller;
 use foundation_publisher_core::public_data_control_support;
@@ -149,31 +133,22 @@ mod r2_cleanup_verify;
 use foundation_publisher_core::r2_command_support;
 mod r2_delete_candidates;
 mod r2_inventory_audit;
-use foundation_publisher_collection::real_transaction_ingest;
 use foundation_publisher_collection::rt_molit_real_transaction_collect;
 use foundation_publisher_core::r2_layout;
 use foundation_publisher_core::runtime_environment;
 use foundation_publisher_silver::remote_lakehouse_job;
 mod serving_source_lineage_register;
 mod shapefile_polygon_reader;
-mod silver_gold_national_promotion_execution;
-mod silver_gold_national_promotion_plan;
 mod spatial_tile_wap_command;
 mod staging_namespace;
 use foundation_publisher_tiles::static_release_readdress;
 use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
 mod unit_official_price_projection_load;
-use foundation_publisher_collection::vworld_cadastral_ingest;
-use foundation_publisher_collection::vworld_cadastral_silver_export;
 use foundation_publisher_collection::vworld_cadastral_silver_shard_export;
-use foundation_publisher_collection::vworld_cadastral_smoke;
 use foundation_publisher_collection::vworld_dataset_collection_plan;
 use foundation_publisher_collection::vworld_dataset_file_ingest;
 use foundation_publisher_collection::vworld_dataset_file_inventory;
-use foundation_publisher_collection::vworld_land_register_ingest;
-use foundation_publisher_collection::vworld_ned_attribute_ingest;
-use foundation_publisher_collection::vworld_page_count_batch;
 use foundation_publisher_tiles::vector_tile_runtime_promote;
 
 use crate::public_data_control_support::{optional_env_value, required_env_value};
@@ -186,7 +161,6 @@ type CommandFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 enum Command {
     AuditR2Inventory,
     BuildIndustrialComplexAddressResolution,
-    BuildingRegisterSmoke,
     CollectCodeGoKrLegalDong,
     CollectDataGoKrOnbid,
     CollectRtMolitRealTransaction,
@@ -222,7 +196,6 @@ enum Command {
     ExportParcelByPnuServing,
     ExportBuildingByPnuServing,
     SectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
-    ExportVWorldCadastralSilverHandoff,
     ExportVWorldCadastralShapefileSilverHandoff,
     ExportVWorldCadastralSilverHandoffShard,
     ExportLandUsePlanSilverHandoff,
@@ -234,24 +207,14 @@ enum Command {
     ExportLandTransferHistorySilverHandoff,
     ExportLandRightRegistrationSilverHandoff,
     ExportLandOwnershipSilverHandoff,
-    ExecuteNationalDataCollectionLedger,
-    ExecuteSilverGoldNationalPromotion,
     EvaluateLakehouseQualityRules,
     IngestBuildingHubBulkCollection,
     IngestBuildingHubBulkFile,
     PlanBuildingHubBulkCollection,
     PlanProviderAcquisitionJobs,
     PlanVWorldDatasetCollection,
-    CheckBoundedLiveIngestionGate,
     CheckR2RuntimeTarget,
-    CheckSilverGoldNationalPromotionExecution,
-    CheckSilverGoldNationalPromotionPlan,
-    CheckNationalDataCollectionCoverageLedger,
-    ResumeNationalDataCollectionLedger,
-    RunNationalDataCollection,
     RunRemoteLakehouseJob,
-    CompileNationalDataCollectionPlan,
-    CheckNationalDataCollectionRolloutApproval,
     PublishAdministrativeBoundaryPostgis,
     PublishAdministrativeBoundaryStaticRelease,
     PublishIndustrialComplexBoundaryPostgis,
@@ -274,37 +237,19 @@ enum Command {
     PromoteAdministrativeBoundaryRuntime,
     PromoteIndustrialComplexBoundaryRuntime,
     PromoteParcelBoundaryRuntime,
-    CheckNationalBronzeObjectManifest,
     ProviderRateController,
     CollectR2BillingExport,
     RunPublicDataBronzeCollectionLanes,
     WriteAdministrativeSpatialScopeRegistry,
     WriteOfficialAdministrativeBoundarySourceSnapshot,
-    WriteBuildingRegisterPageCountPlan,
     WriteCanonicalReleaseProof,
-    WriteNationalBronzeObjectManifest,
-    WriteNationalDataCollectionRolloutApproval,
-    WriteNationalDataCollectionScope,
-    WriteNationalDataCollectionShardManifest,
-    WriteNationalPageCountPlan,
-    WritePublicApiDependencyMetric,
-    WritePublicApiQuotaMetric,
     WriteR2BronzeKeyCleanupCandidates,
     WriteR2BronzeKeyMigrationPlan,
-    WriteSilverGoldNationalPromotionPlan,
     ImportProviderAcquisitionLanding,
     LoadIndustrialComplexCanonical,
-    IngestBuildingRegister,
-    IngestRealTransaction,
-    IngestVWorldCadastral,
     IngestVWorldDatasetFiles,
-    IngestVWorldLandRegister,
-    IngestVWorldNedAttribute,
     InventoryVWorldDatasetFiles,
-    ProbeBuildingRegisterPageCount,
-    ProbeBuildingRegisterPageCountBatch,
     ProbeSpatialTileWap,
-    ProbeVWorldPageCountBatch,
     PublishIndustrialComplexGoldPointer,
     PublishIndustrialComplexGoldPointers,
     PublishLakehouseLineageEvent,
@@ -319,16 +264,13 @@ enum Command {
     RebuildPostgisParcelBoundaryMirror,
     RebuildPostgisParcelBoundaryMirrorNational,
     RebuildPostgisParcelBoundaryMirrorNationalFromContract,
-    ReconcileBuildingRegister,
     RecordLakehouseBronzeRunEvidence,
     RegisterServingSourceLineage,
-    RunBuildingRegisterLocalBronzeProof,
     RunPublisher,
     InventoryLakehouse,
     MigrateR2BronzeKeys,
     SeedLakehouseRegistry,
     SmokeR2,
-    SmokeVWorldCadastral,
     VerifyStaticReleaseToolchain,
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
@@ -383,7 +325,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
 
     let future: CommandFuture = match command {
         Command::AuditR2Inventory => Box::pin(r2_inventory_audit::run()),
-        Command::BuildingRegisterSmoke => Box::pin(async { building_register_smoke::run() }),
         Command::BuildIndustrialComplexAddressResolution => {
             Box::pin(async { industrial_complex_address_resolution_build::run() })
         }
@@ -434,9 +375,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ShowParcelByPnuServingState => Box::pin(by_pnu_serving_state::run_parcel()),
         Command::ShowBuildingByPnuServingState => Box::pin(by_pnu_serving_state::run_building()),
         Command::VerifyParcelByPnuServingRebase => Box::pin(by_pnu_serving_rebase::run_parcel()),
-        Command::ExportVWorldCadastralSilverHandoff => {
-            Box::pin(async { vworld_cadastral_silver_export::run() })
-        }
         Command::ExportVWorldCadastralShapefileSilverHandoff => {
             Box::pin(foundation_publisher_silver::vworld_cadastral_shapefile_silver_export::run())
         }
@@ -492,12 +430,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandIndividualPriceSilverHandoff => {
             Box::pin(land_use_silver_export::run_price())
         }
-        Command::ExecuteNationalDataCollectionLedger => {
-            Box::pin(async { national_data_collection_ledger_execute::run() })
-        }
-        Command::ExecuteSilverGoldNationalPromotion => {
-            Box::pin(async { silver_gold_national_promotion_execution::run_execute() })
-        }
         Command::EvaluateLakehouseQualityRules => {
             Box::pin(async { lakehouse_quality_rules_evaluate::run() })
         }
@@ -514,15 +446,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::PlanProviderAcquisitionJobs => Box::pin(provider_acquisition_plan::run()),
         Command::PlanVWorldDatasetCollection => Box::pin(vworld_dataset_collection_plan::run()),
-        Command::CheckNationalDataCollectionCoverageLedger => {
-            Box::pin(async { national_data_collection_coverage_ledger_check::run() })
-        }
-        Command::ResumeNationalDataCollectionLedger => {
-            Box::pin(async { national_data_collection_ledger_resume::run() })
-        }
-        Command::RunNationalDataCollection => {
-            Box::pin(async { national_data_collection_run::run() })
-        }
         Command::StopBuildingRegisterFloorCycle => {
             Box::pin(async { remote_lakehouse_job::stop_floor_cycle() })
         }
@@ -541,12 +464,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(async { remote_lakehouse_job::stop_parcel_tile_bake() })
         }
         Command::RunRemoteLakehouseJob => Box::pin(remote_lakehouse_job::run()),
-        Command::CompileNationalDataCollectionPlan => {
-            Box::pin(async { national_data_collection_plan_compile::run() })
-        }
-        Command::CheckNationalDataCollectionRolloutApproval => {
-            Box::pin(async { national_data_collection_rollout_approval_check::run() })
-        }
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
         }
@@ -593,23 +510,8 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(industrial_complex_boundary_runtime_promote::run())
         }
         Command::PromoteParcelBoundaryRuntime => Box::pin(parcel_boundary_runtime_promote::run()),
-        Command::CheckBoundedLiveIngestionGate => {
-            Box::pin(async { bounded_live_ingestion_gate_check::run() })
-        }
         Command::CheckR2RuntimeTarget => {
             Box::pin(async { bronze_object_storage::live_write_target_preflight() })
-        }
-        Command::CheckSilverGoldNationalPromotionExecution => {
-            Box::pin(async { silver_gold_national_promotion_execution::run_check() })
-        }
-        Command::CheckSilverGoldNationalPromotionPlan => {
-            Box::pin(async { silver_gold_national_promotion_plan::run_check() })
-        }
-        Command::WriteNationalDataCollectionScope => {
-            Box::pin(async { national_data_collection_scope_writer::run() })
-        }
-        Command::CheckNationalBronzeObjectManifest => {
-            Box::pin(async { national_bronze_object_manifest::run_check() })
         }
         Command::ProviderRateController => {
             Box::pin(async { public_provider_rate_controller::run() })
@@ -624,31 +526,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::WriteOfficialAdministrativeBoundarySourceSnapshot => {
             Box::pin(async { official_administrative_boundary_source_snapshot::write() })
         }
-        Command::WritePublicApiDependencyMetric => {
-            Box::pin(async { public_api_metric_writer::run_dependency() })
-        }
-        Command::WritePublicApiQuotaMetric => {
-            Box::pin(async { public_api_metric_writer::run_quota() })
-        }
-        Command::WriteBuildingRegisterPageCountPlan => {
-            Box::pin(async { building_register_page_count_plan_writer::run() })
-        }
         Command::WriteCanonicalReleaseProof => Box::pin(async { canonical_release_proof::run() }),
-        Command::WriteNationalBronzeObjectManifest => {
-            Box::pin(async { national_bronze_object_manifest::run_write() })
-        }
-        Command::WriteNationalDataCollectionRolloutApproval => {
-            Box::pin(async { national_data_collection_rollout_approval_check::write() })
-        }
-        Command::WriteNationalDataCollectionShardManifest => {
-            Box::pin(async { national_data_collection_shard_manifest_writer::run() })
-        }
-        Command::WriteNationalPageCountPlan => {
-            Box::pin(async { national_page_count_plan_writer::run() })
-        }
-        Command::WriteSilverGoldNationalPromotionPlan => {
-            Box::pin(async { silver_gold_national_promotion_plan::run_write() })
-        }
         Command::PublishIndustrialComplexGoldPointer => {
             Box::pin(industrial_complex_gold_pointer_publish::run())
         }
@@ -674,25 +552,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract => {
             Box::pin(postgis_parcel_boundary_mirror_national_rebuild::run_from_contract())
         }
-        Command::IngestBuildingRegister => Box::pin(building_register_ingest::run()),
-        Command::RunBuildingRegisterLocalBronzeProof => {
-            Box::pin(async { building_register_local_bronze_proof::run() })
-        }
-        Command::IngestRealTransaction => Box::pin(real_transaction_ingest::run()),
-        Command::IngestVWorldCadastral => Box::pin(vworld_cadastral_ingest::run()),
         Command::IngestVWorldDatasetFiles => Box::pin(vworld_dataset_file_ingest::run()),
-        Command::IngestVWorldLandRegister => Box::pin(vworld_land_register_ingest::run()),
-        Command::IngestVWorldNedAttribute => Box::pin(vworld_ned_attribute_ingest::run()),
         Command::InventoryVWorldDatasetFiles => Box::pin(vworld_dataset_file_inventory::run()),
-        Command::ProbeBuildingRegisterPageCount => {
-            Box::pin(building_register_ingest::probe_page_count())
-        }
-        Command::ProbeBuildingRegisterPageCountBatch => {
-            Box::pin(building_register_page_count_batch::run())
-        }
         Command::ProbeSpatialTileWap => Box::pin(async { spatial_tile_wap_command::run() }),
-        Command::ProbeVWorldPageCountBatch => Box::pin(vworld_page_count_batch::run()),
-        Command::ReconcileBuildingRegister => Box::pin(building_register_ingest::reconcile()),
         Command::RecordLakehouseBronzeRunEvidence => {
             Box::pin(lakehouse_registry_control::record_bronze_run_evidence())
         }
@@ -709,7 +571,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::SeedLakehouseRegistry => Box::pin(lakehouse_registry_control::seed()),
         Command::SmokeR2 => Box::pin(run_r2_smoke()),
-        Command::SmokeVWorldCadastral => Box::pin(vworld_cadastral_smoke::run()),
         Command::VerifyStaticReleaseToolchain => Box::pin(async {
             static_release_toolchain::verify(std::time::Duration::from_secs(30))
                 .await
@@ -742,30 +603,12 @@ where
     match command.as_deref() {
         None | Some("run") => Ok(Command::RunPublisher),
         Some("audit-r2-inventory") => Ok(Command::AuditR2Inventory),
-        Some("building-register-smoke") => Ok(Command::BuildingRegisterSmoke),
         Some("delete-r2-candidates") => Ok(Command::DeleteR2Candidates),
-        Some("ingest-building-register") => Ok(Command::IngestBuildingRegister),
-        Some("run-building-register-local-bronze-proof") => {
-            Ok(Command::RunBuildingRegisterLocalBronzeProof)
-        }
         Some("ingest-building-hub-bulk-collection") => Ok(Command::IngestBuildingHubBulkCollection),
         Some("ingest-building-hub-bulk-file") => Ok(Command::IngestBuildingHubBulkFile),
         Some("plan-building-hub-bulk-collection") => Ok(Command::PlanBuildingHubBulkCollection),
         Some("plan-vworld-dataset-collection") => Ok(Command::PlanVWorldDatasetCollection),
-        Some("check-national-data-collection-coverage-ledger") => {
-            Ok(Command::CheckNationalDataCollectionCoverageLedger)
-        }
-        Some("execute-national-data-collection-ledger") => {
-            Ok(Command::ExecuteNationalDataCollectionLedger)
-        }
-        Some("execute-silver-gold-national-promotion") => {
-            Ok(Command::ExecuteSilverGoldNationalPromotion)
-        }
         Some("evaluate-lakehouse-quality-rules") => Ok(Command::EvaluateLakehouseQualityRules),
-        Some("resume-national-data-collection-ledger") => {
-            Ok(Command::ResumeNationalDataCollectionLedger)
-        }
-        Some("run-national-data-collection") => Ok(Command::RunNationalDataCollection),
         Some("stop-building-register-floor-cycle") => Ok(Command::StopBuildingRegisterFloorCycle),
         Some("stop-gold-panel-rebuild") => Ok(Command::StopGoldPanelRebuild),
         Some("stop-lakehouse-maintenance") => Ok(Command::StopLakehouseMaintenance),
@@ -774,12 +617,6 @@ where
         Some("stop-silver-refresh") => Ok(Command::StopSilverRefresh),
         Some("stop-parcel-tile-bake") => Ok(Command::StopParcelTileBake),
         Some("run-remote-lakehouse-job") => Ok(Command::RunRemoteLakehouseJob),
-        Some("compile-national-data-collection-plan") => {
-            Ok(Command::CompileNationalDataCollectionPlan)
-        }
-        Some("check-national-data-collection-rollout-approval") => {
-            Ok(Command::CheckNationalDataCollectionRolloutApproval)
-        }
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
         }
@@ -818,20 +655,7 @@ where
             Ok(Command::PromoteIndustrialComplexBoundaryRuntime)
         }
         Some("promote-parcel-boundary-runtime") => Ok(Command::PromoteParcelBoundaryRuntime),
-        Some("check-bounded-live-ingestion-gate") => Ok(Command::CheckBoundedLiveIngestionGate),
         Some("check-r2-runtime-target") => Ok(Command::CheckR2RuntimeTarget),
-        Some("check-silver-gold-national-promotion-execution") => {
-            Ok(Command::CheckSilverGoldNationalPromotionExecution)
-        }
-        Some("check-silver-gold-national-promotion-plan") => {
-            Ok(Command::CheckSilverGoldNationalPromotionPlan)
-        }
-        Some("write-national-data-collection-scope") => {
-            Ok(Command::WriteNationalDataCollectionScope)
-        }
-        Some("check-national-bronze-object-manifest") => {
-            Ok(Command::CheckNationalBronzeObjectManifest)
-        }
         Some("provider-rate-controller") => Ok(Command::ProviderRateController),
         Some("collect-r2-billing-export") => Ok(Command::CollectR2BillingExport),
         Some("run-public-data-bronze-collection-lanes") => {
@@ -843,38 +667,11 @@ where
         Some("write-official-administrative-boundary-source-snapshot") => {
             Ok(Command::WriteOfficialAdministrativeBoundarySourceSnapshot)
         }
-        Some("write-public-api-dependency-metric") => Ok(Command::WritePublicApiDependencyMetric),
-        Some("write-public-api-quota-metric") => Ok(Command::WritePublicApiQuotaMetric),
-        Some("write-building-register-page-count-plan") => {
-            Ok(Command::WriteBuildingRegisterPageCountPlan)
-        }
         Some("write-canonical-release-proof") => Ok(Command::WriteCanonicalReleaseProof),
-        Some("write-national-bronze-object-manifest") => {
-            Ok(Command::WriteNationalBronzeObjectManifest)
-        }
-        Some("write-national-data-collection-rollout-approval") => {
-            Ok(Command::WriteNationalDataCollectionRolloutApproval)
-        }
-        Some("write-national-data-collection-shard-manifest") => {
-            Ok(Command::WriteNationalDataCollectionShardManifest)
-        }
-        Some("write-national-page-count-plan") => Ok(Command::WriteNationalPageCountPlan),
-        Some("write-silver-gold-national-promotion-plan") => {
-            Ok(Command::WriteSilverGoldNationalPromotionPlan)
-        }
         Some("plan-provider-acquisition-jobs") => Ok(Command::PlanProviderAcquisitionJobs),
         Some("inventory-vworld-dataset-files") => Ok(Command::InventoryVWorldDatasetFiles),
-        Some("ingest-real-transaction") => Ok(Command::IngestRealTransaction),
-        Some("probe-building-register-page-count") => Ok(Command::ProbeBuildingRegisterPageCount),
-        Some("probe-building-register-page-count-batch") => {
-            Ok(Command::ProbeBuildingRegisterPageCountBatch)
-        }
         Some("probe-spatial-tile-wap") => Ok(Command::ProbeSpatialTileWap),
-        Some("probe-vworld-page-count-batch") => Ok(Command::ProbeVWorldPageCountBatch),
-        Some("ingest-vworld-cadastral") => Ok(Command::IngestVWorldCadastral),
         Some("ingest-vworld-dataset-files") => Ok(Command::IngestVWorldDatasetFiles),
-        Some("ingest-vworld-land-register") => Ok(Command::IngestVWorldLandRegister),
-        Some("ingest-vworld-ned-attribute") => Ok(Command::IngestVWorldNedAttribute),
         Some("build-industrial-complex-address-resolution") => {
             Ok(Command::BuildIndustrialComplexAddressResolution)
         }
@@ -924,9 +721,6 @@ where
         Some("show-parcel-by-pnu-serving-state") => Ok(Command::ShowParcelByPnuServingState),
         Some("show-building-by-pnu-serving-state") => Ok(Command::ShowBuildingByPnuServingState),
         Some("verify-parcel-by-pnu-serving-rebase") => Ok(Command::VerifyParcelByPnuServingRebase),
-        Some("export-vworld-cadastral-silver-handoff") => {
-            Ok(Command::ExportVWorldCadastralSilverHandoff)
-        }
         Some("export-vworld-cadastral-shapefile-silver-handoff") => {
             Ok(Command::ExportVWorldCadastralShapefileSilverHandoff)
         }
@@ -1006,7 +800,6 @@ where
         Some("rebuild-postgis-parcel-boundary-mirror-national-from-contract") => {
             Ok(Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract)
         }
-        Some("reconcile-building-register") => Ok(Command::ReconcileBuildingRegister),
         Some("record-lakehouse-bronze-run-evidence") => {
             Ok(Command::RecordLakehouseBronzeRunEvidence)
         }
@@ -1019,7 +812,6 @@ where
         Some("write-r2-bronze-key-migration-plan") => Ok(Command::WriteR2BronzeKeyMigrationPlan),
         Some("seed-lakehouse-registry") => Ok(Command::SeedLakehouseRegistry),
         Some("smoke-r2") => Ok(Command::SmokeR2),
-        Some("smoke-vworld-cadastral") => Ok(Command::SmokeVWorldCadastral),
         Some("verify-static-release-toolchain") => Ok(Command::VerifyStaticReleaseToolchain),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),

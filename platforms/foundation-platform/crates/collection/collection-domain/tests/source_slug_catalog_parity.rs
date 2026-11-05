@@ -127,12 +127,11 @@ fn every_provider_document_uses_registered_labels_or_named_sentinel() -> TestRes
             })?;
         }
     }
-    // The discovery must not silently match nothing: four documents carry provider labels today,
-    // and a drop to zero would make this test vacuous rather than failing.
+    // The discovery must not silently match nothing: a drop to zero would make this test vacuous
+    // rather than failing. The count is not pinned; `docs/catalog` owns which documents exist.
     assert!(
-        documents_with_labels >= 4,
-        "expected at least four catalog documents carrying provider labels, found \
-         {documents_with_labels}"
+        documents_with_labels > 0,
+        "expected catalog documents carrying provider labels, found none"
     );
     Ok(())
 }
