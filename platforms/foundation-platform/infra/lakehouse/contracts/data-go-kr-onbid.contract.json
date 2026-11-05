@@ -137,7 +137,19 @@
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): Bronze objects of item_list and item_bid_result that no commit of their table records, landed within window_days, oldest first, at most max_objects per table. The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it. A day of item passes (8) and results (24) fits one run.",
     "window_days": 7,
-    "max_objects": 24
+    "max_objects": 24,
+    "run_time_budget_seconds": 1500,
+    "run_start_seconds": 540,
+    "measured_object_seconds": {"p50": 16, "p90": 54, "max": 563, "measured_on": "2026-11-03"},
+    "measured_objects_per_day": 104,
+    "per_run_reason": "Root ADR-0390, ADR-0300 H. Measured 2026-11-03 (read-only Trino, the eight onbid Silver tables' $snapshots 10-27..11-03, 837 commits; one commit per object, objects in turn): an object that reads no parcels took p50 16 s, p90 54 s, max 563 s (702 objects; gaps over 600 s span a run boundary or an object that never committed). An item list object took p50 482 s, p90 957 s, max 2424 s, almost all of it reading and de-duplicating every current parcel again; the load now reads them once a run, cut to the PNUs its objects ask about, so that read is in run_start_seconds (31 s from the unit's start to its first commit, measured in the journal, plus 482 s, the per-object read it replaces, as its upper bound) and an item list object costs what a compared object does. At 1500 s the run stops starting objects: (1500 - 540) / 54 = 17 objects a run, 408 a day, against at most 104 a day the collector landed outside the 10-29/30 first loads; the object in flight (max 563 s) and the exit fit the unit's 40 minutes.",
+    "spark": {
+      "master": "local[2,8]",
+      "driver_memory": "1g",
+      "measured_jvm_non_heap_mib": 793,
+      "measured_python_mib": 601,
+      "memory_reason": "Root ADR-0390. compose.lakehouse.yml spark-small holds the whole container to 2560m. The kernel's OOM record of 2026-11-03 17:03:04 (one of 67 kills of this unit 10-28..11-03) shows the container at its limit with the JVM at 2841 MiB resident and swapped for a 2g heap (793 MiB beyond the heap) and the PySpark driver's Python at 601 MiB. A 1g heap plus those two is 2418 MiB, inside the cap; the 2g heap the script used to pass could never fit beside them. The run now holds only the cached parcels its objects ask about, so 1g is the heap's size, not a squeeze; a load that outgrows it fails alone (cgroup OOM, Slack)."
+    }
   },
   "pnu": {
     "$comment": "ADR-0280 §3: the provider's ltnoPnu is the key, its 11th digit read through provider_ledger_kind_digits. A value Pnu::parse would refuse (not 19 ASCII digits, or a 대장구분 digit outside this list) keeps pnu null and its raw text in ltno_pnu_raw. The Silver load reads these values; a test in lakehouse-domain asserts they are exactly what foundation_shared_kernel::Pnu::parse accepts.",

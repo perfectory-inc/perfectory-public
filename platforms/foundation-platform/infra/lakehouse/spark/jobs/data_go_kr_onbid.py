@@ -547,10 +547,9 @@ def _load(argv: Sequence[str]) -> int:
     if not args.table_suffix and not args.allow_non_smoke_write:
         parser.error("writing the Silver tables needs --allow-non-smoke-write")
 
-    import address_pnu  # noqa: PLC0415
     import place_identity_resolver  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
-    from lakehouse_ingest import append_source_object  # noqa: PLC0415
+    from lakehouse_ingest import Deadline, append_source_object  # noqa: PLC0415
     from platform_contracts import REMOVED, current_rows  # noqa: PLC0415
     from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
     from silver_release_compare import release_changes  # noqa: PLC0415
@@ -560,6 +559,8 @@ def _load(argv: Sequence[str]) -> int:
     objects = planned_objects([Path(d) for d in args.plan_dir], source)
     now = datetime.now(timezone.utc).replace(microsecond=0, tzinfo=None)
     summary: dict[str, Any] = {"job": JOB_NAME, "objects": [], "status": "loaded"}
+    deadline = Deadline(float(source["silver_load"]["run_time_budget_seconds"]))
+    deferred: list[str] = []
     builder = SparkSession.builder.appName(f"foundation-platform-{JOB_NAME}").config("spark.sql.session.timeZone", "UTC")
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
 
@@ -569,10 +570,19 @@ def _load(argv: Sequence[str]) -> int:
         tables = {role: ensure_table(spark, args, ROLES[role][1]) for role in ROLES}
         if any(entry["role"] == "item_list" for entry in objects):
             # ADR-0288 §1: every parcel source resolves its code to the current pnu here, not by
-            # copying the source code. The pairs and the current parcels are read once for the run.
+            # copying the source code. The pairs and the current parcels are read once for the run, the
+            # parcels cut to the PNUs these objects can ask about (root ADR-0390).
             remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
-            parcels, _titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
+            wanted = place_identity_resolver.candidate_pnus(
+                (row["pnu"] for entry in objects if entry["role"] == "item_list"
+                 for row in read_object(entry, source, now)["rows"]), remap, ambiguous)
+            parcels = place_identity_resolver.served_parcels_among(spark, args.iceberg_catalog_name, wanted)
+            summary["parcels_read"] = {"asked": len(wanted), "held": parcels.count()}
         for entry in objects:
+            if deadline.passed():
+                # Not started before the run's time budget: unrecorded, so the next run's plan owes it.
+                deferred.append(entry["object_key"])
+                continue
             loads = read_object(entry, source, now)
             rows = loads["rows"]
             role = entry["role"]
@@ -618,6 +628,7 @@ def _load(argv: Sequence[str]) -> int:
             summary["objects"].append(line)
     finally:
         spark.stop()
+    summary["deferred"] = len(deferred)
     _summary_line(summary)
     return 0
 

@@ -49,5 +49,13 @@ class ReconstructPnu(unittest.TestCase):
         self.assertEqual(r.with_current_code("9999900100109120008", "9999900200"), "9999900200109120008")
 
 
+class CandidatePnus(unittest.TestCase):
+    def test_the_parcel_set_is_asked_only_about_the_current_form_of_each_code(self) -> None:
+        # Root ADR-0390: the run reads only these PNUs of the ~40M current parcels.
+        asked = r.candidate_pnus(["9999900100109120008", "9999900300100010000", "9999902000100020000", None, ""],
+                                 {"9999900100": "9999900200"}, {"9999902000"})
+        self.assertEqual(asked, {"9999900200109120008", "9999900300100010000"})
+
+
 if __name__ == "__main__":
     unittest.main()
