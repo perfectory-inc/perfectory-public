@@ -68,6 +68,7 @@ elif command.startswith("show-"):
                    "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"] or None,
                    "document_schema_version": "doc.v2",
                    "readable_document_schema_versions": json.loads(os.environ.get("FAKE_READABLE", '["doc.v2"]')),
+                   "document_schema_revision": json.loads(os.environ.get("FAKE_REVISION", "null")),
                    "published": {"manifest_schema_version": 2,
                                  "base_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
                                  "base_object_count": int(os.environ.get("FAKE_BASE_OBJECTS", "100")),
@@ -1321,6 +1322,32 @@ class SectionPackBake(unittest.TestCase):
         summary = json.loads((pathlib.Path(publish["env"][self.PREFIX + "PACK_SUMMARY_DIR"]).parent
                               / "run-summary.json").read_text())
         self.assertEqual((summary["mode"], summary["document_schema_expansion"]), ("patch", "doc.v1 -> doc.v2"))
+
+    def test_another_registry_revision_of_the_same_name_explains_a_change_set_over_the_bound(self):
+        # Root ADR-0336: 2026-10-29..11-04 the 공매 lane's registry revision 2 -> 3 (ADR-0340)
+        # re-rendered every document under the one name `.v2`; `schemas` said same, no revision was
+        # stated, and the change set was refused as unexplained for six days. The served packs now
+        # record their revision, and a move to the export's is the record that explains it.
+        why = {"document_schema": "the documents move doc.v2 revision 2->3 (root ADR-0320)"}
+        result, calls = self.bake(FAKE_PACKS=packs_state(served_document_schema_versions=["doc.v2"],
+                                                         served_document_schema_revisions=[2, 2]),
+                                  FAKE_REVISION="3", FAKE_DELTA_EXIT="6", FAKE_DELTA_EXPLAINED=json.dumps(why))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        [delta] = [call for call in calls if call["command"] == "delta"]
+        self.assertEqual(delta["options"]["--document-schema-revision"], "doc.v2 revision 2->3")
+        self.assertTrue(self.exports(calls))
+        self.assertTrue(self.published(calls))
+
+    def test_a_revision_the_packs_do_not_record_or_already_serve_explains_nothing(self):
+        # A base published before the record says nothing (unknown is never "moved"), and the
+        # export's own revision is no move at all: both state no revision.
+        for served in ([None, 2], [3]):
+            with self.subTest(served=served):
+                _result, calls = self.bake(FAKE_PACKS=packs_state(served_document_schema_versions=["doc.v2"],
+                                                                  served_document_schema_revisions=served),
+                                           FAKE_REVISION="3", FAKE_DELTA_EXIT="4")
+                [delta] = [call for call in calls if call["command"] == "delta"]
+                self.assertEqual(delta["options"]["--document-schema-revision"], "")
 
     def test_an_expanding_version_that_changes_most_documents_bakes_a_new_generation(self):
         # Root ADR-0346, the 2026-10-29 parcel-forest-ledger refusal: v1 -> v2 re-rendered

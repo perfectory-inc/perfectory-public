@@ -391,7 +391,6 @@ class BlocksSparkTest(unittest.TestCase):
         def every_list(source):
             return {c["name"]: "[{}]" for c in load_lakehouse_contract(source)["columns"] if c["name"].endswith("_json")}
 
-        late = datetime(2099, 1, 10)
         rounds = [{"cltr_mng_no": "K", "pbct_cdtn_no": n, "pnu": CURRENT, "item_name": "synthetic", "prpt_div_cd": "0007",
                    "prpt_div_nm": "압류재산", "usg_lcls_ctgr_id": "10000", "cltr_usg_lcls_ctgr_nm": "토지",
                    "onbid_pbanc_no": 7, "pbct_no": 70 + n, "org_name": "합성 기관", "bid_ends_at": datetime(2099, 1, 4 + n),

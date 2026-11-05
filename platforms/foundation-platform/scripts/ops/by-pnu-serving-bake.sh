@@ -382,13 +382,18 @@ PY
 # one a patch expanded it to. `same`: all are the one the export bakes; `expands`: the export's
 # version only adds optional fields to each (the state's readable versions), so a patch of it goes
 # over them; `breaks`: one of them is not readable, and only a new generation serves the export's.
+# `packs_revisions`: when the export bakes another registry revision of the same schema name (root
+# ADR-0336) and every served one is recorded, `<served,...>-><export>`; else `-`. Two revisions of
+# one major share one name, so `schemas` alone says `same`: 2026-10-29..11-04 the 공매 lane's
+# revision 2 -> 3 re-rendered every document and the change set was refused as unexplained.
 read -r packs packs_reflected packs_schema packs_count packs_newest packs_live packs_cumulative \
-  packs_generation packs_listed packs_patch_listed packs_served packs_schemas < <(python3 -I - "${state}" <<'PY'
+  packs_generation packs_listed packs_patch_listed packs_served packs_schemas packs_revisions \
+  < <(python3 -I - "${state}" <<'PY'
 import json, sys
 state = json.load(open(sys.argv[1]))
 packs = state.get("section_packs")
 if packs is None:
-    print("no", *["-"] * 11)
+    print("no", *["-"] * 12)
 else:
     for name in ("generations_with_packs", "patches_with_packs"):
         listed = packs[name]
@@ -401,11 +406,20 @@ else:
         sys.exit(f"the document schemas are not names: {served!r} {readable!r}")
     verdict = ("same" if set(served) == {now}
                else "expands" if readable[0] == now and set(served) <= set(readable) else "breaks")
+    export_revision = state.get("document_schema_revision")
+    served_revisions = packs.get("served_document_schema_revisions") or []
+    if not all(r is None or (type(r) is int and r >= 1) for r in [export_revision, *served_revisions]):
+        sys.exit(f"the document schema revisions are not numbers: {export_revision!r} {served_revisions!r}")
+    # An unrecorded served revision (a base or patch published before the record) says nothing.
+    revisions = "-"
+    if (export_revision is not None and served_revisions and None not in served_revisions
+            and set(served_revisions) != {export_revision}):
+        revisions = f"{','.join(str(r) for r in sorted(set(served_revisions)))}->{export_revision}"
     print("yes", packs["reflected_gold_iceberg_snapshot_id"], packs["document_schema_version"],
           packs["document_count"], packs["newest_patch"], packs["max_live_patches"],
           packs["cumulative_changes"], max(s["generation"] for s in packs["sections"]),
           max(packs["generations_with_packs"], default=0), max(packs["patches_with_packs"], default=0),
-          ",".join(sorted(served)), verdict)
+          ",".join(sorted(served)), verdict, revisions)
 PY
 )
 [[ -n "${packs_schemas:-}" ]] || { log "refused: cannot read the section packs of the lane state ${state}"; exit 65; }
@@ -583,6 +597,8 @@ run_delta() {
   local work="$1" container="/workspace/target/lakehouse/${1#"${STATE_ROOT}/"}" rc=0 revision=""
   # A document schema revision is a record that explains a change set over max_delta_fraction (root ADR-0346).
   [[ "${schemas}" != expands ]] || revision="${served_schema} -> ${schema_now}"
+  # So is another registry revision of the same name (root ADR-0336).
+  [[ -n "${revision}" || "${packs_revisions:--}" == - ]] || revision="${schema_now} revision ${packs_revisions}"
   mkdir -p "${work}"
   # Spark 컨테이너는 uid 185 로 쓴다. 그 init 단계는 마운트한 상태 루트 자체가 쓰기 가능한지 본다
   # (compose.lakehouse.yml lakehouse-target-init) — 실행 디렉터리만 열면 첫 운영 실행처럼 거부된다.

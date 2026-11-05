@@ -68,6 +68,16 @@ pub fn document_schema_version(lane: ByPnuLane) -> &'static str {
     }
 }
 
+/// The schema registry revision the lane's export bakes now (root ADR-0336): its registered
+/// subject's current revision, `None` for a lane the registry does not list. Two revisions of one
+/// major share one `schema_version` string, so the name alone cannot say the documents moved.
+pub fn document_schema_revision(lane: ByPnuLane) -> Option<u32> {
+    match lane {
+        ByPnuLane::Parcel | ByPnuLane::Building => None,
+        ByPnuLane::Pack(lane) => lane.document_schema_revision,
+    }
+}
+
 /// The document schemas a served state of the lane may hold and this release still serves and
 /// patches over (root ADR-0320): the one the export bakes, then the earlier versions it only adds
 /// optional fields to (expand/contract). A document of an earlier one stays served as it is until
