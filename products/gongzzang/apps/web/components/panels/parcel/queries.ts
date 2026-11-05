@@ -2,9 +2,9 @@
 // The parcel views' reads, keyed as `PanelEntryView` keys a view (`["panel", kind, view, id]`), so
 // the panel's own sections and the pushed views share one cache entry per read.
 import { fetchBuildings } from "@/lib/api/buildings";
+import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchEnergy } from "@/lib/api/energy";
-import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchRealTransaction } from "@/lib/api/real-transaction";
