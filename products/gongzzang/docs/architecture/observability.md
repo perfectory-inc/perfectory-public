@@ -107,7 +107,7 @@ Gongzzang은 다음을 다시 만들지 않는다.
 
 이 경로들의 소유자는 `docs/architecture/foundation-platform-boundary.v1.json` `path_ownership`에
 `extracted_catalog_observability_asset` 으로 기록되어 있다. 이 목록을 읽어 재도입을 막는 검사는
-지금 없다 — `scripts/lefthook/foundation-ownership-boundary.sh`는 Catalog crate·Catalog 표 쓰기·
+지금 없다 — `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)는 Catalog crate·Catalog 표 쓰기·
 Catalog 변경 route만 본다.
 
 ## 7. 남은 공백
@@ -123,5 +123,5 @@ Catalog 변경 route만 본다.
 
 traffic/auth policy registry 산출물은 CI(`gongzzang-ci.yml` `Traffic/auth policy drift`)에서
 `cargo run -p gongzzang-api --bin generate-traffic-auth-policy` 후 `git diff --exit-code`로 강제한다.
-Foundation Platform Catalog 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`(CI
-`Repo guardrails`)가 강제한다. 둘 다 커밋 전 훅에서는 돌지 않는다(루트 `lefthook.yml`).
+Foundation Platform Catalog 경계는 `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙, CI
+`monorepo-guard` 의 `semgrep-rules`)가 강제한다. 둘 다 커밋 전 훅에서는 돌지 않는다(루트 `lefthook.yml`).

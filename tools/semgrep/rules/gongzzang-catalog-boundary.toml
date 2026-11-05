@@ -1,0 +1,6 @@
+# Fixture for tools/semgrep/rules/gongzzang-catalog-boundary.yml (`opengrep scan --test`): the
+# manifest of a catalog domain crate planted back in Gongzzang (`--test` does not apply paths).
+# ruleid: gongzzang-owns-no-catalog-domain-crate
+[package]
+name = "parcel-domain"
+version = "0.1.0"

@@ -38,7 +38,7 @@ Catalog 데이터는 Foundation Platform 공개 계약(API·이벤트·불변 �
 
 | 규칙 | 받침 |
 |---|---|
-| Foundation 소유 Catalog crate 재도입, Catalog 표 직접 쓰기, Catalog 변경 route 금지 | `scripts/lefthook/foundation-ownership-boundary.sh` (CI `gongzzang-ci.yml`) |
+| Foundation 소유 Catalog crate 재도입, Catalog 표 직접 쓰기, Catalog 변경 route 금지 | `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙, CI `monorepo-guard` 의 `semgrep-rules`) |
 | 도메인 crate 는 경계 계약 `path_ownership` 에 선언되고, crate 는 `crates/` 바로 아래에 둔다 | `cargo run -p repo-guard -- capability-layout` |
 | Catalog API 소비 변경은 고정 계약 `docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json` 을 함께 갱신한다 | `crates/foundation-platform-client/tests/catalog_contract_pin.rs` |
 | 파일 1500줄 초과 금지(500줄부터 경고) | `cargo run -p repo-guard -- file-line-limit` |
@@ -66,7 +66,7 @@ DATABASE_URL=... cargo xtask integration gongzzang postgres  # postgres 레인(i
 bash scripts/verify/frontend-test.sh                  # 웹 단위 테스트를 격리 컨테이너에서
 
 # products/gongzzang 에서
-bash scripts/lefthook/foundation-ownership-boundary.sh
+bash ../../scripts/guard/semgrep-rules.sh
 cargo run -p repo-guard -- file-line-limit             # capability-layout, migration-version-prefixes 도 같다
 cargo sqlx prepare --workspace --check                 # 마이그레이션을 적용한 DB 가 필요하다
 pnpm install --frozen-lockfile

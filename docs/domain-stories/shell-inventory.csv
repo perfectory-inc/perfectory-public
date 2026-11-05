@@ -80,7 +80,6 @@ products/gongzzang/scripts/lefthook/check-no-fake-pass.sh,75,true,git-hook,xtask
 products/gongzzang/scripts/lefthook/check-no-fake-pass.tests.sh,144,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
 products/gongzzang/scripts/lefthook/file-line-limit.sh,95,true,ci,xtask,"Moved to CI only (gongzzang-ci.yml), not in lefthook.yml"
 products/gongzzang/scripts/lefthook/file-line-limit.tests.sh,95,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
-products/gongzzang/scripts/lefthook/foundation-ownership-boundary.sh,200,true,ci,xtask,"Moved to CI only by ADR-0149, not in lefthook.yml"
 products/gongzzang/scripts/lefthook/panel-guards.tests.sh,68,true,test-fixture,xtask,Lefthook self-test run directly by gongzzang-ci.yml
 products/gongzzang/scripts/lefthook/panel-no-direct-codec.sh,27,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
 products/gongzzang/scripts/lefthook/panel-no-framework-import-kind.sh,28,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
