@@ -44,5 +44,10 @@ check(build.toolchain().count(".") == 2, "rust-toolchain.toml's channel is not r
 workflow = (root / ".github/workflows/foundation-release-build.yml").read_text(encoding="utf-8").splitlines()
 release_check = json.loads((root / "tools/release-build.contract.json").read_text(encoding="utf-8"))["registry"]["check_run"]
 check(f"    name: {release_check}" in workflow, f"registry.check_run {release_check!r} is no job of the release workflow")
+# Root ADR-0419: the release carries the generated artifacts the generator names, from this checkout.
+generated = build.generated_paths()
+check(generated and len(set(generated)) == len(generated), "the generator names no generated artifact, or one twice")
+check(all((root / name).is_file() for name in generated),
+      "a generated artifact is missing from the checkout the release builds from (scripts/ci/generate-declared.sh)")
 PY
 echo "OK release-build-self-test"

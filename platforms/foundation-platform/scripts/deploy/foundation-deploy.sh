@@ -141,10 +141,18 @@ release_changes() {
   # Each archive goes to a file and is unpacked on its own: no pipeline decides an `||` (ADR-0012 rule 2).
   git --git-dir="${mirror}" archive "${sha}" "${platform}/scripts/deploy/release_changes.py" \
     "${platform}/scripts/deploy/deploy_steps.py" "${platform}/scripts/deploy/worker_autodeploy.py" \
-    "${platform}/config/deploy-steps.contract.json" "${platform}/orchestration/jobs.v1.json" \
-    "${platform}/docs/catalog/pipeline-graph.v1.json" "${platform}/migrations" tools/release-build.contract.json \
+    "${platform}/config/deploy-steps.contract.json" "${platform}/migrations" tools/release-build.contract.json \
     >"${changes}/release.tar" || return 1
   tar -x -C "${changes}" -f "${changes}/release.tar" || return 1
+  # The job list and the pipeline graph: committed before root ADR-0418, generated after it and then
+  # taken from the release CI built and signed (root ADR-0419), never rendered here.
+  if git --git-dir="${mirror}" cat-file -e "${sha}:${platform}/orchestration/jobs.v1.json" 2>/dev/null; then
+    git --git-dir="${mirror}" archive "${sha}" "${platform}/orchestration/jobs.v1.json" \
+      "${platform}/docs/catalog/pipeline-graph.v1.json" >"${changes}/listed.tar" || return 1
+    tar -x -C "${changes}" -f "${changes}/listed.tar" || return 1
+  else
+    "${admission}" generated "${sha}" "${changes}" || return 1
+  fi
   inputs="$(python3 -I -c 'import json, sys
 print("\n".join(sys.argv[2] + "/" + item for item in json.load(open(sys.argv[1]))["steps"]["lakehouse-migrate"]["inputs"]))' \
     "${changes}/${platform}/config/deploy-steps.contract.json" "${platform}")" || return 1
@@ -265,6 +273,12 @@ target="${control_root}/releases/${sha}"
 if [[ ! -e "${target}" ]]; then
   staging="$(mktemp -d "${control_root}/releases/.staging.XXXXXX")"
   git --git-dir="${mirror}" archive "${sha}" | tar -x --no-same-owner -C "${staging}"
+  # A commit with declared definitions does not commit what they generate (root ADR-0418): the control
+  # checkout takes those files from the release CI built and signed, verified by the running control's
+  # admission (root ADR-0419); nothing is rendered on this host.
+  if [[ ! -e "${staging}/platforms/foundation-platform/orchestration/jobs.v1.json" ]]; then
+    "${admission}" generated "${sha}" "${staging}"
+  fi
   printf '%s\n' "${sha}" >"${staging}/.perfectory-control-commit"
   chown -R root:root "${staging}"; chmod -R u+rwX,go+rX,go-w "${staging}"; chmod 0755 "${staging}"
   mv -T "${staging}" "${target}"

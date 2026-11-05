@@ -59,6 +59,9 @@ SOURCE_ARTIFACTS = tuple(dict.fromkeys(slot[0] for slot in SLOTS.values()))
 # Artifacts that were generated before this ADR: rendered from the generated sources by their own
 # renderers, never a second implementation, and held to the committed bytes.
 DERIVED_ARTIFACTS = (DEPENDENCIES, MAP)
+EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
+# Every artifact the definitions generate (root ADR-0418); the release carries them signed (ADR-0419).
+GENERATED = (*SOURCE_ARTIFACTS, EXAMPLE, DEPENDENCIES, MAP)
 
 
 class DefinitionError(Exception):

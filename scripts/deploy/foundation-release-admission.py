@@ -63,6 +63,11 @@ SUBTREE = "platforms/foundation-platform"
 ID_FILE = ".foundation-release-id"
 ARCHIVE_FILE = ".foundation-release-archive-sha256"
 MARKERS = {ID_FILE, ARCHIVE_FILE}
+# The generated files a release holds beside its commit's (root ADR-0418, ADR-0419): path -> sha256, written
+# by `prepare` from the release CI built and signed. Present exactly when the subtree has declared
+# definitions; a release from before them has none.
+GENERATED_FILE = ".foundation-release-generated-sha256.json"
+DEFINITIONS = "definitions/"
 
 
 def require_sha(value: str) -> None:
@@ -138,19 +143,85 @@ def check_archive_contents(expected, archive: Path) -> bytes:
     return raw
 
 
-def prepare_release(expected, release_id: str, archive: Path, target: Path) -> None:
-    raw = check_archive_contents(expected, archive)
+def declared(files) -> bool:
+    """Whether a release's own files hold declared definitions, so its generated files are not committed."""
+    return any(name.startswith(DEFINITIONS) for name in files)
+
+
+def checked_generated(found: dict[str, bytes]) -> dict[str, bytes]:
+    """`found` (repository path -> bytes, from a signed release) when every path is a plain repository path.
+
+    Which files are generated is the signed release's to say: its build refuses one the checkout lacks.
+    The control checkout's own generator list is not consulted: it is one deploy behind a release that
+    adds an artifact, and would refuse that release mid-deploy (root ADR-0419 §2).
+    """
+    for name in found:
+        path = PurePosixPath(name)
+        if (not name or path.is_absolute() or ".." in path.parts or "\\" in name or path.as_posix() != name
+                or any(part.startswith(".") for part in path.parts)):
+            raise ValueError(f"the signed release names an unsafe generated path: {name!r}")
+    return found
+
+
+def generated_release_files(release_id: str, files) -> dict[str, tuple[int, bytes]]:
+    """The generated files of the release's subtree, from the signed release; none before the definitions."""
+    if not declared(files):
+        return {}
+    found = checked_generated(signed_generated(release_id))
+    inside = {path[len(SUBTREE) + 1:]: data for path, data in found.items() if path.startswith(SUBTREE + "/")}
+    committed = sorted(set(inside) & set(files))
+    if committed:
+        raise ValueError(f"generated files are also committed: {committed}")
+    return {name: (0o444, data) for name, data in inside.items()}
+
+
+def release_expected(files, target: Path) -> dict[str, tuple[int, bytes]]:
+    """The installed release's files: its commit's, and the generated ones its marker names (root ADR-0419).
+
+    The marker is the release's own, written by `prepare` from the signed release and sealed with it;
+    a release with declared definitions must have it, a release without them must not.
+    """
+    marker = target / GENERATED_FILE
+    if not declared(files):
+        if marker.exists():
+            raise ValueError("a release without declared definitions holds generated files")
+        return files
+    if not marker.is_file():
+        raise ValueError("a release with declared definitions has no generated files recorded")
+    listed = json.loads(marker.read_text(encoding="utf-8"))
+    expected = dict(files)
+    for name, sha256 in listed.items():
+        path = PurePosixPath(name)
+        if path.is_absolute() or ".." in path.parts or name in files or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            raise ValueError(f"invalid generated file record: {name}")
+        data = (target / name).read_bytes()
+        if hashlib.sha256(data).hexdigest() != sha256:
+            raise ValueError(f"installed generated file differs from the signed release: {name}")
+        expected[name] = (0o444, data)
+    return expected
+
+
+def prepare_release(files, release_id: str, archive: Path, target: Path, generated=None) -> None:
+    generated = generated or {}
+    raw = check_archive_contents(files, archive)
     if any(target.iterdir()):
         raise ValueError("release staging directory must be empty")
-    # Write the independently fetched Git bytes, never extract the supplied tar archive.
-    for name, (mode, contents) in expected.items():
+    # Write the independently fetched Git bytes, never extract the supplied tar archive; then the
+    # generated files the signed release holds (root ADR-0419), never rendered here.
+    for name, (mode, contents) in {**files, **generated}.items():
         file = target / name
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_bytes(contents)
         file.chmod(mode)
     (target / ID_FILE).write_text(release_id + "\n", encoding="ascii")
     (target / ARCHIVE_FILE).write_text(hashlib.sha256(raw).hexdigest() + "\n", encoding="ascii")
-    for marker in MARKERS:
+    markers = set(MARKERS)
+    if declared(files):
+        (target / GENERATED_FILE).write_text(json.dumps(
+            {name: hashlib.sha256(data).hexdigest() for name, (_, data) in sorted(generated.items())},
+            indent=2) + "\n", encoding="utf-8")
+        markers.add(GENERATED_FILE)
+    for marker in markers:
         (target / marker).chmod(0o444)
     for directory, _, _ in os.walk(target, topdown=False):
         Path(directory).chmod(0o555)
@@ -223,7 +294,8 @@ def verify_release(expected, release_id: str, target: Path, owner: int = 0, seal
                 if info.st_nlink != 1:
                     raise ValueError("release contains a hard-linked file")
                 actual.add(entry.relative_to(target).as_posix())
-    if actual != set(expected) | MARKERS:
+    markers = MARKERS | ({GENERATED_FILE} if (target / GENERATED_FILE).is_file() else set())
+    if actual != set(expected) | markers:
         raise ValueError("installed release file set differs from canonical source")
     for name, (mode, contents) in expected.items():
         file = target / name
@@ -669,6 +741,7 @@ def verified_release(release_id: str, work: Path, settings: dict[str, str], toke
         raise ValueError(f"the signed manifest is for {manifest.get('source_commit')}, not {release_id}")
     named = {digest for image in manifest["images"].values() for digest in (image["oci_manifest"], image["config"])}
     named |= {entry["sha256"] for entry in manifest["files"].values()}
+    named |= {entry["sha256"] for entry in manifest.get("generated", {}).values()}
     if not named <= signed:
         raise ValueError("the manifest names digests its provenance did not sign")
     return manifest, signed
@@ -699,6 +772,71 @@ def registry_files(manifest: dict, settings: dict[str, str], token: str, output:
         path = output / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+
+
+def registry_generated(manifest: dict, settings: dict[str, str], token: str) -> dict[str, bytes]:
+    """The generated files from the generated image (root ADR-0419): repository path -> bytes, each by
+    its signed sha256. A release built before root ADR-0419 has none."""
+    wanted = manifest.get("generated", {})
+    if not wanted:
+        return {}
+    image = manifest["images"]["generated"]
+    raw = by_digest(registry_get(settings["repository"], f"manifests/{image['oci_manifest']}", token, REGISTRY_MANIFEST_TYPES),
+                    image["oci_manifest"], "the generated image")
+    found: dict[str, bytes] = {}
+    for layer in json.loads(raw)["layers"]:
+        data = by_digest(registry_get(settings["repository"], f"blobs/{layer['digest']}", token), layer["digest"],
+                         "a generated layer")
+        with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+            for member in tar.getmembers():
+                name = member.name.removeprefix("./")
+                if member.isdir():
+                    continue
+                if not member.isfile() or name not in wanted or name in found:
+                    raise ValueError(f"the generated image holds {name!r}, which the manifest does not name")
+                found[name] = tar.extractfile(member).read()
+    if set(found) != set(wanted):
+        raise ValueError("the generated image does not hold exactly the manifest's generated files")
+    for name, data in found.items():
+        if f"sha256:{hashlib.sha256(data).hexdigest()}" != wanted[name]["sha256"] or len(data) != wanted[name]["size"]:
+            raise ValueError(f"{name} in the generated image is not the manifest's")
+    return found
+
+
+def signed_generated(release_id: str) -> dict[str, bytes]:
+    """The generated files of release-<commit>, verified as `verify-registry` verifies the rest."""
+    require_sha(release_id)
+    settings = registry_settings()
+    token = registry_token(settings["repository"])
+    ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+    protected_path(ARTIFACT_ROOT)
+    with tempfile.TemporaryDirectory(prefix=".generated-", dir=ARTIFACT_ROOT) as temporary:
+        manifest, _ = verified_release(release_id, Path(temporary), settings, token)
+    return registry_generated(manifest, settings, token)
+
+
+def write_generated(release_id: str, output: Path) -> int:
+    """Write release-<commit>'s generated files under `output` (a checkout of that commit); how many.
+
+    A file the checkout already holds (committed before root ADR-0418) must be the signed one and is
+    left; a release built before root ADR-0419 writes nothing. Never rendered here.
+    """
+    found = signed_generated(release_id)
+    if not found:
+        return 0
+    found = checked_generated(found)
+    written = 0
+    for name, data in sorted(found.items()):
+        path = output / name
+        if path.exists():
+            if path.read_bytes() != data:
+                raise ValueError(f"{name}: the checkout's committed file is not the signed generated one")
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        path.chmod(0o444)
+        written += 1
+    return written
 
 
 def registry_images(release_id: str, manifest: dict, settings: dict[str, str], tag: bool) -> dict[str, str]:
@@ -751,7 +889,12 @@ def verify_registry(release_id: str) -> str:
     with tempfile.TemporaryDirectory(prefix=".verify-", dir=ARTIFACT_ROOT) as temporary:
         images = registry_artifacts(release_id, Path(temporary), tag=False)
         files = artifact_files(Path(temporary))
-    return f"{release_id} images={','.join(f'{name}={image[7:19]}' for name, image in sorted(images.items()))} files={len(files)}"
+    # Root ADR-0419: the generated files too, held to the generator's list; none before them.
+    generated = signed_generated(release_id)
+    if generated:
+        checked_generated(generated)
+    return (f"{release_id} images={','.join(f'{name}={image[7:19]}' for name, image in sorted(images.items()))} "
+            f"files={len(files)} generated={len(generated)}")
 
 
 def build_artifacts(target: Path) -> None:
@@ -984,6 +1127,11 @@ def main() -> int:
     # Stage R2 of root ADR-0276: verify the release CI built and signed, install nothing.
     verify_registry_command = sub.add_parser("verify-registry")
     verify_registry_command.add_argument("release_id")
+    # Root ADR-0419: the generated files of release-<commit> into a checkout of it (the deploy's
+    # pre-flight and its control checkout), verified against the signed release; nothing is rendered.
+    generated_command = sub.add_parser("generated")
+    generated_command.add_argument("release_id")
+    generated_command.add_argument("output", type=Path)
     # Stage R3: `foundation-release.sh migrate` asks this instead of building the API (75: nothing recorded).
     sub.add_parser("tag-compose-images")
     # The deploy's wait (foundation-deploy.sh step 0) asks this, the check `build` refuses on: one list.
@@ -1004,6 +1152,10 @@ def main() -> int:
         if args.command == "verify-registry":
             print(f"foundation-release-registry=verified {verify_registry(args.release_id)}")
             return 0
+        if args.command == "generated":
+            protected_path(args.output)
+            print(f"foundation-release-generated={write_generated(args.release_id, args.output)}")
+            return 0
         if args.command == "tag-compose-images":
             tagged = tag_compose_images(current_release().name)
             print(f"foundation-release-compose-images={tagged}")
@@ -1018,7 +1170,9 @@ def main() -> int:
             protected_path(args.target)
             source.refresh()
             check_control_commit(source.git, args.release_id, CONTROL_ROOT)
-            prepare_release(release_files(source.git, args.release_id), args.release_id, args.archive, args.target)
+            files = release_files(source.git, args.release_id)
+            prepare_release(files, args.release_id, args.archive, args.target,
+                            generated=generated_release_files(args.release_id, files))
         elif args.command == "check-archive":
             source.check_cache()
             check_archive_contents(release_files(source.git, args.release_id), args.archive)
@@ -1026,13 +1180,14 @@ def main() -> int:
             # As soon as the release is in place and before its build: nothing a build or a root
             # import does afterwards can write into it (root ADR-0184).
             source.check_cache()
-            seal_release(release_files(source.git, args.target.name), args.target.name, args.target)
+            seal_release(release_expected(release_files(source.git, args.target.name), args.target),
+                         args.target.name, args.target)
         else:
             source.check_cache()
             if args.command == "verify-current":
                 require_no_release_build()
             target = current_release() if args.command == "verify-current" else args.target
-            verify_release(release_files(source.git, target.name), target.name, target)
+            verify_release(release_expected(release_files(source.git, target.name), target), target.name, target)
             if args.command == "build":
                 build_artifacts(target)
             else:

@@ -216,6 +216,16 @@ def resolve_jars(release, work: Path) -> list[Path]:
     return jars
 
 
+def generated_paths() -> tuple[str, ...]:
+    """The artifacts the declared definitions generate (scripts/catalog/declared_definitions.py), as
+    repository paths; this checkout holds them (CI generates them after its checkout, root ADR-0418)."""
+    path = ROOT / "scripts" / "catalog" / "declared_definitions.py"
+    spec = importlib.util.spec_from_file_location("declared_definitions", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return tuple(module.GENERATED)
+
+
 def layout_media_type(blobs: Path, digest: str) -> str:
     return json.loads((blobs / digest.split(":")[1]).read_text(encoding="utf-8"))["mediaType"]
 
@@ -242,7 +252,7 @@ def main() -> int:
     release = admission()
     commit = run("git", "rev-parse", "HEAD", cwd=ROOT, capture=True).strip()
     release.require_sha(commit)
-    images, measured, files = {}, {}, {}
+    images, measured, files, generated = {}, {}, {}, {}
     with tempfile.TemporaryDirectory(prefix="release-build-") as temporary:
         work = Path(temporary)
         for name, dockerfile, context, args in image_builds(release):
@@ -267,6 +277,21 @@ def main() -> int:
         (work / "files.Dockerfile").write_text("FROM scratch\nCOPY . /\n", encoding="utf-8")
         images["files"], measured["files"] = build_image(release, "files", str(work / "files.Dockerfile"), str(tree), {},
                                                          work, blobs)
+        # The generated artifacts travel as their own image of files, at their repository paths, each
+        # named by its digest in the manifest (root ADR-0419): the host installs these bytes and
+        # renders nothing, so the host's generator and the release's can never disagree.
+        generated_tree = work / "generated"
+        for name in generated_paths():
+            source = ROOT / name
+            if not source.is_file() or source.is_symlink():
+                raise ValueError(f"{name} is not generated in this checkout; run scripts/ci/generate-declared.sh")
+            (generated_tree / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, generated_tree / name)
+            (generated_tree / name).chmod(0o444)
+            generated[name] = {"sha256": f"sha256:{sha256_of(source)}", "size": source.stat().st_size}
+        (work / "generated.Dockerfile").write_text("FROM scratch\nCOPY . /\n", encoding="utf-8")
+        images["generated"], measured["generated"] = build_image(
+            release, "generated", str(work / "generated.Dockerfile"), str(generated_tree), {}, work, blobs)
     manifest = {
         "schema_version": SCHEMA,
         "source_commit": commit,
@@ -276,6 +301,7 @@ def main() -> int:
         "toolchain": {"rust": toolchain(), "buildkit": release.BUILDKIT_IMAGE,
                       "base_images": sorted({image for entry in measured.values() for image in entry.get("base_images", [])})},
         "files": dict(sorted(files.items())),
+        "generated": dict(sorted(generated.items())),
         "images": images,
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -293,7 +319,8 @@ def main() -> int:
     (out / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
     subjects = [f"{sha256_of(out / 'manifest.json')}  manifest.json",
                 *(f"{blob.name}  blobs/sha256/{blob.name}" for blob in sorted(blobs.iterdir())),
-                *(f"{entry['sha256'].split(':')[1]}  files/{name}" for name, entry in sorted(files.items()))]
+                *(f"{entry['sha256'].split(':')[1]}  files/{name}" for name, entry in sorted(files.items())),
+                *(f"{entry['sha256'].split(':')[1]}  generated/{name}" for name, entry in sorted(generated.items()))]
     (out / "subjects.sha256").write_text("\n".join(subjects) + "\n", encoding="utf-8")
     measured["total"] = {"blobs": len(named), "blob_bytes": sum(blob.stat().st_size for blob in blobs.iterdir())}
     (out / "measurements.json").write_text(json.dumps(measured, indent=2) + "\n", encoding="utf-8")
