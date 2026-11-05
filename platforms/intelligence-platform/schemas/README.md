@@ -2,7 +2,7 @@
 status: current
 owner: intelligence-platform
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # schemas/
@@ -16,6 +16,9 @@ One file per versioned event topic:
 | File | Topic | Kafka key |
 |------|-------|-----------|
 | `intelligence.normalization-proposal.submission-requested.v1.avsc` | `intelligence.normalization-proposal.submission-requested.v1` | `aggregate_id` (= `idempotency_key`) |
+| `intelligence.dead-letter.v1.avsc` | `intelligence.dead-letter.v1` | 실패한 원본 메시지의 key |
+
+topic 이름 상수는 `crates/intelligence-contracts/src/event_envelope.rs`가 정본이다.
 
 ## 스키마 변경 규칙 — BACKWARD_TRANSITIVE
 
@@ -31,9 +34,9 @@ One file per versioned event topic:
   불가피하면 새 file(예: `.v2.avsc`)과 새 topic을 만들고, 합의한 migration 기간 동안 구·신
   topic을 병렬 실행한 뒤 v1 topic을 폐기한다.
 
-## 스키마 레지스트리(C2 계획)
+## 스키마 레지스트리(Karapace)
 
- C2에서는 **TopicNameStrategy**로 **Karapace**(Confluent 호환 스키마 레지스트리)에 등록한다. 등록 subject
+**TopicNameStrategy**로 **Karapace**(Confluent 호환 스키마 레지스트리)에 등록한다. 등록 subject
 이름은 `<topic>-value`다(예: `intelligence.normalization-proposal.submission-requested.v1-value`).
 
 Producer는 Avro payload 앞에 5바이트 Confluent wire-format 접두사
@@ -42,7 +45,8 @@ Producer는 Avro payload 앞에 5바이트 Confluent wire-format 접두사
 
 ## 계약 테스트
 
-`crates/normalization/intelligence-normalization-application/tests/event_schema_contract.rs` pins schema-to-code compatibility by:
+`crates/normalization/intelligence-normalization-application/tests/event_schema_contract.rs` pins schema-to-code compatibility by
+(dead-letter 스키마는 `crates/messaging/messaging-infrastructure/tests/codec_contract.rs`가 같은 방식으로 round-trip한다):
 
 1. Parsing the .avsc file at test time via `apache_avro::Schema::parse_str`.
 2. Performing a full serialize → deserialize round-trip of a `NormalizationOutboxRecord` fixture.
@@ -79,8 +83,8 @@ INTELLIGENCE_TEST_KARAPACE_URL=http://127.0.0.1:18081 \
 cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 ```
 
-호스트 포트가 이미 사용 중이면 `docker compose up` 전에 값을 바꾼다. 이 호스트에서는 `18081`이
-사용 중이므로 다음처럼 Karapace 포트를 바꾼다.
+호스트 포트가 이미 사용 중이면 `docker compose up` 전에 값을 바꾼다. 예를 들어 `18081`이
+사용 중이면 다음처럼 Karapace 포트를 바꾼다.
 
 ```bash
 INTELLIGENCE_TEST_KARAPACE_HOST_PORT=18082 \

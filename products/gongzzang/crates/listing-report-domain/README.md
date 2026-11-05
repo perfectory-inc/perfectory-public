@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # listing-report-domain
@@ -11,13 +11,15 @@ last_reviewed: 2026-07-29
 
 ## 책임
 
-- spec § 5.5 `listing_report` 테이블 매핑하는 Aggregate 정의해요.
+- `listing_report` 테이블(`migrations/20260719000105_operations_tables.sql`)에 대응하는 Aggregate를 정의해요.
+  상태 이력은 `listing_report_status_history`(`migrations/20261016140000_listing_report_keeps_its_status_history.sql`)에 남아요.
 - **4-status workflow** — `open` → `investigating` → `confirmed` / `dismissed` (terminal).
 - **No OCC** — admin 신고 처리는 동시 충돌이 드물어 `version` 컬럼 없이 단순 UPDATE 사용.
 - **익명 신고 허용** — `reporter_id` 가 `NULL` 이면 익명. 로그인한 사용자는 `Some(usr_…)` 으로 기록.
 - **6 신고 사유** — `fake_listing` / `wrong_price` / `wrong_location` / `inappropriate_content` / `spam` / `other`.
 - **handler 메모 필수** — `confirmed` / `dismissed` 로 마감할 때 `handler_note` 비어있으면 거부.
 - `ListingReportRepository` trait — `find_by_id` / `find_open` / `find_by_listing` / `save`.
+  `Postgres` 구현은 `gongzzang-persistence`의 `PgListingReportRepository`.
 
 ## 상태 워크플로우
 
@@ -36,4 +38,4 @@ last_reviewed: 2026-07-29
 
 ## 의존
 
-- `shared-kernel` (`Id`, `UserMarker`, `ListingMarker`, `ListingReportMarker`).
+- `shared-kernel` (`Id`, `UserMarker`, `ListingMarker`, `ListingReportMarker`, `MutationContext`).

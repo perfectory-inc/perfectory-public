@@ -2,12 +2,12 @@
 status: current
 owner: identity-platform
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Identity 운영 런북
 
-서비스 신원 발급·회전·검증 절차를 둔다.
+서비스 신원 발급·회전, 신원 스택 기동, 직원 콘솔 로그인 준비 절차를 둔다.
 
 - [Workload identity 발급·회전](./workload-identity-provisioning.md)
 - [LAN 호스트에서 신원 스택 기동](./production-bringup-on-a-lan-host.md)

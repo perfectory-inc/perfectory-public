@@ -2,7 +2,7 @@
 status: current
 owner: repository-tooling
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 공개 GitHub 저장소 정책
@@ -12,6 +12,10 @@ Actions 권한·보존·fork 승인·저장소 규칙 API에 직접 대응한다
 않은 채 실제 설정을 직접 수정하지 않는다.
 
 ## 최초 공개
+
+최초 공개는 끝났다. `tools/github/repository-identity.json`에 실제 저장소·소유자 식별자가 고정돼 있고
+`tools/github/legal-identity.json`의 확인값은 `true`다. 아래 절차는 공개 저장소를 다시 만들어야 할 때의
+정본으로 남긴다.
 
 아래 순서를 그대로 따른다. configurator는 저장소를 만들거나 공개 여부를 바꾸지 않는다. 1단계의
 법률 전제가 통과하기 전에는 공개 저장소를 만들거나 설정하거나 publisher를 실행하지 않는다.
@@ -35,15 +39,14 @@ public fork를 회수할 수 없다. [ADR 0007](../../docs/adr/0007-public-code-
    루트 REUSE annotation과 같아야 한다.
 
    보호된 `tools/github/third-party-artifact-policy.json` 레지스트리는
-   `.gitattributes`, `THIRD_PARTY_NOTICES.md`, 두 개의
-   `LICENSES/OFL-1.1.txt`, `products/gongzzang/apps/web/public/fonts/LICENSE-PRETENDARD.txt`,
+   `.gitattributes`, `THIRD_PARTY_NOTICES.md`, `LICENSES/OFL-1.1.txt`,
+   `products/gongzzang/apps/web/public/fonts/LICENSE-PRETENDARD.txt`,
    Pretendard CSS 및 `pretendard-v1.3.9.sha256`의 정확한 경로 허용 목록과
-   SHA-256 다이제스트를 고정한다. 두 OFL 사본은 바이트 단위로 같아야 한다.
-   해시 매니페스트는 `public-repository-safety.sh`를 통해 추적 대상 WOFF2 집합과
+   SHA-256 다이제스트를 고정한다. 두 OFL 사본(`LICENSES/OFL-1.1.txt`와
+   `LICENSE-PRETENDARD.txt`)은 바이트 단위로 같아야 한다.
+   해시 매니페스트는 `scripts/guard/public-repository-safety.sh`를 통해 추적 대상 WOFF2 집합과
    해시까지 고정한다. 매니페스트만 바꾸거나 글꼴만 바꿔도 공개 게이트는 실패한다.
-   루트 `.gitattributes`가 유일한 속성 SSOT이며, 삭제한
-   `products/gongzzang/.gitattributes`는 최종 깨끗한 워크트리 검사에서 뒤늦게
-   발견하지 않도록 레지스트리와 함께 검토하는 경로 집합에 포함한다.
+   루트 `.gitattributes`가 유일한 속성 SSOT다.
    `--allow-unconfirmed` 없이 검증이 통과해야 한다.
 
    ```bash
@@ -61,7 +64,6 @@ public fork를 회수할 수 없다. [ADR 0007](../../docs/adr/0007-public-code-
      REUSE.toml
      tools/github/third-party-artifact-policy.json
      .gitattributes
-     products/gongzzang/.gitattributes
      THIRD_PARTY_NOTICES.md
      LICENSES/OFL-1.1.txt
      products/gongzzang/apps/web/public/fonts/LICENSE-PRETENDARD.txt
@@ -90,9 +92,9 @@ public fork를 회수할 수 없다. [ADR 0007](../../docs/adr/0007-public-code-
    초기화하지 않는다. 아래 조직 결제 게이트를 확인한다.
 
 3. configurator나 공개 명령을 실행하기 전에 저장소의 변경 불가능한 GitHub
-   식별자를 고정한다. 체크인된 `repository_id: 0`과
-   `repository_node_id: UNSET_AFTER_REPOSITORY_CREATION`은 의도적인 fail-closed
-   자리표시자이며 `bootstrap`과 publisher 내부 준비 단계 모두 이를 거부한다.
+   식별자를 고정한다. 저장소를 새로 만들 때는 `repository_id: 0`과
+   `repository_node_id: UNSET_AFTER_REPOSITORY_CREATION`을 의도적인 fail-closed
+   자리표시자로 체크인하며 `bootstrap`과 publisher 내부 준비 단계 모두 이를 거부한다.
 
    ```bash
    identity_candidate="$(mktemp)"
@@ -130,7 +132,7 @@ public fork를 회수할 수 없다. [ADR 0007](../../docs/adr/0007-public-code-
    되는 것을 막는다. 실제 식별자를 검토·엄격 검증·커밋하고 워크트리가 깨끗해질
    때까지 공개는 **NO-GO**다.
 
-4. Bootstrap the identity-pinned empty repository:
+4. 식별자를 고정한 빈 저장소를 bootstrap한다.
 
    ```bash
    bash scripts/github/configure-public-repository.sh bootstrap
@@ -148,8 +150,7 @@ public fork를 회수할 수 없다. [ADR 0007](../../docs/adr/0007-public-code-
    bypass로 차단한다. 자동 보안 수정은 계속 비활성화하므로 감사한 root가 공개되고
    독립 검증되기 전에는 어떤 통합도 브랜치를 만들 수 없다.
 
-5. Publish a history-free audited root from the exact clean identity-pinned
-   commit through the single trusted entry point:
+5. 식별자를 고정한 깨끗한 커밋에서, 단일 신뢰 진입점으로 이력 없는 감사 root를 공개한다.
 
    ```bash
    test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -271,13 +272,13 @@ pull request가 이 정책을 바꾸지 않는다.
 3. 같은 0달러 강제 중지 설정의 조직 범위
    `SkuPricing/actions_cache_storage` 예산을 정확히 하나 만든다. Actions 제품
    예산은 이 SKU 예산을 대신할 수 없다.
-4. bootstrap 뒤 artifact/log 보존 기간이 7일인지 확인한다.
+4. bootstrap 뒤 artifact/log 보존 기간이 `tools/github/artifact-retention.json` 값과 같은지 확인한다.
 5. artifact/Packages 저장소와 dependency-cache 저장소를 별도로 모니터링한다.
 
 표준 `ubuntu-24.04` runner 실행은 public 저장소에서 무료지만, 더 큰 runner와
-요금제 허용량을 넘는 저장소는 무료가 아니다. workflow 정책은 문자 그대로
-`ubuntu-24.04`가 아닌 모든 runner label을 기계적으로 거부하며, 청구 예산이
-측정 과금 초과의 강제 중지 장치다.
+요금제 허용량을 넘는 저장소는 무료가 아니다. workflow 정책
+(`scripts/guard/check-workflow-policy.sh`)은 문자 그대로 `ubuntu-24.04`·`windows-2022`가 아닌 모든
+runner label을 기계적으로 거부하며, 청구 예산이 측정 과금 초과의 강제 중지 장치다.
 
 `bootstrap`과 `prepublish`를 포함한 모든 configurator 모드는 모드별 변경을 수행하기
 전에 읽기 전용 조직 Budgets API로 두 예산을 확인한다. 페이지가 나뉘지 않은 완전한
@@ -289,9 +290,9 @@ pull request가 이 정책을 바꾸지 않는다.
 Dependency-cache 저장소는 artifact/GitHub Packages 저장소 풀과 다르다.
 configurator는 GitHub REST API 버전 `2026-03-10`으로 저장소 cache 크기·보존
 한도만 읽고 cache-limit `PUT`은 절대 보내지 않는다. `200` 응답은
-`max_cache_size_gb <= 10`, `max_cache_retention_days <= 7`일 때만 허용한다.
-유일한 fail-closed 무결제 예외는 요금제가 정확히 `free`이고 한도 요청이 정확한
-HTTP `402` 메시지(`Please ensure your account has a valid payment method on file to access this service.`)를 반환하는 조직이다. 이 상태에서는 유료
+`tools/github/actions-cache-policy.json`의 `max_cache_size_gb`·`max_cache_retention_days` 이하일 때만 허용한다.
+유일한 fail-closed 무결제 예외는 요금제가 정확히 같은 파일의 `required_owner_plan_when_unavailable`이고 한도
+요청이 같은 파일에 적힌 정확한 HTTP 상태·메시지를 반환하는 조직이다. 이 상태에서는 유료
 cache-limit 선택을 막는다. 그 밖의 상태·본문·요금제·더 큰 한도는 모두 공개
 실패다.
 
@@ -302,7 +303,7 @@ cache-limit 선택을 막는다. 그 밖의 상태·본문·요금제·더 큰 �
 [Actions cache REST API](https://docs.github.com/en/rest/actions/cache?apiVersion=2026-03-10)
 와 [cache usage limits and eviction policy](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy)를 참고한다.
 
-최상위 pull-request 경로 필터는 금지한다. GitHub가 workflow 전체를 건너뛸 때
-필수 check를 pending으로 남길 수 있기 때문이다. push 필터는 허용한다.
+최상위 pull-request 경로 필터는 금지한다(`scripts/guard/check-workflow-policy.sh`). GitHub가 workflow
+전체를 건너뛸 때 필수 check를 pending으로 남길 수 있기 때문이다. push 필터는 허용한다.
 `scripts/guard/public-github-policy.sh`가 이 디렉터리와 workflow job 이름,
 정확한 서드파티 Action 참조를 서로 대조한다.

@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang
 doc_type: README
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # 공짱 (Gongzzang)
@@ -18,10 +18,11 @@ last_reviewed: 2026-07-28
 gongzzang/
 ├── apps/web/                 B2C 웹
 ├── services/gongzzang-api    제품 HTTP API
-├── services/gongzzang-outbox 이벤트 발행
+├── services/gongzzang-outbox-publisher 이벤트 발행
 ├── crates/*-domain           제품 도메인
 ├── packages/                 웹 공유 패키지
-├── infrastructure/           Pulumi·Docker
+├── infrastructure/           Pulumi(레거시 WAF)·로컬 Docker
+├── infrastructure-v2/        그린필드 플랫폼 Pulumi
 └── docs/                     제품 문서 SSOT
 ```
 
@@ -40,10 +41,10 @@ Rust 툴체인은 모노레포 루트 `rust-toolchain.toml`(단일 핀, 값은 `
 탐색으로 자동 적용된다 — 별도 install/default 명령 불필요, 영역 내 toolchain 파일 생성 금지.
 
 ```bash
-pnpm install                  # JS 의존성 (pnpm 9.12, Node 20.19+/22.12+)
+pnpm install                  # JS 의존성 (Node·pnpm 버전: package.json engines ← tools/technology-versions.contract.json)
 cp .env.example .env          # 로컬 환경 변수 채우기
 
-# DB: PostgreSQL 17 + PostGIS. .env의 DATABASE_URL 기준으로 생성+마이그레이션(migrations/ 20편)
+# DB: PostgreSQL + PostGIS(로컬은 infrastructure/docker/docker-compose.yml). .env의 DATABASE_URL 기준으로 생성+마이그레이션(migrations/)
 bash scripts/sqlx-migrate.sh
 
 cargo run -p gongzzang-api    # API 서버 — API_LISTEN_ADDR, 기본 0.0.0.0:8080
@@ -60,26 +61,28 @@ bash scripts/verify/cargo-verify.sh products/gongzzang
 
 ## 워크스페이스 구조
 
-Cargo workspace **27 members** (`Cargo.toml`):
+Cargo workspace 멤버의 정본은 [`Cargo.toml`](./Cargo.toml) `[workspace].members` 다. 묶음별로 보면:
 
 - `crates/shared-kernel` — 공용 타입/에러
 - 도메인 crate 17종 (`crates/*-domain`) — B2C(user·listing·listing-photo·real-transaction·
   court-auction·bookmark·search-history·analysis-report·notification) +
   운영(audit-log·outbox-event·admin-action·business-verification·listing-review·
   listing-report·featured-content·system-alert)
-- 지원 crate 7종 — `gongzzang-persistence`·`gongzzang-outbox`·`foundation-platform-client`·
-  `product-identity-infrastructure`·`circuit-breaker`·`parcel-lookup`·`repo-guard`
-- `services/` 2종 — [`gongzzang-api`](./services/gongzzang-api/README.md)(HTTP API)·
-  `gongzzang-outbox-publisher`
+- 지원 crate — `gongzzang-persistence`·`gongzzang-outbox`·`foundation-platform-client`·
+  `product-identity-infrastructure`·`circuit-breaker`·`gongzzang-r2-object-storage`·`parcel-lookup`·`repo-guard`
+  (+ hakari `gongzzang-workspace-hack`)
+- `services/` — [`gongzzang-api`](./services/gongzzang-api/README.md)(HTTP API)·
+  [`gongzzang-outbox-publisher`](./services/gongzzang-outbox-publisher/README.md)
 
-pnpm workspace — `apps/web`(Next.js 16 실구현; admin·admin-web·platform-web은 README 스캐폴드),
-`packages/` 7종(api-client·api-types·map·shared·tsconfig·ui·ui-web), `infrastructure`(Pulumi), `tools`.
+`crates/{api-types,data-clients,embedding}`는 README만 있는 디렉터리로 workspace 멤버가 아니다.
+
+pnpm workspace(정본 [`pnpm-workspace.yaml`](./pnpm-workspace.yaml)) — `apps/web`(Next.js 실구현;
+`apps/platform-web`은 README 스캐폴드), `packages/`(api-types·map·ui), `infrastructure`(Pulumi).
 
 ## 기술 스택 (요약)
 
-Rust + Axum + SQLx · Next.js 16 + React 19 + TypeScript · PostgreSQL 17 + PostGIS ·
-Naver Maps · Zitadel(OIDC) · moka + Valkey · Biome · Turborepo · Pulumi ·
-Grafana/Prometheus/Loki/Tempo/Sentry/OpenTelemetry. 상세와 SSOT 맵: [TECH.md](./TECH.md)
+Rust + Axum + SQLx · Next.js + React + TypeScript · PostgreSQL + PostGIS · Zitadel(OIDC) · Valkey ·
+Biome · Turborepo · Pulumi. 버전·전체 목록과 SSOT 맵은 [TECH.md](./TECH.md)가 정본이다.
 
 ## 진입점 (라우팅)
 
