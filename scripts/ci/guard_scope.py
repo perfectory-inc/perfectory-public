@@ -160,6 +160,8 @@ def check(root: Path = ROOT, tracked: Iterable[str] | None = None) -> list[str]:
         tracked = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"], check=True, capture_output=True
         ).stdout.decode().split("\0")
+        # A generated artifact is a file of every checkout without being tracked (root ADR-0418).
+        tracked += list(cs.declared_definitions.GENERATED)
     tracked = [t for t in tracked if t]
     entries = guards(contract)
     if not entries:

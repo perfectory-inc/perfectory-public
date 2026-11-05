@@ -417,7 +417,7 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         The control checkout carries the real release-build scope (root ADR-0309)."""
         control = self.root / "control"
         repo = PLATFORM.parents[1]
-        for relative in ("scripts/ci/change_scope.py", "tools/ci/change-scope.json"):
+        for relative in ("scripts/ci/change_scope.py", "scripts/catalog/declared_definitions.py", "tools/ci/change-scope.json"):
             (control / relative).parent.mkdir(parents=True, exist_ok=True)
             (control / relative).write_bytes((repo / relative).read_bytes())
         shutil.copytree(repo / ".github" / "workflows", control / ".github" / "workflows")
@@ -669,7 +669,7 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         oldest first, judged by the real release-build scope. Returns the new commits, newest first."""
         control = self.root / "control"
         repo = PLATFORM.parents[1]
-        for relative in ("scripts/ci/change_scope.py", "tools/ci/change-scope.json"):
+        for relative in ("scripts/ci/change_scope.py", "scripts/catalog/declared_definitions.py", "tools/ci/change-scope.json"):
             (control / relative).parent.mkdir(parents=True, exist_ok=True)
             (control / relative).write_bytes((repo / relative).read_bytes())
         shutil.copytree(repo / ".github" / "workflows", control / ".github" / "workflows")

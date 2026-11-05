@@ -156,7 +156,9 @@
         "tools/*.json",
         "tools/*.env",
         "tools/sigstore/**",
-        "tools/biome/**"
+        "tools/biome/**",
+        "scripts/catalog/declared_definitions.py",
+        "scripts/catalog/definition.v1.schema.json"
       ]
     },
     "foundation-release-build.yml": {
@@ -180,7 +182,9 @@
         ".github/workflows/foundation-ci.yml",
         "docs/adr/**",
         "docs/architecture/administrative-boundary-versioning.md",
-        "docs/architecture/single-source-spatial-publication.md"
+        "docs/architecture/single-source-spatial-publication.md",
+        "scripts/catalog/declared_definitions.py",
+        "scripts/catalog/definition.v1.schema.json"
       ]
     }
   },
@@ -802,6 +806,7 @@
       {
         "name": "declared-definitions-reproduce-artifacts-self-test",
         "paths": [
+          "platforms/foundation-platform/definitions/**",
           "scripts/catalog/declared_definitions.py",
           "scripts/catalog/definition.v1.schema.json",
           "platforms/foundation-platform/orchestration/jobs.v1.json",
@@ -822,6 +827,7 @@
       {
         "name": "declared-definitions-reproduce-artifacts",
         "paths": [
+          "platforms/foundation-platform/definitions/**",
           "scripts/catalog/declared_definitions.py",
           "scripts/catalog/definition.v1.schema.json",
           "platforms/foundation-platform/orchestration/jobs.v1.json",

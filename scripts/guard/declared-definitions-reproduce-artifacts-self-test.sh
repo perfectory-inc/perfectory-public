@@ -1,28 +1,21 @@
 #!/usr/bin/env bash
-# Proves declared-definitions-reproduce-artifacts.sh holds what it claims (root ADR-0415 §5): the
-# real tree passes; a pipeline-graph edge not named `<from>-to-<to>` (its id is generated) and an id
-# listed twice (one definition owns one id) are refused; a hand edit of a file the definitions
-# generate (job-dependencies.v1.json, docs/data-pipeline-map.md) is refused.
+# Proves declared-definitions-reproduce-artifacts.sh holds what it claims (root ADR-0418): the real
+# definitions pass; a generated artifact committed to git, a hand edit of one in the tree, an edge
+# that writes its own id (it is `<from>-to-<to>`), an id two definitions both hold, and an order entry
+# no definition holds are refused.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 checker="$(pwd -P)/scripts/guard/declared-definitions-reproduce-artifacts.sh"
-jobs="platforms/foundation-platform/orchestration/jobs.v1.json"
-graph="platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json"
-dependencies="platforms/foundation-platform/orchestration/job-dependencies.v1.json"
-map="docs/data-pipeline-map.md"
-contracts="platforms/foundation-platform/contracts/data"
+definitions="platforms/foundation-platform/definitions"
 inputs=(
-  "$jobs" "$graph" "$dependencies" "$map"
-  "platforms/foundation-platform/config/r2-connections.contract.json"
-  "tools/host-memory-budget.contract.json"
-  "platforms/foundation-platform/contracts/schema-registry/registry.json"
-  "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
   "scripts/catalog/declared_definitions.py"
-  "platforms/foundation-platform/orchestration/dags/job_specs.py"
-  "platforms/foundation-platform/infra/datahub/dataset_names.py"
+  "scripts/catalog/definition.v1.schema.json"
   "scripts/catalog/render-pipeline-map.py"
   "scripts/catalog/pipeline_graph.py"
+  "platforms/foundation-platform/orchestration/dags/job_specs.py"
+  "platforms/foundation-platform/infra/datahub/dataset_names.py"
+  "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
 )
 test_root="$(mktemp -d)"
 # Git Bash on Windows: one spelling of the path that bash and Python both read the same way.
@@ -35,9 +28,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
-py() { if command -v python3 >/dev/null 2>&1; then python3 "$@"; else python "$@"; fi; }
+py() { if command -v python3 >/dev/null 2>&1 && python3 -c '' >/dev/null 2>&1; then python3 "$@"; else python "$@"; fi; }
 
-# A copy of the inputs with one edit; the edited item is picked by what it is, never by name.
+# A git repository holding the definitions and what generating reads, with one edit. The edited item
+# is picked by what it is, never by name.
 fixture() {
   local name="$1" edit="$2"
   local root="$test_root/$name" path
@@ -45,28 +39,37 @@ fixture() {
     mkdir -p "$root/$(dirname "$path")"
     cp "$path" "$root/$path"
   done
+  mkdir -p "$root/$definitions" "$root/platforms/foundation-platform/contracts/data"
+  cp "$definitions"/*.json "$root/$definitions/"
   # job_specs.py reads the data contracts for a job that checks them (reads_data_contracts).
-  mkdir -p "$root/$contracts"
-  cp "$contracts"/*.odcs.yaml "$root/$contracts/"
+  cp platforms/foundation-platform/contracts/data/*.odcs.yaml "$root/platforms/foundation-platform/contracts/data/"
+  git -C "$root" init -q
+  git -C "$root" -c user.name=t -c user.email=t@example.invalid add -A
+  git -C "$root" -c user.name=t -c user.email=t@example.invalid commit -qm fixture
+  py scripts/catalog/declared_definitions.py generate --root "$root"
   py - "$root" "$edit" <<'PY'
-import json, pathlib, sys
+import json, pathlib, subprocess, sys
 root, edit = pathlib.Path(sys.argv[1]), sys.argv[2]
-jobs = root / "platforms/foundation-platform/orchestration/jobs.v1.json"
-graph = root / "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json"
+definitions = root / "platforms/foundation-platform/definitions"
+groups = sorted(p for p in definitions.glob("*.definition.json") if p.name != "platform.definition.json")
 def rewrite(path, change):
     doc = json.loads(path.read_text(encoding="utf-8"))
     change(doc)
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+with_edges = next(p for p in groups if json.loads(p.read_text(encoding="utf-8")).get("dependencies"))
+with_jobs = [p for p in groups if json.loads(p.read_text(encoding="utf-8")).get("jobs")]
 if edit == "edge-id":
-    rewrite(graph, lambda doc: doc["edges"][0].update(id=doc["edges"][0]["id"] + "-renamed"))
+    rewrite(with_edges, lambda doc: doc["dependencies"][0].update(id="written-by-hand"))
 elif edit == "twice":
-    rewrite(jobs, lambda doc: doc["jobs"].append(dict(doc["jobs"][0])))
-elif edit == "dependencies":
-    path = root / "platforms/foundation-platform/orchestration/job-dependencies.v1.json"
-    path.write_text(path.read_text(encoding="utf-8").replace('"producers": []', '"producers": ["x"]', 1), encoding="utf-8")
-elif edit == "map":
-    path = root / "docs/data-pipeline-map.md"
-    path.write_text(path.read_text(encoding="utf-8") + "hand edit\n", encoding="utf-8")
+    job = json.loads(with_jobs[0].read_text(encoding="utf-8"))["jobs"][0]
+    rewrite(with_jobs[1], lambda doc: doc["jobs"].append(job))
+elif edit == "stale-order":
+    rewrite(definitions / "platform.definition.json", lambda doc: doc["order"]["jobs"].append("no_such_job"))
+elif edit == "hand-edit":
+    path = root / "platforms/foundation-platform/orchestration/jobs.v1.json"
+    path.write_text(path.read_text(encoding="utf-8").replace('"enabled": true', '"enabled": false', 1), encoding="utf-8")
+elif edit == "tracked":
+    subprocess.run(["git", "-C", str(root), "add", "-f", "platforms/foundation-platform/orchestration/jobs.v1.json"], check=True)
 PY
   printf '%s' "$root"
 }
@@ -74,9 +77,9 @@ PY
 fail() { echo "FAIL declared-definitions-reproduce-artifacts-self-test: $1" >&2; exit 1; }
 
 if ! bash "$checker" "$(fixture real none)" >/dev/null 2>&1; then
-  fail "the real tree is refused"
+  fail "the real definitions are refused"
 fi
-for edit in edge-id twice dependencies map; do
+for edit in tracked hand-edit edge-id twice stale-order; do
   if bash "$checker" "$(fixture "$edit" "$edit")" >/dev/null 2>&1; then
     fail "a fixture with edit '$edit' passed"
   fi

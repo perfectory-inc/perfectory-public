@@ -85,3 +85,20 @@ pre-push:
       root: "products/gongzzang/"
       run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
       skip: [merge, rebase]
+
+# Root ADR-0418: the artifacts the declared definitions generate (the job list, the pipeline graph,
+# the lane lines, ...) are not committed. A checkout, a merge and a rebase write them, as CI does after
+# every checkout (scripts/ci/generate-declared.sh, about two seconds). `lefthook install` adds these
+# hooks to a clone made before them.
+post-checkout:
+  commands:
+    declared-artifacts: &declared-artifacts
+      run: bash scripts/ci/generate-declared.sh
+      skip:
+        - run: "! (command -v python3 || command -v python) >/dev/null 2>&1"
+post-merge:
+  commands:
+    declared-artifacts: *declared-artifacts
+post-rewrite:
+  commands:
+    declared-artifacts: *declared-artifacts

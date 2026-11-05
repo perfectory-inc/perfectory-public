@@ -73,6 +73,7 @@
         "platforms/foundation-platform/crates/catalog/catalog-infrastructure/tests/administrative_boundary_identity.rs",
         "platforms/foundation-platform/services/foundation-api/tests/administrative_boundary_contract.rs",
         "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+        "platforms/foundation-platform/definitions/serving-administrative-unit.definition.json",
         "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
       ]
     }

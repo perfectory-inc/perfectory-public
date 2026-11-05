@@ -34,6 +34,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Select
         id: select
         env:
@@ -60,6 +63,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       # The publisher's build peaked at 16.7 GiB anonymous memory on the server (ADR-0137); the
       # runner has 16 GB. Room for the build: the preinstalled toolchains it never uses, and swap.
       - name: Room for the build

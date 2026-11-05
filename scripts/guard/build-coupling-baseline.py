@@ -39,6 +39,9 @@ import sys
 import tomllib
 from pathlib import Path, PurePosixPath
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "catalog"))
+import declared_definitions  # noqa: E402
+
 READ_MACRO = re.compile(r"\b(?:include_str!|include_bytes!|sqlx::migrate!)")
 INCLUDE = re.compile(
     r"\binclude_(?:str|bytes)!\s*\(\s*(?:\"([^\"]+)\"|concat!\s*\(\s*env!\s*\(\s*\"CARGO_MANIFEST_DIR\"\s*\)\s*,"
@@ -59,7 +62,8 @@ CARGO_RUN = re.compile(r"\bcargo\s+(?:\+\S+\s+)?build\b([^&;|]*)")
 
 def git_files(root: Path) -> list[str]:
     out = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], check=True, capture_output=True).stdout
-    return [path for path in out.decode("utf-8").split("\0") if path]
+    # A generated artifact is a file of every checkout and build context without being tracked (root ADR-0418).
+    return [path for path in out.decode("utf-8").split("\0") if path] + list(declared_definitions.GENERATED)
 
 
 def norm(path: PurePosixPath | str) -> str | None:

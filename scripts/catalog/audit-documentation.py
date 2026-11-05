@@ -19,6 +19,8 @@ from types import ModuleType
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from declared_definitions import GENERATED  # noqa: E402
 REQUIRED_METADATA = ("status", "owner", "doc_type", "last_reviewed")
 # The `doc_type` vocabulary, owned here because prose could not keep it.
 #
@@ -234,7 +236,9 @@ def broken_local_links(source: Path, text: str) -> list[str]:
         if not target or target.startswith(("#", "http:", "https:", "mailto:")):
             continue
         candidate = (ROOT / target.lstrip("/")) if target.startswith("/") else (ROOT / source.parent / target)
-        if not candidate.exists():
+        # A generated artifact is a file of every checkout without being tracked (root ADR-0418).
+        generated = candidate.resolve().as_posix() in {(ROOT / path).resolve().as_posix() for path in GENERATED}
+        if not candidate.exists() and not generated:
             broken.append(raw.strip())
     return broken
 

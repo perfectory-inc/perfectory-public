@@ -16,6 +16,9 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Mapping
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "catalog"))
+import declared_definitions  # noqa: E402
+
 
 GATES = (
     "boundary-slice",
@@ -278,11 +281,10 @@ def git_changed_paths(repository: Path, base: str, head: str) -> set[str]:
         f"{base}...{head}",
     ]
     completed = subprocess.run(command, check=True, capture_output=True)
-    return {
-        os.fsdecode(raw_path)
-        for raw_path in completed.stdout.split(b"\0")
-        if raw_path
-    }
+    # A definition change is a change of every artifact it generates (root ADR-0418).
+    return declared_definitions.with_generated(
+        os.fsdecode(raw_path) for raw_path in completed.stdout.split(b"\0") if raw_path
+    )
 
 
 def path_selected_gates(

@@ -20,6 +20,9 @@ import urllib.request
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "catalog"))
+import declared_definitions  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = "tools/ci/change-scope.json"
 SELECTOR = "scripts/ci/change_scope.py"
@@ -193,7 +196,8 @@ def git_changed_paths(root: Path, base: str, head: str) -> set[str] | None:
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"change-scope: git comparison unavailable, running everything: {error}", file=sys.stderr)
         return None
-    return {os.fsdecode(p) for p in out.split(b"\0") if p}
+    # A definition change is a change of every artifact it generates (root ADR-0418).
+    return declared_definitions.with_generated(os.fsdecode(p) for p in out.split(b"\0") if p)
 
 
 # --- check: the contract and the workflows agree -------------------------------------------------
@@ -261,6 +265,8 @@ def check(root: Path = ROOT, tracked: Iterable[str] | None = None) -> list[str]:
         tracked = subprocess.run(
             ["git", "-C", str(root), "ls-files", "-z"], check=True, capture_output=True
         ).stdout.decode().split("\0")
+        # A generated artifact is a file of every checkout without being tracked (root ADR-0418).
+        tracked += list(declared_definitions.GENERATED)
     tracked = [t for t in tracked if t]
     for workflow in sorted(set(scoped) & set(unscoped)):
         errors.append(f"{workflow}: both scoped and unscoped")

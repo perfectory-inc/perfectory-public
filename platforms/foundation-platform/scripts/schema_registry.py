@@ -47,6 +47,8 @@ PATH = re.compile(r"^[a-z_][a-z0-9_]*(\[\])?(\.[a-z_][a-z0-9_]*(\[\])?)*$")
 # translated from, generated code, tests, documents. Anywhere else it is a hand-written version list.
 WIRE_STRING_ALLOWED = (
     ":(exclude)platforms/foundation-platform/contracts/schema-registry/**",
+    # The registry's subjects are declared in their lanes' definitions (root ADR-0418).
+    ":(exclude)platforms/foundation-platform/definitions/**",
     ":(exclude)platforms/foundation-platform/contracts/by-pnu-documents/**",
     ":(exclude)*.generated.ts",
     ":(exclude)*test*",
@@ -354,7 +356,13 @@ def unchanged_since(platform: pathlib.Path, base: str) -> list[str]:
                                capture_output=True, text=True, check=False, encoding="utf-8")
         return shown.stdout if shown.returncode == 0 else None
 
-    before_text = show(REGISTRY / "registry.json")
+    # registry.json is generated from the declared definitions (root ADR-0418): read it at the merge
+    # base as that commit generated it, or as it was committed before the definitions existed.
+    generator = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "catalog" / "declared_definitions.py"
+    shown = subprocess.run([sys.executable, str(generator), "show",
+                            "--root", str(root), "--rev", at, "--path", f"{prefix}/{REGISTRY.as_posix()}/registry.json"],
+                           capture_output=True, text=True, check=False, encoding="utf-8")
+    before_text = shown.stdout if shown.returncode == 0 else None
     if before_text is None:
         return []
     before = {entry["subject"]: entry for entry in json.loads(before_text)["subjects"]}
