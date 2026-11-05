@@ -163,7 +163,8 @@
           "job": "by_pnu_unit_price_bake",
           "capability": "unit_price_section_pack_patches"
         }
-      }
+      },
+      "spark_held_test": "infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py"
     }
   },
   "host_memory": {

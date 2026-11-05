@@ -47,6 +47,13 @@ def changed_without_unchanged(text):
             and not any("foundation-job-outcome unchanged" in line for line in code))
 
 
+def own_lane_bakes():
+    """The jobs that bake a by-PNU lane of their own (not the serving bake's `all`), read from the lane
+    index the definitions generate (root ADR-0418 §8c): a new lane joins every count below by itself."""
+    index = json.loads((job_specs.PLATFORM_ROOT / "config/by-pnu-lane-index.v1.json").read_text(encoding="utf-8"))
+    return sorted({job["id"] for lane in index["lanes"] for job in lane["bake_jobs"]} - {"by_pnu_serving_bake"})
+
+
 def real_inputs():
     return (
         json.loads(job_specs.JOBS.read_text(encoding="utf-8")),
@@ -363,19 +370,21 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # The hourly Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of
         # it once too, and so may the nightly 실거래가 load (the same shape, root ADR-0349). The public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
         # (1 slot, 60 + 30; root ADR-0333) count like the serving bake, and so do the ownership bake
-        # (2 slots, 115 + 30; root ADR-0361) and the regulation zones bake (the same, root ADR-0375); the
-        # bound reads no takes_turns, so they count though they do not take turns.
+        # (2 slots, 115 + 30; root ADR-0361) and every other lane's own bake; the bound reads no
+        # takes_turns, so they count though they do not take turns. Each lane bake counts once at its own
+        # hold, read from the job list for the lanes the index names (no count of lanes is written here).
         jobs = copy.deepcopy(real_inputs()[0])
         spark = [job for job in jobs["jobs"] if job["pool"] == "spark"]
         floor = next(job for job in spark if job["id"] == "building_register_floor")
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + 45 + 6 * (115 + 30) + (60 + 30))
+        lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
+        self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + 45
+                         + sum(job_specs.hold_minutes(job) for job in lane_bakes))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "gold_panel_rebuild", "by_pnu_serving_bake", "by_pnu_public_auction_bake",
-                                         "by_pnu_unit_price_bake", "by_pnu_parcel_ownership_bake", "by_pnu_parcel_demolitions_bake",
-                                         "by_pnu_parcel_energy_bake", "by_pnu_parcel_sub_parcels_bake",
-                                         "by_pnu_parcel_regulation_zones_bake",
-                                         "onbid_public_auction_silver", "rt_molit_real_transaction_silver"})
+                                         "gold_panel_rebuild", "by_pnu_serving_bake",
+                                         "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
+                                         *own_lane_bakes()})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
@@ -724,17 +733,12 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
         # (1 slot, 60 + 30; root ADR-0333).
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "building_register_floor")
-        self.assertIn("by_pnu_serving_bake", blockers)
-        self.assertIn("by_pnu_public_auction_bake", blockers)
-        self.assertIn("by_pnu_unit_price_bake", blockers)
-        self.assertIn("onbid_public_auction_silver", blockers)
-        self.assertIn("rt_molit_real_transaction_silver", blockers)
-        self.assertIn("by_pnu_parcel_ownership_bake", blockers)
-        self.assertIn("by_pnu_parcel_demolitions_bake", blockers)
-        self.assertIn("by_pnu_parcel_energy_bake", blockers)
-        self.assertIn("by_pnu_parcel_sub_parcels_bake", blockers)
-        self.assertIn("by_pnu_parcel_regulation_zones_bake", blockers)
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + 45 + 6 * (115 + 30) + (60 + 30))
+        for job_id in ("by_pnu_serving_bake", "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
+                       *own_lane_bakes()):
+            self.assertIn(job_id, blockers)
+        by_id = {job["id"]: job for job in jobs["jobs"]}
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + 45
+                         + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
 
     def test_the_real_list_fits(self):
         self.assertEqual(job_specs.pool_starvation(real_inputs()[0]), [])

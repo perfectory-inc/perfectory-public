@@ -133,7 +133,8 @@
         "sub_parcels_json"
       ],
       "producer": "building_sub_parcel_silver_to_gold",
-      "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md"
+      "decision": "docs/adr/0399-a-parcel-shows-its-demolished-buildings-and-the-buildings-that-also-stand-on-it.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_building_sub_parcel_gold.py"
     }
   },
   "host_memory": {

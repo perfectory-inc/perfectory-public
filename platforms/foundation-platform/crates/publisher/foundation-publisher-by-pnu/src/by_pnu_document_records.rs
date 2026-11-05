@@ -28,46 +28,6 @@ use crate::schema_registry;
 /// A document's fields: path (an array's items under `<field>[]`) to whether it is required.
 type Shape = BTreeMap<String, bool>;
 
-/// Pack lane JSON fields no Rust type writes: the Spark job that writes them is held to the
-/// record's subtree by its own test (lane, field, test).
-const SPARK_HELD: [(&str, &str, &str); 7] = [
-    (
-        "unit-price",
-        "units",
-        "infra/lakehouse/spark/tests/test_unit_price_panel_iceberg.py",
-    ),
-    (
-        "parcel-public-auction",
-        "public_auction",
-        "infra/lakehouse/spark/tests/test_onbid_public_auction_gold.py",
-    ),
-    (
-        "parcel-ownership",
-        "ownership",
-        "infra/lakehouse/spark/tests/test_land_ownership_gold.py",
-    ),
-    (
-        "parcel-regulation-zones",
-        "regulation_zones",
-        "infra/lakehouse/spark/tests/test_regulation_zones_gold.py",
-    ),
-    (
-        "parcel-sub-parcels",
-        "sub_parcels",
-        "infra/lakehouse/spark/tests/test_building_sub_parcel_gold.py",
-    ),
-    (
-        "parcel-energy",
-        "energy",
-        "infra/lakehouse/spark/tests/test_building_energy_gold.py",
-    ),
-    (
-        "parcel-demolitions",
-        "demolitions",
-        "infra/lakehouse/spark/tests/test_building_demolition_gold.py",
-    ),
-];
-
 const RULE: &str = "A by-PNU document gained, lost or renamed a field, or changed whether one is \
     required, under the schema version it already had. The bake rewrites a whole generation only \
     when the version changes, so bump the document's schema version \
@@ -150,7 +110,7 @@ fn is_under(path: &str, field: &str) -> bool {
 
 /// A pack lane's document as `pack_lane_document::render` writes it: its schema, the PNU, the
 /// source, then each content column; a `*_json` column's inner fields are its host document's
-/// section of that name. Also returns the fields `SPARK_HELD` names.
+/// section of that name. Also returns the fields a Spark job writes (the lane's `spark_held_test`).
 fn pack_shape(
     name: &str,
     lane: &PackLane,
@@ -183,10 +143,9 @@ fn pack_shape(
         if !column.ends_with("_json") {
             continue;
         }
-        if SPARK_HELD
-            .iter()
-            .any(|(lane, held, _)| (*lane, *held) == (name, field))
-        {
+        // A Spark job writes this lane's content; its own test holds it to the record (the lane
+        // line's `spark_held_test`, root ADR-0418 §8c).
+        if lane.spark_held_test.is_some() {
             held.push(field.to_owned());
             continue;
         }
