@@ -150,6 +150,45 @@ class BucketTest(unittest.TestCase):
         self.assertEqual(job.recorded_buckets(snapshots, {1, 2, 4, 5}, mine), {'"11"'})
 
 
+class GeometryToleranceTest(unittest.TestCase):
+    """A checksum-only change within the lane's tolerance is no change (`compare.geometry_tolerance`)."""
+
+    def test_the_tolerance_is_geometry_checksum_and_bounded_metres(self):
+        self.assertIsNone(job.parse_args(ARGS).geometry_tolerance)
+        parsed = job.parse_args([*ARGS, "--geometry-tolerance", "geometry_wkb,geometry_checksum_sha256,0.1"])
+        self.assertEqual(parsed.geometry_tolerance, ("geometry_wkb", "geometry_checksum_sha256", 0.1))
+        for raw in ("geometry_wkb,geometry_checksum_sha256,0", "geometry_wkb,geometry_checksum_sha256,1.5",
+                    "geometry_wkb,geometry_checksum_sha256,-1", "geometry_wkb,0.1", ",geometry_checksum_sha256,0.1"):
+            with self.subTest(raw=raw):
+                with self.assertRaises(ValueError):
+                    job.parse_args([*ARGS, "--geometry-tolerance", raw])
+
+    def test_the_checksum_is_content_and_the_geometry_is_not(self):
+        contract = load_lakehouse_contract("silver.land_use_zone_area")
+        content = ["zone_name", "geometry_checksum_sha256"]
+        job.check_tolerance(contract, content, ("geometry_wkb", "geometry_checksum_sha256", 0.1))
+        for tolerance in (("geometry_wkb", "zone_code", 0.1), ("zone_name", "geometry_checksum_sha256", 0.1),
+                          ("no_such_column", "geometry_checksum_sha256", 0.1)):
+            with self.subTest(tolerance=tolerance):
+                with self.assertRaisesRegex(ValueError, "geometry tolerance"):
+                    job.check_tolerance(contract, content, tolerance)
+
+    def test_only_the_zone_lane_tolerates_and_its_contract_parses_here(self):
+        import json
+
+        tolerances = {}
+        for path in sorted(LANES.glob("*-source-objects.json")):
+            block = json.loads(path.read_text(encoding="utf-8")).get("silver_refresh") or {}
+            tolerance = (block.get("compare") or {}).get("geometry_tolerance")
+            if tolerance:
+                tolerances[block["table"]] = tolerance
+                job.check_tolerance(load_lakehouse_contract(block["table"]), block["compare"]["content_columns"],
+                                    job.geometry_tolerance(f"{tolerance['geometry_column']},"
+                                                           f"{tolerance['checksum_column']},{tolerance['metres']}"))
+        self.assertEqual(list(tolerances), ["silver.land_use_zone_area"])
+        self.assertEqual(tolerances["silver.land_use_zone_area"]["metres"], 0.1)
+
+
 class PartialMainTest(unittest.TestCase):
     """main 이 판의 일부만 기록하면, 그것이 load branch 의 첫 묶음일 때만 비교한다."""
 

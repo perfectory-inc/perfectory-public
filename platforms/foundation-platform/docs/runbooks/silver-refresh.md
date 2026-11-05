@@ -195,6 +195,12 @@ INVOCATION_ID=<찍힌 값> /opt/foundation-platform/current/scripts/ops/silver-r
 branch 를 지운다. main 의 행은 고치지도 지우지도 않는다. 로그의 `compared the release staged on load_<…>` 줄에 묶음 수
 (`buckets`, `buckets_done`), 바뀐 키의 행 수(`changed_key_rows`)와 삭제 표시 수(`removed_keys`)가 있다.
 
+**도형 허용 오차(`compare.geometry_tolerance`).** 계약에 이것이 있는 레인은 도형 checksum 만 다른 키를, 두 도형이
+같은 유형·부분·링·꼭짓점 수이고 꼭짓점마다 `metres` 안에 있으면 바뀌지 않은 것으로 본다(JTS
+`equalsExact(other, tolerance)`). 그 키는 아무것도 붙지 않고 앞 판의 행이 현재 행으로 남는다. 그렇게 남긴 키 수는
+`tolerated_keys` 다. 제공처 좌표 변환으로 모든 구역이 5–7 cm 밀린 판(용도지역지구, 2026-11-05 측정)이 통째로 바뀐
+것으로 쌓이지 않게 한다. `metres` 는 0 초과 1 이하이고 `reason` 에 그 값을 정한 측정을 적는다.
+
 실행 시작 110분 뒤에는 새 묶음을 시작하지 않는다(`deadline`). 그 실행은 `outcome=unchanged
 reason=compare_resumes_next_run` 으로 끝나고 main 은 앞 판 그대로다. 다음 실행은 export 를 건너뛰고 기록되지 않은
 묶음만 비교한다. 그사이 main 이 움직였으면(압축 등) changes branch 를 지우고 처음부터 비교한다. 커밋 뒤라면
