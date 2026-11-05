@@ -37,7 +37,7 @@ run 에 마감도 없었다. 그래서 10-29·30 첫 적재 때 객체를 계속
 1. **필지는 run 에 한 번, 묻는 것만.** 정본 해석기(`place_identity_resolver`)에 두 함수를 둔다.
    - `candidate_pnus(pnus, remap, ambiguous)`: 원천 코드마다 현재 법정동 코드로 옮긴 PNU 를 만든다. `resolve` 가 물을
      바로 그 값이다. 쪼개진 코드는 묻지 않는다.
-   - `current_parcels_among(spark, catalog, pnus)`: 현재 필지를 그 PNU 들과 먼저 broadcast semi-join 하고 나서
+   - `served_parcels_among(spark, catalog, pnus)`: 서빙 판의 현재 필지(`vworld_parcel_editions.served_rows`, ADR-0291 §5)를 그 PNU 들과 먼저 broadcast semi-join 하고 나서
      중복을 지우고 cache 한다. 40M 집계는 사라진다.
    공매 적재는 run 시작 때 계획된 물건목록 객체들의 원천 코드로 한 번 부른다. 요약에는
    `parcels_read{asked, held}` 를 남긴다. 결과(어느 PNU 가 현재 필지인가)는 전과 같다.

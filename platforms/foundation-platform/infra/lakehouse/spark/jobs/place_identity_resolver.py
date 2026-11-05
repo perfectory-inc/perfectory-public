@@ -83,18 +83,17 @@ def candidate_pnus(pnus: Iterable[str | None], remap: Mapping[str, str], ambiguo
     return {with_current_code(pnu, remap.get(pnu[:10], pnu[:10])) for pnu in pnus if pnu and pnu[:10] not in split}
 
 
-def current_parcels_among(spark: Any, catalog: str, pnus: Iterable[str]) -> Any:
-    """The current parcels among ``pnus``, read once and cached: the ~80M rows of
-    `silver.parcel_boundaries` are semi-joined to the asked PNUs before anything is de-duplicated
-    (root ADR-0390: the whole set's ~40M distinct PNUs, read per 공매 object, outgrew the small
-    Spark's 2.5GiB 67 times 2026-10-28..11-03 and took p50 482 s an object)."""
+def served_parcels_among(spark: Any, catalog: str, pnus: Iterable[str]) -> Any:
+    """The served parcels among ``pnus``, read once and cached: the served edition's rows of
+    `silver.parcel_boundaries` (root ADR-0291 §5) are semi-joined to the asked PNUs before anything is
+    de-duplicated (root ADR-0390: the whole set's ~40M distinct PNUs, read per 공매 object, outgrew the
+    small Spark's 2.5GiB 67 times 2026-10-28..11-03 and took p50 482 s an object)."""
 
-    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
     from pyspark.sql import functions as F  # noqa: PLC0415
+    from vworld_parcel_editions import served_rows  # noqa: PLC0415
 
     asked = spark.createDataFrame([(pnu,) for pnu in sorted(set(pnus))], "pnu string")
-    every = current_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`"),
-                         load_lakehouse_contract("silver.parcel_boundaries")).select("pnu")
+    every = served_rows(spark.table(f"`{catalog}`.`silver`.`parcel_boundaries`")).select("pnu")
     return every.join(F.broadcast(asked), "pnu", "left_semi").distinct().cache()
 
 
@@ -103,7 +102,7 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
     ``place_identity_grade`` and ``pnu_unresolved_reason``.
 
     ``remap`` is old → current legal-dong code (``code_crosswalk``); ``ambiguous`` the old codes that
-    split; ``parcels`` holds the current parcels' ``pnu`` (``current_parcels_among``). A pnu is
+    split; ``parcels`` holds the served parcels' ``pnu`` (``served_parcels_among``). A pnu is
     kept only when its current form is a current parcel.
     """
 

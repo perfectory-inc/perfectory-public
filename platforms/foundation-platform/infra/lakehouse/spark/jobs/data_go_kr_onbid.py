@@ -576,7 +576,7 @@ def _load(argv: Sequence[str]) -> int:
             wanted = place_identity_resolver.candidate_pnus(
                 (row["pnu"] for entry in objects if entry["role"] == "item_list"
                  for row in read_object(entry, source, now)["rows"]), remap, ambiguous)
-            parcels = place_identity_resolver.current_parcels_among(spark, args.iceberg_catalog_name, wanted)
+            parcels = place_identity_resolver.served_parcels_among(spark, args.iceberg_catalog_name, wanted)
             summary["parcels_read"] = {"asked": len(wanted), "held": parcels.count()}
         for entry in objects:
             if deadline.passed():
