@@ -55,7 +55,9 @@ pub const SILVER_LAND_USE_ZONE_AREA: LakehouseTableContract = LakehouseTableCont
     // A monthly release appends only the areas whose content or geometry changed and a removal
     // marker per vanished area (root ADR-0275, ADR-0311, ADR-0318), compared one layer at a time.
     row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
-        key: &["layer_code", "zone_feature_id"],
+        // The area number is not unique within a layer: an area split at a 시군구 boundary is two
+        // polygons sharing `A1` (308 pairs in D036 of 20261009, measured 2026-11-05).
+        key: &["layer_code", "zone_feature_id", "sigungu_code"],
         // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
         newest_first: &["source_snapshot_id", "ingested_at_utc"],
         removal_column: Some("row_state"),
@@ -63,7 +65,7 @@ pub const SILVER_LAND_USE_ZONE_AREA: LakehouseTableContract = LakehouseTableCont
     }),
     columns: SILVER_LAND_USE_ZONE_AREA_COLUMNS,
     partition_spec: &[],
-    sort_order: &["layer_code", "zone_feature_id"],
+    sort_order: &["layer_code", "zone_feature_id", "sigungu_code"],
     write_distribution: LakehouseWriteDistribution::Hash,
     quality_gates: &[
         "layer_code_not_null",

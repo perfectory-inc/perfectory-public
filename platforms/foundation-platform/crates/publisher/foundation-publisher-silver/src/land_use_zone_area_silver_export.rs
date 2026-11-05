@@ -274,6 +274,10 @@ fn area_row(
     let Some(zone_feature_id) = text("A1")? else {
         return Err("blank_zone_feature_id".to_owned());
     };
+    // Part of the key with the area number: an area split at a 시군구 boundary shares `A1`.
+    let Some(sigungu_code) = text("A4")? else {
+        return Err("blank_sigungu_code".to_owned());
+    };
     let geometry = parse_geojson_polygonal_geometry(feature.geometry(), &zone_feature_id)
         .map_err(|_| "invalid_geometry".to_owned())?;
     let bbox = geometry_bounding_box(&geometry).map_err(|_| "empty_geometry".to_owned())?;
@@ -291,7 +295,7 @@ fn area_row(
         ("layer_code", json!(layer_code)),
         ("zone_feature_id", json!(zone_feature_id)),
         ("layer_name", json!(text("A2")?)),
-        ("sigungu_code", json!(text("A4")?)),
+        ("sigungu_code", json!(sigungu_code)),
         ("zone_code", json!(text("A5")?)),
         ("zone_name", json!(text("A6")?)),
         ("field_a7", json!(text("A7")?)),

@@ -62,6 +62,12 @@ if ((handoff_status == 3)); then
   job_journal "${journal}" "nothing to do: the zoning tiles already show Silver snapshot ${served}"
   echo "foundation-job-outcome unchanged"; exit 0
 fi
+if ((handoff_status == 65)); then
+  # 현재 행이 키마다 하나가 아니다: 굽지 않고, 어느 키인지 적은 보고서를 남긴 채 실패한다.
+  job_journal "${journal}" "refused: $(grep -o 'land-use-zone-area-tile-handoff-refused.*' "${run_log}" | tail -1)" >&2
+  job_run_log_tail "${run_log}"
+  exit 65
+fi
 ((handoff_status == 0)) || { on_error "${LINENO}"; exit "${handoff_status}"; }
 
 read -r snapshot pending <<<"$(python3 -I - "${work}/served-summary.json" <<'PY'

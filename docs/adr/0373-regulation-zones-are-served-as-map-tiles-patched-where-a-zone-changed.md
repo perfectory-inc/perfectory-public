@@ -124,3 +124,8 @@
     구역의 타일은 하나도 더럽히지 않는다(`a_changed_zone_re_tiles_only_the_tiles_it_touches`). 한 층만 바뀐 달에는
     그 층의 archive 만 다시 굽는다(`a_changed_zone_rebakes_only_its_layers_archive`).
   - 넘김 작업의 계약 일치와 수집 대기 목록(`test_land_use_zone_area_tile_handoff.py`).
+
+---
+
+**개정 (2026-11-05).** §1 의 피처 id 는 `<layer_code>:<zone_feature_id>:<sigungu_code>` 다. 구역 번호(`A1`)는 시군구
+경계에서 나뉜 구역이 같은 번호를 나눠 가져 층 안에서도 겹친다(ADR-0362 개정 2026-11-05). 앞 네 글자가 층인 것은 그대로다.
