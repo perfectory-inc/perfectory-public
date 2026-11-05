@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Gongzzang 런타임 ER 개요
@@ -10,14 +10,10 @@ last_reviewed: 2026-07-29
 이 문서는 Gongzzang이 소유하는 런타임 데이터 모델만 설명한다.
 
 Catalog ETL·공공 API 원자료 보관·API 변경 관측성 table은 Foundation Platform 책임이다. 새 Gongzzang
-migration chain은 과거 Foundation 소유 table을 만들지 않는다.
-
-- `pipeline_schedule`
-- `pipeline_run`
-- `parcel_external_data`
-- `api_health_check`
-
-이 이름의 table을 향후 migration에서 다시 만들면 소유권 경계를 조용히 되살리는 것이므로 금지한다.
+migration chain은 과거 Foundation 소유 table을 만들지 않는다. 금지 table 목록과 기대 table 목록은
+`tests/migrations/test_v001_full.sh` 의 `FORBIDDEN_TABLES`·`EXPECTED_TABLES` 가 정본이고 CI
+(`gongzzang-db-migrations.yml`)가 검사한다. 그 이름의 table을 다시 만들면 소유권 경계를 조용히
+되살리는 것이므로 금지한다.
 
 사용자의 Zitadel subject 는 `user` 열이 아니라 `external_account(provider = 'zitadel')` 한 곳에만 있다
 ([루트 ADR-0232](../../../../docs/adr/0232-gongzzang-zitadel-subject-lives-only-in-external-account.md)).

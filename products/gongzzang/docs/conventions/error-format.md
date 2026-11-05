@@ -53,7 +53,7 @@ last_reviewed: 2026-07-29
 ## 5. 에러 코드 매핑 (Rust enum SSOT)
 
 ```rust
-// crates/api-types/src/error.rs
+// 예시 — 실제 정의는 services/gongzzang-api/src/http/problem.rs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {

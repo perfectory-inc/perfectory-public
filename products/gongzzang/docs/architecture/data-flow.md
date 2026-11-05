@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 데이터 흐름
@@ -74,7 +74,9 @@ Gongzzang은 V-World나 data.go.kr Catalog API를 직접 호출하지 않는다.
 
 Current approved adapters:
 
+- `crates/foundation-platform-client` (공통 HTTP·인증·circuit breaker)
 - `services/gongzzang-api/src/foundation_parcel_lookup.rs`
+- `services/gongzzang-api/src/complex_reader.rs` (산업단지 Catalog 조회)
 
 Current supporting policies:
 

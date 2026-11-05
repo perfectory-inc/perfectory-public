@@ -2,17 +2,19 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # TypeScript 컨벤션
 
 ## 1. 도구
 
-- **TypeScript**: 5.7+ strict (`tsconfig.base.json`)
-- **포맷·lint·import sort**: Biome v2.4 (단독, `biome.json`)
-- **테스트**: Vitest (sub-project 6+)
-- **공급망**: Snyk + socket.dev + `pnpm audit`
+- **TypeScript**: strict (`tsconfig.base.json`)
+- **포맷·lint·import sort**: Biome (단독, `biome.json`)
+- **테스트**: Vitest (unit·integration 레인), Playwright — [테스트 컨벤션](./testing.md)
+- **공급망**: OSV-Scanner 가 `pnpm-lock.yaml` 을 포함한 모든 lockfile 을 검사 (`cargo xtask ci osv-gate`, 허용 목록은 루트 `osv-scanner.toml`, 루트 ADR-0414)
+
+버전 핀(TypeScript·Biome·Vitest·Next.js 등)은 [`tools/technology-versions.contract.json`](../../../../tools/technology-versions.contract.json)이 정본이다.
 
 ## 2. tsconfig 핵심 (`tsconfig.base.json`)
 
@@ -29,14 +31,14 @@ last_reviewed: 2026-07-29
 - import sort: `assist.actions.source.organizeImports: on`
 - `correctness.noUnusedImports: error`
 - `style.useConst: error`, `useImportType: error`
-- `suspicious.noExplicitAny: error`, `noConsole: warn`
+- `suspicious.noExplicitAny: error`, `noConsole: warn` (`console.warn/error/info` 허용)
 
 ## 4. Next.js 패턴 (옵션 A)
 
 ### Server Component 기본
 
 ```tsx
-// apps/web/app/listings/page.tsx
+// apps/web/app/(authenticated)/listings/page.tsx
 import { fetchListings } from "@/lib/listings/api";
 
 export default async function ListingsPage({ searchParams }: Props) {
@@ -59,15 +61,14 @@ import { useState } from "react";
 
 ### Server Action = 얇은 프록시
 
+지금 `apps/web` 에는 Server Action 이 없다. 만들게 되면 생성된 proxy client 만 부르는 얇은 프록시로 둔다
+(세션 확인은 `proxy.ts` 인증 관문과 `/api/proxy` route 가 한다).
+
 ```tsx
 "use server";
 import { apiProxyClient } from "@/lib/api/api-proxy-client.generated";
-import { getSession } from "@/lib/session";
 
 export async function bookmarkListing(listingId: string) {
-  const session = await getSession();
-  if (!session) throw new Error("로그인이 필요해요");
-
   return apiProxyClient.listingBookmark.post({ id: listingId });
 }
 ```
@@ -82,7 +83,7 @@ import { useState } from "react";
 import { z } from "zod";
 
 // 2. 절대 경로 (@/)
-import { Button } from "@/components/ui/button";
+import { fetchListings } from "@/lib/listings/api";
 
 // 3. 워크스페이스
 import { Button } from "@gongzzang/ui";
@@ -121,7 +122,7 @@ const { register, handleSubmit } = useForm({ resolver: zodResolver(schema) });
 
 ## 8. 상태 관리
 
-- 서버 상태: TanStack Query (Phase 1) 또는 Server Component fetch
+- 서버 상태: TanStack Query 또는 Server Component fetch
 - 클라이언트 상태: Zustand (필요 시만)
 - 폼 상태: react-hook-form
 
@@ -130,7 +131,7 @@ const { register, handleSubmit } = useForm({ resolver: zodResolver(schema) });
 ## 9. 금지 패턴
 
 - ❌ `any` 타입 (`noExplicitAny: error`)
-- ❌ `console.log` (대신 `tracing` 미들웨어 또는 `console.warn/error`)
+- ❌ `console.log` (대신 `@/lib/observability/logger` 의 pino 로거 또는 `console.warn/error/info`)
 - ❌ Server Action 안에 비즈니스 로직 (Rust로 위임)
 - ❌ 백엔드 응답 타입 수동 작성 (`packages/api-types/generated/schema.ts`는 OpenAPI 자동 생성만)
 - ❌ TODO/HACK/XXX 코멘트
@@ -138,6 +139,5 @@ const { register, handleSubmit } = useForm({ resolver: zodResolver(schema) });
 
 ## 10. 자동 강제
 
-- pre-commit: `pnpm biome check --write` (lefthook)
-- pre-push: `pnpm turbo run typecheck`
-- CI: `pnpm biome check . && pnpm turbo run typecheck && pnpm turbo run test`
+- pre-commit: `pnpm biome check --write` (루트 `lefthook.yml` 의 `gz-biome`, 바뀐 파일만)
+- CI (정본): 루트 `.github/workflows/gongzzang-frontend.yml` — `pnpm biome check .`, `pnpm turbo typecheck`, `pnpm turbo test` 등

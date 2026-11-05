@@ -48,7 +48,7 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
   법정동이 목록에 있는 것만 읽는다. 툼스톤은 typed 404, 없으면 404, 목록의 묶음이 없거나 형식이 어긋나면 503 이다.
   `_capabilities` 는 `[1, 2, 3, 4]`(뒤의 둘은 계약 `manifest_section_packs_schema_version`·
   `manifest_section_packs_parted_schema_version`).
-  - 조각(루트 ADR-0163, 계약 `by_pnu_section_packs.parts`): schema 4 블록의 항목은 `parts: {key, sha256,
+  - 조각(루트 ADR-0233, 계약 `by_pnu_section_packs.parts`): schema 4 블록의 항목은 `parts: {key, sha256,
     parted_units}` 로 그 세대의 조각 목록 객체(`{root}/{항목}/g{n}/parts.json`)를 가리킨다. Worker 는 그 객체를
     isolate 마다 한 번 읽어 sha256·스키마·항목·세대·해시·조각 수(2 이상)를 확인하고 메모리에 둔다(몇 개까지).
     어긋나거나 없으면 503 이다. PNU 의 단위는 법정동, 또는 목록이 K > 1 이라 하면 `{법정동}-{fnv1a32(PNU) mod K}` 이고,

@@ -2,41 +2,32 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 테스트 컨벤션
 
 ## 1. 분류
 
-| 종류 | 도구 | 위치 | 목적 |
+| 종류 | 도구 | 위치 | 실행 |
 |------|------|------|------|
-| 단위 | `cargo test`, Vitest | 같은 파일 (`#[cfg(test)] mod tests`) 또는 `__tests__/` | 함수/메서드 |
-| 통합 | Testcontainers + sqlx::test | `tests/` (각 crate) | DB + 외부 API |
-| 계약 | Pact (sub-project 5+) | `tests/contract/` | API 양쪽 약속 |
-| 스냅샷 | insta (Rust), Vitest snapshot | 단위 테스트와 동거 | 응답/렌더 결과 |
-| Property | proptest | 단위 테스트 | 불변 속성 |
-| Mutation | cargo-mutants | CI 정기 | 테스트 품질 |
-| E2E | Playwright | `tests/e2e/` | 전체 사용자 시나리오 |
-| 부하 | k6 | `tests/load/` | 성능 회귀 |
-| 카오스 | Chaos Mesh | `tests/chaos/` | 장애 회복 |
-| 시각 회귀 | Lost Pixel (OSS) | Storybook + CI | UI 변경 |
+| Rust 단위 | `cargo test` | 같은 크레이트의 형제 파일 (`entity.rs` → `#[path = "entity_tests.rs"] mod entity_tests;`) | `cargo xtask verify gongzzang --affected` (`gongzzang-ci.yml`) |
+| Rust 통합 | `cargo test` + 실제 Postgres (`DATABASE_URL`) | `crates/<crate>/tests/` (`#![cfg(feature = "integration")]`) | `cargo xtask integration gongzzang postgres --affected` (`gongzzang-db-migrations.yml`) |
+| 웹 단위 | Vitest `unit` 프로젝트 | `apps/web/tests/unit/`, `apps/web/lib/**/*.test.ts` | `pnpm turbo test` (`gongzzang-frontend.yml`) |
+| 웹 통합 | Vitest `integration` 프로젝트 (실제 Redis) | `apps/web/tests/integration/` | `pnpm --filter=@gongzzang/web run test:integration` |
+| E2E·접근성 | Playwright + `@axe-core/playwright` | `apps/web/tests/e2e/` | `gongzzang-frontend.yml` |
+| 부하 | k6 | `tests/load/` | [부하 테스트](../testing/load.md) |
 
-## 2. 커버리지 임계값 (CI 차단)
+Vitest 레인 구분은 디렉터리 하나로만 한다 (`apps/web/vitest.config.ts` 의 `test.projects`).
+어느 레인에도 안 걸리는 테스트 파일은 `scripts/ci/vitest-lane-completeness.sh` 가 막는다.
 
-| 영역 | 최소 커버리지 |
-|------|------------|
-| `crates/*-domain` | **90%** (도메인 핵심) |
-| `crates/gongzzang-persistence` | 70% |
-| 공짱 소유 비-Catalog 외부 어댑터 crate | 70% |
-| `services/*` | 60% |
-| `apps/*` 라우터/Server Action | 50% |
-| `packages/ui` 컴포넌트 | 40% (시각 회귀로 보강) |
+## 2. 커버리지
 
-도구: `cargo-tarpaulin` (Rust), Vitest coverage (TS).
+CI 커버리지 게이트는 지금 없다. `gongzzang-ci.yml` 머리말이 정본이다 — tarpaulin 90% 게이트는
+런칭 후 필요하면 다시 넣는다. `tarpaulin.toml` 은 그때를 위한 설정으로만 남아 있다.
 
 Catalog 소스 클라이언트, raw capture, 공용 공간 데이터 리더는 Foundation Platform 소유다.
-공짱 테스트 커버리지 표는 그 crate를 다시 만들거나 관리 대상으로 해석하면 안 된다.
+공짱 테스트를 그 crate를 다시 만들거나 관리 대상으로 해석하면 안 된다.
 
 ## 3. 네이밍 규칙
 
@@ -85,11 +76,8 @@ fn ... () {
 
 | 종류 | 정책 |
 |------|------|
-| 외부 HTTP API | mockall + wiremock 또는 Testcontainers |
-| DB | sqlx::test (실제 PG, 트랜잭션 rollback) |
-| 시간 | mockable Clock (TimeProvider trait) |
-| 랜덤 | seedable Rng |
-| Zitadel | OIDC 모의 서버 (sub-project 3) |
+| DB | 실제 Postgres. 통합 테스트는 `DATABASE_URL` 로 붙고, 매 테스트 시작에 `common::truncate_all` 로 비운다 |
+| 웹 외부 호출 | Vitest 단위 레인은 mock; 실제 Redis 가 필요한 것은 통합 레인으로 |
 
 → "거의 항상 실제 DB"는 SSOT 원칙과 일치 (mock이 사본을 만들지 않게).
 
@@ -98,59 +86,51 @@ fn ... () {
 ```rust
 // crates/listing-domain/src/entity.rs
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rstest::*;
-
-    #[fixture]
-    fn business_user() -> User {
-        User::with_business_number("123-45-67890")
-    }
-
-    #[rstest]
-    fn listing_can_be_published_when_owner_has_business_number(business_user: User) {
-        let listing = Listing::draft(&business_user);
-        assert!(listing.can_be_published_by(&business_user));
-    }
-}
+#[path = "entity_tests.rs"]
+mod entity_tests;
 ```
-
-## 7. 통합 테스트 (sqlx::test)
 
 ```rust
-// crates/gongzzang-persistence/tests/listing_repo.rs
-#[sqlx::test]
-async fn save_and_find_listing(pool: PgPool) {
-    let repo = PgListingRepository::new(pool);
-    let listing = Listing::draft_for_test();
-
-    repo.save(&listing).await.expect("save");
-    let found = repo.find(&listing.id()).await.expect("find").expect("exists");
-
-    assert_eq!(found.id(), listing.id());
+// crates/listing-domain/src/entity_tests.rs — 파일 자체가 테스트 모듈
+#[test]
+fn listing_can_be_published_when_owner_has_business_number() {
+    // Arrange / Act / Assert
 }
 ```
 
-`#[sqlx::test]` = 자동 fresh DB + 마이그레이션 적용 + 트랜잭션 rollback.
+## 7. 통합 테스트 (실제 Postgres)
+
+```rust
+// crates/gongzzang-persistence/tests/bookmark_integration.rs
+#![cfg(feature = "integration")]
+
+mod common;
+use common::{setup_test_pool, truncate_all};
+
+#[tokio::test]
+async fn round_trip_listing_bookmark_with_audit() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    // seed → repo 호출 → audit/outbox 확인
+}
+```
+
+`integration` feature 없이는 파일이 비어 컴파일된다. 어떤 테스트 대상이 어떤 레인에서 도는지는
+`tools/xtask` 의 레인 선언이 정본이다 (루트 ADR-0011).
 
 ## 8. E2E (Playwright)
 
 ```ts
-// tests/e2e/listings.spec.ts
-test("buyer can search and bookmark listings", async ({ page }) => {
+// apps/web/tests/e2e/listings.spec.ts
+test("/(authenticated)/listings 미인증 → /login redirect", async ({ page }) => {
   await page.goto("/listings");
-  await page.fill("[data-testid=search-input]", "강남구 공장");
-  await page.click("[data-testid=search-button]");
-
-  await expect(page.locator("[data-testid=listing-card]")).toHaveCount(20);
-  await page.click("[data-testid=listing-card]:first-child");
-  await page.click("[data-testid=bookmark-button]");
-
-  await expect(page.locator("[data-testid=bookmark-success]")).toBeVisible();
+  await page.waitForURL(/\/login/, { timeout: 10000 });
+  expect(page.url()).toContain("returnTo=%2Flistings");
 });
 ```
 
-`data-testid` 사용 (CSS 클래스/텍스트로 선택 X — 변경 깨짐 방지).
+요소 선택은 역할(`getByRole`)·라벨 기준 (CSS 클래스로 선택 X — 변경 깨짐 방지).
+실행 환경은 [Playwright 런타임](../testing/playwright-runtime.md).
 
 ## 9. 금지 패턴
 
@@ -158,11 +138,13 @@ test("buyer can search and bookmark listings", async ({ page }) => {
 - ❌ 환경 의존 (테스트 머신 시간, 로케일 등) — 명시적 fixture로
 - ❌ 테스트 간 공유 state (각 테스트 격리)
 - ❌ "skip" 또는 "ignore" 누적 — 깨진 테스트는 즉시 수정 또는 삭제
-- ❌ 실제 외부 API 호출 (Zitadel, V-World, Naver Maps 등) — 항상 mock 또는 Testcontainers
+- ❌ 실제 외부 API 호출 (Zitadel, V-World, Naver Maps 등) — 기본 레인에서는 항상 mock
+- ❌ 통과를 꾸미는 테스트 — `scripts/lefthook/check-no-fake-pass.sh` 가 막는다
 
 ## 10. 자동 강제
 
-- pre-push: `cargo test --workspace` + `pnpm vitest run`
-- CI: 커버리지 임계값 검증 (`cargo-tarpaulin --fail-under 90`)
-- Pact: PR마다 계약 호환성 검증
-- Mutation: 주간 cron (`cargo-mutants`)
+정본은 CI 다. 로컬 훅은 빠른 사전 거름이고 테스트를 돌리지 않는다 (루트 `lefthook.yml`).
+
+- Rust: `gongzzang-ci.yml` (`cargo xtask verify gongzzang --affected` — fmt·clippy·test)
+- Rust 통합: `gongzzang-db-migrations.yml` (`cargo xtask integration gongzzang postgres --affected`)
+- 웹: `gongzzang-frontend.yml` (biome · typecheck · unit · integration · e2e · a11y · bundle)

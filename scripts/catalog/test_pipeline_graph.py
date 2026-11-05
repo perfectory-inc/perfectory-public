@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 
-from pipeline_graph import CONTRACTS, ENDPOINTS, FOUNDATION, GRAPH, ROOT, load_json, migration_tables
+from pipeline_graph import reconcile_inputs, CONTRACTS, ENDPOINTS, FOUNDATION, GRAPH, ROOT, load_json, migration_tables
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -43,10 +43,7 @@ def main() -> None:
     baseline = load_json(ROOT / GRAPH)
     with tempfile.TemporaryDirectory(prefix="pipeline-graph-self-test-") as temporary:
         root = Path(temporary)
-        paths = {GRAPH, ENDPOINTS, CONTRACTS,
-                 FOUNDATION / "services/foundation-outbox-publisher/src/main.rs"}
-        paths.update(p.relative_to(ROOT) for p in (ROOT / FOUNDATION / "migrations").glob("*.sql"))
-        paths.update(Path(step) for e in baseline["edges"] for step in e.get("via", []) if (ROOT / step).is_file())
+        paths = reconcile_inputs(ROOT)
         for path in paths:
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, root / path)
@@ -103,6 +100,32 @@ def main() -> None:
         write_json(root / ENDPOINTS, endpoints)
         check("(a) new endpoint owner group", "source groups")
         shutil.copyfile(ROOT / ENDPOINTS, root / ENDPOINTS)
+
+        # Root ADR-0400: a not-collected endpoint names a true reason (the ADR-0355 §6 false signal).
+        def decision_case(label: str, diagnostic: str, mutate) -> None:
+            doc = load_json(ROOT / ENDPOINTS)
+            mutate(doc["endpoints"])
+            write_json(root / ENDPOINTS, doc)
+            check(label, diagnostic)
+            shutil.copyfile(ROOT / ENDPOINTS, root / ENDPOINTS)
+
+        def first(endpoints: list[dict], lane: str) -> dict:
+            return next(e for e in endpoints if e["source_acquisition_lane"] == lane)
+
+        def collected(endpoints: list[dict]) -> dict:
+            slugs = {slug for e in baseline["edges"] if e["status"] == "implemented" for slug in e.get("source_slugs", [])}
+            return next(e for e in endpoints if e["bronze"]["source_slug"] in slugs)
+
+        decision_case("refused endpoint without a reason", "names no collection_decision",
+                      lambda eps: first(eps, "disabled_api_duplicate").pop("collection_decision"))
+        decision_case("unknown verdict", "unknown collection_decision verdict",
+                      lambda eps: first(eps, "disabled_api_duplicate")["collection_decision"].update(verdict="later"))
+        decision_case("decision record that does not exist", "names no decision record",
+                      lambda eps: first(eps, "disabled_api_duplicate")["collection_decision"].update(decision="docs/adr/9999-none.md"))
+        decision_case("blank reason", "gives no reason",
+                      lambda eps: first(eps, "disabled_api_duplicate")["collection_decision"].update(reason_ko=" "))
+        decision_case("collected endpoint that says it is not", "still says it is not collected",
+                      lambda eps: collected(eps).update(collection_decision=deepcopy(first(eps, "disabled_api_duplicate")["collection_decision"])))
         contracts = load_json(root / CONTRACTS)
         contracts["contracts"]["silver.new_owner_table"] = {"table_name": "silver.new_owner_table"}
         write_json(root / CONTRACTS, contracts)

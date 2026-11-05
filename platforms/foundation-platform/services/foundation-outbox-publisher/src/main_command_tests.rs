@@ -66,21 +66,6 @@ fn the_parcel_tile_bake_cleanup_takes_no_argument() -> anyhow::Result<()> {
 }
 
 #[test]
-fn floor_input_selection_command_accepts_no_arguments() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["publisher", "select-building-register-floor-inputs"])?,
-        Command::SelectBuildingRegisterFloorInputs
-    );
-    assert!(parse_command([
-        "publisher",
-        "select-building-register-floor-inputs",
-        "unexpected"
-    ])
-    .is_err());
-    Ok(())
-}
-
-#[test]
 fn static_release_readdress_command_is_explicit_and_accepts_no_arguments() {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "readdress-static-release"]).unwrap(),
@@ -344,15 +329,6 @@ fn write_parcel_publication_evidence_command_is_explicit() -> anyhow::Result<()>
 }
 
 #[test]
-fn inventory_r2_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "inventory-r2"])?,
-        Command::InventoryR2
-    );
-    Ok(())
-}
-
-#[test]
 fn inventory_lakehouse_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "inventory-lakehouse"])?,
@@ -446,42 +422,6 @@ fn run_national_data_collection_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn rt_molit_real_transaction_export_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "ingest-rt-molit-real-transaction-export"
-        ])?,
-        Command::IngestRtMolitRealTransactionExport
-    );
-    Ok(())
-}
-
-#[test]
-fn plan_rt_molit_real_transaction_export_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "plan-rt-molit-real-transaction-exports"
-        ])?,
-        Command::PlanRtMolitRealTransactionExports
-    );
-    Ok(())
-}
-
-#[test]
-fn execute_rt_molit_real_transaction_export_plan_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "execute-rt-molit-real-transaction-export-plan"
-        ])?,
-        Command::ExecuteRtMolitRealTransactionExportPlan
-    );
-    Ok(())
-}
-
-#[test]
 fn write_national_data_collection_scope_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
@@ -496,10 +436,6 @@ fn write_national_data_collection_scope_command_is_explicit() -> anyhow::Result<
 #[test]
 fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Result<()> {
     let cases = [
-        (
-            "check-administrative-spatial-scope-registry",
-            Command::CheckAdministrativeSpatialScopeRegistry,
-        ),
         (
             "write-administrative-spatial-scope-registry",
             Command::WriteAdministrativeSpatialScopeRegistry,
@@ -535,10 +471,6 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
         (
             "rebuild-postgis-parcel-boundary-mirror",
             Command::RebuildPostgisParcelBoundaryMirror,
-        ),
-        (
-            "write-postgis-mirror-dlq-cutover-evidence",
-            Command::WritePostgisMirrorDlqCutoverEvidence,
         ),
         (
             "evaluate-lakehouse-quality-rules",
@@ -602,18 +534,6 @@ fn write_silver_gold_national_promotion_plan_command_is_explicit() -> anyhow::Re
             "write-silver-gold-national-promotion-plan"
         ])?,
         Command::WriteSilverGoldNationalPromotionPlan
-    );
-    Ok(())
-}
-
-#[test]
-fn write_canonical_silver_gold_cutover_evidence_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "write-canonical-silver-gold-cutover-evidence"
-        ])?,
-        Command::WriteCanonicalSilverGoldCutoverEvidence
     );
     Ok(())
 }
@@ -779,15 +699,6 @@ fn public_api_metric_writer_commands_are_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn wait_trino_ready_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "wait-trino-ready"])?,
-        Command::WaitTrinoReady
-    );
-    Ok(())
-}
-
-#[test]
 fn publish_lakehouse_lineage_event_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
@@ -795,18 +706,6 @@ fn publish_lakehouse_lineage_event_command_is_explicit() -> anyhow::Result<()> {
             "publish-lakehouse-lineage-event"
         ])?,
         Command::PublishLakehouseLineageEvent
-    );
-    Ok(())
-}
-
-#[test]
-fn check_industrial_complex_canonical_source_readiness_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command([
-            "foundation-outbox-publisher",
-            "check-industrial-complex-canonical-source-readiness"
-        ])?,
-        Command::CheckIndustrialComplexCanonicalSourceReadiness
     );
     Ok(())
 }
@@ -967,18 +866,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             Command::RunPublicDataBronzeCollectionLanes,
         ),
         (
-            "dispatch-github-cutover-workflow",
-            Command::DispatchGithubCutoverWorkflow,
-        ),
-        (
-            "fetch-github-cutover-artifact",
-            Command::FetchGithubCutoverArtifact,
-        ),
-        (
-            "configure-github-actions-secrets",
-            Command::ConfigureGitHubActionsSecrets,
-        ),
-        (
             "inventory-vworld-dataset-files",
             Command::InventoryVWorldDatasetFiles,
         ),
@@ -1032,10 +919,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
         (
             "export-vworld-cadastral-silver-handoff-shard",
             Command::ExportVWorldCadastralSilverHandoffShard,
-        ),
-        (
-            "import-industrial-complex-catalog-seed",
-            Command::ImportIndustrialComplexCatalogSeed,
         ),
         (
             "load-industrial-complex-canonical",

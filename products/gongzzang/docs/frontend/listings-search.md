@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 매물 검색 런타임 안내
@@ -20,14 +20,18 @@ last_reviewed: 2026-07-29
           -> SQL filters on listing.parcel_pnu and denormalized parcel columns
 ```
 
-지도 marker 위치는 매물 카드가 소유하지 않는다. 지도는 foundation-platform vector tile manifest의
-PNU-anchor PBF layer를 소비하고 PNU 또는 object ID로 필지·매물 panel을 연다.
+지도 marker 위치는 매물 카드가 소유하지 않는다. 지도는 Gongzzang 매물 marker tile과 foundation-platform
+vector tile manifest(`/catalog/v1/vector-tiles/runtime-manifest`)를 소비하고 PNU 또는 object ID로 필지·매물 panel을 연다.
+필지 앵커(PNU-anchor) marker 층은 지금 지도에 없다 — Foundation 의 앵커 타일 파이프라인은 은퇴했고 나중에
+타일 bake 의 클러스터 단위로 돌아온다([루트 ADR-0413](../../../../docs/adr/0413-the-parcel-anchor-marker-tile-pipeline-retires-and-returns-as-a-cluster-unit-of-the-tile-bake.md)).
 
 ## 매물 마커 제공
 
 매물 지도 marker는 Gongzzang `listing_marker_projection` read model을 사용한다. `listing` table은
-매물 의미의 write-model SSOT로 남고, marker serving은 source lineage와 함께 foundation-platform
-PNU anchor 위치를 복사한 projection row를 읽는다.
+매물 의미의 write-model SSOT로 남고, marker serving은 source lineage와 함께 Gongzzang `parcel_marker_anchor`
+복사본의 PNU anchor 위치를 담은 projection row를 읽는다. 그 복사본은 이벤트
+`catalog.parcel_marker_anchor.snapshot.published.v1` 로 들어오는데, 이 이벤트의 생산자는 ADR-0413 으로 없어졌고
+소비자 쪽 정리는 Gongzzang 몫으로 남아 있다.
 
 브라우저 즉시 filter는 이미 로드한 marker tile에 자산 종류·거래 종류·가격·면적 같은 빠른 filter를
 적용한다. 전국 정확 건수·아직 보지 않은 tile 결과·선택적 marker mask는 viewport `bbox` 요청이 아니라
@@ -59,14 +63,14 @@ NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL=<foundation-platform origin>
 | 증상 | 예상 원인 | 확인 |
 |---|---|---|
 | Map is blank | Naver client ID missing or SDK blocked | Browser console for Naver SDK load errors |
-| Parcel anchor markers absent | The runtime manifest has no `parcel_anchor*` units yet (root ADR-0225 step 1b); the map reads only `/catalog/v1/vector-tiles/runtime-manifest` | Network request to `/catalog/v1/vector-tiles/runtime-manifest` and its `publication_units` |
+| Parcel anchor markers absent | 예상된 상태. 앵커 marker 층은 지도에 없다 (root ADR-0413; `marker-tile-style.ts` 는 층 id 상수만 둔다) | — |
 | Listing count is zero | No active listings or filters too narrow | `SELECT count(*) FROM listing WHERE status='active'` |
 | Filters ignored | URL query and store diverged | Network request query string |
 
 ## 데이터 원천
 
 - 매물 카드: Gongzzang API와 `listing` table
-- marker 위치: foundation-platform 필지 marker anchor를 PBF vector tile로 제공
+- marker 위치: `listing_marker_projection` (Gongzzang `parcel_marker_anchor` 복사본의 anchor point)를 Gongzzang 매물 marker PBF tile로 제공
 - Parcel identity: PNU.
 - 사진: listing-photo table 연동
 
@@ -77,7 +81,7 @@ NEXT_PUBLIC_FOUNDATION_PLATFORM_BASE_URL=<foundation-platform origin>
 | `apps/web/components/listings/listing-map.tsx` | Naver map runtime and PBF source/layer setup |
 | `apps/web/lib/map/vector-tile-manifest.ts` | Foundation Platform vector tile manifest client |
 | `apps/web/lib/map/marker-tile-contract.ts` | Gongzzang listing marker tile source contract |
-| `apps/web/lib/map/marker-tile-style.ts` | Foundation Platform anchor and Gongzzang listing layer registration |
+| `apps/web/lib/map/marker-tile-style.ts` | Gongzzang listing marker layer registration (anchor layer id 상수만) |
 | `apps/web/lib/map/listing-marker-filter.ts` | Browser-side listing marker filter plus tombstone hide predicate |
 | `apps/web/lib/listings/use-listings-query.ts` | Listing card query hook |
 | `apps/web/stores/listings.ts` | Listing filters and selected listing state |
@@ -96,5 +100,5 @@ pnpm --filter @gongzzang/web dev
 
 ## SSOT 규칙
 
-매물 카드 데이터는 marker 좌표를 담으면 안 된다. 제품 marker 위치는 PNU anchor PBF tile로 해석하고,
+매물 카드 데이터는 marker 좌표를 담으면 안 된다. 제품 marker 위치는 매물 marker PBF tile(PNU anchor 기준)로 해석하고,
 선택 후 상세 매물 JSON을 가져온다.

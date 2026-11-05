@@ -20,7 +20,6 @@ docs/
 ├── conventions/  코드·DB·문서 규칙
 ├── data-sources/외부 데이터 사용 계약
 ├── frontend/     웹·지도·접근성
-├── governance/   운영 거버넌스
 ├── runbooks/     운영 절차
 └── testing/      테스트 전략
 ```
@@ -49,7 +48,6 @@ docs/
 | [runbooks/](./runbooks/README.md) | Foundation Platform 연동·공급망 운영 절차 |
 | [testing/](./testing/README.md) | 단위·통합·E2E·property·mutation·load·chaos·contract |
 | [frontend/](./frontend/README.md) | Next.js, shadcn/Radix, TanStack Query, Naver Maps, PWA, 접근성 |
-| [governance/](./governance/README.md) | ADR, CODEOWNERS, 변경·검토 절차, 사고 대응 |
 | [compliance/](./compliance/README.md) | PIPA, ISMS-P, SOC 2, 보존·라이선스 정책 |
 | [cost/](./cost/README.md) | 비용 기준과 추정 |
 

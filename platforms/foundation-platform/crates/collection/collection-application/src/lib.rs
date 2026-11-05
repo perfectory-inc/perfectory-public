@@ -6,7 +6,6 @@
 #![deny(missing_docs)]
 
 /// Evidence-driven recovery of missing Bronze metadata.
-pub mod bronze_catalog_recovery;
 /// Single-seam Bronze commit boundary.
 pub mod bronze_committer;
 /// Planning helpers for catalog-driven `hub.go.kr` bulk collection.

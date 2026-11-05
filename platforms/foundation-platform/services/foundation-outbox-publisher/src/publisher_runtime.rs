@@ -6,7 +6,7 @@ use super::{
     runtime_environment, tile_derivative_object_storage, watch, Arc, CatalogEventBroadcaster,
     Context, EventBroadcaster, LoggingBroadcaster, LoggingObjectStorage, ObjectStorageService,
     ObjectStorageSmokeReport, OutboxScope, OutboxWorker, Path, PgParcelMarkerAnchorRebuilder,
-    PgPool, PgVectorTileManifestReader, PublisherConfig, R2InventoryRequest, R2ObjectStorage,
+    PgPool, PgVectorTileManifestReader, PublisherConfig, R2ObjectStorage,
     RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput, WebhookBroadcaster,
 };
 
@@ -182,41 +182,6 @@ pub(super) fn write_r2_smoke_metrics(
     })?;
     fs::write(path, report.to_prometheus_metrics("live_r2_smoke"))
         .with_context(|| format!("failed to write R2 smoke metrics file {}", path.display()))
-}
-
-pub(super) async fn run_r2_inventory() -> anyhow::Result<()> {
-    let runtime_environment =
-        runtime_environment::RuntimeEnvironment::from_env_with_execution_context()?;
-    validate_runtime_r2_bucket(runtime_environment)?;
-    let request = r2_inventory_request()?;
-    let storage = R2ObjectStorage::from_env()
-        .context("failed to configure R2 object storage for inventory")?;
-    let report = storage
-        .inventory(request)
-        .await
-        .context("R2 inventory failed")?;
-
-    tracing::info!(
-        prefix = report.prefix().unwrap_or("<root>"),
-        max_keys = report.max_keys(),
-        key_count = report.key_count(),
-        is_truncated = report.is_truncated(),
-        common_prefixes = ?report.common_prefixes(),
-        objects = ?report.objects(),
-        "R2 inventory succeeded"
-    );
-
-    Ok(())
-}
-
-pub(super) fn r2_inventory_request() -> anyhow::Result<R2InventoryRequest> {
-    let prefix = optional_env_value("FOUNDATION_PLATFORM_R2_INVENTORY_PREFIX")?;
-    let max_keys = optional_env_value("FOUNDATION_PLATFORM_R2_INVENTORY_MAX_KEYS")?
-        .map(|raw| raw.parse::<i32>())
-        .transpose()
-        .context("FOUNDATION_PLATFORM_R2_INVENTORY_MAX_KEYS must be an integer")?;
-
-    R2InventoryRequest::new(prefix.as_deref(), max_keys).context("invalid R2 inventory request")
 }
 
 pub(super) async fn catalog_broadcaster(

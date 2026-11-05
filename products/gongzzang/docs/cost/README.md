@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Cost model

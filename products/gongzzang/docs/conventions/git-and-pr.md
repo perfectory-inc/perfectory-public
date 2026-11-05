@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Git + PR 컨벤션
@@ -11,7 +11,7 @@ last_reviewed: 2026-07-29
 
 | 종류 | 형식 | 예시 |
 |------|------|------|
-| 메인 | `main` | (보호 브랜치, 직접 push 금지) |
+| 메인 | `main` | (보호 브랜치, PR + merge queue 로만 반영) |
 | 기능 | `feat/<topic>` | `feat/listing-search-api` |
 | 버그 | `fix/<topic>` | `fix/auth-token-leak` |
 | 잡일 | `chore/<topic>` | `chore/update-deps` |
@@ -63,8 +63,8 @@ refactor(parcel): PNU 값 객체로 캡슐화
 perf(db): listing_geom_gist_idx 추가로 공간 쿼리 100ms → 10ms
 ```
 
-자동 강제: **아직 없음** — 루트 `lefthook.yml` 에 commit-msg 훅은 미설치다 (2026-07-20 기준).
-CI/리뷰에서 강제 예정이며, 그 전까지 형식은 수동 준수한다.
+자동 강제: **없음** — 루트 `lefthook.yml` 에 commit-msg 훅이 없고 PR 제목 검사 workflow 도 없다.
+형식은 수동 준수한다. squash merge 라 main 의 커밋 제목은 PR 제목이다.
 
 ## 3. PR 룰
 
@@ -72,7 +72,8 @@ CI/리뷰에서 강제 예정이며, 그 전까지 형식은 수동 준수한다
 
 - **권장 ≤500줄** (생성/수정 합산)
 - 1,000줄 초과 = 분할 검토
-- 1,500줄 초과 = 자동 차단 (file-size CI)
+- PR 크기 자동 차단은 없다. 자동 차단은 **파일 하나**가 1,500줄을 넘을 때다
+  (`scripts/guard/file-line-limit.sh`, 예외 `tools/ci/file-line-limit.exceptions.json`)
 
 ### 1 PR = 1 관심사
 
@@ -86,83 +87,40 @@ CI/리뷰에서 강제 예정이며, 그 전까지 형식은 수동 준수한다
 feat(listing): 매물 검색 API 추가
 ```
 
-### PR 본문 (`pull_request_template.md`로 자동)
+### PR 본문
 
-```markdown
-## 변경 요약
-1-3 문장
+루트 `.github/pull_request_template.md` 가 정본이다(변경 요약·동기·범위·테스트·SSS 7 기둥·옵션 A·Breaking
+Change·관련 이슈). 이 문서는 그 내용을 복사하지 않는다.
 
-## 동기 (Why)
-왜 필요한가
+## 4. 머지 전략과 보호 룰
 
-## 변경 범위
-- [ ] 단일 sub-project 안에서만
-- [ ] sub-project N의 spec/plan과 일치
-- [ ] 관련 ADR 작성/갱신
+정본은 `../../../../tools/github/main-ruleset.json` 이다. 요지:
 
-## 테스트
-- [ ] 단위 추가/갱신
-- [ ] 통합 (필요 시)
-- [ ] E2E (필요 시)
-- [ ] 수동 시나리오: ...
+- PR 필수, **squash merge** 만 허용, merge queue 로 병합 (한 PR = main 의 한 커밋)
+- main 직접 push·force push·삭제 금지, linear history
+- 필수 `required/*` status check 전부 통과 + 리뷰 스레드 해결
+- 필수 승인 수는 단독 maintainer 기간 `0` — 두 번째 maintainer 가 생기면 올린다
 
-## SSS 7 기둥 자체 검증
-- [ ] 일관성 / [ ] 자동 강제 / [ ] 추적성 / [ ] 안전성
-- [ ] 가시성 / [ ] SSOT / [ ] 명확성
+## 5. 태그 + 릴리즈
 
-## Breaking Change
-- [ ] 없음
-- [ ] 있음 (마이그레이션 명시):
+현재 릴리즈 태그·Changesets·릴리즈 노트 자동화는 없다.
 
-## 관련 이슈
-Closes #
-```
-
-## 4. 머지 전략
-
-- **Squash merge** (한 PR = 한 커밋)
-- main에 직접 push 금지 (GitHub branch protection)
-- 자기 PR 자기 승인 금지 (Phase 2+ 팀 합류 시)
-- CI 그린 + 1+ 리뷰어 승인 필수
-
-## 5. 보호 룰 (GitHub branch protection)
-
-- Require pull request before merging
-- Require approvals only after a second maintainer exists; the solo-maintainer value is `0`
-- Require the stable `required/*` status checks declared in
-  `../../../../tools/github/main-ruleset.json` (the branch-protection SSOT)
-- Require linear history (squash 강제)
-- Require conversation resolution
-- Restrict force pushes
-- Restrict deletions
-
-## 6. 태그 + 릴리즈
-
-- 태그: `v<major>.<minor>.<patch>` (`v0.1.0`)
-- Changesets로 자동 (sub-project 16+)
-- 릴리즈 노트 자동 생성 (Conventional Commits 기반)
-
-## 7. 커밋 자체 규칙
+## 6. 커밋 자체 규칙
 
 - ✅ Atomic — 한 커밋 = 한 논리적 변경
 - ✅ Bisect 가능 — 각 커밋이 컴파일·테스트 통과
 - ✅ rebase 친화 — fixup/squash 자유
 - ❌ "WIP", "tmp", "fix typo" 같은 의미 없는 메시지
 
-## 8. 자동 강제 흐름
+## 7. 자동 강제 흐름
 
-| 단계 | 도구 | 차단 |
-|------|------|------|
-| commit-msg | (훅 미설치 — CI/리뷰에서 강제 예정) | Conventional Commits 형식 |
-| pre-commit | 루트 lefthook: gitleaks + Biome + rustfmt + markdownlint + panel 가드 | 시크릿·포맷·패널 경계 |
-| pre-push | 루트 lefthook: monorepo-guard + boundary/marker/migration 가드 + link check | 경계·가드·링크 |
-| PR | GitHub Actions | 풀스택 (lint/type/test/SAST/SCA) |
-| Merge | GitHub branch protection | 위 모두 + 리뷰 |
+단계별 도구는 [enforcement-flow.md](./enforcement-flow.md)와 [README.md](./README.md)의 매핑 표가 정본이다.
+커밋 메시지 형식은 자동 강제가 없다.
 
-## 9. 금지
+## 8. 금지
 
 - ❌ `git push --force` to main
 - ❌ `git rebase -i main` 후 force push (PR 외)
 - ❌ 시크릿 git history에 남기기 (gitleaks가 차단)
-- ❌ 큰 바이너리 git 직접 (Git LFS 또는 S3)
+- ❌ 큰 바이너리 git 직접 커밋 (R2 등 객체 저장소에 둔다)
 - ❌ `--no-verify` 사용 (훅 우회)

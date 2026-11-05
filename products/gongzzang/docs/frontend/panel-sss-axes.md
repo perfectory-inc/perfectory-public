@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # SSS 수준 패널 시스템 축

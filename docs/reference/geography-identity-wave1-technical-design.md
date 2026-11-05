@@ -148,7 +148,7 @@ Spark 표 함수: `resolve_geo(code_system string, raw string, as_of date) -> st
 4. 미등록 → 파생 후보 생성(PNU 라면 시군구 크로스워크로 접두 재작성 후 **등록부에 그 PNU가
    실재하는지 확인**). 실재하는 유일 후보 → `Resolved(Probable)` + 감사 큐(§5).
    실재 확인 불가·복수 후보 → `Quarantined(UnregisteredCode | SourceConflict, candidates)`.
-5. **금지 불변식(ADR-0023 "지번을 지어내지 않는다"):** 출력 `canonical_code`/PNU는 반드시
+5. **금지 불변식(FP-ADR-0023 "지번을 지어내지 않는다"):** 출력 `canonical_code`/PNU는 반드시
    크로스워크·등록부의 실재 행에서 복사한다. 어떤 경로도 미확인 코드를 합성해 반환하지 않는다.
    해석 불가 = `Quarantined` 이지, 그럴듯한 값이 아니다.
 

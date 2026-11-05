@@ -13,15 +13,15 @@ last_reviewed: 2026-07-29
 
 | 파일 | 내용 | 상태 |
 |------|------|------|
-| data-flow.md | 사용자 요청 → Gongzzang API → Foundation Platform contract / Gongzzang DB → 응답 | Active |
-| layers.md | Clean Architecture 계층 + 의존성 방향 | Active |
-| mcp-vs-api.md | 에이전트 경로 vs 프로덕션 경로 상세 | Active |
-| geo-pipeline.md | PostGIS 인덱싱·타일·공간쿼리 파이프라인 | Active |
-| caching.md | Redis 레이어, Foundation Platform contract cache, 법령 캐시 | Active |
-| observability.md | Sentry + OTel + 로깅 | Active |
-| partner-listing-exchange-boundary.md | 공급자 중립 매물 교환 소유권·정규화 경계 | Active |
-| traffic-auth-policy-registry.v1.json | Traffic/Auth 정책 단일 SSOT (손 편집). 생성기가 읽어 6개 산출물 재생성 | Active |
-| traffic-auth-policy-registry/ | 위 aggregate 를 가리키는 README 만 남음 (split fragment 는 삭제) | Active |
+| [data-flow.md](./data-flow.md) | 사용자 요청 → Gongzzang API → Foundation Platform contract / Gongzzang DB → 응답 | Active |
+| [layers.md](./layers.md) | Clean Architecture 계층 + 의존성 방향 | Active |
+| [mcp-vs-api.md](./mcp-vs-api.md) | 에이전트 경로 vs 프로덕션 경로 상세 | Active |
+| [geo-pipeline.md](./geo-pipeline.md) | PostGIS 인덱싱·타일·공간쿼리 파이프라인 | Active |
+| [caching.md](./caching.md) | Redis 레이어, Foundation Platform contract cache, 법령 캐시 | Active |
+| [observability.md](./observability.md) | Sentry + OTel + 로깅 | Active |
+| [partner-listing-exchange-boundary.md](./partner-listing-exchange-boundary.md) | 공급자 중립 매물 교환 소유권·정규화 경계 | Active |
+| [traffic-auth-policy-registry.v1.json](./traffic-auth-policy-registry.v1.json) | Traffic/Auth 정책 단일 SSOT (손 편집). 생성기가 읽어 6개 산출물 재생성 | Active |
+| [traffic-auth-policy-registry/](./traffic-auth-policy-registry/README.md) | 위 aggregate 를 가리키는 README 만 남음 (split fragment 는 삭제) | Active |
 
 ## 현재 확정된 원칙
 

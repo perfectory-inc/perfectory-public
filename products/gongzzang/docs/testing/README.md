@@ -25,6 +25,11 @@ last_reviewed: 2026-07-29
 세부 테스트 문서가 필요해지면 루트 [운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)에
 작업을 먼저 등록한 뒤 이 폴더에 정본 문서를 추가한다.
 
+## 문서
+
+- [부하 시험](./load.md)
+- [Playwright 실행 환경](./playwright-runtime.md)
+
 ## 관련 ADR
 - (도입 시 ADR 작성)
 
