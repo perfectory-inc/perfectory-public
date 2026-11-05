@@ -730,13 +730,12 @@ class ByPnuServingBake(unittest.TestCase):
         lanes = json.loads((job_specs.PLATFORM_ROOT / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
         elsewhere = {lane: job_specs.writer_of(f"{lane}-by-pnu-section-packs") for lane in lanes}
         elsewhere = {lane: job for lane, job in elsewhere.items() if job != "by_pnu_serving_bake"}
-        self.assertEqual(elsewhere, {"parcel-public-auction": "by_pnu_public_auction_bake",
-                                     "parcel-ownership": "by_pnu_parcel_ownership_bake",
-                                     "parcel-regulation-zones": "by_pnu_parcel_regulation_zones_bake",
-                                     "parcel-sub-parcels": "by_pnu_parcel_sub_parcels_bake",
-                                     "parcel-energy": "by_pnu_parcel_energy_bake",
-                                     "parcel-demolitions": "by_pnu_parcel_demolitions_bake",
-                                     "unit-price": "by_pnu_unit_price_bake"})
+        # The same answer the lane index the definitions generate gives (root ADR-0418 §8c), not a list
+        # written here: a new lane with its own bake joins it by itself.
+        index = json.loads((job_specs.PLATFORM_ROOT / "config/by-pnu-lane-index.v1.json").read_text(encoding="utf-8"))
+        self.assertEqual(elsewhere, {lane["lane"]: lane["bake_jobs"][0]["id"] for lane in index["lanes"]
+                                     if lane["lane"] in lanes and lane["bake_jobs"][0]["id"] != "by_pnu_serving_bake"})
+        self.assertTrue(elsewhere, "the contract names lanes with a bake of their own")
         baked = [lane for lane in lanes if lane not in elsewhere]
         self.assertEqual([call["command"] for call in calls if call["command"].startswith("show-")],
                          ["show-parcel-by-pnu-serving-state", "show-building-by-pnu-serving-state",
