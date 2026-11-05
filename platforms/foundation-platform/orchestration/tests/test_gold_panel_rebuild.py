@@ -494,7 +494,7 @@ class GoldPanelRebuild(unittest.TestCase):
         # committed was still `failed no outcome reported` and never started the bake.
         programs = {}
         for spec in job_specs.load_specs():
-            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            unit = job_specs.service_unit_text(spec.systemd_service)
             for line in unit.splitlines():
                 if line.startswith("ExecStart=") and "/scripts/ops/gold-panel-rebuild.sh " in line:
                     programs[spec.job_id] = line.split("gold-panel-rebuild.sh ", 1)[1].split()
@@ -556,7 +556,7 @@ class Registration(unittest.TestCase):
         # schedules too, the Gold comes first.
         self.assertEqual((job["started_by"], bake["started_by"]), ("inputs", "inputs"))
         self.assertLess(int(job["schedule"].split()[1]), int(bake["schedule"].split()[1]))
-        unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
+        unit = job_specs.service_unit_text(job["systemd_service"])
         self.assertIn("gold-panel-rebuild.sh all", unit)
         # A timeout kills the client, not the daemon's Spark container: ExecStopPost removes it.
         self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
@@ -597,7 +597,7 @@ class Registration(unittest.TestCase):
         self.assertLess(job["priority_weight"], jobs["gold_panel_rebuild"]["priority_weight"])
         self.assertEqual(job_specs.writer_of("gold-unit-price-panel"), "gold_unit_price_rebuild")
         self.assertIn("gold_panel_rebuild", {spec.job_id: spec for spec in job_specs.load_specs()}["gold_unit_price_rebuild"].producers)
-        unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
+        unit = job_specs.service_unit_text(job["systemd_service"])
         self.assertIn("gold-panel-rebuild.sh unit-price", unit)
         self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
         self.assertIn(f"TimeoutStartSec={job['time_limit_minutes']}m", unit)
@@ -642,14 +642,14 @@ class Registration(unittest.TestCase):
                       (builder is not None and fed in jobs[builder]["pipeline_graph_edges"], f"a job carries {fed}"),
                       (kind.follows_host_panel or builder != "gold_kind_rebuild", f"{fed} outside gold_kind_rebuild"),
                       (kind.follows_host_panel or builder is not None and f"gold-panel-rebuild.sh {lane}" in
-                       (job_specs.SYSTEMD / jobs[builder]["systemd_service"]).read_text(encoding="utf-8"),
+                       job_specs.service_unit_text(jobs[builder]["systemd_service"]),
                        f"{builder}'s unit runs gold-panel-rebuild.sh {lane}"),
                       (server is not None, f"a bake job carries {served}"),
                       (kind.follows_host_panel == (server == "by_pnu_serving_bake"),
                        f"{served} is baked by {'by_pnu_serving_bake' if kind.follows_host_panel else 'the kind own dedicated job, not by_pnu_serving_bake'}"),
                       # `all` skips an own-producer lane, so its job must bake that lane by name, or no job does.
                       (server is not None and "by-pnu-serving-bake.sh " + ("all" if kind.follows_host_panel else lane) in
-                       (job_specs.SYSTEMD / jobs[server]["systemd_service"]).read_text(encoding="utf-8"),
+                       job_specs.service_unit_text(jobs[server]["systemd_service"]),
                        f"{server}'s unit runs by-pnu-serving-bake.sh {'all' if kind.follows_host_panel else lane}")]
             missing += [f"{lane}: {what}" for ok, what in wanted if not ok]
         self.assertEqual(missing, [])
@@ -662,7 +662,7 @@ class Registration(unittest.TestCase):
         job = next(job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
                    if job["id"] == "gold_kind_rebuild")
         self.assertEqual((job["started_by"], job["pool"], job["pool_slots"], job["retries"]), ("inputs", "spark", 3, 0))
-        unit = (job_specs.SYSTEMD / job["systemd_service"]).read_text(encoding="utf-8")
+        unit = job_specs.service_unit_text(job["systemd_service"])
         self.assertIn("gold-panel-rebuild.sh kinds", unit)
         self.assertRegex(unit, r"(?m)^ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh$")
         self.assertIn("TimeoutStartSec=160m", unit)

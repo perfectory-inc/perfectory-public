@@ -50,7 +50,7 @@ class HeldLock(unittest.TestCase):
         bare = re.compile(r"\b(exit|return)\s+75\b|flock -n.*\b75\b")
         scripts = set()
         for spec in job_specs.load_specs():
-            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            unit = job_specs.service_unit_text(spec.systemd_service)
             program = re.search(r"^ExecStart=(\S+)", unit, flags=re.MULTILINE).group(1)
             if program.startswith(job_specs.RELEASE_PREFIX) and program.endswith(".sh"):
                 scripts.add(job_specs.PLATFORM_ROOT / program[len(job_specs.RELEASE_PREFIX):])

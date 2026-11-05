@@ -25,7 +25,7 @@ def bake(jobs):
 
 def entry_script(spec):
     """The release path of the program a job's service runs: its ExecStart, through FLOOR's launcher."""
-    unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+    unit = job_specs.service_unit_text(spec.systemd_service)
     exec_start = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1)
     if "RuntimeDirectory=foundation-building-register-floor" in unit:
         # The runtime snapshot binds run AND cleanup to the physical release.
@@ -292,7 +292,7 @@ class TheRealJobList(unittest.TestCase):
     def test_the_timeout_outlasts_the_service_own_limit(self):
         # Airflow stopping a job systemd would still let finish turns a slow success into a failure.
         for spec in self.specs:
-            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            unit = job_specs.service_unit_text(spec.systemd_service)
             limit = re.search(r"^TimeoutStartSec=(\d+)(m|h)$", unit, flags=re.MULTILINE)
             with self.subTest(spec.dag_id):
                 self.assertIsNotNone(limit, "the service states its own time limit")
@@ -767,7 +767,7 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
     def test_a_program_jobs_run_in_several_modes_is_run_in_each(self):
         modes = {}
         for spec in job_specs.load_specs():
-            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            unit = job_specs.service_unit_text(spec.systemd_service)
             words = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1).split()
             modes.setdefault(pathlib.PurePosixPath(words[0]).name, set()).add(tuple(words[1:]))
         for program, arguments in modes.items():
