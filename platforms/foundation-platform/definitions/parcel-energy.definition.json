@@ -144,7 +144,8 @@
         "energy_json"
       ],
       "producer": "building_energy_silver_to_gold",
-      "decision": "docs/adr/0398-a-parcel-shows-twelve-months-of-building-energy-as-its-own-by-pnu-kind.md"
+      "decision": "docs/adr/0398-a-parcel-shows-twelve-months-of-building-energy-as-its-own-by-pnu-kind.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_building_energy_gold.py"
     }
   },
   "host_memory": {

@@ -208,7 +208,8 @@
         "public_auction_json"
       ],
       "producer": "onbid_public_auction_silver_to_gold",
-      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md"
+      "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_onbid_public_auction_gold.py"
     }
   },
   "host_memory": {

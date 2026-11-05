@@ -147,7 +147,8 @@
         "zone_total:long"
       ],
       "producer": "regulation_zones_silver_to_gold",
-      "decision": "docs/adr/0375-a-parcel-s-regulation-zones-are-their-own-by-pnu-kind.md"
+      "decision": "docs/adr/0375-a-parcel-s-regulation-zones-are-their-own-by-pnu-kind.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_regulation_zones_gold.py"
     }
   },
   "host_memory": {

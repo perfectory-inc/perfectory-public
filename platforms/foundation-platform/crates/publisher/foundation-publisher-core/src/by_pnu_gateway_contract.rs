@@ -159,7 +159,7 @@ pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gat
 
 /// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line. A kind
 /// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
-const DERIVED_LANE_HAND_FIELDS: [&str; 12] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 13] = [
     "decision",
     "host",
     "kind",
@@ -172,6 +172,7 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 12] = [
     "document_schema_version",
     "document_schema_version_reason",
     "document_schema_expands",
+    "spark_held_test",
 ];
 
 /// The job capability every kind lane's scheduled bake shares: the bake reads the lanes from the
@@ -411,6 +412,11 @@ struct PackLaneEntry {
     /// follows the PNU in the document key.
     #[serde(default)]
     document_key_suffix: Option<KeySuffixEntry>,
+    /// A lane whose document content a Spark job writes, not a Rust type: the Spark test that holds
+    /// that job's output to the document's record (root ADR-0418 §8c; it was a hand list in the
+    /// publisher, `SPARK_HELD`).
+    #[serde(default)]
+    spark_held_test: Option<String>,
     #[serde(flatten)]
     gateway: ByPnuGatewayPolicy,
 }
@@ -458,6 +464,9 @@ pub struct PackLane {
     pub latency_p95_max_ms: f64,
     /// The document key's suffix, for a lane keyed narrower than a PNU (root ADR-0204).
     pub key_suffix: Option<KeySuffix>,
+    /// The Spark test that holds a Spark-written document's content to its record, when a Spark job
+    /// and not a Rust type writes it.
+    pub spark_held_test: Option<String>,
     gateway: ByPnuGatewayPolicy,
 }
 
@@ -572,6 +581,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         latency_baseline_lane: entry.latency_baseline_lane,
         latency_p95_max_ms: entry.latency_p95_max_ms,
         key_suffix,
+        spark_held_test: entry.spark_held_test,
         gateway: entry.gateway,
     })
 }

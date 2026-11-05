@@ -134,7 +134,8 @@
         "owner_total:long"
       ],
       "producer": "land_ownership_silver_to_gold",
-      "decision": "docs/adr/0361-a-parcel-s-owners-are-their-own-by-pnu-kind.md"
+      "decision": "docs/adr/0361-a-parcel-s-owners-are-their-own-by-pnu-kind.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_land_ownership_gold.py"
     }
   },
   "host_memory": {
