@@ -1,0 +1,31 @@
+# A release asset is downloaded only by scripts/ci/fetch_pinned.py, from the one registry
+# tools/pinned-artifacts.json (root ADR-0197): the fetcher caches by checksum, retries a 5xx and
+# refuses a mismatch.
+#
+# Prevents: a CI job losing a pull request to one 5xx from a GitHub release download. Each job
+# that spelled its own `curl …/releases/download/…` had no cache, no retry and no checksum, so a
+# single upstream hiccup failed the run (root ADR-0197). The registry and the contracts it names
+# are JSON outside these paths; docs explain the rule in prose.
+#
+# The other half of that guard — every job restores the pinned cache before it reaches the
+# fetcher — is a property of a workflow's job structure and stays in
+# scripts/guard/check-pinned-downloads.py.
+rules:
+  - id: release-assets-come-through-the-pinned-fetcher
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A release asset URL outside tools/pinned-artifacts.json. Add the tool to the registry and
+      download it with `python3 scripts/ci/fetch_pinned.py tool <name>` (root ADR-0197).
+    paths:
+      include:
+        - "*.sh"
+        - "*.py"
+        - "*.rs"
+        - "*.ps1"
+        - /.github/
+      exclude:
+        - /docs/
+        - "*.md"
+        - "*.mdx"
+    pattern-regex: releases/download

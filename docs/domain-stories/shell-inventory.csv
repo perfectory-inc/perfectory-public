@@ -194,7 +194,7 @@ scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Gu
 scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides.sh,14,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/package-publication-policy-self-test.sh,122,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/pinned-downloads-self-test.sh,84,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/pinned-downloads-self-test.sh,79,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/pinned-downloads.sh,6,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/pipeline-graph-covers-every-dataset-self-test.sh,7,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/pipeline-graph-covers-every-dataset.sh,6,false,git-hook,keep,Run directly by lefthook.yml pre-push fast-ratchets

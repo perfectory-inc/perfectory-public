@@ -600,7 +600,7 @@
       },
       {
         "name": "pinned-downloads",
-        "always": "Any script in any area may download a release outside the pinned fetcher.",
+        "always": "Any script in any area may start calling the pinned fetcher, which changes which workflow jobs must restore the pinned cache first.",
         "budget_seconds": 10
       },
       {
