@@ -110,7 +110,7 @@ fn unique_tenant_id(prefix: &str) -> String {
 /// deleted YAML line — or any database-less run — reported a pass for a contract
 /// that had never been exercised.
 ///
-/// Neither half was visible to `scripts/guard/no-silent-test-skip.sh`: rustfmt
+/// Neither half was visible to the former `scripts/guard/no-silent-test-skip.sh`: rustfmt
 /// had wrapped the `eprintln!` away from its "skipping" string and the `.ok()`
 /// away from its `env::var`, and both rules were line-oriented. The guard now
 /// joins continuation lines before matching.

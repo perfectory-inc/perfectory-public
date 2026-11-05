@@ -18,7 +18,6 @@ use catalog_application::ports::{
 use catalog_application::{
     archive_complex::ArchiveIndustrialComplexInput,
     promote_vector_tile_manifest::PromoteVectorTileManifestInput,
-    rebuild_parcel_marker_anchors::RebuildParcelMarkerAnchorsInput,
     register_complex::RegisterIndustrialComplexInput,
     rollback_vector_tile_manifest::RollbackVectorTileManifestInput,
     update_complex::UpdateIndustrialComplexInput,
@@ -32,8 +31,7 @@ use foundation_contracts::catalog::{
     ArchiveComplexRequest, BlueprintResponse, ComplexNoticeResponse, DigitalTwinAssetResponse,
     FileAssetResponse, IndustrialComplexGoldPointerResponse, IndustrialComplexResponse,
     IndustryGroupMemberResponse, IndustryGroupResponse, MarkerTileContractResponse,
-    ParcelIndustryAssignmentResponse, ParcelMarkerAnchorRebuildRequest,
-    ParcelMarkerAnchorRebuildResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
+    ParcelIndustryAssignmentResponse, PromoteFileAssetRequest, PromoteSourceRecordRequest,
     PromoteVectorTileArtifactRequest, PromoteVectorTileManifestRequest, RegisterComplexRequest,
     RollbackVectorTileManifestRequest, SpatialLayerResponse, UpdateComplexRequest,
     VectorTileArtifactResponse, VectorTileLineageResponse, VectorTileManifestResponse,
@@ -53,7 +51,6 @@ use crate::state::AppState;
 
 const VECTOR_TILE_MANIFEST_ROLLBACK_PATH: &str = "/catalog/v1/vector-tiles/manifest:rollback";
 const VECTOR_TILE_MANIFEST_PROMOTE_PATH: &str = "/catalog/v1/vector-tiles/manifest:promote";
-const PARCEL_MARKER_ANCHOR_REBUILD_PATH: &str = "/catalog/v1/parcel-marker-anchors:rebuild";
 const MARKER_TILE_CONTENT_TYPE: &str = "application/x-protobuf";
 const MARKER_TILE_CACHE_CONTROL: &str = "public, max-age=30";
 const FOUNDATION_PLATFORM_RUNTIME_ENV: &str = "FOUNDATION_PLATFORM_RUNTIME_ENV";
@@ -544,35 +541,6 @@ pub async fn get_marker_tile(
 
 #[utoipa::path(
     post,
-    path = "/catalog/v1/parcel-marker-anchors:rebuild",
-    operation_id = "rebuildParcelMarkerAnchors",
-    request_body = ParcelMarkerAnchorRebuildRequest,
-    responses((status = 200, body = ParcelMarkerAnchorRebuildResponse)),
-    security(("bearerAuth" = []))
-)]
-pub async fn rebuild_parcel_marker_anchors(
-    State(state): State<Arc<AppState>>,
-    OriginalUri(uri): OriginalUri,
-    headers: HeaderMap,
-    Extension(principal): Extension<AuthorizedPrincipal>,
-    Json(body): Json<ParcelMarkerAnchorRebuildRequest>,
-) -> Result<Json<ParcelMarkerAnchorRebuildResponse>, ApiError> {
-    require_exact_manifest_action_path(uri.path(), PARCEL_MARKER_ANCHOR_REBUILD_PATH)?;
-    let report = state
-        .rebuild_parcel_marker_anchors
-        .execute(RebuildParcelMarkerAnchorsInput {
-            source_snapshot_id: body.source_snapshot_id,
-            algorithm_version: body.algorithm_version,
-            requested_by_staff_id: Some(StaffId::new(principal.principal_id)),
-            request_id: request_id_from_headers(&headers),
-        })
-        .await?;
-
-    Ok(Json(parcel_marker_anchor_rebuild_response(report)))
-}
-
-#[utoipa::path(
-    post,
     path = "/catalog/v1/lakehouse/batch-runs",
     operation_id = "recordLakehouseBatchRun",
     request_body = serde_json::Value,
@@ -882,22 +850,6 @@ fn vector_tile_manifest_response(manifest: VectorTileManifest) -> VectorTileMani
     }
 }
 
-fn parcel_marker_anchor_rebuild_response(
-    report: catalog_application::ports::ParcelMarkerAnchorRebuildReport,
-) -> ParcelMarkerAnchorRebuildResponse {
-    ParcelMarkerAnchorRebuildResponse {
-        generation_run_id: report.generation_run_id,
-        source_snapshot_id: report.source_snapshot_id,
-        source_table: report.source_table,
-        algorithm: report.algorithm.wire_name().to_owned(),
-        algorithm_version: report.algorithm_version,
-        scanned_row_count: report.scanned_row_count,
-        loaded_row_count: report.loaded_row_count,
-        rejected_row_count: report.rejected_row_count,
-        superseded_row_count: report.superseded_row_count,
-    }
-}
-
 fn vector_tile_artifact_response(artifact: VectorTileArtifact) -> VectorTileArtifactResponse {
     let feature_filter_properties = artifact.feature_filter_properties();
 
@@ -1069,8 +1021,7 @@ impl From<CatalogError> for ApiError {
             CatalogError::InvalidVectorTileManifestRollback(msg)
             | CatalogError::InvalidVectorTileManifestPromotion(msg)
             | CatalogError::InvalidVectorTileRuntimeManifest(msg)
-            | CatalogError::InvalidIndustrialComplexInput(msg)
-            | CatalogError::InvalidParcelMarkerAnchorRebuild(msg) => Self::BadRequest(msg),
+            | CatalogError::InvalidIndustrialComplexInput(msg) => Self::BadRequest(msg),
             CatalogError::Infrastructure(msg) => Self::Internal(msg),
         }
     }

@@ -37,7 +37,6 @@ pub const STAFF_ROLE_GRANTS: &[StaffRoleGrant] = &[
     grant("CATALOG_ADMIN", "foundation.lakehouse", "batch_audit"),
     grant("LAKEHOUSE_ADMIN", "foundation.lakehouse", "batch_audit"),
     grant("VECTOR_TILE_ADMIN", "foundation.spatial", "manifest_admin"),
-    grant("VECTOR_TILE_ADMIN", "foundation.spatial", "anchor_rebuild"),
     grant("VECTOR_TILE_ADMIN", "foundation.spatial", "map_edit"),
     // Parcel-lineage stewardship (Foundation root ADR-0115): a steward decides review items; an
     // adjudicator also rules on decisions that need a second person.

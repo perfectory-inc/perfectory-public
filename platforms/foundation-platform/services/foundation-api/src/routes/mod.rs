@@ -251,15 +251,6 @@ fn map_catalog_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
                 Some("unit"),
             ),
         )
-        .route(
-            "/catalog/v1/parcel-marker-anchors:rebuild",
-            protected_route(
-                post(catalog::rebuild_parcel_marker_anchors),
-                state,
-                STAFF_SPATIAL_ANCHOR_REBUILD,
-                None,
-            ),
-        )
 }
 
 fn internal_routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
@@ -307,11 +298,6 @@ const STAFF_SPATIAL_MANIFEST_ADMIN: IdentityRoutePolicy = IdentityRoutePolicy {
     resource: "foundation.spatial",
     action: "manifest_admin",
 };
-const STAFF_SPATIAL_ANCHOR_REBUILD: IdentityRoutePolicy = IdentityRoutePolicy {
-    required_principal_kind: RequiredPrincipalKind::Staff,
-    resource: "foundation.spatial",
-    action: "anchor_rebuild",
-};
 const STAFF_SPATIAL_MAP_EDIT: IdentityRoutePolicy = IdentityRoutePolicy {
     required_principal_kind: RequiredPrincipalKind::Staff,
     resource: "foundation.spatial",
@@ -354,12 +340,11 @@ const SERVICE_NORMALIZATION_PROPOSE: IdentityRoutePolicy = IdentityRoutePolicy {
 /// `config/identity-route-policies.contract.json` (checked by `routes::tests::route_policies`), and
 /// Identity checks its staff role matrix and workload policy against that file (root ADR-0214).
 #[cfg(test)]
-const ROUTE_POLICIES: [IdentityRoutePolicy; 12] = [
+const ROUTE_POLICIES: [IdentityRoutePolicy; 11] = [
     STAFF_CATALOG_WRITE,
     SERVICE_CATALOG_READ,
     STAFF_LAKEHOUSE_BATCH_AUDIT,
     STAFF_SPATIAL_MANIFEST_ADMIN,
-    STAFF_SPATIAL_ANCHOR_REBUILD,
     STAFF_SPATIAL_MAP_EDIT,
     SERVICE_LAKEHOUSE_WRITE,
     STAFF_METADATA_READ,
@@ -901,9 +886,6 @@ fn canonical_route_label(path: &str) -> String {
             "/catalog/v1/vector-tiles/manifest:action".to_owned()
         }
         ["catalog", "v1", "map-edits", _] => "/catalog/v1/map-edits/{unit}".to_owned(),
-        ["catalog", "v1", action] if action == &"parcel-marker-anchors:rebuild" => {
-            "/catalog/v1/parcel-marker-anchors:rebuild".to_owned()
-        }
         ["catalog", "v1", "parcels", _, "industry-assignments"] => {
             "/catalog/v1/parcels/{id}/industry-assignments".to_owned()
         }

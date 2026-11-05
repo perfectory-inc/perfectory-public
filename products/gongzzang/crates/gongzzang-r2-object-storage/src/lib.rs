@@ -5,7 +5,7 @@
 //! 백오프(11회, 200ms 에서 30s 까지 배증, 절반 고정·절반 무작위) 뒤에 다시 묻는다(루트 ADR-0102). 바뀌지 않을
 //! 응답(`NoSuchKey`, `403`)은 바로 돌려준다.
 //!
-//! `scripts/guard/r2-reads-have-one-path.sh` 가 공짱 안에서 이 크레이트 밖의 S3 클라이언트 생성을 거부한다.
+//! Semgrep 규칙 `tools/semgrep/rules/r2-read-paths.yml` 이 공짱 안에서 이 크레이트 밖의 S3 클라이언트 생성을 거부한다.
 
 use std::time::Duration;
 

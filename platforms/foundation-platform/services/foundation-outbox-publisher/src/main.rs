@@ -25,8 +25,6 @@
 use std::{env, fs, future::Future, path::Path, pin::Pin, sync::Arc};
 
 use anyhow::{bail, Context};
-use catalog_application::{RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput};
-use catalog_infrastructure::PgParcelMarkerAnchorRebuilder;
 use foundation_outbox::{
     object_storage::{
         validate_r2_smoke_object_key, ObjectStorageSmokeReport, DEFAULT_R2_SMOKE_OBJECT_KEY,
@@ -121,9 +119,7 @@ mod publish_lakehouse_lineage_event;
 mod publisher_runtime;
 #[cfg(test)]
 use publisher_runtime::{parse_webhook_endpoint_specs, write_r2_smoke_metrics};
-use publisher_runtime::{
-    run_parcel_marker_anchor_rebuild, run_publisher, run_publisher_once, run_r2_smoke,
-};
+use publisher_runtime::{run_publisher, run_publisher_once, run_r2_smoke};
 mod r2_billing_export_collect;
 mod r2_billing_usage_metrics;
 mod r2_bronze_key_cleanup_candidates;
@@ -261,7 +257,6 @@ enum Command {
     VerifyParcelByPnuServingRebase,
     PublishOutboxOnce,
     R2BillingUsageMetrics,
-    RebuildParcelMarkerAnchors,
     RebuildPostgisParcelBoundaryMirror,
     RebuildPostgisParcelBoundaryMirrorNational,
     RebuildPostgisParcelBoundaryMirrorNationalFromContract,
@@ -545,7 +540,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishLakehouseLineageEvent => Box::pin(publish_lakehouse_lineage_event::run()),
         Command::PublishOutboxOnce => Box::pin(run_publisher_once()),
         Command::R2BillingUsageMetrics => Box::pin(async { r2_billing_usage_metrics::run() }),
-        Command::RebuildParcelMarkerAnchors => Box::pin(run_parcel_marker_anchor_rebuild()),
         Command::RebuildPostgisParcelBoundaryMirror => {
             Box::pin(async { postgis_parcel_boundary_mirror_rebuild::run() })
         }
@@ -793,7 +787,6 @@ where
         Some("publish-lakehouse-lineage-event") => Ok(Command::PublishLakehouseLineageEvent),
         Some("publish-outbox-once") => Ok(Command::PublishOutboxOnce),
         Some("r2-billing-usage-metrics") => Ok(Command::R2BillingUsageMetrics),
-        Some("rebuild-parcel-marker-anchors") => Ok(Command::RebuildParcelMarkerAnchors),
         Some("rebuild-postgis-parcel-boundary-mirror") => {
             Ok(Command::RebuildPostgisParcelBoundaryMirror)
         }

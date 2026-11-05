@@ -90,10 +90,6 @@ fn canonical_route_label_bounds_dynamic_metric_cardinality() {
         "/catalog/v1/map-edits/{unit}"
     );
     assert_eq!(
-        super::canonical_route_label("/catalog/v1/parcel-marker-anchors:rebuild"),
-        "/catalog/v1/parcel-marker-anchors:rebuild"
-    );
-    assert_eq!(
         super::canonical_route_label("/map/v1/marker-tiles/contract"),
         "/map/v1/marker-tiles/contract"
     );

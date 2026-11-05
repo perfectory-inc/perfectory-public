@@ -84,3 +84,4 @@ last_reviewed: 2026-07-28
 
 - `scripts/guard/toolchain-consistency.sh` → `scripts/guard/technology-version-consistency.sh`로 합쳐짐(#508)
 - `scripts/guard/no-stale-sibling-paths.sh` → 삭제, 같은 검사는 `scripts/guard/public-repository-safety.sh`가 맡음(#480)
+- `scripts/guard/health-route-conformance.sh` → 삭제(2026-11-04), 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/health-routes.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 맡음

@@ -102,6 +102,7 @@ scripts/ci/gitleaks-scan.sh,124,true,ci,xtask,CI helper script invoked from .git
 scripts/ci/install-cargo-deny.sh,28,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/lychee-docs.sh,74,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/materialize-public-candidate-tree.sh,24,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/opengrep.sh,25,true,ci,xtask,CI helper script invoked from scripts/guard/semgrep-rules*.sh
 scripts/ci/osv-vulnerability-gate.sh,130,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/require-successful-needs.sh,45,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/reuse-lint.sh,64,true,ci,xtask,CI helper script invoked from .github/workflows
@@ -168,7 +169,6 @@ scripts/guard/github-policy-json-self-test.sh,463,true,test-fixture,xtask,Guard 
 scripts/guard/gitleaks-policy-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/hand-rolled-error-boundary-self-test.sh,184,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/hand-rolled-error-boundary.sh,347,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/health-route-conformance.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/hook-isolation-self-test.sh,248,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract-self-test.sh,118,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -190,8 +190,6 @@ scripts/guard/monorepo-guard.sh,37,true,ci,xtask,Guard run by monorepo-guard.sh 
 scripts/guard/no-adhoc-cargo-lint.sh,49,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/no-env-access-in-domain-layers-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/no-env-access-in-domain-layers.sh,61,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/no-silent-test-skip-self-test.sh,255,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/no-silent-test-skip.sh,163,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/no-subdir-github.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
@@ -213,8 +211,6 @@ scripts/guard/public-tree-snapshot-self-test.sh,181,true,test-fixture,xtask,Guar
 scripts/guard/publication-authority-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/r2-env-namespace-consistency-self-test.sh,178,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/r2-env-namespace-consistency.sh,275,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/r2-reads-have-one-path-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/r2-reads-have-one-path.sh,85,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/region-code-pairs-have-one-home-self-test.sh,120,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/region-code-pairs-have-one-home.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/repository-identity-capture-self-test.sh,94,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
@@ -227,6 +223,8 @@ scripts/guard/runtime-secrets-contract.sh,20,false,ci,keep,Guard run by monorepo
 scripts/guard/rust-ci-setup-self-test.sh,182,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/rust-ci-setup.sh,138,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/safe-git-transport-self-test.sh,211,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/semgrep-rules-self-test.sh,22,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/semgrep-rules.sh,20,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/static-release-toolchain-ssot-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/static-release-toolchain-ssot.sh,5,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/technology-version-consistency-self-test.sh,137,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI

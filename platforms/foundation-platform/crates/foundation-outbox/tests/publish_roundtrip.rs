@@ -41,7 +41,7 @@ static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 /// while the Postgres lane had reached no database and, worse, while a database
 /// that refused the connection looked identical to no database at all.
 ///
-/// `scripts/guard/no-silent-test-skip.sh` did not see it: the shape here was a
+/// The former `scripts/guard/no-silent-test-skip.sh` did not see it: the shape here was a
 /// let-else, not one of the two forms the guard matched. The guard now
 /// recognises this form too.
 async fn pool() -> TestResult<PgPool> {

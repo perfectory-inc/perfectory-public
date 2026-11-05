@@ -40,3 +40,5 @@ R2 는 놀고 있는 연결을 먼저 끊는다. 그 리셋을 견디는 방법(
 
 - **독자마다 재시도 추가**: 이번까지 세 번 그렇게 했고, 다음 독자가 또 빠진다.
 - **영역 공용 크레이트**: 영역 간 경로 의존 금지와 충돌. 영역마다 한 곳 + 같은 숫자 + 가드로 충분하다.
+
+2026-11-05: §5 의 `scripts/guard/r2-reads-have-one-path.sh`·`tools/r2-read-paths.contract.json` → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/r2-read-paths.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 맡고, 영역마다 한 곳은 그 규칙의 `paths.exclude` 다. 결정은 그대로다.

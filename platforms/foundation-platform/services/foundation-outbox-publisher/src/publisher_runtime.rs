@@ -1,13 +1,12 @@
-//! The publisher loop, the R2 smoke and inventory, the parcel marker anchor rebuild, and the
-//! broadcaster and object-storage settings they read. Moved out of `main.rs` unchanged.
+//! The publisher loop, the R2 smoke and inventory, and the broadcaster and object-storage
+//! settings they read. Moved out of `main.rs` unchanged.
 
 use super::{
     bail, env, fs, optional_env_value, r2_smoke_object_key, required_env_value,
     runtime_environment, tile_derivative_object_storage, watch, Arc, CatalogEventBroadcaster,
     Context, EventBroadcaster, LoggingBroadcaster, LoggingObjectStorage, ObjectStorageService,
-    ObjectStorageSmokeReport, OutboxScope, OutboxWorker, Path, PgParcelMarkerAnchorRebuilder,
-    PgPool, PgVectorTileManifestReader, PublisherConfig, R2ObjectStorage,
-    RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput, WebhookBroadcaster,
+    ObjectStorageSmokeReport, OutboxScope, OutboxWorker, Path, PgPool, PgVectorTileManifestReader,
+    PublisherConfig, R2ObjectStorage, WebhookBroadcaster,
 };
 
 pub(super) async fn run_publisher() -> anyhow::Result<()> {
@@ -83,88 +82,6 @@ pub(super) async fn run_publisher_once() -> anyhow::Result<()> {
         "outbox publish-once succeeded"
     );
     Ok(())
-}
-
-pub(super) async fn run_parcel_marker_anchor_rebuild() -> anyhow::Result<()> {
-    let database_url = env::var("DATABASE_URL").context("DATABASE_URL is required")?;
-    let source_snapshot_id =
-        env::var("FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_SOURCE_SNAPSHOT_ID")
-            .context("FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_SOURCE_SNAPSHOT_ID is required")?;
-    let algorithm_version = env::var("FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_ALGORITHM_VERSION")
-        .unwrap_or_else(|_| "postgis-st_maximuminscribedcircle-v1".to_owned());
-    let request_id = optional_env_value("FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_REQUEST_ID")?;
-
-    let pool = PgPool::connect(&database_url)
-        .await
-        .context("failed to connect to database")?;
-    let use_case =
-        RebuildParcelMarkerAnchors::new(Arc::new(PgParcelMarkerAnchorRebuilder::new(pool)));
-    let report = use_case
-        .execute(RebuildParcelMarkerAnchorsInput {
-            source_snapshot_id,
-            algorithm_version,
-            requested_by_staff_id: None,
-            request_id,
-        })
-        .await
-        .context("parcel marker anchor rebuild failed")?;
-
-    tracing::info!(
-        generation_run_id = %report.generation_run_id,
-        source_snapshot_id = %report.source_snapshot_id,
-        source_table = %report.source_table,
-        algorithm = report.algorithm.wire_name(),
-        algorithm_version = %report.algorithm_version,
-        scanned_row_count = report.scanned_row_count,
-        loaded_row_count = report.loaded_row_count,
-        rejected_row_count = report.rejected_row_count,
-        superseded_row_count = report.superseded_row_count,
-        "parcel marker anchor rebuild succeeded"
-    );
-
-    if let Some(summary_path) =
-        optional_env_value("FOUNDATION_PLATFORM_PARCEL_MARKER_ANCHOR_REBUILD_SUMMARY_PATH")?
-    {
-        write_parcel_marker_anchor_rebuild_summary(Path::new(&summary_path), &report)?;
-    }
-
-    Ok(())
-}
-
-pub(super) fn write_parcel_marker_anchor_rebuild_summary(
-    path: &Path,
-    report: &catalog_application::ports::ParcelMarkerAnchorRebuildReport,
-) -> anyhow::Result<()> {
-    let parent = path
-        .parent()
-        .context("parcel marker anchor rebuild summary path must have a parent directory")?;
-    fs::create_dir_all(parent).with_context(|| {
-        format!(
-            "failed to create parcel marker anchor rebuild summary directory {}",
-            parent.display()
-        )
-    })?;
-    let summary = serde_json::json!({
-        "schema_version": "foundation-platform.parcel_marker_anchor_rebuild_summary.v1",
-        "generated_at_utc": chrono::Utc::now().to_rfc3339(),
-        "generation_run_id": report.generation_run_id,
-        "source_snapshot_id": report.source_snapshot_id,
-        "source_table": report.source_table,
-        "algorithm": report.algorithm.wire_name(),
-        "algorithm_version": report.algorithm_version,
-        "scanned_row_count": report.scanned_row_count,
-        "loaded_row_count": report.loaded_row_count,
-        "rejected_row_count": report.rejected_row_count,
-        "superseded_row_count": report.superseded_row_count,
-    });
-    let payload = serde_json::to_vec_pretty(&summary)
-        .context("failed to serialize parcel marker anchor rebuild summary")?;
-    fs::write(path, payload).with_context(|| {
-        format!(
-            "failed to write parcel marker anchor rebuild summary {}",
-            path.display()
-        )
-    })
 }
 
 pub(super) fn write_r2_smoke_metrics(

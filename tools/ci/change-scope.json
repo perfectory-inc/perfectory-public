@@ -314,15 +314,6 @@
         ]
       },
       {
-        "name": "r2-reads-have-one-path-self-test",
-        "paths": []
-      },
-      {
-        "name": "r2-reads-have-one-path",
-        "always": "Refuses an S3/R2 client or R2 read setting in any tracked Rust, Python or TypeScript file.",
-        "budget_seconds": 10
-      },
-      {
         "name": "environment-variable-naming-self-test",
         "paths": [
           "platforms/foundation-platform/config/**"
@@ -362,11 +353,16 @@
         ]
       },
       {
-        "name": "health-route-conformance",
+        "name": "semgrep-rules-self-test",
         "paths": [
-          "products/*/services/**",
-          "platforms/*/services/**"
+          "tools/semgrep/**",
+          "tools/opengrep.env"
         ]
+      },
+      {
+        "name": "semgrep-rules",
+        "always": "Code-pattern rules (tools/semgrep/rules) span every language and area, so any tracked file can match one.",
+        "budget_seconds": 60
       },
       {
         "name": "hand-rolled-error-boundary-self-test",
@@ -1036,16 +1032,6 @@
         "name": "bootstrap-creates-what-it-grants-on",
         "paths": [
           "platforms/foundation-platform/infra/compose/**"
-        ]
-      },
-      {
-        "name": "no-silent-test-skip-self-test",
-        "paths": []
-      },
-      {
-        "name": "no-silent-test-skip",
-        "paths": [
-          "**/*.rs"
         ]
       },
       {

@@ -214,12 +214,18 @@ def write_part(directory: str, index: int, lines: Any) -> list[tuple[str, int, s
 
 
 def part_lines(rows: Any, property_columns: tuple[str, ...], srid: int) -> Any:
-    """The handoff lines of one partition's staged rows, made on the executor."""
+    """The handoff lines of one partition's staged rows, made on the executor.
+
+    A tile property is text, and a source that leaves a value blank gives an empty one: the bake
+    reads `properties` as text only and refuses the row otherwise (2026-11-05, the first zoning
+    bake: 126 zones without a zone name, one without a code). The bake's CSV writes an absent
+    property as empty too, so a blank value is served the same way whichever path it took.
+    """
 
     for row in rows:
         yield bake_handoff_line(
             row["feature_id"],
-            {name: row[name] for name in property_columns},
+            {name: "" if row[name] is None else row[name] for name in property_columns},
             row["geometry_wkb_hex"],
             srid,
             row["origin"],
