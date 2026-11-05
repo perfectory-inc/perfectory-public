@@ -1949,7 +1949,8 @@
       "current_row_latest": {
         "key": [
           "layer_code",
-          "zone_feature_id"
+          "zone_feature_id",
+          "sigungu_code"
         ],
         "newest_first": [
           "source_snapshot_id",
@@ -2066,7 +2067,8 @@
       "partition_spec": [],
       "sort_order": [
         "layer_code",
-        "zone_feature_id"
+        "zone_feature_id",
+        "sigungu_code"
       ],
       "write_distribution": "hash",
       "quality_gates": [

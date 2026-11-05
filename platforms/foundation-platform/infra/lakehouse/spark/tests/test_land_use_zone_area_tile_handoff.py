@@ -59,6 +59,26 @@ class LandUseZoneAreaTileHandoffTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 job.bucket_relative(bad)
 
+    def test_the_key_is_the_contracts_and_names_the_sigungu(self):
+        # 2026-11-03: one area split at a 시군구 boundary ships as two polygons sharing A1 (308
+        # pairs in D036); a key without the 시군구 gave each of them two current rows.
+        self.assertEqual(job.KEY, ("layer_code", "zone_feature_id", "sigungu_code"))
+        self.assertEqual(list(job.KEY), job.SILVER_CONTRACT["current_row_latest"]["key"])
+        lane = json.loads(job.LANE_CONTRACT.read_text(encoding="utf-8"))
+        self.assertFalse(set(job.KEY) & set(lane["silver_refresh"]["compare"]["content_columns"]),
+                         "a key column is not compared as content")
+
+    def test_a_refusal_writes_its_report_beside_the_summary_and_exits_65(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp, "served-summary.json")
+            keys = [{"layer_code": "D999", "zone_feature_id": "SYN-0001", "sigungu_code": "99999", "count": 2}]
+            refusal = job.Refused("divergent_current_rows", job.refusal_report("123", 1, keys))
+            self.assertEqual(job.report_refusal(summary, refusal), job.REFUSED_EXIT)
+            self.assertFalse(summary.exists(), "the bake gets no summary to read")
+            report = json.loads(Path(tmp, "served-summary.json.refused.json").read_text(encoding="utf-8"))
+            self.assertEqual((report["reason"], report["keys"], report["sample"]), ("divergent_current_rows", 1, keys))
+            self.assertEqual(report["key"], list(job.KEY))
+
     def test_a_served_snapshot_must_be_a_snapshot_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = job.parse_args(["--output", f"{tmp}/h.jsonl", "--summary-output", f"{tmp}/s.json",

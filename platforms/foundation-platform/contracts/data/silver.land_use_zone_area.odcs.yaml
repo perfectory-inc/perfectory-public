@@ -120,6 +120,7 @@ customProperties:
     value:
       - "layer_code"
       - "zone_feature_id"
+      - "sigungu_code"
   - property: "upstreamDatasets"
     value:
       - "source-vworld-dataset"
