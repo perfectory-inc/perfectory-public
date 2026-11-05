@@ -1,0 +1,32 @@
+name: rerun-runner-failures
+# Re-runs, once, a workflow run whose failed jobs reached no failed step: the runner died, lost its
+# log blob or ran out of disk before any step could report (root ADR-0421). A run with a failed
+# step, a run already re-run, and merge-queue runs are left alone. It gates no pull request.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rerun:
+    name: Re-run runner-only failures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # The one job that may re-run other runs (root ADR-0421). Schedule and manual dispatch only.
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Re-run runner-only failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/rerun_runner_failures.py --since-minutes 120

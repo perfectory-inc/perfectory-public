@@ -595,6 +595,17 @@ if ! "$checker" "$test_root/cache-pruner" "$test_root/ruleset.json" "$test_root/
 fi
 cache_pruner_fixture cache-pruner-other-file other-report.yml
 expect_rejected actions-write-in-another-workflow "$test_root/cache-pruner-other-file"
+# Root ADR-0421: the schedule-only runner-failure re-run holds the same job-level grant, under the
+# same trigger rule.
+cache_pruner_fixture runner-rerun rerun-runner-failures.yml
+if ! "$checker" "$test_root/runner-rerun" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the runner-failure re-run's job-level actions: write" >&2
+  exit 1
+fi
+cache_pruner_fixture runner-rerun-push rerun-runner-failures.yml
+sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/runner-rerun-push/rerun-runner-failures.yml"
+expect_rejected runner-rerun-with-push-trigger "$test_root/runner-rerun-push"
 cache_pruner_fixture cache-pruner-push
 sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/cache-pruner-push/ci-cache-budget.yml"
 expect_rejected actions-write-with-push-trigger "$test_root/cache-pruner-push"
