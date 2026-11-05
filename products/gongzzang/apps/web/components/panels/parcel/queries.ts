@@ -4,6 +4,7 @@
 import { fetchBuildings } from "@/lib/api/buildings";
 import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchEnergy } from "@/lib/api/energy";
+import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchRealTransaction } from "@/lib/api/real-transaction";
@@ -62,6 +63,12 @@ export const parcelRegulationZonesQuery = (pnu: string) => ({
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchRegulationZones(pnu, signal),
   // The lane changes when a 용도지역지구 release does, once a month (root ADR-0362, ADR-0375).
   staleTime: 60 * 60_000,
+});
+
+export const parcelCourtAuctionQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "court-auction", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchCourtAuction(pnu, signal),
+  staleTime: 60_000,
 });
 
 export const parcelRealTransactionQuery = (pnu: string) => ({

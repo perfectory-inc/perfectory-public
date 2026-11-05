@@ -20,12 +20,14 @@ import {
 } from "@/lib/map/zoning-families";
 import type { PanelStackEntry } from "@/lib/panel/types";
 import { usePanelStack } from "@/lib/panel/use-panel-stack";
+import { ParcelCourtAuctionCard } from "./court-auction";
 import { ParcelListingsCard } from "./listings";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
   parcelBuildingsQuery,
   parcelDemolitionsQuery,
   parcelEnergyQuery,
+  parcelCourtAuctionQuery,
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
@@ -50,7 +52,7 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
   const t = useTranslations("panels.parcel.summary");
   const realTransactionText = useTranslations("panels.parcel.realTransaction");
   const [category, setCategory] = useState<
-    "parcel" | "listings" | "publicAuction" | "realTransaction"
+    "parcel" | "listings" | "publicAuction" | "courtAuction" | "realTransaction"
   >("parcel");
   const listings = useQuery(parcelListingsQuery(entry.id));
   const listingCount = listings.data?.total ?? 0;
@@ -58,6 +60,8 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
   const publicAuctionCount = publicAuction.data?.length ?? 0;
   // A parcel the 실거래 lane has no document for has no 실거래 category (root ADR-0350 §5).
   const realTransaction = useQuery(parcelRealTransactionQuery(entry.id));
+  const courtAuction = useQuery(parcelCourtAuctionQuery(entry.id));
+  const courtAuctionCount = courtAuction.data?.rounds.length ?? 0;
   const categories = [
     { key: "parcel" as const, label: t("categories.parcel"), count: null },
     ...(listingCount > 0
@@ -69,6 +73,15 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
             key: "publicAuction" as const,
             label: t("categories.publicAuction"),
             count: publicAuctionCount,
+          },
+        ]
+      : []),
+    ...(courtAuctionCount > 0
+      ? [
+          {
+            key: "courtAuction" as const,
+            label: t("categories.courtAuction"),
+            count: courtAuctionCount,
           },
         ]
       : []),
@@ -98,6 +111,13 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
         id: "publicAuction",
         label: t("categories.publicAuction"),
         content: <ParcelPublicAuctionCard rounds={publicAuction.data} />,
+      },
+    ],
+    courtAuction: courtAuction.data && [
+      {
+        id: "courtAuction",
+        label: t("categories.courtAuction"),
+        content: <ParcelCourtAuctionCard data={courtAuction.data} />,
       },
     ],
     realTransaction:

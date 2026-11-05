@@ -9504,6 +9504,11 @@
           "name": "row_state",
           "logical_type": "string",
           "required": false
+        },
+        {
+          "name": "source_code_pnu_raw",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -10400,6 +10405,62 @@
         },
         {
           "name": "public_auction_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_court_auction": {
+      "table_name": "gold.parcel_court_auction",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "court_auction_json",
           "logical_type": "string",
           "required": true
         },

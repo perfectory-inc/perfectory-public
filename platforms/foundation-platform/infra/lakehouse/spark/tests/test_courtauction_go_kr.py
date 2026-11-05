@@ -54,6 +54,14 @@ class RowTest(unittest.TestCase):
         self.assertIsNone(row["sale_amount_krw"], "the site writes 0 for unsold")
         self.assertEqual(job.item_row(item(maeAmt="81000000"))["sale_amount_krw"], 81000000)
 
+    def test_a_row_assembles_its_source_pnu_from_its_code_and_lot(self) -> None:
+        # Root ADR-0382 §1: the representative parcel's four code fields (2+3+3+2) and its lot.
+        coded = dict(daepyoSidoCd="99", daepyoSiguCd="999", daepyoDongCd="101", daepyoRdCd="00")
+        self.assertEqual(job.item_row(item(daepyoLotno="산 7-2", **coded))["source_code_pnu_raw"], "9999910100200070002")
+        self.assertIsNone(job.item_row(item(daepyoLotno="7외 2필지", **coded))["source_code_pnu_raw"], "prose lot")
+        self.assertIsNone(job.item_row(item(**{**coded, "daepyoDongCd": "10"}))["source_code_pnu_raw"], "short part")
+        self.assertIsNone(job.item_row(item())["source_code_pnu_raw"], "no code fields")
+
     def test_the_address_offers_a_jibun_pnu_else_a_road_key(self) -> None:
         self.assertEqual(job.offer(job.item_row(item()), PREFIXES, DONGS)["jibun_pnu"], "9999910100100070000")
         road = job.offer(job.item_row(item(daepyoLotno="", rdNm="가나대로", buldNo="12")), PREFIXES, DONGS)["road"]
@@ -182,6 +190,24 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual(rows["20990130000009"].row_state, "removed")
         self.assertEqual(rows["20990130000001"].pnu, "9999910100100070000")
         self.assertEqual(rows["20990130000002"].pnu_unresolved_reason, "parcel_absent")
+
+    def test_the_code_path_wins_and_carries_a_superseded_code_to_the_current_parcel(self):
+        # Root ADR-0382 §1: the row's code 9999920100 was renumbered to 9999910100; its address names
+        # resolve nowhere, the code path finds the current parcel.
+        contract = load_lakehouse_contract(job.ITEM_TABLE)
+        coded = item("20990130000003", hjguDong="없는동", daepyoSidoCd="99", daepyoSiguCd="999",
+                     daepyoDongCd="201", daepyoRdCd="00")
+        rows = job.rows_of([line([coded])], "bronze/new.gz", "20990102T030405Z", NOW, PREFIXES, DONGS)
+        names = [c["name"] for c in contract["columns"]]
+        schema = ", ".join(f"{c['name']} {_ddl(c['logical_type'])}" for c in contract["columns"])
+        current = self.spark.createDataFrame([], schema).select(*names)
+        _, changes = job.search_changes(self.spark, "item_search", {"rows": rows, "complete": False}, contract,
+                                        self.parcels, self.titles, current, "20990102T030405Z", NOW,
+                                        ({"9999920100": "9999910100"}, set()))
+        [row] = changes.collect()
+        self.assertEqual((row.pnu, row.pnu_basis, row.pnu_unresolved_reason, row.legal_dong_code),
+                         ("9999910100100070000", "legal_dong_code_superseded", None, "9999910100"))
+        self.assertEqual(row.source_code_pnu_raw, "9999920100100070000", "the source code stays as evidence")
 
     def test_an_incomplete_search_and_the_result_search_mark_nothing(self):
         for role, complete in (("item_search", False), ("sale_result_search", True)):
