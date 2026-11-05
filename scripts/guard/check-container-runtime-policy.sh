@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Checks tracked container-runtime declarations. A Compose file is normalized by
-# `docker compose config` and judged by the Conftest policies in tools/conftest/compose: the
+# Checks tracked container-runtime declarations. A Compose file is normalized by the pinned
+# `docker compose config` (tools/docker-compose.env) and judged by the Conftest policies in tools/conftest/compose: the
 # engine resolves anchors, `extends`, `include` and `!reset`, so no rule needs a YAML subset.
 # Dockerfiles and the shell's docker build/run/pull lines are read here.
 set -euo pipefail
@@ -12,10 +12,6 @@ if ! command -v python3 >/dev/null 2>&1; then
 fi
 
 guard_root="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd -P; })"
-command -v docker >/dev/null 2>&1 || {
-  echo "FAIL container-runtime-policy: docker with the compose plugin is required to normalize Compose files" >&2
-  exit 1
-}
 python3 - "$root" "$guard_root" <<'PY'
 from __future__ import annotations
 
@@ -198,16 +194,26 @@ def contract_compose_owner_is_valid(path: str, text: str) -> bool:
     )
 
 
-def conftest_binary() -> pathlib.Path:
-    name = "conftest.exe" if sys.platform == "win32" else "conftest"
-    binary = WORK / name
+def pinned_tool(tool: str, member: str | None) -> pathlib.Path:
+    """One pinned release binary (tools/pinned-artifacts.json), fetched once per run."""
+    binary = WORK / (f"{tool}.exe" if sys.platform == "win32" else tool)
     if not binary.exists():
-        subprocess.run(
-            [sys.executable, str(GUARD_ROOT / "scripts/ci/fetch_pinned.py"), "tool", "conftest",
-             "--member", name, "--output", str(binary)],
-            check=True, stdout=subprocess.DEVNULL, timeout=300,
-        )
+        command = [sys.executable, str(GUARD_ROOT / "scripts/ci/fetch_pinned.py"), "tool", tool,
+                   "--output", str(binary)]
+        if member:
+            command += ["--member", member]
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, timeout=300)
+        binary.chmod(0o755)
     return binary
+
+
+def conftest_binary() -> pathlib.Path:
+    return pinned_tool("conftest", "conftest.exe" if sys.platform == "win32" else "conftest")
+
+
+def compose_binary() -> pathlib.Path:
+    # The parser is part of the policy, so it is pinned too (tools/docker-compose.env).
+    return pinned_tool("docker-compose", None)
 
 
 def conftest_failures(path: str, namespace: str, target: pathlib.Path, data: pathlib.Path | None) -> None:
@@ -232,12 +238,12 @@ def check_compose(path: str, text: str) -> None:
     source = ROOT / path
     conftest_failures(path, "compose_source", source, None)
     normalized = subprocess.run(
-        ["docker", "compose", "--file", str(source), *COMPOSE_CONFIG],
+        [str(compose_binary()), "--file", str(source), *COMPOSE_CONFIG],
         capture_output=True, text=True, timeout=120,
     )
     if normalized.returncode != 0:
         detail = (normalized.stderr.strip().splitlines() or ["no output"])[-1]
-        fail(path, 0, f"docker compose config refused it: {detail[:300]}")
+        fail(path, 0, f"compose config refused it: {detail[:300]}")
         return
     stem = re.sub(r"[^A-Za-z0-9_.-]", "_", path)
     model = WORK / f"{stem}.json"
@@ -542,6 +548,7 @@ for relative in files:
 # Each Compose file is normalized and judged on its own; `docker compose config` dominates the run.
 if compose_files:
     conftest_binary()
+    compose_binary()
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda entry: check_compose(*entry), compose_files))
 shutil.rmtree(WORK, ignore_errors=True)

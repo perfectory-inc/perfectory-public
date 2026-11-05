@@ -47,6 +47,15 @@
       "extension": {"linux": "", "darwin": "", "windows": ".exe"},
       "url": "https://github.com/opengrep/opengrep/releases/download/v{version}/opengrep_{os}_{arch}{extension}"
     },
+    "docker-compose": {
+      "pins": "tools/docker-compose.env",
+      "version_variable": "DOCKER_COMPOSE_VERSION",
+      "sha256_variable": "DOCKER_COMPOSE_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "x86_64", "aarch64": "aarch64"},
+      "extension": {"linux": "", "darwin": "", "windows": ".exe"},
+      "url": "https://github.com/docker/compose/releases/download/v{version}/docker-compose-{os}-{arch}{extension}"
+    },
     "conftest": {
       "pins": "tools/conftest.env",
       "version_variable": "CONFTEST_VERSION",
