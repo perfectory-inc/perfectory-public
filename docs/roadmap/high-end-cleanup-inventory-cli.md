@@ -9,7 +9,7 @@ last_reviewed: 2026-11-04
 
 [하이엔드 정리 인벤토리](./high-end-cleanup-inventory.md)의 부록이다. 기준 커밋과 측정 방법은 본문을 따른다.
 
-`platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs`에 정의됨(`parse_command`가 문자열을 `Command`로 바꾸고, 디스패치는 `run_command`). 호출자는 그 정확한 문자열을 이름 짓는(단어 경계 일치) 모든 추적 파일을 센 것이며, `main.rs`와 `main_command_tests.rs`는 제외하고, 스크립트 호출자는 systemd unit / `jobs.v1.json` / CI까지 따라간다. 분류: a=예약·CI·배포가 부름, b=런북에서만 운영자가 부름, c=일회성·대체됨, d=아무도 부르지 않음.
+platforms/foundation-platform/services/foundation-outbox-publisher/src/main.rs에 정의됨(`parse_command`가 문자열을 `Command`로 바꾸고, 디스패치는 `run_command`). 호출자는 그 정확한 문자열을 이름 짓는(단어 경계 일치) 모든 추적 파일을 센 것이며, `main.rs`와 `main_command_tests.rs`는 제외하고, 스크립트 호출자는 systemd unit / `jobs.v1.json` / CI까지 따라간다. 분류: a=예약·CI·배포가 부름, b=런북에서만 운영자가 부름, c=일회성·대체됨, d=아무도 부르지 않음.
 
 | # | 하위 명령 | main.rs 줄 | 처리 모듈(LOC) | 찾은 호출자(수) | 근거 | 분류 |
 |---|---|---|---|---|---|---|
