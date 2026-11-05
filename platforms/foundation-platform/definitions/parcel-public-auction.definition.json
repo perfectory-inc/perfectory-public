@@ -1380,5 +1380,15 @@
         }
       ]
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-public-auction",
+      "check": "rounds_carry_their_media",
+      "blocking": true,
+      "reads": [
+        "silver-onbid-real-estate-item-photo"
+      ]
+    }
   ]
 }
