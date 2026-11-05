@@ -46,6 +46,8 @@ MAP = "docs/data-pipeline-map.md"
 ENDPOINTS = "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
 EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
 DEFINITIONS = "platforms/foundation-platform/definitions"
+LANE_INDEX = "platforms/foundation-platform/config/by-pnu-lane-index.v1.json"
+LANE_INDEX_SCHEMA = "foundation-platform.by_pnu_lane_index.v1"
 
 # Every slot: the artifact, the path of the item collection in it, its shape (a list of objects
 # keyed by `key`, or an object keyed by name) and the definition section that holds its items.
@@ -61,7 +63,7 @@ SECTIONS = {slot[4]: name for name, slot in SLOTS.items()}
 SOURCE_ARTIFACTS = tuple(dict.fromkeys(slot[0] for slot in SLOTS.values()))
 # Artifacts that were generated before this ADR: rendered from the generated sources by their own
 # renderers, never a second implementation, and held to the committed bytes.
-DERIVED_ARTIFACTS = (EXAMPLE, DEPENDENCIES, MAP)
+DERIVED_ARTIFACTS = (EXAMPLE, DEPENDENCIES, MAP, LANE_INDEX)
 
 
 class DefinitionError(Exception):
@@ -240,6 +242,49 @@ def generate(platform, definitions, ordered=True):
     return documents
 
 
+def lane_index(documents):
+    """Every by-PNU lane and what serves it, read from the definitions once (inventory B-F02).
+
+    The parcel and building lanes and every `by_pnu_lanes` line. Each lane's serving nodes are its
+    `<lane>-by-pnu-section-packs` and `<lane>-by-pnu-serving` graph nodes; its Gold tables are the
+    Gold nodes with an edge into them; its bake and rebuild jobs are the jobs that carry an edge into
+    the serving nodes and into the Gold nodes. No name is derived from another by a spelling rule but
+    the environment prefix, which the publisher reads (FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING); a
+    reader takes all of it from here instead of re-deriving it.
+    """
+    r2, graph, jobs = documents[R2], documents[GRAPH], documents[JOBS]["jobs"]
+    kinds = r2.get("by_pnu_lanes", {})
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = {edge["id"]: edge for edge in graph["edges"]}
+
+    def writers(node_ids):
+        return [job for job in jobs if any(edges[e]["to"] in node_ids for e in job["pipeline_graph_edges"] if e in edges)]
+
+    lanes = []
+    for lane in ("parcel", "building", *kinds):
+        serving = [n for n in (f"{lane}-by-pnu-section-packs", f"{lane}-by-pnu-serving") if n in nodes]
+        gold = sorted({edges[e]["from"] for e in edges if edges[e]["to"] in serving
+                       and nodes[edges[e]["from"]]["type"] == "gold_table"})
+        line = kinds.get(lane, {})
+        lanes.append({
+            "lane": lane,
+            # Where the lane's gateway block is: the host lanes' own key, a kind's host, or a lane line
+            # that holds its own block (unit-price, root ADR-0190).
+            "gateway_block": (f"{lane}_by_pnu_gateway" if lane in ("parcel", "building")
+                              else line["host"] if "host" in line else f"by_pnu_lanes.{lane}"),
+            "kind": line.get("kind"),
+            "section": line.get("section"),
+            "env_prefix": "FOUNDATION_PLATFORM_" + lane.upper().replace("-", "_") + "_BY_PNU_SERVING",
+            "serving_nodes": serving,
+            "gold_tables": [nodes[n]["table_name"] for n in gold],
+            "bake_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers(set(serving))],
+            "rebuild_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers(set(gold))],
+        })
+    return {"schema_version": LANE_INDEX_SCHEMA,
+            "generated_by": "scripts/catalog/declared_definitions.py (root ADR-0418); never edited, never committed",
+            "lanes": lanes}
+
+
 def load_module(name, path, search):
     sys.path.insert(0, str(search))
     try:
@@ -264,6 +309,7 @@ def derived(root, documents, renderers_root=None):
         EXAMPLE: dump(documents[GRAPH]),
         DEPENDENCIES: job_specs.rendered_dependencies(documents[JOBS], documents[GRAPH]),
         MAP: pipeline_map.render(documents[GRAPH], read_json(root / ENDPOINTS)),
+        LANE_INDEX: dump(lane_index(documents)),
     }
 
 

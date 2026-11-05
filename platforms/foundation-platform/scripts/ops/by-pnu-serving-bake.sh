@@ -87,12 +87,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/held-lock.sh"
 
 UNIT="${1:-}"
-# The pack-only lanes, by name, from the contract this script ships with.
-mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
-import json, sys
-print("\n".join(json.load(open(sys.argv[1])).get("by_pnu_lanes", {})))
-PY
-)
+# The pack-only lanes, by name, from the lane index this script ships with (root ADR-0418).
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-lane-index.sh"
+mapfile -t PACK_LANES < <(by_pnu_lane_names packs)
 case "${UNIT}" in
   parcel | building) ;;
   all)
@@ -191,7 +188,7 @@ case "${UNIT}" in
     status=0
     for lane in parcel building ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
       [[ -n "${lane}" ]] || continue
-      prefix="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${lane}")_BY_PNU_SERVING"
+      prefix="$(by_pnu_lane_env_prefix "${lane}")"
       lock="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${lane}/lane.lock"
       mkdir -p "$(dirname "${lock}")"
       if ! (
@@ -210,7 +207,7 @@ case "${UNIT}" in
     ;;
 esac
 # The lane's environment prefix (FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING), as the publisher derives it.
-LANE="$(tr 'a-z-' 'A-Z_' <<<"${UNIT}")"
+
 log() { printf 'by-pnu-serving-bake %s: %s\n' "${UNIT}" "$*"; }
 FORCE_FULL="${FOUNDATION_BY_PNU_BAKE_FORCE_FULL:-false}"
 FORCE_FULL_REASON="${FOUNDATION_BY_PNU_BAKE_FORCE_FULL_REASON:-}"
@@ -234,7 +231,7 @@ if [[ "${REBASE}" == true ]]; then
 fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
-ENV_PREFIX="FOUNDATION_PLATFORM_${LANE}_BY_PNU_SERVING"
+ENV_PREFIX="$(by_pnu_lane_env_prefix "${UNIT}")"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${UNIT}"
 MAX_CONCURRENCY="${FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY:-128}"
 ATTEMPTS="${FOUNDATION_BY_PNU_BAKE_ATTEMPTS:-6}"
@@ -488,7 +485,7 @@ if [[ "${OWN_RUN}" == true && "${UNIT}" != parcel && "${UNIT}" != building ]]; t
     # unset it is the local driver, which refused for want of a root (2026-10-29 07:19Z and 07:40Z,
     # every by_pnu_unit_price_bake run failed with "the local driver requires an output root").
     env FOUNDATION_PLATFORM_BY_PNU_SERVING_STATE_PATH="${followed_state}" \
-      "FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${follows}")_BY_PNU_SERVING_OUTPUT_STORAGE_DRIVER=${FOUNDATION_BY_PNU_BAKE_STORAGE_DRIVER:-r2}" \
+      "$(by_pnu_lane_env_prefix "${follows}")_OUTPUT_STORAGE_DRIVER=${FOUNDATION_BY_PNU_BAKE_STORAGE_DRIVER:-r2}" \
       "${PUBLISHER_BIN}" "show-${follows}-by-pnu-serving-state"
     gate="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/lane_follow_gate.py" "${UNIT}" "${gold}" "${followed_state}")" \
       || { log "refused: cannot tell whether the ${follows} lane serves what Gold snapshot ${gold} was built from"; exit 65; }

@@ -27,12 +27,9 @@
 #   bake's completeness rule: one snapshot, no overlap, every Gold row exported.
 set -euo pipefail
 
-# The pack-only lanes the contract this script ships with names (root ADR-0190).
-mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
-import json, sys
-print("\n".join(json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {})))
-PY
-)
+# The pack-only lanes, from the lane index this script ships with (root ADR-0190, ADR-0418).
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-lane-index.sh"
+mapfile -t PACK_LANES < <(by_pnu_lane_names packs)
 is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
 LANE="${1:-}" GENERATION="${2:-}"
 log() { printf '%s by-pnu-pack-bake %s: %s\n' "$(date -u +%FT%TZ)" "${LANE}" "$*"; }
@@ -46,7 +43,7 @@ fi
 ((BASH_VERSINFO[0] * 100 + BASH_VERSINFO[1] >= 501)) || { log "refused: needs bash 5.1 or later"; exit 69; }
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
-P="FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${LANE}")_BY_PNU_SERVING"
+P="$(by_pnu_lane_env_prefix "${LANE}")"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 WORK="${STATE_ROOT}/${LANE}-pack-g${GENERATION}"
 SUMMARIES="${WORK}/summaries" SHARDS="${WORK}/shards"

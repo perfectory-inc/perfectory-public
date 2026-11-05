@@ -11,9 +11,10 @@
 # and the unit's OnFailure reports it to Slack.
 set -euo pipefail
 LANE="${1:-}"
-python3 -I -c 'import json, sys; sys.exit(sys.argv[2] not in ["parcel", "building", *json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes", {})])' \
-  "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" "${LANE}" \
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-lane-index.sh"
+by_pnu_lane_known "${LANE}" \
   || { echo "usage: by-pnu-serving-monitor.sh <building|parcel|a by_pnu_lanes lane>" >&2; exit 64; }
+PREFIX="$(by_pnu_lane_env_prefix "${LANE}")"
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
-export "FOUNDATION_PLATFORM_$(tr 'a-z-' 'A-Z_' <<<"${LANE}")_BY_PNU_SERVING_OUTPUT_STORAGE_DRIVER=r2"
+export "${PREFIX}_OUTPUT_STORAGE_DRIVER=r2"
 exec "${PUBLISHER_BIN}" "monitor-${LANE}-by-pnu-serving"
