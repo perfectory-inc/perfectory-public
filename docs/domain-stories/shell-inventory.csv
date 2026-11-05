@@ -106,6 +106,7 @@ scripts/ci/osv-vulnerability-gate.sh,130,true,ci,xtask,CI helper script invoked 
 scripts/ci/require-successful-needs.sh,45,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/reuse-lint.sh,64,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/rust-setup.sh,70,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/zizmor.sh,25,true,ci,xtask,CI helper script invoked from scripts/guard/zizmor-workflows.sh
 scripts/github/build-public-root.sh,143,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
 scripts/github/check-actions-cache-controls.sh,118,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
 scripts/github/check-billing-budgets.sh,105,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
@@ -141,7 +142,7 @@ scripts/guard/by-pnu-document-records-are-append-only.sh,30,true,ci,xtask,Guard 
 scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/check-container-runtime-policy.sh,705,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/check-workflow-policy.sh,627,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-workflow-policy.sh,708,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/ci-time-budget-self-test.sh,10,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-images-match-the-contract-self-test.sh,58,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-images-match-the-contract.sh,13,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -240,9 +241,11 @@ scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard s
 scripts/guard/tracked-paths-are-portable-self-test.sh,53,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-paths-are-portable.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/unique-package-names.sh,18,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/workflow-policy-self-test.sh,497,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/workflow-policy-self-test.sh,677,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage.sh,39,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/zizmor-workflows-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/zizmor-workflows.sh,22,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/tiles/boundary-slice-proof.sh,858,true,ci,xtask,Tile proof script run by a CI workflow
 scripts/tiles/http-evidence.sh,21,true,ci,xtask,Tile proof script run by a CI workflow
 scripts/tiles/tiles-slice-proof.sh,987,true,ci,xtask,Tile proof script run by a CI workflow

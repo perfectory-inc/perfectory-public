@@ -77,6 +77,16 @@
       "extension": {"linux": "tar.gz", "windows": "zip"},
       "url": "https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-{version}/cargo-hakari-{version}-{target}.{extension}"
     },
+    "zizmor": {
+      "pins": "tools/zizmor.env",
+      "version_variable": "ZIZMOR_VERSION",
+      "sha256_variable": "ZIZMOR_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "x86_64"},
+      "target": {"linux": "unknown-linux-gnu", "darwin": "apple-darwin", "windows": "pc-windows-msvc"},
+      "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "zip"},
+      "url": "https://github.com/zizmorcore/zizmor/releases/download/v{version}/zizmor-{arch}-{target}.{extension}"
+    },
     "syft": {
       "pins": "tools/syft.env",
       "version_variable": "SYFT_VERSION",

@@ -563,6 +563,21 @@
         ]
       },
       {
+        "name": "zizmor-workflows-self-test",
+        "paths": [
+          ".github/zizmor.yml",
+          "tools/zizmor.env"
+        ]
+      },
+      {
+        "name": "zizmor-workflows",
+        "paths": [
+          ".github/workflows/**",
+          ".github/zizmor.yml",
+          "tools/zizmor.env"
+        ]
+      },
+      {
         "name": "github-policy-json-self-test",
         "paths": [
           "scripts/github/**",
