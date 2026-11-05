@@ -511,7 +511,10 @@ pub(super) const SILVER_LAND_USE_PLAN_COLUMNS: &[LakehouseColumn] = &[
 ];
 
 pub use crate::building_panel::GOLD_BUILDING_PANEL;
-pub use crate::court_auction::{SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT};
+pub use crate::court_auction::{
+    SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_ITEM_DETAIL, SILVER_COURT_AUCTION_ITEM_PHOTO,
+    SILVER_COURT_AUCTION_SALE_RESULT,
+};
 pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
 pub use crate::land_ownership::SILVER_LAND_OWNERSHIP;

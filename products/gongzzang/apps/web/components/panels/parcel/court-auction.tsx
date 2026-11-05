@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import type { CourtAuction, CourtAuctionRound } from "@/lib/api/court-auction";
 import { formatPriceKrw } from "@/lib/listings/format";
+import { PhotoGrid } from "./photo-grid";
 
 /** The parcel's 법원경매 (court auctions) as a category page, one card per item.
  *
@@ -45,6 +46,7 @@ export function ParcelCourtAuctionCard({ data }: { data: CourtAuction }) {
                 </div>
               ))}
             </dl>
+            <PhotoGrid photos={r.photos ?? []} altFallback={t("photoAltFallback")} />
           </li>
         ))}
       </ul>
