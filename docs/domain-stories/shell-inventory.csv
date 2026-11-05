@@ -227,7 +227,7 @@ scripts/guard/rust-ci-setup-self-test.sh,182,true,test-fixture,xtask,Guard self-
 scripts/guard/rust-ci-setup.sh,138,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/safe-git-transport-self-test.sh,211,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/semgrep-rules-self-test.sh,22,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/semgrep-rules.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/semgrep-rules.sh,18,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/static-release-toolchain-ssot-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/static-release-toolchain-ssot.sh,5,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/technology-version-consistency-self-test.sh,137,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI

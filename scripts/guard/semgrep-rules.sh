@@ -5,6 +5,11 @@
 set -euo pipefail
 root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 cd "$root"
+# Without it the engine applies its built-in ignore list and skips tests/ and build/ (.semgrepignore).
+[ -f .semgrepignore ] || {
+  echo "FAIL semgrep-rules: .semgrepignore is missing, so the engine would skip tests/ and build/" >&2
+  exit 1
+}
 if ! bash scripts/ci/opengrep.sh scan --config tools/semgrep/rules --error --quiet \
   --disable-version-check .; then
   echo "FAIL semgrep-rules: a rule under tools/semgrep/rules matched (see the findings above)" >&2
