@@ -1589,6 +1589,61 @@
       "disabled_reason": "New (root ADR-0361). Off with gold_parcel_ownership_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-ownership cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
     },
     {
+      "id": "gold_parcel_regulation_zones_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "규제 구역 kind Gold (root ADR-0375; scripts/ops/gold-panel-rebuild.sh parcel-regulation-zones): gold.parcel_regulation_zones from silver.land_use_zone_area and the served parcels' polygons, when the zone lane, the served parcel edition or the code change table moved past the pins the current Gold recorded. It recomputes only the parcels whose box meets the old or new box of a zone row the Silver release appended, the parcels that entered, left or changed in the served edition, and the parcels under a changed code pair (regulation_zones_silver_to_gold.affected_pnus), and merges them. Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_regulation_zones_bake bakes its commit.",
+      "systemd_service": "foundation-gold-parcel-regulation-zones-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "25 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-land-use-zone-area-to-gold-parcel-regulation-zones",
+        "silver-parcel-boundaries-to-gold-parcel-regulation-zones",
+        "reference-legal-dong-code-change-to-gold-parcel-regulation-zones"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0375). Off until its first full build (about 124 million parcel-piece pairs whose boxes meet nationally, measured; its time computed, not measured) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-regulation-zones, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_regulation_zones_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_regulation_zones (the own-producer regulation zones kind, root ADR-0375) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-regulation-zones), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_regulation_zones_rebuild commits a new snapshot, and at 11:25 as the fallback (root ADR-0171); each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). Two slots and MemoryMax=5G, the ownership bake's bound and for the same reason: a scheduled run patches the parcels a monthly zone release changed, and the lane's whole generation is the operator's cut-over bake (root ADR-0190), not this job's; two slots so it never runs beside both the panel bake and the public-auction bake (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-parcel-regulation-zones-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "25 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-regulation-zones-to-parcel-regulation-zones-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0375). Off with gold_parcel_regulation_zones_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-regulation-zones cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+    },
+    {
       "id": "by_pnu_parcel_sub_parcels_bake",
       "scope": "changed-keys",
       "interruptible": true,

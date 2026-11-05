@@ -580,6 +580,14 @@
       "producer": "land_ownership_silver_to_gold",
       "decision": "docs/adr/0361-a-parcel-s-owners-are-their-own-by-pnu-kind.md"
     },
+    "parcel-regulation-zones": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "regulation-zones",
+      "section": "regulation_zones",
+      "columns": ["regulation_zones_json", "zone_total:long"],
+      "producer": "regulation_zones_silver_to_gold",
+      "decision": "docs/adr/0375-a-parcel-s-regulation-zones-are-their-own-by-pnu-kind.md"
+    },
     "parcel-sub-parcels": {
       "host": "parcel_by_pnu_gateway",
       "kind": "sub-parcels",

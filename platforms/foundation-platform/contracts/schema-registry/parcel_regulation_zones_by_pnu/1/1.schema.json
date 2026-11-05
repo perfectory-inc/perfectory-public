@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_regulation_zones_by_pnu",
+  "description": "The regulation zones (VWorld 용도지역지구 도형, the layers silver.land_use_zone_area loads, root ADR-0362) whose polygon covers part of the parcel's (root ADR-0375). Every word is the provider's.",
+  "type": "object",
+  "properties": {
+    "schema_version": {"type": "string", "enum": ["foundation-platform.parcel_regulation_zones_by_pnu.v1"]},
+    "schema_revision": {"type": "integer"},
+    "pnu": {"type": "string", "pattern": "^[0-9]{19}$"},
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {"type": "string"},
+        "iceberg_snapshot_id": {"type": "string"}
+      },
+      "required": ["table", "iceberg_snapshot_id"]
+    },
+    "regulation_zones": {
+      "type": "object",
+      "properties": {
+        "zones": {
+          "description": "By layer code, zone code and zone id, at most 100; zone_total counts all.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "zone_id": {"description": "<layer_code>:<zone_feature_id>, the id the zoning map tiles give the same zone.", "type": "string"},
+              "layer_code": {"description": "The layer, as D032.", "type": "string"},
+              "layer_name": {"type": ["string", "null"]},
+              "zone_code": {"type": ["string", "null"]},
+              "zone_name": {"type": ["string", "null"]},
+              "release_date": {"description": "The date (YYYY-MM-DD) of the 전체데이터 release the zone's current row came from.", "type": ["string", "null"]}
+            },
+            "required": ["zone_id", "layer_code"]
+          }
+        }
+      },
+      "required": ["zones"]
+    },
+    "zone_total": {"type": ["integer", "null"]},
+    "attached_via": {"type": ["string", "null"]}
+  },
+  "required": ["schema_version", "pnu", "source", "regulation_zones"]
+}

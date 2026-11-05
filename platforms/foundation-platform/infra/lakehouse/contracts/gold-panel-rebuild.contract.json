@@ -98,7 +98,9 @@
       "building_energy_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
       "building_energy_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "building_sub_parcel_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
-      "building_sub_parcel_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
+      "building_sub_parcel_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "regulation_zones_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "regulation_zones_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
     },
     "scoped_contracts": {
       "industrial_complex_lakehouse_contracts.json": {
