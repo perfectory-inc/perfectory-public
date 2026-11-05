@@ -20,7 +20,7 @@ outbox-event-domain = { path = "../../crates/outbox-event-domain", version = "0.
 gongzzang-outbox = { path = "../../crates/gongzzang-outbox", version = "0.1.0" }
 shared-kernel = { path = "../../crates/shared-kernel", version = "0.1.0" }
 async-trait = { workspace = true }
-aws-sdk-s3 = { version = "=1.133.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
+aws-sdk-s3 = { version = "=1.157.0", default-features = false, features = ["behavior-version-latest", "default-https-client", "rt-tokio"] }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
