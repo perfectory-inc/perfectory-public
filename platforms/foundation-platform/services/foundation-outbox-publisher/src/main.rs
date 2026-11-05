@@ -324,8 +324,6 @@ enum Command {
     RegisterServingSourceLineage,
     RunBuildingRegisterLocalBronzeProof,
     RunPublisher,
-    /// `job-run`: one listed job through the runner (root ADR-0270 §2).
-    JobRun,
     InventoryLakehouse,
     MigrateR2BronzeKeys,
     SeedLakehouseRegistry,
@@ -339,10 +337,6 @@ enum Command {
 
 fn main() -> anyhow::Result<()> {
     let command = parse_command(env::args())?;
-    if command == Command::JobRun {
-        // No runtime: the runner waits on its child itself, and its exit code is the outcome's.
-        std::process::exit(i32::from(job_run_from_env()));
-    }
     run_command_runtime(command)
         .map_err(exit_if_refused)
         .map_err(exit_if_provider_side)
@@ -369,21 +363,6 @@ fn exit_if_refused(error: anyhow::Error) -> anyhow::Error {
         std::process::exit(REFUSED_EXIT_CODE);
     }
     error
-}
-
-/// `job-run`: the job and paths from the environment (root ADR-0270 §2); the exit code is the one
-/// the outcome line means, and a run that cannot be described still ends on a `failed` line.
-fn job_run_from_env() -> u8 {
-    use std::io::Write as _;
-    let mut out = std::io::stdout().lock();
-    match foundation_jobs::job_run::JobRun::from_env(|name| env::var(name).ok()) {
-        Ok(run) => foundation_jobs::job_run::execute(&run, &mut out).exit_code(),
-        Err(reason) => {
-            let failed = foundation_jobs::runner::Outcome::Failed(reason);
-            let _ = writeln!(out, "{}", failed.line());
-            failed.exit_code()
-        }
-    }
 }
 
 fn run_command_runtime(command: Command) -> anyhow::Result<()> {
@@ -720,7 +699,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::RegisterServingSourceLineage => Box::pin(serving_source_lineage_register::run()),
         Command::RunPublisher => Box::pin(run_publisher()),
         // main() runs it before any runtime starts and exits with its outcome.
-        Command::JobRun => Box::pin(async { anyhow::bail!("job-run does not run in the runtime") }),
         Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
         Command::MigrateR2BronzeKeys => Box::pin(r2_bronze_key_migration::run()),
         Command::WriteR2BronzeKeyCleanupCandidates => {
@@ -763,7 +741,6 @@ where
 
     match command.as_deref() {
         None | Some("run") => Ok(Command::RunPublisher),
-        Some("job-run") => Ok(Command::JobRun),
         Some("audit-r2-inventory") => Ok(Command::AuditR2Inventory),
         Some("building-register-smoke") => Ok(Command::BuildingRegisterSmoke),
         Some("delete-r2-candidates") => Ok(Command::DeleteR2Candidates),
