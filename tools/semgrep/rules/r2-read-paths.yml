@@ -1,0 +1,81 @@
+# Every language reads R2 through one path (root ADR-0261): code outside its area's one place may
+# not build its own S3/R2 client or spell R2 read-retry settings, so the ADR-0102 retry (a new
+# connection and jittered backoff when a read breaks) is written once per language.
+#
+# Prevents: R2 resets idle connections, and the retry that survives it was written once per
+# program — the Spark catalog settings in September, a by-PNU gate reader on 2026-10-14 (#559),
+# the lakehouse maintenance on 2026-10-15 (#594) — while the seekable reader, the s3a reads and a
+# gongzzang photo reader still had none. Each new reader was a new place to forget it.
+#
+# The places are the `paths.exclude` lists below; adding one is a reviewed change to this file.
+rules:
+  - id: r2-client-is-built-in-its-areas-place
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      Builds an aws-sdk-s3 client or config outside its area's R2 read path. Read R2 through
+      foundation-outbox's R2ObjectStorage (foundation-platform) or gongzzang-r2-object-storage
+      (gongzzang) — root ADR-0261.
+    paths:
+      # Areas share no Cargo path dependency (root ADR-0001), so each area that talks to R2 has its
+      # own one place: foundation-outbox's R2 client and its read policy (r2/read_retry.rs), and
+      # gongzzang's gongzzang-r2-object-storage crate (its client builder and the same policy).
+      exclude:
+        - /platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2.rs
+        - /platforms/foundation-platform/crates/foundation-outbox/src/object_storage/r2/
+        - /products/gongzzang/crates/gongzzang-r2-object-storage/
+    pattern-either:
+      - pattern: aws_sdk_s3::Client::from_conf(...)
+      - pattern: aws_sdk_s3::Client::new(...)
+      - pattern: aws_sdk_s3::config::Builder::$CONSTRUCT(...)
+      - pattern: aws_sdk_s3::Config::builder(...)
+
+  - id: python-reads-r2-through-spark
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Imports an S3 client. Spark reads R2 through the Iceberg catalog or the s3a settings that
+      lakehouse_engine builds — root ADR-0261.
+    pattern-either:
+      - pattern: import boto3
+      - pattern: import botocore
+      - pattern: import s3fs
+      - pattern: import fsspec
+      - pattern: import pyarrow.fs
+      - pattern: from pyarrow import fs
+
+  - id: r2-read-settings-live-in-the-lakehouse-engine
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Spells an s3a or S3FileIO retry/HTTP-client key outside lakehouse_engine and
+      lakehouse_object_store; they build it from the engine contract's r2_read — root ADR-0261.
+    paths:
+      # lakehouse_engine spells the S3FileIO catalog settings and the s3a retry; lakehouse_object_store
+      # applies the s3a settings. Tests assert those keys, so they may name them.
+      exclude:
+        - /platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_engine.py
+        - /platforms/foundation-platform/infra/lakehouse/spark/jobs/lakehouse_object_store.py
+        - "**/tests/**"
+        - "**/test_*.py"
+    patterns:
+      - pattern-either:
+          - pattern: '"$KEY"'
+          - pattern: f"$KEY"
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: .*(fs\.s3a\.|\.s3\.retry\.|\.http-client\.)
+
+  - id: workers-read-r2-through-the-binding
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Builds an S3 client. A Worker reads R2 through its R2 binding — root ADR-0261.
+    pattern-either:
+      - pattern: new S3Client(...)
+      - pattern: import "@aws-sdk/client-s3"
+      - pattern: import "aws4fetch"
+      - pattern: require("@aws-sdk/client-s3")
+      - pattern: require("aws4fetch")
+      - pattern: import("@aws-sdk/client-s3")
+      - pattern: import("aws4fetch")

@@ -213,8 +213,6 @@ scripts/guard/public-tree-snapshot-self-test.sh,181,true,test-fixture,xtask,Guar
 scripts/guard/publication-authority-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/r2-env-namespace-consistency-self-test.sh,178,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/r2-env-namespace-consistency.sh,275,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/r2-reads-have-one-path-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/r2-reads-have-one-path.sh,85,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/region-code-pairs-have-one-home-self-test.sh,120,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/region-code-pairs-have-one-home.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/repository-identity-capture-self-test.sh,94,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
