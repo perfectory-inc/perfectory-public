@@ -161,7 +161,9 @@ services:
   # then turns on the profile, makes the instance's database and role in airflow-db and its Airflow
   # Viewer account. The image holds the locked dependencies; the code location is the release's.
   # Caps: anonymous peaks measured 2026-10-29 against Airflow 3.3.2 with these definitions (webserver
-  # 271 MiB; daemon 410 MiB while an asset-check run ran) x1.3 (root ADR-0137, ADR-0138).
+  # 271 MiB; daemon 410 MiB while an asset-check run ran), with what the host budget leaves (root
+  # ADR-0138): x1.12 and x1.17, less than the release build's x1.3 (root ADR-0137). Measure both on
+  # the host after the profile turns on; a cap the kernel hits is the next budget decision.
   dagster-webserver:
     logging: *log-cap
     image: foundation-platform-dagster:local
@@ -170,7 +172,10 @@ services:
       dockerfile: orchestration/dagster/Dockerfile
     pull_policy: never
     profiles: ["dagster-observe"]
-    mem_limit: 352m
+    # Anonymous memory, the part the kernel cannot reclaim, peaked at 271 MiB (memory.peak 277 MiB with
+    # its page cache, measured 2026-10-29 against Airflow 3.3.2); about x1.12. The host budget
+    # (every-container-has-a-memory-cap.sh) had 0.81g left on 2026-11-05 for both containers.
+    mem_limit: 304m
     restart: unless-stopped
     command: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "/opt/dagster/home/workspace.yaml"]
     environment:
@@ -189,7 +194,9 @@ services:
     image: foundation-platform-dagster:local
     pull_policy: never
     profiles: ["dagster-observe"]
-    mem_limit: 544m
+    # Anonymous memory peaked at 410 MiB during a check run (memory.peak 539 MiB counts page cache the
+    # kernel reclaims before it kills); about x1.17, inside the host budget beside the webserver.
+    mem_limit: 480m
     restart: unless-stopped
     command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
     environment:

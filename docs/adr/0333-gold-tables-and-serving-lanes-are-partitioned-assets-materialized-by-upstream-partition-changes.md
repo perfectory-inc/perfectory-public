@@ -205,8 +205,8 @@ Airflow 가 모든 작업을 그대로 돌리고, Dagster 는 보기만 한다.
 - **단가 검사(보고만)**: `iceberg/gold/unit_price` 의 `rows_valid_per_sido`(키 중복·PNU 형식·`published_at_utc`,
   시도별로 세고 실패 시도를 이름으로 남김)와 단가 레인의 `serves_the_newest_gold`(§7 의 지연을 Dagster 의 사건 기록에서
   계산, 예산은 `by_pnu_section_packs.freshness_budget_hours`). 둘 다 `blocking=False`·WARN 이다.
-- **배치**: `compose.orchestration.yml` 의 `dagster-observe` 프로필(웹서버 352m·데몬 544m, 측정한 익명 메모리 최고
-  271·410 MiB × 1.3), 저장소는 airflow-db 안의 자기 데이터베이스·역할, UI 는 `127.0.0.1:19085`. 이미지는 릴리스와
+- **배치**: `compose.orchestration.yml` 의 `dagster-observe` 프로필(웹서버 304m·데몬 480m, 측정한 익명 메모리 최고
+  271·410 MiB 의 약 1.12·1.17 배 — 2026-11-05 호스트 예산에 남은 0.81g 안. 처음 352m·544m(×1.3)은 그사이 늘어난 다른 상한과 합쳐 62g 를 넘었다), 저장소는 airflow-db 안의 자기 데이터베이스·역할, UI 는 `127.0.0.1:19085`. 이미지는 릴리스와
   같은 서명 공급망으로 오고(`OPTIONAL_COMPOSE_IMAGES`), 스위치는 `orchestration/jobs.v1.json`
   `observers.dagster.enabled`(기본 꺼짐)이며 켜고 끄는 것은 배포가 부르는 `airflow-runtime.sh` 다. 호스트 메모리 예산
   61.02g → 61.89g / 62g.
