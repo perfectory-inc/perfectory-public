@@ -37,10 +37,6 @@ export type MapboxGLLike = {
   getLayer?: (id: string) => unknown;
   getCanvas?: () => HTMLCanvasElement | null;
   on?: (event: string, layer: string, handler: (e: unknown) => void) => void;
-  querySourceFeatures?: (
-    sourceId: string,
-    options?: { sourceLayer?: string; filter?: unknown[] },
-  ) => readonly unknown[];
   isStyleLoaded?: () => boolean;
   once?: (event: string, handler: () => void) => void;
   setFilter?: (layerId: string, filter: unknown[] | null) => void;
