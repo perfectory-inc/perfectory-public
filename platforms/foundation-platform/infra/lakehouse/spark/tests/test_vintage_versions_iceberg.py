@@ -58,7 +58,10 @@ class VintageVersionsIcebergTest(unittest.TestCase):
     def migrate(self, target):
         import vintage_versions as job
 
-        return job.migrate(self.spark, Namespace(target=target, parity_only=False, iceberg_catalog_name="proof"))
+        # In the contract's shards, as the scheduled run writes: a vintage is recorded per shard count.
+        (shards,) = [t["write_shards"] for t in job.load_contract()["targets"] if t["table"] == target]
+        return job.migrate(self.spark, Namespace(target=target, parity_only=False, iceberg_catalog_name="proof"),
+                           shards=shards)
 
     def test_both_tables_migrate_with_parity_and_a_second_run_appends_nothing(self):
         import vintage_versions as job
