@@ -69,3 +69,5 @@ ADR-0202는 영역 워크플로우의 입력을 `tools/ci/change-scope.json` 하
 - **루프는 그대로 두고 계약에 입력만 따로 적기**: 이름 목록이 두 곳(러너, 계약)에 생겨 서로 어긋난다.
 - **저장소 전체를 보는 가드까지 확장자 글롭으로 좁히기**: `**/*.rs`처럼 좁힐 수 있는 것은 좁혔다.
   공개 트리 위생처럼 어떤 경로든 문제가 될 수 있는 가드는 `always`로 두고 이유를 적는다.
+
+2026-11-04: 본문의 `intelligence-no-vector-provider.sh`·`utility-library-policy.sh` → 지움. 각각 `platforms/intelligence-platform/deny.toml` `[bans] deny`(cargo-deny)와 Biome `style/noRestrictedImports`(`tools/biome/one-library-per-role.jsonc`)로 옮겼다.

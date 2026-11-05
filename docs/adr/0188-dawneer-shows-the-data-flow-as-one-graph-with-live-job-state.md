@@ -103,3 +103,5 @@ ADR-0186 의 "지금 도는 작업" 목록을 본 사장의 질문은 "이게 �
 - 화면 묶음이 elkjs 청크(약 1.4MB, gzip 약 0.44MB)만큼 커지지만 그래프를 처음 그릴 때만 받는다.
 - 남은 것: 작업 하나가 여러 연결을 수행할 때 그 연결들을 한 묶음으로 접어 보이기, 데이터셋의 신선도를 실행 기록
   대신 카탈로그의 스냅숏 시각으로 보이기.
+
+2026-11-04: `scripts/guard/utility-library-policy.sh` → 지움. 두 번째 그래프 배치 라이브러리 금지(§4)는 이제 Biome `style/noRestrictedImports`(`tools/biome/one-library-per-role.jsonc`, 모든 JS/TS 패키지가 extends)가 import 단위로 강제한다. 결정은 그대로다.

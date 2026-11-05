@@ -130,3 +130,5 @@ score(d) = Σ  1 / (60 + rank_l(d))
 | 정밀도가 문제 — 합의가 엉뚱한 문서를 올림 | 재순위 단계 도입 |
 
 **측정 없이 트리거를 당기지 않는다.**
+
+2026-11-04: `scripts/guard/intelligence-no-vector-provider.sh` → 지움. 같은 금지는 `platforms/intelligence-platform/deny.toml` `[bans] deny`(cargo-deny, 해소된 의존 그래프 전체)가 강제한다. 결정은 그대로다.

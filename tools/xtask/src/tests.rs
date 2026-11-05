@@ -1158,7 +1158,7 @@ fn foundation_node_suite_plan_is_owned_by_verify_ssot() {
     for plan in &plans {
         assert_eq!(
             plan.scripts,
-            &["config:check", "typecheck", "test", "build:check"]
+            &["lint", "config:check", "typecheck", "test", "build:check"]
         );
         assert_eq!(plan.test_script, "test");
     }
