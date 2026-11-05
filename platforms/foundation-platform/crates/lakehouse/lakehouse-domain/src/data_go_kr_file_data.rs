@@ -11,7 +11,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -80,7 +80,7 @@ const fn table(
         current_row_predicate: None,
         // A key's newest row is current; a code-change follow-up appends after the edition it
         // corrects, so the commit instant orders them.
-        current_row_latest: Some(LakehouseCurrentRowLatest {
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
             key: &["row_key"],
             newest_first: &["ingested_at_utc"],
             removal_column: Some("row_state"),

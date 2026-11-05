@@ -502,11 +502,12 @@ def _load(argv: Sequence[str]) -> int:
             if entry["place_link"]["kind"] in FOLLOWED_LINKS:
                 counts["linked"] = staged.where(F.col(linked).isNotNull()).count()
                 counts["link_rate"] = round(counts["linked"] / total, 4) if total else None
-            append_source_object(spark, changes, columns, qualified, item["object_key"])
+            append_source_object(spark, changes, columns, qualified, item["object_key"],
+                                 contract_table=contract["table_name"])
             if changes_at is not None and entry["place_link"]["kind"] in FOLLOWED_LINKS:
                 # The links were made against the change table as it is now: the next follow starts here.
                 append_source_object(spark, spark.table(qualified).limit(0), columns, qualified,
-                                     follow_record(changes_at, now))
+                                     follow_record(changes_at, now), contract_table=contract["table_name"])
             for frame in (rows, staged, changes):
                 frame.unpersist()
             shutil.rmtree(work, ignore_errors=True)
@@ -533,7 +534,8 @@ def _load(argv: Sequence[str]) -> int:
                                       removal="row_state", source_snapshot_id="", ingested_at=F.lit(now).cast("timestamp"),
                                       columns=columns).where(F.col("row_state").isNull()).cache()
             moved = changes.count()
-            append_source_object(spark, changes, columns, qualified, follow_record(changes_at, now))
+            append_source_object(spark, changes, columns, qualified, follow_record(changes_at, now),
+                                 contract_table=contract["table_name"])
             summary["follows"].append({"dataset": slug, "from_snapshot": before, "to_snapshot": changes_at,
                                        "prefixes": None if prefixes is None else len(prefixes),
                                        "checked": affected.count(), "appended": moved})
