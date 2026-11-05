@@ -40,7 +40,8 @@ def layer(files: dict[str, bytes]) -> bytes:
 class Registry:
     """A release as release-push.sh leaves it: images by digest, files in one image, release-<commit> last."""
 
-    def __init__(self, files_layer_files=None, signed_extra=(), drop_signed=None, commit=COMMIT):
+    def __init__(self, files_layer_files=None, signed_extra=(), drop_signed=None, commit=COMMIT, generated=None,
+                 generated_layer_files=None):
         self.blobs, self.manifests = {}, {}
         files = {"foundation-outbox-publisher": b"\x7fELF publisher", "jars/engine.jar": b"PK engine"}
         files_layer = layer(files_layer_files or files)
@@ -51,9 +52,15 @@ class Registry:
         self.release = {"source_commit": commit, "images": self.images,
                         "files": {name: {"sha256": digest(data), "size": len(data), "mode": "0555" if "/" not in name else "0444"}
                                   for name, data in files.items()}}
+        if generated is not None:
+            # Root ADR-0419: the generated artifacts as their own image, each named by its digest.
+            self.images["generated"] = {"oci_manifest": self.manifest([layer(generated_layer_files or generated)]),
+                                        "config": digest(b"generated-config")}
+            self.release["generated"] = {name: {"sha256": digest(data), "size": len(data)} for name, data in generated.items()}
         release_json = json.dumps(self.release).encode()
         signed = {digest(release_json), *(d for image in self.images.values() for d in image.values()),
-                  *(entry["sha256"] for entry in self.release["files"].values()), *signed_extra} - {drop_signed}
+                  *(entry["sha256"] for entry in self.release["files"].values()),
+                  *(entry["sha256"] for entry in self.release.get("generated", {}).values()), *signed_extra} - {drop_signed}
         statement = {"subject": [{"name": "x", "digest": {"sha256": d.split(":")[1]}} for d in sorted(signed)]}
         bundle = json.dumps({"dsseEnvelope": {"payload": base64.b64encode(json.dumps(statement).encode()).decode()}}).encode()
         release_layer = layer({"manifest.json": release_json, "manifest.sigstore.json": bundle})
@@ -130,7 +137,8 @@ class FromTheRegistry(unittest.TestCase):
         output.mkdir()
         images = self.module.registry_artifacts(COMMIT, output, tag=True)
         # The compose images are checked and returned; `tag-compose-images` tags them when the API migrates.
-        self.assertEqual(images, {name: image["config"] for name, image in self.registry.images.items() if name != "files"})
+        self.assertEqual(images, {name: image["config"] for name, image in self.registry.images.items()
+                                  if name not in ("files", "generated")})
         self.assertEqual((output / "foundation-outbox-publisher").read_bytes(), b"\x7fELF publisher")
         tags = [call[-1] for call in self.calls if call[:2] == ["/usr/bin/docker", "tag"]]
         self.assertEqual(tags, [f"foundation-outbox-publisher:{COMMIT}", f"foundation-tippecanoe:{COMMIT}"])
@@ -215,6 +223,52 @@ class FromTheRegistry(unittest.TestCase):
             contract.write_text(json.dumps({"artifacts_from": "anywhere"}))
             with self.assertRaises(ValueError):
                 self.module.artifacts_from()
+
+GENERATED = {"platforms/foundation-platform/orchestration/jobs.v1.json": b'{"jobs": []}\n',
+             "tools/host-memory-budget.contract.json": b'{"memory": {}}\n'}
+
+
+class GeneratedFromTheRegistry(FromTheRegistry):
+    """Root ADR-0419: the generated files are verified like the rest of the release, by digest and signature."""
+
+    def setUp(self):
+        super().setUp()
+        self.use(Registry(generated=GENERATED))
+        patcher = mock.patch.object(self.module, "generated_paths", return_value=set(GENERATED))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_r2_verifies_the_generated_files_against_the_generators_list(self):
+        self.assertIn("generated=2", self.module.verify_registry(COMMIT))
+        self.module.generated_paths.return_value = set(GENERATED) | {"docs/data-pipeline-map.md"}
+        with self.assertRaisesRegex(ValueError, "missing"):
+            self.module.verify_registry(COMMIT)
+
+    def test_the_signed_generated_files_are_returned_by_their_digests(self):
+        self.assertEqual(self.module.signed_generated(COMMIT), GENERATED)
+        pulled = [call[-1] for call in self.calls if call[:2] == ["/usr/bin/docker", "pull"]]
+        self.assertEqual(pulled, [], "the generated files are read from the registry, not pulled as an image")
+
+    def test_a_generated_digest_the_provenance_did_not_sign_is_refused(self):
+        unsigned = digest(GENERATED["tools/host-memory-budget.contract.json"])
+        self.use(Registry(generated=GENERATED, drop_signed=unsigned))
+        with self.assertRaisesRegex(ValueError, "did not sign"):
+            self.module.signed_generated(COMMIT)
+
+    def test_a_generated_file_the_manifest_does_not_name_is_refused(self):
+        self.use(Registry(generated=GENERATED, generated_layer_files={**GENERATED, "scripts/evil.sh": b"x"}))
+        with self.assertRaisesRegex(ValueError, "does not name"):
+            self.module.signed_generated(COMMIT)
+
+    def test_generated_bytes_that_are_not_their_digest_are_refused(self):
+        changed = {**GENERATED, "tools/host-memory-budget.contract.json": b'{"memory": {"x": 1}}\n'}
+        self.use(Registry(generated=GENERATED, generated_layer_files=changed))
+        with self.assertRaisesRegex(ValueError, "not the manifest's"):
+            self.module.signed_generated(COMMIT)
+
+    def test_a_release_built_before_the_generated_image_has_no_generated_files(self):
+        self.use(Registry())
+        self.assertEqual(self.module.signed_generated(COMMIT), {})
 
 
 if __name__ == "__main__":

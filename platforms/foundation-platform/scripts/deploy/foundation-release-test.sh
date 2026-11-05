@@ -75,21 +75,33 @@ def immutable(path):
     path = pathlib.Path(os.path.realpath(path))
     return any(root == path or root in path.parents for root in sealed_roots())
 module.set_immutable, module.immutable = set_immutable, immutable
+# The release CI built and signed, as far as its generated files go (root ADR-0419): a directory per
+# release id holding them at their repository paths; the registry and signature are proven by
+# tests/release_admission/test_release_from_registry.py. The generator's list is the rehearsal's.
+def signed_generated(release_id):
+    root = pathlib.Path(os.environ["REHEARSAL_SIGNED_GENERATED"]) / release_id
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()} if root.is_dir() else {}
+module.signed_generated = signed_generated
+module.generated_paths = lambda: set(os.environ["REHEARSAL_GENERATED_PATHS"].split())
 def git(*args):
     return subprocess.check_output(["git", "-C", os.environ["REHEARSAL_CANONICAL"], *args])
 def main():
     if sys.argv[1] == "prepare":
         sha, archive, target = sys.argv[2:]
         module.check_control_commit(git, sha, pathlib.Path(os.environ["REHEARSAL_CONTROL_ROOT"]))
-        module.prepare_release(module.release_files(git, sha), sha, pathlib.Path(archive), pathlib.Path(target))
+        files = module.release_files(git, sha)
+        module.prepare_release(files, sha, pathlib.Path(archive), pathlib.Path(target),
+                               generated=module.generated_release_files(sha, files))
     elif sys.argv[1] == "seal":
         target = pathlib.Path(sys.argv[2])
-        module.seal_release(module.release_files(git, target.name), target.name, target, os.getuid())
+        module.seal_release(module.release_expected(module.release_files(git, target.name), target), target.name,
+                            target, os.getuid())
     elif sys.argv[1] in ("verify", "build", "verify-current"):
         # verify-current resolves `current` under the rehearsal's release root; the checks are real.
         target = (pathlib.Path(os.path.realpath(pathlib.Path(os.environ["FOUNDATION_PLATFORM_RELEASE_ROOT"]) / "current"))
                   if sys.argv[1] == "verify-current" else pathlib.Path(sys.argv[2]))
-        module.verify_release(module.release_files(git, target.name), target.name, target, os.getuid())
+        module.verify_release(module.release_expected(module.release_files(git, target.name), target), target.name,
+                              target, os.getuid())
         artifacts = target.parent.parent / "artifacts" / target.name
         if sys.argv[1] == "build" and not artifacts.exists():
             # Stands in for the Buildx/Spark build only; sealing and verification are the real code.
@@ -113,6 +125,8 @@ export REHEARSAL_ADMISSION_SOURCE="${repo_root}/../../scripts/deploy/foundation-
 export REHEARSAL_BUILD_LOCK="${test_root}/release-build.lock"
 export REHEARSAL_SEALED="${test_root}/sealed"
 export REHEARSAL_CANONICAL="${canonical}"
+export REHEARSAL_SIGNED_GENERATED="${test_root}/signed-generated"
+export REHEARSAL_GENERATED_PATHS="platforms/foundation-platform/orchestration/jobs.v1.json tools/host-memory-budget.contract.json"
 # The control checkout records the canonical commit it was installed from; the first commit on
 # main is an ancestor of every rehearsal release.
 export REHEARSAL_CONTROL_ROOT="${test_root}/control"
@@ -1398,5 +1412,33 @@ for command in timers migrate; do
   [[ ! -e "${REHEARSAL_INSTALL_CALLED}" ]]
   grep -q 'installed release contents differ' "${test_root}/${command}.log"
 done
+
+# Root ADR-0419: a release with declared definitions commits none of what they generate. Its install
+# writes the signed generated files beside the commit's, records their digests, and every later check
+# holds the installed tree to them; a changed generated file is refused like any changed file.
+build_source "${test_root}/source-declared" release-declared "20260719000001 20260719000002"
+mkdir -p "${test_root}/source-declared/definitions"
+printf '{}\n' >"${test_root}/source-declared/definitions/platform.definition.json"
+rm -f "${test_root}/source-declared/orchestration/jobs.v1.json"
+declared="$(register_release "${test_root}/source-declared")"
+tar -C "${test_root}/source-declared" -czf "${test_root}/release-declared.tar.gz" .
+signed_jobs="${REHEARSAL_SIGNED_GENERATED}/${declared}/platforms/foundation-platform/orchestration/jobs.v1.json"
+mkdir -p "$(dirname "${signed_jobs}")" "${REHEARSAL_SIGNED_GENERATED}/${declared}/tools"
+printf '{"jobs": []}\n' >"${signed_jobs}"
+printf '{"memory": {}}\n' >"${REHEARSAL_SIGNED_GENERATED}/${declared}/tools/host-memory-budget.contract.json"
+run_release prepare "${declared}" "${test_root}/release-declared.tar.gz"
+declared_target="${release_root}/releases/${declared}"
+cmp -s "${declared_target}/orchestration/jobs.v1.json" "${signed_jobs}" \
+  || { printf 'the declared release does not hold the signed jobs.v1.json\n' >&2; exit 1; }
+[[ ! -e "${declared_target}/tools" ]] || { printf 'a generated file outside the subtree entered the release\n' >&2; exit 1; }
+"${test_root}/admission" verify "${declared_target}"
+generated_file="${declared_target}/orchestration/jobs.v1.json"
+with_writable "${generated_file}" sh -c 'printf "{}\n" >"$1"' _ "${generated_file}"
+if "${test_root}/admission" verify "${declared_target}" 2>"${test_root}/declared.log"; then
+  printf 'a changed generated file passed verify\n' >&2
+  exit 1
+fi
+grep -q 'generated file differs from the signed release' "${test_root}/declared.log"
+printf 'declared-release-installs-the-signed-generated-files=pass\n'
 
 printf 'foundation-release-test=pass\n'
