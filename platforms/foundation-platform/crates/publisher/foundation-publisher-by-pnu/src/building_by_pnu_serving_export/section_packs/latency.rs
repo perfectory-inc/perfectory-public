@@ -290,9 +290,12 @@ pub async fn expected_documents(
     )?;
     let store = crate::by_pnu_serving_store::ByPnuServingStore::open(lane, &output)?;
     let store = &store;
+    // One view for the whole sample: its parts indexes are read once, not once per PNU.
+    let view = super::read::PackView::unpublished(store, lane, generation).await?;
+    let view = &view;
     let read = stream::iter(pnus.iter().cloned())
         .map(|pnu| async move {
-            let report = super::inspect::inspect(store, &pnu, Some(generation)).await?;
+            let report = super::inspect::inspect_unpublished(store, &pnu, view, generation).await?;
             let document = report
                 .get("document")
                 .filter(|document| !document.is_null())

@@ -56,7 +56,7 @@ pub async fn inspect(
         Some(generation) => (
             PackView::unpublished(store, lane, generation).await?,
             format!("generation {generation}"),
-            vec![crate::by_pnu_serving_manifest_publish::document_schema_version(lane).to_owned()],
+            unpublished_schemas(lane),
         ),
         None => {
             let (bytes, _) = store.read_manifest().await?;
@@ -72,6 +72,35 @@ pub async fn inspect(
         }
     };
     inspect_view(store, pnu, &view, from, &schemas).await
+}
+
+/// The document schema an unpublished generation answers with: this release's bake's.
+pub(super) fn unpublished_schemas(lane: ByPnuLane) -> Vec<String> {
+    vec![crate::by_pnu_serving_manifest_publish::document_schema_version(lane).to_owned()]
+}
+
+/// The report of one PNU in an unpublished generation whose view the caller read once. A probe of
+/// thousands of PNUs reads each section's parts index once instead of once per PNU: 10,000 sampled
+/// PNUs asked R2 for the same `parts.json` 10,000 times, and one failed ask failed the
+/// parcel-ownership cut-over gate after 660 s (2026-11-05).
+///
+/// # Errors
+/// Returns an error when the PNU is malformed or a pack cannot be read.
+pub(super) async fn inspect_unpublished(
+    store: &ByPnuServingStore,
+    pnu: &str,
+    view: &PackView,
+    generation: u64,
+) -> anyhow::Result<JsonValue> {
+    by_pnu::check_key(store.lane(), pnu)?;
+    inspect_view(
+        store,
+        pnu,
+        view,
+        format!("generation {generation}"),
+        &unpublished_schemas(store.lane()),
+    )
+    .await
 }
 
 /// The report of one PNU as `state` (a recorded manifest's section packs) serves it.

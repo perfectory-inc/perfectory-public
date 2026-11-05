@@ -633,14 +633,21 @@ impl R2ObjectStorage {
         {
             Ok(_) => Ok(true),
             Err(error) => {
-                if error
-                    .as_service_error()
-                    .is_some_and(aws_sdk_s3::operation::head_object::HeadObjectError::is_not_found)
+                // A HEAD answer has no body, so the status is the absence (`is_r2_not_found`).
+                if is_r2_not_found(&error)
+                    || error.as_service_error().is_some_and(
+                        aws_sdk_s3::operation::head_object::HeadObjectError::is_not_found,
+                    )
                 {
                     return Ok(false);
                 }
+                // `SdkError` displays as "service error" alone: the parcel-ownership cut-over gate
+                // failed on that line (2026-11-05) with no status to say whether it was a refused
+                // grant or a throttled read. The status and the source chain say it.
+                let status = error.raw_response().map(R2HttpStatus::status_code);
                 Err(PublishError::Broadcaster(format!(
-                    "failed to ask R2 whether {key} exists: {error}"
+                    "failed to ask R2 whether {key} exists: {} (http_status={status:?})",
+                    aws_sdk_s3::error::DisplayErrorContext(&error)
                 )))
             }
         }
