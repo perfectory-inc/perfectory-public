@@ -77,6 +77,8 @@ const KEY: &[&str] = &["court_office_code", "case_no", "property_seq", "item_seq
 const SILVER_COURT_AUCTION_ITEM_COLUMNS: &[LakehouseColumn] = court_auction_columns!(
     // `removed` on a removal marker (root ADR-0275); null on every row the source holds.
     column("row_state", "string", false),
+    // The PNU the row's own legal-dong code and lot name, before the resolver (root ADR-0382).
+    column("source_code_pnu_raw", "string", false),
 );
 
 const SILVER_COURT_AUCTION_SALE_RESULT_COLUMNS: &[LakehouseColumn] = court_auction_columns!();

@@ -55,6 +55,29 @@ last_reviewed: 2026-10-30
   24MB, 한 달 약 0.7GB, 한 해 약 8.8GB(append-only). R2 저장 $0.015/GB-월로 한 해 쌓인 뒤에도 월 약 $0.13(약 190원).
   수집은 사이트 무료 공개 목록이라 호출 비용이 없다.
 
+## 필지 패널에 처음 띄우기 (ADR-0353, ADR-0382)
+
+명령은 사장 터미널(PowerShell·cmd)에 그대로 붙인다. `$` 도 작은따옴표 바깥 묶음도 없다: 바깥은 큰따옴표, 시각은 서버의
+`date +%s` 가 `xargs -o` 로 넘긴다(`-o` 는 `sudo` 에 터미널을 되돌려 준다).
+
+1. #969 병합·배포 뒤 첫 밤 전, 거절 파일을 지운다(위 "거절당했을 때" 3번과 같은 길, 지울 것이 없으면 66):
+
+   ```
+   ssh -tt ai-server "date +%s | xargs -o -I{} sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job clear-refusal court_auction_collect --requested-at {} --reason 'the 2026-10-20 refusal was a daytime attended run; the 2026-10-19 night passed; owner approved collection 2026-10-30'"
+   ```
+
+2. 다음 날 06:30 KST 적재 뒤 요약 줄(`court-auction-summary-json`)의 `with_pnu` 를 본다. 코드 길(ADR-0382)은
+   `pnu_basis` 가 `legal_dong_code`·`legal_dong_code_superseded` 인 행이다.
+3. 07:05 KST(22:05 UTC) `gold_court_auction_rebuild` 첫 커밋 뒤, 창(04:30–21:50 UTC) 밖에서 레인을 처음 전환한다.
+   먼저 `--dry-run`, 그다음 진짜:
+
+   ```
+   ssh -tt ai-server "date +%s | xargs -o -I{} sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-court-auction cutover 1 --dry-run --requested-at {} --reason 'first cut-over of the court auction lane, dry run (ADR-0353)'"
+   ssh -tt ai-server "date +%s | xargs -o -I{} sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh parcel-court-auction cutover 1 --requested-at {} --reason 'first cut-over of the court auction lane (ADR-0353)'"
+   ```
+
+   그 전까지 `by_pnu_court_auction_bake` 는 `nothing to do` 로 끝난다. 그 뒤로는 Gold 커밋마다 이 레인만 굽는다.
+
 ## 출처 표시
 
 이 데이터를 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 표시한다(저작권 보호정책; ADR-0281 §6, ODCS 목적 칸).

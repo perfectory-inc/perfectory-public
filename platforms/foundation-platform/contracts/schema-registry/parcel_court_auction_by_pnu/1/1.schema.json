@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_court_auction_by_pnu major 1 revision 1",
+  "description": "A parcel's court auction (법원경매) items in progress, served by PNU on the parcel edge (lane parcel-court-auction), soonest sale date first. A field that is not required may be absent or null. The court's data is a public work its consumers attribute (source_attribution, 저작권법 제24조의2; root ADR-0281 §6).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_court_auction_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "court_auction": {
+      "type": "object",
+      "properties": {
+        "rounds": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "court_office_code": {
+                "type": "string"
+              },
+              "case_no": {
+                "type": "string"
+              },
+              "property_seq": {
+                "type": "integer"
+              },
+              "item_seq": {
+                "type": "integer"
+              },
+              "user_case_no": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "court_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "department_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "print_address_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "case_status_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "item_status_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "item_in_progress_yn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_lcls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_mcls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "usage_scls_code": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "appraisal_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "minimum_bid_price_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sale_amount_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "sale_date": {
+                "type": "string"
+              },
+              "sale_time_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sale_decision_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sale_place": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "failed_bid_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "attached_via": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "court_office_code",
+              "case_no",
+              "property_seq",
+              "item_seq",
+              "sale_date"
+            ]
+          }
+        },
+        "source_datasets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_attribution": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rounds",
+        "source_datasets",
+        "source_attribution"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "court_auction"
+  ]
+}
