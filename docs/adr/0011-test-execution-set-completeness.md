@@ -340,3 +340,5 @@ pre-push에서 몇 초 만에 끝나는 이유다. JSON 경로를 택하면 가�
 개정 각주(2026-10-28, 경로 이동): 본문이 가리키는 경로 중 지금 없는 것과 그 행방.
 
 - `scripts/verify/foundation-kafka-live.sh` → `cargo xtask live kafka`(`tools/xtask/src/live.rs`, #799)
+
+2026-11-05: `scripts/guard/no-adhoc-cargo-lint.sh` → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/cargo-goes-through-xtask.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 맡는다. 워크플로 `run:` 은 bash 로 읽어 주석·`echo`·파일 이름이 명령으로 읽히지 않는다. 결정은 그대로다.

@@ -84,12 +84,15 @@ before "fixing" anything.
 - Fix: liveness `/healthz`, readiness `/readyz`, metrics `/metrics`;
   dependency-specific diagnostics nest under `/readyz/<dep>` (ADR-0001 §5).
 
-### 7. no-adhoc-cargo-lint
+### 7. semgrep-rules `workflows-run-cargo-through-xtask` / `scripts-run-cargo-test-through-xtask`
 
-- Failing means: a `.github/workflows/` file runs a raw `cargo clippy` or
-  `cargo fmt` outside `cargo xtask`. That is exactly how the flags drifted
-  across areas (clippy `--all-features`/`--locked` mismatches) and broke
-  local/CI parity — the incident behind ADR-0004.
+- Failing means: a `.github/workflows/` step runs a raw `cargo clippy`,
+  `cargo fmt` or `cargo test`, or a `scripts/` shell script runs a raw
+  `cargo test`, outside `cargo xtask` (rule file
+  `tools/semgrep/rules/cargo-goes-through-xtask.yml`). That is exactly how the
+  flags drifted across areas (clippy `--all-features`/`--locked` mismatches)
+  and broke local/CI parity — the incident behind ADR-0004 — and how
+  identity's `live_provisioning` never ran (ADR-0011).
 - Fix: replace the raw `cargo fmt`/`cargo clippy`/`cargo test` trio with a
   single `cargo xtask verify <area>` step (run from the repo root, i.e.
   `working-directory: ${{ github.workspace }}` when the job defaults to an

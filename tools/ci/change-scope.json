@@ -374,13 +374,6 @@
         ]
       },
       {
-        "name": "no-adhoc-cargo-lint",
-        "paths": [
-          ".github/workflows/**",
-          "scripts/**"
-        ]
-      },
-      {
         "name": "foundation-parcel-current-selector-self-test",
         "paths": []
       },
