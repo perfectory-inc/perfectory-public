@@ -156,7 +156,7 @@ schema:
       - name: "source_part_id"
         physicalType: "string"
         logicalType: "string"
-        required: false
+        required: true
     quality:
       - type: "text"
         description: "area_row_id_not_null"

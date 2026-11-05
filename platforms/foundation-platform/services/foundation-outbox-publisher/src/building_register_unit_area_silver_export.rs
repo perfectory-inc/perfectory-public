@@ -19,7 +19,7 @@ use foundation_publisher_silver::silver_handoff_io::{open_sink, HandoffSink, Out
 use foundation_shared_kernel::pnu::SigunguCrosswalk;
 use lakehouse_application::building_register_row_identity::natural_key_occurrences;
 use lakehouse_application::{
-    building_register_unit_area_silver_row_to_jsonl,
+    building_register_unit_area_silver_part_row_to_jsonl,
     normalize_building_register_unit_area_silver_rows,
     parse_building_register_unit_area_source_row_from_hub_bulk_text_line_via, unit_area_key_rank,
     BuildingRegisterUnitAreaSilverRow, BuildingRegisterUnitAreaSilverRowsInput,
@@ -592,8 +592,10 @@ impl JsonlRowWriter {
 
     fn write_rows(&mut self, rows: &[BuildingRegisterUnitAreaSilverRow]) -> anyhow::Result<()> {
         for row in rows {
-            let jsonl = building_register_unit_area_silver_row_to_jsonl(row)
-                .context("failed to serialize building-register unit-area Silver row")?;
+            // A release written whole is one part, named by its run (root ADR-0391 addendum).
+            let jsonl =
+                building_register_unit_area_silver_part_row_to_jsonl(row, &row.source_snapshot_id)
+                    .context("failed to serialize building-register unit-area Silver row")?;
             self.write_line(jsonl.as_str())?;
         }
         Ok(())

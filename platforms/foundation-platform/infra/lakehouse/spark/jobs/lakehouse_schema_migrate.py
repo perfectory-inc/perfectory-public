@@ -63,6 +63,8 @@ BACKFILLS: dict[tuple[str, str], tuple[str, str]] = {
     ("silver.parcel_number_change_history", "source_region_code"): (
         "vworld_parcel_number_change_history", "source_region_code_column"),
     ("silver.unit_official_price", "vintage"): ("unit_official_price", "vintage_column"),
+    ("silver.building_register_unit_areas", "source_part_id"): (
+        "building_register_unit_areas_silver", "whole_run_part_column"),
 }
 
 

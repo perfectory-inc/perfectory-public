@@ -927,8 +927,9 @@ mod tests {
             .columns
             .iter()
             .map(|column| column.name)
-            // the removal column is the release compare's, never a source row's (root ADR-0318)
-            .filter(|name| *name != "row_state")
+            // the removal column is the release compare's, never a source row's (root ADR-0318);
+            // the part is the writer's, never the row's (root ADR-0391 addendum)
+            .filter(|name| !matches!(*name, "row_state" | "source_part_id"))
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
             record

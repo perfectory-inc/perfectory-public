@@ -3100,7 +3100,7 @@
         {
           "name": "source_part_id",
           "logical_type": "string",
-          "required": false
+          "required": true
         }
       ],
       "partition_spec": [
