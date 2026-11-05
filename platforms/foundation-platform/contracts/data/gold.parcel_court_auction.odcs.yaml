@@ -74,3 +74,4 @@ customProperties:
     value:
       - "reference.legal_dong_code_change"
       - "silver.court_auction_item"
+      - "silver.court_auction_item_photo"
