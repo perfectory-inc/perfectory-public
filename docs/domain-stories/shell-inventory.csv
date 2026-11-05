@@ -144,7 +144,7 @@ scripts/guard/by-pnu-document-records-are-append-only.sh,30,true,ci,xtask,Guard 
 scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/check-container-runtime-policy.sh,560,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/check-workflow-policy.sh,708,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-workflow-policy.sh,107,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/ci-time-budget-self-test.sh,10,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-images-match-the-contract-self-test.sh,58,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-images-match-the-contract.sh,13,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -239,7 +239,7 @@ scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard s
 scripts/guard/tracked-paths-are-portable-self-test.sh,53,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-paths-are-portable.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/unique-package-names.sh,18,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/workflow-policy-self-test.sh,677,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/workflow-policy-self-test.sh,723,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage.sh,39,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/zizmor-workflows-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI

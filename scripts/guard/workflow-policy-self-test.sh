@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Negative fixtures prove that normal named-step YAML cannot bypass the Action,
-# checkout, required-context, or terminal-job policy parser.
+# Negative fixtures prove that normal named-step YAML cannot bypass the Action, checkout,
+# required-context or terminal-job contracts (tools/conftest/workflow, root ADR-0422); the policy's
+# own Rego unit tests run first.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -17,6 +18,11 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
+
+if ! bash scripts/ci/conftest.sh verify --policy tools/conftest/workflow --no-color; then
+  echo "FAIL workflow-policy-self-test: a workflow policy unit test failed" >&2
+  exit 1
+fi
 
 mkdir -p "$test_root/valid"
 cat >"$test_root/ruleset.json" <<'JSON'
@@ -87,6 +93,18 @@ YAML
 
 "$checker" "$test_root/valid" "$test_root/ruleset.json" "$test_root/actions.json" >/dev/null
 
+# Root ADR-0422: the policy reads parsed YAML, so a spelling that parses to the same document as the
+# valid fixture is that document. These were refused only because the old line parser could not read
+# them; each now parses to a workflow with nothing wrong in it.
+expect_accepted() {
+  local label="$1"
+  local fixture="$2"
+  if ! "$checker" "$fixture" "$test_root/ruleset.json" "$test_root/actions.json"     --semantic-self-test >/dev/null 2>&1; then
+    echo "FAIL workflow-policy-self-test: rejected $label, which parses to a valid workflow" >&2
+    exit 1
+  fi
+}
+
 expect_rejected() {
   local label="$1"
   local fixture="$2"
@@ -149,7 +167,11 @@ sed 's/^          CHANGE_SCOPE_RUN:.*$/&\n          CHANGE_SCOPE_SKIPPED: ${{ ne
 }
 sed 's/^          CHANGE_SCOPE_SKIPPED:.*$/&\n&/' "$test_root/scoped-skip-list/example.yml" \
   >"$test_root/skip-list-twice/example.yml"
-expect_rejected skip-list-twice "$test_root/skip-list-twice"
+# A duplicated key is a YAML error, not a second value: actionlint (run before the policy) refuses it.
+if scripts/ci/actionlint.sh "$test_root/skip-list-twice" >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: actionlint accepted a duplicated CHANGE_SCOPE_SKIPPED" >&2
+  exit 1
+fi
 sed 's/^          REQUIRED_RESULT_BUILD:/          CHANGE_SCOPE_SKIPPED: ${{ needs.scope.outputs.skipped }}\n          REQUIRED_RESULT_BUILD:/' \
   "$test_root/valid/example.yml" >"$test_root/skip-list-without-scope/example.yml"
 expect_rejected skip-list-without-scope-job "$test_root/skip-list-without-scope"
@@ -203,7 +225,7 @@ expect_rejected yaml-extension "$test_root/yaml-extension"
 mkdir "$test_root/quoted-job"
 sed 's/^  build:$/  "build":/' "$test_root/valid/example.yml" \
   >"$test_root/quoted-job/example.yml"
-expect_rejected quoted-job-id "$test_root/quoted-job"
+expect_accepted quoted-job-id "$test_root/quoted-job"
 
 mkdir "$test_root/spaced-job-id"
 sed '/^  build:$/i\  hidden :\n    name: Hidden\n    runs-on: self-hosted\n    steps:\n      - run: echo hidden' \
@@ -243,12 +265,12 @@ expect_rejected quoted-content-write "$test_root/quoted-content-write"
 mkdir "$test_root/spaced-permissions-colon"
 sed 's/^permissions:$/permissions :/' \
   "$test_root/valid/example.yml" >"$test_root/spaced-permissions-colon/example.yml"
-expect_rejected spaced-permissions-colon "$test_root/spaced-permissions-colon"
+expect_accepted spaced-permissions-colon "$test_root/spaced-permissions-colon"
 
 mkdir "$test_root/yaml-anchor"
 sed 's/^  contents: read$/  contents: \&read_permission read/; s/^    name: Build$/    name: *read_permission/' \
   "$test_root/valid/example.yml" >"$test_root/yaml-anchor/example.yml"
-expect_rejected yaml-anchor-alias "$test_root/yaml-anchor"
+expect_accepted yaml-anchor-alias "$test_root/yaml-anchor"
 
 mkdir "$test_root/terminal-extra-step"
 sed '/      - name: Require every gate/i\      - run: echo bypass' \
@@ -376,22 +398,35 @@ expect_rejected local-action "$test_root/local-action"
 mkdir "$test_root/spaced-uses-colon"
 sed '0,/        uses: example\/tool/{s/        uses:/        uses :/}' \
   "$test_root/valid/example.yml" >"$test_root/spaced-uses-colon/example.yml"
-expect_rejected spaced-uses-colon "$test_root/spaced-uses-colon"
+expect_accepted spaced-uses-colon "$test_root/spaced-uses-colon"
 
 mkdir "$test_root/job-container"
 sed '0,/    runs-on: ubuntu-24.04/{s#    runs-on: ubuntu-24.04#    runs-on: ubuntu-24.04\n    container: ubuntu:latest#}' \
   "$test_root/valid/example.yml" >"$test_root/job-container/example.yml"
-expect_rejected mutable-job-container "$test_root/job-container"
+# A job container's image is pinned by zizmor's unpinned-images audit (scripts/guard/zizmor-workflows.sh).
+expect_zizmor_rejected() {
+  local output
+  if output="$(bash scripts/guard/zizmor-workflows.sh "$(pwd)" "$2" 2>&1)"; then
+    echo "FAIL workflow-policy-self-test: zizmor accepted $1" >&2
+    exit 1
+  fi
+  grep -q '\[unpinned-images\]' <<<"$output" || {
+    echo "FAIL workflow-policy-self-test: zizmor refused $1 without the unpinned-images audit" >&2
+    printf '%s\n' "$output" >&2
+    exit 1
+  }
+}
+expect_zizmor_rejected mutable-job-container "$test_root/job-container/example.yml"
 
 mkdir "$test_root/spaced-container-colon"
 sed '0,/    runs-on: ubuntu-24.04/{s#    runs-on: ubuntu-24.04#    runs-on: ubuntu-24.04\n    container : ubuntu:latest#}' \
   "$test_root/valid/example.yml" >"$test_root/spaced-container-colon/example.yml"
-expect_rejected spaced-container-colon "$test_root/spaced-container-colon"
+expect_zizmor_rejected spaced-container-colon "$test_root/spaced-container-colon/example.yml"
 
 mkdir "$test_root/tagged-permissions"
 sed 's/^  contents: read$/  contents: !!str read/' \
   "$test_root/valid/example.yml" >"$test_root/tagged-permissions/example.yml"
-expect_rejected tagged-permission-scalar "$test_root/tagged-permissions"
+expect_accepted tagged-permission-scalar "$test_root/tagged-permissions"
 
 mkdir "$test_root/unsafe-defaults"
 sed '/^jobs:$/i\defaults:\n  run:\n    shell: bash' \
@@ -452,7 +487,7 @@ expect_rejected scheduled-required-context "$test_root/scheduled-required"
 # The duplicate context alone would also fail; require the schedule rule to be the reason.
 scheduled_required_error="$("$checker" "$test_root/scheduled-required" "$test_root/ruleset.json" \
   "$test_root/actions.json" --semantic-self-test 2>&1 >/dev/null || true)"
-if [[ "$scheduled_required_error" != *'schedule-only workflow must not define a required'* ]]; then
+if [[ "$scheduled_required_error" != *'gates no pull request must not define a required'* ]]; then
   echo "FAIL workflow-policy-self-test: a schedule-only required context was not named" >&2
   exit 1
 fi

@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# Fail-closed parser for the deliberately small GitHub Actions YAML dialect used
-# by this repository. Ambiguous YAML shapes are rejected instead of guessed.
+# Repository contracts for the GitHub Actions workflows (root ADR-0422): actionlint checks the YAML
+# and the Actions schema, then the Rego policies in tools/conftest/workflow judge every workflow as
+# Conftest's YAML parser reads it — permission shapes, triggers, the terminal required/* job, area
+# working directories, contexts against the main ruleset, and third-party Actions against the
+# audited allowlist. General Actions security is zizmor's (scripts/guard/zizmor-workflows.sh).
 set -euo pipefail
 
 workflow_dir="${1:-.github/workflows}"
 ruleset="${2:-tools/github/main-ruleset.json}"
 selected_actions="${3:-tools/github/selected-actions.json}"
 self_test_mode="${4:-}"
+repository_root="$(cd "$(dirname "$0")/../.." && pwd)"
 
-for command_name in awk diff grep mktemp sed sort; do
+for command_name in mktemp python3 realpath; do
   command -v "$command_name" >/dev/null || {
     echo "FAIL workflow-policy: missing command '$command_name'" >&2
     exit 1
@@ -19,11 +23,9 @@ if [ ! -d "$workflow_dir" ] || [ ! -f "$ruleset" ] || [ ! -f "$selected_actions"
   exit 1
 fi
 
-# Use the purpose-built upstream parser for YAML/schema correctness; the
-# canonical dialect below adds repository-specific least-privilege semantics.
-# The negative-fixture harness parses its one valid fixture once, then exercises
-# this semantic layer without launching actionlint dozens of times. That mode is
-# admitted only for fixture/policy paths sharing one external temporary root.
+# The self-test parses its one valid fixture through actionlint once, then exercises the policy
+# without launching actionlint for every fixture. That mode is admitted only for fixture and policy
+# paths sharing one external temporary root.
 if [ -n "$self_test_mode" ]; then
   [ "$self_test_mode" = --semantic-self-test ] || {
     echo "FAIL workflow-policy: unknown fourth argument" >&2
@@ -32,683 +34,74 @@ if [ -n "$self_test_mode" ]; then
   fixture_root="$(dirname "$(realpath "$ruleset")")"
   workflow_real="$(realpath "$workflow_dir")"
   actions_root="$(dirname "$(realpath "$selected_actions")")"
-  repository_root="$(cd "$(dirname "$0")/../.." && pwd)"
   case "$workflow_real" in "$fixture_root"/*) ;; *) exit 2 ;; esac
   if [ "$actions_root" != "$fixture_root" ] || [ "$fixture_root" = "$repository_root" ]; then
     echo "FAIL workflow-policy: semantic self-test paths are not isolated fixtures" >&2
     exit 2
   fi
 else
-  bash "$(dirname "$0")/../ci/actionlint.sh" "$workflow_dir" >/dev/null
+  bash "$repository_root/scripts/ci/actionlint.sh" "$workflow_dir" >/dev/null
 fi
 
-# The admitted defaults.run.working-directory values are the area dirs; the registry writes one
-# area object per line, so sed reads it without a JSON parser.
-area_dirs="$(sed -n 's/.*"dir": "\([^"]*\)".*/\1/p' "$(dirname "$0")/../../tools/areas.contract.json" | tr '\n' ' ')"
-if [ -z "${area_dirs// /}" ]; then
-  echo "FAIL workflow-policy: tools/areas.contract.json lists no area dirs" >&2
-  exit 1
-fi
+# Conftest is a native binary: on Windows it needs native paths, not the shell's /c/... form.
+native() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
 
 shopt -s nullglob
-workflows=("$workflow_dir"/*.yml "$workflow_dir"/*.yaml)
+workflows=()
+for workflow in "$workflow_dir"/*.yml "$workflow_dir"/*.yaml; do
+  workflows+=("$(native "$(realpath "$workflow")")")
+done
 if [ "${#workflows[@]}" -eq 0 ]; then
   echo "FAIL workflow-policy: no workflow files found in $workflow_dir" >&2
   exit 1
 fi
 
-expected_contexts="$(mktemp)"
-actual_contexts="$(mktemp)"
-expected_actions="$(mktemp)"
-actual_actions="$(mktemp)"
-all_uses="$(mktemp)"
-cleanup() {
-  rm -f -- "$expected_contexts" "$actual_contexts" "$expected_actions" \
-    "$actual_actions" "$all_uses"
-}
-trap cleanup EXIT
+# Conftest loads a data file by its extension, so the context is a `.json` file.
+context_dir="$(mktemp -d)"
+trap 'rm -rf -- "$context_dir"' EXIT
+context="$context_dir/context.json"
+python3 - "$repository_root/tools/areas.contract.json" "$ruleset" "$selected_actions" >"$context" <<'PY'
+import json
+import re
+import sys
 
-grep -oE '"context"[[:space:]]*:[[:space:]]*"required/[^"]+"' "$ruleset" \
-  | sed -E 's/.*"(required\/[^"]+)"/\1/' \
-  | sort >"$expected_contexts"
+areas, ruleset, selected = sys.argv[1:4]
 
-for workflow in "${workflows[@]}"; do
-  if grep -n $'\t' "$workflow" >/dev/null; then
-    echo "FAIL workflow-policy: tabs are forbidden in workflow YAML: $workflow" >&2
-    exit 1
-  fi
 
-  # Flow maps, explicit/quoted keys, anchors/aliases, and job containers can
-  # hide security-sensitive keys from a line-oriented canonical parser.
-  noncanonical_yaml="$(grep -En \
-    '^[[:space:]]*[?:]([[:space:]]|$)|^[[:space:]]*-[[:space:]]*[\[{]|^[[:space:]]*-[[:space:]]*if:|^[[:space:]]*["'\''][^"'\'']+["'\'']:[[:space:]]*|^[[:space:]]*[A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*\{|^[[:space:]]*(on|jobs|permissions|steps|runs-on|uses|with|container|services):[[:space:]]*[\[{]|(^|[[:space:]])[&*][A-Za-z_][A-Za-z0-9_-]*([[:space:]]|$)|^[[:space:]]*<<:|^    container:' \
-    "$workflow" || true)"
-  if [ -n "$noncanonical_yaml" ]; then
-    echo "FAIL workflow-policy: noncanonical security-relevant YAML in $workflow:" >&2
-    printf '%s\n' "$noncanonical_yaml" >&2
-    exit 1
-  fi
+def contexts(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "context" and isinstance(value, str) and value.startswith("required/"):
+                yield value
+            else:
+                yield from contexts(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from contexts(item)
 
-  spaced_security_key="$(grep -En \
-    '^[ ]{0,10}(-[ ]+)?[A-Za-z_][A-Za-z0-9_-]*[ ]+:' \
-    "$workflow" || true)"
-  if [ -n "$spaced_security_key" ]; then
-    echo "FAIL workflow-policy: workflow mapping keys require canonical key: spacing in $workflow:" >&2
-    printf '%s\n' "$spaced_security_key" >&2
-    exit 1
-  fi
-  tagged_security_value="$(grep -En \
-    '^[[:space:]]*(-[[:space:]]+)?(permissions|actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses|continue-on-error|if|uses|container|services|image):[[:space:]]*!' \
-    "$workflow" || true)"
-  if [ -n "$tagged_security_value" ]; then
-    echo "FAIL workflow-policy: explicit YAML tags are forbidden on security values in $workflow:" >&2
-    printf '%s\n' "$tagged_security_value" >&2
-    exit 1
-  fi
 
-  # Permission maps are intentionally tiny: one top-level contents: read map,
-  # plus optional job-level copies of that same least-privilege map. One exception (root
-  # ADR-0271): the daily advisory workflow, schedule-only, may add issues: write to a job-level map
-  # so its last job keeps one issue in step with main; no other permission and no other file.
-  issue_writer=0
-  if [ "$(basename "$workflow")" = dependency-advisories.yml ] && awk '
-    /^on:[[:space:]]*$/ { in_on=1; next }
-    in_on && /^[^[:space:]]/ { in_on=0 }
-    in_on && /^  [A-Za-z0-9_-]+:/ {
-      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
-      if (key == "schedule") schedule++
-      else if (key != "workflow_dispatch") other++
-    }
-    END { exit (schedule == 1 && !other) ? 0 : 1 }
-  ' "$workflow"; then
-    issue_writer=1
-  fi
-  # A second (root ADR-0276 §3, §5, §9): the release build, on push to main and workflow_dispatch
-  # only, may add id-token: write and attestations: write, and packages: write beside them, to one
-  # job-level map, so that job can sign the release with a Sigstore keyless provenance attestation
-  # and push it to the repository's package with its own GITHUB_TOKEN. No other file, trigger or
-  # permission.
-  release_signer=0
-  if [ "$(basename "$workflow")" = foundation-release-build.yml ] && awk '
-    /^on:[[:space:]]*$/ { in_on=1; next }
-    in_on && /^[^[:space:]]/ { in_on=0 }
-    in_on && /^  [A-Za-z0-9_-]+:/ {
-      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
-      if (key == "push") push++
-      else if (key != "workflow_dispatch") other++
-      next
-    }
-    in_on && /^    branches:[[:space:]]*\[main\][[:space:]]*$/ { main_only++; next }
-    in_on && /^    / { other++ }
-    END { exit (push == 1 && main_only == 1 && !other) ? 0 : 1 }
-  ' "$workflow"; then
-    release_signer=1
-  fi
-  # A third (root ADR-0269): the daily cache budget, schedule-only, may add actions: write to a
-  # job-level map so it deletes the cache keys a newer key replaced. The runner-failure re-run
-  # (root ADR-0421), also schedule-only, may add the same grant to re-run a run whose failed jobs
-  # reached no failed step. No other file or permission.
-  cache_pruner=0
-  case "$(basename "$workflow")" in
-    ci-cache-budget.yml|rerun-runner-failures.yml) actions_writer_file=1 ;;
-    *) actions_writer_file=0 ;;
-  esac
-  if [ "$actions_writer_file" = 1 ] && awk '
-    /^on:[[:space:]]*$/ { in_on=1; next }
-    in_on && /^[^[:space:]]/ { in_on=0 }
-    in_on && /^  [A-Za-z0-9_-]+:/ {
-      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
-      if (key == "schedule") schedule++
-      else if (key != "workflow_dispatch") other++
-    }
-    END { exit (schedule == 1 && !other) ? 0 : 1 }
-  ' "$workflow"; then
-    cache_pruner=1
-  fi
-  # A fourth (root ADR-0294): the Rust CI workflow may reference exactly the three R2 compiler-cache
-  # secrets — the endpoint (a secret only because public-repository-safety forbids an account-specific
-  # R2 binding in the clear) and the read-write key pair. A same-repo branch's jobs see them and share
-  # the cache; a fork pull request gets none. No other secret, variable or OIDC channel, and these
-  # names in no other file.
-  sccache_writer=0
-  if [ "$(basename "$workflow")" = foundation-ci.yml ]; then
-    sccache_writer=1
-  fi
-  awk -v file="$workflow" -v issue_writer="$issue_writer" -v release_signer="$release_signer" -v cache_pruner="$cache_pruner" '
-    function indentation(line, copy) {
-      copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
-    }
-    function fail(message) {
-      print "FAIL workflow-policy: " file ": " message > "/dev/stderr"; failed=1
-    }
-    function finish_permissions() {
-      if (child_count != 1 + has_issues_write + has_id_token + has_attestations + has_packages + has_actions_write || !has_contents_read) {
-        fail("permissions must contain exactly contents: read")
-      }
-      if (has_id_token != has_attestations) fail("a signing job takes id-token: write and attestations: write together")
-      if (has_packages && !has_id_token) fail("only the signing job may write the release package")
-      if (has_id_token && signing_jobs++) fail("only one job may sign the release")
-      in_permissions=0; base=-1; child_count=0; has_contents_read=0; has_issues_write=0
-      has_id_token=0; has_attestations=0; has_packages=0; has_actions_write=0
-    }
-    {
-      current=indentation($0)
-      if (in_permissions && $0 !~ /^[[:space:]]*($|#)/ && current <= base) {
-        finish_permissions()
-      }
-      if (in_permissions && $0 !~ /^[[:space:]]*($|#)/) {
-        if (current != base + 2) {
-          fail("permissions contains unsupported nesting")
-        } else {
-          child_count++
-          if ($0 ~ /^[[:space:]]*contents:[[:space:]]*read[[:space:]]*$/) {
-            if (has_contents_read++) fail("duplicate contents permission")
-          } else if (issue_writer && base == 4 && $0 ~ /^[[:space:]]*issues:[[:space:]]*write[[:space:]]*$/) {
-            if (has_issues_write++) fail("duplicate issues permission")
-          } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*id-token:[[:space:]]*write[[:space:]]*$/) {
-            if (has_id_token++) fail("duplicate id-token permission")
-          } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*attestations:[[:space:]]*write[[:space:]]*$/) {
-            if (has_attestations++) fail("duplicate attestations permission")
-          } else if (cache_pruner && base == 4 && $0 ~ /^[[:space:]]*actions:[[:space:]]*write[[:space:]]*$/) {
-            if (has_actions_write++) fail("duplicate actions permission")
-          } else if (release_signer && base == 4 && $0 ~ /^[[:space:]]*packages:[[:space:]]*write[[:space:]]*$/) {
-            if (has_packages++) fail("duplicate packages permission")
-          } else {
-            fail("permissions may grant only literal contents: read")
-          }
-        }
-        next
-      }
-      if ($0 ~ /^permissions:[[:space:]]*$/ || $0 ~ /^    permissions:[[:space:]]*$/) {
-        if ($0 ~ /^permissions:/ && top_permissions++) fail("must define one top-level permissions map")
-        in_permissions=1; base=current; next
-      }
-      if ($0 ~ /^[[:space:]]*permissions[[:space:]]*:/) {
-        fail("permissions uses unsupported indentation or inline value")
-      }
-    }
-    END {
-      if (in_permissions) finish_permissions()
-      if (top_permissions != 1) fail("must define exactly one top-level permissions map")
-      exit failed ? 1 : 0
-    }
-  ' "$workflow"
-
-  # Defaults are useful for this monorepo's area-scoped workflows, but only the
-  # literal defaults.run.working-directory form is admitted. Shell defaults,
-  # expressions, extra children, and alternative indentation fail closed.
-  awk -v file="$workflow" -v area_dirs="$area_dirs" '
-    function indentation(line, copy) {
-      copy=line; sub(/[^ ].*$/, "", copy); return length(copy)
-    }
-    function fail(message) {
-      print "FAIL workflow-policy: " file ": " message > "/dev/stderr"; failed=1
-    }
-    function finish_defaults() {
-      if (state != 3) fail("defaults must contain exactly run.working-directory")
-      state=0; base=-1
-    }
-    function allowed_directory(value,    count, i, dirs) {
-      count=split(area_dirs, dirs, " ")
-      for (i = 1; i <= count; i++) if (value == dirs[i]) return 1
-      return 0
-    }
-    {
-      current=indentation($0)
-      if (state && $0 !~ /^[[:space:]]*($|#)/ && current <= base) finish_defaults()
-      if (state == 1 && current == base + 2 && $0 ~ /^[[:space:]]*run:[[:space:]]*$/) {
-        state=2; next
-      }
-      if (state == 2 && current == base + 4 && $0 ~ /^[[:space:]]*working-directory:[[:space:]]*/) {
-        value=$0; sub(/^[[:space:]]*working-directory:[[:space:]]*/, "", value)
-        sub(/[[:space:]]+$/, "", value)
-        if (!allowed_directory(value)) fail("defaults working-directory is not an admitted literal area path")
-        state=3; next
-      }
-      if (state && $0 !~ /^[[:space:]]*($|#)/) {
-        if (current > base) { fail("unsupported defaults child"); next }
-      }
-      if ($0 ~ /^defaults:[[:space:]]*$/ || $0 ~ /^    defaults:[[:space:]]*$/) {
-        if ($0 ~ /^defaults:/ && top_defaults++) fail("duplicate top-level defaults")
-        state=1; base=current; next
-      }
-      if ($0 ~ /^[[:space:]]+defaults:/ && $0 !~ /^    defaults:[[:space:]]*$/) {
-        fail("defaults uses unsupported indentation or inline value")
-      }
-    }
-    END { if (state) finish_defaults(); exit failed ? 1 : 0 }
-  ' "$workflow"
-
-  write_grants="$(grep -En '^[[:space:]]*permissions:[[:space:]]*write-all([[:space:]]|$)|^[[:space:]]+(actions|attestations|checks|contents|deployments|discussions|id-token|issues|models|packages|pages|pull-requests|security-events|statuses):[[:space:]]*write([[:space:]]|$)' \
-    "$workflow" || true)"
-  if [ "$issue_writer" = 1 ]; then
-    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      issues: write$' || true)"
-  fi
-  if [ "$release_signer" = 1 ]; then
-    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      (id-token|attestations|packages): write$' || true)"
-  fi
-  if [ "$cache_pruner" = 1 ]; then
-    write_grants="$(printf '%s\n' "$write_grants" | grep -Ev '^[0-9]+:      actions: write$' || true)"
-  fi
-  if [ -n "$write_grants" ]; then
-    echo "FAIL workflow-policy: public workflows must not grant write permissions: $workflow" >&2
-    exit 1
-  fi
-  if grep -En '^[[:space:]]*(-[[:space:]]+)?continue-on-error:' "$workflow" >/dev/null; then
-    echo "FAIL workflow-policy: required workflows must not continue on error: $workflow" >&2
-    exit 1
-  fi
-
-  private_context_or_oidc_refs="$(awk '
-    /\$\{\{/ { in_expression=1 }
-    in_expression && /(^|[^[:alnum:]_])secrets([^[:alnum:]_]|$)/ { print NR ":" $0 }
-    in_expression && /(^|[^[:alnum:]_])vars([^[:alnum:]_]|$)/ { print NR ":" $0 }
-    /\}\}/ { in_expression=0 }
-    /ACTIONS_ID_TOKEN/ { print NR ":" $0 }
-  ' "$workflow")"
-  if [ "$sccache_writer" = 1 ] && [ -n "$private_context_or_oidc_refs" ]; then
-    # Drop a line whose every secrets.NAME token is one of the two admitted R2 cache-write keys and
-    # that names no variable or OIDC channel; any other reference keeps the line (and the failure).
-    private_context_or_oidc_refs="$(printf '%s\n' "$private_context_or_oidc_refs" | awk '
-      {
-        bad = 0
-        if ($0 ~ /(^|[^[:alnum:]_])vars([^[:alnum:]_]|$)/ || $0 ~ /ACTIONS_ID_TOKEN/) bad = 1
-        rest = $0
-        while (match(rest, /secrets\.[A-Za-z0-9_]+/)) {
-          token = substr(rest, RSTART, RLENGTH)
-          if (token != "secrets.SCCACHE_R2_ENDPOINT" && token != "secrets.SCCACHE_R2_ACCESS_KEY_ID" && token != "secrets.SCCACHE_R2_SECRET_ACCESS_KEY") bad = 1
-          rest = substr(rest, RSTART + RLENGTH)
-        }
-        if (bad) print
-      }
-    ')"
-  fi
-  if [ -n "$private_context_or_oidc_refs" ]; then
-    echo "FAIL workflow-policy: public workflows must not reference secrets, variables, or OIDC token channels: $workflow" >&2
-    exit 1
-  fi
-
-  # A report workflow triggered only by schedule and workflow_dispatch (root ADR-0203)
-  # gates no pull request, so it carries no PR trigger and no required/* context.
-  # Any other trigger beside those two puts it back under the required shape below.
-  scheduled_only="$(awk '
-    /^on:[[:space:]]*$/ { in_on=1; next }
-    in_on && /^[^[:space:]]/ { in_on=0 }
-    in_on && /^  [A-Za-z0-9_-]+:/ {
-      key=$0; sub(/^  /, "", key); sub(/:.*/, "", key)
-      if (key == "schedule") schedule++
-      else if (key != "workflow_dispatch") other++
-    }
-    END { print (schedule == 1 && !other) ? 1 : 0 }
-  ' "$workflow")"
-  # The release build (above) gates no pull request either: it builds what main already holds.
-  if [ "$release_signer" = 1 ]; then
-    scheduled_only=1
-  fi
-
-  # Every required workflow uses the same PR trigger shape. Push-only path
-  # filters remain allowed for cost, but PR filters/types cannot suppress checks.
-  # The same contexts must also report on merge_group, or a merge queue would
-  # wait forever for a check that never starts (root ADR-0155); the default
-  # checks_requested type is the only one GitHub sends, so no child is admitted.
-  awk -v file="$workflow" -v scheduled="$scheduled_only" '
-    function fail(message) {
-      print "FAIL workflow-policy: " file ": " message > "/dev/stderr"
-      failed=1
-    }
-    /^on:[[:space:]]*$/ { on_count++; next }
-    /^  pull_request:[[:space:]]*$/ { pull_count++; in_pull=1; in_merge=0; next }
-    /^  merge_group:[[:space:]]*$/ { merge_count++; in_merge=1; in_pull=0; next }
-    /^[^[:space:]]/ { in_pull=0; in_merge=0 }
-    in_pull && /^  [A-Za-z0-9_-]+:/ { in_pull=0 }
-    in_merge && /^  [A-Za-z0-9_-]+:/ { in_merge=0 }
-    in_pull && /^    branches:[[:space:]]*\[main\][[:space:]]*$/ { branch_count++; next }
-    in_pull && /^    [A-Za-z0-9_-]+:/ { fail("pull_request allows only branches: [main]") }
-    in_merge && /^    [A-Za-z0-9_-]+:/ { fail("merge_group admits no filter; it must run for every queued group") }
-    /^  merge_group:/ { fail("merge_group must use the canonical bare block form") }
-    END {
-      if (on_count != 1) fail("must use one canonical block-form on key")
-      if (scheduled) exit failed ? 1 : 0
-      if (pull_count != 1 || branch_count != 1) {
-        fail("must run on every pull request targeting main")
-      }
-      if (merge_count != 1) {
-        fail("must run on merge_group so the merge queue can require its context")
-      }
-      exit failed ? 1 : 0
-    }
-  ' "$workflow"
-
-  # Conditional steps are restricted to reviewed diagnostic/cleanup steps. A
-  # gate step cannot be silently changed to `if: false` and still report green.
-  # The shared Rust setup and its cache are skipped in a Foundation job whose
-  # scope selector left it unselected: those steps verify nothing, and a cache
-  # saved from an unselected run would store an empty target under the real key.
-  # pnpm and Node with its pnpm cache are skipped the same way when Foundation's suites job finds
-  # that a pull request reaches no suite (root ADR-0269): no store exists, and setup-node's post
-  # step would fail the job or save an empty store under the lockfile's key (#683).
-  # The pnpm store is restored on every ref and saved from main only (root ADR-0269): setup-node's
-  # own cache saved a copy under each merge-queue branch that no later run could read.
-  # The docs checks carry `!cancelled()` so one CI round reports every failing
-  # document check instead of stopping at the first; that condition only widens
-  # execution and the job still fails on any of them. The job-summary step
-  # renders the uncommitted document reports (root ADR-0176) even after a check failed.
-  # "Prepare npm advisory fix" runs only after the job has already failed and
-  # turns the OSV report into a patch artifact (root ADR-0158); it gates nothing.
-  # The pinned-release fill and save run only where a cache may be written, main and the daily
-  # run (root ADR-0197); they fill a cache the fetcher re-verifies on every read and gate nothing.
-  foundation_gate_if="\${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}"
-  main_only_if="\${{ github.ref == 'refs/heads/main' }}"
-  awk -v file="$workflow" -v foundation_gate="$foundation_gate_if" -v main_only="$main_only_if" \
-    -v cache_writer="github.event_name == 'push' || github.event_name == 'schedule'" '
-    function flush_step() {
-      if (step_if == "") return
-      allowed=(step_name == "Upload supply-chain artifacts" && step_if == "always()") \
-        || (step_name == "Clean Compose resources" && step_if == "always()") \
-        || (step_name == "Clean Kafka compose resources" && step_if == "always()") \
-        || (step_name == "Dump API log on failure" && step_if == "failure()") \
-        || (step_name == "Prepare npm advisory fix" && step_if == "failure()") \
-        || (step_name == "Upload Playwright report (on failure)" && step_if == "failure()") \
-        || (step_name == "Check generated public-data catalog" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check generated pipeline map and API example" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check documents" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Check ADR names, headings and numbers" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Publish document reports to the job summary" && step_if == "${{ !cancelled() }}") \
-        || (step_name == "Set up Rust" && step_if == foundation_gate) \
-        || (step_name == "Rust cache" && step_if == foundation_gate) \
-        || (step_name == "Set up pnpm" && step_if == foundation_gate) \
-        || (step_name == "Set up Node" && step_if == foundation_gate) \
-        || (step_name == "Locate pnpm store" && step_if == foundation_gate) \
-        || (step_name == "Restore pnpm store" && step_if == foundation_gate) \
-        || (step_name == "Save pnpm store" && step_if == main_only) \
-        || (step_name == "Save sqlx-cli" && step_if == main_only) \
-        || (step_name == "Fill pinned release binaries" && step_if == cache_writer) \
-        || (step_name == "Save pinned release binaries" && step_if == cache_writer)
-      if (!allowed) {
-        print "FAIL workflow-policy: " file ": conditional step is not allowlisted: " step_name " / " step_if > "/dev/stderr"
-        failed=1
-      }
-      step_if=""
-      step_name=""
-    }
-    /^    steps:[[:space:]]*$/ { in_steps=1; next }
-    in_steps && /^    [A-Za-z0-9_-]+:/ { flush_step(); in_steps=0 }
-    in_steps && /^      -([[:space:]]|$)/ { flush_step(); in_step=1 }
-    in_steps && in_step && /^      - name:[[:space:]]*/ {
-      step_name=$0; sub(/^      - name:[[:space:]]*/, "", step_name)
-    }
-    in_steps && in_step && /^        name:[[:space:]]*/ {
-      step_name=$0; sub(/^        name:[[:space:]]*/, "", step_name)
-    }
-    in_steps && in_step && /^        if:[[:space:]]*/ {
-      step_if=$0; sub(/^        if:[[:space:]]*/, "", step_if)
-    }
-    END { flush_step(); exit failed ? 1 : 0 }
-  ' "$workflow"
-
-  # Job names, dependencies, and the terminal result gate are parsed only from
-  # canonical indentation. Multi-job workflows have one exact terminal step.
-  awk -v file="$workflow" -v scheduled="$scheduled_only" '
-    function trim(value) {
-      sub(/^[[:space:]]+/, "", value)
-      sub(/[[:space:]]+$/, "", value)
-      return value
-    }
-    function fail(message) {
-      print "FAIL workflow-policy: " file ": " message > "/dev/stderr"
-      failed=1
-    }
-    /^jobs:[[:space:]]*$/ { in_jobs=1; next }
-    in_jobs && /^[^[:space:]]/ { in_jobs=0; in_steps=0; in_step=0 }
-    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ {
-      job=$0
-      sub(/^  /, "", job)
-      sub(/:[[:space:]]*$/, "", job)
-      if (seen_job[job]++) fail("duplicate job id " job)
-      job_count++
-      job_ids[job_count]=job
-      in_steps=0
-      in_step=0
-      next
-    }
-    in_jobs && job != "" && /^    name:[[:space:]]*/ {
-      value=$0; sub(/^    name:[[:space:]]*/, "", value); job_names[job]=trim(value); next
-    }
-    in_jobs && job != "" && /^    if:[[:space:]]*/ {
-      value=$0; sub(/^    if:[[:space:]]*/, "", value); job_ifs[job]=trim(value); next
-    }
-    in_jobs && job != "" && /^    needs:[[:space:]]*/ {
-      value=$0; sub(/^    needs:[[:space:]]*/, "", value); job_needs[job]=trim(value); next
-    }
-    in_jobs && job != "" && /^    runs-on:[[:space:]]*/ {
-      value=$0; sub(/^    runs-on:[[:space:]]*/, "", value); job_runners[job]=trim(value); next
-    }
-    in_jobs && job != "" && /^    strategy:[[:space:]]*/ { job_strategy[job]=1 }
-    in_jobs && job != "" && /^    env:[[:space:]]*$/ { job_env[job]=1 }
-    in_jobs && job != "" && /^    steps:[[:space:]]*$/ { in_steps=1; in_step=0; next }
-    in_steps && /^    [A-Za-z0-9_-]+:/ { in_steps=0; in_step=0 }
-    in_steps && /^      -([[:space:]]|$)/ {
-      in_step=1
-      step_count[job]++
-      if ($0 ~ /^      - [A-Za-z0-9_-]+:[[:space:]]*/) {
-        key=$0; sub(/^      - /, "", key); sub(/:.*/, "", key)
-        step_key_count[job SUBSEP key]++
-        if (key == "if") step_if_count[job]++
-        if (key == "uses") {
-          value=$0; sub(/^      - uses:[[:space:]]*/, "", value)
-          if (value ~ /^actions\/checkout@[0-9a-f]+([[:space:]]|$)/) checkout_uses[job]++
-        }
-        if (key == "with") checkout_with[job]++
-      }
-      if ($0 ~ /^      - run:[[:space:]]*/) {
-        run_count[job]++
-        value=$0; sub(/^      - run:[[:space:]]*/, "", value)
-        if (value == "bash scripts/ci/require-successful-needs.sh") exact_terminal_run[job]++
-      }
-    }
-    in_steps && in_step && /^        [A-Za-z0-9_-]+:[[:space:]]*/ {
-      key=$0; sub(/^        /, "", key); sub(/:.*/, "", key)
-      step_key_count[job SUBSEP key]++
-      if (key == "if") step_if_count[job]++
-      if (key == "with") checkout_with[job]++
-      if (key == "working-directory") {
-        value=$0; sub(/^        working-directory:[[:space:]]*/, "", value)
-        terminal_working_directory[job]=trim(value)
-      }
-      if (key == "run") {
-        run_count[job]++
-        value=$0; sub(/^        run:[[:space:]]*/, "", value)
-        if (value == "bash scripts/ci/require-successful-needs.sh") exact_terminal_run[job]++
-      }
-    }
-    in_steps && in_step && /^          [A-Z][A-Z0-9_]*:[[:space:]]*/ {
-      mapping=$0
-      # A scoped workflow (root ADR-0202) hands its scope answer to the result
-      # check; that one exact mapping is admitted beside the result mappings.
-      if (mapping ~ /^          CHANGE_SCOPE_RUN:[[:space:]]*\$\{\{[[:space:]]*needs\.scope\.outputs\.affected[[:space:]]*\}\}[[:space:]]*$/) {
-        scope_env_count[job]++
-        next
-      }
-      # Root ADR-0324: the jobs the scope job found with no work, the only ones it may skip.
-      if (mapping ~ /^          CHANGE_SCOPE_SKIPPED:[[:space:]]*\$\{\{[[:space:]]*needs\.scope\.outputs\.skipped[[:space:]]*\}\}[[:space:]]*$/) {
-        skipped_env_count[job]++
-        next
-      }
-      env_child_count[job]++
-      if (mapping ~ /^          REQUIRED_RESULT_[A-Z0-9_]+:[[:space:]]*\$\{\{[[:space:]]*needs\.[A-Za-z0-9_-]+\.result[[:space:]]*\}\}[[:space:]]*$/) {
-        env_name=mapping; sub(/^          /, "", env_name); sub(/:.*/, "", env_name)
-        need_id=mapping
-        sub(/^[^:]+:[[:space:]]*\$\{\{[[:space:]]*needs\./, "", need_id)
-        sub(/\.result[[:space:]]*\}\}[[:space:]]*$/, "", need_id)
-        if (result_env[job SUBSEP need_id] != "") fail("duplicate result mapping for " need_id)
-        result_env[job SUBSEP need_id]=env_name
-        result_mapping_count[job]++
-      }
-    }
-    END {
-      if (job_count == 0) fail("has no jobs")
-      for (i=1; i<=job_count; i++) {
-        candidate=job_ids[i]
-        if (job_runners[candidate] !~ /^(ubuntu-24[.]04|windows-2022)$/) {
-          fail("job " candidate " must use a literal trusted hosted runner")
-        }
-        if (job_names[candidate] ~ /^required\//) {
-          required_count++
-          required_job=candidate
-        }
-      }
-       if (scheduled) {
-         if (required_count != 0) fail("a schedule-only workflow must not define a required/* context")
-       } else if (required_count != 1) {
-         fail("must define exactly one job-level required/* context")
-       } else if (job_count == 1) {
-         if (job_ifs[required_job] != "") fail("single required job must not be conditional")
-       } else {
-        # Root ADR-0324: the terminal job of a scoped workflow runs unless its scope job succeeded and
-        # answered that the area is untouched; then it is skipped, which GitHub counts as passing.
-        if (seen_job["scope"]) {
-          if (job_ifs[required_job] != "${{ always() && (needs.scope.result != '\''success'\'' || needs.scope.outputs.affected == '\''true'\'') }}") {
-            fail("a scoped terminal job must use the exact if: of root ADR-0324")
-          }
-        } else if (job_ifs[required_job] != "${{ always() }}") fail("terminal job must use exact if: ${{ always() }}")
-        if (skipped_env_count[required_job] > (seen_job["scope"] ? 1 : 0)) {
-          fail("terminal step may pass CHANGE_SCOPE_SKIPPED once, and only with a scope job")
-        }
-        if (job_strategy[required_job]) fail("terminal job must not use a matrix strategy")
-        if (job_env[required_job]) fail("terminal job must not define job-level env")
-        if (step_count[required_job] != 2 || run_count[required_job] != 1 \
-          || exact_terminal_run[required_job] != 1 || checkout_uses[required_job] != 1 \
-          || checkout_with[required_job] != 1) {
-          fail("terminal job must have one checkout and one canonical result-check step")
-        }
-        if (step_if_count[required_job] != 0) fail("terminal result step must not be conditional")
-        if (step_key_count[required_job SUBSEP "name"] != 1 \
-          || step_key_count[required_job SUBSEP "env"] != 1 \
-          || step_key_count[required_job SUBSEP "working-directory"] != 1 \
-          || step_key_count[required_job SUBSEP "run"] != 1) {
-          fail("terminal step must contain exactly name, env, working-directory, and run keys")
-        }
-        if (terminal_working_directory[required_job] != ".") {
-          fail("terminal step must run from repository root")
-        }
-        for (composite in step_key_count) {
-          split(composite, parts, SUBSEP)
-          if (parts[1] == required_job \
-            && parts[2] != "name" && parts[2] != "env" && parts[2] != "run" \
-            && parts[2] != "working-directory" \
-            && parts[2] != "uses" && parts[2] != "with") {
-            fail("terminal step contains forbidden key " parts[2])
-          }
-        }
-
-        needs=job_needs[required_job]
-        if (needs !~ /^\[[A-Za-z0-9_, -]+\]$/) {
-          fail("terminal needs must use the canonical inline list")
-        } else {
-          sub(/^\[/, "", needs); sub(/\]$/, "", needs)
-          need_count=split(needs, raw_need, ",")
-          for (i=1; i<=need_count; i++) {
-            dependency=trim(raw_need[i])
-            if (dependency == "" || dependency == required_job || need_seen[dependency]++) {
-              fail("terminal needs contains an empty, self, or duplicate dependency")
-            }
-          }
-          for (i=1; i<=job_count; i++) {
-            dependency=job_ids[i]
-            if (dependency == required_job) continue
-            if (!need_seen[dependency]) fail("terminal job does not need " dependency)
-            expected_env=toupper(dependency); gsub(/-/, "_", expected_env)
-            expected_env="REQUIRED_RESULT_" expected_env
-            if (result_env[required_job SUBSEP dependency] != expected_env) {
-              fail("terminal result mapping drift for " dependency)
-            }
-          }
-          for (dependency in need_seen) {
-            if (!seen_job[dependency]) fail("terminal needs unknown job " dependency)
-          }
-          if (need_count != job_count - 1 \
-            || result_mapping_count[required_job] != job_count - 1 \
-            || env_child_count[required_job] != job_count - 1) {
-            fail("terminal result mappings must cover every non-terminal job exactly once")
-          }
-          if (scope_env_count[required_job] != (seen_job["scope"] ? 1 : 0)) {
-            fail("terminal step must pass CHANGE_SCOPE_RUN exactly when a scope job exists")
-          }
-        }
-      }
-      exit failed ? 1 : 0
-    }
-  ' "$workflow"
-
-  # Only canonical job/step uses keys are accepted; named steps are included.
-  unusual_uses="$(grep -En '^[[:space:]]*(-[[:space:]]*)?uses:' "$workflow" \
-    | grep -Ev '^[0-9]+:(    uses:|      - uses:|        uses:)' || true)"
-  if [ -n "$unusual_uses" ]; then
-    echo "FAIL workflow-policy: noncanonical uses key in $workflow:" >&2
-    printf '%s\n' "$unusual_uses" >&2
-    exit 1
-  fi
-  awk -v file="$workflow" '
-    /^(    uses:|      - uses:|        uses:)/ {
-      action=$0
-      sub(/^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*/, "", action)
-      sub(/[[:space:]]+#.*$/, "", action)
-      sub(/[[:space:]]+$/, "", action)
-      print action "\t" file ":" NR
-    }
-  ' "$workflow" >>"$all_uses"
-done
-
-sort -o "$actual_contexts" "$actual_contexts"
-# Derive contexts strictly from four-space job names, never from step names.
-for workflow in "${workflows[@]}"; do
-  awk '
-    /^jobs:[[:space:]]*$/ { in_jobs=1; next }
-    in_jobs && /^[^[:space:]]/ { in_jobs=0 }
-    in_jobs && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { in_job=1; next }
-    in_jobs && in_job && /^    name:[[:space:]]*required\// {
-      value=$0; sub(/^    name:[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value); print value
-    }
-  ' "$workflow"
-done | sort >"$actual_contexts"
-
-if ! diff -u "$expected_contexts" "$actual_contexts"; then
-  echo "FAIL workflow-policy: ruleset contexts and job-level workflow contexts drifted" >&2
-  exit 1
-fi
-if [ ! -s "$expected_contexts" ] \
-  || [ "$(uniq -d "$expected_contexts" | wc -l | tr -d ' ')" -ne 0 ]; then
-  echo "FAIL workflow-policy: required contexts must be non-empty and unique" >&2
+with open(areas, encoding="utf-8") as handle:
+    registry = json.load(handle)
+area_dirs = sorted({area["dir"] for area in registry.get("areas", []) if area.get("dir")})
+with open(ruleset, encoding="utf-8") as handle:
+    required = list(contexts(json.load(handle)))
+with open(selected, encoding="utf-8") as handle:
+    actions = sorted(set(re.findall(r'"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40})"', handle.read())))
+sys.stdout.reconfigure(newline="\n")
+json.dump({"context": {"area_dirs": area_dirs, "required_contexts": required,
+                       "selected_actions": actions}}, sys.stdout)
+PY
+if ! python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1]))["context"]["area_dirs"] else 1)' "$context"; then
+  echo "FAIL workflow-policy: tools/areas.contract.json lists no area dirs" >&2
   exit 1
 fi
 
-grep -oE '"[[:alnum:]_.-]+/[[:alnum:]_.-]+@[0-9a-f]{40}"' "$selected_actions" \
-  | tr -d '"' | sort -u >"$expected_actions"
-
-while IFS=$'\t' read -r action location; do
-  [ -n "$action" ] || {
-    echo "FAIL workflow-policy: empty uses value at $location" >&2
-    exit 1
-  }
-  case "$action" in
-    ./*)
-      echo "FAIL workflow-policy: local Actions are not admitted by the audited allowlist: $location" >&2
-      exit 1
-      ;;
-    # SHA and digest pinning of every Action and docker:// action is zizmor's `unpinned-uses`
-    # (scripts/guard/zizmor-workflows.sh); a docker:// action is not an allowlisted Action.
-    docker://*) continue ;;
-  esac
-  case "$action" in
-    actions/*|github/*) ;;
-    *) printf '%s\n' "$action" >>"$actual_actions" ;;
-  esac
-done <"$all_uses"
-
-sort -u -o "$actual_actions" "$actual_actions"
-if ! diff -u "$expected_actions" "$actual_actions"; then
-  echo "FAIL workflow-policy: selected third-party Action policy and workflow references drifted" >&2
+if ! bash "$repository_root/scripts/ci/conftest.sh" test --combine --no-color \
+  --policy tools/conftest/workflow --namespace workflow --data "$(native "$context")" \
+  "${workflows[@]}" >&2; then
+  echo "FAIL workflow-policy: a workflow breaks a repository contract (see the failures above)" >&2
   exit 1
 fi
-
 echo "OK workflow-policy"
