@@ -428,7 +428,7 @@ pub(in crate::remote_lakehouse_job) fn compare_arguments(
 
 /// `docker compose run --rm --no-deps` in this invocation's project: a one-off container Compose
 /// names `<project>-<service>-run-<id>`, never a fixed name another job's run also creates
-/// (2026-10-29, scripts/guard/batch-containers-are-run-scoped.sh).
+/// (2026-10-29, tools/semgrep/rules/batch-containers.yml).
 fn compose_run(runtime: &Runtime) -> Vec<String> {
     let release = runtime.release_root.to_string_lossy().into_owned();
     let compose_file = format!("{release}/compose.lakehouse.yml");

@@ -52,7 +52,7 @@ services:
     # one-off `run --rm --no-deps` container, which Compose names <project>-<service>-run-<id>.
     # As a dependency with a fixed name it was one container for every job, and the by-PNU bake
     # failed when the lakehouse migration created it first (2026-10-29, "container name already in
-    # use"; scripts/guard/batch-containers-are-run-scoped.sh).
+    # use"; tools/semgrep/rules/batch-containers.yml).
     profiles:
       - lakehouse-batch
     user: "${FOUNDATION_PLATFORM_LAKEHOUSE_UID:-185}:${FOUNDATION_PLATFORM_LAKEHOUSE_GID:-185}"

@@ -50,7 +50,7 @@ command -v python3 >/dev/null 2>&1 || {
   exit 1
 }
 
-python3 - "$root" "$name" <<'PY'
+python3 - "$root" "$name" "$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd -P; })" <<'PY'
 from __future__ import annotations
 
 import itertools
@@ -62,18 +62,19 @@ import sys
 
 ROOT = pathlib.Path(sys.argv[1]).resolve()
 NAME = sys.argv[2]
+GUARD_ROOT = pathlib.Path(sys.argv[3]).resolve()
+sys.path.insert(0, str(GUARD_ROOT / "scripts" / "ci"))
+import compose_model  # noqa: E402  (the guard's own repository, also for a fixture root)
+
+# What each service states (cap, log cap, restart, batch names) is the Rego in compose_host
+# (root ADR-0422), judged on the project as the pinned Compose merges it; this script adds the caps up.
+POLICY = GUARD_ROOT / "tools" / "conftest" / "compose"
 CONTRACT = "tools/host-memory-budget.contract.json"
 COMPOSE_NAME = re.compile(r"(?:docker-)?compose(?:[.-][a-z0-9_.-]+)?\.ya?ml")
 SIZE = re.compile(r"([0-9]+)([kmg])")
 PARAMETER_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
 REQUIRED_MEMORY = re.compile(r"\$\{([A-Z_][A-Z0-9_]*):\?[^${}\r\n]+\}([kmg])")
 UNIT = {"k": 1 << 10, "m": 1 << 20, "g": 1 << 30}
-LOG_CAP_REFERENCE = "*log-cap"
-LOG_CAP_ANCHOR = re.compile(
-    r'^x-log-cap: &log-cap\n  driver: json-file\n  options:\n    max-size: "[0-9]+m"\n    max-file: "[0-9]+"$',
-    re.M,
-)
-RESTARTS = {"unless-stopped", "always", "on-failure"}
 SKIP_DIRS = {".git", "node_modules", "target", ".next", ".venv", "dist"}
 
 errors: list[str] = []
@@ -146,84 +147,34 @@ def compose_files() -> list[str]:
     return sorted(found)
 
 
-def parse(relative: str) -> tuple[list[str], dict[str, dict]]:
-    """Reads the narrow compose shape this repository writes: two-space indentation."""
-    text = (ROOT / relative).read_text(encoding="utf-8")
-    includes: list[str] = []
-    services: dict[str, dict] = {}
-    section = None
-    service = None
-    key = None
-    dependency = None
-    for line in text.split("\n"):
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        top = re.match(r"^([A-Za-z0-9_.-]+):", line)
-        if top:
-            section, service, key = top.group(1), None, None
-            continue
-        if section == "include":
-            match = re.match(r"^  - path:\s*(\S+)", line)
-            if match:
-                included = (pathlib.PurePosixPath(relative).parent / match.group(1)).as_posix()
-                includes.append(os.path.normpath(included).replace(os.sep, "/"))
-            continue
-        if section != "services":
-            continue
-        match = re.match(r"^  ([A-Za-z0-9_.-]+):\s*$", line)
-        if match:
-            service = match.group(1)
-            services[service] = {"profiles": [], "waits_on_completion_of": [], "file": relative}
-            key = None
-            continue
-        if service is None:
-            continue
-        entry = services[service]
-        match = re.match(r"^    ([a-z_]+):\s*(.*)$", line)
-        if match:
-            key, value = match.group(1), match.group(2).strip()
-            if key in ("mem_limit", "restart", "image", "logging"):
-                entry[key] = value.strip("\"'")
-                if key == "logging":
-                    entry["logging_file"] = relative
-            continue
-        if key == "profiles":
-            match = re.match(r"^      - \s*(\S+)", line)
-            if match:
-                entry["profiles"].append(match.group(1).strip("\"'"))
-        elif key == "depends_on":
-            match = re.match(r"^      ([A-Za-z0-9_.-]+):\s*$", line)
-            if match:
-                dependency = match.group(1)
-            match = re.match(r"^        condition:\s*(\S+)", line)
-            if match and match.group(1) == "service_completed_successfully" and dependency:
-                entry["waits_on_completion_of"].append(dependency)
-    return includes, services
+def includes_of(relative: str) -> list[str]:
+    """The local files a Compose file includes, read from the file itself (normalization merges them)."""
+    try:
+        document = compose_model.raw(ROOT / relative)
+    except compose_model.ComposeError as error:
+        errors.append(f"{relative}: {error}")
+        return []
+    found = []
+    for entry in document.get("include") or []:
+        paths = entry if isinstance(entry, str) else (entry or {}).get("path", [])
+        for path in [paths] if isinstance(paths, str) else paths:
+            included = (pathlib.PurePosixPath(relative).parent / path).as_posix()
+            found.append(os.path.normpath(included).replace(os.sep, "/"))
+    return found
 
 
-def project_services(files: list[str], seen: set[str]) -> dict[str, dict]:
-    """Merges a project's files the way compose does: includes first, later files override."""
-    merged: dict[str, dict] = {}
+def place(files: list[str], seen: set[str]) -> bool:
+    """Marks a project's files and everything they include as placed; False if one is missing."""
+    present = True
     for relative in files:
         if not (ROOT / relative).is_file():
             errors.append(f"{CONTRACT}: names {relative}, which does not exist")
+            present = False
             continue
-        seen.add(relative)
-        includes, services = parse(relative)
-        for included, service in project_services(includes, seen).items():
-            merged.setdefault(included, service)
-        for service_name, service in services.items():
-            current = merged.setdefault(service_name, {"profiles": [], "waits_on_completion_of": []})
-            for field in ("mem_limit", "restart", "image", "logging", "logging_file"):
-                if field in service:
-                    current[field] = service[field]
-            # Errors point at the definition that names the image, where the cap belongs.
-            if "image" in service or "file" not in current:
-                current["file"] = service["file"]
-            if service["profiles"]:
-                current["profiles"] = service["profiles"]
-            current["waits_on_completion_of"] += service["waits_on_completion_of"]
-    return merged
+        if relative not in seen:
+            seen.add(relative)
+            place(includes_of(relative), seen)
+    return present
 
 
 try:
@@ -302,41 +253,50 @@ groups += [({"name": "not on " + host["name"], "files": entry["files"], "profile
            for entry in contract.get("not_on_host", [])]
 
 for project, on_host in groups:
-    services = project_services(project["files"], placed)
-    if on_host:
-        project_caps[project["name"]] = {
-            service_name: cap
-            for service_name, service in services.items()
-            if (cap := memory_cap(service.get("mem_limit", ""), parameters)) is not None
-        }
-    jobs = {dependency for service in services.values() for dependency in service["waits_on_completion_of"]}
+    if not place(project["files"], placed):
+        continue
+    label = project["name"]
+    try:
+        document = compose_model.model([ROOT / relative for relative in project["files"]], ["*"])
+        context = {"context": {
+            "parameters": sorted(parameters),
+            "on_host": on_host,
+            "active_profiles": project["profiles"] or [],
+        }}
+        model_path = compose_model.write_model(label, document)
+        for message in compose_model.judge(POLICY, "compose_host", model_path, context):
+            errors.append(f"project {label} ({', '.join(project['files'])}): {message}")
+    except compose_model.ComposeError as error:
+        errors.append(f"project {label} ({', '.join(project['files'])}): {error}")
+        continue
+    services = document.get("services") or {}
+    caps = {
+        service_name: cap
+        for service_name, service in services.items()
+        if (cap := memory_cap(str(service.get("mem_limit") or ""), parameters)) is not None
+    }
+    if not on_host:
+        continue
+    project_caps[label] = caps
+    jobs = {
+        dependency
+        for service in services.values()
+        for dependency, condition in (service.get("depends_on") or {}).items()
+        if (condition or {}).get("condition") == "service_completed_successfully"
+    }
     for service_name, service in sorted(services.items()):
-        where = service.get("file", project["files"][0])
-        if service.get("logging") != LOG_CAP_REFERENCE:
-            errors.append(f"{where}: service {service_name} does not name the file's log cap (logging: {LOG_CAP_REFERENCE})")
-        elif not LOG_CAP_ANCHOR.search((ROOT / service["logging_file"]).read_text(encoding="utf-8")):
-            errors.append(f"{service['logging_file']}: names {LOG_CAP_REFERENCE} but defines no x-log-cap anchor with max-size and max-file")
-        cap = memory_cap(service.get("mem_limit", ""), parameters)
+        cap = caps.get(service_name)
         if cap is None:
-            where = service.get("file", project["files"][0])
-            errors.append(
-                f"{where}: service {service_name} states no valid literal or contract-bound required mem_limit"
-                f" (project {project['name']})"
-            )
-            continue
-        if not on_host:
-            continue
-        active = not service["profiles"] or bool(set(service["profiles"]) & set(project["profiles"]))
-        if not active:
+            continue  # compose_host reported it
+        profiles = service.get("profiles") or []
+        if profiles and not set(profiles) & set(project["profiles"] or []):
             continue
         if service.get("restart") == "no" or service_name in jobs:
             if cap > largest_job[0]:
-                largest_job = (cap, f"{project['name']}/{service_name}")
+                largest_job = (cap, f"{label}/{service_name}")
             continue
-        if service.get("restart") not in RESTARTS:
-            errors.append(f"{where}: service {service_name} stays up on {host['name']} but does not restart (restart: unless-stopped)")
         standing_total += cap
-        report.append(f"  {gib(cap):>8}  {project['name']}/{service_name}")
+        report.append(f"  {gib(cap):>8}  {label}/{service_name}")
 
 for relative in compose_files():
     if relative in placed or any(relative.startswith(prefix) for prefix in outside):
