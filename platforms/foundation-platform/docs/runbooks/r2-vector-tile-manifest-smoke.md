@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # R2 Vector Tile Manifest Smoke
@@ -35,7 +35,8 @@ cargo run -p foundation-outbox-publisher --bin foundation-outbox-publisher -- sm
 ```
 
 테스트 러너에서 live R2 round-trip ignored test까지 실행하려면 추가로 opt-in 한다.
-이 값이 없으면 `cargo test -- --ignored` 를 돌려도 실제 R2 write/read/delete 는 skip 된다.
+이 값 없이 `--ignored` 로 돌리면 시험은 건너뛰지 않고 실패한다. 레인 실행은
+`cargo xtask integration foundation r2`(또는 `cargo xtask live r2-lakehouse`)가 opt-in 을 넣는다.
 
 ```bash
 export FOUNDATION_PLATFORM_R2_LIVE_SMOKE="1"
@@ -45,7 +46,8 @@ cargo test -p foundation-outbox --test r2_smoke_contract \
 
 성공 조건:
 
-- dedicated smoke object key에 write 성공
+- dedicated smoke object key에 write 성공(시험은 `gold/_smoke/foundation-platform-r2-smoke-<uuid>.json`
+  고유 키를 쓴다)
 - 같은 key에서 read 성공
 - read body가 write body와 byte-for-byte 동일
 - smoke object delete 성공
@@ -68,7 +70,7 @@ R2 자격증명이 없을 때도 DB outbox에서 active manifest를 다시 읽�
 write 요청을 만드는 경로는 검증할 수 있다.
 
 ```bash
-export DATABASE_URL="postgres://foundation_platform:foundation_platform_dev_2026@localhost:15434/foundation_platform"
+export DATABASE_URL="<platforms/foundation-platform/.env.local.example 형식의 로컬 DATABASE_URL>"
 cargo test -p foundation-outbox --test publish_roundtrip tick_publishes_active_vector_tile_manifest_pointer_from_catalog_outbox -- --ignored
 ```
 

@@ -2,7 +2,7 @@
 status: current
 owner: identity-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 워크로드 Identity 프로비저닝
@@ -52,8 +52,9 @@ ZITADEL subject를 커밋하거나 바인딩 파일에 권한을 복제하지 �
 6. chain이 성공한 뒤에만 Identity API와 policy worker를 시작한다.
 
 로컬 Compose 계약에서는 `.env.example`의 다섯 비밀번호 시크릿
-(`IDENTITY_{ADMIN,MIGRATOR,API,POLICY_WORKER,PROVISIONER}_PASSWORD`), point
-`IDENTITY_WORKLOAD_PRINCIPAL_BINDINGS_FILE` at a real local binding file, then run:
+(`IDENTITY_{ADMIN,MIGRATOR,API,POLICY_WORKER,PROVISIONER}_PASSWORD`)을 채우고
+`IDENTITY_WORKLOAD_PRINCIPAL_BINDINGS_FILE`이 실제 로컬 바인딩 파일을 가리키게 한 뒤 다음을 실행한다
+(`--` 앞은 compose 인자, 뒤는 모드다. 모드는 스크립트의 `case` 문이 정본이다).
 
 ```bash
 scripts/compose-smoke.sh -- start-all

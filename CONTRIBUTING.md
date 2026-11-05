@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: guide
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # 기여 안내

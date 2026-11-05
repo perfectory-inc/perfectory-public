@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Lakehouse Catalog Smoke
@@ -45,6 +45,10 @@ export FOUNDATION_PLATFORM_LAKEHOUSE_SMOKE_TABLE="silver.industrial_complexes"
 
 cargo test -p lakehouse-infrastructure --test lakehouse_live_smoke -- --ignored
 ```
+
+opt-in 이 없으면 이 ignored 시험은 건너뛰지 않고 실패한다. 레인으로 돌릴 때는
+`cargo xtask integration foundation lakehouse`, R2 와 함께 돌릴 때는 `cargo xtask live r2-lakehouse`
+([R2와 레이크하우스 실제 연결 확인](./r2-lakehouse-live-verification.md))가 opt-in 을 넣는다.
 
 성공 조건:
 

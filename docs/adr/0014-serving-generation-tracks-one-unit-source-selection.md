@@ -27,7 +27,7 @@ last_reviewed: 2026-07-30
 serving generation이 함께 올라간다.**
 
 이것은 컬럼이 존재하는 이유와 어긋난다.
-[구현 안내서](../guides/single-source-spatial-publication-implementation.md) Task 6 Step 5는 전역
+[구현 안내서](https://github.com/perfectory-inc/perfectory-public/blob/b785459c/docs/guides/single-source-spatial-publication-implementation.md) Task 6 Step 5는 전역
 manifest version 대신 단위별 `expected_serving_generation`을 CAS 키로 택했고, 근거는 이랬다 —
 같은 데이터 리비전으로 rollback하면 **보존된** release가 다시 활성화되므로 하나의
 `active_release_id`가 서로 다른 두 세대에서 선택될 수 있고, release id만으로는 그 두 상태를
@@ -120,3 +120,5 @@ same-data rollback을 표현할 수 없게 된다.
    실제 트랜잭션이 없으므로 실측이 아니다.
 2. **이어받은 단위가 정말 바뀌지 않았는지는 release id만으로 판단한다.** release 행이 불변이므로
    현재는 충분하다. release를 변경 가능하게 만드는 변경이 오면 이 전제가 깨진다.
+
+> 2026-11-05 개정 각주: 링크한 구현 안내서는 끝난 7월 계획이라 공개 트리에서 지웠다(ADR-0002 §3). 링크는 지우기 직전 커밋의 사본을 가리킨다.

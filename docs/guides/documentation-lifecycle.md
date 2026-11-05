@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: guide
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # 문서 운영 안내
@@ -84,19 +84,19 @@ last_reviewed: 2026-07-28
 
 ## 확인 명령
 
+검사 목록의 정본은 [`docs` 워크플로](../../.github/workflows/docs.yml)의 단계다. 여기에 목록을
+다시 적지 않는다 — 이 절이 목록을 적고 있던 동안 문서 래칫 시험
+(`scripts/catalog/test_documentation_ratchets.py`)이 빠져 있었다. 로컬에서는 그 단계의 `run:` 줄을
+그대로 실행한다. 가장 자주 쓰는 것은 다음 둘이다.
+
 ```bash
 python3 scripts/catalog/audit-documentation.py --check --strict
-python3 -m unittest scripts/catalog/test_audit_documentation.py -v
 python3 scripts/catalog/render-adr-index.py --check
-python3 -m unittest scripts/catalog/test_adr_index.py -v
-python3 -m unittest scripts/catalog/test_foundation_baseline.py -v
-python3 scripts/catalog/test_generated_docs_merge.py -v
-git diff --check
 ```
 
 `--strict`가 붙는다. 그것이 없으면 메타데이터 누락과 `doc_type` 어휘 검사가 지나간다.
-마지막 시험은 무관한 두 브랜치(인접 번호 ADR과 서로 다른 안내 문서)를 병합해 충돌이 없고
-병합본이 그대로 검사를 통과하는지 본다. 1~2분 걸리므로 pre-push 훅에는 없고 CI만 돈다. `docs.yml`이 도는 것과 같은 형태로 적어 로컬과 CI가 갈라지지 않게 한다.
+pre-push 훅(`lefthook.yml`의 `docs-integrity`)은 그 일부만 미리 돌린다.
+무관한 두 브랜치를 병합해 보는 `test_generated_docs_merge.py`는 1~2분 걸리므로 CI만 돈다.
 
 `audit-documentation.py --check`는 유지 문서에 한글 설명이 전혀 없거나 명백한 영문 서술 문장이
 남은 경우 실패시킨다. 계약·fixture

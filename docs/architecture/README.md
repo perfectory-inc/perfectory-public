@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 전역 아키텍처 문서

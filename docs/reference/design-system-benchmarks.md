@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: reference
-last_reviewed: 2026-07-31
+last_reviewed: 2026-11-05
 ---
 
 # 디자인시스템 벤치마킹 레퍼런스
@@ -694,7 +694,7 @@ AI 에이전트 문서 존재 · peer 의존성 · 패키지 매니저 감지.
 
 ### AI 연동
 
-- `init --features agents [--agent claude|cursor|codex]` → `AGENTS.md` / `.claude/CLAUDE.md` /
+- `init --features agents [--agent claude|cursor|codex]` → `AGENTS.md` / `<소비자 저장소>/.claude/CLAUDE.md` /
   `.cursorrules` 생성. 버전을 올린 뒤 다시 실행하면 제자리에서 갱신된다
 - 생성된 컨텍스트가 3단계 워크플로를 가르친다 — `template --list`로 유사 페이지를 찾고,
   `template <name> --skeleton`으로 구조를 보고, `component <Name>`으로 쓸 컴포넌트마다 props와 예제를 읽는다

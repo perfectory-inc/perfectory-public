@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Foundation Kafka outbox 실시간 계약
@@ -39,7 +39,7 @@ claim-check를 디코드하고 `bronze_object_key`로 fixture Bronze 객체를 �
 `cargo xtask live kafka` 가 고정된 Redpanda/Karapace 스택의 수명과 정리를 모두 담당한다.
 
 ```bash
-export DATABASE_URL='postgres://foundation_platform:foundation_platform_dev_2026@127.0.0.1:5432/foundation_platform'
+export DATABASE_URL='postgres://<user>:<password>@127.0.0.1:<port>/<migrated-disposable-db>'
 cargo xtask live kafka
 ```
 
@@ -54,7 +54,7 @@ cargo xtask live kafka
 다른 로컬 스택이 기본 포트·프로젝트 이름을 사용 중이면
 `INTELLIGENCE_TEST_KAFKA_HOST_PORT`, `INTELLIGENCE_TEST_KARAPACE_HOST_PORT`,
 `FOUNDATION_KAFKA_COMPOSE_PROJECT`를 지정한다. Docker·Postgres·broker·registry·토픽·스키마가
-없거나 테스트가 실패하면 스크립트는 0이 아닌 값을 반환한다. 필수 모드 실패를 성공한 skip으로
+없거나 테스트가 실패하면 명령은 0이 아닌 값을 반환한다. 필수 모드 실패를 성공한 skip으로
 바꾸지 않는다.
 
 Kafka 활성화에는 `FOUNDATION_PLATFORM_RUNTIME_ENV=local|ci|staging|production`도 필요하다.
@@ -64,7 +64,8 @@ broker, HTTPS Schema Registry, SSL/SASL_SSL도 요구한다.
 ## CI
 
 `.github/workflows/foundation-ci.yml`의 `kafka-integration` job은 고정된 PostGIS 서비스를
-준비하고 Foundation 마이그레이션을 실행한 뒤 같은 스크립트를 호출하며, `if: always()` 정리
+준비하고 운영 runner(`foundation-migrate`)로 Foundation 마이그레이션을 실행한 뒤 같은 명령
+(`cargo xtask live kafka`)을 호출하며, `if: always()` 정리
 단계를 가진다. 결과는 `required/foundation`에 포함되므로 실시간 Kafka 게이트의 skip·실패는
 워크플로를 막는다.
 

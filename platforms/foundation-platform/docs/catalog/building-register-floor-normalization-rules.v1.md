@@ -2,12 +2,12 @@
 status: current
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 건축물대장 층 정규화 규칙 v1
 
-상태: 초안
+상태: 현행(구현: `crates/normalization/foundation-normalization-domain/src/building_register_floor.rs`)
 소유: Foundation Platform
 범위:
 
@@ -47,7 +47,9 @@ hub.go.kr 벌크 TXT는 같은 의미의 고정 컬럼 위치에서 읽습니다
 
 ## Silver 출력 형태
 
-Silver handoff는 원본값과 정규화값을 같이 보존합니다.
+Silver handoff는 원본값과 정규화값을 같이 보존합니다. 열 목록과 타입의 정본은
+[`silver.building_register_floors` ODCS 계약](../../contracts/data/silver.building_register_floors.odcs.yaml)이며,
+아래는 규칙과 맞닿는 열의 의미만 적습니다.
 
 | 필드 | 의미 |
 |---|---|
@@ -61,7 +63,7 @@ Silver handoff는 원본값과 정규화값을 같이 보존합니다.
 | `floor_number` | 정규화된 층 번호. 지상/지하 모두 양수 번호로 저장 |
 | `floor_index` | 정렬/비교용 인덱스. 지상은 양수, 지하는 음수 |
 | `floor_display_ko` | 사람이 보는 표준 표시. 예: `지상 1층`, `지하 1층`, `옥탑 1층` |
-| `normalization_status` | `accepted`, `proposal_required`, `rejected` |
+| `normalization_status` | `accepted`, `proposal_required` |
 | `normalization_reason` | parser가 왜 그렇게 판단했는지 나타내는 reason code |
 | `bronze_object_key` | 원본 Bronze 객체 경로 |
 | `source_snapshot_id` | 원본 스냅샷 식별자 |
@@ -95,7 +97,7 @@ floor_display_ko = 지상 1층
 status           = accepted
 ```
 
-`flrNo`와 `flrNoNm`의 숫자가 다르면 자동 정규화하지 않습니다.
+`flrNo`와 `flrNoNm`의 숫자가 다르면 행 규칙만으로는 정규화하지 않습니다(R7의 동 단위 판정은 예외).
 
 ### R3. 지하층
 
@@ -134,7 +136,25 @@ floor_display_ko = 옥탑
 `각층`, 복수층 하층, 복수층 상층은 일반 지상/지하 층으로 강제로 바꾸지 않습니다. 원본 구조의
 의미를 별도 `floor_kind`로 보존합니다.
 
-### R6. AI 제안 대상
+### R6. 옥탑 구조물 라벨
+
+옥탑 계열 row의 라벨이 옥탑·옥상·지붕·탑 같은 구조물을 뜻하면, 라벨 숫자와 공급자 층번호가 달라도
+옥탑으로 받아들입니다(`accepted_rooftop_structure`). 옥탑 층 번호는 명목상이라 실제 층 충돌이 아니기
+때문입니다. 다락·계단 라벨은 이 규칙에서 제외합니다.
+
+### R7. 동 단위 증인 판정
+
+같은 건물(동)의 row를 묶은 뒤에만 쓰는 규칙입니다.
+
+- 행 하나의 숫자/라벨 충돌은 그 건물의 연속된 층 순서를 이루는 쪽(공급자 번호 또는 라벨 번호)을
+  고릅니다(`resolved_by_building_witness_majority`).
+- 다락 row는 표제부 지상층수와 관측된 번호 층 수를 비교해 최상층(`resolved_attic_as_top_floor`) 또는
+  옥탑(`resolved_attic_as_rooftop`)으로 분류합니다.
+- 증인이 맞지 않으면 기권하고 `proposal_required`로 남깁니다.
+
+reason code의 전체 목록은 위 구현 파일의 `BuildingRegisterFloorNormalizationReason`이 정본입니다.
+
+### R8. AI 제안 대상
 
 아래 조건은 자동 정규화하지 않고 `proposal_required`로 보냅니다.
 

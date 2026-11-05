@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # AI 주도 유지보수 운영 모델
@@ -19,9 +19,9 @@ last_reviewed: 2026-07-29
 
 이 모델은 다음과 같은 **기계 강제 운영**을 전제로 합니다.
 
-- 검증 SSOT `cargo xtask verify <area>`와 repository-owned guard
+- 검증 SSOT `cargo xtask verify <area>`(`tools/xtask`)와 repository-owned guard(`scripts/guard/`)
 - cargo-deny, gitleaks, SBOM 같은 공급망 게이트
-- SLO 정책 SSOT(`docs/observability/slo-policy.v1.example.json`)
+- SLO 정책 SSOT(`platforms/foundation-platform/docs/observability/slo-policy.v1.example.json`)
 - 관측성 규칙과 대시보드의 선언적 정의
 - 장애 유형별 runbook
 
@@ -64,11 +64,11 @@ patch/minor 의존성 범프, 문서-코드 드리프트 수정, Rust 소스에�
 | 듀티 | 주기 | AI가 자율로 | 소유자 승인 필요 |
 |------|------|------------|-----------------|
 | **의존성 봇 PR 처리** (cargo) | 매 평일 + PR 발생 시 | 봇 설정 선설치 → CI green 확인 → patch/minor & 마이그/auth/PII/event-schema 무관 확인 → 머지. lockfile-only 범프는 배치 | major 범프, 공개 API/OpenAPI/event 스키마 변경, cargo-deny 플래그, 컴파일에 코드변경 필요, deny.toml allow 밖 라이선스 |
-| **보안·공급망 스윕** | 매일(advisory) + 주간(gitleaks+SBOM) | cargo-deny/audit, syft SBOM 재생성, gitleaks, 정책 JSON과 diff. 깨끗한 in-policy 업그레이드는 fix PR | 깨끗한 경로 없는 live advisory, 신규 exploitable, gitleaks 적중 → 즉시 에스컬레이션. ignore 목록 무단 수정 절대 안 함 |
-| **SLO/알림/readiness** | 매일(합성) + 주간(드리프트) | live-readonly-smoke + k6 read smoke, /healthz·/readyz·/metrics 스크랩, 5xx·p95/p99·DB풀·outbox pending/retry·ingestion freshness·R2 에러를 SLO와 비교. 룰/대시보드가 SSOT와 드리프트하면 sync PR | 바뀐 Prometheus 룰/대시보드의 **프로덕션 배포**(runbook이 별도 ops 단계로 명시), SLO 완화, 실제 breach 알림 ack/snooze. 지속 breach = 사람 호출 |
+| **보안·공급망 스윕** | 매일(advisory) + 주간(gitleaks+SBOM) | cargo-deny·OSV-Scanner advisory, syft SBOM 재생성, gitleaks, 정책 JSON과 diff. 깨끗한 in-policy 업그레이드는 fix PR | 깨끗한 경로 없는 live advisory, 신규 exploitable, gitleaks 적중 → 즉시 에스컬레이션. ignore 목록 무단 수정 절대 안 함 |
+| **SLO/알림/readiness** | 매일(합성) + 주간(드리프트) | 읽기 전용 합성 smoke, /healthz·/readyz·/metrics 스크랩, 5xx·p95/p99·DB풀·outbox pending/retry·ingestion freshness·R2 에러를 SLO와 비교. 룰/대시보드가 SSOT와 드리프트하면 sync PR | 바뀐 Prometheus 룰/대시보드의 **프로덕션 배포**(runbook이 별도 ops 단계로 명시), SLO 완화, 실제 breach 알림 ack/snooze. 지속 breach = 사람 호출 |
 | **백업-복구 검증** (드릴) | 주간(throwaway 복구) + 매일(존재·신선도) | 최신 PG 백업·R2/Iceberg 스냅샷 존재·신선 확인 → 격리 throwaway DB로 복구 → 마이그상태·스키마계약 체크 + read smoke → 복구시간·무결성 기록 | 공유/프로덕션 리소스 대상 복구, 보존/스케줄 변경, 비용 절감용 백업 삭제. 드릴은 throwaway read-only |
 | **문서-코드 드리프트** | 주간 + 매 머지 PR(CI) | 계약/커버리지 가드레일 재실행(openapi/event-schema/runbook/ci-coverage/db-schema/pii), 파생 아티팩트 재생성. 문서가 stale면 doc-sync PR; 코드가 ADR-lock 계약에서 드리프트면 flag | 실제 계약/동작 변경(breaking OpenAPI/event diff, 신규 PII 필드, ADR과 모순되는 마이그). AI는 계약을 바꿔 "고치지" 않고 flag만 |
-| **고아 가드레일·경계 감시** | 주간 | 모든 `check-*` 서브커맨드가 테스트를 보유하고 ci.yml 에 배선됐는지 확인, 금지 crate 경계 누출 없음, 임시방편 마커(AGENTS.md §1)·LLM/MCP dep 없음, 아무것도 단언 안 하는 가드레일 없음. 떨어진 체크 재배선 PR | 가드레일을 **제거/약화**(복원과 반대)는 ADR + 소유자 탭 필요. AI는 고아를 자율 복원하되 은퇴는 절대 단독 안 함 |
+| **고아 가드레일·경계 감시** | 주간 | 모든 가드가 self-test를 보유하고 CI(`scripts/guard/monorepo-guard.sh`·영역 워크플로)에 배선됐는지 확인, 금지 crate 경계 누출 없음, 임시방편(AGENTS.md 최상위 원칙)·LLM/MCP dep 없음, 아무것도 단언 안 하는 가드레일 없음. 떨어진 체크 재배선 PR | 가드레일을 **제거/약화**(복원과 반대)는 ADR + 소유자 탭 필요. AI는 고아를 자율 복원하되 은퇴는 절대 단독 안 함 |
 
 ---
 
@@ -94,8 +94,8 @@ patch/minor 의존성 범프, 문서-코드 드리프트 수정, Rust 소스에�
 
 ## 5. 정직한 한계 — "AI가 알아서 유지보수"가 실제로 깨지는 곳
 
-1. **playbook 없는 새벽 3시 SEV1.** AI는 runbook된 경로(provider-outage,
-   lakehouse-incident, iceberg-rollback)와 *탐지*엔 탁월. 그러나 진짜 장애는 보통
+1. **playbook 없는 새벽 3시 SEV1.** AI는 runbook된 경로(provider-outage-and-quota,
+   lakehouse-incident-response, iceberg-snapshot-rollback)와 *탐지*엔 탁월. 그러나 진짜 장애는 보통
    runbook이 *예상 못 한* 케이스 — 롤백하면 정상 데이터도 잃는 부분 손상, "데이터
    손실인가 일시 blip인가"의 모호한 판단, 모든 선택지가 나쁜 cascade. AI는 사람을
    호출하고 **선을 지켜야**(자율 행동 멈춤, 증거 보존, 선택지 제시) 한다. 되돌릴 수

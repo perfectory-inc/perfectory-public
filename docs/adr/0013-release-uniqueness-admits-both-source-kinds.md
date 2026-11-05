@@ -36,7 +36,7 @@ publication unit 하나와 data revision 하나에 릴리스는 **정확히 하�
 유니크 제약이 그것을 금지한다.
 
 **추론이 아니라 실측이다.** 마이그레이션된 실제 데이터베이스가 두 번째 insert를 `23505`로
-거부했다. 이것이 [단일 출처 공개 구현 안내서](../guides/single-source-spatial-publication-implementation.md)
+거부했다. 이것이 [단일 출처 공개 구현 안내서](https://github.com/perfectory-inc/perfectory-public/blob/b785459c/docs/guides/single-source-spatial-publication-implementation.md)
 Task 6 Step 6에 구현이 없는 이유다 — 트랜잭션을 쓸 수 없었다.
 
 이 모순이 오래 살아남은 이유는 아무 검사도 그 지점을 보지 않았기 때문이다. 도메인 검증기는
@@ -146,3 +146,5 @@ revision이 달라지면 그 사실 자체가 거짓이 된다.
    > `fallback_release_id`를 쓰는 프로덕션 코드는 저장소에 없다(포트 정의와 테스트 두 곳뿐).
    > 정적 승격을 구현하는 변경이 이 순서를 함께 가져가야 하며, **그 변경 전에는 강제할 대상이
    > 없다.** 남은 일 목록에서 세지 말 것.
+
+> 2026-11-05 개정 각주: 링크한 구현 안내서는 끝난 7월 계획이라 공개 트리에서 지웠다(ADR-0002 §3). 링크는 지우기 직전 커밋의 사본을 가리킨다.

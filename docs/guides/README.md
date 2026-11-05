@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 전역 개발 안내
@@ -12,7 +12,5 @@ last_reviewed: 2026-07-29
 ## 문서
 
 - [문서 운영 안내](./documentation-lifecycle.md)
-- [단일 출처 공간 데이터 공개 구현 안내](./single-source-spatial-publication-implementation.md)
-  ([Task 8–13](./single-source-spatial-publication-implementation-tasks-8-13.md))
 
 영역별 실행법은 각 플랫폼의 `docs/guides/` 또는 `docs/runbooks/`에 둔다.

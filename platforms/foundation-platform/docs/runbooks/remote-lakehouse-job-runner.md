@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Remote Lakehouse Job Runner
@@ -23,6 +23,9 @@ control-plane에서 원격 Linux Spark/Trino 작업을 실행하고, Spark가 �
 
 ## 지원 Job
 
+정본 목록은 `crates/publisher/foundation-publisher-silver/src/remote_lakehouse_job.rs` 의 job 이름 파서다.
+지금 받는 이름은 다음과 같다. 아래 절은 smoke job 만 자세히 다룬다.
+
 ```text
 building_register_floors_smoke
 building_register_floors_handoff_smoke
@@ -30,6 +33,11 @@ building_register_floors_pipeline_smoke
 building_register_floors_pipeline_hub_smoke
 building_register_floors_pipeline_full
 building_register_units_pipeline_smoke
+building_register_units_pipeline_full
+building_register_units_proposals_full
+building_register_unit_areas_pipeline_smoke
+building_register_unit_areas_pipeline_full
+building_register_unit_floor_resolutions_full
 ```
 
 ### `building_register_floors_smoke`

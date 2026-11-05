@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: reference
-last_reviewed: 2026-08-14
+last_reviewed: 2026-11-05
 ---
 
 # 지식 검색·RAG 사례 레퍼런스

@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: README
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # perfectory 문서 지도
@@ -20,7 +20,9 @@ docs/
 ├── guides/                    전역 개발 안내
 ├── reference/                 전역 조회용 사실
 ├── roadmap/                   전역 작업 목록과 기반 목표·지표
+├── data-pipeline-map.md       데이터 전수 지도 (자동 생성)
 ├── glossary.md                전역 용어 정본
+├── public-data-catalog.md     공공데이터 문서 입구
 └── technology-stack.md        기술·버전·환경 기준
 ```
 
@@ -41,7 +43,7 @@ docs/
 
 ## 생성해서 보는 문서
 
-아래 셋은 PR마다 같은 합계 줄을 고쳐 서로 충돌했기 때문에 저장소에 두지 않습니다
+아래 넷은 PR마다 같은 합계 줄을 고쳐 서로 충돌했기 때문에 저장소에 두지 않습니다
 ([ADR-0176](./adr/0176-generated-docs-do-not-make-unrelated-prs-conflict.md)). 명령으로 출력하거나
 `main`의 `docs` 워크플로 실행 요약에서 봅니다.
 
