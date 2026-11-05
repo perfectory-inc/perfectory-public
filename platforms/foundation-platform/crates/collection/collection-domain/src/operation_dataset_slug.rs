@@ -11,8 +11,7 @@
 //! V-World NED / land-register producers can resolve a run's `operation` to its `dataset_slug` and
 //! then feed [`crate::source_slug`] — instead of each producer hand-writing the final slug literal.
 //!
-//! The human-facing SSOT remains `docs/catalog/bronze-source-slug-rename.v1.md` (§1.1 / §1.2) and the
-//! catalog JSON (`public-source-endpoint-catalog.v1.json`); a parity test asserts these code maps
+//! The SSOT is the catalog JSON (`public-source-endpoint-catalog.v1.json`); a parity test asserts these code maps
 //! equal the catalog's `(operation, dataset_slug)` pairs so the two cannot drift. (For V-World the
 //! catalog's `operation` field is already the canonical snake_case dataset name; the provider-native
 //! API operation that flows into the Bronze object key is distinct, so the V-World map below maps the

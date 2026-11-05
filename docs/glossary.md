@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: reference
-last_reviewed: 2026-08-05
+last_reviewed: 2026-11-05
 ---
 
 # 전역 용어집

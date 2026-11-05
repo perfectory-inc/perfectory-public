@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # V-World 수집 기능 계약

@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # API 교환 방향 계약
@@ -95,8 +95,9 @@ Examples:
 <!-- contract: outbox-fanout-push -->
 ### Outbox 전달은 밀어넣기(Push)
 
-Foundation은 `catalog.outbox_event`와 outbox publisher를 통해 커밋된 이벤트를 발행한다. 현재 전송은
-웹훅이다. 나중에 Kafka를 추가할 수 있지만 방향은 Foundation에서 구독자로 가는 Push로 유지한다.
+Foundation은 `catalog.outbox_event`와 outbox publisher를 통해 커밋된 이벤트를 발행한다. 전송은 Kafka가
+설정되어 있으면 Kafka(Avro claim-check), 아니면 서명된 웹훅이다([Kafka outbox 계약 런북](../runbooks/foundation-kafka-outbox-contract-test.md)).
+어느 쪽이든 방향은 Foundation에서 구독자로 가는 Push다.
 
 Outbox 이벤트는 커밋된 사실이나 내구성 있는 플랫폼 이벤트를 위한 것이다. 요청/응답 조회나 원천 수집이
 아니다.
@@ -125,11 +126,11 @@ dbt owns SQL modeling and SQL tests only.
 | Flow | Direction | Owner of Truth | Current Mechanism |
 |---|---|---|---|
 | Public data collection | Pull | Foundation Platform | provider clients, BronzeCommitter |
-| Gongzzang/Dawneer catalog lookup | Pull | Foundation Platform | service read APIs |
+| Gongzzang/Dawneer catalog lookup | Pull | Foundation Platform | 공개 조회 API, R2 엣지 묶음 |
 | AI normalization proposal submit | Push | Foundation Platform | `POST /internal/normalization/proposals` |
 | Product artifact registration | Push | Foundation Platform registry | `POST /internal/lakehouse/artifacts` |
 | Staff review/apply/rollback | Command push | Foundation Platform | staff/admin APIs |
-| Event fan-out | Push | Foundation Platform | `catalog.outbox_event` -> webhook, future Kafka |
+| Event fan-out | Push | Foundation Platform | `catalog.outbox_event` -> Kafka 또는 webhook |
 | SQL modeling | Pull/query | Foundation Platform | dbt -> Trino |
 
 ## 금지 사항

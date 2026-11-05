@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 원천 변경 감지 정책
@@ -53,18 +53,20 @@ content checksum이 새로 수집한 payload가 이전 콘텐츠와 같은지 �
 `provider_file_id`가 포함됨)에 Bronze 객체가 이미 있으면 fetch *전에* 다운로드 전체를
 생략하므로 수 GB 파일을 매번 다시 스트리밍하지 않는다.
 
-이 다운로드 전 생략이 올바른 이유는 이 공급자의 `provider_file_id`가 **콘텐츠에 대해 안정적**
-이기 때문이다. 새 콘텐츠를 발행할 때 공급자가 새 파일 ID를 부여한다(hub.go.kr은 발행 파일마다
-OPN ID를 부여하고, V-World 데이터셋 파일은 `{download_ds_id}-{file_no}`를 사용한다). 따라서
-변경된 byte는 항상 변경된 ID로 오며 이미 수집한 ID와 충돌하지 않는다. 빈 DB에서 처음 재수집할
-때는 이 생략이 발생하지 않는다.
+hub.go.kr은 발행 파일마다 새 OPN ID를 부여하므로 `provider_file_id`만으로 다운로드 전 생략이
+올바르다. V-World 데이터셋 파일(`{download_ds_id}-{file_no}`)은 그렇지 않다. 공급자가 같은 파일
+번호에 새 판을 올린다(루트 [ADR-0148](../../../../docs/adr/0148-cadastral-parcel-editions-are-held-side-by-side.md)).
+그래서 V-World 생략은 파일 번호에 더해 이미 가진 객체가 인벤토리가 적은 공급자 갱신일을 담고 있을
+때만 일어나며, 같은 번호의 새 바이트는 내용 해시를 담은 키로 따로 쓴다(루트
+[ADR-0152](../../../../docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md),
+[ADR-0168](../../../../docs/adr/0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md) §3).
+빈 DB에서 처음 재수집할 때는 이 생략이 발생하지 않는다.
 
-공급자가 변경된 byte에 기존 파일 ID를 재사용하면 다운로드 전 생략이 변경을 놓친다. 이때는
-opt-in 플래그 **`FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1`**를 사용한다. 설정하면 벌크 파일
-수집이 생략을 우회해 다시 다운로드하고, 위에서 말한 "전체 또는 hash 검증 스냅샷이 정확성
-기준"인 post-download content checksum을 다시 실행한다. 기본값은 off(기존 동작 유지)다.
-같은 콘텐츠는 같은 content-addressed 객체 키에 멱등 재기록하고, 다른 콘텐츠는 새 객체에
-기록한다.
+생략이 변경을 놓쳤다고 의심되면 opt-in 플래그 **`FOUNDATION_PLATFORM_BRONZE_FORCE_REFETCH=1`**를
+사용한다. 설정하면 벌크 파일 수집이 생략을 우회해 다시 다운로드하고, 위에서 말한 "전체 또는 hash
+검증 스냅샷이 정확성 기준"인 post-download content checksum을 다시 실행한다. 기본값은 off다.
+같은 콘텐츠면 객체를 다시 쓰지 않고 원장 행만 맞추며(버킷은 덮어쓰기를 거부한다), 다른 콘텐츠는
+새 객체에 기록한다.
 
 ## 저장소 정책
 
@@ -84,7 +86,7 @@ Bronze 저장소는 동일 콘텐츠의 중복 R2 쓰기를 피해야 한다.
 
 다운로드 실행은 공급자가 허용한 한도를 넘지 않으면서 충분히 활용해야 한다.
 
-- 중앙 provider lane scheduler를 사용한다.
+- 중앙 provider lane scheduler를 사용한다(한도 정본: [`provider-rate-policy.v1.json`](./provider-rate-policy.v1.json)).
 - job 병렬 실행은 그 scheduler를 통해서만 한다.
 - provider lane마다 AIMD token-bucket 제어를 사용한다.
 - 성공률과 latency가 정상일 때만 동시성을 높인다.

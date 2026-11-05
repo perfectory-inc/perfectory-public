@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: catalog
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # 공공데이터 문서 안내
@@ -16,7 +16,7 @@ last_reviewed: 2026-07-28
 | 사람이 읽는 전체 데이터 목록 | [Foundation 공공데이터 수집 카탈로그](../platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md) |
 | 정확한 endpoint·source slug·수집 허용 여부 | [공공 소스 endpoint 카탈로그](../platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json) |
 | 실행 레인과 기본 실행 여부 | [Bronze 수집 레인 레지스트리](../platforms/foundation-platform/docs/catalog/public-data-bronze-lane-registry.v1.json) |
-| 제공기관·데이터명·slug 매핑 | [Bronze source slug 매핑](../platforms/foundation-platform/docs/catalog/bronze-source-slug-rename.v1.md) |
+| slug 이름 규칙과 각 사실의 정본 | [Bronze source slug 규칙](../platforms/foundation-platform/docs/catalog/bronze-source-slug-rename.v1.md) |
 | 실행 게이트·운영 절차 | [공공데이터 Bronze 수집 런북](../platforms/foundation-platform/docs/runbooks/public-data-bronze-lane-orchestration.md) |
 
 ## 책임 경계

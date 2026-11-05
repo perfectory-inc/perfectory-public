@@ -2,7 +2,7 @@
 status: proposed
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 산업단지 SSOT 모델(제안)
@@ -23,11 +23,8 @@ last_reviewed: 2026-07-29
 산업단지를 기준으로 공통 데이터가 흩어지지 않게 만든다. `foundation-platform` Catalog 는
 산업단지의 단일 원장이고, `gongzzang` 과 `dawneer` 는 각자의 제품 데이터를 얹는다.
 
-핵심 규칙은 세 가지다.
-
-- 산업단지 자체에 붙는 사실과 운영 하위 리소스는 `foundation-platform` 가 소유한다.
-- 사이트마다 다르게 보이는 표현은 `dawneer` 가 소유한다.
-- 매물, 경매, 거래, 일반 사용자 행동은 `gongzzang` 이 소유한다.
+소유권 규칙(무엇을 누가 소유하는가)의 정본은 [ADR 0003](../adr/0003-industrial-complex-catalog-ssot.md)이다.
+아래 §2 는 그 규칙을 데이터 종류에 적용한 예시다.
 
 ## 2. 판단 기준
 
@@ -44,17 +41,18 @@ last_reviewed: 2026-07-29
 
 ## 3. Canonical Catalog 모델
 
-현재 M1 스키마에는 `industrial_complex`, `parcel`, `building`, `manufacturer`,
-`outbox_event` 가 있다. 다음 모델은 M3.2 write 이관 전까지 확장해야 할 목표다.
+표 정의의 정본은 `migrations/` 의 SQL 이다. 아래 §3.1·§3.2 의 표는 모두 Foundation 기준선
+마이그레이션(`migrations/20260719000001_foundation_platform_schema.sql`)에 있다. 필지·건물 사본
+(`catalog.parcel`, `catalog.building`)은 R2 엣지 묶음이 서비스하므로 은퇴했다
+([ADR-0194](../../../../docs/adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md)).
+여기서는 각 표의 역할만 적고, 필드 목록은 마이그레이션을 본다.
 
-### 3.1 Existing core
+### 3.1 Core
 
 | Entity | 역할 | 주요 필드 |
 |---|---|---|
 | `catalog.industrial_complex` | 산업단지 aggregate root | `id`, `official_complex_code`, `name`, `kind`, `primary_bjdong_code`, `area_m2`, `version`, `updated_at` |
-| `catalog.parcel` | 필지 (산업단지 소속은 별도 사실) | `id`, `pnu`, `kind`, `area_m2`, `version` |
 | `catalog.parcel_complex_membership` | 필지의 산단 소속, 기간을 가짐 | `parcel_id`, `complex_id`, `asserted_by`, `effective_period` |
-| `catalog.building` | 필지에 속한 건물 | `id`, `parcel_id`, `purpose_code`, `structure_code`, `floor_area_m2` |
 | `catalog.manufacturer` | 입주 제조사 | `id`, `primary_parcel_id`, `name`, `ksic_code` |
 | `catalog.outbox_event` | consumer cache 갱신 이벤트 | `event_id`, `type`, `payload`, `occurred_at`, `published_at` |
 
@@ -62,7 +60,7 @@ last_reviewed: 2026-07-29
 ([ADR-0250](../../../../docs/adr/0250-an-industrial-complex-has-one-id-derived-from-its-official-code.md)).
 은퇴한 UUIDv7 은 `catalog.industrial_complex_retired_id` 에 남는다.
 
-### 3.2 Required expansion
+### 3.2 Subobjects
 
 | Entity | Owner rule | 주요 필드 |
 |---|---|---|
@@ -142,8 +140,8 @@ DB/API 이름은 `object_key` 와 `objectKey` 를 쓴다. `s3_key`, `s3Key`, `S3
 
 ## 5. API Boundary
 
-초기 OpenAPI 는 complexes create/get 와 parcel kind update 만 가진다. SSOT 전환에는
-다음 API surface 가 필요하다.
+구현된 경로의 정본은 [`catalog.v1.json`](../openapi/catalog.v1.json) OpenAPI 다. 아래 표의
+`상태` 열은 그 OpenAPI 에 경로가 있는지를 뜻한다(2026-11-05 대조).
 
 ### 5.1 Read API
 
@@ -160,43 +158,47 @@ DB/API 이름은 `object_key` 와 `objectKey` 를 쓴다. `s3_key`, `s3Key`, `S3
 > 목록과 건물 조회도 **삭제됐다.** 필지·건물·호는 R2 엣지 묶음이 서비스한다 —
 > [ADR-0194](../../../../docs/adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md) §3.
 
-| Endpoint | Consumer | 설명 |
-|---|---|---|
-| `GET /catalog/v1/complexes/{id}` | 모두 | 산업단지 기본 정보 |
-| `GET /catalog/v1/complexes/{id}/notices` | Dawneer 중심 | 공지/고시 |
-| `GET /catalog/v1/complexes/{id}/attachments` | 모두 | 공식 첨부/이미지 |
-| `GET /catalog/v1/complexes/{id}/blueprints` | Dawneer 중심 | 도면 |
-| `GET /catalog/v1/complexes/{id}/spatial-layers` | Dawneer 중심 | 지도/도면 레이어 |
-| `GET /catalog/v1/vector-tiles/manifest` | Gongzzang 중심 | active static vector tile manifest |
-| `GET /catalog/v1/complexes/{id}/digital-twin-assets` | Dawneer 중심 | 3D asset |
-| `GET /catalog/v1/industry-groups` | 모두 | 업종 taxonomy |
-| `GET /catalog/v1/parcels/{id}/industry-assignments` | 모두 | 필지별 업종 배정 |
+| Endpoint | Consumer | 설명 | 상태 |
+|---|---|---|---|
+| `GET /catalog/v1/complexes/{id}` | 모두 | 산업단지 기본 정보 | 구현 |
+| `GET /catalog/v1/complexes/{id}/notices` | Dawneer 중심 | 공지/고시 | 구현 |
+| `GET /catalog/v1/complexes/{id}/attachments` | 모두 | 공식 첨부/이미지 | 구현 |
+| `GET /catalog/v1/complexes/{id}/blueprints` | Dawneer 중심 | 도면 | 구현 |
+| `GET /catalog/v1/complexes/{id}/spatial-layers` | Dawneer 중심 | 지도/도면 레이어 | 구현 |
+| `GET /catalog/v1/vector-tiles/manifest` | Gongzzang 중심 | active static vector tile manifest | 구현 |
+| `GET /catalog/v1/complexes/{id}/digital-twin-assets` | Dawneer 중심 | 3D asset | 구현 |
+| `GET /catalog/v1/industry-groups` | 모두 | 업종 taxonomy | 구현 |
+| `GET /catalog/v1/parcels/{id}/industry-assignments` | 모두 | 필지별 업종 배정 | 구현 |
 
 ### 5.2 Write API
 
 Write API 는 Staff 권한만 허용한다. Consumer 서비스가 자기 DB 를 원장처럼 갱신하는
 경로는 만들지 않는다.
 
-| Endpoint | 권한 | 설명 |
-|---|---|---|
-| `POST /catalog/v1/complexes` | Catalog admin | 산단 등록 |
-| `PATCH /catalog/v1/complexes/{id}` | Catalog admin | 산단 기본 정보 갱신 |
-| `PUT /catalog/v1/complexes/{id}/notices:bulk-upsert` | ETL/admin | 공지 upsert |
-| `POST /catalog/v1/file-assets` | Catalog admin | R2 object metadata 등록 |
-| `PUT /catalog/v1/complexes/{id}/blueprints` | Catalog admin | 도면 등록/교체 |
-| `PUT /catalog/v1/complexes/{id}/spatial-layers` | Catalog admin | 공간 레이어 등록/교체 |
-| `PUT /catalog/v1/vector-tiles/manifest:promote` | Catalog admin/ETL | 검증된 static vector tile manifest pointer flip |
-| `POST /catalog/v1/vector-tiles/manifest:rollback` | `MASTER_ADMIN` / `CATALOG_ADMIN` / `VECTOR_TILE_ADMIN` | Staff Identity-verified staff rollback with `expected_current_version` stale guard + audit event |
-| `PUT /catalog/v1/complexes/{id}/digital-twin-assets` | Catalog admin | 3D asset 등록/교체 |
-| `PUT /catalog/v1/complexes/{id}/industry-groups` | Catalog admin | 업종 group 관리 |
-| `PUT /catalog/v1/parcels/{id}/industry-assignments` | Catalog admin | 필지 업종 배정 |
+| Endpoint | 권한 | 설명 | 상태 |
+|---|---|---|---|
+| `POST /catalog/v1/complexes` | Catalog admin | 산단 등록 | 구현 |
+| `PATCH /catalog/v1/complexes/{id}` | Catalog admin | 산단 기본 정보 갱신 | 구현 |
+| `POST /catalog/v1/complexes/{id}/archive` | Catalog admin | 산단 보관 처리 | 구현 |
+| `PUT /catalog/v1/complexes/{id}/notices:bulk-upsert` | ETL/admin | 공지 upsert | 제안 |
+| `POST /catalog/v1/file-assets` | Catalog admin | R2 object metadata 등록 | 제안 |
+| `PUT /catalog/v1/complexes/{id}/blueprints` | Catalog admin | 도면 등록/교체 | 제안 |
+| `PUT /catalog/v1/complexes/{id}/spatial-layers` | Catalog admin | 공간 레이어 등록/교체 | 제안 |
+| `PUT /catalog/v1/vector-tiles/manifest:promote` | Catalog admin/ETL | 검증된 static vector tile manifest pointer flip | 구현 |
+| `POST /catalog/v1/vector-tiles/manifest:rollback` | Staff Identity 검증 staff | `expected_current_version` stale guard + audit event 가 있는 rollback | 구현 |
+| `PUT /catalog/v1/complexes/{id}/digital-twin-assets` | Catalog admin | 3D asset 등록/교체 | 제안 |
+| `PUT /catalog/v1/complexes/{id}/industry-groups` | Catalog admin | 업종 group 관리 | 제안 |
+| `PUT /catalog/v1/parcels/{id}/industry-assignments` | Catalog admin | 필지 업종 배정 | 제안 |
 
 모든 write 는 optimistic locking 또는 idempotency key 를 가져야 한다. ETL bulk upsert 는
 `source_record_id` 와 batch id 를 함께 저장한다.
 
 ## 6. Events
 
-Consumer cache 는 outbox event 로 갱신한다.
+Consumer cache 는 outbox event 로 갱신한다. 정의된 이벤트의 정본은
+`crates/foundation-shared-kernel/src/events/catalog_v1.rs` 다. 현재 정의된 것은 산단
+생성·갱신·보관(`IndustrialComplexCreated/Updated/Archived`), `ParcelKindChanged`,
+`VectorTileManifestPromoted/RolledBack` 이며, 아래 표의 나머지는 제안이다.
 
 | Event | 발생 조건 | Consumer 반응 |
 |---|---|---|

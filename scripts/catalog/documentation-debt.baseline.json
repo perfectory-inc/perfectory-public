@@ -1,7 +1,6 @@
 {
   "$comment": "Shrink-only (scripts/catalog/documentation_ratchets.py). Fix an entry and delete its line; never add one.",
   "dead-reference": [
-    ".claude/CLAUDE.md",
     "crates/gongzzang-persistence/src/api_health.rs",
     "docs/compliance/retention.md",
     "docs/compliance/third-party-licenses.md",
@@ -10,15 +9,6 @@
     "docs/schema/auth.md",
     "docs/schema/parcel.md",
     "docs/site-builder.md",
-    "platforms/foundation-platform/crates/catalog/catalog-application/tests/industrial_complex_catalog_import_use_case.rs",
-    "platforms/foundation-platform/crates/lakehouse/lakehouse-infrastructure/tests/spatial_tile_wap.rs",
-    "platforms/foundation-platform/scripts/tiles/reconcile-spatial-tile-publication.sh",
-    "platforms/foundation-platform/services/foundation-api/tests/runtime_manifest_edge_policy.rs",
-    "platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_build.rs",
-    "platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_projection.rs",
-    "platforms/foundation-platform/services/foundation-outbox-publisher/src/spatial_tile_refresh_observation.rs",
-    "products/gongzzang/apps/web/tests/probes/foundation-vector-source-publication.probe.ts",
-    "scripts/tiles/active-map-refresh-soak.sh",
     "tests/fixtures/building_panel_gold_row.json",
     "tests/test_parcel_panel_validate_args.py"
   ],

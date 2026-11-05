@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 객체 저장소 우선 타일 단계
@@ -254,13 +254,14 @@ those compatibility statistics and fails if they drift.
 
 증명 뒤 저장소 검증 SSOT와 전체 웹 모음을 실행한다.
 
+Rust 이미지 값은 `tools/container-images.env` 의 `RUST_TOOLCHAIN_IMAGE` 다.
+
 ```bash
-docker run --rm -v "$PWD:/workspace" -w /workspace \
-  rust:1.99.1-bookworm@sha256:665b6e0a9290a7298236c08c6e4f1e754e3f0d9b70421c434daa3dfba888d63e \
+set -a; . tools/container-images.env; set +a
+docker run --rm -v "$PWD:/workspace" -w /workspace "$RUST_TOOLCHAIN_IMAGE" \
   cargo xtask verify foundation
 
-docker run --rm -v "$PWD:/workspace" -w /workspace \
-  rust:1.99.1-bookworm@sha256:665b6e0a9290a7298236c08c6e4f1e754e3f0d9b70421c434daa3dfba888d63e \
+docker run --rm -v "$PWD:/workspace" -w /workspace "$RUST_TOOLCHAIN_IMAGE" \
   cargo xtask verify gongzzang
 
 pnpm -C products/gongzzang/apps/web test

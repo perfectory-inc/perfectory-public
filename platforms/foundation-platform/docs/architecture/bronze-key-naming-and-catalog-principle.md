@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Bronze 객체 키 네이밍 & 사람-가독성 원칙 (with 업계 출처)
@@ -27,28 +27,25 @@ last_reviewed: 2026-07-29
 
 ## 2. 현재 레이아웃 (코드로 확정)
 
-> 2026-07-20 좌표 갱신: capability extraction 으로 bronze/bulk 코드가 `crates/catalog/*` 에서
-> `crates/collection/*` 로 이동했다. 또한 §2 의 슬러그 예시는 ADR 0014 개명 이전 표기이며,
-> 현행 슬러그 SSOT 는 [`bronze-source-slug-rename.v1.md`](../catalog/bronze-source-slug-rename.v1.md)
-> (`{providerid}__{dataset_slug}`) 다.
+현행 키 계약의 정본은 [ADR 0019](../adr/0019-bronze-readable-object-lake-postgres-catalog-ssot.md)
+(배치)·[ADR 0016](../adr/0016-bronze-commit-protocol.md)(커밋)·루트
+[ADR-0152](../../../../docs/adr/0152-bronze-keys-of-reused-provider-file-numbers-name-their-bytes.md)(같은 파일 번호의
+새 바이트)이고, 키를 만드는 코드는 `crates/collection/collection-domain/src/bronze.rs`의
+`build_bronze_object_key`다. 슬러그 표기 정본은
+[`bronze-source-slug-rename.v1.md`](../catalog/bronze-source-slug-rename.v1.md)(`{providerid}__{dataset_slug}`, ADR 0014)다.
+여기서는 이 원칙과 맞닿는 성질만 적는다.
 
-- 현재 키 포맷(`crates/collection/collection-domain/src/bronze.rs`):
-  `bronze/source={slug}/run_id={uuid}/partition={...}/part-{NNNNNN}.{ext}`
-- bulk 소스 partition suffix(`crates/collection/collection-application/src/public_data_bulk_plan.rs`):
-  `operation={op}/provider_file_period={YYYY-MM}/provider_file_id={id}`
-- **수집 날짜는 키에 없다.** "언제 수집했나"는 `run_id`(실행 UUID) + 메타데이터(DB
-  `ingestion_run.started_at`, JSONL 원장 이벤트 타임스탬프)에 있다. 과거 키는
-  `.../ingest_date=YYYY-MM-DD/...`였으나 의도적으로 제거(위 마이그레이션) - 같은 데이터를 다른
-  날 재수집하면 폴더가 갈라지는 문제를 피하기 위함. = 좋은 모델링 결정.
-- `provider_file_period`는 허브 페이지가 표기한 **파일 기간(년-월)**으로, 데이터가 다루는 달이지
-  수집한 날이 아니다(`crates/collection/collection-infrastructure/src/building_hub_bulk.rs`에서 스크랩).
-- 두 슬러그 계열이 공존:
-  - 의미 있는 이름: `source=hub-building-building-electricity-usage` 등(건축 데이터셋들).
-  - 자동 생성 코드: `source=hub-go-kr-public-bulk-task-{group}-{code}`
-    (`crates/publisher/foundation-publisher-collection/src/building_hub_bulk_collection_plan.rs:319`) - hub.go.kr의 bulk
-    다운로드 "작업" 하나당 폴더 하나라 수가 많다. -> 카탈로그에서 친절한 이름으로 매핑할 후보.
-- `partition=operation=...`의 이중 `=`는 사소한 흠집(동작 무해). 물리 정리는 §1의 "계획된
-  마이그레이션" 규율로만.
+- 키 모양은 `bronze/source={slug}[/{hive key=value 분할}]/{leaf}.{ext}`이며, 제공기관이 같은 파일 번호에
+  새 바이트를 올리는 경우 `{leaf}--sha256-{hex}.{ext}`로 바이트를 이름에 넣는다.
+- **수집 날짜·실행 ID·스냅샷 기간은 키에 없다.** `run_id`, `ingest_date`, `provider_file_period`,
+  `snapshot_*` 같은 분할은 키 생성기가 거부한다. "언제 수집했나"와 "어느 달의 파일인가"는 Postgres
+  카탈로그 메타데이터에 있다. 과거 `.../ingest_date=YYYY-MM-DD/...` 키는 의도적으로 제거했다(§1의
+  마이그레이션) — 같은 데이터를 다른 날 재수집하면 폴더가 갈라지는 문제를 피하기 위함이다.
+- bulk 파일은 `provider_file_id`가 leaf가 되고, `operation=` 분할은 슬러그가 이미 그 operation을
+  담지 않을 때만 붙는다(`crates/collection/collection-application/src/public_data_bulk_plan.rs`).
+- 의미 없는 자동 생성 슬러그(`hub-go-kr-public-bulk-task-*`)는 더 이상 만들지 않는다. 카탈로그에
+  `dataset_slug`가 등록되지 않은 hub.go.kr bulk 작업은 수집을 거부한다
+  (`crates/publisher/foundation-publisher-collection/src/building_hub_bulk_collection_plan.rs`).
 
 ## 3. 업계 출처 (2026-06-23, 실제 fetch 후 verbatim 인용)
 
@@ -99,9 +96,9 @@ last_reviewed: 2026-07-29
 ## 4. 권장 (안전하게 깔끔해지기)
 
 1. Bronze 물리 키 **그대로 유지**(예쁘게 하려고 또 바꾸지 않기 - 마이그레이션 treadmill).
-2. 사람용 이름은 **카탈로그로**: `SourceCatalogEntry`에 친절한 한국어 이름/설명/카테고리 채우기
-   (특히 `hub-go-kr-public-bulk-task-*` 코드 슬러그 -> 의미 있는 이름 매핑). 무손실, 언제든 변경.
-3. 물리 흠집(이중 `=` 등)은 **계획된 1회 마이그레이션 + 계약 동결**로만
-   ([ADR 0015](../adr/0015-bronze-object-key-content-addressed-layout.md)와
+2. 사람용 이름은 **카탈로그로**: `SourceCatalogEntry`(`name`/`dataset_name`/`provider`)에 친절한
+   한국어 이름/설명/카테고리를 채운다. 무손실, 언제든 변경.
+3. 물리 키 정리는 **계획된 1회 마이그레이션 + 계약 동결**로만 한다
+   ([ADR 0019](../adr/0019-bronze-readable-object-lake-postgres-catalog-ssot.md)와
    [ADR 0016](../adr/0016-bronze-commit-protocol.md)이 현행 포맷 계약).
 4. 진짜 가독 뷰는 **Silver/Gold** + (장차) 카탈로그/대시보드.

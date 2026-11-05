@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 런타임 환경 분리
@@ -59,7 +59,7 @@ FOUNDATION_PLATFORM_BRONZE_OBJECT_STORAGE_DRIVER=r2
 FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET=foundation-platform-lakehouse-prod
 ```
 
-예상 버킷 이름은 다음과 같다.
+예상 버킷 이름은 다음과 같다(정본: `crates/publisher/foundation-publisher-core/src/runtime_environment.rs`).
 
 ```text
 local       foundation-platform-lakehouse-dev (remote R2 development bucket)
@@ -74,7 +74,8 @@ production  foundation-platform-lakehouse-prod
 
 ## Redpanda/Karapace
 
-Kafka/Avro 계약 작업을 할 때만 로컬 C2 fixture를 시작한다.
+Kafka/Avro 계약 작업을 할 때만 로컬 C2 fixture를 시작한다. 계약 게이트 전체는
+`cargo xtask live kafka`가 이 스택의 수명까지 맡는다([Kafka outbox 계약](./foundation-kafka-outbox-contract-test.md)).
 
 ```bash
 docker compose -f platforms/intelligence-platform/docker/c2-event-backbone.compose.yml up -d

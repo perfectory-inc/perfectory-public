@@ -21,7 +21,7 @@ last_reviewed: 2026-10-28
 
 원천별 상세(엔드포인트, 수집 레인, 실행 허용 여부)는 Foundation Platform 이 소유한다:
 [공공데이터 수집 카탈로그](../../../../platforms/foundation-platform/docs/catalog/public-data-collection-catalog.md),
-[V-World 데이터 카탈로그 참고](../../../../platforms/foundation-platform/docs/catalog/vworld-data-catalog-reference.md).
+[V-World 수집 기능 계약](../../../../platforms/foundation-platform/docs/catalog/vworld/README.md).
 
 ## Catalog 원천 경계
 

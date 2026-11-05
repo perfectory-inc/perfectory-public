@@ -17,7 +17,7 @@ last_reviewed: 2026-07-30
 
 - [공공 소스 엔드포인트 카탈로그](./public-source-endpoint-catalog.v1.json) — 무엇을 수집할 수 있는지
 - [Bronze 수집 레인 레지스트리](./public-data-bronze-lane-registry.v1.json) — 어떤 방식으로 실행하는지
-- [Bronze source slug 매핑](./bronze-source-slug-rename.v1.md) — 제공기관·데이터명·슬러그 참고표
+- [Bronze source slug 매핑](./bronze-source-slug-rename.v1.md) — 슬러그 규칙
 - [Bronze 레인 실행 런북](../runbooks/public-data-bronze-lane-orchestration.md) — 실행 게이트와 운영 절차
 
 ## 현재 카탈로그 규모

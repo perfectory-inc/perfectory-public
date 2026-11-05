@@ -2,7 +2,7 @@
 status: current
 owner: foundation
 doc_type: architecture
-last_reviewed: 2026-07-30
+last_reviewed: 2026-11-05
 ---
 
 <!-- public-repository-safety: reviewed-public-contract -->
@@ -22,14 +22,15 @@ Foundation은 공식 행정코드·이름·PNU를 토지의 정체성이 아니�
 
 ## 불변식
 
-1. `catalog.parcel.id`와 `catalog.industrial_complex.id`는 변경되지 않는 내부 UUID다.
+1. `catalog.industrial_complex.id`는 변경되지 않는 내부 UUID다. (`catalog.parcel`은 2026-10-13에
+   지웠다 — 아래 2026-10-13 주석.)
 2. PNU·행정코드·행정명은 유효기간을 가진 외부 식별자다.
 3. 표준 지적 PNU는 다른 필지에 재할당하지 않는다. 과거 식별자는 이력 조회 뷰에서 같은
    UUID로 해석하고, 현재 API 응답에는 현재 PNU를 반환한다.
 4. 단순 명칭 변경은 같은 행정단위에 새 식별자·이름 사실을 추가하는 것이다. 통합·대체·분할은
    서로 다른 안정 단위 사이의 감사 가능한 전이이며 `renamed` 자기 간선은 만들지 않는다.
 5. 승인된 사실은 `data_revision`, source snapshot, Catalog `source_record` UUID를 가진다.
-   API용 사실은 추가 전용이며, 기간 종료와 기존 `catalog.parcel.pnu` 갱신은 publisher 함수만 수행한다.
+   API용 사실은 추가 전용이며, 기간 종료는 publisher 함수만 수행한다.
 6. 공개 타일은 정확히 하나의 `data_revision`에서 만든다. 동적 Martin과 정적 PMTiles는 그 리비전의
    파생 표현이지 별도 권위가 아니다.
 
@@ -68,14 +69,10 @@ Foundation은 공식 행정코드·이름·PNU를 토지의 정체성이 아니�
 > 가드 트리거를 지웠다. `parcel_identifier`·`parcel_administrative_unit` 표는 남지만 `catalog.parcel`
 > 을 가리키던 FK는 없다. 필지는 R2 엣지 묶음이 서비스한다 —
 > [ADR-0194](../adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md) §7.
-
-기존 표준 PNU 필지는 결정론적인 `foundation.migration` source record와 기존 행의
-`created_at`부터 시작하는 레거시 리비전으로 보정한다. 이는 출처를 꾸며내는 것이 아니라 호환성
-다리다. 표준 PNU가 없는 블록·대장 필지는 기존 대장 키를 유지하며 PNU 별칭을 임의로 만들지 않는다.
+> 마이그레이션이 `catalog.parcel` 행을 레거시 리비전으로 보정하던 호환성 다리도 그 표와 함께 사라졌다.
 
 새 수집은 실제 `catalog.source_record` 등록, 후보 리비전 생성, 전체 사실 삽입, 검증,
 PostGIS 투영을 순서대로 수행한 뒤 기존 CAS 게이트로 타일 매니페스트를 공개한다.
-`catalog.parcel.pnu` 갱신도 같은 publisher 트랜잭션에서 수행하므로 기존 호출자와 fixture는 그대로 동작한다.
 
 ADR-0006의 점 조회 산출물은 별도 투영이다. JSON/KV PNU 산출물을 켜더라도 같은 리비전에서
 기존 별칭과 현재 PNU(또는 resolver 레코드)를 함께 만들며 두 번째 식별자 권위를 만들지 않는다.

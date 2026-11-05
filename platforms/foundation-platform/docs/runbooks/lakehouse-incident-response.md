@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Lakehouse 장애 대응
@@ -29,7 +29,7 @@ lakehouse 쓰기·읽기 전용 스모크·R2 객체 배치·Gold 포인터·소
 - 운영자 명령과 환경 프로필
 
 안전한 확인부터 실행한다(lakehouse·R2 서브커맨드 계약은 cargo workspace 테스트가,
-Spark 작업은 `py_compile`이 담당한다).
+Spark 작업은 `py_compile`이 담당한다). `platforms/foundation-platform` 에서 실행한다.
 
 ```bash
 cargo test --workspace --all-features
