@@ -145,9 +145,15 @@ for workflow in "${workflows[@]}"; do
     release_signer=1
   fi
   # A third (root ADR-0269): the daily cache budget, schedule-only, may add actions: write to a
-  # job-level map so it deletes the cache keys a newer key replaced. No other file or permission.
+  # job-level map so it deletes the cache keys a newer key replaced. The runner-failure re-run
+  # (root ADR-0421), also schedule-only, may add the same grant to re-run a run whose failed jobs
+  # reached no failed step. No other file or permission.
   cache_pruner=0
-  if [ "$(basename "$workflow")" = ci-cache-budget.yml ] && awk '
+  case "$(basename "$workflow")" in
+    ci-cache-budget.yml|rerun-runner-failures.yml) actions_writer_file=1 ;;
+    *) actions_writer_file=0 ;;
+  esac
+  if [ "$actions_writer_file" = 1 ] && awk '
     /^on:[[:space:]]*$/ { in_on=1; next }
     in_on && /^[^[:space:]]/ { in_on=0 }
     in_on && /^  [A-Za-z0-9_-]+:/ {
