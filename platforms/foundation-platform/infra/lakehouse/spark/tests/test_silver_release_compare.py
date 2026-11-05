@@ -65,6 +65,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.building_energy_monthly_gas": "vintage",
             "silver.building_permit_basis_outline": "vintage",
             "silver.building_permit_demolition_loss": "vintage",
+            "silver.building_permit_parking": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
             "silver.building_register_sub_parcel": "vintage",

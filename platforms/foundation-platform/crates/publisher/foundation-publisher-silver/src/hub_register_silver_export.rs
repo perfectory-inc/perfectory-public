@@ -10,6 +10,8 @@ mod energy_monthly_tests;
 mod exclusive_unit_tests;
 mod layout;
 #[cfg(test)]
+mod permit_parking_tests;
+#[cfg(test)]
 mod sub_parcel_tests;
 #[cfg(test)]
 mod test_support;

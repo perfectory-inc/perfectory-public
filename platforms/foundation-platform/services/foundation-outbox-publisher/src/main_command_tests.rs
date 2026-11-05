@@ -247,6 +247,18 @@ fn register_sub_parcel_streaming_export_command_is_explicit() -> anyhow::Result<
 }
 
 #[test]
+fn permit_parking_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-parking-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitParkingSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

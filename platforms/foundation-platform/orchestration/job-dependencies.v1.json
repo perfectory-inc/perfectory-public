@@ -793,6 +793,7 @@
         "silver_refresh_building_energy_monthly_electricity",
         "silver_refresh_building_energy_monthly_gas",
         "silver_refresh_building_register_sub_parcel",
+        "silver_refresh_building_permit_parking",
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
@@ -1053,6 +1054,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_demolition_loss,PROD)",
           "node_id": "silver-building-permit-demolition-loss",
           "title": "건축인허가 철거멸실관리대장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_parking",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_parking,PROD)",
+          "node_id": "silver-building-permit-parking",
+          "title": "건축인허가 주차장",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -1415,6 +1424,7 @@
         "silver_refresh_building_energy_monthly_electricity",
         "silver_refresh_building_energy_monthly_gas",
         "silver_refresh_building_register_sub_parcel",
+        "silver_refresh_building_permit_parking",
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
@@ -1675,6 +1685,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_demolition_loss,PROD)",
           "node_id": "silver-building-permit-demolition-loss",
           "title": "건축인허가 철거멸실관리대장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_parking",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_parking,PROD)",
+          "node_id": "silver-building-permit-parking",
+          "title": "건축인허가 주차장",
           "kind": "silver_table",
           "surface_kind": null
         },
@@ -2290,6 +2308,32 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_register_sub_parcel,PROD)",
           "node_id": "silver-building-register-sub-parcel",
           "title": "건축물대장 부속지번",
+          "kind": "silver_table",
+          "surface_kind": null
+        }
+      ]
+    },
+    {
+      "id": "silver_refresh_building_permit_parking",
+      "producers": [
+        "source_sweep"
+      ],
+      "reads": [
+        {
+          "dataset": "perfectory://source-building-hub-bulk",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:perfectory,source-building-hub-bulk,PROD)",
+          "node_id": "source-building-hub-bulk",
+          "title": "건축HUB 파일",
+          "kind": "source_group",
+          "surface_kind": null
+        }
+      ],
+      "writes": [
+        {
+          "dataset": "iceberg://silver.building_permit_parking",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_parking,PROD)",
+          "node_id": "silver-building-permit-parking",
+          "title": "건축인허가 주차장",
           "kind": "silver_table",
           "surface_kind": null
         }
@@ -3175,6 +3219,7 @@
         "silver_refresh_building_energy_monthly_electricity",
         "silver_refresh_building_energy_monthly_gas",
         "silver_refresh_building_register_sub_parcel",
+        "silver_refresh_building_permit_parking",
         "silver_refresh_land_characteristic",
         "silver_refresh_land_forest_ledger",
         "silver_refresh_land_individual_price",
@@ -3435,6 +3480,14 @@
           "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_demolition_loss,PROD)",
           "node_id": "silver-building-permit-demolition-loss",
           "title": "건축인허가 철거멸실관리대장",
+          "kind": "silver_table",
+          "surface_kind": null
+        },
+        {
+          "dataset": "iceberg://silver.building_permit_parking",
+          "catalog_urn": "urn:li:dataset:(urn:li:dataPlatform:iceberg,silver.building_permit_parking,PROD)",
+          "node_id": "silver-building-permit-parking",
+          "title": "건축인허가 주차장",
           "kind": "silver_table",
           "surface_kind": null
         },

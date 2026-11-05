@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md",
+  "source": "bronze/source=hubgokr__building_permit_parking",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_kcy_10",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 59,759,120 바이트, 멤버 mart_kcy_10.txt 375,178,259 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 2,835,072 행, 모든 행 24칸, 칸 0(관리허가대장PK)은 모든 행이 채워져 있고 2,835,072 개 모두 다르다(숫자, 앞 두 자리 세 묶음). PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 2,833,942 행(99.96%). 대지구분은 0 2,723,328·1 63,737·2 43,940·빈칸 4,066·3 1 행이다(엔진은 0·1 만 PNU 로 짓는다). 2026-09 판(2,829,021 행)에 비해 새 키 6,447·사라진 키 396·바뀐 행 9,680. 칸 10–15 는 대수·면적 짝이 실측으로 맞는다: 면적/대수 중앙값 옥내자주식 12.5㎡·옥외자주식 11.5㎡(2.3×5 m)·옥내기계식 7.53㎡, 대수 칸은 모두 정수.",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축인허가 주차장(data.go.kr 15044688)의 속성 목록(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리허가대장PK·특수지명·블록·로트·옥내자주식대수·면적·옥외자주식대수·면적·옥내기계식대수·면적·옥외기계식대수·면적·인근자주식대수·면적·인근기계식대수·면적·면제대수·생성일자, 24개)과 2026-10 판 실측의 교차 확인. 대량 파일은 관리허가대장PK·대지위치가 앞(칸 0–1)으로 오고 칸 2 부터 시군구코드 순서다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치·특수지명·블록·로트, 칸 16–22, 생성일자)은 raw_columns 의 원래 index 로만 보존한다. 칸 16–22 는 명세 순서로는 옥외기계식·인근자주식·인근기계식 대수·면적과 면제대수이지만 실측에서 대수·면적 짝이 맞지 않는다(칸 17 이 모두 정수, 칸 16·17 이 함께 0 아닌 행 122 개뿐): 화면 PR 이 확인하고 이름을 붙인다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_10.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 24,
+  "columns": {
+    "mgmt_key": {
+      "index": 0,
+      "meaning": "관리허가대장PK 원문(모든 행 채움, 행마다 다름)"
+    },
+    "sigungu_cd": {
+      "index": 2,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 3,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 4,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 5,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 6,
+      "meaning": "지 원문"
+    },
+    "indoor_self_parking_count": {
+      "index": 10,
+      "meaning": "옥내자주식대수 원문"
+    },
+    "indoor_self_parking_area_m2": {
+      "index": 11,
+      "meaning": "옥내자주식면적 원문(㎡)"
+    },
+    "outdoor_self_parking_count": {
+      "index": 12,
+      "meaning": "옥외자주식대수 원문"
+    },
+    "outdoor_self_parking_area_m2": {
+      "index": 13,
+      "meaning": "옥외자주식면적 원문(㎡)"
+    },
+    "indoor_mechanical_parking_count": {
+      "index": 14,
+      "meaning": "옥내기계식대수 원문"
+    },
+    "indoor_mechanical_parking_area_m2": {
+      "index": 15,
+      "meaning": "옥내기계식면적 원문(㎡)"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_parking",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-parking.service 의 실행 값(root ADR-0169 §3, ADR-0402). 판은 장부가 정한다. 키는 칸 0 관리허가대장PK 다(모든 행 채움, 2,835,072 개 모두 다름). 부분은 판의 load branch 에 쌓고, compare 가 main 의 현재 행과 mgmt_key 마다 비교해 바뀐 허가의 행과 사라진 허가의 삭제 표시만 changes branch 에 키 앞 두 자리 묶음마다 커밋하고(실측 세 묶음, 기본개요와 같은 키 체계), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 2026-09 → 2026-10 은 16,523 키(0.6%)가 바뀌었다. run 당 상한은 판 하나다. 283만 행은 기본개요(653만 행, 실측 6분)의 43% 라 단위 제한 150분 안에 넉넉히 든다.",
+    "table": "silver.building_permit_parking",
+    "roles": {
+      "source": "hubgokr__building_permit_parking"
+    },
+    "export": "export-building-permit-parking-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "indoor_self_parking_count",
+        "indoor_self_parking_area_m2",
+        "outdoor_self_parking_count",
+        "outdoor_self_parking_area_m2",
+        "indoor_mechanical_parking_count",
+        "indoor_mechanical_parking_area_m2",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 2
+    }
+  }
+}
