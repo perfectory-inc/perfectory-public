@@ -767,7 +767,8 @@ class EveryJobSaysItsOutcome(unittest.TestCase):
     def test_a_program_jobs_run_in_several_modes_is_run_in_each(self):
         modes = {}
         for spec in job_specs.load_specs():
-            unit = job_specs.service_unit_text(spec.systemd_service)
+            # A template's `%i` is one mode with the instance as its argument, not one mode per instance.
+            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
             words = re.search(r"^ExecStart=(.+)$", unit, flags=re.MULTILINE).group(1).split()
             modes.setdefault(pathlib.PurePosixPath(words[0]).name, set()).add(tuple(words[1:]))
         for program, arguments in modes.items():
