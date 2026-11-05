@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-08-26
+last_reviewed: 2026-11-05
 ---
 
 # Lakehouse Registry Runbook
@@ -73,10 +73,10 @@ cargo run -p foundation-outbox-publisher -- verify-lakehouse-registry
 - namespace 상태가 `active`다.
 - `FOUNDATION_PLATFORM_R2_LAKEHOUSE_BUCKET`은 `foundation-platform-lakehouse-prod`와 일치한다.
 
-## 전국 수집 전 Preflight
+## Registry 확인 보고서
 
-공공 API 전국 수집 경로(`run-national-data-collection` 과 그 ledger·계획 명령)는 bulk 전용 정책으로 2026-11 삭제됐다
-(원천은 hub.go.kr·rt.molit.go.kr·VWorld 파일 일괄). Registry 확인은 `foundation-outbox-publisher verify-lakehouse-registry` 로 직접 한다.
+`foundation-outbox-publisher verify-lakehouse-registry` 는 보고서 JSON(`schema_version: foundation-platform.lakehouse_registry_verify.v1`, `status` 는 `ready` 또는 `blocked`, `namespaces`, `blockers`)을
+표준 출력에 쓰고, `FOUNDATION_PLATFORM_LAKEHOUSE_REGISTRY_VERIFY_OUTPUT_PATH` 가 있으면 그 경로에도 쓴다. `blocked` 이면 실패로 끝난다.
 
 ## Iceberg Table Inventory
 
@@ -125,10 +125,4 @@ key, account id와 실제 자격증명 값이 없다.
     }
   ]
 }
-```
-
-정상 출력 예:
-
-```text
-lakehouse-registry-ok namespaces=3 output=target/audit/lakehouse-registry-verify.json
 ```
