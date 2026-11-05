@@ -15,7 +15,6 @@ import {
   fixedVersionFor,
   main,
   proposeFromReport,
-  readBaselineGroups,
   readLockfile,
   render,
   trackedTrees,
@@ -250,7 +249,7 @@ describe("propose", () => {
   const contract = { schema_version: 1, purpose: "fixture", overrides: [{ ...SECURITY_WS, package: "sharp", version: "0.35.4", from: "0.0.0" }] };
 
   test("raises an existing floor to the first fixed release and records the advisory", () => {
-    const { contract: next, changes } = proposeFromReport(contract, report("sharp", "0.35.4", [vulnerability("GHSA-wq5f-xc86-pv6w", [{ introduced: "0" }, { fixed: "0.35.5" }])]), new Set(), "2026-10-07");
+    const { contract: next, changes } = proposeFromReport(contract, report("sharp", "0.35.4", [vulnerability("GHSA-wq5f-xc86-pv6w", [{ introduced: "0" }, { fixed: "0.35.5" }])]), "2026-10-07");
     assert.equal(changes.length, 1);
     assert.deepEqual(next.overrides[0], { ...contract.overrides[0], version: "0.35.5", advisories: ["GHSA-96hv-2xvq-fx4p", "GHSA-wq5f-xc86-pv6w"], date: "2026-10-07" });
     assert.equal(contract.overrides[0].version, "0.35.4", "the input contract is not mutated");
@@ -258,20 +257,14 @@ describe("propose", () => {
 
   test("adds a new floor on the affected line", () => {
     const vuln = { id: "GHSA-mwcw-c2x4-8c55", aliases: [], affected: [{ package: { ecosystem: "npm", name: "nanoid" }, ranges: [{ type: "SEMVER", events: [{ introduced: "4.0.0" }, { fixed: "5.0.9" }] }] }] };
-    const { contract: next } = proposeFromReport(contract, report("nanoid", "5.0.8", [vuln]), new Set(), "2026-10-07");
+    const { contract: next } = proposeFromReport(contract, report("nanoid", "5.0.8", [vuln]), "2026-10-07");
     const entry = next.overrides.find((item) => item.package === "nanoid");
     assert.deepEqual(entry, { kind: "security", package: "nanoid", version: "5.0.9", advisories: ["GHSA-mwcw-c2x4-8c55"], reason: entry.reason, date: "2026-10-07" });
     assert.equal(validateContract(next, TECHNOLOGY, []).length, 2);
   });
 
-  test("ignores an advisory group the OSV baseline already accepts", () => {
-    const baseline = readBaselineGroups("# osv-vulnerability-baseline-v1\nnpm\tsharp\tGHSA-wq5f-xc86-pv6w\t1\treason\n");
-    const { changes } = proposeFromReport(contract, report("sharp", "0.35.4", [vulnerability("GHSA-wq5f-xc86-pv6w", [{ introduced: "0" }, { fixed: "0.35.5" }])]), baseline, "2026-10-07");
-    assert.deepEqual(changes, []);
-  });
-
   test("reports an advisory without a fixed release instead of inventing a floor", () => {
-    const { changes, unfixable } = proposeFromReport(contract, report("sharp", "0.35.4", [vulnerability("GHSA-wq5f-xc86-pv6w", [{ introduced: "0" }, { last_affected: "0.35.4" }])]), new Set(), "2026-10-07");
+    const { changes, unfixable } = proposeFromReport(contract, report("sharp", "0.35.4", [vulnerability("GHSA-wq5f-xc86-pv6w", [{ introduced: "0" }, { last_affected: "0.35.4" }])]), "2026-10-07");
     assert.deepEqual(changes, []);
     assert.match(unfixable.join(), /sharp@0\.35\.4 GHSA-wq5f-xc86-pv6w/);
   });

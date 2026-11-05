@@ -144,8 +144,8 @@ fn prepare_advisory_fix(root: &Path, report: &Path, out: &Path) -> Result<(), St
         Some(0) => {}
         Some(NOTHING_TO_PROPOSE) => {
             let mut text = "The OSV ratchet failed, but no new npm advisory has a fixed release an override could pin.\n\
-                It is a Cargo finding, an advisory without a fix (accept it in tools/osv-vulnerability-baseline.tsv \
-                with a reason), or a stale baseline row.\n"
+                It is a Cargo finding, an advisory without a fix (accept it in osv-scanner.toml \
+                with a reason and an ignoreUntil), or an accepted advisory whose ignoreUntil has passed.\n"
                 .to_owned();
             if !proposal_text.is_empty() {
                 text.push('\n');
@@ -166,8 +166,7 @@ fn prepare_advisory_fix(root: &Path, report: &Path, out: &Path) -> Result<(), St
     let ratchet = if closes {
         "closes the OSV ratchet"
     } else {
-        "does NOT close the OSV ratchet on its own (see osv-after.log: a stale baseline row to delete, or a \
-         finding no override reaches)"
+        "does NOT close the OSV ratchet on its own (see osv-after.log: a finding no override reaches)"
     };
     let patch = Command::new("git")
         .arg("-C")

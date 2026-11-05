@@ -2,19 +2,26 @@
 """Hand the regulation-zone tile bake the current rows of `silver.land_use_zone_area`.
 
 Root ADR-0373. The `zoning` tile unit has no staff edits and no served Gold table: the Silver
-current rows (newest row per `(layer_code, zone_feature_id)`, removal markers dropped, read at one
+current rows (newest row per `(layer_code, zone_feature_id, sigungu_code)`, removal markers dropped, read at one
 pinned snapshot) are exactly what the tiles show, so this job writes them in the unit-agnostic v1
 bake handoff (`served_gold_common.py`) and a summary whose `canonical_iceberg_snapshot_id` is that
 Silver snapshot. Rewriting a Gold copy of 1.6 GB on every monthly change would be a full write the
 tiles do not need (root ADR-0314).
 
-- Feature id `<layer_code>:<zone_feature_id>` (`D032:<A1>`): unique across layers, and its first
-  four characters are the layer, which the bake partitions by (root ADR-0316) so an unchanged
+- Feature id `<layer_code>:<zone_feature_id>:<sigungu_code>` (`D032:<A1>:<A4>`): unique, and its
+  first four characters are the layer. The area number alone is not unique within a layer: the
+  provider ships one area split at a 시군구 boundary as two polygons sharing `A1` (308 such pairs in
+  D036 of 20261009, measured 2026-11-05), so the 시군구 is part of the key. The bake partitions by
+  the layer which the bake partitions by (root ADR-0316) so an unchanged
   layer's archive is reused; the patch path (root ADR-0323) then re-tiles only the tiles a changed
   zone touches.
 - Tile properties: the provider's own words, `layer_code`, `layer_name`, `zone_code`, `zone_name`.
 - When `--served-snapshot` is the table's current snapshot nothing is read or written and the job
   exits 3: the tiles already show it.
+- When the current rows are not one per key (two different rows of one key, a malformed key), the
+  job writes nothing to the bake, writes every offending key to `<summary>.refused.json` and exits
+  65 (`REFUSED_EXIT`): the run fails with a report, not a traceback (the first run of 2026-11-03
+  raised on 308 keys and named five).
 
 The executors write the rows as create-only parts; the driver then streams them into the one v1
 file, so no row passes through the driver's memory.
@@ -43,13 +50,27 @@ SILVER_TABLE = "silver.land_use_zone_area"
 SILVER_CONTRACT = load_lakehouse_contract(SILVER_TABLE)
 # The export reprojects every layer to EPSG:4326 (root ADR-0362 §4); each row is checked below.
 GEOMETRY_SRID = 4326
-KEY: tuple[str, ...] = ("layer_code", "zone_feature_id")
+# The Silver contract's key (`current_row_latest.key`), read so the two cannot disagree.
+KEY: tuple[str, ...] = tuple(SILVER_CONTRACT["current_row_latest"]["key"])
 # What makes two current rows of one key the same zone; keep_ties may return both (ADR-0328).
 CONTENT: tuple[str, ...] = (*TILE_PROPERTIES, "geometry_checksum_sha256")
 SNAPSHOT_PATTERN = re.compile(r"^[1-9][0-9]*$")
 # `D032`: the bake partitions by these four characters (tile-bake-containers.contract.json).
 LAYER_CODE_PATTERN = "^D[0-9]{3}$"
+SIGUNGU_CODE_PATTERN = "^[0-9]{5}$"
 UNCHANGED_EXIT = 3
+# The shared refusal exit (foundation_publisher_core::refusal::Refused): the input is wrong, not the job.
+REFUSED_EXIT = 65
+REPORTED_KEYS = 1000
+
+
+class Refused(Exception):
+    """The current rows cannot be baked; `report` names why and which keys, for the operator."""
+
+    def __init__(self, reason: str, report: dict[str, Any]) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.report = report
 # The lane's layers not loaded yet (root ADR-0373 §4): the summary names them, so the bake log and
 # the map say they are waiting instead of looking complete.
 LANE_CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "vworld-land-use-zone-area-source-objects.json"
@@ -127,24 +148,33 @@ def served_rows(spark: Any, table: str, snapshot: str) -> Any:
     divergent = frame.groupBy(*KEY).count().where(F.col("count") > 1)
     count = int(divergent.count())
     if count:
-        samples = [str(row) for row in divergent.limit(5).collect()]
-        raise ValueError(f"{count} zones have two different current rows at snapshot {snapshot}: {samples}")
+        raise Refused("divergent_current_rows", refusal_report(
+            snapshot, count, [row.asDict() for row in divergent.orderBy(*KEY).limit(REPORTED_KEYS).collect()]))
     wrong = int(frame.where(F.col("geometry_srid") != GEOMETRY_SRID).count())
     if wrong:
         raise ValueError(f"{wrong} zones are not EPSG:{GEOMETRY_SRID}")
-    unnamed = int(
-        frame.where(
-            ~F.col("layer_code").rlike(LAYER_CODE_PATTERN)
-            | F.col("zone_feature_id").isNull()
-            | (F.trim(F.col("zone_feature_id")) == "")
-            | F.col("zone_feature_id").contains(":")
-        ).count()
+    unnamed = frame.where(
+        ~F.col("layer_code").rlike(LAYER_CODE_PATTERN)
+        | F.col("zone_feature_id").isNull()
+        | (F.trim(F.col("zone_feature_id")) == "")
+        | F.col("zone_feature_id").contains(":")
+        | F.col("sigungu_code").isNull()
+        | ~F.col("sigungu_code").rlike(SIGUNGU_CODE_PATTERN)
+    ).select(*KEY)
+    count = int(unnamed.count())
+    if count:
+        raise Refused("malformed_key", refusal_report(
+            snapshot, count, [row.asDict() for row in unnamed.limit(REPORTED_KEYS).collect()]))
+    return frame.withColumn(FEATURE_ID_PROPERTY, F.concat_ws(":", *[F.col(name) for name in KEY])).withColumn(
+        "origin", F.lit("source")
     )
-    if unnamed:
-        raise ValueError(f"{unnamed} zones have no D<3 digits> layer or no colon-free area number")
-    return frame.withColumn(
-        FEATURE_ID_PROPERTY, F.concat(F.col("layer_code"), F.lit(":"), F.col("zone_feature_id"))
-    ).withColumn("origin", F.lit("source"))
+
+
+def refusal_report(snapshot: str, count: int, keys: list[dict[str, Any]]) -> dict[str, Any]:
+    """What an operator needs to act on a refusal: the snapshot, how many keys, and which."""
+
+    return {"silver_iceberg_snapshot_id": snapshot, "key": list(KEY), "keys": count,
+            "listed": len(keys), "sample": keys}
 
 
 def metadata_object_key(spark: Any, table: str, snapshot: str) -> str:
@@ -169,6 +199,18 @@ def bucket_relative(location: str) -> str:
     return match.group(1)
 
 
+def report_refusal(summary_output: Path, refusal: Refused) -> int:
+    """Writes the refusal report beside the summary the bake would have read, and says so."""
+
+    path = summary_output.with_name(summary_output.name + ".refused.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"reason": refusal.reason, **refusal.report}, ensure_ascii=False, indent=2,
+                               sort_keys=True, default=str) + "\n", encoding="utf-8")
+    print(f"land-use-zone-area-tile-handoff-refused reason={refusal.reason} "
+          f"keys={refusal.report['keys']} report={path}")
+    return REFUSED_EXIT
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
@@ -182,7 +224,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"land-use-zone-area-tile-handoff-unchanged snapshot={snapshot}")
             return UNCHANGED_EXIT
         metadata_key = metadata_object_key(spark, table, snapshot)
-        frame = served_rows(spark, table, snapshot)
+        try:
+            frame = served_rows(spark, table, snapshot)
+        except Refused as refusal:
+            return report_refusal(Path(args.summary_output), refusal)
         parts_dir = output.with_name(output.name + ".parts")
         parts = common.write_handoff_parts(
             frame,

@@ -14,7 +14,7 @@
   "handoff_prefix": "silver-handoff/vworldkr__land_use_zone",
   "handoff_suffix": ".jsonl.gz",
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@land-use-zone-area.service 의 실행 값(root ADR-0169 §3 ③, ADR-0362). 판의 층마다 한 번 export 하고, load branch 에 통째로 올린 뒤 main 에 발행하지 않고, compare 가 층(layer_code 네 글자)마다 따로 main 의 현재 행과 키(layer_code, zone_feature_id)마다 비교해 바뀐 구역의 행과 사라진 구역의 삭제 표시만 changes branch 에 층 하나씩 커밋하고, 층이 다 끝나면 그 브랜치를 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). 시간이 모자라면 남은 층은 다음 실행이 잇는다. content_columns 는 판마다 바뀌는 열(적재 열)을 넣지 않는다. regions 는 처음 서빙하는 층(ADR-0362 §2): 500MB 를 넘어 RAON 으로만 오는 관리지역(125)·보전산지(054)와, 산업단지 경계가 이미 정본인 산업단지(060)는 넣지 않는다.",
+    "$comment": "foundation-silver-refresh@land-use-zone-area.service 의 실행 값(root ADR-0169 §3 ③, ADR-0362). 판의 층마다 한 번 export 하고, load branch 에 통째로 올린 뒤 main 에 발행하지 않고, compare 가 층(layer_code 네 글자)마다 따로 main 의 현재 행과 키(layer_code, zone_feature_id, sigungu_code)마다 비교해 바뀐 구역의 행과 사라진 구역의 삭제 표시만 changes branch 에 층 하나씩 커밋하고, 층이 다 끝나면 그 브랜치를 main 으로 한 번에 발행한다(ADR-0275, ADR-0318). 시간이 모자라면 남은 층은 다음 실행이 잇는다. content_columns 는 판마다 바뀌는 열(적재 열)을 넣지 않는다. regions 는 처음 서빙하는 층(ADR-0362 §2): 500MB 를 넘어 RAON 으로만 오는 관리지역(125)·보전산지(054)와, 산업단지 경계가 이미 정본인 산업단지(060)는 넣지 않는다.",
     "table": "silver.land_use_zone_area",
     "source": "vworldkr__land_use_zone",
     "member_name": "^AL_D(?P<region>[0-9]{3})_00_(?P<vintage>[0-9]{8})\\.shp$",
@@ -32,7 +32,6 @@
     "compare": {
       "content_columns": [
         "layer_name",
-        "sigungu_code",
         "zone_code",
         "zone_name",
         "field_a7",

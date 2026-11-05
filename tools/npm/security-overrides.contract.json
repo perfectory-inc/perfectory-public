@@ -122,7 +122,7 @@
       "advisories": [
         "GHSA-g3hv-75wg-m249"
       ],
-      "reason": "Globparts amplification denial of service in every release below 11.0.1; no older line has a fix. The 10 line (glob, @npmcli, @tufjs, ignore-walk; named minimatch/Minimatch use only) is lifted; the 5 line stays because @redocly/openapi-core 1.x calls require('minimatch') as a function, which 11 no longer exports, and is waived in tools/osv-vulnerability-baseline.tsv.",
+      "reason": "Globparts amplification denial of service in every release below 11.0.1; no older line has a fix. The 10 line (glob, @npmcli, @tufjs, ignore-walk; named minimatch/Minimatch use only) is lifted; the 5 line stays because @redocly/openapi-core 1.x calls require('minimatch') as a function, which 11 no longer exports, and is waived in osv-scanner.toml.",
       "date": "2026-10-31"
     },
     {
