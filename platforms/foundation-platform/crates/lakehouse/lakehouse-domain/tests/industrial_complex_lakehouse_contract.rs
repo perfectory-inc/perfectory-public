@@ -368,7 +368,6 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 .is_some_and(|latest| latest.removal_column.is_none()));
         } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
-            || contract.table_name == lakehouse_domain::SILVER_REGISTERED_FACTORY.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_BID_RESULT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
@@ -380,7 +379,6 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // lists say nothing about an announcement or item they no longer list).
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
-            // A registered-factory line a code change re-linked is its newest version (root ADR-0416).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()
