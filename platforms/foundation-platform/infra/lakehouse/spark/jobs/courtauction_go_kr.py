@@ -422,7 +422,8 @@ def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str,
         staged = staged.select(*columns).cache()
         short = name.split(".", 1)[1]
         counts[f"{short}_appended_rows"] = staged.count()
-        counts[f"{short}_appended"] = append_source_object(spark, staged, columns, table, entry["object_key"])
+        counts[f"{short}_appended"] = append_source_object(spark, staged, columns, table, entry["object_key"],
+                                                           contract_table=name)
         staged.unpersist()
     return counts
 
