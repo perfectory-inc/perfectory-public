@@ -216,7 +216,11 @@ class DocumentSparkTest(unittest.TestCase):
         from pyspark.sql import functions as F
 
         rows = self.rounds([round_row("A", True, date(2099, 1, 5))])
-        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        # A round with one photo, so the photo subtree's paths are written too (root ADR-0384).
+        photo = F.expr(f"CAST(array(named_struct('sha256', repeat('a', 64), 'media_kind', 'photo', 'kind_code', '1', "
+                       f"'sequence', 0, 'title', 'front', 'media_format', 'jpg', 'size_bytes', 100)) AS {job.PHOTO_STRUCT})")
+        placed = (rows.withColumn("photos", photo).withColumn("pnu", F.col("source_pnu"))
+                  .withColumn("attached_via", F.lit(None).cast("string")))
         written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().court_auction_json), "court_auction")
         recorded = {p for p in by_pnu_kinds.document_record("parcel_court_auction_by_pnu") if p.startswith("court_auction.")}
         self.assertEqual(written, recorded)

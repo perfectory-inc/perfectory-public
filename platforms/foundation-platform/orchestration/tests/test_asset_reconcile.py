@@ -64,8 +64,11 @@ class Reconciler(unittest.TestCase):
             # The court auction Gold and its lane, caught up (root ADR-0353).
             "gold.parcel_court_auction": table(snap("401", None, 0, operation="overwrite",
                                                     pins={"silver.court_auction_item": "51",
+                                                          "silver.court_auction_item_photo": "71",
                                                           "reference.legal_dong_code_change": "61"})),
             "silver.court_auction_item": table(snap("51", None, 0)),
+            # Its case photos (root ADR-0384).
+            "silver.court_auction_item_photo": table(snap("71", None, 0)),
             # The court auction Gold follows code changes too (root ADR-0382).
             "reference.legal_dong_code_change": table(snap("61", None, 0)),
         }
@@ -108,7 +111,8 @@ class Reconciler(unittest.TestCase):
         self.assertEqual((court.lane, court.lane_table, court.follows),
                          ("parcel-court-auction", "gold.parcel_court_auction", None))
         self.assertEqual(self.assets["gold_court_auction_rebuild"].inputs,
-                         ("reference.legal_dong_code_change", "silver.court_auction_item"))
+                         ("reference.legal_dong_code_change", "silver.court_auction_item",
+                          "silver.court_auction_item_photo"))
 
     def test_event_3912_replayed_the_bake_is_owed_and_unscheduled_from_the_commit(self):
         owed, metrics, state, errors = self.tick()
