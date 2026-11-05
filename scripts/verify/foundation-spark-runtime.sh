@@ -75,7 +75,7 @@ compose run --rm --no-deps -v "$ROOT:/repo:ro" -w "/repo/platforms/foundation-pl
     py4j=(/opt/spark/python/lib/py4j-*-src.zip)
     export PYTHONPATH="/opt/spark/python:${py4j[0]}"
     defaults="--conf spark.ui.enabled=false"
-    defaults+=" --driver-java-options \"-XX:TieredStopAtLevel=1 -XX:+UseSerialGC -XX:ActiveProcessorCount=2\""
+    defaults+=" --driver-java-options \"-XX:TieredStopAtLevel=1 -XX:ReservedCodeCacheSize=256m -XX:+PrintCodeCache -XX:+UseSerialGC -XX:ActiveProcessorCount=2\""
     # Resolve the Iceberg artifacts once; the files then load the jars instead of each resolving.
     PYSPARK_SUBMIT_ARGS="--packages $SPARK_RUNTIME_PACKAGES --conf spark.jars.ivy=/tmp/ivy $defaults pyspark-shell" \
       python3 -c "from pyspark.sql import SparkSession; SparkSession.builder.master(\"local[1]\").getOrCreate().stop()"
