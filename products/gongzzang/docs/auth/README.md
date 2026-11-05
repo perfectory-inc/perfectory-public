@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # auth/
@@ -10,15 +10,21 @@ last_reviewed: 2026-07-29
 인증·인가·세션 SSOT.
 
 ## 책임 영역
-- Zitadel (OIDC/OAuth2 IdP)
-- 소셜 로그인 (Google/Kakao/Naver/Apple — 단계적)
+
+구현됨:
+
+- Zitadel (OIDC/OAuth2 IdP) 로그인 — `apps/web/app/api/auth/`
+- RBAC 권한 모델 — 역할 목록 정본은 `crates/user-domain/src/entity.rs`의 `UserRole`
+- JWT 검증 미들웨어 (Rust) — `crates/product-identity-infrastructure`
+- 세션 (Valkey, Redis protocol) — `apps/web/lib/session/`
+
+예정 (코드 없음, 스키마 자리만 있음 — `migrations/20260719000113_user_ci_external_account.sql`):
+
+- 소셜 로그인 (Kakao/Naver/Google federation)
 - NICE 본인인증
 - WebAuthn / TOTP 2FA
-- RBAC 권한 모델 (5종 사용자 역할)
 - 사업자등록번호 검증 (홈택스 진위확인)
 - 공인중개사 자격 식별 (사업자 업종 코드)
-- JWT 검증 미들웨어 (Rust)
-- 세션 (Valkey 8, Redis protocol)
 
 세부 인증 문서가 필요해지면 루트 [운영 준비 작업 목록](../../../../docs/roadmap/production-readiness.md)에
 작업을 먼저 등록한 뒤 이 폴더에 정본 문서를 추가한다.

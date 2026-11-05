@@ -2,13 +2,13 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 도메인 용어 사전 (Glossary)
 
 > *Ubiquitous Language* SSOT. 한국어(사용자 노출) ↔ 영어(코드) 1:1 매핑.
-> 코드/문서/UI 모두 이 매핑을 따름. 위반 시 CI lint 차단 (sub-project 5+).
+> 코드/문서/UI 모두 이 매핑을 따름. 위반을 자동으로 잡는 lint·CI 규칙은 아직 없다 — 리뷰에서 본다.
 
 ---
 
@@ -117,8 +117,8 @@ last_reviewed: 2026-07-29
 ## 사용 규칙
 
 1. **코드** — 영문 (`Listing`, `Pnu`, `Broker`)
-2. **API URL** — kebab-case (`/v1/listings`, `/v1/parcels/{pnu}`)
-3. **API 응답 필드** — camelCase (`createdAt`, `pricePerSqm`)
+2. **API URL** — kebab-case, 버전 접두사 없음 (`/listings`, `/listings/{id}`)
+3. **API 응답 필드** — snake_case, Rust 필드 이름 그대로 (`created_at`, `price_krw`)
 4. **DB 컬럼** — snake_case 단수 (`listing_id`, `business_number`)
 5. **사용자 노출 한국어** — 위 표의 한국어 그대로 ("매물", "필지")
 6. **에러 메시지 (해요체)** — 한국어 단어 우선
@@ -143,4 +143,3 @@ last_reviewed: 2026-07-29
 - 새 도메인 용어 발견 시 *코드 작성 전* 이 문서에 추가
 - 영문/한국어 둘 다 *유일*해야 (1:1)
 - "확장된 의미" 필요 시 새 영문 단어 (예: `KnowledgeIndustryCenter` ≠ `OfficeBuilding`)
-- 위반 자동 검출: CI grep + custom Biome rule (sub-project 5+)

@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # MCP와 API
@@ -24,7 +24,7 @@ Production runtime uses explicit APIs and typed contracts:
 Browser
   -> Next.js routes/proxy
   -> Rust API
-  -> Postgres / Redis / R2 / Foundation Platform published APIs
+  -> Postgres / Valkey(Redis protocol) / R2 / Foundation Platform published APIs
 ```
 
 Important files:
@@ -86,7 +86,6 @@ AI 또는 agent 대상 코드를 도입할 때는 다음을 따른다.
 - 생성 summary와 embedding은 derived artifact로 둔다.
 - add boundary checks before runtime dependency is introduced.
 
-Foundation Platform 경계와 platform-integration 정책은 CI에서 강제한다.
-and pre-commit. The Foundation Platform catalog boundary is guarded by
-`scripts/lefthook/foundation-ownership-boundary.sh` and the boundary contract
-`docs/architecture/foundation-platform-boundary.v1.json`.
+Foundation Platform 경계와 platform-integration 정책은 CI에서 강제한다. Foundation Platform catalog
+경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와 경계 계약
+`docs/architecture/foundation-platform-boundary.v1.json`이 지킨다(ADR-0149 이후 CI 전용).

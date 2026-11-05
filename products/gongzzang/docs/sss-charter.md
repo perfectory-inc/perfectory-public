@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # SSS 헌장 (SSS Charter)
@@ -51,11 +51,11 @@ last_reviewed: 2026-07-29
 | 영역 | 표준 |
 |------|------|
 | 외부 API 호출 | Circuit Breaker + Retry + Timeout + Audit log |
-| 에러 응답 | RFC 9457 Problem Details + `correlationId` |
-| ID | ULID + 도메인 prefix (`usr_`/`lst_`/`prc_`) |
+| 에러 응답 | RFC 9457 Problem Details — [error-format.md](./conventions/error-format.md) |
+| ID | ULID + 3자 도메인 prefix (`usr_`/`lst_` 등) — [naming-and-ids.md](./conventions/naming-and-ids.md) |
 | 시간 | UTC `TIMESTAMPTZ` |
 | 좌표 | EPSG:4326 명시 |
-| API 응답 | camelCase |
+| API 응답 | snake_case (Rust 필드 이름 그대로) |
 | 한국어 UI | 해요체 |
 
 *신호:* 두 곳에서 같은 문제를 다르게 풀고 있지 않다.
@@ -68,7 +68,7 @@ last_reviewed: 2026-07-29
 
 ### A-3. 추적성 — 변경·결정·데이터를 재구성 가능
 
-요청=`X-Correlation-Id`, 외부호출=audit log+raw lineage, DB=`created_by/updated_by/version`+audit,
+요청=`X-Request-Id`, 외부호출=audit log+raw lineage, DB=`created_by/updated_by/version`+audit,
 결정=ADR, 이벤트=Outbox, 배포=Git SHA(+서명/SBOM은 방향). 수용한 위험엔 사유+추적 링크.
 
 ### A-4. 안전성 — 런타임 에러를 컴파일/스키마에서 차단
@@ -125,7 +125,7 @@ ui-writing-korean·testing·git-and-pr·comments). *신호:* 처음 보는 사�
   의존성 취약점은 *추적되거나 고쳐짐*(조용히 무시 ❌).
 - **어떻게 아나:** "이 라우트 누가 호출 가능?"에 정책(traffic-auth-policy SSOT)으로 답하고, 취약점이 사유·기한 없이
   방치돼 있지 않다.
-- **런칭 전 최소선:** gitleaks·cargo-deny 그린(수용 취약점은 deny.toml에 사유+TODO). 권한정책=registry→생성코드 단일출처.
+- **런칭 전 최소선:** gitleaks·cargo-deny 그린(수용 취약점은 `deny.toml` `ignore`에 사유+검토 기한). 권한정책=registry→생성코드 단일출처.
   PII 로그 0. 공개된 취약점은 정책에 따라 차단하거나 사유·기한·소유자를 기록한다.
 
 ### B-4. 성능 (Performance — 유저 체감)

@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 캐시
@@ -18,11 +18,12 @@ last_reviewed: 2026-07-29
 - Gongzzang 제품 기록은 Gongzzang Postgres;
 - Catalog 사실과 PNU 앵커는 Foundation Platform;
 - 변경 불가 미디어·데이터 산출물은 R2/레이크하우스 객체;
-- Valkey 8(Redis protocol)은 캐시·세션·rate limit·lock·inbox 중복 제거만 사용한다.
+- Valkey(Redis protocol)는 캐시·세션·rate limit·lock·inbox 중복 제거만 사용한다. 이미지 핀은
+  `../../../../tools/technology-versions.contract.json`이 소유한다.
 
 ## 2. 런타임 캐시 사용처
 
-현재 Valkey 8 사용처:
+현재 Valkey 사용처:
 
 - Next.js session storage: `apps/web/lib/session/store.ts`
 - session refresh single-flight: `apps/web/lib/session/single-flight.ts`
@@ -84,6 +85,8 @@ build/promote 수명주기는 소유하지 않는다.
 
 ## 7. 가드
 
-traffic/auth, Foundation event-receiver, PNU-anchor PBF marker 계약은 CI와 pre-commit hook에서 강제한다.
-Foundation 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`가 지키며 traffic/auth 정책
-artifact는 registry에서 `cargo run -p gongzzang-api --bin generate-traffic-auth-policy`로 다시 만든다.
+traffic/auth, Foundation event-receiver, PNU-anchor PBF marker 계약은 CI에서 강제한다(로컬 훅은 보조일 뿐
+판정이 아니다). Foundation 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`가 지키며 ADR-0149 이후
+CI 전용이다(`.github/workflows/gongzzang-ci.yml` Repo guardrails). traffic/auth 정책 artifact는 registry에서
+`cargo run -p gongzzang-api --bin generate-traffic-auth-policy`로 다시 만들고, CI `traffic-auth-policy-drift`
+job이 drift를 막는다.

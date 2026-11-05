@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: documentation
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # NICE 본인인증
@@ -15,8 +15,9 @@ last_reviewed: 2026-07-29
 
 ## 도입 시점
 
-**Phase 3 (사용자 출시 직전, sub-project 3 인증 단계)**.
-Phase 1-2엔 어댑터 crate 를 만들지 않는다(`crates/data-clients/` 에 아직 없음).
+**미구현 — 사용자 출시 직전 인증 단계(sub-project 3)에 도입.**
+어댑터 crate 는 아직 없다(`crates/data-clients/` 에는 README 만 있다). 저장 자리는 이미 있다:
+`user` 테이블의 `nice_verified_at` 컬럼(`migrations/20260719000102_core_tables.sql`).
 
 ## 인증 / 등록
 
@@ -26,9 +27,8 @@ Phase 1-2엔 어댑터 crate 를 만들지 않는다(`crates/data-clients/` 에 
 
 ## 비용
 
-- **건당 100-300원** (계약 조건별)
-- 우리 추정: 사용자 1만 가입 = 월 100-300만원
-- 대안 검토: KCB, Toss 본인인증 (가격 비교 필요 — Phase 3에서)
+- 건당 과금(계약 조건별). 단가는 도입 시점에 공식 가격표로 확인하고 산정은 [비용 모델](../cost/README.md)을 따른다.
+- 대안 검토: KCB, Toss 본인인증 (가격 비교는 도입 단계에서)
 
 ## 핵심 흐름 (OIDC 또는 self-API)
 
@@ -38,12 +38,12 @@ Phase 1-2엔 어댑터 crate 를 만들지 않는다(`crates/data-clients/` 에 
 4. 백엔드가 토큰으로 사용자 정보 (이름·DI/CI) 조회
 5. DI/CI를 사용자 레코드에 저장 (해시 또는 암호화)
 
-## 환경변수
+## 환경변수 (도입 시 예정 이름)
 
 ```
 NICE_API_KEY=
 NICE_CLIENT_ID=
-NICE_CERT_PATH=  # 인증서 경로 (Vault에 저장)
+NICE_CERT_PATH=  # 인증서 경로 (승인된 시크릿 로더로 주입)
 ```
 
 ## 보안 정책
