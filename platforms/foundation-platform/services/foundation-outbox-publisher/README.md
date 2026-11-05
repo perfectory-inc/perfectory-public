@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-08-26
+last_reviewed: 2026-11-05
 ---
 
 # foundation-outbox-publisher

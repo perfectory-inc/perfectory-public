@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # Foundation 레이크하우스 dbt
@@ -27,9 +27,8 @@ dbt parse --profiles-dir .
 dbt test --profiles-dir . --exclude tag:full_quality
 ```
 
-이 단계에서는 dbt 설치 방법을 의도적으로 고정하지 않는다. 로컬 검증은 Python 3.13에서
-`dbt-core 1.11.12`, `dbt-trino 1.10.2`로 수행했다. Python 3.14는 dbt 의존성 하나가 아직
-호환되지 않아 로컬 smoke가 실패했다.
+dbt 설치 방법과 버전은 저장소가 고정하지 않는다(버전 핀 정본 `tools/technology-versions.contract.json`에
+dbt 항목이 없다).
 
 ## dbt 없이 하는 정적 검증
 
@@ -38,9 +37,13 @@ dbt를 설치하기 전에 다음을 실행한다.
 ```powershell
 python infra/lakehouse/dbt/tests/test_no_dbt_forbidden_responsibilities.py
 python infra/lakehouse/dbt/tests/test_model_contracts.py
+python infra/lakehouse/dbt/tests/test_trino_catalog_template_contract.py
+python infra/lakehouse/dbt/render_current_rows.py --check
 ```
 
-이 테스트는 dbt 패키지 없이 프로젝트 경계와 첫 모델 계약을 검증한다.
+이 검사는 dbt 패키지 없이 프로젝트 경계, 모델 계약, 로컬 Trino 카탈로그 템플릿을 검증한다.
+`macros/foundation_current_rows.sql`과 `tests/foundation_current_keys_are_unique.sql`은 레이크하우스
+계약에서 `render_current_rows.py`가 생성하므로 손으로 고치지 않는다.
 
 ## dbt를 준비한 뒤 런타임 검증
 

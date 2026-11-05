@@ -2,7 +2,7 @@
 status: current
 owner: identity-platform
 doc_type: README
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # Identity Platform
@@ -12,18 +12,21 @@ Staff 로그인/세션, workload(service) identity 발급·검증, 그리고 다
 소비하는 인가 정책 결정(policy decision)을 이 영역이 소유한다. 제품(예:
 Gongzzang)의 B2C 사용자 인증은 여기 소관이 아니다 — 각 제품이 소유한다.
 
-구성: `services/identity-api` (인증·정책 결정 API), `services/identity-policy-worker`
-(정책 반영 워커), `crates/{staff-identity, service-identity, authorization, ...}`.
+구성: `services/identity-api` (세션·정책 결정 API), `services/identity-policy-worker`
+(Identity outbox 이벤트 발행 워커), `crates/{staff-identity, service-identity, authorization, ...}`,
+`tools/{identity-database-migrator, identity-service-provisioner}`. Cargo workspace 멤버의 정본은
+[`Cargo.toml`](./Cargo.toml)이다.
 
 ## 책임 트리
 
 ```text
 identity-platform/
-├── crates/staff-identity/       직원 인증·세션
-├── crates/service-identity/     workload identity
-├── crates/authorization/        정책 결정
+├── crates/staff-identity/       직원 세션·ZITADEL subject 연결
+├── crates/service-identity/     workload 자격 검증·서비스 호출 인가
+├── crates/authorization/        role·정책 결정
 ├── services/identity-api        HTTP API
-└── services/identity-policy-worker  정책 반영 워커
+├── services/identity-policy-worker  outbox 이벤트 발행 워커
+└── tools/                       DB 마이그레이터·workload 주체 프로비저너
 ```
 
 문서 지도: [Identity docs](./docs/README.md) ·
@@ -50,8 +53,8 @@ bash scripts/compose-smoke.sh -- start-all
 
 ## 운영
 
-- Workload identity 발급/회전 절차:
-  [docs/runbooks/workload-identity-provisioning.md](./docs/runbooks/workload-identity-provisioning.md)
+- 운영 런북 목록: [docs/runbooks/](./docs/runbooks/README.md) — workload identity 발급·회전,
+  LAN 호스트 기동, 직원 콘솔 로그인 준비
 
 ## 규칙
 

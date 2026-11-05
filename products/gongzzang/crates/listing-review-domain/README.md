@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # listing-review-domain
@@ -11,16 +11,17 @@ last_reviewed: 2026-07-29
 
 ## 책임
 
-- spec § 5.5 `listing_review_queue` 테이블 매핑하는 Aggregate 정의해요.
+- `listing_review_queue` 테이블(`migrations/20260719000105_operations_tables.sql`)에 대응하는 Aggregate를 정의해요.
 - **Decision-based workflow** — `decision = None` (pending) →
   `Some(Approve)` / `Some(Reject)` / `Some(RequestChanges)` (terminal).
 - **12h SLA** — `submitted_at + 12h` 로 `sla_due_at` 자동 계산.
 - **Optimistic concurrency** — `version` 컬럼 (`bigint`) 으로 동시 검토 충돌 차단.
 - **Auto check** — 룰 기반 자동 점수 (`auto_check_score` 0-100) 와 플래그
   (`auto_check_flags`, 예: `["suspected_duplicate", "price_anomaly"]`) 를 큐 생성 시 기록.
-- 검토자 (`reviewer_id`) 와 검토 메모 (`reviewer_note`) 는 결정 시점에 기록.
+- 검토자 (`reviewer_id`) 와 검토 메모 (`reviewer_note`, ≤2000자) 는 결정 시점에 기록.
 - `reject` / `request_changes` 는 **메모 필수** (사용자에게 사유 안내).
 - `ListingReviewRepository` trait — `find_by_id` / `find_pending` / `find_by_listing` / `save` (OCC).
+  `Postgres` 구현은 `gongzzang-persistence`의 `PgListingReviewRepository`.
 
 ## 결정 워크플로우
 
@@ -38,4 +39,4 @@ last_reviewed: 2026-07-29
 
 ## 의존
 
-- `shared-kernel` (`Id`, `UserMarker`, `ListingMarker`, `ListingReviewMarker`).
+- `shared-kernel` (`Id`, `UserMarker`, `ListingMarker`, `ListingReviewMarker`, `MutationContext`).

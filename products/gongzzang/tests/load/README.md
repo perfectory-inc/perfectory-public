@@ -2,34 +2,28 @@
 status: current
 owner: gongzzang-제품
 doc_type: README
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 부하 시나리오
 
 이 k6 시나리오는 성능·스테이징 용량을 찾는 운영자 도구다. `apps/`, `services/`, `crates/`,
-`packages/`에서 가져오지 않는다.
+`packages/`에서 가져오지 않는다. 시나리오 목록·SLO는 [`scenarios.v1.json`](scenarios.v1.json)이 정본이고,
+증거 위치·승인 대상·측정 용량은 비공개 운영자 입력이다([`docs/testing/load.md`](../../docs/testing/load.md)).
 
-각 시나리오는 `k6 run --summary-export`로 실행한다. 증거 위치,
-approved targets, and measured capacity bindings are private operator inputs
-(see `docs/testing/load.md`).
-
-Example:
+각 시나리오는 `k6 run --summary-export`로 실행한다.
 
 ```bash
 test -n "$LOAD_EVIDENCE_DIR"
-k6 run --summary-export "$LOAD_EVIDENCE_DIR/k6-summary.json" \
+TARGET_BASE_URL=https://<승인된-대상> \
+  k6 run --summary-export "$LOAD_EVIDENCE_DIR/k6-summary.json" \
   tests/load/scenarios/api-read-mix.js
 ```
 
-커밋된 대상은 의도적으로 라우팅할 수 없다. 실행에는 비공개 실행기가 제공하는 승인된
-target host supplied by the private load runner through
-`LOAD_APPROVED_TARGET_HOSTS`, using comma-separated hostnames without scheme,
-path, port, query, or credentials.
-
-인증된 API 읽기 경로는 runner에 `LOAD_AUTH_BEARER_TOKEN`을 설정한다.
-environment. Do not put bearer tokens in workflow inputs or committed files.
-
-marker 실행은 `LOAD_FILTER_HASH`를 설정하고 필요하면 `LOAD_FILTER_HASH_MISS`도 설정한다.
-to known fixture hashes from the perf dataset. The default miss path reuses the
-same valid hash and changes only the requested tile.
+- 대상은 `TARGET_BASE_URL`로만 받는다(필수). 커밋된 `defaultTargetBaseUrl`은 라우팅할 수 없는
+  `.invalid` 주소이고, `gongzzang.com`과 그 하위 도메인은 `lib/env.js`가 거부한다.
+- `LOAD_ENVIRONMENT`는 `perf`(기본)·`staging`·`local`·`ci` 중 하나, `LOAD_PROFILE` 기본은 `smoke`.
+- 인증된 API 읽기 경로는 runner 환경에 `LOAD_AUTH_BEARER_TOKEN`을 설정한다. bearer 토큰을 workflow
+  입력이나 커밋 파일에 넣지 않는다.
+- marker 실행은 perf 데이터셋의 알려진 fixture 해시를 `LOAD_FILTER_HASH`(필요하면 `LOAD_FILTER_HASH_MISS`)로
+  줄 수 있다. miss 경로는 기본적으로 같은 유효 해시를 쓰고 요청 타일만 바꾼다.

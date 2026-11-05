@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-08-25
+last_reviewed: 2026-11-05
 ---
 
 # Foundation Profile Gateway
@@ -19,21 +19,23 @@ Worker/binding 이름, bucket 연결, 키 root·UUID pattern·suffix, CORS 문�
 - 허용: `GET`, `HEAD`, `OPTIONS`와 정확한
   `/gold/industrial-complex/profiles/{artifact_id}.json`
 - 거부: query, 다른 prefix/segment, traversal은 404; 다른 method는 405; 미허용 Origin은 403
-- 캐시: `public, max-age=31536000, immutable`; 객체는 create-only이며 새 판본은 새 artifact URL
+- 캐시: 계약의 `cache_control`(immutable); 객체는 create-only이며 새 판본은 새 artifact URL
 - 조건부 요청: R2/Cache API의 ETag와 `If-None-Match` 판단을 사용하고 일치하면 304
 - 권한: R2 binding 하나의 `get`만 타입에 노출; list/write와 S3 자격증명 없음
 
 ## 로컬 검증
 
-Node 20.19.0과 pnpm 9.12.0이 정본이다.
+Node·pnpm 버전은 [`tools/technology-versions.contract.json`](../../../../tools/technology-versions.contract.json)이
+정본이고 `package.json`의 `engines`·`packageManager`가 그 값을 따른다. corepack이 `packageManager` 핀을 고른다.
 
 ```bash
-corepack pnpm@9.12.0 install --frozen-lockfile
-corepack pnpm@9.12.0 run config:check
-corepack pnpm@9.12.0 run typecheck
-corepack pnpm@9.12.0 test
-corepack pnpm@9.12.0 run build:check
-corepack pnpm@9.12.0 run verify:local
+corepack pnpm install --frozen-lockfile
+corepack pnpm run config:check
+corepack pnpm run lint
+corepack pnpm run typecheck
+corepack pnpm test
+corepack pnpm run build:check
+corepack pnpm run verify:local
 ```
 
 `verify:local`은 OS 임시 디렉터리의 Wrangler local R2에 canonical 프로필과 Bronze 모양 객체를

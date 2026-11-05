@@ -2,7 +2,7 @@
 status: current
 owner: intelligence-platform
 doc_type: README
-last_reviewed: 2026-07-28
+last_reviewed: 2026-11-05
 ---
 
 # Intelligence Platform
@@ -13,8 +13,9 @@ last_reviewed: 2026-07-28
 
 ```text
 intelligence-platform/
+├── crates/intelligence-contracts/  이벤트 envelope·dead-letter·trace 계약
 ├── crates/normalization/       LLM 정규화 제안
-├── crates/knowledge/           지식 계약·처리
+├── crates/knowledge/           지식 원천 registry·색인
 ├── crates/messaging/           Kafka·Avro·Karapace 어댑터
 ├── services/intelligence-api   HTTP API
 ├── services/intelligence-worker  비동기 워커
@@ -31,10 +32,10 @@ intelligence-platform/
 
 ## 구성
 
-- `crates/intelligence-contracts`: wire·식별자 공통 계약
-- `crates/knowledge/knowledge-domain`: 지식 검증과 도메인 타입
+- `crates/intelligence-contracts`: 이벤트 envelope·topic·dead-letter·trace context 계약
+- `crates/knowledge/knowledge-domain`: 지식 원천·청크·검색 fusion 도메인 타입
 - `crates/knowledge/knowledge-application`: 지식 유스케이스와 port
-- `crates/knowledge/knowledge-infrastructure`: 지식 저장 adapter
+- `crates/knowledge/knowledge-infrastructure`: 원천 registry·색인 adapter(인메모리·Postgres 전문검색)
 - `crates/normalization/intelligence-normalization-domain`: 정규화 규칙과 도메인 타입
 - `crates/normalization/intelligence-normalization-application`: 정규화 유스케이스와 port
 - `crates/normalization/intelligence-normalization-infrastructure`: 모델·Foundation·상태·rate-limit adapter
@@ -157,7 +158,6 @@ cargo run -p intelligence-worker --bin normalization_outbox_drain_worker
 | `NORMALIZATION_OUTBOX_DRAIN_IDLE_SECONDS` | `2` | Sleep between polls when the outbox is empty. |
 
 **Lease와 batch 불변식:**
-`NORMALIZATION_OUTBOX_DRAIN_BATCH_SIZE * FOUNDATION_PLATFORM_TIMEOUT_SECONDS` stays
 `NORMALIZATION_OUTBOX_DRAIN_BATCH_SIZE * FOUNDATION_PLATFORM_TIMEOUT_SECONDS`가
 `NORMALIZATION_OUTBOX_DRAIN_LEASE_SECONDS`보다 충분히 작아야 한다. batch 끝부분이 lease를 넘기면
 다른 worker가 레코드를 재획득해 중복 전달을 시도한다. Foundation의 `Idempotency-Key` 중복 제거는
@@ -165,12 +165,14 @@ cargo run -p intelligence-worker --bin normalization_outbox_drain_worker
 
 ### Other worker binaries
 
-`intelligence-worker`는 drain worker 외에 다음 세 binary를 제공한다.
+`intelligence-worker`는 drain worker 외에 다음 binary를 제공한다(정본은 `services/intelligence-worker/src/bin/`).
 
 ```bash
 cargo run -p intelligence-worker --bin building_register_floor_normalization
 cargo run -p intelligence-worker --bin building_register_unit_normalization
 cargo run -p intelligence-worker --bin foundation_knowledge_consumer
+cargo run -p intelligence-worker --bin knowledge_scaffold_index
+cargo run -p intelligence-worker --bin knowledge_scaffold_query
 ```
 
 - `building_register_floor_normalization` — 건축물대장 **층** 정규화 제안 작업(generate → validate →
@@ -180,6 +182,8 @@ cargo run -p intelligence-worker --bin foundation_knowledge_consumer
   Postgres 지식 원천 registry로 소비한다. 스키마는 Foundation 소유
   `foundation-platform.knowledge.source-upserted.v1.avsc`이고, 소비자는 `<topic>-value` subject에서 그 스키마를
   조회만 한다(등록하지 않음). Foundation이 등록하기 전에는 기동이 실패한다. 현재 Foundation 쪽 producer는 없다.
+- `knowledge_scaffold_index`·`knowledge_scaffold_query` — `tenant:scaffold` 비계 코퍼스 전용 개발 CLI. 승인 전 production
+  RAG endpoint를 두지 않는다는 Intelligence ADR-0002에 따라 HTTP route 대신 CLI로만 둔다.
 
 ### Observability
 
@@ -266,7 +270,7 @@ INTELLIGENCE_INBOUND_SERVICE_PRODUCT_ID=foundation-platform
 INTELLIGENCE_INBOUND_SERVICE_ACTIONS=submit_normalization_proposal
 MODEL_RUNTIME_BASE_URL=http://<model-runtime-host>:11434
 MODEL_RUNTIME_CHAT_PATH=/v1/chat/completions
-MODEL_RUNTIME_DEFAULT_MODEL=hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
+MODEL_RUNTIME_DEFAULT_MODEL=<config/local-ollama.env.example 의 값>
 MODEL_RUNTIME_PROFILE_ID=normalization-ko
 MODEL_RUNTIME_API_KEY=optional-token
 # For reasoning-first models such as Qwen 3.6, set this so message.content is
@@ -274,11 +278,12 @@ MODEL_RUNTIME_API_KEY=optional-token
 MODEL_RUNTIME_REASONING_EFFORT=none
 ```
 
-로컬 예시 profile은 `config/local-ollama.env.example`에 있다.
+로컬 예시 profile은 `config/local-ollama.env.example`에 있고, 기본 모델 값은 그 파일이 정본이다
+(선택 근거: [Intelligence ADR-0006](./docs/adr/0006-default-model-follows-measured-accuracy.md)).
 Load it through the deployment environment or secret/config mechanism; it is
 configuration data, not an executable production wrapper. Any
 non-loopback bind requires `INTELLIGENCE_INBOUND_AUTH_MODE=identity`; see
-the **Enterprise Runtime C0-C1** section for the full fail-closed guard rules.
+the **기업용 runtime C0-C1** section for the full fail-closed guard rules.
 
 runtime은 OpenAI 호환 chat completions 형태를 사용한다. base URL은 Ollama·vLLM 또는 다른
 호환 model gateway를 가리킬 수 있지만 앱은 여전히
@@ -300,7 +305,7 @@ curl --fail-with-body \
   --header 'Content-Type: application/json' \
   --data @- <<'JSON'
 {
-  "model": "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M",
+  "model": "<MODEL_RUNTIME_DEFAULT_MODEL 값>",
   "messages": [{"role": "user", "content": "짧게 자기소개해 주세요."}],
   "temperature": 0.2,
   "max_tokens": 256
@@ -321,7 +326,7 @@ intelligence platform을 가리키는 OpenAI-compatible connection을 설정한�
 ```text
 Base URL: http://<intelligence-api-host>:8010/v1
 API Key: local-dev
-Model: hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
+Model: <MODEL_RUNTIME_DEFAULT_MODEL 값>
 ```
 
 이 설정은 임시 bridge로만 사용한다. 최종 제품 UI는 `intelligence-platform`을 직접 호출하고
