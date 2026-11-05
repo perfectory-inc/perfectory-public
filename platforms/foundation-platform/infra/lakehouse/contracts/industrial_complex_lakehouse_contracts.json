@@ -1803,6 +1803,9 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "row_key",
@@ -1892,6 +1895,9 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
       "columns": [
         {
           "name": "row_key",
@@ -1980,6 +1986,9 @@
         ],
         "removal_column": "row_state",
         "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
       },
       "columns": [
         {
