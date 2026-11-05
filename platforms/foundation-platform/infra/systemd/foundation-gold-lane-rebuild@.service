@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform 부속지번 kind Gold rebuild: build gold.parcel_sub_parcels from silver.building_register_sub_parcel, only the changed parcels at either end (root ADR-0399)
+Description=Foundation Platform kind Gold rebuild of %i: the lane's Gold from its own Silver, only the changed parcels (root ADR-0287, ADR-0418 §8b)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -16,7 +16,7 @@ EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 # The kind built from its own Silver (root ADR-0287), in the compose `spark` service under its 20g cap,
 # which the host memory guard counts for this job (tools/host-memory-budget.contract.json). The
 # same script and lock as the panel rebuild: never beside it.
-ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh parcel-sub-parcels
+ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh %i
 # The timeout below kills the script and the compose client, not the Spark container the Docker
 # daemon owns: left alone it would keep its 20g after Airflow freed the pool. Spark runs in the
 # Compose project named after this INVOCATION_ID; this removes that project's one-off containers and
@@ -26,7 +26,7 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh par
 # (scripts/ops/pinned-cleanup.sh reads it from RuntimeDirectory; root ADR-0270 §3).
 ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh gold-panel-rebuild.sh
 RuntimeDirectory=%N
-# The job list's time_limit_minutes (jobs.v1.json): the first build reads every sub-parcel row; later runs the changed parcels.
+# The job list's time_limit_minutes (jobs.v1.json), one for every instance: the first build reads every row; later runs the changed parcels.
 # Generated from the list, not hand-set: `cargo run -p foundation-jobs -- generate` (committed_units test).
 TimeoutStartSec=150m
 # The cleanup's own bound (FLOOR's): `docker stop --time 30`, then removal and its check.

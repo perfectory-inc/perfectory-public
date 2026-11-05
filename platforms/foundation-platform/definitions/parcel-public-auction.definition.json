@@ -46,7 +46,7 @@
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
-      "systemd_service": "foundation-by-pnu-public-auction-bake.service",
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-public-auction.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/by-pnu-bake"

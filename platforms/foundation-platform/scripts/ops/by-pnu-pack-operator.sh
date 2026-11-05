@@ -195,20 +195,12 @@ GOLD_KINDS=foundation-gold-kind-rebuild.service
 GOLD_UNIT_PRICE=foundation-gold-unit-price-rebuild.service
 GOLD_UNIT=foundation-gold-panel-rebuild-unconditional
 BAKE_SCHEDULED=foundation-by-pnu-serving-bake.service
-# The own-producer public-auction lane bakes in its own job beside it (root ADR-0303).
-BAKE_OWN_PRODUCER=foundation-by-pnu-public-auction-bake.service
-# The own-producer ownership lane bakes in its own job too (root ADR-0303 §2, ADR-0361).
-BAKE_OWNERSHIP=foundation-by-pnu-parcel-ownership-bake.service
-# The own-producer regulation zones lane bakes in its own job too (root ADR-0303 §2, ADR-0375).
-BAKE_REGULATION_ZONES=foundation-by-pnu-parcel-regulation-zones-bake.service
-# The own-producer sub-parcels lane bakes in its own job too (root ADR-0303 §2, ADR-0399).
-BAKE_SUB_PARCELS=foundation-by-pnu-parcel-sub-parcels-bake.service
-# The own-producer energy lane bakes in its own job too (root ADR-0303 §2, ADR-0398).
-BAKE_ENERGY=foundation-by-pnu-parcel-energy-bake.service
-# The own-producer demolitions lane bakes in its own job too (root ADR-0303 §2, ADR-0399).
-BAKE_DEMOLITIONS=foundation-by-pnu-parcel-demolitions-bake.service
-# The unit price lane bakes in its own job too (root ADR-0333).
-BAKE_UNIT_PRICE=foundation-by-pnu-unit-price-bake.service
+# Every lane's bake, the scheduled one included, from the lane index this script ships with: an
+# own-producer lane bakes in its own job (root ADR-0303), and a new lane joins this list by itself
+# (root ADR-0418 §8a).
+source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-lane-index.sh"
+mapfile -t LANE_BAKES < <(by_pnu_lane_bake_services)
+((${#LANE_BAKES[@]})) || refuse "the lane index names no bake" 65
 PACK_BAKES='foundation-*-pack-bake-g*.service'
 # The rebuild's one reason, so the plan and the Gold history name where it came from.
 GOLD_REASON="root ADR-0166: by-pnu-pack-operator gold-rebuild, the Gold a section pack generation is baked from"
@@ -279,7 +271,7 @@ refuse_while_the_deploy_holds() {
 # holding a lane lock (a hand-run publish takes it too). The lock is only tested, never created.
 refuse_while_baking() {
   local lane lock running
-  refuse_while_active "${BAKE_SCHEDULED}" "${BAKE_OWN_PRODUCER}" "${BAKE_OWNERSHIP}" "${BAKE_DEMOLITIONS}" "${BAKE_ENERGY}" "${BAKE_SUB_PARCELS}" "${BAKE_REGULATION_ZONES}" "${BAKE_UNIT_PRICE}"
+  refuse_while_active "${LANE_BAKES[@]}"
   running="$(running_units "${PACK_BAKES}")"
   [[ -z "${running}" ]] || refuse "a section pack bake is running ($(cut -d' ' -f1 <<<"${running}" | paste -sd' '))" 75
   for lane in building parcel ${PACK_LANES[@]+"${PACK_LANES[@]}"}; do
@@ -691,8 +683,7 @@ case "${ACTION}" in
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
       [[ ! -f "${WORK}/logs/${action}.log" ]] || tail -3 "${WORK}/logs/${action}.log" | cut -c1-300
     done
-    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${GOLD_UNIT_PRICE}" "${BAKE_SCHEDULED}" \
-        "${BAKE_OWN_PRODUCER}" "${BAKE_OWNERSHIP}" "${BAKE_DEMOLITIONS}" "${BAKE_ENERGY}" "${BAKE_SUB_PARCELS}" "${BAKE_REGULATION_ZONES}" "${BAKE_UNIT_PRICE}"; do
+    for unit in "${GOLD_UNIT}" "${GOLD_SCHEDULED}" "${GOLD_KINDS}" "${GOLD_UNIT_PRICE}" "${LANE_BAKES[@]}"; do
       printf '%s: %s\n' "${unit}" "$(systemctl is-active "${unit}" 2>/dev/null || true)"
     done
     [[ ! -f "${GOLD_LOG}" ]] || tail -3 "${GOLD_LOG}" | cut -c1-300

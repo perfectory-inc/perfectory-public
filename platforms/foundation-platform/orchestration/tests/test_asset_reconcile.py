@@ -126,7 +126,7 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(owed, [], "a compaction changes no row")
 
     def test_a_running_job_is_not_started_and_a_full_pool_is_not_unscheduled(self):
-        self.running = {"foundation-by-pnu-public-auction-bake.service"}
+        self.running = {"foundation-by-pnu-lane-bake@parcel-public-auction.service"}
         owed, metrics, state, _ = self.tick()
         self.assertEqual(owed, [])
         self.assertNotIn("unscheduled_since", state["perfectory://parcel-public-auction-by-pnu-section-packs"])

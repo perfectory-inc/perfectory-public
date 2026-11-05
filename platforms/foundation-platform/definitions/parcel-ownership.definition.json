@@ -9,7 +9,7 @@
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "토지소유 kind Gold (root ADR-0361; scripts/ops/gold-panel-rebuild.sh parcel-ownership): gold.parcel_ownership from silver.land_ownership, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs of the owner rows the Silver release appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (land_ownership_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_serving_bake bakes its commit.",
-      "systemd_service": "foundation-gold-parcel-ownership-rebuild.service",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-ownership.service",
       "systemd_timer": null,
       "state_paths": [],
       "schedule": "55 9 * * *",
@@ -37,7 +37,7 @@
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
-      "systemd_service": "foundation-by-pnu-parcel-ownership-bake.service",
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-ownership.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/by-pnu-bake"

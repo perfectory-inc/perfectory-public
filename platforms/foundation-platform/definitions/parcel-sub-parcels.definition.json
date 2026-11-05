@@ -9,7 +9,7 @@
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "부속지번 kind Gold (root ADR-0399; scripts/ops/gold-panel-rebuild.sh parcel-sub-parcels): gold.parcel_sub_parcels from silver.building_register_sub_parcel, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs at either end of the rows the Silver release appended (and of parcels that entered or left the served edition) and merges them; a change of the code change table rebuilds whole (building_sub_parcel_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_sub_parcels_bake bakes its commit.",
-      "systemd_service": "foundation-gold-parcel-sub-parcels-rebuild.service",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-sub-parcels.service",
       "systemd_timer": null,
       "state_paths": [],
       "schedule": "55 9 * * *",
@@ -37,7 +37,7 @@
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
-      "systemd_service": "foundation-by-pnu-parcel-sub-parcels-bake.service",
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-sub-parcels.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/by-pnu-bake"

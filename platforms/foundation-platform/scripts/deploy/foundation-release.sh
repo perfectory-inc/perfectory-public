@@ -1146,6 +1146,25 @@ case "${command}" in
       rm -f /etc/systemd/system/foundation-map-edit-fold.timer \
         /etc/systemd/system/foundation-map-edit-fold.service
     fi
+    # one-off: until every host has run a release with the lane templates (root ADR-0418 §8b). The
+    # own-producer lanes' bake and rebuild units became instances of foundation-by-pnu-lane-bake@ and
+    # foundation-gold-lane-rebuild@; no job names the old units. One that still runs is left in place
+    # (systemd keeps a running unit's loaded definition) and the next deploy removes it.
+    for unit in foundation-by-pnu-public-auction-bake foundation-by-pnu-parcel-ownership-bake \
+      foundation-by-pnu-parcel-regulation-zones-bake foundation-by-pnu-parcel-sub-parcels-bake \
+      foundation-by-pnu-parcel-energy-bake foundation-by-pnu-parcel-demolitions-bake \
+      foundation-gold-parcel-ownership-rebuild foundation-gold-parcel-regulation-zones-rebuild \
+      foundation-gold-parcel-sub-parcels-rebuild foundation-gold-parcel-energy-rebuild \
+      foundation-gold-parcel-demolitions-rebuild; do
+      [[ -e "/etc/systemd/system/${unit}.service" ]] || continue
+      # The host's one answer to whether a unit runs (job_units.py); no answer keeps the unit too.
+      if ! still="$(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" running "${unit}.service")"         || [[ -n "${still}" ]]; then
+        printf 'foundation-release: %s.service still runs; it is retired by the next deploy\n' "${unit}" >&2
+        continue
+      fi
+      rm -f "/etc/systemd/system/${unit}.service"
+      rm -rf "/etc/systemd/system/${unit}.service.d"
+    done
     # The parcel tile bake was one unit before it became the gold/bake template (root ADR-0253). It
     # never ran (its job was off) and has no timer; a host that installed it would keep a unit no
     # job names.

@@ -179,6 +179,14 @@ def service_unit_file(service):
     return SYSTEMD / service
 
 
+def service_unit_text(service):
+    """The unit a service runs, as systemd reads it: its file's, or its template's with `%i` the instance
+    (systemd.unit(5) specifiers), so a lane's instance of a template states that lane's arguments."""
+    text = service_unit_file(service).read_text(encoding="utf-8")
+    match = SERVICE_NAME.fullmatch(service)
+    return text.replace("%i", match.group(1)) if match and match.group(1) else text
+
+
 # Serving surfaces made by a bake: each has a producing job, or an exemption that says why not.
 BAKED_SURFACE_KINDS = {"r2_baked_documents", "tiles"}
 

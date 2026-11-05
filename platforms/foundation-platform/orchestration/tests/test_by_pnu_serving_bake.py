@@ -699,17 +699,18 @@ class ByPnuServingBake(unittest.TestCase):
         shutil.copytree(job_specs.PLATFORM_ROOT / "config", self.script.parents[2] / "config", dirs_exist_ok=True)
         programs = {}
         for spec in job_specs.load_specs():
-            unit = job_specs.service_unit_file(spec.systemd_service).read_text(encoding="utf-8")
+            unit = job_specs.service_unit_text(spec.systemd_service)
             for line in unit.splitlines():
                 if line.startswith("ExecStart=") and "/scripts/ops/by-pnu-serving-bake.sh " in line:
                     programs[spec.job_id] = line.split("by-pnu-serving-bake.sh ", 1)[1].split()
-        self.assertEqual(programs.get("by_pnu_public_auction_bake"), ["parcel-public-auction"])
-        self.assertEqual(programs.get("by_pnu_unit_price_bake"), ["unit-price"])
-        self.assertEqual(programs.get("by_pnu_parcel_ownership_bake"), ["parcel-ownership"])
-        self.assertEqual(programs.get("by_pnu_parcel_regulation_zones_bake"), ["parcel-regulation-zones"])
-        self.assertEqual(programs.get("by_pnu_parcel_sub_parcels_bake"), ["parcel-sub-parcels"])
-        self.assertEqual(programs.get("by_pnu_parcel_energy_bake"), ["parcel-energy"])
-        self.assertEqual(programs.get("by_pnu_parcel_demolitions_bake"), ["parcel-demolitions"])
+        # Every lane with a bake of its own runs this script for that lane, read from the lane index the
+        # definitions generate (root ADR-0418 §8c), not a list of lanes written here.
+        index = json.loads((job_specs.PLATFORM_ROOT / "config/by-pnu-lane-index.v1.json").read_text(encoding="utf-8"))
+        own = {lane["bake_jobs"][0]["id"]: lane["lane"] for lane in index["lanes"]
+               if lane["bake_jobs"] and lane["bake_jobs"][0]["id"] != "by_pnu_serving_bake"}
+        self.assertTrue(own)
+        for job_id, lane in own.items():
+            self.assertEqual(programs.get(job_id), [lane], job_id)
         for job_id, args in programs.items():
             with self.subTest(job_id):
                 self.log.unlink(missing_ok=True)
