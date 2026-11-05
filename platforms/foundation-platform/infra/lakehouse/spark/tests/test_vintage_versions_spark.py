@@ -281,6 +281,22 @@ class RunBudgetTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not fit"):
                 job.load_contract(path)
 
+    def test_a_done_migration_is_a_no_op_and_one_that_cannot_move_fails(self):
+        # The job runs daily until done (unit-price-versions-migration.definition.json): a complete run
+        # took no step and says `unchanged`; one not complete that took no step is stuck, not a no-op.
+        import vintage_versions as job
+
+        def summary(complete, *entries):
+            return {"complete": complete, "parity": True,
+                    "targets": {"t": {"vintages": {str(n): e for n, e in enumerate(entries)}}}}
+
+        held = {"source_batch": "b", "parity": "held"}
+        self.assertEqual(job.run_state(summary(True, held, held)), ("complete", False))
+        self.assertEqual(job.run_state(summary(True, held, {"parity_seconds": 1.0, "missing": 0, "extra": 0})),
+                         ("complete", True))
+        self.assertEqual(job.run_state(summary(False, held, {"appended_seconds": {"1/4": 2.0}})), ("progress", True))
+        self.assertEqual(job.run_state(summary(False, held, {"source_batch": "b"})), ("stalled", False))
+
 
 if __name__ == "__main__":
     unittest.main()

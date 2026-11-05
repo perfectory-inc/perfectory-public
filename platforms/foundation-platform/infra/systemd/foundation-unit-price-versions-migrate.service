@@ -11,7 +11,7 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
-# The job unit_price_versions_migration (jobs.v1.json), started by an operator (`job start`): the
+# The job unit_price_versions_migration (jobs.v1.json), started daily by its schedule: the
 # steps a run takes fit infra/lakehouse/contracts/vintage-versions-migration.contract.json's
 # run_time_budget_seconds, and the next run continues where it stopped.
 ExecStart=/opt/foundation-platform/current/scripts/ops/unit-price-versions-migrate.sh
