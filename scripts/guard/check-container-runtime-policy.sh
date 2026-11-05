@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Checks tracked container-runtime declarations without requiring Docker or a
-# YAML dependency. This is deliberately not a general YAML parser: security-
-# relevant Compose keys use a narrow syntax, and ambiguous forms fail closed.
+# Checks tracked container-runtime declarations. A Compose file is normalized by the pinned
+# `docker compose config` (tools/docker-compose.env) and judged by the Conftest policies in tools/conftest/compose: the
+# engine resolves anchors, `extends`, `include` and `!reset`, so no rule needs a YAML subset.
+# Dockerfiles and the shell's docker build/run/pull lines are read here.
 set -euo pipefail
 
 root="${1:-.}"
@@ -10,33 +11,33 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$root" <<'PY'
+guard_root="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd -P; })"
+python3 - "$root" "$guard_root" <<'PY'
 from __future__ import annotations
 
-import ast
+import concurrent.futures
 import json
 import pathlib
-import posixpath
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 
 
 ROOT = pathlib.Path(sys.argv[1]).resolve()
+GUARD_ROOT = pathlib.Path(sys.argv[2]).resolve()
+COMPOSE_POLICY = GUARD_ROOT / "tools" / "conftest" / "compose"
+# Env files are never read, so no local secret reaches the model, and paths stay as written.
+COMPOSE_CONFIG = (
+    "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json",
+)
+WORK = pathlib.Path(tempfile.mkdtemp(prefix="container-runtime-policy-"))
 HEX64 = re.compile(r"[0-9a-f]{64}")
 IMAGE_VARIABLE = re.compile(r"\$(?:\{)?([A-Z][A-Z0-9_]*IMAGE[A-Z0-9_]*)(?:\})?$")
 IMAGE_WITH_DEFAULT = re.compile(
     r"\$\{([A-Z][A-Z0-9_]*IMAGE[A-Z0-9_]*):-([^}]+)\}$"
-)
-SAFE_BIND = re.compile(
-    r"^(?:127\.0\.0\.1|\$\{[A-Z_][A-Z0-9_]*:-127\.0\.0\.1\}):"
-    r"(?:[0-9]+|\$\{[A-Z_][A-Z0-9_]*:-[0-9]+\}):[0-9]+(?:/(?:tcp|udp))?$"
-)
-SECRET_KEY = re.compile(r"(?:^|_)(?:PASSWORD|MASTERKEY|SECRET|TOKEN|KEY)(?:$|_)")
-REQUIRED_ENV = re.compile(r"\$\{[A-Z][A-Z0-9_]*:\?[^}]+\}")
-REQUIRED_CONTRACT_IMAGE = re.compile(
-    r"\$\{([A-Z][A-Z0-9_]*IMAGE[A-Z0-9_]*):\?[^}]+\}"
 )
 STATIC_RELEASE_CONTRACT = pathlib.PurePosixPath(
     "platforms/foundation-platform/config/static-release-toolchain.contract.json"
@@ -193,16 +194,68 @@ def contract_compose_owner_is_valid(path: str, text: str) -> bool:
     )
 
 
-def compose_image_is_immutable(path: str, text: str, reference: str) -> bool:
-    if image_is_immutable(reference):
-        return True
-    token = unquote_yaml_scalar(reference)
-    variable = REQUIRED_CONTRACT_IMAGE.fullmatch(token)
-    return bool(
-        variable
-        and variable.group(1) in contract_images
-        and contract_compose_owner_is_valid(path, text)
+def pinned_tool(tool: str, member: str | None) -> pathlib.Path:
+    """One pinned release binary (tools/pinned-artifacts.json), fetched once per run."""
+    binary = WORK / (f"{tool}.exe" if sys.platform == "win32" else tool)
+    if not binary.exists():
+        command = [sys.executable, str(GUARD_ROOT / "scripts/ci/fetch_pinned.py"), "tool", tool,
+                   "--output", str(binary)]
+        if member:
+            command += ["--member", member]
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, timeout=300)
+        binary.chmod(0o755)
+    return binary
+
+
+def conftest_binary() -> pathlib.Path:
+    return pinned_tool("conftest", "conftest.exe" if sys.platform == "win32" else "conftest")
+
+
+def compose_binary() -> pathlib.Path:
+    # The parser is part of the policy, so it is pinned too (tools/docker-compose.env).
+    return pinned_tool("docker-compose", None)
+
+
+def conftest_failures(path: str, namespace: str, target: pathlib.Path, data: pathlib.Path | None) -> None:
+    command = [str(conftest_binary()), "test", "--policy", str(COMPOSE_POLICY), "--namespace",
+               namespace, "--output", "json", "--no-color"]
+    if data is not None:
+        command += ["--data", str(data)]
+    completed = subprocess.run([*command, str(target)], capture_output=True, text=True, timeout=60)
+    try:
+        results = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        fail(path, 0, f"conftest could not judge it: {completed.stderr.strip()[:300]}")
+        return
+    for result in results:
+        for failure in result.get("failures") or []:
+            fail(path, 0, failure["msg"])
+    if completed.returncode not in (0, 1):
+        fail(path, 0, f"conftest exited {completed.returncode}: {completed.stderr.strip()[:300]}")
+
+
+def check_compose(path: str, text: str) -> None:
+    source = ROOT / path
+    conftest_failures(path, "compose_source", source, None)
+    normalized = subprocess.run(
+        [str(compose_binary()), "--file", str(source), *COMPOSE_CONFIG],
+        capture_output=True, text=True, timeout=120,
     )
+    if normalized.returncode != 0:
+        detail = (normalized.stderr.strip().splitlines() or ["no output"])[-1]
+        fail(path, 0, f"compose config refused it: {detail[:300]}")
+        return
+    stem = re.sub(r"[^A-Za-z0-9_.-]", "_", path)
+    model = WORK / f"{stem}.json"
+    model.write_text(normalized.stdout, encoding="utf-8")
+    owned = bool(CONTRACT_COMPOSE_OWNER.search(text))
+    context = {"context": {
+        "contract_images": sorted(contract_images),
+        "contract_owner_valid": owned and contract_compose_owner_is_valid(path, text),
+    }}
+    data = WORK / f"{stem}.context.json"
+    data.write_text(json.dumps(context), encoding="utf-8")
+    conftest_failures(path, "compose", model, data)
 
 
 def is_compose_path(relative: str) -> bool:
@@ -218,226 +271,6 @@ def looks_like_compose(text: str) -> bool:
         re.search(r"^(?:services|include):", text, flags=re.MULTILINE)
         or re.search(r"^[\"'](?:services|include)[\"']\s*:", text, flags=re.MULTILINE)
     )
-
-
-def check_port(path: str, line: int, value: object) -> None:
-    if not isinstance(value, str) or not SAFE_BIND.fullmatch(value):
-        fail(
-            path,
-            line,
-            "published Compose ports must use short syntax with a 127.0.0.1 "
-            "literal or ${NAME:-127.0.0.1} host default",
-        )
-
-
-def indentation(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def parent_mapping_key(lines: list[str], child_index: int) -> str | None:
-    child_indent = indentation(lines[child_index])
-    for previous in range(child_index - 1, -1, -1):
-        raw = lines[previous]
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            continue
-        if indentation(raw) >= child_indent:
-            continue
-        match = re.match(r"^\s*([A-Za-z0-9_-]+):(?:\s.*)?$", raw)
-        return match.group(1) if match else None
-    return None
-
-
-def local_build_context(value: str) -> bool:
-    value = unquote_yaml_scalar(value)
-    if value == ".":
-        return True
-    if not value.startswith("./") or any(token in value for token in ("$", "{", "}", "\\")):
-        return False
-    return ".." not in pathlib.PurePosixPath(value).parts
-
-
-def check_build(path: str, lines: list[str], index: int, match: re.Match[str]) -> None:
-    base_indent = len(match.group(1))
-    inline = re.split(r"\s+#", match.group(2), maxsplit=1)[0].strip()
-    if inline:
-        if not local_build_context(inline):
-            fail(path, index + 1, "Compose build context must be a literal repository-relative path")
-        return
-
-    child = index + 1
-    context_found = False
-    while child < len(lines):
-        raw = lines[child]
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("#"):
-            child += 1
-            continue
-        if indentation(raw) <= base_indent:
-            break
-        key_match = re.match(r"^\s*([A-Za-z0-9_-]+):\s*(.*?)\s*$", raw)
-        if key_match:
-            key, value = key_match.groups()
-            if key in {"additional_contexts", "dockerfile_inline"}:
-                fail(path, child + 1, f"unsupported security-relevant Compose build key: {key}")
-            if key == "context":
-                context_found = True
-                if not local_build_context(value):
-                    fail(path, child + 1, "Compose build context must be a literal repository-relative path")
-        child += 1
-    if not context_found:
-        fail(path, index + 1, "long-form Compose build requires an explicit local context")
-
-
-def check_include(path: str, lines: list[str], index: int, match: re.Match[str]) -> None:
-    base_indent = len(match.group(1))
-    if match.group(2).strip():
-        fail(path, index + 1, "Compose include must use an auditable local path list")
-        return
-    child = index + 1
-    found = False
-    while child < len(lines):
-        raw = lines[child]
-        stripped = raw.strip()
-        if not stripped or stripped.startswith("#"):
-            child += 1
-            continue
-        if indentation(raw) <= base_indent:
-            break
-        found = True
-        item = re.match(r"^\s*-\s+path:\s+([^\s#]+)\s*(?:#.*)?$", raw)
-        if not item:
-            fail(path, child + 1, "Compose include entries must be literal '- path: compose*.yml' values")
-            child += 1
-            continue
-        include_path = unquote_yaml_scalar(item.group(1))
-        candidate = posixpath.normpath(
-            posixpath.join(str(pathlib.PurePosixPath(path).parent), include_path)
-        )
-        if (
-            include_path.startswith("/")
-            or ".." in pathlib.PurePosixPath(include_path).parts
-            or any(token in include_path for token in ("$", "{", "}", "\\", "://"))
-            or not is_compose_path(candidate)
-            or candidate not in tracked_set
-        ):
-            fail(path, child + 1, "Compose include path must name a tracked local Compose file")
-        child += 1
-    if not found:
-        fail(path, index + 1, "Compose include list is empty or malformed")
-
-
-def check_compose(path: str, text: str) -> None:
-    lines = text.splitlines()
-    for index, raw in enumerate(lines):
-        content = re.split(r"\s+#", raw, maxsplit=1)[0]
-        if "\t" in raw:
-            fail(path, index + 1, "tabs are unsupported in Compose policy inputs")
-        if re.match(r"^\s*[\"'][^\"']+[\"']\s*:", content):
-            fail(path, index + 1, "quoted Compose mapping keys are unsupported")
-        if re.match(r"^\s*[A-Za-z0-9_-]+\s+:", content):
-            fail(path, index + 1, "whitespace before Compose mapping colons is unsupported")
-        if re.match(r"^\s*[?:](?:\s|$)", content):
-            fail(path, index + 1, "explicit YAML mapping keys are unsupported")
-        if re.search(r":\s*\{", content):
-            fail(path, index + 1, "flow-style Compose mappings are unsupported")
-        # One tag is understood: an overlay emptying the base file's port list (`ports: !reset []`).
-        if re.search(r":\s*!", content) and not re.fullmatch(r"\s*ports:\s*!reset \[\]\s*", content):
-            fail(path, index + 1, "custom YAML tags are unsupported in Compose policy inputs")
-        if re.match(r"^\s*extends:", content):
-            fail(path, index + 1, "Compose extends indirection is unsupported")
-        include_match = re.match(r"^(\s*)include:\s*(.*?)\s*$", content)
-        if include_match:
-            check_include(path, lines, index, include_match)
-
-        # The one other shared block is the log cap (every-container-has-a-memory-cap fixes its
-        # exact shape): a json-file size limit cannot hide an image, port or namespace.
-        log_cap = re.match(r"^x-log-cap: &log-cap\s*$", content) or re.match(
-            r"^ {4}logging: \*log-cap\s*$", content
-        )
-        anchors = re.findall(r":\s*&([A-Za-z_][A-Za-z0-9_-]*)", content)
-        if anchors and not log_cap and not re.match(
-            r"^\s*(?:environment|x-[A-Za-z0-9_-]*environment):\s*&[A-Za-z_][A-Za-z0-9_-]*\s*$",
-            content,
-        ):
-            fail(path, index + 1, "YAML anchors are allowed only for environment mappings")
-        aliases = re.findall(r"\*([A-Za-z_][A-Za-z0-9_-]*)", content)
-        if aliases and not log_cap:
-            merge = re.match(r"^\s*<<:\s*\*[A-Za-z_][A-Za-z0-9_-]*\s*$", content)
-            if not merge or parent_mapping_key(lines, index) != "environment":
-                fail(path, index + 1, "YAML aliases are allowed only as environment mapping merges")
-
-        namespace_match = re.match(
-            r"^\s*(?:network_mode|ipc|pid|uts|userns_mode):\s*(.+?)\s*$", content
-        )
-        if namespace_match:
-            namespace = unquote_yaml_scalar(namespace_match.group(1))
-            if "$" in namespace:
-                fail(path, index + 1, "namespace sharing modes must be literal")
-            elif namespace == "host":
-                fail(path, index + 1, "host namespace sharing is forbidden")
-
-        privileged_match = re.match(r"^\s*privileged:\s*(.+?)\s*$", content)
-        if privileged_match and unquote_yaml_scalar(privileged_match.group(1)) != "false":
-            fail(path, index + 1, "privileged Compose services are forbidden")
-        if re.search(r"(?:^|/)(?:var/)?run/docker\.sock(?:$|[:/])|//\./pipe/docker_engine", content):
-            fail(path, index + 1, "mounting a container-engine control socket is forbidden")
-
-        build_match = re.match(r"^(\s*)build:\s*(.*?)\s*$", content)
-        if build_match:
-            check_build(path, lines, index, build_match)
-
-        environment_match = re.match(r"^\s*([A-Z][A-Z0-9_]*):\s*(.+?)\s*$", raw)
-        if environment_match and SECRET_KEY.search(environment_match.group(1)):
-            value = unquote_yaml_scalar(environment_match.group(2))
-            if not REQUIRED_ENV.fullmatch(value):
-                fail(path, index + 1, "secret-like Compose environment values require ${NAME:?message}")
-
-        image_match = re.match(r"^\s*image:\s*(.+?)\s*$", raw)
-        if image_match and not compose_image_is_immutable(path, text, image_match.group(1)):
-            fail(path, index + 1, "external Compose images require tag@sha256; only *:local may omit a digest")
-
-        ports_match = re.match(r"^(\s*)ports:\s*(.*?)\s*$", raw)
-        if not ports_match:
-            continue
-        base_indent = len(ports_match.group(1))
-        inline = re.split(r"\s+#", ports_match.group(2), maxsplit=1)[0].strip()
-        if inline == "!reset []":
-            # An overlay clearing the base file's list publishes nothing (a service that joins
-            # another's network namespace may not publish its own ports).
-            continue
-        if inline:
-            try:
-                values = ast.literal_eval(inline)
-            except (SyntaxError, ValueError):
-                fail(path, index + 1, "ports must be an inline string list or an indented short-syntax list")
-                continue
-            if not isinstance(values, list):
-                fail(path, index + 1, "ports must be a list")
-                continue
-            for value in values:
-                check_port(path, index + 1, value)
-            continue
-
-        child = index + 1
-        found = False
-        while child < len(lines):
-            candidate = lines[child]
-            stripped = candidate.strip()
-            if not stripped or stripped.startswith("#"):
-                child += 1
-                continue
-            indent = len(candidate) - len(candidate.lstrip(" "))
-            if indent <= base_indent:
-                break
-            found = True
-            item = re.match(r"^\s*-\s*([\"'])(.*?)\1\s*(?:#.*)?$", candidate)
-            if not item:
-                fail(path, child + 1, "ports entries must use quoted short syntax")
-            else:
-                check_port(path, child + 1, item.group(2))
-            child += 1
-        if not found:
-            fail(path, index + 1, "ports list is empty or malformed")
 
 
 def is_dockerfile_path(relative: str) -> bool:
@@ -586,6 +419,15 @@ def command_image(tokens: list[str], command: str, index: int) -> str | None:
     return tokens[index] if index < len(tokens) else None
 
 
+def local_build_context(value: str) -> bool:
+    value = unquote_yaml_scalar(value)
+    if value == ".":
+        return True
+    if not value.startswith("./") or any(token in value for token in ("$", "{", "}", "\\")):
+        return False
+    return ".." not in pathlib.PurePosixPath(value).parts
+
+
 def check_docker_build(path: str, line: int, fragment: str) -> None:
     try:
         tokens = shlex.split(fragment, comments=True, posix=True)
@@ -691,17 +533,25 @@ except (
     print(f"FAIL container-runtime-policy: cannot load contract images: {error}", file=sys.stderr)
     raise SystemExit(1)
 
+compose_files: list[tuple[str, str]] = []
 for relative in files:
     text = read_text(relative)
     if text is None:
         continue
     if is_compose_path(relative) or (relative.endswith((".yml", ".yaml")) and looks_like_compose(text)):
-        check_compose(relative, text)
+        compose_files.append((relative, text))
     if is_dockerfile_path(relative):
         check_dockerfile(relative, text)
     if relative.endswith((".sh", ".bash")):
         check_shell(relative, text)
 
+# Each Compose file is normalized and judged on its own; `docker compose config` dominates the run.
+if compose_files:
+    conftest_binary()
+    compose_binary()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda entry: check_compose(*entry), compose_files))
+shutil.rmtree(WORK, ignore_errors=True)
 if errors:
     for error in errors:
         print(f"FAIL container-runtime-policy: {error}", file=sys.stderr)

@@ -97,6 +97,7 @@ products/gongzzang/tests/migrations/test_v001_05.sh,111,true,unreferenced,delete
 products/gongzzang/tests/migrations/test_v001_full.sh,227,true,test-fixture,xtask,DB migration smoke test; CI runs the _full/_audit variant
 products/gongzzang/tests/migrations/test_v002_audit_immutable.sh,110,true,test-fixture,xtask,DB migration smoke test; CI runs the _full/_audit variant
 scripts/ci/actionlint.sh,55,true,ci,xtask,CI helper script invoked from .github/workflows
+scripts/ci/conftest.sh,25,true,ci,xtask,CI helper script invoked from scripts/guard/check-container-runtime-policy.sh
 scripts/ci/foundation-postgres-production-shape.sh,56,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/gitleaks-scan.sh,124,true,ci,xtask,CI helper script invoked from .github/workflows
 scripts/ci/install-cargo-deny.sh,28,true,ci,xtask,CI helper script invoked from .github/workflows
@@ -141,13 +142,13 @@ scripts/guard/build-coupling-baseline.sh,310,true,git-hook,xtask,Run directly by
 scripts/guard/by-pnu-document-records-are-append-only-self-test.sh,57,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/by-pnu-document-records-are-append-only.sh,30,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/check-container-runtime-policy.sh,705,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-container-runtime-policy.sh,560,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-workflow-policy.sh,708,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/ci-time-budget-self-test.sh,10,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-images-match-the-contract-self-test.sh,58,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-images-match-the-contract.sh,13,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/container-runtime-policy-self-test.sh,418,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/container-runtime-policy-self-test.sh,465,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/container-runtime-policy.sh,6,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/credential-names-self-test.sh,54,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/credential-names.sh,19,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)

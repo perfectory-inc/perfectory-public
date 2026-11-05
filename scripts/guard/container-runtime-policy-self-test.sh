@@ -23,6 +23,13 @@ for required in "$ssot_checker" "$contract" "$projector"; do
   fi
 done
 
+# The Compose policies' own unit tests: each `test_` rule plants one incident in a normalized
+# Compose model (tools/conftest/compose/*_test.rego).
+if ! bash scripts/ci/conftest.sh verify --policy tools/conftest/compose --no-color; then
+  echo "FAIL container-runtime-policy-self-test: a Compose policy unit test failed" >&2
+  exit 1
+fi
+
 test_root="$(mktemp -d)"
 cleanup() {
   if [ -n "${test_root:-}" ] && [ -d "$test_root" ]; then
@@ -244,6 +251,8 @@ services:
 YAML
 expect_rejected explicit-compose-key "$explicit_key"
 
+# The engine resolves anchors before the policy reads the service, so an anchor cannot hide an
+# image: the same merge is accepted with a local image and refused with a mutable one.
 service_anchor="$test_root/service-anchor"
 make_repo "$service_anchor"
 cat >"$service_anchor/compose.yml" <<'YAML'
@@ -253,7 +262,9 @@ services:
   application:
     <<: *service-defaults
 YAML
-expect_rejected unsupported-compose-service-anchor "$service_anchor"
+expect_accepted compose-service-anchor-resolved-by-the-engine "$service_anchor"
+sed -i 's/synthetic-application:local/example\/application:latest/' "$service_anchor/compose.yml"
+expect_rejected mutable-image-behind-a-service-anchor "$service_anchor"
 
 log_cap="$test_root/log-cap"
 make_repo "$log_cap"
@@ -271,8 +282,6 @@ YAML
 expect_accepted compose-log-cap-anchor "$log_cap"
 sed -i 's/^    logging: \*log-cap$/    image: *log-cap/' "$log_cap/compose.yml"
 expect_rejected compose-log-cap-alias-outside-logging "$log_cap"
-sed -i 's/^    image: \*log-cap$/    logging: *log-cap/; s/^x-log-cap: &log-cap$/x-service: \&log-cap/' "$log_cap/compose.yml"
-expect_rejected compose-log-cap-anchor-on-another-key "$log_cap"
 
 flow_mapping="$test_root/flow-mapping"
 make_repo "$flow_mapping"
@@ -280,6 +289,44 @@ cat >"$flow_mapping/compose.yml" <<'YAML'
 services: {application: {image: example/application:latest}}
 YAML
 expect_rejected compose-flow-mapping "$flow_mapping"
+
+remote_include="$test_root/remote-include"
+make_repo "$remote_include"
+cat >"$remote_include/compose.yml" <<'YAML'
+include:
+  - https://github.com/example/stack.git#main:compose.yml
+services:
+  application:
+    image: synthetic-application:local
+YAML
+expect_rejected remote-compose-include "$remote_include"
+
+list_secret="$test_root/list-secret"
+make_repo "$list_secret"
+cat >"$list_secret/compose.yml" <<'YAML'
+services:
+  application:
+    image: synthetic-application:local
+    environment:
+      - POSTGRES_PASSWORD=postgres
+YAML
+expect_rejected literal-compose-secret-in-list-form "$list_secret"
+
+# Env files are never read (`--no-env-resolution`): a local secret file cannot fail the guard,
+# and cannot reach the normalized model either.
+env_file="$test_root/env-file"
+make_repo "$env_file"
+cat >"$env_file/compose.yml" <<'YAML'
+services:
+  application:
+    image: synthetic-application:local
+    env_file:
+      - path: ./application.env
+        required: false
+YAML
+printf 'POSTGRES_PASSWORD=synthetic
+' >"$env_file/application.env"
+expect_accepted compose-env-file-is-not-read "$env_file"
 
 host_network="$test_root/host-network"
 make_repo "$host_network"

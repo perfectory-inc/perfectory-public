@@ -47,6 +47,24 @@
       "extension": {"linux": "", "darwin": "", "windows": ".exe"},
       "url": "https://github.com/opengrep/opengrep/releases/download/v{version}/opengrep_{os}_{arch}{extension}"
     },
+    "docker-compose": {
+      "pins": "tools/docker-compose.env",
+      "version_variable": "DOCKER_COMPOSE_VERSION",
+      "sha256_variable": "DOCKER_COMPOSE_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "linux", "darwin": "darwin", "windows": "windows"},
+      "arch": {"x86_64": "x86_64", "aarch64": "aarch64"},
+      "extension": {"linux": "", "darwin": "", "windows": ".exe"},
+      "url": "https://github.com/docker/compose/releases/download/v{version}/docker-compose-{os}-{arch}{extension}"
+    },
+    "conftest": {
+      "pins": "tools/conftest.env",
+      "version_variable": "CONFTEST_VERSION",
+      "sha256_variable": "CONFTEST_{OS}_{ARCH}_SHA256",
+      "os": {"linux": "Linux", "darwin": "Darwin", "windows": "Windows"},
+      "arch": {"x86_64": "x86_64", "aarch64": "arm64"},
+      "extension": {"linux": "tar.gz", "darwin": "tar.gz", "windows": "zip"},
+      "url": "https://github.com/open-policy-agent/conftest/releases/download/v{version}/conftest_{version}_{os}_{arch}.{extension}"
+    },
     "cargo-deny": {
       "pins": "tools/cargo-deny.env",
       "version_variable": "CARGO_DENY_VERSION",
