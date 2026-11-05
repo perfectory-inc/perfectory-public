@@ -2,7 +2,7 @@
 # Weekly drill for the identity database backups (run-identity-backup.sh): with the recovery READER
 # key, restore each database's newest dump into a throwaway container of its live image, compare it
 # with the live database, then start the live Zitadel's own image and masterkey on the restored
-# database and ask it for its signing keys. Rows alone do not prove a login: Zitadel's encryption
+# database and ask it for its key set and a live token's user. Rows alone do not prove a login: Zitadel's encryption
 # keys (system.encryption_keys) are sealed with the masterkey, which lives outside the database.
 # Everything runs on an internal network (no route out: a restored Zitadel must not send mail).
 set -Eeuo pipefail
@@ -99,10 +99,14 @@ ask_zitadel() { # <path> [header line]; the token stays off every command line (
         | docker run --rm -i --memory 32m --network "${drill}" "${SOCAT_IMAGE}" -t 30 - \
             "TCP:${drill}-zitadel-app:${ZITADEL_PORT:-8080},shut-none" 2>/dev/null || true
 }
+# Served means the OIDC key set answers at all. Zitadel makes a signing key only when it signs a token
+# and drops a public key 30 hours after (SystemDefaults.KeyConfig), so a quiet week serves an empty set
+# from production too: 2026-11-03 live /oauth/v2/keys answered {"keys":[]}. Waiting for a key failed the
+# drill on 2026-10-25 and 11-01 after twelve minutes although the restored login worked (users/me 200).
 keys=""
 for _ in $(seq 90); do
     keys="$(ask_zitadel /oauth/v2/keys)"
-    [[ "${keys}" == *'"keys":[{'* ]] && break
+    [[ "${keys}" == 'HTTP/1.1 200 '* && "${keys}" == *'"keys":['* ]] && break
     [[ "$(docker inspect --format '{{.State.Running}}' "${drill}-zitadel-app")" == true ]] || break
     sleep 2
 done
@@ -113,13 +117,17 @@ done
 token_file="${ZITADEL_DRILL_TOKEN_FILE:-${CREDENTIALS_DIRECTORY:?run from its unit or set ZITADEL_DRILL_TOKEN_FILE}/zitadel-token}"
 pat="$(<"${token_file}")"
 me="$(ask_zitadel /auth/v1/users/me "Authorization: Bearer ${pat}")"
-if [[ "${keys}" != *'"keys":[{'* || "${me}" != 'HTTP/1.1 200 '* ]]; then
-    printf 'the restored Zitadel did not serve its keys, or refused the live token (%s); its last log lines:\n' \
-        "$(head -n 1 <<<"${me}" | tr -d '\r')" >&2
+failure=""
+[[ "${keys}" == 'HTTP/1.1 200 '* && "${keys}" == *'"keys":['* ]] \
+    || failure="did not serve its key set ($(head -n 1 <<<"${keys}" | tr -d '\r'))"
+[[ "${me}" == 'HTTP/1.1 200 '* ]] || failure="${failure:+${failure}; }refused the live token ($(head -n 1 <<<"${me}" | tr -d '\r'))"
+if [[ -n "${failure}" ]]; then
+    printf 'the restored Zitadel %s; its last log lines:\n' "${failure}" >&2
     docker logs --tail 20 "${drill}-zitadel-app" 2>&1 | sed 's/^/  /' >&2
     exit 1
 fi
-key_count="$(grep -o '"kid"' <<<"${keys}" | wc -l)"
+# An empty set is a pass, so a grep without a match must not end the script (pipefail).
+key_count="$({ grep -o '"kid"' <<<"${keys}" || true; } | wc -l)"
 # Ties this drill to the masterkey kept off the host without writing the key down.
 fingerprint="$(printf '%s' "${ZITADEL_MASTERKEY}" | sha256sum | cut -c1-12)"
 
