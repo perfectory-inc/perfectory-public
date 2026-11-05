@@ -61,6 +61,7 @@ class VintageVersionsIcebergTest(unittest.TestCase):
         return job.migrate(self.spark, Namespace(target=target, parity_only=False, iceberg_catalog_name="proof"))
 
     def test_both_tables_migrate_with_parity_and_a_second_run_appends_nothing(self):
+        import vintage_versions as job
         from lakehouse_ingest import read_editions
 
         at = datetime(2099, 1, 1, tzinfo=timezone.utc)
@@ -103,6 +104,12 @@ class VintageVersionsIcebergTest(unittest.TestCase):
         self.assertTrue(again_report["parity"])
         self.assertTrue(all("appended_seconds" not in entry for entry in again_report["vintages"].values()))
         self.assertEqual(self.spark.table(table).count(), rows, "a second run appends nothing")
+        # The scheduled run once every vintage is checked: no step, the daily no-op.
+        done = job.run(self.spark, Namespace(target=None, parity_only=False, iceberg_catalog_name="proof"),
+                       job.load_contract())
+        self.assertTrue(done["complete"], done)
+        self.assertEqual(job.run_state(done), ("complete", False))
+        self.assertEqual(self.spark.table(table).count(), rows)
 
 
 if __name__ == "__main__":

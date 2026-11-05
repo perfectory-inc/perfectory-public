@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 공시가격 두 표의 판을 버전 표로 옮긴다 — ADR-0317 2단계, 작업 unit_price_versions_migration(jobs.v1.json,
-# 운영자 `by-pnu-pack-operator.sh job start`). 루트 ADR-0317 §5.2 의 순서 그대로:
+# 매일 18:45 UTC 스케줄, 다 끝나면 걸음 없는 no-op). 루트 ADR-0317 §5.2 의 순서 그대로:
 #
 #   1. silver.building_register_apartment_price → silver.building_register_apartment_price_versions
 #   2. silver.unit_official_price               → silver.unit_official_price_versions
@@ -13,7 +13,8 @@
 #
 # 걸음마다 `vintage-versions <표> <판>: {...}` 한 줄이 바로 journal 에 간다. 끝 줄은 두 표가 다 대조를
 # 통과했으면 `unit-price-versions parity=ok` — #919(ADR-0317 3단계)의 병합 조건 — 아니면
-# `unit-price-versions progress=...` 이고, 그 뒤에 `foundation-job-outcome changed|unchanged`.
+# `unit-price-versions progress=...` 이고, 그 뒤에 `foundation-job-outcome changed|unchanged`. 끝나지 않았는데
+# 한 걸음도 못 뗀 실행은 멈춘 이행이라 `failed` 로 실패한다(운영 지도 알림).
 #
 # Spark runs in the Compose project foundation-unit-price-versions-<INVOCATION_ID>. A timeout kills
 # this script and the compose client but not the daemon-owned container, which would keep its 20g
@@ -77,15 +78,31 @@ if [[ "${status}" != 0 ]]; then
   exit "${status}"
 fi
 summary="$(grep -a '^vintage-versions {' "${work}/run.log" | tail -1)"
-read -r complete written < <(python3 -I -c '
+# The scheduled job's word for the run (vintage_versions.run_state): a complete run took no step and
+# is the daily no-op; one not complete that took no step is stuck, and fails so the operations map
+# alerts (FoundationScheduledJobProblem), not a quiet `unchanged` every day.
+read -r state written < <(python3 -I - "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${summary#vintage-versions }" <<'PY'
 import json, sys
-s = json.loads(sys.argv[1].split(" ", 1)[1])
-steps = [e for t in s["targets"].values() for e in t["vintages"].values()]
-print("yes" if s["complete"] else "no", "yes" if any("appended_seconds" in e or "parity_seconds" in e for e in steps) else "no")
-' "${summary}")
-if [[ "${complete}" == yes ]]; then
-  printf 'unit-price-versions parity=ok run=%s\n' "${run_id}"
-else
-  printf 'unit-price-versions progress=incomplete run=%s (the next run continues)\n' "${run_id}"
-fi
-printf 'foundation-job-outcome %s\n' "$([[ "${written}" == yes ]] && echo changed || echo unchanged)"
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[1])
+import vintage_versions
+state, took = vintage_versions.run_state(json.loads(sys.argv[2]))
+print(state, "yes" if took else "no")
+PY
+)
+case "${state:-}" in
+  complete) printf 'unit-price-versions parity=ok run=%s
+' "${run_id}" ;;
+  progress) printf 'unit-price-versions progress=incomplete run=%s (the next run continues)
+' "${run_id}" ;;
+  stalled)
+    printf 'unit-price-versions FAILED stalled: not complete and no step fit the run budget run=%s log=%s
+' "${run_id}" "${work}/run.log"
+    printf 'foundation-job-outcome failed no step fit the run budget; the migration made no progress
+'
+    exit 1 ;;
+  *) printf 'unit-price-versions FAILED: the run summary is unreadable log=%s
+' "${work}/run.log"; exit 1 ;;
+esac
+printf 'foundation-job-outcome %s
+' "$([[ "${written}" == yes ]] && echo changed || echo unchanged)"
