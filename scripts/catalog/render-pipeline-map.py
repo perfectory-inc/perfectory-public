@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from pipeline_graph import ROOT, GRAPH, EXAMPLE, ENDPOINTS, load, reconcile
+from pipeline_graph import ROOT, GRAPH, EXAMPLE, ENDPOINTS, COLLECTION_CLASSES, collection_classes, load, reconcile
 
 OUTPUT = Path('docs/data-pipeline-map.md')
 STATUS = {
@@ -17,6 +17,9 @@ STATUS = {
     'waiting': '실행 증거 대기', 'blocked': '증거 미충족', 'missing': '운영 증거 없음',
     'manual_approval': '승인 증거 필요', 'unknown': '상태 미확인',
 }
+
+
+CLASS = {'served': '수집·서빙', 'collected': '수집·미서빙', 'not_collected': '미수집', 'deliberate': '의도적 미수집'}
 
 
 def md(value: str) -> str:
@@ -66,6 +69,16 @@ def render(graph: dict, catalog: dict) -> str:
     for n in sources:
         count = sum(e['group'] == n['endpoint_catalog_group'] for e in endpoints)
         lines.append(f'| {md(n["title"])} | {count} endpoint | {STATUS.get(n["status"], n["status"])} — {md(n["description"])} |')
+    # Root ADR-0400: one row per family, so a lane PR rewrites only its own family's row (ADR-0176).
+    classes = collection_classes(graph, endpoints)
+    lines += ['', '## 원천 가족별 수집 판정', '',
+              '원천 카탈로그의 endpoint 마다 넷 중 하나다(루트 ADR-0400). **수집·서빙**: 살아 있는 수집 경로가 서빙 접점까지 닿는다.',
+              '**수집·미서빙**: 받지만(살아 있는 경로 또는 매일 원천 확인) 아직 서빙에 닿지 않는다. **미수집**: 받는 경로가 없거나 꺼져 있다',
+              '(사장 신청 대기 포함). **의도적 미수집**: 카탈로그의 `collection_decision` 이 이유와 결정 ADR 을 적는다.', '',
+              '| 원천 | ' + ' | '.join(CLASS[c] for c in COLLECTION_CLASSES) + ' |', '|---|' + '---:|' * len(COLLECTION_CLASSES)]
+    for n in sources:
+        group = [classes[x['bronze']['source_slug']] for x in endpoints if x['group'] == n['endpoint_catalog_group']]
+        lines.append(f'| {md(n["title"])} | ' + ' | '.join(str(group.count(c)) for c in COLLECTION_CLASSES) + ' |')
     lines += ['', '## 데이터 가족별 연결 경로', '',
               '수집규모는 각 경로가 선택한 원천의 endpoint 수입니다. 같은 원천이 두 경로에 쓰이면 중복 표시되므로 합산하지 않습니다.', '',
               '| 원천 | 수집규모 | Silver → Gold | 서빙 | 화면 |', '|---|---:|---|---|---|']
@@ -83,12 +96,14 @@ def render(graph: dict, catalog: dict) -> str:
               '등록 원천 중 위 실행 경로가 선택하지 않은 항목을 자동으로 모았습니다. 파일 수집이 가능한 원천도',
               '실제 객체 보유 여부는 수집 원장을 확인해야 합니다. 비활성·승인 대기·예정 원천을 수집 완료로 세지 않습니다.',
               '같은 source slug 안의 제외 형식(D154 도형·D150 DBF)은 위 경로의 설명에 따로 명명했습니다.', '',
-              '| 원천 가족 | 이후 연결 없는 endpoint | 수집 설정 |', '|---|---|---|']
+              '| 원천 가족 | 이후 연결 없는 endpoint | 수집 설정 | 판정 |', '|---|---|---|---|']
     for n in sources:
         connected = {slug for e in starts if e['from'] == n['id'] for slug in e['source_slugs']}
         missing = [x for x in endpoints if x['group'] == n['endpoint_catalog_group'] and x['bronze']['source_slug'] not in connected]
         for x in missing:
-            lines.append(f'| {md(n["title"])} | {md(x["display_name_ko"])} (`{x["bronze"]["source_slug"]}`) | `{x["source_acquisition_lane"]}` |')
+            decision = x.get('collection_decision')
+            verdict = CLASS[classes[x['bronze']['source_slug']]] + (f' — {md(decision["reason_ko"])}' if decision else '')
+            lines.append(f'| {md(n["title"])} | {md(x["display_name_ko"])} (`{x["bronze"]["source_slug"]}`) | `{x["source_acquisition_lane"]}` | {verdict} |')
     lines += ['', '## 정제 표의 미연결 구간', '', '| 표 | 상태 | 이유 |', '|---|---|---|']
     for n in nodes:
         if n['type'] not in {'silver_table', 'gold_table'}:

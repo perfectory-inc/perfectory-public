@@ -37,6 +37,29 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 | 브이월드 토지대장 API | 1 endpoint | 수집 비활성 — PNU 하나씩 묻는 API라 전국 수집에 맞지 않고, 같은 사실(지목·면적은 토지특성, 소유구분·공유인수·변동일자는 토지소유 파일)을 파일이 전국으로 주므로 수집하지 않는다(루트 ADR-0359). |
 | 행정표준코드 법정동 | 1 endpoint | 실행 경로 있음 — 법정동코드 전체자료(getStanReginCdList)가 등록부 레인의 입력이다. 추출 입력은 수동이며 전용 API 수집기는 아직 없다. |
 
+## 원천 가족별 수집 판정
+
+원천 카탈로그의 endpoint 마다 넷 중 하나다(루트 ADR-0400). **수집·서빙**: 살아 있는 수집 경로가 서빙 접점까지 닿는다.
+**수집·미서빙**: 받지만(살아 있는 경로 또는 매일 원천 확인) 아직 서빙에 닿지 않는다. **미수집**: 받는 경로가 없거나 꺼져 있다
+(사장 신청 대기 포함). **의도적 미수집**: 카탈로그의 `collection_decision` 이 이유와 결정 ADR 을 적는다.
+
+| 원천 | 수집·서빙 | 수집·미서빙 | 미수집 | 의도적 미수집 |
+|---|---:|---:|---:|---:|
+| 건축HUB 파일 | 9 | 48 | 0 | 2 |
+| 건축물대장 API | 0 | 0 | 0 | 10 |
+| 산업입지정보 산업단지 | 3 | 0 | 0 | 0 |
+| 행정표준코드관리시스템 법정동 | 1 | 0 | 0 | 0 |
+| 차세대 온비드 공매 (data.go.kr) | 7 | 0 | 0 | 0 |
+| 법원경매정보 (courtauction.go.kr) | 0 | 0 | 2 | 0 |
+| data.go.kr 파일 데이터 | 0 | 1 | 0 | 0 |
+| 주소정보 전자지도 | 0 | 0 | 11 | 0 |
+| 기타 공공 일괄 파일 | 0 | 0 | 12 | 0 |
+| 실거래가 벌크 (rt.molit.go.kr) | 0 | 12 | 0 | 0 |
+| 실거래가 API | 0 | 0 | 0 | 12 |
+| 브이월드 공간·토지 파일 | 14 | 11 | 0 | 0 |
+| 브이월드 토지대장 API | 0 | 0 | 0 | 1 |
+| 행정표준코드 법정동 | 1 | 0 | 0 | 0 |
+
 ## 데이터 가족별 연결 경로
 
 수집규모는 각 경로가 선택한 원천의 endpoint 수입니다. 같은 원천이 두 경로에 쓰이면 중복 표시되므로 합산하지 않습니다.
@@ -89,141 +112,141 @@ Gold는 제공 목적에 맞춘 표입니다. 서빙은 조회·지도 제공용
 실제 객체 보유 여부는 수집 원장을 확인해야 합니다. 비활성·승인 대기·예정 원천을 수집 완료로 세지 않습니다.
 같은 source slug 안의 제외 형식(D154 도형·D150 DBF)은 위 경로의 설명에 따로 명명했습니다.
 
-| 원천 가족 | 이후 연결 없는 endpoint | 수집 설정 |
-|---|---|---|
-| 건축HUB 파일 | 건축물대장 기본 정보 파일 (`hubgokr__building_register_basis_outline`) | `bulk_file` |
-| 건축HUB 파일 | 건축물대장 총괄표제부 파일 (`hubgokr__building_register_master`) | `bulk_file` |
-| 건축HUB 파일 | 건축물대장 오수정화시설 파일 (`hubgokr__building_register_sewage_facility`) | `bulk_file` |
-| 건축HUB 파일 | 건축물대장 부속지번 파일 (`hubgokr__building_register_sub_parcel`) | `bulk_file` |
-| 건축HUB 파일 | 건축물대장 지역지구구역 파일 (`hubgokr__building_register_district_zone`) | `bulk_file` |
-| 건축HUB 파일 | 건물 가스 사용량 파일 (`hubgokr__building_energy_monthly_gas`) | `bulk_file` |
-| 건축HUB 파일 | 건물 전기 사용량 파일 (`hubgokr__building_energy_monthly_electricity`) | `bulk_file` |
-| 건축HUB 파일 | 기본개요 (`hubgokr__building_permit_basis_outline`) | `bulk_file` |
-| 건축HUB 파일 | 동별개요 (`hubgokr__building_permit_building_outline`) | `bulk_file` |
-| 건축HUB 파일 | 층별개요 (`hubgokr__building_permit_floor_overview`) | `bulk_file` |
-| 건축HUB 파일 | 호별개요 (`hubgokr__building_permit_unit_outline`) | `bulk_file` |
-| 건축HUB 파일 | 대수선 (`hubgokr__building_permit_major_repair`) | `bulk_file` |
-| 건축HUB 파일 | 공작물관리대장 (`hubgokr__building_permit_structure_ledger`) | `bulk_file` |
-| 건축HUB 파일 | 철거멸실관리대장 (`hubgokr__building_permit_demolition_loss`) | `bulk_file` |
-| 건축HUB 파일 | 가설건축물 (`hubgokr__building_permit_temporary_building`) | `bulk_file` |
-| 건축HUB 파일 | 오수정화시설 (`hubgokr__building_permit_sewage_facility`) | `bulk_file` |
-| 건축HUB 파일 | 주차장 (`hubgokr__building_permit_parking`) | `bulk_file` |
-| 건축HUB 파일 | 부설주차장 (`hubgokr__building_permit_annex_parking`) | `bulk_file` |
-| 건축HUB 파일 | 전유공용면적 (`hubgokr__building_permit_exclusive_common_area`) | `bulk_file` |
-| 건축HUB 파일 | 호별전유공용면적 (`hubgokr__building_permit_unit_exclusive_common_area`) | `bulk_file` |
-| 건축HUB 파일 | 지역지구구역 (`hubgokr__building_permit_district_zone`) | `bulk_file` |
-| 건축HUB 파일 | 도로대장 (`hubgokr__building_permit_road_ledger`) | `bulk_file` |
-| 건축HUB 파일 | 대지위치 (`hubgokr__building_permit_site_location`) | `bulk_file` |
-| 건축HUB 파일 | 주택유형 (`hubgokr__building_permit_housing_type`) | `bulk_file` |
-| 건축HUB 파일 | 기본개요 (`hubgokr__housing_permit_basis_outline`) | `bulk_file` |
-| 건축HUB 파일 | 동별개요 (`hubgokr__housing_permit_building_outline`) | `bulk_file` |
-| 건축HUB 파일 | 층별개요 (`hubgokr__housing_permit_floor_overview`) | `bulk_file` |
-| 건축HUB 파일 | 호별개요 (`hubgokr__housing_permit_unit_outline`) | `bulk_file` |
-| 건축HUB 파일 | 부대시설 (`hubgokr__housing_permit_ancillary_facility`) | `bulk_file` |
-| 건축HUB 파일 | 오수정화시설 (`hubgokr__housing_permit_sewage_facility`) | `bulk_file` |
-| 건축HUB 파일 | 주차장 (`hubgokr__housing_permit_parking`) | `bulk_file` |
-| 건축HUB 파일 | 부설주차장 (`hubgokr__housing_permit_annex_parking`) | `bulk_file` |
-| 건축HUB 파일 | 전유공용면적 (`hubgokr__housing_permit_exclusive_common_area`) | `bulk_file` |
-| 건축HUB 파일 | 행위호전유공용면적 (`hubgokr__housing_permit_act_unit_exclusive_common_area`) | `bulk_file` |
-| 건축HUB 파일 | 행위개요 (`hubgokr__housing_permit_act_outline`) | `bulk_file` |
-| 건축HUB 파일 | 관리공동형별개요 (`hubgokr__housing_permit_managed_communal_type_outline`) | `bulk_file` |
-| 건축HUB 파일 | 관리공동부대복리시설 (`hubgokr__housing_permit_managed_communal_ancillary_welfare_facility`) | `bulk_file` |
-| 건축HUB 파일 | 지역지구구역 (`hubgokr__housing_permit_district_zone`) | `bulk_file` |
-| 건축HUB 파일 | 대지위치 (`hubgokr__housing_permit_site_location`) | `bulk_file` |
-| 건축HUB 파일 | 복리분양시설 (`hubgokr__housing_permit_welfare_sale_facility`) | `bulk_file` |
-| 건축HUB 파일 | 기본개요 (`hubgokr__building_register_closed_basis_outline`) | `bulk_file` |
-| 건축HUB 파일 | 총괄표제부 (`hubgokr__building_register_closed_master`) | `bulk_file` |
-| 건축HUB 파일 | 표제부 (`hubgokr__building_register_closed_main`) | `bulk_file` |
-| 건축HUB 파일 | 층별개요 (`hubgokr__building_register_closed_floor_overview`) | `bulk_file` |
-| 건축HUB 파일 | 부속지번 (`hubgokr__building_register_closed_sub_parcel`) | `bulk_file` |
-| 건축HUB 파일 | 전유공용면적 (`hubgokr__building_register_closed_exclusive_common_area`) | `bulk_file` |
-| 건축HUB 파일 | 오수정화시설 (`hubgokr__building_register_closed_sewage_facility`) | `bulk_file` |
-| 건축HUB 파일 | 전유부 (`hubgokr__building_register_closed_exclusive_unit`) | `bulk_file` |
-| 건축HUB 파일 | 공동주택가격 (`hubgokr__building_register_closed_apartment_price`) | `bulk_file` |
-| 건축HUB 파일 | 지역지구구역 (`hubgokr__building_register_closed_district_zone`) | `bulk_file` |
-| 건축HUB 파일 | 지번별에너지(전기,연도별) (`hubgokr__building_energy_yearly_electricity`) | `provider_inventory_missing` |
-| 건축HUB 파일 | 지번별에너지(가스,연도별) (`hubgokr__building_energy_yearly_gas`) | `provider_inventory_missing` |
-| 건축HUB 파일 | 점검기관 (`hubgokr__building_maintenance_inspection_agency`) | `bulk_file` |
-| 건축HUB 파일 | 정기점검이력 (`hubgokr__building_maintenance_regular_inspection_history`) | `bulk_file` |
-| 건축물대장 API | 건축물대장 표제부 (`datagokr__building_register_main`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 기본개요 (`datagokr__building_register_basis_outline`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 층별개요 (`datagokr__building_register_floor_overview`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 전유공용면적 (`datagokr__building_register_exclusive_common_area`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 주택가격 (`datagokr__building_register_house_price`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 전유부 (`datagokr__building_register_exclusive_unit`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 오수정화시설 (`datagokr__building_register_sewage_facility`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 총괄표제부 (`datagokr__building_register_master`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 부속지번 (`datagokr__building_register_sub_parcel`) | `disabled_api_duplicate` |
-| 건축물대장 API | 건축물대장 지구지역구역 (`datagokr__building_register_district_zone`) | `disabled_api_duplicate` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건목록 (`datagokr__onbid_real_estate_item`) | `open_api_only` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건상세 (`datagokr__onbid_real_estate_item_detail`) | `open_api_only` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 물건상세 입찰정보 (`datagokr__onbid_item_bid_info`) | `open_api_only` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 공고상세 (`datagokr__onbid_announcement_detail`) | `open_api_only` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 공고목록 (`datagokr__onbid_announcement`) | `open_api_only` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 공고 입찰결과목록 (`datagokr__onbid_announcement_bid_result`) | `open_api_only` |
-| 차세대 온비드 공매 (data.go.kr) | 온비드 물건 입찰결과상세 (`datagokr__onbid_item_bid_result`) | `open_api_only` |
-| 법원경매정보 (courtauction.go.kr) | 법원경매 물건 검색 (`courtauctiongokr__auction_item`) | `public_web_page` |
-| 법원경매정보 (courtauction.go.kr) | 법원경매 매각결과 검색 (`courtauctiongokr__auction_sale_result`) | `public_web_page` |
-| data.go.kr 파일 데이터 | 한국산업단지공단 전국등록공장현황 (`datagokr__registered_factory`) | `public_web_page` |
-| 주소정보 전자지도 | JUSO 건물 도형 (`jusogokr__building`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 기초구간 (`jusogokr__base_interval`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 국가기초구역 (`jusogokr__basic_area`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 건물군 (`jusogokr__building_group`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 건물 출입구 (`jusogokr__building_entrance`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 법정구역 읍면동 (`jusogokr__legal_emd`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 법정구역 리 (`jusogokr__legal_ri`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 법정구역 시도 (`jusogokr__legal_sido`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 법정구역 시군구 (`jusogokr__legal_sigungu`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 도로구간 (`jusogokr__road_section`) | `manual_approval_bulk` |
-| 주소정보 전자지도 | JUSO 실폭도로 (`jusogokr__road_width`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 고속도로 접근점 (`public-bulk-highway-access-point`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 학교 위치 (`public-bulk-school-location`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 대학교 (`public-bulk-university`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 세대수 (`moisgokr__household_count`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 동 인구 (`moisgokr__dong_population`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 철도역 (`public-bulk-railway-station`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 철도역 노선 매핑 (`public-bulk-railway-station-line`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 도시철도역 (`public-bulk-subway-station`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 항만 (`public-bulk-port`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 공항 (`public-bulk-airport`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 상권 (`public-bulk-commercial-district`) | `manual_approval_bulk` |
-| 기타 공공 일괄 파일 | 행정동 법정동 연계 (`public-bulk-adm-dong-code-linkage`) | `manual_approval_bulk` |
-| 실거래가 벌크 (rt.molit.go.kr) | 공장창고 실거래가 (`rtmolitgokr__real_transaction_industrial_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 토지 실거래가 (`rtmolitgokr__real_transaction_land_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 상업업무용 실거래가 (`rtmolitgokr__real_transaction_commercial_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 아파트 매매 실거래가 (`rtmolitgokr__real_transaction_apartment_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 아파트 전월세 실거래가 (`rtmolitgokr__real_transaction_apartment_rent`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 아파트 분양권전매 실거래가 (`rtmolitgokr__real_transaction_apartment_presale`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 오피스텔 매매 실거래가 (`rtmolitgokr__real_transaction_officetel_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 오피스텔 전월세 실거래가 (`rtmolitgokr__real_transaction_officetel_rent`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 연립다세대 매매 실거래가 (`rtmolitgokr__real_transaction_row_house_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 연립다세대 전월세 실거래가 (`rtmolitgokr__real_transaction_row_house_rent`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 단독다가구 매매 실거래가 (`rtmolitgokr__real_transaction_detached_house_trade`) | `public_web_page` |
-| 실거래가 벌크 (rt.molit.go.kr) | 단독다가구 전월세 실거래가 (`rtmolitgokr__real_transaction_detached_house_rent`) | `public_web_page` |
-| 실거래가 API | 연립다세대 매매 실거래가 (`datagokr__real_transaction_row_house_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 연립다세대 전월세 실거래가 (`datagokr__real_transaction_row_house_rent`) | `disabled_api_duplicate` |
-| 실거래가 API | 공장창고 실거래가 (`datagokr__real_transaction_industrial_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 토지 실거래가 (`datagokr__real_transaction_land_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 상업업무용 실거래가 (`datagokr__real_transaction_commercial_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 오피스텔 매매 실거래가 (`datagokr__real_transaction_officetel_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 오피스텔 전월세 실거래가 (`datagokr__real_transaction_officetel_rent`) | `disabled_api_duplicate` |
-| 실거래가 API | 아파트 매매 상세 실거래가 (`datagokr__real_transaction_apartment_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 아파트 전월세 실거래가 (`datagokr__real_transaction_apartment_rent`) | `disabled_api_duplicate` |
-| 실거래가 API | 아파트 분양권전매 실거래가 (`datagokr__real_transaction_apartment_presale`) | `disabled_api_duplicate` |
-| 실거래가 API | 단독다가구 매매 실거래가 (`datagokr__real_transaction_detached_house_trade`) | `disabled_api_duplicate` |
-| 실거래가 API | 단독다가구 전월세 실거래가 (`datagokr__real_transaction_detached_house_rent`) | `disabled_api_duplicate` |
-| 브이월드 공간·토지 파일 | VWorld 시도 경계 (`vworldkr__boundary_sido`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 통계 읍면동 경계 (`vworldkr__boundary_census_emd`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 통계 시도 경계 (`vworldkr__boundary_census_sido`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 통계 시군구 경계 (`vworldkr__boundary_census_sigungu`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 필지고유번호변동연혁 (`vworldkr__parcel_number_change_history`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 공인중개사 (`vworldkr__real_estate_broker`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 산업단지 위치 (`vworldkr__sandan_location`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 산업단지 시설용지 (`vworldkr__sandan_facility_land_use`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 산업단지 용도지역 (`vworldkr__sandan_land_use_zone`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 산업단지 유치업종 (`vworldkr__sandan_permitted_industry`) | `provider_dataset_file` |
-| 브이월드 공간·토지 파일 | VWorld 산업단지 필지 (`vworldkr__sandan_parcel`) | `provider_dataset_file` |
-| 브이월드 토지대장 API | VWorld 토지대장 (`vworldkr__land_register`) | `open_api_only` |
+| 원천 가족 | 이후 연결 없는 endpoint | 수집 설정 | 판정 |
+|---|---|---|---|
+| 건축HUB 파일 | 건축물대장 기본 정보 파일 (`hubgokr__building_register_basis_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 건축물대장 총괄표제부 파일 (`hubgokr__building_register_master`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 건축물대장 오수정화시설 파일 (`hubgokr__building_register_sewage_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 건축물대장 부속지번 파일 (`hubgokr__building_register_sub_parcel`) | `bulk_file` | 수집·서빙 |
+| 건축HUB 파일 | 건축물대장 지역지구구역 파일 (`hubgokr__building_register_district_zone`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 건물 가스 사용량 파일 (`hubgokr__building_energy_monthly_gas`) | `bulk_file` | 수집·서빙 |
+| 건축HUB 파일 | 건물 전기 사용량 파일 (`hubgokr__building_energy_monthly_electricity`) | `bulk_file` | 수집·서빙 |
+| 건축HUB 파일 | 기본개요 (`hubgokr__building_permit_basis_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 동별개요 (`hubgokr__building_permit_building_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 층별개요 (`hubgokr__building_permit_floor_overview`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 호별개요 (`hubgokr__building_permit_unit_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 대수선 (`hubgokr__building_permit_major_repair`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 공작물관리대장 (`hubgokr__building_permit_structure_ledger`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 철거멸실관리대장 (`hubgokr__building_permit_demolition_loss`) | `bulk_file` | 수집·서빙 |
+| 건축HUB 파일 | 가설건축물 (`hubgokr__building_permit_temporary_building`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 오수정화시설 (`hubgokr__building_permit_sewage_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 주차장 (`hubgokr__building_permit_parking`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 부설주차장 (`hubgokr__building_permit_annex_parking`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 전유공용면적 (`hubgokr__building_permit_exclusive_common_area`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 호별전유공용면적 (`hubgokr__building_permit_unit_exclusive_common_area`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 지역지구구역 (`hubgokr__building_permit_district_zone`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 도로대장 (`hubgokr__building_permit_road_ledger`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 대지위치 (`hubgokr__building_permit_site_location`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 주택유형 (`hubgokr__building_permit_housing_type`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 기본개요 (`hubgokr__housing_permit_basis_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 동별개요 (`hubgokr__housing_permit_building_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 층별개요 (`hubgokr__housing_permit_floor_overview`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 호별개요 (`hubgokr__housing_permit_unit_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 부대시설 (`hubgokr__housing_permit_ancillary_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 오수정화시설 (`hubgokr__housing_permit_sewage_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 주차장 (`hubgokr__housing_permit_parking`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 부설주차장 (`hubgokr__housing_permit_annex_parking`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 전유공용면적 (`hubgokr__housing_permit_exclusive_common_area`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 행위호전유공용면적 (`hubgokr__housing_permit_act_unit_exclusive_common_area`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 행위개요 (`hubgokr__housing_permit_act_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 관리공동형별개요 (`hubgokr__housing_permit_managed_communal_type_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 관리공동부대복리시설 (`hubgokr__housing_permit_managed_communal_ancillary_welfare_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 지역지구구역 (`hubgokr__housing_permit_district_zone`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 대지위치 (`hubgokr__housing_permit_site_location`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 복리분양시설 (`hubgokr__housing_permit_welfare_sale_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 기본개요 (`hubgokr__building_register_closed_basis_outline`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 총괄표제부 (`hubgokr__building_register_closed_master`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 표제부 (`hubgokr__building_register_closed_main`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 층별개요 (`hubgokr__building_register_closed_floor_overview`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 부속지번 (`hubgokr__building_register_closed_sub_parcel`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 전유공용면적 (`hubgokr__building_register_closed_exclusive_common_area`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 오수정화시설 (`hubgokr__building_register_closed_sewage_facility`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 전유부 (`hubgokr__building_register_closed_exclusive_unit`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 공동주택가격 (`hubgokr__building_register_closed_apartment_price`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 지역지구구역 (`hubgokr__building_register_closed_district_zone`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 지번별에너지(전기,연도별) (`hubgokr__building_energy_yearly_electricity`) | `provider_inventory_missing` | 의도적 미수집 — 제공자 목록에 파일이 없다(받을 수 없음). 연도 값은 받고 있는 월별 파일의 합이다. 목록에 생기면 일일 수집이 받는다. |
+| 건축HUB 파일 | 지번별에너지(가스,연도별) (`hubgokr__building_energy_yearly_gas`) | `provider_inventory_missing` | 의도적 미수집 — 제공자 목록에 파일이 없다(받을 수 없음). 연도 값은 받고 있는 월별 파일의 합이다. 목록에 생기면 일일 수집이 받는다. |
+| 건축HUB 파일 | 점검기관 (`hubgokr__building_maintenance_inspection_agency`) | `bulk_file` | 수집·미서빙 |
+| 건축HUB 파일 | 정기점검이력 (`hubgokr__building_maintenance_regular_inspection_history`) | `bulk_file` | 수집·미서빙 |
+| 건축물대장 API | 건축물대장 표제부 (`datagokr__building_register_main`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 기본개요 (`datagokr__building_register_basis_outline`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 층별개요 (`datagokr__building_register_floor_overview`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 전유공용면적 (`datagokr__building_register_exclusive_common_area`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 주택가격 (`datagokr__building_register_house_price`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 전유부 (`datagokr__building_register_exclusive_unit`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 오수정화시설 (`datagokr__building_register_sewage_facility`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 총괄표제부 (`datagokr__building_register_master`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 부속지번 (`datagokr__building_register_sub_parcel`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 건축물대장 API | 건축물대장 지구지역구역 (`datagokr__building_register_district_zone`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 대장을 건축HUB 전국 파일이 매달 준다(같은 칸, 같은 관리번호). 필지마다 묻는 API 를 전국으로 돌리지 않는다. |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건목록 (`datagokr__onbid_real_estate_item`) | `open_api_only` | 수집·서빙 |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 부동산 물건상세 (`datagokr__onbid_real_estate_item_detail`) | `open_api_only` | 수집·서빙 |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 물건상세 입찰정보 (`datagokr__onbid_item_bid_info`) | `open_api_only` | 수집·서빙 |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 공고상세 (`datagokr__onbid_announcement_detail`) | `open_api_only` | 수집·서빙 |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 공고목록 (`datagokr__onbid_announcement`) | `open_api_only` | 수집·서빙 |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 공고 입찰결과목록 (`datagokr__onbid_announcement_bid_result`) | `open_api_only` | 수집·서빙 |
+| 차세대 온비드 공매 (data.go.kr) | 온비드 물건 입찰결과상세 (`datagokr__onbid_item_bid_result`) | `open_api_only` | 수집·서빙 |
+| 법원경매정보 (courtauction.go.kr) | 법원경매 물건 검색 (`courtauctiongokr__auction_item`) | `public_web_page` | 미수집 |
+| 법원경매정보 (courtauction.go.kr) | 법원경매 매각결과 검색 (`courtauctiongokr__auction_sale_result`) | `public_web_page` | 미수집 |
+| data.go.kr 파일 데이터 | 한국산업단지공단 전국등록공장현황 (`datagokr__registered_factory`) | `public_web_page` | 수집·미서빙 |
+| 주소정보 전자지도 | JUSO 건물 도형 (`jusogokr__building`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 기초구간 (`jusogokr__base_interval`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 국가기초구역 (`jusogokr__basic_area`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 건물군 (`jusogokr__building_group`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 건물 출입구 (`jusogokr__building_entrance`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 읍면동 (`jusogokr__legal_emd`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 리 (`jusogokr__legal_ri`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 시도 (`jusogokr__legal_sido`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 법정구역 시군구 (`jusogokr__legal_sigungu`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 도로구간 (`jusogokr__road_section`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 주소정보 전자지도 | JUSO 실폭도로 (`jusogokr__road_width`) | `manual_approval_bulk` | 미수집 — 달마다 손으로 신청하는 전자지도 내려받기 대신, 한 번 하는 데이터 연계 신청(business.juso.go.kr 데이터 연계신청 → [제공] 주소정보(도형) SHP, 승인키 발급)으로 매일 변동분을 자동으로 받는다. 연계 신청은 사장의 본인인증이 필요한 한 번의 단계다(루트 ADR-0355 §3, ADR-0400). |
+| 기타 공공 일괄 파일 | 고속도로 접근점 (`public-bulk-highway-access-point`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 학교 위치 (`public-bulk-school-location`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 대학교 (`public-bulk-university`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 세대수 (`moisgokr__household_count`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 동 인구 (`moisgokr__dong_population`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 철도역 (`public-bulk-railway-station`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 철도역 노선 매핑 (`public-bulk-railway-station-line`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 도시철도역 (`public-bulk-subway-station`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 항만 (`public-bulk-port`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 공항 (`public-bulk-airport`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 상권 (`public-bulk-commercial-district`) | `manual_approval_bulk` | 미수집 |
+| 기타 공공 일괄 파일 | 행정동 법정동 연계 (`public-bulk-adm-dong-code-linkage`) | `manual_approval_bulk` | 미수집 |
+| 실거래가 벌크 (rt.molit.go.kr) | 공장창고 실거래가 (`rtmolitgokr__real_transaction_industrial_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 토지 실거래가 (`rtmolitgokr__real_transaction_land_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 상업업무용 실거래가 (`rtmolitgokr__real_transaction_commercial_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 아파트 매매 실거래가 (`rtmolitgokr__real_transaction_apartment_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 아파트 전월세 실거래가 (`rtmolitgokr__real_transaction_apartment_rent`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 아파트 분양권전매 실거래가 (`rtmolitgokr__real_transaction_apartment_presale`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 오피스텔 매매 실거래가 (`rtmolitgokr__real_transaction_officetel_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 오피스텔 전월세 실거래가 (`rtmolitgokr__real_transaction_officetel_rent`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 연립다세대 매매 실거래가 (`rtmolitgokr__real_transaction_row_house_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 연립다세대 전월세 실거래가 (`rtmolitgokr__real_transaction_row_house_rent`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 단독다가구 매매 실거래가 (`rtmolitgokr__real_transaction_detached_house_trade`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 벌크 (rt.molit.go.kr) | 단독다가구 전월세 실거래가 (`rtmolitgokr__real_transaction_detached_house_rent`) | `public_web_page` | 수집·미서빙 |
+| 실거래가 API | 연립다세대 매매 실거래가 (`datagokr__real_transaction_row_house_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 연립다세대 전월세 실거래가 (`datagokr__real_transaction_row_house_rent`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 공장창고 실거래가 (`datagokr__real_transaction_industrial_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 토지 실거래가 (`datagokr__real_transaction_land_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 상업업무용 실거래가 (`datagokr__real_transaction_commercial_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 오피스텔 매매 실거래가 (`datagokr__real_transaction_officetel_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 오피스텔 전월세 실거래가 (`datagokr__real_transaction_officetel_rent`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 아파트 매매 상세 실거래가 (`datagokr__real_transaction_apartment_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 아파트 전월세 실거래가 (`datagokr__real_transaction_apartment_rent`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 아파트 분양권전매 실거래가 (`datagokr__real_transaction_apartment_presale`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 단독다가구 매매 실거래가 (`datagokr__real_transaction_detached_house_trade`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 실거래가 API | 단독다가구 전월세 실거래가 (`datagokr__real_transaction_detached_house_rent`) | `disabled_api_duplicate` | 의도적 미수집 — 같은 거래를 실거래가 공개시스템의 전국 월 CSV 가 준다(루트 ADR-0348). 시군구×월마다 묻는 API 는 받지 않는다. |
+| 브이월드 공간·토지 파일 | VWorld 시도 경계 (`vworldkr__boundary_sido`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 통계 읍면동 경계 (`vworldkr__boundary_census_emd`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 통계 시도 경계 (`vworldkr__boundary_census_sido`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 통계 시군구 경계 (`vworldkr__boundary_census_sigungu`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 필지고유번호변동연혁 (`vworldkr__parcel_number_change_history`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 공인중개사 (`vworldkr__real_estate_broker`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 산업단지 위치 (`vworldkr__sandan_location`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 산업단지 시설용지 (`vworldkr__sandan_facility_land_use`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 산업단지 용도지역 (`vworldkr__sandan_land_use_zone`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 산업단지 유치업종 (`vworldkr__sandan_permitted_industry`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 공간·토지 파일 | VWorld 산업단지 필지 (`vworldkr__sandan_parcel`) | `provider_dataset_file` | 수집·미서빙 |
+| 브이월드 토지대장 API | VWorld 토지대장 (`vworldkr__land_register`) | `open_api_only` | 의도적 미수집 — PNU 하나씩 묻는 API 다. 같은 사실을 토지특성·토지소유 파일이 전국으로 준다(루트 ADR-0359). |
 
 ## 정제 표의 미연결 구간
 

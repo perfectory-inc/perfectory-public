@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from pipeline_graph import CONTRACTS, ENDPOINTS, FOUNDATION, GRAPH, ROOT, load_json
+from pipeline_graph import reconcile_inputs, GRAPH, ROOT, load_json
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -23,10 +23,7 @@ def main() -> None:
     baseline = load_json(ROOT / GRAPH)
     with tempfile.TemporaryDirectory(prefix="pipeline-graph-connectivity-") as temporary:
         root = Path(temporary)
-        paths = {GRAPH, ENDPOINTS, CONTRACTS,
-                 FOUNDATION / "services/foundation-outbox-publisher/src/main.rs"}
-        paths.update(p.relative_to(ROOT) for p in (ROOT / FOUNDATION / "migrations").glob("*.sql"))
-        paths.update(Path(step) for e in baseline["edges"] for step in e.get("via", []) if (ROOT / step).is_file())
+        paths = reconcile_inputs(ROOT)
         for path in paths:
             (root / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, root / path)

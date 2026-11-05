@@ -24,6 +24,20 @@ RESOLVER_VIA = {
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
 }
+# Root ADR-0400: why an endpoint is not collected. A deliberate verdict is a decision not to collect;
+# a waiting verdict is a collection blocked on someone outside the pipeline (the owner's application).
+COLLECTION_VERDICTS = {
+    "api_duplicate_of_bulk": "deliberate",
+    "file_covers_the_api": "deliberate",
+    "provider_does_not_publish": "deliberate",
+    "waiting_on_owner_application": "waiting",
+}
+# Lanes whose endpoints exist only to be refused: each must name its verdict and decision.
+REFUSED_LANES = {"disabled_api_duplicate", "provider_inventory_missing"}
+# Lanes the daily source sweep collects whether or not a Silver lane reads them (ADR-0168, ADR-0359).
+SWEPT_LANES = {"bulk_file", "provider_dataset_file"}
+# The four classes of root ADR-0400, in the order the map shows them.
+COLLECTION_CLASSES = ("served", "collected", "not_collected", "deliberate")
 NODE_TYPES = {"source_group", "silver_table", "gold_table", "reference_table", "serving_group", "serving_surface"}
 TABLE_TYPES = {"silver_table", "gold_table", "reference_table"}
 
@@ -34,6 +48,65 @@ def load_json(path: Path) -> dict:
 
 def load(root: Path, path: Path) -> dict:
     return load_json(root / path)
+
+
+def collection_classes(graph: dict, endpoints: list[dict]) -> dict[str, str]:
+    """Root ADR-0400: each endpoint's class by its bronze source slug, from the two SSOTs only.
+
+    served: a live source edge selects it and a live data path from there reaches a serving surface.
+    collected: a live source edge selects it, or the daily sweep collects its lane, but no surface.
+    deliberate: its collection_decision is a deliberate verdict. not_collected: everything else,
+    including a waiting verdict and a source edge that is switched off.
+    """
+    nodes = {n["id"]: n for n in graph["nodes"]}
+    live = [e for e in graph["edges"] if e["status"] in {"implemented", "partial"}
+            and e["relation"] in {"feeds", "joins", "serves"}]
+    after: dict[str, list[str]] = {}
+    for edge in live:
+        after.setdefault(edge["from"], []).append(edge["to"])
+
+    def reaches_surface(start: str) -> bool:
+        seen, pending = set(), [start]
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            if nodes[current]["type"] == "serving_surface":
+                return True
+            pending.extend(after.get(current, []))
+        return False
+
+    classes = {}
+    for endpoint in endpoints:
+        slug = endpoint["bronze"]["source_slug"]
+        decision = endpoint.get("collection_decision")
+        if decision and COLLECTION_VERDICTS.get(decision.get("verdict")) == "deliberate":
+            classes[slug] = "deliberate"
+            continue
+        starts = [e["to"] for e in live if slug in (e.get("source_slugs") or [])
+                  and nodes[e["from"]]["type"] == "source_group"]
+        if any(reaches_surface(start) for start in starts):
+            classes[slug] = "served"
+        elif decision:
+            classes[slug] = "not_collected"
+        elif starts or endpoint["source_acquisition_lane"] in SWEPT_LANES:
+            classes[slug] = "collected"
+        else:
+            classes[slug] = "not_collected"
+    return classes
+
+
+def reconcile_inputs(root: Path) -> set[Path]:
+    """Every file reconcile reads, relative to root: a self-test copies exactly these into its tree."""
+    graph = load_json(root / GRAPH)
+    paths = {GRAPH, ENDPOINTS, CONTRACTS, FOUNDATION / "services/foundation-outbox-publisher/src/main.rs"}
+    paths.update(p.relative_to(root) for p in (root / FOUNDATION / "migrations").glob("*.sql"))
+    paths.update(Path(step) for e in graph["edges"] for step in e.get("via", []) if (root / step).is_file())
+    # Root ADR-0400: a collection_decision names a decision record that must exist.
+    paths.update(Path(e["collection_decision"]["decision"]) for e in load_json(root / ENDPOINTS)["endpoints"]
+                 if "collection_decision" in e and (root / e["collection_decision"]["decision"]).is_file())
+    return paths
 
 
 def migration_tables(root: Path) -> set[str]:
@@ -122,6 +195,27 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
     by_id = {n["id"]: n for n in nodes}
     if any("silver" in e for e in endpoints):
         problems.append("endpoint silver duplicates the graph edges")
+    # Root ADR-0400. The map once said "승인 후 수집 가능" for 23 endpoints no collector read
+    # (ADR-0355 §6): a not-collected endpoint now names why, and a named reason must stay true.
+    for endpoint in endpoints:
+        slug = endpoint["bronze"]["source_slug"]
+        decision = endpoint.get("collection_decision")
+        if endpoint["source_acquisition_lane"] in REFUSED_LANES and not decision:
+            problems.append(f"refused endpoint names no collection_decision: {slug}")
+        if decision is None:
+            continue
+        verdict = decision.get("verdict") if isinstance(decision, dict) else None
+        if verdict not in COLLECTION_VERDICTS:
+            problems.append(f"unknown collection_decision verdict: {slug}")
+            continue
+        adr = decision.get("decision", "")
+        if not (isinstance(adr, str) and adr.startswith("docs/adr/") and (root / adr).is_file()):
+            problems.append(f"collection_decision names no decision record: {slug}")
+        if not str(decision.get("reason_ko", "")).strip():
+            problems.append(f"collection_decision gives no reason: {slug}")
+        if any(slug in (e.get("source_slugs") or []) and e["status"] in {"implemented", "partial"}
+               for e in graph["edges"]):
+            problems.append(f"collected endpoint still says it is not collected: {slug}")
     main = (root / FOUNDATION / "services/foundation-outbox-publisher/src/main.rs").read_text(encoding="utf-8")
     commands = set(re.findall(r'Some\("([^"\n]+)"\)', main))
     bindings = []
