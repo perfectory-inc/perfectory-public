@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: architecture
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-05
 ---
 
 # 관측성
@@ -13,7 +13,7 @@ last_reviewed: 2026-07-29
 
 관측성은 다음을 지원해야 한다.
 
-- request tracing
+- 요청 추적
 - route 수준 장애 진단
 - mutation/audit 재구성
 - cache·의존성 readiness 검사
@@ -21,7 +21,8 @@ last_reviewed: 2026-07-29
 
 ## 2. 요청 식별자
 
-Rust API 요청은 request-id 계층을 통과한다.
+Rust API 요청은 request-id 계층을 통과한다. 들어온 `X-Request-Id` 헤더를 쓰고, 없으면
+`req_<ULID>` 를 만들어 tracing span에 붙이고 응답 헤더로 되돌려 준다.
 
 주요 파일:
 
@@ -29,10 +30,10 @@ Rust API 요청은 request-id 계층을 통과한다.
 - `services/gongzzang-api/src/http/request_id.rs`
 - `services/gongzzang-api/src/http/mutation_ctx.rs`
 
-`MutationContext`는 correlation 데이터를 repository로 전달해 같은 트랜잭션 안에서 쓰기와 audit record,
-outbox event를 함께 만들 수 있게 한다.
+`MutationContext`는 그 요청 식별자를 DB `correlation_id` 컬럼 값으로 repository에 전달해, 같은
+트랜잭션 안에서 쓰기와 audit record, outbox event를 함께 만들 수 있게 한다.
 
-## 3. Logging과 tracing
+## 3. 로깅·tracing·에러 수집
 
 Rust 서비스는 `tracing`과 `tracing-subscriber`를 사용한다.
 
@@ -44,10 +45,11 @@ Rust 서비스는 `tracing`과 `tracing-subscriber`를 사용한다.
 - `crates/circuit-breaker/src/execute.rs`
 - `crates/circuit-breaker/src/breaker.rs`
 
-프론트엔드는 panel 상호작용을 위한 가벼운 OpenTelemetry helper를 갖는다.
+API의 에러 수집은 Sentry다 (`services/gongzzang-api/src/observability.rs` `init_sentry`, `main.rs`에서
+호출). `SENTRY_DSN`이 없으면 꺼진다.
 
-- `apps/web/lib/panel/telemetry.ts`
-- `apps/web/instrumentation.ts`
+프론트엔드는 OpenTelemetry Node SDK를 서버 런타임에서 띄우고(`apps/web/instrumentation.ts`, 읽기 전용
+미리보기 빌드에서는 끔), panel 상호작용용 가벼운 helper를 갖는다(`apps/web/lib/panel/telemetry.ts`).
 
 ## 4. Health와 metric
 
@@ -55,7 +57,7 @@ Rust API health route:
 
 - `/healthz`
 - `/readyz`
-- `/readyz/db`
+- `/readyz/db` (디버그용, `expose_db_debug_route` 로 켤 때만 — 운영은 뺄 수 있다)
 - `/internal/metrics`
 
 주요 파일:
@@ -64,7 +66,8 @@ Rust API health route:
 - `services/gongzzang-api/src/routes/metrics.rs`
 - `docs/architecture/traffic-auth-policy-registry.v1.json`
 
-Readiness는 설정된 DB와 Redis를 검사하고 liveness는 가벼워야 한다.
+Readiness는 DB를 검사하고, Valkey(`REDIS_URL`)가 설정된 경우에만 Valkey도 검사한다. liveness는
+가벼워야 한다.
 
 ## 5. Audit과 outbox
 
@@ -90,33 +93,35 @@ audit에 중요한 쓰기는 다음을 기록해야 한다.
 - `crates/gongzzang-persistence/src/system_alert.rs`
 - `crates/gongzzang-persistence/src/listing`
 
-## 6. Catalog Observability Boundary
+## 6. Catalog 관측성 경계
 
 Catalog 공개 API 변경 관측성은 Gongzzang이 아니라 Foundation Platform 소유다.
 
 Gongzzang은 다음을 다시 만들지 않는다.
 
 - Gongzzang 소유 Catalog API-drift workflow
-- Foundation Platform-owned `api-health` capability
+- Foundation Platform 소유 `api-health` capability
 - `crates/api-health-recorder`
 - `crates/gongzzang-persistence/src/api_health.rs`
 - `docs/observability/api-drift-smoke-test.md`
 
-이 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와
-`docs/architecture/foundation-platform-boundary.v1.json` 계약이 강제한다.
+이 경로들의 소유자는 `docs/architecture/foundation-platform-boundary.v1.json` `path_ownership`에
+`extracted_catalog_observability_asset` 으로 기록되어 있다. 이 목록을 읽어 재도입을 막는 검사는
+지금 없다 — `scripts/lefthook/foundation-ownership-boundary.sh`는 Catalog crate·Catalog 표 쓰기·
+Catalog 변경 route만 본다.
 
-## 7. Current Gaps
+## 7. 남은 공백
 
-저장소에는 tracing·health·audit·policy registry와 부하 테스트 증거 골격이 있다.
+저장소에는 tracing·Sentry·health·audit·policy registry와 부하 테스트 골격이 있다.
 
 남은 hardening 영역:
 
-- full OTel collector/exporter wiring은 완료된 runtime 배포로 증명되지 않았다.
-- production SLO dashboard와 alert route는 이 감사에서 아직 증명되지 않았다.
+- Rust 서비스의 OTel exporter는 없다. 웹의 OTel collector 연결은 운영 배포로 증명된 기록이 없다.
+- 운영 SLO dashboard와 alert route는 증명되지 않았다.
 
-## 8. Guardrails
+## 8. 가드
 
-traffic/auth policy registry와 Foundation Platform 경계는 CI와 pre-commit에서 강제한다. Foundation
-Platform Catalog 경계는
-`scripts/lefthook/foundation-ownership-boundary.sh`; the traffic/auth policy artifacts are
-regenerated with `cargo run -p gongzzang-api --bin generate-traffic-auth-policy`.
+traffic/auth policy registry 산출물은 CI(`gongzzang-ci.yml` `Traffic/auth policy drift`)에서
+`cargo run -p gongzzang-api --bin generate-traffic-auth-policy` 후 `git diff --exit-code`로 강제한다.
+Foundation Platform Catalog 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`(CI
+`Repo guardrails`)가 강제한다. 둘 다 커밋 전 훅에서는 돌지 않는다(루트 `lefthook.yml`).
