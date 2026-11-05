@@ -776,6 +776,46 @@
         "budget_seconds": 10
       },
       {
+        "name": "declared-definitions-reproduce-artifacts-self-test",
+        "paths": [
+          "scripts/catalog/declared_definitions.py",
+          "scripts/catalog/definition.v1.schema.json",
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "platforms/foundation-platform/orchestration/job-dependencies.v1.json",
+          "platforms/foundation-platform/orchestration/dags/job_specs.py",
+          "platforms/foundation-platform/infra/datahub/dataset_names.py",
+          "platforms/foundation-platform/contracts/data/**",
+          "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+          "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json",
+          "platforms/foundation-platform/config/r2-connections.contract.json",
+          "platforms/foundation-platform/contracts/schema-registry/registry.json",
+          "tools/host-memory-budget.contract.json",
+          "scripts/catalog/render-pipeline-map.py",
+          "scripts/catalog/pipeline_graph.py",
+          "docs/data-pipeline-map.md"
+        ]
+      },
+      {
+        "name": "declared-definitions-reproduce-artifacts",
+        "paths": [
+          "scripts/catalog/declared_definitions.py",
+          "scripts/catalog/definition.v1.schema.json",
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "platforms/foundation-platform/orchestration/job-dependencies.v1.json",
+          "platforms/foundation-platform/orchestration/dags/job_specs.py",
+          "platforms/foundation-platform/infra/datahub/dataset_names.py",
+          "platforms/foundation-platform/contracts/data/**",
+          "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+          "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json",
+          "platforms/foundation-platform/config/r2-connections.contract.json",
+          "platforms/foundation-platform/contracts/schema-registry/registry.json",
+          "tools/host-memory-budget.contract.json",
+          "scripts/catalog/render-pipeline-map.py",
+          "scripts/catalog/pipeline_graph.py",
+          "docs/data-pipeline-map.md"
+        ]
+      },
+      {
         "name": "every-job-declares-its-scope-self-test",
         "paths": [
           "platforms/foundation-platform/orchestration/jobs.v1.json",
