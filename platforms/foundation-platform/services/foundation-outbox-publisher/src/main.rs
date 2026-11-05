@@ -22,7 +22,7 @@
 //! The service publishes pending Catalog outbox rows and can run an explicit R2
 //! smoke test for the vector tile manifest storage path.
 
-use std::{env, fs, future::Future, path::Path, pin::Pin, sync::Arc, thread};
+use std::{env, fs, future::Future, path::Path, pin::Pin, sync::Arc};
 
 use anyhow::{bail, Context};
 use catalog_application::{RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput};
@@ -117,7 +117,6 @@ mod lineage_review_items_load;
 mod lineage_steward_fold;
 mod map_edit_handoff_export;
 use foundation_publisher_collection::national_bronze_object_manifest;
-use foundation_publisher_collection::national_data_collection_async;
 use foundation_publisher_collection::national_data_collection_coverage_ledger_check;
 use foundation_publisher_collection::national_data_collection_ledger_execute;
 use foundation_publisher_collection::national_data_collection_ledger_resume;
@@ -129,19 +128,15 @@ use foundation_publisher_collection::national_data_collection_shard_manifest_wri
 use foundation_publisher_collection::national_page_count_plan_writer;
 mod official_administrative_boundary_source_snapshot;
 use foundation_publisher_collection::page_collector;
-use foundation_publisher_parcel_anchor::parcel_boundary_handoff;
+mod parcel_boundary_handoff;
 mod parcel_boundary_postgis_publish;
 mod parcel_boundary_runtime_promote;
 mod parcel_boundary_static_release_publish;
 use foundation_publisher_by_pnu::parcel_by_pnu_serving_export;
-use foundation_publisher_parcel_anchor::parcel_marker_anchor_artifact_export;
-use foundation_publisher_parcel_anchor::parcel_marker_anchor_pbf_artifact_build;
-use foundation_publisher_parcel_anchor::parcel_marker_anchor_streaming_rebuild;
 mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
 mod parcel_publication_evidence_writer;
-mod postgis_anchor_pbf_regional_proof_check;
 mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
 mod postgis_parcel_boundary_mirror_rebuild;
@@ -171,11 +166,10 @@ use foundation_publisher_core::r2_command_support;
 mod r2_delete_candidates;
 mod r2_inventory_audit;
 use foundation_publisher_collection::real_transaction_ingest;
-use foundation_publisher_core::r2_layout;
-mod regional_data_serving_load_check;
 use foundation_publisher_collection::rt_molit_real_transaction_collect;
 use foundation_publisher_collection::rt_molit_real_transaction_export_collection_plan;
 use foundation_publisher_collection::rt_molit_real_transaction_export_ingest;
+use foundation_publisher_core::r2_layout;
 use foundation_publisher_core::runtime_environment;
 use foundation_publisher_silver::remote_lakehouse_job;
 mod serving_source_lineage_register;
@@ -211,8 +205,6 @@ type CommandFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Command {
     AuditR2Inventory,
-    BuildParcelMarkerAnchorAggregatePbfArtifacts,
-    BuildParcelMarkerAnchorPbfArtifacts,
     BuildIndustrialComplexAddressResolution,
     BuildingRegisterSmoke,
     CollectCodeGoKrLegalDong,
@@ -251,7 +243,6 @@ enum Command {
     ExportParcelByPnuServing,
     ExportBuildingByPnuServing,
     SectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
-    ExportParcelMarkerAnchorArtifacts,
     ExportVWorldCadastralSilverHandoff,
     ExportVWorldCadastralShapefileSilverHandoff,
     ExportVWorldCadastralSilverHandoffShard,
@@ -264,7 +255,6 @@ enum Command {
     ExportLandTransferHistorySilverHandoff,
     ExportLandRightRegistrationSilverHandoff,
     ExportLandOwnershipSilverHandoff,
-    ExecuteNationalDataCollectionAsync,
     ExecuteNationalDataCollectionLedger,
     ExecuteRtMolitRealTransactionExportPlan,
     ExecuteSilverGoldNationalPromotion,
@@ -277,8 +267,6 @@ enum Command {
     PlanVWorldDatasetCollection,
     CheckBoundedLiveIngestionGate,
     CheckR2RuntimeTarget,
-    CheckPostgisAnchorPbfRegionalProof,
-    CheckRegionalDataServingLoad,
     CheckSilverGoldNationalPromotionExecution,
     CheckSilverGoldNationalPromotionPlan,
     CheckNationalDataCollectionCoverageLedger,
@@ -365,7 +353,6 @@ enum Command {
     PublishOutboxOnce,
     R2BillingUsageMetrics,
     RebuildParcelMarkerAnchors,
-    RebuildParcelMarkerAnchorsStreaming,
     RebuildPostgisParcelBoundaryMirror,
     RebuildPostgisParcelBoundaryMirrorNational,
     RebuildPostgisParcelBoundaryMirrorNationalFromContract,
@@ -397,12 +384,7 @@ fn main() -> anyhow::Result<()> {
         // No runtime: the runner waits on its child itself, and its exit code is the outcome's.
         std::process::exit(i32::from(job_run_from_env()));
     }
-    let result = if command_requires_expanded_stack(command) {
-        run_command_with_expanded_stack(command)
-    } else {
-        run_command_runtime(command)
-    };
-    result
+    run_command_runtime(command)
         .map_err(exit_if_refused)
         .map_err(exit_if_provider_side)
 }
@@ -445,17 +427,6 @@ fn job_run_from_env() -> u8 {
     }
 }
 
-fn run_command_with_expanded_stack(command: Command) -> anyhow::Result<()> {
-    let handle = thread::Builder::new()
-        .name("outbox-publisher-command".to_owned())
-        .stack_size(TOKIO_WORKER_STACK_BYTES)
-        .spawn(move || run_command_runtime(command))
-        .context("failed to spawn outbox-publisher command thread")?;
-    handle
-        .join()
-        .map_err(|_| anyhow::anyhow!("outbox-publisher command thread panicked"))?
-}
-
 fn run_command_runtime(command: Command) -> anyhow::Result<()> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -463,15 +434,6 @@ fn run_command_runtime(command: Command) -> anyhow::Result<()> {
         .build()
         .context("failed to build outbox-publisher Tokio runtime")?
         .block_on(run_command(command))
-}
-
-const fn command_requires_expanded_stack(command: Command) -> bool {
-    matches!(
-        command,
-        Command::ExportParcelMarkerAnchorArtifacts
-            | Command::BuildParcelMarkerAnchorPbfArtifacts
-            | Command::BuildParcelMarkerAnchorAggregatePbfArtifacts
-    )
 }
 
 async fn run_command(command: Command) -> anyhow::Result<()> {
@@ -488,12 +450,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
 
     let future: CommandFuture = match command {
         Command::AuditR2Inventory => Box::pin(r2_inventory_audit::run()),
-        Command::BuildParcelMarkerAnchorAggregatePbfArtifacts => {
-            Box::pin(parcel_marker_anchor_pbf_artifact_build::aggregate::run())
-        }
-        Command::BuildParcelMarkerAnchorPbfArtifacts => {
-            Box::pin(parcel_marker_anchor_pbf_artifact_build::run())
-        }
         Command::BuildingRegisterSmoke => Box::pin(async { building_register_smoke::run() }),
         Command::BuildIndustrialComplexAddressResolution => {
             Box::pin(async { industrial_complex_address_resolution_build::run() })
@@ -548,9 +504,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ShowParcelByPnuServingState => Box::pin(by_pnu_serving_state::run_parcel()),
         Command::ShowBuildingByPnuServingState => Box::pin(by_pnu_serving_state::run_building()),
         Command::VerifyParcelByPnuServingRebase => Box::pin(by_pnu_serving_rebase::run_parcel()),
-        Command::ExportParcelMarkerAnchorArtifacts => {
-            Box::pin(parcel_marker_anchor_artifact_export::run())
-        }
         Command::ExportVWorldCadastralSilverHandoff => {
             Box::pin(async { vworld_cadastral_silver_export::run() })
         }
@@ -608,9 +561,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportLandIndividualPriceSilverHandoff => {
             Box::pin(land_use_silver_export::run_price())
-        }
-        Command::ExecuteNationalDataCollectionAsync => {
-            Box::pin(national_data_collection_async::run())
         }
         Command::ExecuteNationalDataCollectionLedger => {
             Box::pin(async { national_data_collection_ledger_execute::run() })
@@ -744,12 +694,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CheckR2RuntimeTarget => {
             Box::pin(async { bronze_object_storage::live_write_target_preflight() })
         }
-        Command::CheckPostgisAnchorPbfRegionalProof => {
-            Box::pin(async { postgis_anchor_pbf_regional_proof_check::run() })
-        }
-        Command::CheckRegionalDataServingLoad => {
-            Box::pin(async { regional_data_serving_load_check::run() })
-        }
         Command::CheckSilverGoldNationalPromotionExecution => {
             Box::pin(async { silver_gold_national_promotion_execution::run_check() })
         }
@@ -830,9 +774,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::PublishOutboxOnce => Box::pin(run_publisher_once()),
         Command::R2BillingUsageMetrics => Box::pin(async { r2_billing_usage_metrics::run() }),
         Command::RebuildParcelMarkerAnchors => Box::pin(run_parcel_marker_anchor_rebuild()),
-        Command::RebuildParcelMarkerAnchorsStreaming => {
-            Box::pin(parcel_marker_anchor_streaming_rebuild::run())
-        }
         Command::RebuildPostgisParcelBoundaryMirror => {
             Box::pin(async { postgis_parcel_boundary_mirror_rebuild::run() })
         }
@@ -1019,10 +960,6 @@ where
         Some("promote-parcel-boundary-runtime") => Ok(Command::PromoteParcelBoundaryRuntime),
         Some("check-bounded-live-ingestion-gate") => Ok(Command::CheckBoundedLiveIngestionGate),
         Some("check-r2-runtime-target") => Ok(Command::CheckR2RuntimeTarget),
-        Some("check-postgis-anchor-pbf-regional-proof") => {
-            Ok(Command::CheckPostgisAnchorPbfRegionalProof)
-        }
-        Some("check-regional-data-serving-load") => Ok(Command::CheckRegionalDataServingLoad),
         Some("check-silver-gold-national-promotion-execution") => {
             Ok(Command::CheckSilverGoldNationalPromotionExecution)
         }
@@ -1089,12 +1026,6 @@ where
         }
         Some("probe-spatial-tile-wap") => Ok(Command::ProbeSpatialTileWap),
         Some("probe-vworld-page-count-batch") => Ok(Command::ProbeVWorldPageCountBatch),
-        Some("build-parcel-marker-anchor-pbf-artifacts") => {
-            Ok(Command::BuildParcelMarkerAnchorPbfArtifacts)
-        }
-        Some("build-parcel-marker-anchor-aggregate-pbf-artifacts") => {
-            Ok(Command::BuildParcelMarkerAnchorAggregatePbfArtifacts)
-        }
         Some("ingest-vworld-cadastral") => Ok(Command::IngestVWorldCadastral),
         Some("ingest-vworld-dataset-files") => Ok(Command::IngestVWorldDatasetFiles),
         Some("ingest-vworld-land-register") => Ok(Command::IngestVWorldLandRegister),
@@ -1151,9 +1082,6 @@ where
         Some("show-parcel-by-pnu-serving-state") => Ok(Command::ShowParcelByPnuServingState),
         Some("show-building-by-pnu-serving-state") => Ok(Command::ShowBuildingByPnuServingState),
         Some("verify-parcel-by-pnu-serving-rebase") => Ok(Command::VerifyParcelByPnuServingRebase),
-        Some("export-parcel-marker-anchor-artifacts") => {
-            Ok(Command::ExportParcelMarkerAnchorArtifacts)
-        }
         Some("export-vworld-cadastral-silver-handoff") => {
             Ok(Command::ExportVWorldCadastralSilverHandoff)
         }
@@ -1210,9 +1138,6 @@ where
         Some("export-vworld-cadastral-silver-handoff-shard") => {
             Ok(Command::ExportVWorldCadastralSilverHandoffShard)
         }
-        Some("execute-national-data-collection-async") => {
-            Ok(Command::ExecuteNationalDataCollectionAsync)
-        }
         Some("import-industrial-complex-catalog-seed") => {
             Ok(Command::ImportIndustrialComplexCatalogSeed)
         }
@@ -1233,9 +1158,6 @@ where
         Some("publish-outbox-once") => Ok(Command::PublishOutboxOnce),
         Some("r2-billing-usage-metrics") => Ok(Command::R2BillingUsageMetrics),
         Some("rebuild-parcel-marker-anchors") => Ok(Command::RebuildParcelMarkerAnchors),
-        Some("rebuild-parcel-marker-anchors-streaming") => {
-            Ok(Command::RebuildParcelMarkerAnchorsStreaming)
-        }
         Some("rebuild-postgis-parcel-boundary-mirror") => {
             Ok(Command::RebuildPostgisParcelBoundaryMirror)
         }

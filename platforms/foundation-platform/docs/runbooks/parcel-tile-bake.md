@@ -13,7 +13,7 @@ last_reviewed: 2026-10-29
 
 | 무엇 | 정본 |
 | --- | --- |
-| 굽는 판(edition) | `infra/lakehouse/contracts/vworld-parcel-source-objects.json` 의 `served_edition` (ADR-0148 §1) |
+| 굽는 판(edition) | `infra/lakehouse/contracts/vworld-parcel-source-objects.json` 의 `served_edition` (ADR-0291·ADR-0379: 준비도 관문을 거친 승격이 기록) |
 | 굽기 순서 | `scripts/ops/parcel-tile-bake.sh` 머리말 |
 | 예약·시간 한계·풀 | `orchestration/jobs.v1.json` 의 `parcel_served_gold`·`parcel_tile_bake`, `infra/systemd/foundation-parcel-tile-bake@.service` (루트 ADR-0253) |
 | 컨테이너 이미지·메모리 상한·작업 디스크 | `config/tile-bake-containers.contract.json` (작업 루트 `work_disk.production_root`) |

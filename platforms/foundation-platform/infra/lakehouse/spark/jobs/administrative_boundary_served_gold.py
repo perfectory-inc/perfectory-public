@@ -24,7 +24,7 @@ import map_matching_gate
 import served_gold_common as common
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
 from legal_dong_code_snapshot_to_reference import newest_snapshot_codes
-from platform_contracts import column_names, declared_geometry_srid, load_lakehouse_contract
+from platform_contracts import admit_write, column_names, current_rows, declared_geometry_srid, load_lakehouse_contract
 
 JOB_NAME = "administrative_boundary_served_gold"
 UNIT = "admin"
@@ -162,22 +162,23 @@ def build_spark_session(args: argparse.Namespace, SparkSession: Any) -> Any:
 
 
 def read_newest_silver(spark: Any, table: str) -> tuple[list[dict[str, Any]], str, str]:
-    """The newest source snapshot's rows; Silver keeps every snapshot, the map shows the newest."""
+    """The newest source snapshot's rows; Silver keeps every snapshot, the map shows the newest.
 
-    newest = spark.sql(
-        f"SELECT source_snapshot_id FROM {table} GROUP BY source_snapshot_id "
-        f"ORDER BY max(ingested_at_utc) DESC, source_snapshot_id DESC LIMIT 1"
-    ).collect()
-    if not newest:
+    The contract orders the snapshots (`Editions`, newest by `ingested_at_utc`) and `current_rows`
+    keeps the newest one's rows (root ADR-0286 §3).
+    """
+
+    newest = current_rows(spark.table(table), SILVER_CONTRACT)
+    picked = [row["source_snapshot_id"] for row in newest.select("source_snapshot_id").distinct().collect()]
+    if not picked:
         raise ValueError(f"{table} holds no administrative boundaries")
-    source_snapshot = newest[0]["source_snapshot_id"]
+    source_snapshot = picked[0]
     rows = [
         row.asDict()
-        for row in spark.sql(
-            f"SELECT administrative_unit_id, scope_kind, canonical_code, display_name, "
-            f"lower(hex(geometry_wkb)) AS geometry_wkb_hex, geometry_srid, geometry_checksum_sha256, "
-            f"source_snapshot_id FROM {table} WHERE source_snapshot_id = '{source_snapshot}'"
-        ).collect()
+        for row in newest.selectExpr(
+            "administrative_unit_id", "scope_kind", "canonical_code", "display_name",
+            "lower(hex(geometry_wkb)) AS geometry_wkb_hex", "geometry_srid", "geometry_checksum_sha256",
+            "source_snapshot_id").collect()
     ]
     wrong = [row[FEATURE_ID_PROPERTY] for row in rows if int(row["geometry_srid"]) != GEOMETRY_SRID]
     if wrong:
@@ -266,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
             ],
             schema=common.contract_schema(SERVED_CONTRACT),
         ).select(*SERVED_COLUMNS).createOrReplaceTempView("served_candidate")
+        admit_write(SERVED_CONTRACT["table_name"], "replace", target=served_table)
         spark.sql(f"INSERT OVERWRITE {served_table} SELECT {', '.join(SERVED_COLUMNS)} FROM served_candidate")
         persisted = spark.sql(f"SELECT count(*) AS n FROM {served_table}").collect()[0]["n"]
         if persisted != len(served):

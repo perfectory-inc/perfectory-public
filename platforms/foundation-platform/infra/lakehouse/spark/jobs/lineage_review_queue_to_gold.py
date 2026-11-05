@@ -20,6 +20,7 @@ from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX
 from platform_contracts import (
+    admit_write,
     column_names,
     create_table_columns_sql,
     evolve_iceberg_table_to_contract,
@@ -109,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
             r.asDict()
             for r in lineage.join(subjects, on="successor_pnu", how="left_semi")
             .select("predecessor_pnu", "successor_pnu", "relation", "grade", "evidence_kind", "evidence_ref",
-                    "from_snapshot_id", "to_snapshot_id")
+                    "from_snapshot_id", "to_snapshot_id", "derived_at_utc")
             .collect()
         ]
         items, counts = q.review_queue(rows, UNIT)
@@ -135,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
              "to_snapshot_id": i.to_snapshot_id or None, "published_at_utc": now}
             for i in items
         ]
+        admit_write(CONTRACT["table_name"], "replace", target=table)
         # Replaces the unit's rows, an emptied queue included, in one commit that records its lineage.
         spark.createDataFrame(out, schema=schema).select(*columns).writeTo(
             f"{args.iceberg_catalog_name}.{args.gold_namespace}.lineage_review_queue").option(

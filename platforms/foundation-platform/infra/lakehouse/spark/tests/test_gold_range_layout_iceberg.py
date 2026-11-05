@@ -107,12 +107,12 @@ class GoldRangeLayoutIcebergTest(unittest.TestCase):
         self.spark.sql(f"ALTER TABLE {self.TABLE} SET TBLPROPERTIES "
                        "('write.spark.advisory-partition-size-bytes' = '262144')")
 
-        write_gold_snapshot(self.frame("v1"), self.TABLE, "overwrite", {}, F.lit(True))
+        write_gold_snapshot(self.frame("v1"), self.TABLE, "overwrite", {}, F.lit(True), contract_table="gold.parcel_panel")
         self.assert_disjoint("overwrite")
 
         overwritten = self.paths()
         changed = self.frame("v2").withColumn(gold_incremental.DELETE_FLAG, F.lit(False))
-        self.assertTrue(gold_incremental.merge_into_gold(self.spark, self.TABLE, changed, {}))
+        self.assertTrue(gold_incremental.merge_into_gold(self.spark, self.TABLE, changed, {}, contract_table="gold.parcel_panel"))
         # Merge-on-read: no data file rewritten, the changed rows in new files, and a position delete
         # file per data file the merge touched. The new files are range-split (ADR-0307), not
         # hash-split: under hash every one would span the whole key range. Their edges may overlap
@@ -130,7 +130,7 @@ class GoldRangeLayoutIcebergTest(unittest.TestCase):
 
         # An append of the odd PNUs interleaves with every existing file; a compaction must not keep
         # (bin-pack would) the overlap, it must sort the files it rewrites back into ranges.
-        write_gold_snapshot(self.frame("v1", parity=1), self.TABLE, "append", {}, F.lit(True))
+        write_gold_snapshot(self.frame("v1", parity=1), self.TABLE, "append", {}, F.lit(True), contract_table="gold.parcel_panel")
         compaction = {**lakehouse_maintenance.load_maintenance_contract()["compaction"],
                       "target_file_bytes": 4_000_000}
         ordered = lakehouse_maintenance.has_sort_order(self.spark, self.TABLE)

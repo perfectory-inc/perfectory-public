@@ -4,7 +4,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -54,7 +54,7 @@ pub const SILVER_LAND_USE_ZONE_AREA: LakehouseTableContract = LakehouseTableCont
     current_row_predicate: None,
     // A monthly release appends only the areas whose content or geometry changed and a removal
     // marker per vanished area (root ADR-0275, ADR-0311, ADR-0318), compared one layer at a time.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["layer_code", "zone_feature_id"],
         // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
         newest_first: &["source_snapshot_id", "ingested_at_utc"],

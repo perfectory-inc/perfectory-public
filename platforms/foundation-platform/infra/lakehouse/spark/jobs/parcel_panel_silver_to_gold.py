@@ -721,12 +721,12 @@ def build_forest_ledger(
 def newest_legal_dong_names(snapshot: DataFrame) -> DataFrame:
     """The codes that exist in the newest snapshot of the 법정동 code list the job pinned.
 
-    The table keeps every snapshot it was given (append only, one per snapshot_date); an abolished
-    code names no current parcel. No snapshot at all is no names, not a failure.
+    The table keeps every snapshot it was given (append only, one per snapshot_date); `read_source`
+    already took the newest one by the contract (`Editions`, root ADR-0286 §3). An abolished code
+    names no current parcel. No snapshot at all is no names, not a failure.
     """
 
-    newest = snapshot.agg(F.max("snapshot_date")).first()[0]
-    return snapshot.where((F.col("snapshot_date") == F.lit(newest)) & (F.col("status") == EXISTS))
+    return snapshot.where(F.col("status") == EXISTS)
 
 
 def build_legal_dong(parcels: DataFrame, names: DataFrame) -> DataFrame:
@@ -1677,7 +1677,7 @@ def write_gold_iceberg(
     added_columns = ensure_contract_table(spark, table, GOLD_CONTRACT)
     # The snapshot records the Silver pins it was built from (root ADR-0139), and the pinned
     # Silver snapshots stay readable for the next incremental comparison (ADR-0180).
-    outcome.commit(spark, table, pins, args.iceberg_write_mode)
+    outcome.commit(spark, table, pins, args.iceberg_write_mode, contract_table=GOLD_CONTRACT_NAME)
     incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                        GOLD_CONTRACT_NAME, pins)
     return added_columns

@@ -310,7 +310,8 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 155 -> 157: the 월별 전기·가스 lanes embed their two source contracts once each (root ADR-0396).
 # 157 -> 158: the 부속지번 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0395).
-COMPILE_TIME_READ_BASELINE="${3:-158}"
+# 158 -> 157: the retired data.go.kr API async executor's test read its own real_transaction.rs.
+COMPILE_TIME_READ_BASELINE="${3:-157}"
 
 cd "$repo_root"
 

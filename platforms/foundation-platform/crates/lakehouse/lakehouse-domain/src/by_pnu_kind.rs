@@ -11,8 +11,8 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 
 use crate::lakehouse::{
-    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat,
-    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
+    LakehouseColumn, LakehouseLayer, LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey,
+    LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution,
 };
 
 const R2_CONNECTION_CONTRACT: &str =
@@ -113,7 +113,9 @@ fn table(lane: &str, host: &str, content: &[String]) -> Result<LakehouseTableCon
         physical_format: LakehousePhysicalFormat::Parquet,
         serving_role: LakehouseServingRole::Projection,
         current_row_predicate: None,
-        current_row_latest: None,
+        row_versions: LakehouseRowVersions::Replaced {
+            key: LakehouseRowKey::Columns(&["pnu"]),
+        },
         columns: Box::leak(columns.into_boxed_slice()),
         partition_spec: &["source_snapshot_id"],
         sort_order: &["pnu"],

@@ -11,6 +11,8 @@ const reads = vi.hoisted(() => ({
   listings: { listings: [] as unknown[], total: 0 },
   publicAuction: [] as unknown[],
   ownership: null as unknown,
+  subParcels: null as unknown,
+  energy: null as unknown,
   demolitions: null as unknown,
 }));
 vi.mock("@/components/panels/parcel/queries", () => ({
@@ -29,6 +31,14 @@ vi.mock("@/components/panels/parcel/queries", () => ({
   parcelOwnershipQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "ownership", pnu],
     queryFn: async () => reads.ownership,
+  }),
+  parcelSubParcelsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "sub-parcels", pnu],
+    queryFn: async () => reads.subParcels,
+  }),
+  parcelEnergyQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "energy", pnu],
+    queryFn: async () => reads.energy,
   }),
   parcelDemolitionsQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "demolitions", pnu],
@@ -188,6 +198,51 @@ describe("parcel panel sections", () => {
     }
   });
 
+  it("shows the 지번's monthly 전기 in kWh and 가스 as the source's 사용량, a missing month as -", async () => {
+    reads.energy = {
+      months: [
+        {
+          use_ym: "209908",
+          electricity_usage: 1234.5,
+          electricity_rows: 2,
+          gas_usage: 12,
+          gas_rows: 1,
+        },
+        {
+          use_ym: "209907",
+          electricity_usage: 900,
+          electricity_rows: 1,
+          gas_usage: null,
+          gas_rows: 0,
+        },
+      ],
+      electricity_unit: "kWh",
+      latest_use_ym: "209908",
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("건물 에너지 사용량")).toBeTruthy();
+      expect(anchors()).toContain("에너지");
+      expect(screen.getByText("전기 사용량(kWh)")).toBeTruthy();
+      expect(screen.getByText("건축HUB 건물에너지 · 2099.08 사용분까지")).toBeTruthy();
+      const july = screen.getByText("2099.07").closest("tr");
+      expect(july?.textContent).toContain("900");
+      expect(july?.textContent).toContain("-");
+      expect(screen.getByText("2099.08").closest("tr")?.textContent).toContain("1,234.5");
+      expect(screen.getByText(/산업·수송·발전·열병합·충전용/)).toBeTruthy();
+    } finally {
+      reads.energy = null;
+    }
+  });
+
+  it("shows no 에너지 anchor for a parcel without a usage document", async () => {
+    renderPanel(parcel());
+    // The lane's read settles (null: no document) before the sections are counted.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("건물 에너지 사용량")).toBeNull();
+    expect(anchors()).not.toContain("에너지");
+  });
+
   it("shows the parcel's 멸실된 건물 in the source's words, newest first", async () => {
     reads.demolitions = {
       records: [
@@ -219,6 +274,41 @@ describe("parcel panel sections", () => {
       expect(screen.getByText("철거 · 2098.01.01~2098.03.01")).toBeTruthy();
     } finally {
       reads.demolitions = null;
+    }
+  });
+
+  it("shows 부속지번 both ways, each other parcel by its 지번 and 대장종류", async () => {
+    reads.subParcels = {
+      on_other_parcels: [
+        {
+          mgmt_key: "synthetic-1",
+          register_kind_name: "일반건축물",
+          other_pnu: "9999900000100020000",
+          other_jibun: "99999-00001-0-0002-0000",
+        },
+      ],
+      on_other_total: 1,
+      from_other_parcels: [
+        {
+          mgmt_key: "synthetic-2",
+          register_kind_name: "표제부",
+          other_pnu: null,
+          other_jibun: "99999-00001-1-0012-0003",
+        },
+      ],
+      from_other_total: 1,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("이 필지 건물이 함께 선 필지 1건")).toBeTruthy();
+      expect(anchors()).toContain("부속지번");
+      expect(screen.getByText("2 · 일반건축물")).toBeTruthy();
+      expect(screen.getByText("이 필지에 걸친 다른 필지의 건물 1건")).toBeTruthy();
+      expect(screen.getByText("산 12-3 · 표제부")).toBeTruthy();
+      // A parcel Foundation has no PNU for is named, not linked.
+      expect(screen.getAllByRole("button", { name: /필지 보기/ })).toHaveLength(1);
+    } finally {
+      reads.subParcels = null;
     }
   });
 

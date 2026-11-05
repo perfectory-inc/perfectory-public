@@ -4,7 +4,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -67,7 +67,7 @@ pub const SILVER_LAND_OWNERSHIP: LakehouseTableContract = LakehouseTableContract
     // A parcel's owners are one version: a release appends every row of a parcel whose owners
     // changed and a removal marker per vanished parcel (root ADR-0275, ADR-0311), as the land-use
     // plan lane keys its many designations by the parcel.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["pnu"],
         // Then the commit instant: a vintage loaded again outranks its earlier load (ADR-0328).
         newest_first: &["source_snapshot_id", "ingested_at_utc"],

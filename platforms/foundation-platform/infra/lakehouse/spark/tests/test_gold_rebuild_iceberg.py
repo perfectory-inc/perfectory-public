@@ -63,7 +63,8 @@ class GoldRebuildIcebergTest(unittest.TestCase):
         self.assertEqual(self.plan()["action"], "rebuild", "a Gold without a record is read by publish time")
         pins = {"silver.source": self.state("proof.silver.source")["head"]}
         frame = self.spark.table("proof.silver.source")
-        rebuild.write_gold_snapshot(frame, "`proof`.`gold`.`panel`", "overwrite", pins, F.lit(True))
+        rebuild.write_gold_snapshot(frame, "`proof`.`gold`.`panel`", "overwrite", pins, F.lit(True),
+                                    contract_table="gold.parcel_panel")
 
         after = self.state("proof.gold.panel")
         head = next(s for s in after["snapshots"] if s["snapshot_id"] == after["head"])

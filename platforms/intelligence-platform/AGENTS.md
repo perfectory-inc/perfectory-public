@@ -31,7 +31,7 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
 - knowledge retrieval은 **비계 수직 슬라이스만 구현**: Postgres 전문검색 색인(`ip_knowledge_chunk`),
   `KnowledgeIndexPort`, `tenant:scaffold` 전용 CLI 2종. HTTP route 없음.
   vector/embedding은 **여전히 미구현**이며 [ADR-0002](./docs/adr/0002-canonical-release-rag-design.md)가
-  승인 전 provider·index 고정을 금지한다 — `scripts/guard/intelligence-no-vector-provider.sh`가 강제한다.
+  승인 전 provider·index 고정을 금지한다 — [`deny.toml`](./deny.toml) `[bans] deny`가 의존성 그래프에서 강제한다(CI `cargo-deny --locked check`).
 
 ## 절대 규칙
 

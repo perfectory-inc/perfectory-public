@@ -6,8 +6,6 @@ members = [
     "crates/user-domain",
     "crates/listing-domain",
     "crates/listing-photo-domain",
-    "crates/real-transaction-domain",
-    "crates/court-auction-domain",
     "crates/bookmark-domain",
     "crates/search-history-domain",
     "crates/analysis-report-domain",

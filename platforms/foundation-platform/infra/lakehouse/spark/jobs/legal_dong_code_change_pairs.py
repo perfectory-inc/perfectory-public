@@ -625,10 +625,19 @@ def _read_link_file(path: str) -> list[tuple[str, str, str]]:
 
 def _official_links(spark, F, table: str, floor: str) -> list[tuple[str, str, str]]:
     """The window's links, by the loader's one rule (`pnch.official_links`); the filter here only
-    keeps the rest of the country's history out of the driver."""
+    keeps the rest of the country's history out of the driver.
+
+    Each 시도 file is a whole history, so the current rows are each 시도's newest edition
+    (`Editions per source_region_code`, root ADR-0286 §6); `distinct` folds the provider's repeated
+    lines within one edition, no longer the editions' overlap (2026-11-04: the 19 newest editions of
+    34 hold every one of the 590,490 distinct events).
+    """
+
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
 
     floor_date = datetime.strptime(floor, "%Y%m%d").date()
-    frame = (spark.table(table).filter(F.col("changed_on") >= F.lit(floor_date))
+    history = current_rows(spark.table(table), load_lakehouse_contract("silver.parcel_number_change_history"))
+    frame = (history.filter(F.col("changed_on") >= F.lit(floor_date))
              .select("old_pnu", "new_pnu", "changed_on", "quarantine_reason").distinct())
     return pnch.official_links([row.asDict() for row in frame.collect()], floor_date)
 

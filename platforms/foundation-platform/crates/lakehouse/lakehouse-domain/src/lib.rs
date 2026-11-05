@@ -37,9 +37,6 @@ mod unit_price_panel;
 /// Provider-neutral table contracts.
 pub mod lakehouse;
 
-/// Lakehouse maintenance planning contracts.
-pub mod lakehouse_maintenance;
-
 /// Provider-neutral Lakehouse lineage event contract.
 pub mod lakehouse_lineage_event;
 
@@ -76,10 +73,11 @@ pub use industrial_complex_jsonl_transport::{
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,
-    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
-    LakehouseWriteDistribution, GOLD_ADMINISTRATIVE_BOUNDARY_SERVED, GOLD_BUILDING_PANEL,
-    GOLD_COMPLEX_CATALOG, GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
+    LakehouseColumn, LakehouseCurrentRowLatest, LakehouseEditionRead, LakehouseLayer,
+    LakehouseLoadUnit, LakehousePhysicalFormat, LakehouseRowKey, LakehouseRowVersions,
+    LakehouseServingRole, LakehouseTableContract, LakehouseWriteDistribution, NewestEditionError,
+    GOLD_ADMINISTRATIVE_BOUNDARY_SERVED, GOLD_BUILDING_PANEL, GOLD_COMPLEX_CATALOG,
+    GOLD_COMPLEX_SPATIAL_LOCATOR, GOLD_INDUSTRIAL_COMPLEX_BOUNDARY_SERVED,
     GOLD_LINEAGE_REVIEW_QUEUE, GOLD_PARCEL_PANEL, GOLD_PLACE_ID_BRIDGE, GOLD_PLACE_ID_CHANGELOG,
     GOLD_PLACE_ID_REGISTRY, REFERENCE_LEGAL_DONG_CODE_CHANGE, REFERENCE_LEGAL_DONG_CODE_SNAPSHOT,
     SILVER_ADMINISTRATIVE_BOUNDARIES, SILVER_BUILDING_REGISTER_FLOORS,
@@ -100,11 +98,6 @@ pub use lakehouse::{
 pub use lakehouse_lineage_event::{
     validate_lakehouse_lineage_event, LakehouseLineageEventError,
     LAKEHOUSE_LINEAGE_EVENT_SCHEMA_VERSION, LAKEHOUSE_LINEAGE_EVENT_TYPE,
-};
-pub use lakehouse_maintenance::{
-    plan_lakehouse_maintenance, BasisPoints, LakehouseMaintenanceAction,
-    LakehouseMaintenanceActionKind, LakehouseMaintenancePlan, LakehouseMaintenancePolicy,
-    LakehouseTableHealth, LakehouseTableHealthError, LakehouseTableHealthMetrics,
 };
 pub use lakehouse_quality::{
     evaluate_lakehouse_quality_rules, LakehouseQualityError, LakehouseQualityEvaluation,

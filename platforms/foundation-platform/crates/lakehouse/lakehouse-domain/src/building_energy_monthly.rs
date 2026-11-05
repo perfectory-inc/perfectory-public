@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -77,7 +77,7 @@ pub const SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY: LakehouseTableContract =
         // a removal marker per 지번 of that month it no longer holds; other months are not compared
         // (`bucket_scope` release, root ADR-0396). A later publication of a month outranks the earlier
         // by its vintage (ADR-0328).
-        current_row_latest: Some(LakehouseCurrentRowLatest {
+        row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
             key: &["mgmt_key"],
             newest_first: &["vintage", "ingested_at_utc"],
             removal_column: Some("row_state"),
@@ -111,7 +111,7 @@ pub const SILVER_BUILDING_ENERGY_MONTHLY_GAS: LakehouseTableContract = Lakehouse
     // a removal marker per 지번 of that month it no longer holds; other months are not compared
     // (`bucket_scope` release, root ADR-0396). A later publication of a month outranks the earlier
     // by its vintage (ADR-0328).
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgmt_key"],
         newest_first: &["vintage", "ingested_at_utc"],
         removal_column: Some("row_state"),

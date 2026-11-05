@@ -15,12 +15,10 @@ type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 const FORBIDDEN_CATALOG_DOMAIN_EXPORTS: &[&str] = &[
     "pub mod industrial_complex_gold_pointer;",
     "pub mod lakehouse;",
-    "pub mod lakehouse_maintenance;",
     "pub mod lakehouse_registry;",
     "pub mod lakehouse_run_summary;",
     "pub use industrial_complex_gold_pointer::",
     "pub use lakehouse::",
-    "pub use lakehouse_maintenance::",
     "pub use lakehouse_registry::",
     "pub use lakehouse_run_summary::",
 ];
@@ -83,7 +81,6 @@ const FORBIDDEN_CATALOG_DEPENDENCY_TOKENS: &[&str] = &[
 const MOVED_CATALOG_PATHS: &[&str] = &[
     "crates/catalog/catalog-domain/src/industrial_complex_gold_pointer.rs",
     "crates/catalog/catalog-domain/src/lakehouse.rs",
-    "crates/catalog/catalog-domain/src/lakehouse_maintenance.rs",
     "crates/catalog/catalog-domain/src/lakehouse_registry.rs",
     "crates/catalog/catalog-domain/src/lakehouse_run_summary.rs",
     "crates/catalog/catalog-application/src/building_register_floor_silver_plan.rs",

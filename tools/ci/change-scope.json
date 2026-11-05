@@ -9,7 +9,8 @@
         ".cargo/config.toml",
         "rust-toolchain.toml",
         "platforms/foundation-platform/docs/openapi/catalog.v1.json",
-        "platforms/foundation-platform/docs/openapi/data-catalog.v1.json"
+        "platforms/foundation-platform/docs/openapi/data-catalog.v1.json",
+        "tools/biome/**"
       ]
     },
     "intelligence-ci.yml": {
@@ -89,7 +90,8 @@
         "products/gongzzang/crates/listing-domain/src/repository/marker_tile.rs",
         "platforms/foundation-platform/contracts/schema-registry/**",
         ".github/workflows/gongzzang-*.yml",
-        "tools/xtask/**"
+        "tools/xtask/**",
+        "tools/biome/**"
       ]
     },
     "gongzzang-sqlx-prepare.yml": {
@@ -153,7 +155,8 @@
         "scripts/ci/fetch_pinned.py",
         "tools/*.json",
         "tools/*.env",
-        "tools/sigstore/**"
+        "tools/sigstore/**",
+        "tools/biome/**"
       ]
     },
     "foundation-release-build.yml": {
@@ -362,29 +365,6 @@
         ]
       },
       {
-        "name": "intelligence-no-vector-provider-self-test",
-        "paths": [
-          "platforms/intelligence-platform/**/Cargo.toml"
-        ]
-      },
-      {
-        "name": "intelligence-no-vector-provider",
-        "paths": [
-          "platforms/intelligence-platform/**/Cargo.toml"
-        ]
-      },
-      {
-        "name": "utility-library-policy-self-test",
-        "paths": []
-      },
-      {
-        "name": "utility-library-policy",
-        "paths": [
-          "**/package.json",
-          "docs/technology-stack.md"
-        ]
-      },
-      {
         "name": "hand-rolled-error-boundary-self-test",
         "paths": []
       },
@@ -450,33 +430,6 @@
         "name": "xtask-path-coverage",
         "paths": [
           ".github/workflows/**"
-        ]
-      },
-      {
-        "name": "lefthook-advisory-policy-self-test",
-        "paths": [
-          "lefthook.yml"
-        ]
-      },
-      {
-        "name": "lefthook-advisory-policy",
-        "paths": [
-          "lefthook.yml"
-        ]
-      },
-      {
-        "name": "lefthook-time-budget-self-test",
-        "paths": [
-          "lefthook.yml"
-        ]
-      },
-      {
-        "name": "lefthook-time-budget",
-        "paths": [
-          "lefthook.yml",
-          "scripts/**",
-          ".github/workflows/**",
-          "tools/xtask/src/**"
         ]
       },
       {
@@ -709,13 +662,6 @@
         ]
       },
       {
-        "name": "osv-vulnerability-ratchet-self-test",
-        "paths": [
-          "tools/xtask/src/ci.rs",
-          "tools/osv-vulnerability-baseline.tsv"
-        ]
-      },
-      {
         "name": "npm-security-overrides-self-test",
         "paths": [
           "tools/npm/**"
@@ -837,6 +783,46 @@
         "name": "sido-codes-come-from-the-legal-dong-table",
         "always": "Any tracked source can gain a hand-written 시도 code table (root ADR-0403); the scan is one `git ls-files` and a read of each source file.",
         "budget_seconds": 20
+      },
+      {
+        "name": "declared-definitions-reproduce-artifacts-self-test",
+        "paths": [
+          "scripts/catalog/declared_definitions.py",
+          "scripts/catalog/definition.v1.schema.json",
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "platforms/foundation-platform/orchestration/job-dependencies.v1.json",
+          "platforms/foundation-platform/orchestration/dags/job_specs.py",
+          "platforms/foundation-platform/infra/datahub/dataset_names.py",
+          "platforms/foundation-platform/contracts/data/**",
+          "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+          "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json",
+          "platforms/foundation-platform/config/r2-connections.contract.json",
+          "platforms/foundation-platform/contracts/schema-registry/registry.json",
+          "tools/host-memory-budget.contract.json",
+          "scripts/catalog/render-pipeline-map.py",
+          "scripts/catalog/pipeline_graph.py",
+          "docs/data-pipeline-map.md"
+        ]
+      },
+      {
+        "name": "declared-definitions-reproduce-artifacts",
+        "paths": [
+          "scripts/catalog/declared_definitions.py",
+          "scripts/catalog/definition.v1.schema.json",
+          "platforms/foundation-platform/orchestration/jobs.v1.json",
+          "platforms/foundation-platform/orchestration/job-dependencies.v1.json",
+          "platforms/foundation-platform/orchestration/dags/job_specs.py",
+          "platforms/foundation-platform/infra/datahub/dataset_names.py",
+          "platforms/foundation-platform/contracts/data/**",
+          "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
+          "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json",
+          "platforms/foundation-platform/config/r2-connections.contract.json",
+          "platforms/foundation-platform/contracts/schema-registry/registry.json",
+          "tools/host-memory-budget.contract.json",
+          "scripts/catalog/render-pipeline-map.py",
+          "scripts/catalog/pipeline_graph.py",
+          "docs/data-pipeline-map.md"
+        ]
       },
       {
         "name": "every-job-declares-its-scope-self-test",

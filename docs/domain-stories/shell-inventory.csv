@@ -172,14 +172,8 @@ scripts/guard/hook-isolation-self-test.sh,248,true,test-fixture,xtask,Guard self
 scripts/guard/identity-endpoints-match-the-contract-self-test.sh,118,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/import-private-feature-diff-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/intelligence-no-vector-provider-self-test.sh,62,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/intelligence-no-vector-provider.sh,50,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/judgment-position-exit-codes-self-test.sh,140,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/lefthook-advisory-policy-self-test.sh,133,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/lefthook-advisory-policy.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/lefthook-time-budget-self-test.sh,72,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/lefthook-time-budget.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-self-test.sh,352,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/lib/fixture-repo.sh,173,true,ci,xtask,"Shared lib sourced by monorepo-guard.sh, the CI guard runner"
@@ -201,7 +195,6 @@ scripts/guard/no-subdir-github.sh,12,true,ci,xtask,Guard run by monorepo-guard.s
 scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides.sh,14,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/osv-vulnerability-ratchet-self-test.sh,127,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/package-publication-policy-self-test.sh,122,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/pinned-downloads-self-test.sh,84,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/pinned-downloads.sh,6,false,ci,keep,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -247,8 +240,6 @@ scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard s
 scripts/guard/tracked-paths-are-portable-self-test.sh,53,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-paths-are-portable.sh,13,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/unique-package-names.sh,18,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/utility-library-policy-self-test.sh,111,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/utility-library-policy.sh,57,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/workflow-policy-self-test.sh,497,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage-self-test.sh,65,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/xtask-path-coverage.sh,39,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)

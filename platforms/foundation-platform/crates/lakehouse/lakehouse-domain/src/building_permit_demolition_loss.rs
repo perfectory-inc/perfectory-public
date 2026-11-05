@@ -2,7 +2,7 @@
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
-    LakehousePhysicalFormat, LakehouseServingRole, LakehouseTableContract,
+    LakehousePhysicalFormat, LakehouseRowVersions, LakehouseServingRole, LakehouseTableContract,
     LakehouseWriteDistribution,
 };
 
@@ -82,7 +82,7 @@ pub const SILVER_BUILDING_PERMIT_DEMOLITION_LOSS: LakehouseTableContract = Lakeh
     current_row_predicate: None,
     // A row is its own key: a monthly release appends only rows it has not held and a removal
     // marker per row it no longer holds (root ADR-0318, ADR-0397). Repeated rows stay one key's set.
-    current_row_latest: Some(LakehouseCurrentRowLatest {
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
         key: &["mgmt_key"],
         newest_first: &["vintage", "ingested_at_utc"],
         removal_column: Some("row_state"),

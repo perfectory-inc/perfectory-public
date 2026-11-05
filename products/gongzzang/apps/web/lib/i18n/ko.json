@@ -261,8 +261,26 @@
         "sections": {
           "land": "토지",
           "buildings": "건물",
+          "subParcels": "부속지번",
+          "energy": "에너지",
           "demolitions": "멸실 건물",
           "rules": "규제"
+        },
+        "subParcels": {
+          "onOther": "이 필지 건물이 함께 선 필지 {count}건",
+          "fromOther": "이 필지에 걸친 다른 필지의 건물 {count}건",
+          "source": "건축물대장 부속지번",
+          "open": "필지 보기",
+          "more": "{shown}건만 보임 · 전체 {total}건"
+        },
+        "energy": {
+          "title": "건물 에너지 사용량",
+          "source": "건축HUB 건물에너지 · {month} 사용분까지",
+          "sourceUndated": "건축HUB 건물에너지",
+          "month": "사용년월",
+          "electricity": "전기 사용량({unit})",
+          "gas": "가스 사용량",
+          "exclusions": "제공처 기준: 산업·수송·발전·열병합·충전용 사용과 단독주택·200세대 미만 공동주택은 집계에서 빠진다."
         },
         "demolitions": {
           "title": "멸실된 건물 {count}건",

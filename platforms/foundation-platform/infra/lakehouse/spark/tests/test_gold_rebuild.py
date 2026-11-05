@@ -336,15 +336,16 @@ class RowLoss(unittest.TestCase):
 class Write(unittest.TestCase):
     def test_the_commit_records_the_pins_and_overwrites_everything_in_one_snapshot(self):
         frame = mock.MagicMock()
-        rebuild.write_gold_snapshot(frame, "`r2`.`gold`.`t`", "overwrite", {"silver.b": "2", "silver.a": "1"}, "ALL")
+        rebuild.write_gold_snapshot(frame, "`r2`.`gold`.`t`", "overwrite", {"silver.b": "2", "silver.a": "1"}, "ALL",
+                                    contract_table="gold.parcel_panel")
         writer = frame.writeTo.return_value
         writer.option.assert_called_once_with(rebuild.SNAPSHOT_PROPERTY_PREFIX + rebuild.SOURCE_SNAPSHOTS_PROPERTY,
                                               '{"silver.a":"1","silver.b":"2"}')
         writer.option.return_value.overwrite.assert_called_once_with("ALL")
-        rebuild.write_gold_snapshot(frame, "t", "append", {"silver.a": "1"}, "ALL")
+        rebuild.write_gold_snapshot(frame, "t", "append", {"silver.a": "1"}, "ALL", contract_table="gold.parcel_panel")
         writer.option.return_value.append.assert_called_once_with()
         with self.assertRaises(ValueError):
-            rebuild.write_gold_snapshot(frame, "t", "merge", {}, "ALL")
+            rebuild.write_gold_snapshot(frame, "t", "merge", {}, "ALL", contract_table="gold.parcel_panel")
 
 
 class Contract(unittest.TestCase):

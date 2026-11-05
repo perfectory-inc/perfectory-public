@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-18
+- Amended by: [ADR-0414](./0414-the-osv-allow-list-is-osv-scanner-s-own-config-with-an-expiry.md) (3항: OSV `advisory` 주석은 `cargo xtask ci osv-gate` 가 낸다)
 - Related: [ADR-0208](./0208-the-data-flow-maps-problems-reach-slack-through-the-existing-alertmanager.md) (같은 경로),
   [ADR-0209](./0209-the-data-flow-map-shows-the-edge-path-from-korea-and-the-ci-time-trend.md) (service checks),
   [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md) (Cargo 권고 이슈),

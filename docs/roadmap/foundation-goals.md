@@ -202,25 +202,12 @@ foundation postgres 레인은 27개 타깃에서 119개를 실행한다. 나머�
 쌓이는 publication 두 표가 특히 그렇다(ADR-0016 남은 부채 1). 백업·복구 리허설과 RPO/RTO
 증거는 production-readiness 우선순위 0이 소유한다.
 
-## 건물 관이 남긴 과제 (root ADR-0073 개정 각주가 근거)
+## 건물 관이 남긴 과제 — 닫힘
 
-2026-09-03 에 건물 관 전체가 가동됐다: `silver.building_register_titles` 8,051,204동,
-`catalog.building` 7,603,113동, `catalog.building_unit` 19,536,363호. 그 실측이 남긴 과제:
-
-1. **호 → 건물 연결 — 2026-09-03 완료.** 일치율 실측(열쇠 보유분의 99.993%)이 root
-   ADR-0074 가 됐고, 백필이 19,402,750호(98.2%)를 연결했다(판정 등식 정확, ADR-0074 개정
-   각주가 실측 소유). root ADR-0075 가 채움을 호 적재기에 흡수시켜 정상 운영은 적재 한
-   번이며, 백필 명령은 재해 복구용으로 남는다.
-2. **orphan 410,705동(5.1%)의 분포 조사.** PNU 가 `catalog.parcel` 에 없어 못 붙은 건물.
-   호 투영의 0.4%와 12배 차이 — 필지 경계 원천이 덮지 않는 대역(산번지 등)의 지도다.
-   시군구별 카운트는 적재 요약에 이미 있다.
-3. **`built_year` NULL 1,241,528동(15.4%) 보강 조사.** 표제부에 승인일이 없는 건물을 다른
-   원천(허가일 등)으로 채울 수 있는지. 채우기로 결정하기 전까지 NULL 이 정답이다.
-4. **관의 방아쇠가 수동이다 — 수집만 자동이 됐다.** root ADR-0077(2026-09-04, 소유자 지시
-   "매일 보고 반영")이 수집 방아쇠를 systemd 타이머로 바꿨다: 매일 새벽 provider 목록을
-   훑고, 가진 파일은 지문으로 건너뛰고, 신규는 받아서 슬랙으로 알린다 — 신규 0 인 날도
-   journal 에 남는다. **반영(Silver → 내보내기 → 적재) 자동화가 남은 결정이다**; 그 전까지
-   슬랙 알림이 당일 수동 반영의 신호이고 절차는 런북이 소유한다.
+root ADR-0073·0074·0075 가 정한 `catalog.building`·`catalog.building_unit` 투영과 호 → 건물 연결은
+root [ADR-0194](../adr/0194-retire-the-five-postgres-copies-that-r2-already-holds.md)가 지웠다(세 ADR 모두 그것으로 대체).
+건물 정보는 `silver.building_register_titles` 와 by-PNU 건물 레인이 소유한다. 이 절의 옛 과제(orphan 동 분포, `built_year`
+보강, 수동 방아쇠)는 그 투영과 함께 사라졌고, 방아쇠는 `orchestration/jobs.v1.json` 이 소유한다.
 
 ## 순서와 의존
 

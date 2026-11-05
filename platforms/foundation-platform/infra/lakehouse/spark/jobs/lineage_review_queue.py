@@ -118,6 +118,30 @@ def standing_decision(rows: Iterable[Mapping[str, Any]]) -> Mapping[str, Any] | 
     return max(valid, key=lambda s: (steward_ref(s).get("decided_at") or "", steward_ref(s).get("decision_id") or ""))
 
 
+def newest_derivations(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Of the derived rows, only the newest derivation run's for each (edition pair, successor);
+    steward decisions are kept as they are (root ADR-0286 §6).
+
+    The table appends every run (`Events`). Deriving a pair again after a supersession appends a
+    second run beside the first, and folding both would read links the newer run withdrew. A run's
+    rows share its `derived_at_utc`, so the newest run is the latest instant (2026-11-04: 6,512,563
+    keys, none yet with two runs).
+    """
+
+    rows = list(rows)
+
+    def group(row: Mapping[str, Any]) -> tuple[Any, Any, Any]:
+        return row.get("from_snapshot_id"), row.get("to_snapshot_id"), row.get("successor_pnu")
+
+    newest: dict[tuple[Any, Any, Any], Any] = {}
+    for row in rows:
+        if row.get("evidence_kind") != STEWARD and row.get("derived_at_utc") is not None:
+            key = group(row)
+            newest[key] = max(newest.get(key, row["derived_at_utc"]), row["derived_at_utc"])
+    return [row for row in rows if row.get("evidence_kind") == STEWARD or row.get("derived_at_utc") is None
+            or row["derived_at_utc"] == newest[group(row)]]
+
+
 def steward_resolved(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """Lineage rows as every consumer must read them: for a parcel with a standing steward decision,
     that decision replaces the derived rows (a link names the one predecessor; "not a link" leaves
@@ -128,7 +152,7 @@ def steward_resolved(rows: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any
     """
 
     by_successor: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
-    for row in drop_outranked_code_changes(rows):
+    for row in drop_outranked_code_changes(newest_derivations(rows)):
         by_successor[row["successor_pnu"]].append(row)
     resolved: list[Mapping[str, Any]] = []
     for successor in sorted(by_successor):
@@ -146,7 +170,7 @@ def review_queue(rows: Iterable[Mapping[str, Any]], unit: str = "parcel") -> tup
     `closed_by_evidence`)."""
 
     by_successor: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
-    for row in rows:
+    for row in newest_derivations(rows):
         by_successor[row["successor_pnu"]].append(row)
 
     counts: Counter[str] = Counter()

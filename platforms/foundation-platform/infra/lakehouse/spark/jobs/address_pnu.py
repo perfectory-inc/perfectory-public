@@ -233,10 +233,10 @@ def candidates(address: str, prefixes: Mapping[str, str], dongs: Mapping[tuple[s
 def current_legal_dongs(spark: Any, catalog: str) -> list[tuple[str, str]]:
     """(code, full name) of the newest snapshot's current 법정동 codes."""
 
-    table = f"`{catalog}`.`reference`.`legal_dong_code_snapshot`"
-    newest = spark.sql(f"SELECT max(snapshot_date) AS d FROM {table}").collect()[0]["d"]
-    rows = spark.sql(f"SELECT region_cd, full_name FROM {table} WHERE snapshot_date = DATE '{newest}' "
-                     "AND status = '존재'").collect()
+    from legal_dong_code_snapshot_to_reference import newest_snapshot  # noqa: PLC0415
+
+    rows = (newest_snapshot(spark, f"`{catalog}`.`reference`.`legal_dong_code_snapshot`")
+            .where("status = '존재'").select("region_cd", "full_name").collect())
     return [(row["region_cd"], row["full_name"]) for row in rows]
 
 

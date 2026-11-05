@@ -2,7 +2,7 @@
 status: proposed
 owner: foundation-platform
 doc_type: reference
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-04
 ---
 
 # 산업단지 레이크하우스 PoC(제안)
@@ -411,9 +411,10 @@ partition, sort, quality gate, snapshot lineage 를 먼저 고정하고, 실제 
 4. manifest rewrite 후보 산정
 5. Gold/serving pointer promotion guard
 
-현재 Rust domain contract 는 `LakehouseTableHealth`, `LakehouseMaintenancePolicy`,
-`plan_lakehouse_maintenance` 로 시작한다. 이 계층은 provider-neutral 이며, 실제 R2/Iceberg
-rewrite 실행은 후속 infra worker 가 담당한다.
+실제 정비(합치기·스냅숏 만료·고아 청소)는 정기 작업 `lakehouse_maintenance`
+(`infra/lakehouse/spark/jobs/lakehouse_maintenance.py`, 계약 `infra/lakehouse/contracts/lakehouse-maintenance.contract.json`,
+root ADR-0238)가 Iceberg 의 표준 프로시저로 한다. 한때 있던 Rust 계획기(`plan_lakehouse_maintenance`)는
+시험 밖에서 부르는 곳이 없어 2026-11-04 지웠다.
 
 ## 9. Local Spark Contract Smoke
 

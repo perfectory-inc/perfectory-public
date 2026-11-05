@@ -21,7 +21,7 @@ Catalog 데이터는 Foundation Platform 공개 계약(API·이벤트·불변 �
 
 | 경로 | 내용 |
 |---|---|
-| `apps/web` | Next.js 웹 (`@gongzzang/web`). `apps/platform-web` 은 README 뿐이다 |
+| `apps/web` | Next.js 웹 (`@gongzzang/web`) |
 | `services/gongzzang-api` | 제품 HTTP API |
 | `services/gongzzang-outbox-publisher` | outbox 이벤트 발행 |
 | `crates/*-domain` | 제품 도메인. 목록은 경계 계약의 `path_ownership`(`classification: product_domain`)이 정본 |

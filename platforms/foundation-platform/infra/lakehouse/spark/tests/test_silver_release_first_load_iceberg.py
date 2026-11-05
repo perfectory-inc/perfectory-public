@@ -118,7 +118,9 @@ class FirstReleaseIcebergTest(unittest.TestCase):
         import lakehouse_ingest as ingest
 
         # The production state of 2026-10-30: batch 0 on main, the branch made from it, the rest staged.
-        self.assertTrue(self.load("bronze/a.zip", FIRST, "overwrite", None)["appended"])
+        # That batch was an overwrite then; admit_write now refuses one on main (root ADR-0286), so
+        # the same state is made by appending it.
+        self.assertTrue(self.load("bronze/a.zip", FIRST, "append", None)["appended"])
         self.spark.sql(f"ALTER TABLE {TABLE} CREATE BRANCH load_first")
         self.assertEqual(self.load("bronze/b.zip", SECOND, "append", "load_first")["ref"], "load_first")
         self.assertEqual(self.recorded_on_main(), {"bronze/a.zip"})

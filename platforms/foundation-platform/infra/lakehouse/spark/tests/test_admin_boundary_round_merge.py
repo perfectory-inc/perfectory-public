@@ -9,6 +9,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -44,22 +45,18 @@ def write_round(out_dir: Path, sido: str = "99") -> None:
     (out_dir / f"30603-{sido}.geojson").write_text(json.dumps(layer, ensure_ascii=False), encoding="utf-8")
 
 
-class FakeSpark:
-    """Answers the two queries of `newest_snapshot_codes` from rows of two snapshot dates."""
+class FakeSnapshot:
+    """The newest snapshot's rows, as `newest_snapshot` gives them: which snapshot is newest is the
+    contract's `current_rows` (root ADR-0286 §3), proven on Spark in test_row_versions_editions_spark."""
 
     def __init__(self, rows: list[dict]) -> None:
         self.rows = rows
-        self.queries: list[str] = []
 
-    def sql(self, query: str) -> "FakeSpark":
-        self.queries.append(query)
+    def selectExpr(self, *_columns: str) -> "FakeSnapshot":
         return self
 
     def collect(self) -> list[dict]:
-        query = self.queries[-1]
-        if "max(snapshot_date)" in query:
-            return [{"d": max((r["snapshot_date"] for r in self.rows), default=None)}]
-        return [r for r in self.rows if f"DATE '{r['snapshot_date']}'" in query]
+        return [{**row, "d": row["snapshot_date"]} for row in self.rows]
 
 
 class MergeReadsTheSnapshotTable(unittest.TestCase):
@@ -93,16 +90,18 @@ class MergeReadsTheSnapshotTable(unittest.TestCase):
         self.assertEqual(merge.parse_args(["--round", ROUND]).code_list_table, "reference.legal_dong_code_snapshot")
 
     def test_main_merges_with_the_newest_snapshot(self):
-        older = [{"snapshot_date": "2099-01-01", "region_cd": code, "full_name": name, "status": "폐지"}
-                 for code, (name, _) in CODES.items()]
+        import legal_dong_code_snapshot_to_reference as snapshots
+
         newest = [{"snapshot_date": "2099-01-02", "region_cd": code, "full_name": name, "status": status}
                   for code, (name, status) in CODES.items()]
-        spark = FakeSpark(older + newest)
-        self.assertEqual(newest_snapshot_codes(spark, "t"), ("2099-01-02", CODES))
-        self.assertEqual(newest_snapshot_codes(FakeSpark([]), "t"), (None, {}))
+        with mock.patch.object(snapshots, "newest_snapshot", return_value=FakeSnapshot(newest)):
+            self.assertEqual(newest_snapshot_codes(None, "t"), ("2099-01-02", CODES))
+        with mock.patch.object(snapshots, "newest_snapshot", return_value=FakeSnapshot([])):
+            self.assertEqual(newest_snapshot_codes(None, "t"), (None, {}))
 
         original = merge.read_official_codes
-        merge.read_official_codes = lambda args: newest_snapshot_codes(spark, args.code_list_table)
+        merge.read_official_codes = lambda args: (
+            "2099-01-02", {row["region_cd"]: (row["full_name"], row["status"]) for row in newest})
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 out_dir = Path(tmp) / "out"

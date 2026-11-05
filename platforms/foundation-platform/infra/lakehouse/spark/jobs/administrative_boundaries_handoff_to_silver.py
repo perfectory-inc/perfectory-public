@@ -35,8 +35,10 @@ from typing import Any
 import legal_dong_code_change_views as views
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages, SHUFFLE_SETTINGS
 from platform_contracts import (
+    admit_write,
     column_names,
     create_table_columns_sql,
+    current_rows,
     declared_geometry_srid,
     evolve_iceberg_table_to_contract,
     load_lakehouse_contract,
@@ -375,19 +377,11 @@ def main(argv: list[str] | None = None) -> int:
             ).collect()[0]["n"]
             if present:
                 raise ValueError(f"{args.source_snapshot_id} is already in {table}; the table is append-only")
-            previous = spark.sql(
-                f"SELECT source_snapshot_id FROM {table} GROUP BY source_snapshot_id "
-                f"ORDER BY max(ingested_at_utc) DESC, source_snapshot_id DESC LIMIT 1"
-            ).collect()
-            previous_ids = {}
+            # The newest edition already held, by the contract's order (root ADR-0286 §3).
+            previous = current_rows(spark.table(table), CONTRACT).select("canonical_code", "administrative_unit_id",
+                                                                        "source_snapshot_id").collect()
+            previous_ids = {r["canonical_code"]: r["administrative_unit_id"] for r in previous}
             if previous:
-                previous_ids = {
-                    r["canonical_code"]: r["administrative_unit_id"]
-                    for r in spark.sql(
-                        f"SELECT canonical_code, administrative_unit_id FROM {table} "
-                        f"WHERE source_snapshot_id = '{previous[0]['source_snapshot_id']}'"
-                    ).collect()
-                }
                 summary["previous_snapshot_id"] = previous[0]["source_snapshot_id"]
             if args.legal_dong_change_table:
                 predecessor_of, summary["predecessors"] = read_predecessors(spark, args)
@@ -397,6 +391,7 @@ def main(argv: list[str] | None = None) -> int:
             summary["row_count"] = len(rows)
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in CONTRACT["columns"])
             spark.createDataFrame(rows, schema=schema).select(*COLUMNS).createOrReplaceTempView("admin_candidate")
+            admit_write(CONTRACT["table_name"], "append", target=table)
             spark.sql(f"INSERT INTO {table} SELECT {', '.join(COLUMNS)} FROM admin_candidate")
             written = spark.sql(
                 f"SELECT count(*) AS n FROM {table} WHERE source_snapshot_id = '{args.source_snapshot_id}'"

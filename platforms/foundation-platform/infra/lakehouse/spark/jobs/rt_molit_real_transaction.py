@@ -483,9 +483,10 @@ def _tables(argv: Sequence[str]) -> int:
 
 
 def newest_snapshot_rows(spark: Any, catalog: str) -> list[tuple[str, str, str]]:
-    table = f"`{catalog}`.`reference`.`legal_dong_code_snapshot`"
-    newest = spark.sql(f"SELECT max(snapshot_date) AS d FROM {table}").collect()[0]["d"]
-    rows = spark.sql(f"SELECT region_cd, full_name, status FROM {table} WHERE snapshot_date = DATE '{newest}'").collect()
+    from legal_dong_code_snapshot_to_reference import newest_snapshot  # noqa: PLC0415
+
+    rows = newest_snapshot(spark, f"`{catalog}`.`reference`.`legal_dong_code_snapshot`").select(
+        "region_cd", "full_name", "status").collect()
     return [(row["region_cd"], row["full_name"], row["status"]) for row in rows]
 
 
@@ -577,7 +578,8 @@ def _load(argv: Sequence[str]) -> int:
             # Root ADR-0364: the lines not loaded land first, in their own table, referencing Bronze.
             if rejected:
                 dead = spark.createDataFrame(rejected_rows(entry, rejected, now), schema=dead_schema)
-                append_source_object(spark, dead, dead_columns, dead_table, entry["object_key"])
+                append_source_object(spark, dead, dead_columns, dead_table, entry["object_key"],
+                                     contract_table=REJECTED_TABLE)
             if quarantined:
                 # Recorded with no rows and no comparison: an empty export compared with the month would
                 # remove every row the month holds.
@@ -587,7 +589,8 @@ def _load(argv: Sequence[str]) -> int:
                     "rows": 0, "rejected": len(rejected), "rejected_share": round(share_rejected, 6),
                     "refused": refused, "quarantined": quarantined,
                     "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
-                    "appended": append_source_object(spark, empty, columns, table, entry["object_key"])})
+                    "appended": append_source_object(spark, empty, columns, table, entry["object_key"],
+                                                       contract_table=TABLE)})
                 continue
             for row in rows:
                 code, reason = legal_dong_code(row, dongs)
@@ -620,7 +623,8 @@ def _load(argv: Sequence[str]) -> int:
                     "quarantined": None,
                     "rejected_reasons": sorted({r.reason.split(":")[0] for r in rejected}),
                     "unrepresented_fields": unknown}
-            line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"])
+            line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
+                                                     contract_table=TABLE)
             if share > float(source["silver_load"]["max_unmasked_unresolved_share"]) and len(linked) >= 50:
                 below_bound.append(entry["object_key"])
             changes.unpersist()

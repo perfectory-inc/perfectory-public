@@ -40,16 +40,6 @@ const PRIOR_EVIDENCE: &[PriorEvidenceSpec] = &[
         path: "target/audit/silver-gold-data-collection-quality-evidence.json",
         schema_version: "foundation-platform.silver_gold_data_collection_quality_evidence.v1",
     },
-    PriorEvidenceSpec {
-        id: "postgis-anchor-pbf-regional-proof",
-        path: "target/audit/postgis-anchor-pbf-regional-proof.json",
-        schema_version: "foundation-platform.postgis_anchor_pbf_regional_proof.v1",
-    },
-    PriorEvidenceSpec {
-        id: "regional-data-serving-load",
-        path: "target/audit/regional-data-serving-load-evidence.json",
-        schema_version: "foundation-platform.regional_data_serving_load_evidence.v1",
-    },
 ];
 
 pub fn run() -> anyhow::Result<()> {

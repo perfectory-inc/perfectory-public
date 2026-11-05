@@ -53,7 +53,7 @@ const TILE_ZOOM: (i16, i16) = (6, 16);
 
 /// The zooms a client should draw `complex` at, which is not where the tiles stop.
 ///
-/// 22, as `parcels` and `parcel_anchor` already publish, because zooming past 16 is exactly when a
+/// 22, as `parcels` already publishes, because zooming past 16 is exactly when a
 /// user is looking at one complex in detail and the last cut tile overzooms correctly. `admin`
 /// stops at 16 for both; that is not a precedent this layer should copy, because a boundary that
 /// disappears when you zoom into it is the one behaviour a designation boundary must not have.

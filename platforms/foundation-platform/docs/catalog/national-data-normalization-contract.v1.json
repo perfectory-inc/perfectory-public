@@ -56,9 +56,6 @@
         }
       },
       "derived_outputs": [
-        "parcel_marker_anchor_artifact",
-        "parcel_anchor_pbf",
-        "parcel_anchor_aggregate_pbf",
         "vector_tile_runtime_manifest"
       ]
     },

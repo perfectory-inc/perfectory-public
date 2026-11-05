@@ -1,4 +1,4 @@
-use super::{command_requires_expanded_stack, parse_command, Command};
+use super::{parse_command, Command};
 
 #[test]
 fn floor_cycle_command_accepts_no_manual_selection_arguments() -> anyhow::Result<()> {
@@ -86,9 +86,6 @@ fn static_release_readdress_command_is_explicit_and_accepts_no_arguments() {
         parse_command(["foundation-outbox-publisher", "readdress-static-release"]).unwrap(),
         Command::ReaddressStaticRelease
     );
-    assert!(!command_requires_expanded_stack(
-        Command::ReaddressStaticRelease
-    ));
     assert!(parse_command([
         "foundation-outbox-publisher",
         "readdress-static-release",
@@ -103,9 +100,6 @@ fn map_edit_handoff_export_command_is_explicit_and_accepts_no_arguments() {
         parse_command(["foundation-outbox-publisher", "export-map-edit-handoff"]).unwrap(),
         Command::ExportMapEditHandoff
     );
-    assert!(!command_requires_expanded_stack(
-        Command::ExportMapEditHandoff
-    ));
     assert!(parse_command([
         "foundation-outbox-publisher",
         "export-map-edit-handoff",
@@ -120,9 +114,6 @@ fn lakehouse_tile_bake_command_is_explicit_and_accepts_no_arguments() {
         parse_command(["foundation-outbox-publisher", "bake-lakehouse-tiles"]).unwrap(),
         Command::BakeLakehouseTiles
     );
-    assert!(!command_requires_expanded_stack(
-        Command::BakeLakehouseTiles
-    ));
     assert!(parse_command(["foundation-outbox-publisher", "bake-lakehouse-tiles", "x"]).is_err());
 }
 
@@ -540,14 +531,6 @@ fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Resu
         (
             "check-bounded-live-ingestion-gate",
             Command::CheckBoundedLiveIngestionGate,
-        ),
-        (
-            "check-postgis-anchor-pbf-regional-proof",
-            Command::CheckPostgisAnchorPbfRegionalProof,
-        ),
-        (
-            "check-regional-data-serving-load",
-            Command::CheckRegionalDataServingLoad,
         ),
         (
             "rebuild-postgis-parcel-boundary-mirror",
@@ -1003,10 +986,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             "ingest-vworld-dataset-files",
             Command::IngestVWorldDatasetFiles,
         ),
-        (
-            "execute-national-data-collection-async",
-            Command::ExecuteNationalDataCollectionAsync,
-        ),
         ("ingest-real-transaction", Command::IngestRealTransaction),
         (
             "probe-building-register-page-count",
@@ -1047,18 +1026,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
             Command::StageBuildingRegisterFloorInputs,
         ),
         (
-            "export-parcel-marker-anchor-artifacts",
-            Command::ExportParcelMarkerAnchorArtifacts,
-        ),
-        (
-            "build-parcel-marker-anchor-pbf-artifacts",
-            Command::BuildParcelMarkerAnchorPbfArtifacts,
-        ),
-        (
-            "build-parcel-marker-anchor-aggregate-pbf-artifacts",
-            Command::BuildParcelMarkerAnchorAggregatePbfArtifacts,
-        ),
-        (
             "export-vworld-cadastral-silver-handoff",
             Command::ExportVWorldCadastralSilverHandoff,
         ),
@@ -1087,10 +1054,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
         (
             "rebuild-postgis-parcel-boundary-mirror-national",
             Command::RebuildPostgisParcelBoundaryMirrorNational,
-        ),
-        (
-            "rebuild-parcel-marker-anchors-streaming",
-            Command::RebuildParcelMarkerAnchorsStreaming,
         ),
     ];
 
@@ -1291,19 +1254,6 @@ fn courtauction_go_kr_collect_command_is_explicit() -> anyhow::Result<()> {
         Command::CollectCourtauctionGoKr
     );
     Ok(())
-}
-
-#[test]
-fn artifact_batch_commands_run_with_expanded_stack() {
-    assert!(command_requires_expanded_stack(
-        Command::ExportParcelMarkerAnchorArtifacts
-    ));
-    assert!(command_requires_expanded_stack(
-        Command::BuildParcelMarkerAnchorPbfArtifacts
-    ));
-    assert!(command_requires_expanded_stack(
-        Command::BuildParcelMarkerAnchorAggregatePbfArtifacts
-    ));
 }
 
 /// The producer of `serving/buildings/by-pnu/v{generation}/{pnu}.json` (root ADR-0100). Without an
