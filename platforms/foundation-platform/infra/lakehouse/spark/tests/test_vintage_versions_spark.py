@@ -172,6 +172,115 @@ class VintageVersionsSparkTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "removal markers"):
             rows_as_of(self.spark.createDataFrame([], self.schema(legacy)), legacy, "209908")
 
+    def test_a_vintage_written_in_key_shards_is_the_versions_its_one_commit_would_be(self):
+        # 2026-11-04: one apartment vintage took 13,226 s, more than a run may hold the pool; a
+        # vintage is written in key-hash shards, each its own commit (vintage_versions.shard_of).
+        from pyspark.sql import functions as F
+
+        import vintage_versions as job
+        from platform_contracts import current_row_latest
+
+        contract = self.load("silver.building_register_apartment_price_versions")
+        key = list(current_row_latest(contract).key)
+        august = [price_line(f"K-{n}", "20990101", str(100 + n), "20990430") for n in range(12)]
+        september = [price_line(f"K-{n}", "20990101", str(100 + n + (n % 3 == 0)), "20990430") for n in range(1, 14)]
+        copies = [("209908", self.apartment_copy("209908", august)), ("209909", self.apartment_copy("209909", september))]
+        versions = self.spark.createDataFrame([], self.schema(contract))
+        for index, (vintage, copy) in enumerate(copies):
+            instant = F.lit(datetime(2099, 2, 1 + index, tzinfo=timezone.utc)).cast("timestamp")
+            for shard in range(3):
+                mine = job.shard_of(key, 3) == shard
+                changes = job.vintage_changes(copy.where(mine), versions.where(mine), contract,
+                                              job.APARTMENT_PRICE_CONTENT, vintage, f"batch-{index}", instant)
+                versions = versions.unionByName(self.spark.createDataFrame(changes.collect(), changes.schema))
+        _, whole, _ = self.append_vintages("silver.building_register_apartment_price_versions",
+                                           job.APARTMENT_PRICE_CONTENT, copies)
+        compared = [*key, *job.APARTMENT_PRICE_CONTENT, "vintage", "row_state"]
+        self.assertEqual(rows(versions.select(*compared)), rows(whole.select(*compared)))
+        for vintage, copy in copies:
+            self.assert_reconstructs(contract, versions, job.APARTMENT_PRICE_CONTENT, vintage, copy)
+        self.assertEqual(job.shard_record("r", 0, 4), "r/shard-1-of-4")
+
+    def test_the_first_vintage_is_its_rows_as_the_comparison_against_no_versions_finds(self):
+        # 2026-11-04: the first apartment vintage spent 13,226 s comparing 202M rows with an empty
+        # table; with no older vintage held, every row is a change and none is compared.
+        from pyspark.sql import functions as F
+
+        import vintage_versions as job
+
+        contract = self.load("silver.building_register_apartment_price_versions")
+        lines = [price_line(f"K-{n}", "20990101", str(100 + n), "20990430") for n in range(6)]
+        lines.append(lines[0])  # a repeated line stays two rows
+        copy = self.apartment_copy("209908", lines)
+        empty = self.spark.createDataFrame([], self.schema(contract))
+        instant = F.lit(datetime(2099, 2, 1, tzinfo=timezone.utc)).cast("timestamp")
+        compared = job.vintage_changes(copy, empty, contract, job.APARTMENT_PRICE_CONTENT, "209908", "b", instant)
+        first = job.vintage_changes(copy, empty, contract, job.APARTMENT_PRICE_CONTENT, "209908", "b", instant,
+                                    first=True)
+        self.assertEqual(first.dtypes, compared.dtypes)
+        self.assertEqual(rows(first), rows(compared))
+        self.assertEqual(first.count(), 7)
+
+    def test_parity_counts_what_the_checksums_find_and_tells_a_null_from_an_empty_value(self):
+        import vintage_versions as job
+
+        august = [price_line(f"K-{n}", "20990101", str(100 + n), "20990430") for n in range(8)]
+        august.append(price_line("K-null", "20990101", "900", None))
+        contract, versions, _ = self.append_vintages("silver.building_register_apartment_price_versions",
+                                                     job.APARTMENT_PRICE_CONTENT,
+                                                     [("209908", self.apartment_copy("209908", august))])
+        same = job.parity(versions, self.apartment_copy("209908", august), contract, job.APARTMENT_PRICE_CONTENT,
+                          "209908", buckets=4)
+        self.assertEqual((same["missing"], same["extra"], same["buckets_differing"]), (0, 0, 0))
+        self.assertEqual((same["full_copy_rows"], same["rebuilt_rows"]), (9, 9))
+        for changed in ([*august[:3], price_line("K-3", "20990101", "999", "20990430"), *august[4:]],
+                        [*august[:-1], price_line("K-null", "20990101", "900", "")]):
+            with self.subTest(changed=changed[-1]):
+                found = job.parity(versions, self.apartment_copy("209908", changed), contract,
+                                   job.APARTMENT_PRICE_CONTENT, "209908", buckets=4)
+                self.assertEqual((found["missing"], found["extra"]), (1, 1))
+                self.assertEqual(found["buckets_differing"], 1)
+        fewer = job.parity(versions, self.apartment_copy("209908", august[:-2]), contract,
+                           job.APARTMENT_PRICE_CONTENT, "209908", buckets=4)
+        self.assertEqual((fewer["missing"], fewer["extra"]), (0, 2))
+
+
+class RunBudgetTest(unittest.TestCase):
+    def test_a_step_starts_only_while_its_cost_fits_and_a_run_plans_with_what_it_measured(self):
+        import time
+
+        import vintage_versions as job
+
+        budget = job.Budget(100.0, time.monotonic(), {"write": 60.0, "parity": 30.0})
+        self.assertTrue(budget.allows("write"))
+        measured = set()
+        budget.took("write", 10.0, measured)
+        self.assertEqual(budget.costs["write"], 10.0, "the first measured step replaces the estimate")
+        budget.took("write", 5.0, measured)
+        self.assertEqual(budget.costs["write"], 10.0, "then the longest step of the run counts")
+        budget.started -= 95
+        self.assertFalse(budget.allows("write"))
+
+    def test_the_contract_is_the_runs_size_and_refuses_a_step_no_run_can_take(self):
+        import json
+        import tempfile
+
+        import vintage_versions as job
+
+        contract = job.load_contract()
+        self.assertEqual([t["table"] for t in contract["targets"]],
+                         ["silver.building_register_apartment_price_versions", "silver.unit_official_price_versions"])
+        jobs = json.loads((Path(job.__file__).resolve().parents[4] / "orchestration" / "jobs.v1.json")
+                          .read_text(encoding="utf-8"))
+        (limit,) = [j["time_limit_minutes"] for j in jobs["jobs"] if j["id"] == "unit_price_versions_migration"]
+        self.assertEqual(contract["run_time_budget_seconds"], limit * 60 * 9 // 10)
+        contract["targets"][0]["write_shards"] = 1
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "contract.json"
+            path.write_text(json.dumps(contract), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "does not fit"):
+                job.load_contract(path)
+
 
 if __name__ == "__main__":
     unittest.main()

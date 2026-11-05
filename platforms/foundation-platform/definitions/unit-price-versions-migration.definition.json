@@ -1,0 +1,40 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "unit-price-versions-migration",
+  "jobs": [
+    {
+      "id": "unit_price_versions_migration",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The one-time move of both price tables' vintages into their versions tables (root ADR-0317 §5.2; infra/lakehouse/spark/jobs/vintage_versions.py): oldest vintage first, silver.building_register_apartment_price before silver.unit_official_price, each vintage appended as its changed keys in key-hash shards, then checked against its full copy by per-bucket checksums. A step (one shard of a vintage's write, one vintage's check) starts only while it fits the run's budget (infra/lakehouse/contracts/vintage-versions-migration.contract.json run_time_budget_seconds, measured costs per target); a written shard (its commit) and a checked vintage (the table property foundation.parity.<vintage>) are skipped by the next run, so a stopped run loses at most the step in flight. Its own job since 2026-11-04: as a unit outside this list it ran beside gold_panel_rebuild and lakehouse_maintenance, which the pool did not know it shared with, wrote one vintage in 13,226 s, spent the next 4 h 19 min in that vintage's check and was killed at 8 h with no step recorded. It holds the whole pool, so nothing else Spark runs beside it. Done when a run ends with `unit-price-versions parity=ok`, the condition of ADR-0317 stage 3.",
+      "systemd_service": "foundation-unit-price-versions-migrate.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "0 3 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-apartment-price-to-silver-building-register-apartment-price-versions",
+        "silver-unit-official-price-to-silver-unit-official-price-versions"
+      ],
+      "enabled": false,
+      "disabled_reason": "A one-time migration (root ADR-0317 stage 2), started by an operator run by run (`by-pnu-pack-operator.sh job start unit_price_versions_migration`) until a run ends with parity=ok; never scheduled."
+    }
+  ],
+  "host_memory": {
+    "unit_price_versions_migration": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform unit price versions: move both price tables' vintages into their versions tables, parity checked per vintage (ADR-0317 stage 2)
+Description=Foundation Platform unit price versions: move both price tables' vintages into their versions tables, parity checked per vintage, one bounded run at a time (ADR-0317 stage 2)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -11,10 +11,23 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+# The job unit_price_versions_migration (jobs.v1.json), started by an operator (`job start`): the
+# steps a run takes fit infra/lakehouse/contracts/vintage-versions-migration.contract.json's
+# run_time_budget_seconds, and the next run continues where it stopped.
 ExecStart=/opt/foundation-platform/current/scripts/ops/unit-price-versions-migrate.sh
-TimeoutStartSec=8h
-StateDirectory=foundation-platform/unit-price-versions
+# The timeout below kills the script and the compose client, not the Spark container the Docker
+# daemon owns; this removes the run's Compose project (foundation-unit-price-versions-<INVOCATION_ID>)
+# and nothing else, after every exit, by the release the run started from (root ADR-0270 §3).
+ExecStopPost=/opt/foundation-platform/current/scripts/ops/pinned-cleanup.sh unit-price-versions-migrate.sh
+RuntimeDirectory=%N
+# The job list's time_limit_minutes (jobs.v1.json). 2026-11-04: under 8h the run wrote one vintage
+# in 13,226 s and was killed in the next with nothing recorded.
+# Generated from the list, not hand-set: `cargo run -p foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=160m
+# The cleanup's own bound (FLOOR's): `docker stop --time 30`, then removal and its check.
+TimeoutStopSec=120
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+StateDirectory=foundation-platform/unit-price-versions
