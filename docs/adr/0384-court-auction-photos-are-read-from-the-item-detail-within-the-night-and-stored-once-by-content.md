@@ -4,7 +4,7 @@
 - Date: 2026-11-06
 - Builds on: [ADR-0290](./0290-court-auction-details-are-refetched-by-change-and-sale-date-and-photos-are-content-addressed.md)(§7 사진은 내용 해시로),
   [ADR-0298](./0298-content-addressed-media-is-a-write-once-store-not-a-per-object-bronze-ledger.md)(공용 미디어 저장소는 한 번 쓰기),
-  [ADR-0352](./0352-court-auction-recrawl-is-computed-each-run-from-the-lakehouse-not-a-stored-queue.md)(재수집 목록은 매 실행 계산),
+  ADR-0352(재수집 목록은 매 실행 계산, #967),
   [ADR-0353](./0353-court-auction-is-a-parcel-kind-built-partially-and-baked-in-its-own-job.md)(§6 사진은 다음 결정에서)
 - Amends: ADR-0353 §6
 
