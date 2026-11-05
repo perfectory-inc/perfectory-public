@@ -66,13 +66,92 @@ def with_current_code(pnu: str, current_legal_code: str) -> str:
     return current_legal_code + pnu[10:]
 
 
-def pairs_from_lakehouse(spark: Any, catalog: str) -> tuple[dict[str, str], set[str]]:
-    """The code crosswalk read from `reference.legal_dong_code_change`: the pairs in force, through the
+def crosswalk_of(rows: Iterable[Mapping[str, Any]]) -> tuple[dict[str, str], set[str]]:
+    """The code crosswalk of rows of `reference.legal_dong_code_change`: the pairs in force, through the
     one view every reader uses, so a pair official evidence superseded is not read (root ADR-0329)."""
 
+    return code_crosswalk((pair["old_code"], pair["new_code"]) for pair in views.pair_rows(list(rows)))
+
+
+def pairs_from_lakehouse(spark: Any, catalog: str) -> tuple[dict[str, str], set[str]]:
+    """`crosswalk_of` the table as it is now."""
+
     table = f"`{catalog}`.`reference`.`legal_dong_code_change`"
-    rows = [row.asDict() for row in spark.sql(f"SELECT kind, old_code, new_code, level, effective_date, source FROM {table}").collect()]
-    return code_crosswalk((pair["old_code"], pair["new_code"]) for pair in views.pair_rows(rows))
+    return crosswalk_of(row.asDict() for row in spark.sql(
+        f"SELECT kind, old_code, new_code, level, effective_date, source FROM {table}").collect())
+
+
+def code_lot_pnu(code: str | None, lot: str | None) -> str | None:
+    """The 19-digit pnu a source's 10-digit legal-dong code and its lot text name (산 -> ledger 2, else
+    1), or None when the code is not ten digits or the lot is prose ("외 6필지", a 블록), never a guess.
+    The code is the source's: `resolve` carries it to the current one (root ADR-0382 §1)."""
+
+    import address_pnu  # noqa: PLC0415 - the lot grammar is the address path's, not restated
+
+    if not code or len(code) != 10 or not code.isdigit() or not lot:
+        return None
+    match = address_pnu.LOT.fullmatch(re.sub(r"\s+", "", lot))
+    if not match:
+        return None
+    key = address_pnu.JibunKey("", "", bool(match.group(1)), int(match.group(2)), int(match.group(3) or 0))
+    return address_pnu.jibun_pnu(code, key)
+
+
+def carried_to_current(frame: Any, remap: Mapping[str, str], column: str = "pnu") -> Any:
+    """`frame` with the legal-dong code of `column`'s pnu carried old -> current (``code_crosswalk``),
+    its lot kept. Nothing is checked against the parcels: a reader that places rows does that itself
+    (the parcel lineage, `servable`), so a pnu read once is carried again on every build after a
+    code change (root ADR-0329 §3, ADR-0382 §2)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    crosswalk = F.broadcast(frame.sparkSession.createDataFrame(sorted(remap.items()), "_old string, _current string"))
+    out = frame.join(crosswalk, F.substring(F.col(column), 1, 10) == F.col("_old"), "left")
+    return (out.withColumn(column, F.when(F.col("_current").isNotNull(),
+                                          F.concat(F.col("_current"), F.substring(F.col(column), 11, 9)))
+                           .otherwise(F.col(column)))
+            .drop("_old", "_current"))
+
+
+# The code change rows a Gold build reads and compares (`views.changed_codes`): the pairs, their
+# supersessions and the evidence `crosswalk_of` weighs.
+CODE_CHANGE_COLUMNS = ("kind", "old_code", "new_code", "level", "effective_date", "source")
+
+
+def located(items: Any, remap: Mapping[str, str], raw_column: str) -> Any:
+    """`items` with `pnu` the PNU each row is placed by on this build: the load's resolved PNU, else the
+    source's own code PNU (`raw_column`, when it is 19 digits), carried to the current legal-dong code
+    (`carried_to_current`). A Gold build calls it on every version it reads, old and new alike, so a
+    link made at load time is never the one served after a code change (root ADR-0329 §3, ADR-0382)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    raw = F.col(raw_column)
+    return carried_to_current(
+        items.withColumn("pnu", F.coalesce(F.col("pnu"), F.when(raw.rlike("^[0-9]{19}$"), raw))), remap)
+
+
+def under_changed_codes(frames: Sequence[Any], before: Iterable[Mapping[str, Any]],
+                        after: Iterable[Mapping[str, Any]], key: Sequence[str]) -> Any | None:
+    """The `key`s of the rows of `frames` whose `pnu` lies under either code of a code change row that
+    differs between `before` and `after` (`views.changed_codes`, root ADR-0273, ADR-0329 §3), or None
+    when no row differs. One `isin` per prefix length, as the parcel panel does: a first build after
+    the table was added sees every code as changed."""
+
+    from functools import reduce  # noqa: PLC0415
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    by_digits: dict[int, set[str]] = {}
+    for code in views.changed_codes(list(before), list(after), CODE_CHANGE_COLUMNS):
+        prefix = views.code_prefix(code)
+        by_digits.setdefault(len(prefix), set()).add(prefix)
+    if not by_digits or not frames:
+        return None
+    under = F.lit(False)
+    for digits, prefixes in sorted(by_digits.items()):
+        under = under | F.substring("pnu", 1, digits).isin(sorted(prefixes))
+    return reduce(lambda a, b: a.unionByName(b), [frame.where(under).select(*key) for frame in frames])
 
 
 def candidate_pnus(pnus: Iterable[str | None], remap: Mapping[str, str], ambiguous: Iterable[str]) -> set[str]:
