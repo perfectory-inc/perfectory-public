@@ -29,8 +29,7 @@ use catalog_application::{RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchors
 use catalog_infrastructure::PgParcelMarkerAnchorRebuilder;
 use foundation_outbox::{
     object_storage::{
-        validate_r2_smoke_object_key, ObjectStorageSmokeReport, R2InventoryRequest,
-        DEFAULT_R2_SMOKE_OBJECT_KEY,
+        validate_r2_smoke_object_key, ObjectStorageSmokeReport, DEFAULT_R2_SMOKE_OBJECT_KEY,
     },
     CatalogEventBroadcaster, EventBroadcaster, LoggingBroadcaster, LoggingObjectStorage,
     ObjectStorageService, OutboxScope, OutboxWorker, PgVectorTileManifestReader, PublisherConfig,
@@ -62,17 +61,11 @@ mod building_register_title_silver_export;
 mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
 mod canonical_release_proof;
-mod canonical_silver_gold_cutover_evidence;
 mod code_go_kr_legal_dong_collect;
 mod courtauction_go_kr_collect;
 mod data_go_kr_onbid_collect;
 mod data_go_kr_registered_factory_collect;
-mod silver_load_objects;
-use foundation_publisher_collection::collection_job_requeue;
 mod dbase_table;
-mod github_actions_secret_configurator;
-mod github_cutover_artifact_fetch;
-mod github_cutover_dispatch;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
 mod industrial_complex_boundary_postgis_publish;
@@ -81,13 +74,11 @@ mod industrial_complex_boundary_silver_export;
 mod industrial_complex_boundary_static_release_publish;
 mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
-mod industrial_complex_canonical_source_readiness;
-mod industrial_complex_catalog_import;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
+mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
-use foundation_publisher_collection::ingestion_run_recovery;
 #[cfg(test)]
 mod test_crosswalk;
 use foundation_publisher_silver::lakehouse_engine_contract;
@@ -96,7 +87,6 @@ mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
 use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_silver::land_use_silver_export;
-mod loopback_http;
 #[cfg(test)]
 mod main_tests;
 mod onbid_media;
@@ -134,7 +124,6 @@ mod parcel_projection_digest;
 mod parcel_publication_contract;
 mod parcel_publication_evidence_sealer;
 mod parcel_publication_evidence_writer;
-mod postgis_mirror_dlq_cutover_evidence;
 mod postgis_parcel_boundary_mirror_national_rebuild;
 mod postgis_parcel_boundary_mirror_rebuild;
 use foundation_publisher_collection::provider_acquisition_import;
@@ -149,8 +138,7 @@ mod publisher_runtime;
 #[cfg(test)]
 use publisher_runtime::{parse_webhook_endpoint_specs, write_r2_smoke_metrics};
 use publisher_runtime::{
-    run_parcel_marker_anchor_rebuild, run_publisher, run_publisher_once, run_r2_inventory,
-    run_r2_smoke,
+    run_parcel_marker_anchor_rebuild, run_publisher, run_publisher_once, run_r2_smoke,
 };
 mod r2_billing_export_collect;
 mod r2_billing_usage_metrics;
@@ -163,8 +151,6 @@ mod r2_delete_candidates;
 mod r2_inventory_audit;
 use foundation_publisher_collection::real_transaction_ingest;
 use foundation_publisher_collection::rt_molit_real_transaction_collect;
-use foundation_publisher_collection::rt_molit_real_transaction_export_collection_plan;
-use foundation_publisher_collection::rt_molit_real_transaction_export_ingest;
 use foundation_publisher_core::r2_layout;
 use foundation_publisher_core::runtime_environment;
 use foundation_publisher_silver::remote_lakehouse_job;
@@ -177,7 +163,6 @@ mod staging_namespace;
 use foundation_publisher_tiles::static_release_readdress;
 use foundation_publisher_tiles::static_release_toolchain;
 use foundation_publisher_tiles::tile_derivative_object_storage;
-mod trino_ready_wait;
 mod unit_official_price_projection_load;
 use foundation_publisher_collection::vworld_cadastral_ingest;
 use foundation_publisher_collection::vworld_cadastral_silver_export;
@@ -212,7 +197,6 @@ enum Command {
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     StageBuildingRegisterFloorInputs,
-    SelectBuildingRegisterFloorInputs,
     RunBuildingRegisterFloorCycle,
     StopBuildingRegisterFloorCycle,
     StopGoldPanelRebuild,
@@ -251,14 +235,12 @@ enum Command {
     ExportLandRightRegistrationSilverHandoff,
     ExportLandOwnershipSilverHandoff,
     ExecuteNationalDataCollectionLedger,
-    ExecuteRtMolitRealTransactionExportPlan,
     ExecuteSilverGoldNationalPromotion,
     EvaluateLakehouseQualityRules,
     IngestBuildingHubBulkCollection,
     IngestBuildingHubBulkFile,
     PlanBuildingHubBulkCollection,
     PlanProviderAcquisitionJobs,
-    PlanRtMolitRealTransactionExports,
     PlanVWorldDatasetCollection,
     CheckBoundedLiveIngestionGate,
     CheckR2RuntimeTarget,
@@ -270,7 +252,6 @@ enum Command {
     RunRemoteLakehouseJob,
     CompileNationalDataCollectionPlan,
     CheckNationalDataCollectionRolloutApproval,
-    CheckAdministrativeSpatialScopeRegistry,
     PublishAdministrativeBoundaryPostgis,
     PublishAdministrativeBoundaryStaticRelease,
     PublishIndustrialComplexBoundaryPostgis,
@@ -293,36 +274,28 @@ enum Command {
     PromoteAdministrativeBoundaryRuntime,
     PromoteIndustrialComplexBoundaryRuntime,
     PromoteParcelBoundaryRuntime,
-    CheckIndustrialComplexCanonicalSourceReadiness,
     CheckNationalBronzeObjectManifest,
-    ConfigureGitHubActionsSecrets,
-    FetchGithubCutoverArtifact,
-    DispatchGithubCutoverWorkflow,
     ProviderRateController,
     CollectR2BillingExport,
     RunPublicDataBronzeCollectionLanes,
     WriteAdministrativeSpatialScopeRegistry,
     WriteOfficialAdministrativeBoundarySourceSnapshot,
     WriteBuildingRegisterPageCountPlan,
-    WriteCanonicalSilverGoldCutoverEvidence,
     WriteCanonicalReleaseProof,
     WriteNationalBronzeObjectManifest,
     WriteNationalDataCollectionRolloutApproval,
     WriteNationalDataCollectionScope,
     WriteNationalDataCollectionShardManifest,
     WriteNationalPageCountPlan,
-    WritePostgisMirrorDlqCutoverEvidence,
     WritePublicApiDependencyMetric,
     WritePublicApiQuotaMetric,
     WriteR2BronzeKeyCleanupCandidates,
     WriteR2BronzeKeyMigrationPlan,
     WriteSilverGoldNationalPromotionPlan,
-    ImportIndustrialComplexCatalogSeed,
     ImportProviderAcquisitionLanding,
     LoadIndustrialComplexCanonical,
     IngestBuildingRegister,
     IngestRealTransaction,
-    IngestRtMolitRealTransactionExport,
     IngestVWorldCadastral,
     IngestVWorldDatasetFiles,
     IngestVWorldLandRegister,
@@ -346,17 +319,14 @@ enum Command {
     RebuildPostgisParcelBoundaryMirror,
     RebuildPostgisParcelBoundaryMirrorNational,
     RebuildPostgisParcelBoundaryMirrorNationalFromContract,
-    AbandonIngestionRun,
     ReconcileBuildingRegister,
     RecordLakehouseBronzeRunEvidence,
-    RequeueDeadLetteredCollectionJob,
     RegisterServingSourceLineage,
     RunBuildingRegisterLocalBronzeProof,
     RunPublisher,
     /// `job-run`: one listed job through the runner (root ADR-0270 §2).
     JobRun,
     InventoryLakehouse,
-    InventoryR2,
     MigrateR2BronzeKeys,
     SeedLakehouseRegistry,
     SmokeR2,
@@ -365,7 +335,6 @@ enum Command {
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
-    WaitTrinoReady,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -427,12 +396,7 @@ fn run_command_runtime(command: Command) -> anyhow::Result<()> {
 }
 
 async fn run_command(command: Command) -> anyhow::Result<()> {
-    let log_writer = if command == Command::SelectBuildingRegisterFloorInputs {
-        // Selection stdout is one bounded JSON document even with verbose SQL logging enabled.
-        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stderr)
-    } else {
-        tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout)
-    };
+    let log_writer = tracing_subscriber::fmt::writer::BoxMakeWriter::new(std::io::stdout);
     tracing_subscriber::registry()
         .with(EnvFilter::from_default_env())
         .with(fmt::layer().json().with_writer(log_writer))
@@ -463,9 +427,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::StageBuildingRegisterFloorInputs => {
             Box::pin(building_register_floor_silver_export::stage_inputs())
-        }
-        Command::SelectBuildingRegisterFloorInputs => {
-            Box::pin(building_register_floor_silver_export::select_inputs_cli())
         }
         Command::ExportBuildingRegisterUnitAreaSilverHandoff => {
             Box::pin(building_register_unit_area_silver_export::run())
@@ -555,17 +516,11 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExecuteNationalDataCollectionLedger => {
             Box::pin(async { national_data_collection_ledger_execute::run() })
         }
-        Command::ExecuteRtMolitRealTransactionExportPlan => {
-            Box::pin(rt_molit_real_transaction_export_collection_plan::run_execute())
-        }
         Command::ExecuteSilverGoldNationalPromotion => {
             Box::pin(async { silver_gold_national_promotion_execution::run_execute() })
         }
         Command::EvaluateLakehouseQualityRules => {
             Box::pin(async { lakehouse_quality_rules_evaluate::run() })
-        }
-        Command::ImportIndustrialComplexCatalogSeed => {
-            Box::pin(industrial_complex_catalog_import::run())
         }
         Command::ImportProviderAcquisitionLanding => Box::pin(provider_acquisition_import::run()),
         Command::LoadIndustrialComplexCanonical => {
@@ -579,9 +534,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(building_hub_bulk_collection_plan::run())
         }
         Command::PlanProviderAcquisitionJobs => Box::pin(provider_acquisition_plan::run()),
-        Command::PlanRtMolitRealTransactionExports => {
-            Box::pin(async { rt_molit_real_transaction_export_collection_plan::run() })
-        }
         Command::PlanVWorldDatasetCollection => Box::pin(vworld_dataset_collection_plan::run()),
         Command::CheckNationalDataCollectionCoverageLedger => {
             Box::pin(async { national_data_collection_coverage_ledger_check::run() })
@@ -615,9 +567,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::CheckNationalDataCollectionRolloutApproval => {
             Box::pin(async { national_data_collection_rollout_approval_check::run() })
-        }
-        Command::CheckAdministrativeSpatialScopeRegistry => {
-            Box::pin(async { administrative_spatial_scope_registry::check() })
         }
         Command::PublishAdministrativeBoundaryPostgis => {
             Box::pin(administrative_boundary_postgis_publish::run())
@@ -683,14 +632,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CheckNationalBronzeObjectManifest => {
             Box::pin(async { national_bronze_object_manifest::run_check() })
         }
-        Command::CheckIndustrialComplexCanonicalSourceReadiness => {
-            Box::pin(industrial_complex_canonical_source_readiness::run())
-        }
-        Command::ConfigureGitHubActionsSecrets => {
-            Box::pin(async { github_actions_secret_configurator::run() })
-        }
-        Command::FetchGithubCutoverArtifact => Box::pin(github_cutover_artifact_fetch::run()),
-        Command::DispatchGithubCutoverWorkflow => Box::pin(github_cutover_dispatch::run()),
         Command::ProviderRateController => {
             Box::pin(async { public_provider_rate_controller::run() })
         }
@@ -704,9 +645,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::WriteOfficialAdministrativeBoundarySourceSnapshot => {
             Box::pin(async { official_administrative_boundary_source_snapshot::write() })
         }
-        Command::WritePostgisMirrorDlqCutoverEvidence => {
-            Box::pin(async { postgis_mirror_dlq_cutover_evidence::run() })
-        }
         Command::WritePublicApiDependencyMetric => {
             Box::pin(async { public_api_metric_writer::run_dependency() })
         }
@@ -715,9 +653,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::WriteBuildingRegisterPageCountPlan => {
             Box::pin(async { building_register_page_count_plan_writer::run() })
-        }
-        Command::WriteCanonicalSilverGoldCutoverEvidence => {
-            Box::pin(async { canonical_silver_gold_cutover_evidence::run() })
         }
         Command::WriteCanonicalReleaseProof => Box::pin(async { canonical_release_proof::run() }),
         Command::WriteNationalBronzeObjectManifest => {
@@ -765,9 +700,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(async { building_register_local_bronze_proof::run() })
         }
         Command::IngestRealTransaction => Box::pin(real_transaction_ingest::run()),
-        Command::IngestRtMolitRealTransactionExport => {
-            Box::pin(rt_molit_real_transaction_export_ingest::run())
-        }
         Command::IngestVWorldCadastral => Box::pin(vworld_cadastral_ingest::run()),
         Command::IngestVWorldDatasetFiles => Box::pin(vworld_dataset_file_ingest::run()),
         Command::IngestVWorldLandRegister => Box::pin(vworld_land_register_ingest::run()),
@@ -781,18 +713,15 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ProbeSpatialTileWap => Box::pin(async { spatial_tile_wap_command::run() }),
         Command::ProbeVWorldPageCountBatch => Box::pin(vworld_page_count_batch::run()),
-        Command::AbandonIngestionRun => Box::pin(ingestion_run_recovery::run()),
         Command::ReconcileBuildingRegister => Box::pin(building_register_ingest::reconcile()),
         Command::RecordLakehouseBronzeRunEvidence => {
             Box::pin(lakehouse_registry_control::record_bronze_run_evidence())
         }
-        Command::RequeueDeadLetteredCollectionJob => Box::pin(collection_job_requeue::run()),
         Command::RegisterServingSourceLineage => Box::pin(serving_source_lineage_register::run()),
         Command::RunPublisher => Box::pin(run_publisher()),
         // main() runs it before any runtime starts and exits with its outcome.
         Command::JobRun => Box::pin(async { anyhow::bail!("job-run does not run in the runtime") }),
         Command::InventoryLakehouse => Box::pin(lakehouse_inventory::run()),
-        Command::InventoryR2 => Box::pin(run_r2_inventory()),
         Command::MigrateR2BronzeKeys => Box::pin(r2_bronze_key_migration::run()),
         Command::WriteR2BronzeKeyCleanupCandidates => {
             Box::pin(async { r2_bronze_key_cleanup_candidates::run() })
@@ -813,7 +742,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ValidateTileDerivativeR2 => {
             Box::pin(async { tile_derivative_object_storage::validate_environment() })
         }
-        Command::WaitTrinoReady => Box::pin(async { trino_ready_wait::run() }),
     };
     future.await
 }
@@ -846,18 +774,12 @@ where
         Some("ingest-building-hub-bulk-collection") => Ok(Command::IngestBuildingHubBulkCollection),
         Some("ingest-building-hub-bulk-file") => Ok(Command::IngestBuildingHubBulkFile),
         Some("plan-building-hub-bulk-collection") => Ok(Command::PlanBuildingHubBulkCollection),
-        Some("plan-rt-molit-real-transaction-exports") => {
-            Ok(Command::PlanRtMolitRealTransactionExports)
-        }
         Some("plan-vworld-dataset-collection") => Ok(Command::PlanVWorldDatasetCollection),
         Some("check-national-data-collection-coverage-ledger") => {
             Ok(Command::CheckNationalDataCollectionCoverageLedger)
         }
         Some("execute-national-data-collection-ledger") => {
             Ok(Command::ExecuteNationalDataCollectionLedger)
-        }
-        Some("execute-rt-molit-real-transaction-export-plan") => {
-            Ok(Command::ExecuteRtMolitRealTransactionExportPlan)
         }
         Some("execute-silver-gold-national-promotion") => {
             Ok(Command::ExecuteSilverGoldNationalPromotion)
@@ -880,9 +802,6 @@ where
         }
         Some("check-national-data-collection-rollout-approval") => {
             Ok(Command::CheckNationalDataCollectionRolloutApproval)
-        }
-        Some("check-administrative-spatial-scope-registry") => {
-            Ok(Command::CheckAdministrativeSpatialScopeRegistry)
         }
         Some("publish-administrative-boundary-postgis") => {
             Ok(Command::PublishAdministrativeBoundaryPostgis)
@@ -936,9 +855,6 @@ where
         Some("check-national-bronze-object-manifest") => {
             Ok(Command::CheckNationalBronzeObjectManifest)
         }
-        Some("configure-github-actions-secrets") => Ok(Command::ConfigureGitHubActionsSecrets),
-        Some("fetch-github-cutover-artifact") => Ok(Command::FetchGithubCutoverArtifact),
-        Some("dispatch-github-cutover-workflow") => Ok(Command::DispatchGithubCutoverWorkflow),
         Some("provider-rate-controller") => Ok(Command::ProviderRateController),
         Some("collect-r2-billing-export") => Ok(Command::CollectR2BillingExport),
         Some("run-public-data-bronze-collection-lanes") => {
@@ -950,16 +866,10 @@ where
         Some("write-official-administrative-boundary-source-snapshot") => {
             Ok(Command::WriteOfficialAdministrativeBoundarySourceSnapshot)
         }
-        Some("write-postgis-mirror-dlq-cutover-evidence") => {
-            Ok(Command::WritePostgisMirrorDlqCutoverEvidence)
-        }
         Some("write-public-api-dependency-metric") => Ok(Command::WritePublicApiDependencyMetric),
         Some("write-public-api-quota-metric") => Ok(Command::WritePublicApiQuotaMetric),
         Some("write-building-register-page-count-plan") => {
             Ok(Command::WriteBuildingRegisterPageCountPlan)
-        }
-        Some("write-canonical-silver-gold-cutover-evidence") => {
-            Ok(Command::WriteCanonicalSilverGoldCutoverEvidence)
         }
         Some("write-canonical-release-proof") => Ok(Command::WriteCanonicalReleaseProof),
         Some("write-national-bronze-object-manifest") => {
@@ -967,9 +877,6 @@ where
         }
         Some("write-national-data-collection-rollout-approval") => {
             Ok(Command::WriteNationalDataCollectionRolloutApproval)
-        }
-        Some("check-industrial-complex-canonical-source-readiness") => {
-            Ok(Command::CheckIndustrialComplexCanonicalSourceReadiness)
         }
         Some("write-national-data-collection-shard-manifest") => {
             Ok(Command::WriteNationalDataCollectionShardManifest)
@@ -981,9 +888,6 @@ where
         Some("plan-provider-acquisition-jobs") => Ok(Command::PlanProviderAcquisitionJobs),
         Some("inventory-vworld-dataset-files") => Ok(Command::InventoryVWorldDatasetFiles),
         Some("ingest-real-transaction") => Ok(Command::IngestRealTransaction),
-        Some("ingest-rt-molit-real-transaction-export") => {
-            Ok(Command::IngestRtMolitRealTransactionExport)
-        }
         Some("probe-building-register-page-count") => Ok(Command::ProbeBuildingRegisterPageCount),
         Some("probe-building-register-page-count-batch") => {
             Ok(Command::ProbeBuildingRegisterPageCountBatch)
@@ -1025,9 +929,6 @@ where
         }
         Some("stage-building-register-floor-inputs") => {
             Ok(Command::StageBuildingRegisterFloorInputs)
-        }
-        Some("select-building-register-floor-inputs") => {
-            Ok(Command::SelectBuildingRegisterFloorInputs)
         }
         Some("export-building-register-unit-area-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterUnitAreaSilverHandoff)
@@ -1102,9 +1003,6 @@ where
         Some("export-vworld-cadastral-silver-handoff-shard") => {
             Ok(Command::ExportVWorldCadastralSilverHandoffShard)
         }
-        Some("import-industrial-complex-catalog-seed") => {
-            Ok(Command::ImportIndustrialComplexCatalogSeed)
-        }
         Some("import-provider-acquisition-landing") => {
             Ok(Command::ImportProviderAcquisitionLanding)
         }
@@ -1131,17 +1029,12 @@ where
         Some("rebuild-postgis-parcel-boundary-mirror-national-from-contract") => {
             Ok(Command::RebuildPostgisParcelBoundaryMirrorNationalFromContract)
         }
-        Some("abandon-ingestion-run") => Ok(Command::AbandonIngestionRun),
         Some("reconcile-building-register") => Ok(Command::ReconcileBuildingRegister),
         Some("record-lakehouse-bronze-run-evidence") => {
             Ok(Command::RecordLakehouseBronzeRunEvidence)
         }
-        Some("requeue-dead-lettered-collection-job") => {
-            Ok(Command::RequeueDeadLetteredCollectionJob)
-        }
         Some("register-serving-source-lineage") => Ok(Command::RegisterServingSourceLineage),
         Some("inventory-lakehouse") => Ok(Command::InventoryLakehouse),
-        Some("inventory-r2") => Ok(Command::InventoryR2),
         Some("migrate-r2-bronze-keys") => Ok(Command::MigrateR2BronzeKeys),
         Some("write-r2-bronze-key-cleanup-candidates") => {
             Ok(Command::WriteR2BronzeKeyCleanupCandidates)
@@ -1154,7 +1047,6 @@ where
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
-        Some("wait-trino-ready") => Ok(Command::WaitTrinoReady),
         Some(other) => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
             .map(Command::SectionPacks)
             .with_context(|| format!("unknown outbox-publisher command '{other}'")),

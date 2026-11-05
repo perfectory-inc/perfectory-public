@@ -46,8 +46,7 @@ last_reviewed: 2026-10-28
 
 ## 운영 스키마와의 드리프트 확인 (루트 ADR-0259)
 
-CI 는 `docs/db/catalog-schema-contract.v1.example.json` 을 실시간 스키마와 비교하지 않는다(그 fixture 를 읽는
-것은 `postgis_mirror_dlq_cutover_evidence.rs` 의 컷오버 증거뿐이다). 드리프트는 운영 표 모양 원장 두 개로 막는다.
+드리프트는 운영 표 모양 원장 두 개로 막는다.
 
 | 무엇 | 원장 | PR 에서 거는 곳 |
 | --- | --- | --- |
