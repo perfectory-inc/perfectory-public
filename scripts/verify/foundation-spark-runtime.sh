@@ -22,6 +22,12 @@
 # 2 files at a time 534s; with these JVM options 357s at 2, 418s at 3, 420s at 4 at a time
 # (those four also defaulted shuffle partitions to 2, dropped since; serial on main: 488s-774s).
 # None of the options changes what a query computes.
+# C1 only also shrinks the JIT code cache: HotSpot then reserves 48 MB, not tiered's 240 MB. The gold
+# incremental tests outgrew it: "CodeCache is full. Compiler has been disabled" killed the JVM in 5 of
+# the 10 failed Spark jobs 2026-11-04..05 (run 42070575864 shard 3). Measured with the cache at 256 MB
+# (PR #1091, all 63 test JVMs): p50 23 MB, max 62.5 MB; -XX:+PrintCodeCache prints each JVM's peak at
+# exit, so the next file that nears the limit shows in this log. The size is reserved address space,
+# committed only as code is compiled.
 # 2026-10-30 the one job neared its 20-minute limit (wall 689-1137s, 46 files) and was cancelled
 # three times in a day: CI now splits the files across parallel runners (root ADR-0365).
 set -euo pipefail
