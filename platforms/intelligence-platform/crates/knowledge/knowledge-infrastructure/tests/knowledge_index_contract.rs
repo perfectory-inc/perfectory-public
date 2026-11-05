@@ -270,7 +270,7 @@ async fn postgres_index_returns_neighbouring_context() {
 }
 
 /// `INTELLIGENCE_TEST_DATABASE_URL`이 없으면 실패한다. 조용한 skip을 만들지 않는다 —
-/// `scripts/guard/no-silent-test-skip.sh`가 강제하는 규칙이고, 등록부 계약 테스트가
+/// `tools/semgrep/rules/no-silent-test-skip.yml`이 강제하는 규칙이고, 등록부 계약 테스트가
 /// 같은 이유로 이미 이 형태다.
 async fn pg_index() -> PostgresKnowledgeIndex {
     let url = std::env::var("INTELLIGENCE_TEST_DATABASE_URL")

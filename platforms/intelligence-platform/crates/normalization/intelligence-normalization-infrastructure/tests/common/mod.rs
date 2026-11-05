@@ -51,7 +51,7 @@ use intelligence_normalization_domain::{
 /// ```
 ///
 /// If the lane is genuinely optional, mark the test `#[ignore]` so it is listed
-/// as ignored rather than counted as a pass. `scripts/guard/no-silent-test-skip.sh`
+/// as ignored rather than counted as a pass. `tools/semgrep/rules/no-silent-test-skip.yml`
 /// rejects the skip-and-return shape.
 ///
 /// # Clock-skew warning

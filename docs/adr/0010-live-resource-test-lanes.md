@@ -301,3 +301,5 @@ Oxide omicron이 `live-tests/`를 별도 패키지로 두고 있어 유력한 �
 
 - `scripts/verify/foundation-r2-lakehouse-live.sh` → `cargo xtask live r2-lakehouse`(`tools/xtask/src/live.rs`, #799)
 - `scripts/verify/foundation-kafka-live.sh` → `cargo xtask live kafka`(`tools/xtask/src/live.rs`, #799)
+
+2026-11-05: `scripts/guard/no-silent-test-skip.sh`(와 자기 시험) → 지움. 같은 네 가지 형태는 Semgrep 규칙 `tools/semgrep/rules/no-silent-test-skip.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 시험 파일(`tests/`·`tests.rs`·`*_tests.rs`)에서 거부한다. 옛 자기 시험의 사례는 모두 픽스처 `no-silent-test-skip.rs` 로 옮겼다. 결정은 그대로다.

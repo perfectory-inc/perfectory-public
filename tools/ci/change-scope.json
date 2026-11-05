@@ -1038,16 +1038,6 @@
         ]
       },
       {
-        "name": "no-silent-test-skip-self-test",
-        "paths": []
-      },
-      {
-        "name": "no-silent-test-skip",
-        "paths": [
-          "**/*.rs"
-        ]
-      },
-      {
         "name": "no-env-access-in-domain-layers-self-test",
         "paths": []
       },

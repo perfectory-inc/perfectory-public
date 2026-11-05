@@ -190,8 +190,6 @@ scripts/guard/monorepo-guard.sh,37,true,ci,xtask,Guard run by monorepo-guard.sh 
 scripts/guard/no-adhoc-cargo-lint.sh,49,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/no-env-access-in-domain-layers-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/no-env-access-in-domain-layers.sh,61,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/no-silent-test-skip-self-test.sh,255,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/no-silent-test-skip.sh,163,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/no-subdir-github.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
