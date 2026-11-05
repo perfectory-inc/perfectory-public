@@ -87,5 +87,5 @@ AI 또는 agent 대상 코드를 도입할 때는 다음을 따른다.
 - add boundary checks before runtime dependency is introduced.
 
 Foundation Platform 경계와 platform-integration 정책은 CI에서 강제한다. Foundation Platform catalog
-경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와 경계 계약
+경계는 `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)와 경계 계약
 `docs/architecture/foundation-platform-boundary.v1.json`이 지킨다(ADR-0149 이후 CI 전용).

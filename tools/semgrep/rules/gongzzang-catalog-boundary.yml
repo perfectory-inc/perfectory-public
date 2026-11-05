@@ -1,0 +1,94 @@
+# Foundation Platform owns the catalog reference data; Gongzzang reads its published contracts and
+# never owns, writes or mutates it again (GZ-ADR-0034, GZ-ADR-0048).
+#
+# Prevents: the catalog drifting back into Gongzzang. The parcel, building, industrial-complex and
+# manufacturer domains were handed over to Foundation (GZ-ADR-0034); a Gongzzang crate, a direct SQL
+# write or a mutating route would make two owners of the same rows again, and the next Foundation
+# load would silently overwrite (or be overwritten by) Gongzzang's copy. Routes are a whitelist:
+# a catalog path takes only get/head; any other method router, method constant, `nest` or
+# `route_service` (an opaque service can handle any method) is refused.
+rules:
+  - id: gongzzang-owns-no-catalog-domain-crate
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      This crate is a Foundation Platform-owned catalog domain; it must not exist in Gongzzang
+      (GZ-ADR-0034). Read Foundation's published contracts instead.
+    paths:
+      include:
+        - /products/gongzzang/crates/industrial-complex-domain/Cargo.toml
+        - /products/gongzzang/crates/parcel-domain/Cargo.toml
+        - /products/gongzzang/crates/building-domain/Cargo.toml
+        - /products/gongzzang/crates/manufacturer-domain/Cargo.toml
+    # A crate is its manifest: the [package] table of one of those four directories.
+    pattern-regex: (?m)^\[package\]
+
+  - id: gongzzang-writes-no-catalog-table
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A direct write to a Foundation-owned catalog table; Gongzzang reads the catalog through
+      Foundation's published contracts (GZ-ADR-0034).
+    paths:
+      include:
+        - /products/gongzzang/services/**/*.rs
+        - /products/gongzzang/crates/**/*.rs
+        - /products/gongzzang/apps/**/*.rs
+    pattern-regex: (?is)\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"?\w+"?\.)?"?(industrial_complex|industrial_complexes|parcel|parcels|building|buildings|manufacturer|manufacturers)"?\b
+
+  - id: gongzzang-catalog-routes-are-get-or-head
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A catalog route takes a mutating method router or method constant; Foundation catalog
+      consumers allow only get/head (GZ-ADR-0048).
+    paths:
+      include:
+        - /products/gongzzang/services/**/*.rs
+        - /products/gongzzang/crates/**/*.rs
+        - /products/gongzzang/apps/**/*.rs
+    patterns:
+      - pattern-either:
+          # A literal path, or a `const` one (constant propagation reads it).
+          - pattern: $ROUTER.route("$PATH", $HANDLER)
+          - patterns:
+              - pattern-inside: |
+                  static $NAME: $TYPE = "$PATH";
+                  ...
+              - pattern: $ROUTER.route($NAME, $HANDLER)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?s).*/(parcels?|buildings?|industrial[-_]complex(es)?|manufacturers?)(/|$|\?).*
+      - metavariable-regex:
+          metavariable: $HANDLER
+          regex: (?is).*(\b(post|put|patch|delete|options|trace|connect|any|on|on_method|method_router|fallback)(_service)?\s*\(|\bMethod(Filter)?::(POST|PUT|PATCH|DELETE|TRACE|CONNECT|OPTIONS)\b).*
+      - focus-metavariable: $HANDLER
+
+  - id: gongzzang-catalog-paths-are-not-opaque-services
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      `nest`/`route_service` at a catalog path registers a router or service that can handle any
+      method, including mutations; route the catalog path with get/head only (GZ-ADR-0048).
+    paths:
+      include:
+        - /products/gongzzang/services/**/*.rs
+        - /products/gongzzang/crates/**/*.rs
+        - /products/gongzzang/apps/**/*.rs
+    patterns:
+      - pattern-either:
+          - pattern: $ROUTER.nest("$PATH", $TARGET)
+          - pattern: $ROUTER.nest_service("$PATH", $TARGET)
+          - pattern: $ROUTER.route_service("$PATH", $TARGET)
+          - patterns:
+              - pattern-inside: |
+                  static $NAME: $TYPE = "$PATH";
+                  ...
+              - pattern-either:
+                  - pattern: $ROUTER.nest($NAME, $TARGET)
+                  - pattern: $ROUTER.nest_service($NAME, $TARGET)
+                  - pattern: $ROUTER.route_service($NAME, $TARGET)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: (?s).*/(parcels?|buildings?|industrial[-_]complex(es)?|manufacturers?)(/|$|\?).*
+      - focus-metavariable: $TARGET

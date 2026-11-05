@@ -68,7 +68,7 @@
     }
   ],
   "required_ci_jobs_or_steps": [
-    "scripts/lefthook/foundation-ownership-boundary.sh",
+    "tools/semgrep/rules/gongzzang-catalog-boundary.yml",
     "cargo run -p repo-guard -- migration-version-prefixes",
     "gitleaks-action",
     "cargo-deny"

@@ -86,7 +86,7 @@ build/promote 수명주기는 소유하지 않는다.
 ## 7. 가드
 
 traffic/auth, Foundation event-receiver, PNU-anchor PBF marker 계약은 CI에서 강제한다(로컬 훅은 보조일 뿐
-판정이 아니다). Foundation 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`가 지키며 ADR-0149 이후
+판정이 아니다). Foundation 경계는 `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)가 지키며 ADR-0149 이후
 CI 전용이다(`.github/workflows/gongzzang-ci.yml` Repo guardrails). traffic/auth 정책 artifact는 registry에서
 `cargo run -p gongzzang-api --bin generate-traffic-auth-policy`로 다시 만들고, CI `traffic-auth-policy-drift`
 job이 drift를 막는다.

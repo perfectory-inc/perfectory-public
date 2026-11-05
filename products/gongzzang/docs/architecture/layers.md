@@ -110,5 +110,5 @@ ADR-0044가 중단한 Bazel 전환을 되돌렸다).
 ## 8. 가드
 
 계층 변경은 Foundation Platform 의존 경계를 유지해야 한다. Foundation Platform Catalog 경계는
-`scripts/lefthook/foundation-ownership-boundary.sh`(CI `gongzzang-ci.yml` `Repo guardrails`)가
+`tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙, CI `monorepo-guard` 의 `semgrep-rules`)가
 강제한다 — Foundation 소유 crate 재도입, Catalog 표 직접 쓰기, Catalog 변경 route를 막는다.

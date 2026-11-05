@@ -132,7 +132,7 @@ Foundation Platform Catalog 연동 HTTP는 `crates/foundation-platform-client`�
 도메인 crate에 의존하지 않는다.
 
 위반은 clippy `disallowed-types`(`clippy.toml`), `repo-guard capability-layout`,
-`scripts/lefthook/foundation-ownership-boundary.sh`가 CI에서 차단한다.
+`tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)가 CI에서 차단한다.
 
 ## 9. 테스트
 

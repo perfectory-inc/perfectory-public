@@ -47,3 +47,5 @@ migration으로 삭제하거나 이름을 바꾸지 않는다.
 
 - [ADR 0048](./0048-horizontal-platform-redefinition.md)
 - `../../../../platforms/foundation-platform/docs/adr/0021-adopt-horizontal-platform-redefinition.md`
+
+2026-11-06: 본문의 `scripts/lefthook/foundation-ownership-boundary.sh` → 지움. 같은 세 검사(Catalog crate 재도입, Catalog 표 직접 쓰기, Catalog 변경 route)는 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(가드 `scripts/guard/semgrep-rules.sh`, 루트 ADR-0422)이 맡는다. 결정은 그대로다.

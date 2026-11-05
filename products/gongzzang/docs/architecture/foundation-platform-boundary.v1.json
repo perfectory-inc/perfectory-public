@@ -354,7 +354,7 @@
   ],
   "allowed_transitional_dependencies": [],
   "allowed_transitional_source_imports": [],
-  "required_ci_gates": ["scripts/lefthook/foundation-ownership-boundary.sh"],
+  "required_ci_gates": ["tools/semgrep/rules/gongzzang-catalog-boundary.yml"],
   "allowed_legacy_schema_tokens": [],
   "forbidden_code_tokens": [
     "FOUNDATION_PLATFORM_DATABASE_URL",

@@ -142,7 +142,7 @@ ADR 승인 archive/lineage 계약이 필요하다.
 ## 10. Verification
 
 외부 호출 동작을 바꾼 뒤에도 Foundation Platform 의존성 경계와 platform-integration 정책을 유지한다.
-Foundation Platform Catalog 경계는 `scripts/lefthook/foundation-ownership-boundary.sh`와
+Foundation Platform Catalog 경계는 `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)와
 `docs/architecture/foundation-platform-boundary.v1.json` 계약이 CI에서 강제한다.
 
 회로 차단 crate와 영향을 받은 service에 Rust 검사를 실행한다.

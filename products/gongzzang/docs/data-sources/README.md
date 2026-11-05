@@ -51,7 +51,7 @@ Foundation Platform 이 credential·quota, 요청·응답 파싱, raw response l
 
 가드:
 
-- `scripts/lefthook/foundation-ownership-boundary.sh` — Catalog 도메인 crate 재도입, Catalog 표 직접 쓰기,
+- `tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙) — Catalog 도메인 crate 재도입, Catalog 표 직접 쓰기,
   Catalog 변경 route 를 거부한다(CI `gongzzang-ci.yml`).
 - `docs/architecture/foundation-platform-boundary.v1.json` — 경로 소유권 목록. `cargo run -p repo-guard -- capability-layout`
   이 도메인 crate 와 대조한다.

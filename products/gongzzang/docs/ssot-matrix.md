@@ -17,7 +17,7 @@ last_reviewed: 2026-11-05
 | 정보 종류 | 진짜 SSOT | 사본 (재구성 가능) | 지키는 검사 |
 |---------|---------|---------|---------|
 | **사용자 데이터** | PostgreSQL `"user"` 표 | Valkey 세션 | 자동 검사 없음 |
-| **Catalog 공공 API raw 응답** | Foundation Platform object lake / lineage store | Gongzzang legacy migration ledger only | `foundation-ownership-boundary.sh` (Catalog crate 재도입·Catalog 표 직접 쓰기 차단) |
+| **Catalog 공공 API raw 응답** | Foundation Platform object lake / lineage store | Gongzzang legacy migration ledger only | `gongzzang-catalog-boundary.yml` (Catalog crate 재도입·Catalog 표 직접 쓰기 차단) |
 | **Gongzzang-owned 외부 API raw 응답** | 소유 서비스별 archive/lineage contract | Valkey 캐시, 분석 마트 | 소유권 ADR (자동 검사 없음) |
 | **비즈니스 규칙** | Gongzzang-owned `crates/*-domain` Rust 코드 | 문서, 테스트 (둘 다 코드 따라옴) | repo-guard `capability-layout` (도메인 crate 배치·소유 선언). 도메인 밖 비즈니스 로직 검사는 없음 |
 | **API 계약** | Rust 코드 + utoipa (`services/gongzzang-api/src/bin/export-gongzzang-openapi.rs`) | `services/gongzzang-api/openapi.json`, TS 타입 (`packages/api-types/generated/`) | 재생성-diff CI 미도입 |
@@ -33,8 +33,8 @@ last_reviewed: 2026-11-05
 | **사용자 권한** | Zitadel + DB `"user".roles` | 클라이언트 캐시 | JWT 검증 (JWKS, `services/gongzzang-api/src/startup.rs`) |
 | **에러 형식** | `services/gongzzang-api/src/http/problem.rs` ([에러 형식](./conventions/error-format.md)) | `apps/web/lib/http/problem.ts` (손 사본) | 자동 대조 없음 |
 | **컨벤션** | `docs/conventions/*.md` | 도구 설정 (biome.json, clippy.toml) | 도구가 자동 강제 |
-| **Foundation Platform/Gongzzang 경계** | `docs/architecture/foundation-platform-boundary.v1.json` | ADR 0034, AGENTS.md 요약 | repo-guard `capability-layout` (도메인 crate 소유 선언만 읽음) + `foundation-ownership-boundary.sh` |
-| **Foundation Platform canonical Catalog tables** | Foundation Platform database | Gongzzang product references only | `foundation-ownership-boundary.sh` 의 Catalog 표 정규식. 계약의 `forbidden_canonical_catalog_tables` 목록은 읽는 코드가 없다 |
+| **Foundation Platform/Gongzzang 경계** | `docs/architecture/foundation-platform-boundary.v1.json` | ADR 0034, AGENTS.md 요약 | repo-guard `capability-layout` (도메인 crate 소유 선언만 읽음) + `gongzzang-catalog-boundary.yml` |
+| **Foundation Platform canonical Catalog tables** | Foundation Platform database | Gongzzang product references only | `gongzzang-catalog-boundary.yml` 의 Catalog 표 정규식. 계약의 `forbidden_canonical_catalog_tables` 목록은 읽는 코드가 없다 |
 | **Foundation Platform database connection** | Foundation Platform service runtime only | Gongzzang has no DB connection copy | 자동 검사 없음 |
 | **Foundation Platform HTTP env contract** | `.env.example` + `docs/architecture/foundation-platform-boundary.v1.json` | runtime env values | 루트 `environment-variable-naming` 가드 (env 이름) |
 | **Foundation Platform service auth contract** | `docs/architecture/foundation-platform-boundary.v1.json` + `FOUNDATION_PLATFORM_WORKLOAD_IDENTITY_TOKEN_FILE` / `FOUNDATION_PLATFORM_WEBHOOK_SECRET` runtime secrets | `.env.example` placeholders only | webhook secret: `apps/web/lib/env.ts` 스키마 + `apps/web/tests/integration/foundation-platform-events-handler.test.ts`; workload token 파일: 읽는 쪽은 `crates/foundation-platform-client`·서비스 `startup`/`main` (전용 검사 없음) |
@@ -90,11 +90,11 @@ packages/                    ← TS 라이브러리 (ui, api-types 생성물)
 | 4 | DB 스키마 수동 변경 | sqlx migrate + prepare 검사 (루트 `gongzzang-db-migrations.yml`·`gongzzang-sqlx-prepare.yml`) | CI |
 | 5 | 시크릿 git 커밋 | gitleaks (루트 `lefthook.yml` + `secret-scan.yml`) | pre-commit + CI |
 | 6 | 코드 스타일 위반 | rustfmt + Biome (루트 lefthook), CI `cargo xtask verify gongzzang`·`gongzzang-frontend.yml` | pre-commit + CI |
-| 7 | 의존성 방향 위반 | (Rust) repo-guard `capability-layout` + `foundation-ownership-boundary.sh`; (TS) 도구 **미도입** — 수동 준수 | CI |
+| 7 | 의존성 방향 위반 | (Rust) repo-guard `capability-layout` + `gongzzang-catalog-boundary.yml`; (TS) 도구 **미도입** — 수동 준수 | CI |
 | 8 | 파일 1500줄 초과 | `cargo run -p repo-guard -- file-line-limit` (gongzzang-ci Repo guardrails job), 루트 `file-line-limit.sh` | pre-push + CI |
 | 9 | 글로서리 외 도메인 용어 | **미도입** — 자동 grep 룰 없음, 리뷰에서 수동 준수 | (수동) |
 | 10 | TODO/HACK/XXX/TEMP 코드 | `scripts/lefthook/check-forbidden-implementation-markers.sh` + clippy `todo`·`unimplemented` deny | pre-push + CI |
-| 11 | Foundation Platform 소유 Catalog crate·Catalog 표 쓰기·Catalog 변경 route 재도입 | `foundation-ownership-boundary.sh` | CI |
+| 11 | Foundation Platform 소유 Catalog crate·Catalog 표 쓰기·Catalog 변경 route 재도입 | `gongzzang-catalog-boundary.yml` | CI |
 | 12 | Foundation Platform Catalog API consumer drift | catalog API consumer pin 테스트 (§1) | CI |
 
 Foundation Platform vector tile ETL·Catalog API drift observability·Catalog workflow 재도입과 legacy

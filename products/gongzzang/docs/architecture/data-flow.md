@@ -145,5 +145,5 @@ Important files:
 
 데이터 흐름 소유권이 바뀌어도 Foundation Platform 경계·의존성 경계·플랫폼 연동 정책·PNU 앵커 PBF
 마커 계약·traffic/auth 정책 레지스트리는 유지해야 한다. Catalog 경계는
-`scripts/lefthook/foundation-ownership-boundary.sh`와
+`tools/semgrep/rules/gongzzang-catalog-boundary.yml`(루트 Semgrep 규칙)와
 `docs/architecture/foundation-platform-boundary.v1.json` 계약으로 강제한다.

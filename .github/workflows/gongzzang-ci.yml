@@ -179,8 +179,6 @@ jobs:
         run: |
           bash scripts/lefthook/check-no-fake-pass.tests.sh
           bash scripts/lefthook/check-forbidden-implementation-markers.tests.sh
-      - name: Foundation ownership boundary
-        run: bash scripts/lefthook/foundation-ownership-boundary.sh
       - name: File size limit (repo-guard)
         run: cargo run -p repo-guard -- file-line-limit
       # The SP10 panel guards ran only in pre-commit until ADR-0149, and there they could not
