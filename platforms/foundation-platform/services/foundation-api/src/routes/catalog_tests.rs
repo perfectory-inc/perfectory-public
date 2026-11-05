@@ -1,19 +1,16 @@
 use super::{
     db_reference_marker_tile_enabled_from_vars, get_marker_tile, get_marker_tile_contract,
     get_vector_tile_manifest, industrial_complex_list_response, industrial_complex_response,
-    list_complex_blueprints, parcel_marker_anchor_rebuild_response, request_id_from_headers,
-    require_exact_manifest_action_path, vector_tile_artifact_response, ApiError, MarkerTilePath,
-    MarkerTileQuery, PARCEL_MARKER_ANCHOR_REBUILD_PATH, VECTOR_TILE_MANIFEST_PROMOTE_PATH,
-    VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
+    list_complex_blueprints, request_id_from_headers, require_exact_manifest_action_path,
+    vector_tile_artifact_response, ApiError, MarkerTilePath, MarkerTileQuery,
+    VECTOR_TILE_MANIFEST_PROMOTE_PATH, VECTOR_TILE_MANIFEST_ROLLBACK_PATH,
 };
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue};
 use axum::Json;
-use catalog_application::ports::ParcelMarkerAnchorRebuildReport;
 use catalog_domain::{
-    IndustrialComplex, IndustrialComplexKind, MarkerAnchorAlgorithm, VectorTileArtifact,
-    VectorTileLineage, ZoomRange,
+    IndustrialComplex, IndustrialComplexKind, VectorTileArtifact, VectorTileLineage, ZoomRange,
 };
 use chrono::Utc;
 use foundation_contracts::catalog::ManufacturerResponse;
@@ -51,38 +48,6 @@ fn request_id_from_headers_trims_empty_values() {
         request_id_from_headers(&headers),
         Some("rollback-req-1".to_owned())
     );
-}
-
-#[test]
-fn parcel_marker_anchor_rebuild_response_preserves_lineage_counts() {
-    let generation_run_id = Uuid::now_v7();
-    let response = parcel_marker_anchor_rebuild_response(ParcelMarkerAnchorRebuildReport {
-        generation_run_id,
-        source_snapshot_id: "iceberg:parcel-boundary-snapshot-20260522".to_owned(),
-        source_table: "silver.parcel_boundaries".to_owned(),
-        algorithm: MarkerAnchorAlgorithm::Polylabel,
-        algorithm_version: "postgis-st_maximuminscribedcircle-v1".to_owned(),
-        scanned_row_count: 42,
-        loaded_row_count: 42,
-        rejected_row_count: 0,
-        superseded_row_count: 7,
-    });
-
-    assert_eq!(response.generation_run_id, generation_run_id);
-    assert_eq!(
-        response.source_snapshot_id,
-        "iceberg:parcel-boundary-snapshot-20260522"
-    );
-    assert_eq!(response.source_table, "silver.parcel_boundaries");
-    assert_eq!(response.algorithm, "polylabel");
-    assert_eq!(
-        response.algorithm_version,
-        "postgis-st_maximuminscribedcircle-v1"
-    );
-    assert_eq!(response.scanned_row_count, 42);
-    assert_eq!(response.loaded_row_count, 42);
-    assert_eq!(response.rejected_row_count, 0);
-    assert_eq!(response.superseded_row_count, 7);
 }
 
 #[test]
@@ -140,16 +105,6 @@ fn manifest_action_paths_are_exact() {
     assert!(require_exact_manifest_action_path(
         "/catalog/v1/vector-tiles/manifest:anything",
         VECTOR_TILE_MANIFEST_PROMOTE_PATH,
-    )
-    .is_err());
-    assert!(require_exact_manifest_action_path(
-        PARCEL_MARKER_ANCHOR_REBUILD_PATH,
-        PARCEL_MARKER_ANCHOR_REBUILD_PATH,
-    )
-    .is_ok());
-    assert!(require_exact_manifest_action_path(
-        "/catalog/v1/parcel-marker-anchors:anything",
-        PARCEL_MARKER_ANCHOR_REBUILD_PATH,
     )
     .is_err());
 }

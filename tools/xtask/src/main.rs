@@ -627,10 +627,6 @@ const AREAS: &[Area] = &[
                     },
                     LaneTarget::Test {
                         package: "catalog-infrastructure",
-                        test: "parcel_marker_anchor_rebuild",
-                    },
-                    LaneTarget::Test {
-                        package: "catalog-infrastructure",
                         test: "spatial_tile_publication",
                     },
                     LaneTarget::Test {

@@ -11,9 +11,9 @@ use catalog_domain::{
     Blueprint, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
     ComplexMutation, ComplexNotice, DigitalTwinAsset, FileAsset, IndustrialComplex,
     IndustrialComplexDevelopmentStage, IndustrialComplexKind, IndustrialComplexLotSalesStatus,
-    IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerAnchorAlgorithm,
-    MarkerTileRequest, ParcelIndustryAssignment, RequestFingerprint, RequestFingerprintBuilder,
-    RuntimeTileLayer, RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
+    IndustrialComplexStatus, IndustryGroup, IndustryGroupMember, MarkerTileRequest,
+    ParcelIndustryAssignment, RequestFingerprint, RequestFingerprintBuilder, RuntimeTileLayer,
+    RuntimeTileLineage, RuntimeTilesUrlTemplate, ServingGeneration, SpatialLayer,
     ValidatedPmtilesArtifact, VectorTileBuildOutcome, VectorTileManifest,
     VectorTileRuntimeManifest,
 };
@@ -571,59 +571,6 @@ pub struct VectorTileArtifactPromotionCommand {
     pub flat_tile_total_bytes: u64,
     /// Source file assets used to build this layer.
     pub source_file_assets: Vec<VectorTileFileAssetCommand>,
-}
-
-/// Command for rebuilding PNU-backed parcel marker anchors from the approved `PostGIS` mirror.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ParcelMarkerAnchorRebuildCommand {
-    /// Approved Iceberg snapshot represented by the `PostGIS` mirror rows.
-    pub source_snapshot_id: String,
-    /// Canonical source table represented by the mirror rows.
-    pub source_table: String,
-    /// Anchor derivation algorithm.
-    pub algorithm: MarkerAnchorAlgorithm,
-    /// Stable algorithm implementation version.
-    pub algorithm_version: String,
-    /// Staff operator that requested the rebuild, when invoked interactively.
-    pub requested_by_staff_id: Option<StaffId>,
-    /// Optional caller-supplied request id used for trace correlation.
-    pub request_id: Option<String>,
-}
-
-/// Result of a parcel marker anchor rebuild.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ParcelMarkerAnchorRebuildReport {
-    /// Generation run persisted for traceability.
-    pub generation_run_id: Uuid,
-    /// Approved Iceberg snapshot represented by the rebuild.
-    pub source_snapshot_id: String,
-    /// Canonical source table represented by the rebuild.
-    pub source_table: String,
-    /// Anchor derivation algorithm.
-    pub algorithm: MarkerAnchorAlgorithm,
-    /// Stable algorithm implementation version.
-    pub algorithm_version: String,
-    /// Mirror rows inspected for this snapshot.
-    pub scanned_row_count: u64,
-    /// Anchor rows inserted or updated.
-    pub loaded_row_count: u64,
-    /// Mirror rows rejected before writing anchors.
-    pub rejected_row_count: u64,
-    /// Previously active anchors superseded for the same PNUs.
-    pub superseded_row_count: u64,
-}
-
-/// Mutation port for rebuilding derived parcel marker anchors.
-#[async_trait]
-pub trait ParcelMarkerAnchorRebuildPort: Send + Sync {
-    /// Rebuilds active parcel marker anchors from serving `PostGIS` mirror rows.
-    ///
-    /// # Errors
-    /// Returns `CatalogError` when source mirror validation or persistence fails.
-    async fn rebuild_parcel_marker_anchors(
-        &self,
-        command: ParcelMarkerAnchorRebuildCommand,
-    ) -> Result<ParcelMarkerAnchorRebuildReport, CatalogError>;
 }
 
 /// Command for creating or updating a Catalog industrial complex by official source code.

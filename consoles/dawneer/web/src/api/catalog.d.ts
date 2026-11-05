@@ -180,22 +180,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/catalog/v1/parcel-marker-anchors:rebuild": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["rebuildParcelMarkerAnchors"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/catalog/v1/parcels/{id}/industry-assignments": {
         parameters: {
             query?: never;
@@ -1017,49 +1001,6 @@ export interface components {
             right_serial_no: string;
             /** @description Room designation; empty when the provider row leaves it blank. */
             room_name?: string;
-        };
-        /** @description Request body for rebuilding parcel marker anchors from an approved mirror snapshot. */
-        ParcelMarkerAnchorRebuildRequest: {
-            /** @description Stable algorithm implementation version. */
-            algorithm_version: string;
-            /** @description Approved Iceberg snapshot represented by the `PostGIS` mirror rows. */
-            source_snapshot_id: string;
-        };
-        /** @description Response body returned after a parcel marker anchor rebuild finishes. */
-        ParcelMarkerAnchorRebuildResponse: {
-            /** @description Anchor derivation algorithm. */
-            algorithm: string;
-            /** @description Stable algorithm implementation version. */
-            algorithm_version: string;
-            /**
-             * Format: uuid
-             * @description Generation run persisted for traceability.
-             */
-            generation_run_id: string;
-            /**
-             * Format: int64
-             * @description Anchor rows inserted or updated.
-             */
-            loaded_row_count: number;
-            /**
-             * Format: int64
-             * @description Mirror rows rejected before writing anchors.
-             */
-            rejected_row_count: number;
-            /**
-             * Format: int64
-             * @description Mirror rows inspected for this snapshot.
-             */
-            scanned_row_count: number;
-            /** @description Approved Iceberg snapshot represented by the rebuild. */
-            source_snapshot_id: string;
-            /** @description Canonical source table represented by the rebuild. */
-            source_table: string;
-            /**
-             * Format: int64
-             * @description Previously active anchors superseded for the same PNUs.
-             */
-            superseded_row_count: number;
         };
         /**
          * @description One parcel's newest official land price assessment (root ADR-0085).
@@ -1988,29 +1929,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    rebuildParcelMarkerAnchors: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ParcelMarkerAnchorRebuildRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ParcelMarkerAnchorRebuildResponse"];
-                };
             };
         };
     };

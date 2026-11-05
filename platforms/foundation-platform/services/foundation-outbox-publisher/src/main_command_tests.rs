@@ -673,10 +673,6 @@ fn remaining_commands_are_explicit() -> anyhow::Result<()> {
         ),
         ("publish-outbox-once", Command::PublishOutboxOnce),
         (
-            "rebuild-parcel-marker-anchors",
-            Command::RebuildParcelMarkerAnchors,
-        ),
-        (
             "rebuild-postgis-parcel-boundary-mirror-national",
             Command::RebuildPostgisParcelBoundaryMirrorNational,
         ),

@@ -6,13 +6,12 @@ use std::time::Duration;
 
 use catalog_application::{
     ports::{JobSwitchBoard, MapEditStore, RuntimeManifestPublicationCapability},
-    AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RebuildParcelMarkerAnchors,
-    RecordOperatorAction, RegisterIndustrialComplex, RollbackVectorTileManifest,
-    UpdateIndustrialComplex,
+    AppendMapEdit, ArchiveIndustrialComplex, PromoteVectorTileManifest, RecordOperatorAction,
+    RegisterIndustrialComplex, RollbackVectorTileManifest, UpdateIndustrialComplex,
 };
 use catalog_infrastructure::{
     FileJobSwitchBoard, PgCatalogRepository, PgCatalogUnitOfWork, PgOperatorActionLedger,
-    PgParcelMarkerAnchorRebuilder, UnconfiguredJobSwitchBoard,
+    UnconfiguredJobSwitchBoard,
 };
 
 /// Where the host's operator switches live inside the container (root ADR-0282 §3).
@@ -290,7 +289,6 @@ pub struct AppState {
     pub archive_complex: ArchiveIndustrialComplex,
     pub promote_vector_tile_manifest: PromoteVectorTileManifest,
     pub rollback_vector_tile_manifest: RollbackVectorTileManifest,
-    pub rebuild_parcel_marker_anchors: RebuildParcelMarkerAnchors,
     pub append_map_edit: AppendMapEdit,
     pub record_lakehouse_batch_run: RecordLakehouseBatchRun,
     pub register_lakehouse_object_artifact: RegisterLakehouseObjectArtifact,
@@ -763,10 +761,6 @@ impl AppState {
         let archive_complex = ArchiveIndustrialComplex::new(catalog_uow.clone());
         let promote_vector_tile_manifest = PromoteVectorTileManifest::new(catalog_uow.clone());
         let rollback_vector_tile_manifest = RollbackVectorTileManifest::new(catalog_uow);
-        let parcel_marker_anchor_rebuilder =
-            Arc::new(PgParcelMarkerAnchorRebuilder::new(pool.clone()));
-        let rebuild_parcel_marker_anchors =
-            RebuildParcelMarkerAnchors::new(parcel_marker_anchor_rebuilder);
         let lakehouse_batch_audit = Arc::new(PgLakehouseBatchRunAudit::new(pool.clone()));
         let record_lakehouse_batch_run = RecordLakehouseBatchRun::new(lakehouse_batch_audit);
         let register_lakehouse_object_artifact =
@@ -802,7 +796,6 @@ impl AppState {
             archive_complex,
             promote_vector_tile_manifest,
             rollback_vector_tile_manifest,
-            rebuild_parcel_marker_anchors,
             // Fail closed like publication below: without a configured store an edit is refused,
             // never silently dropped.
             append_map_edit: AppendMapEdit::new(Arc::new(UnconfiguredMapEditStore)),

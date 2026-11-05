@@ -36,9 +36,6 @@ pub mod promote_tile_layer_static;
 /// Use case for promoting the active static vector tile manifest.
 pub mod promote_vector_tile_manifest;
 
-/// Use case for rebuilding PNU-backed parcel marker anchors.
-pub mod rebuild_parcel_marker_anchors;
-
 /// Recording an operator switch of a scheduled job (root ADR-0282).
 pub mod record_operator_action;
 
@@ -66,9 +63,6 @@ pub use complex_search::{
 pub use mark_tile_layer_dynamic::MarkTileLayerDynamic;
 pub use promote_tile_layer_static::PromoteTileLayerStatic;
 pub use promote_vector_tile_manifest::{PromoteVectorTileManifest, PromoteVectorTileManifestInput};
-pub use rebuild_parcel_marker_anchors::{
-    RebuildParcelMarkerAnchors, RebuildParcelMarkerAnchorsInput,
-};
 pub use record_operator_action::{
     RecordOperatorAction, RecordOperatorActionError, RecordOperatorActionInput,
 };

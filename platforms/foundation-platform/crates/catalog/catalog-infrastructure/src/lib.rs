@@ -4,7 +4,6 @@
 pub mod industrial_complex_transaction;
 pub mod job_switch_board;
 pub mod operator_action_ledger;
-pub mod parcel_marker_anchor_rebuild;
 mod row_map;
 pub mod sqlx_repository;
 pub mod unit_of_work;
@@ -15,6 +14,5 @@ pub use industrial_complex_transaction::{
 };
 pub use job_switch_board::{FileJobSwitchBoard, UnconfiguredJobSwitchBoard};
 pub use operator_action_ledger::PgOperatorActionLedger;
-pub use parcel_marker_anchor_rebuild::PgParcelMarkerAnchorRebuilder;
 pub use sqlx_repository::PgCatalogRepository;
 pub use unit_of_work::PgCatalogUnitOfWork;
