@@ -205,7 +205,7 @@ Linux bind mount 는 host directory 가 root 소유로 자동 생성될 수 있�
 호스트의 등록 작업은 이것을 의존 컨테이너로 띄우지 않고 `scripts/ops/admitted-writer-runtime.sh` 의
 `lakehouse_spark_run` 으로 검사와 작업을 각각 `run --rm --no-deps` 일회성 컨테이너로 실행한다. 고정 이름
 검사 컨테이너를 두 작업이 함께 만들다 by-PNU bake 가 실패했다(2026-10-29,
-`scripts/guard/batch-containers-are-run-scoped.sh`).
+`tools/semgrep/rules/batch-containers.yml`).
 
 Bronze -> Silver 변환 contract smoke:
 

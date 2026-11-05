@@ -1,0 +1,67 @@
+# Every container a host job starts is its own: no fixed name two jobs can both create.
+#
+# Prevents: on 2026-10-29 at 07:41Z the by-PNU bake's parcel-forest-ledger lane failed ("the change
+# set job exited 1; nothing was published"). Its Spark run started compose.lakehouse.yml's write check
+# (lakehouse-target-init) as a dependency under the service's fixed name, which the deploy's lakehouse
+# migration had created two seconds earlier, so Docker refused the bake. Each job removed the name
+# before starting (`docker rm ... || true`), which only moved the race; the by-PNU lanes run as
+# separate jobs at once (root ADR-0303, ADR-0333).
+#
+# The Compose half (a batch service states no container_name) is the Rego in
+# tools/conftest/compose/host.rego. These rules read the host's job scripts: they start
+# compose.lakehouse.yml only through admitted-writer-runtime.sh's lakehouse_spark_run, which runs the
+# write check and the job as `run --rm --no-deps`, and they never name a container themselves.
+# Comment lines explain the incident, so they are not commands.
+rules:
+  - id: lakehouse-compose-starts-through-lakehouse-spark-run
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A host job starts compose.lakehouse.yml itself; use lakehouse_spark_run
+      (admitted-writer-runtime.sh), which runs the write check and the job as `run --rm --no-deps`.
+    paths:
+      include:
+        - /platforms/foundation-platform/scripts/ops/*.sh
+      exclude:
+        - /platforms/foundation-platform/scripts/ops/admitted-writer-runtime.sh
+    patterns:
+      - pattern-regex: compose\.lakehouse\.yml
+      - pattern-not-regex: "#[^\n]*"
+
+  - id: lakehouse-spark-run-creates-no-dependency-container
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      lakehouse_spark_run must run lakehouse-target-init and the job as `run --rm --no-deps`, or
+      `run` creates the dependency under the service's one name.
+    paths:
+      include:
+        - /platforms/foundation-platform/scripts/ops/admitted-writer-runtime.sh
+    pattern-either:
+      - pattern-regex: (?ms)^lakehouse_spark_run\(\) \{$(?!(?:(?!^\}$).)*run --rm --no-deps)(?:(?!^\}$).)*^\}$
+      - pattern-regex: (?ms)^lakehouse_spark_run\(\) \{$(?!(?:(?!^\}$).)*lakehouse-target-init)(?:(?!^\}$).)*^\}$
+
+  - id: host-jobs-remove-no-container-by-a-fixed-name
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A host job removes a container by a fixed name; a batch container takes the one-off name
+      `compose run` gives it, so there is nothing to remove first.
+    paths:
+      include:
+        - /platforms/foundation-platform/scripts/ops/*.sh
+    patterns:
+      - pattern-regex: \bdocker\s+(container\s+)?rm\s+(-f\s+)?[A-Za-z0-9]
+      - pattern-not-regex: "#[^\n]*"
+
+  - id: host-jobs-start-no-container-under-a-fixed-name
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A host job starts a container under a fixed --name; build the name from the run ($...).
+    paths:
+      include:
+        - /platforms/foundation-platform/scripts/ops/*.sh
+    patterns:
+      - pattern-regex: '\bdocker\s+(run|create)\b[^\n]*--name[ =](?![^\s\x5c]*\$)[^\s\x5c]+'
+      - pattern-not-regex: "#[^\n]*"

@@ -142,7 +142,7 @@ scripts/guard/build-coupling-baseline.sh,310,true,git-hook,xtask,Run directly by
 scripts/guard/by-pnu-document-records-are-append-only-self-test.sh,57,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/by-pnu-document-records-are-append-only.sh,30,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/check-container-runtime-policy.sh,560,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-container-runtime-policy.sh,513,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-workflow-policy.sh,107,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/ci-time-budget-self-test.sh,10,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
@@ -157,7 +157,7 @@ scripts/guard/document-contract-markers.sh,13,true,ci,xtask,Guard run by monorep
 scripts/guard/environment-variable-naming-self-test.sh,168,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/environment-variable-naming.sh,286,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/every-container-has-a-memory-cap-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/every-container-has-a-memory-cap.sh,465,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/every-container-has-a-memory-cap.sh,468,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/every-table-declares-its-load-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/every-table-declares-its-load.sh,77,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/foundation-ci-scope-self-test.sh,9,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI

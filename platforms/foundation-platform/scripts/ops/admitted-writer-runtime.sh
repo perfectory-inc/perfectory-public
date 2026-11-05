@@ -94,7 +94,7 @@ fi
 # Compose names <project>-<service>-run-<id>, so jobs started together share no container. The check
 # used to start as Spark's dependency under one fixed name for every job, and the by-PNU bake failed
 # when the lakehouse migration had just created it (2026-10-29; guard
-# scripts/guard/batch-containers-are-run-scoped.sh). The caller's FOUNDATION_PLATFORM_LAKEHOUSE_*
+# tools/semgrep/rules/batch-containers.yml). The caller's FOUNDATION_PLATFORM_LAKEHOUSE_*
 # assignments before the call reach both containers.
 #   lakehouse_spark_run <compose project> [run options] <service> <command...>
 lakehouse_spark_run() {

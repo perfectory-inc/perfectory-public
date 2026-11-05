@@ -20,20 +20,15 @@ import json
 import pathlib
 import re
 import shlex
-import shutil
 import subprocess
 import sys
-import tempfile
 
 
 ROOT = pathlib.Path(sys.argv[1]).resolve()
 GUARD_ROOT = pathlib.Path(sys.argv[2]).resolve()
 COMPOSE_POLICY = GUARD_ROOT / "tools" / "conftest" / "compose"
-# Env files are never read, so no local secret reaches the model, and paths stay as written.
-COMPOSE_CONFIG = (
-    "config", "--no-interpolate", "--no-env-resolution", "--no-path-resolution", "--format", "json",
-)
-WORK = pathlib.Path(tempfile.mkdtemp(prefix="container-runtime-policy-"))
+sys.path.insert(0, str(GUARD_ROOT / "scripts" / "ci"))
+import compose_model  # noqa: E402  (the guard's own repository, also for a fixture root)
 HEX64 = re.compile(r"[0-9a-f]{64}")
 IMAGE_VARIABLE = re.compile(r"\$(?:\{)?([A-Z][A-Z0-9_]*IMAGE[A-Z0-9_]*)(?:\})?$")
 IMAGE_WITH_DEFAULT = re.compile(
@@ -194,68 +189,27 @@ def contract_compose_owner_is_valid(path: str, text: str) -> bool:
     )
 
 
-def pinned_tool(tool: str, member: str | None) -> pathlib.Path:
-    """One pinned release binary (tools/pinned-artifacts.json), fetched once per run."""
-    binary = WORK / (f"{tool}.exe" if sys.platform == "win32" else tool)
-    if not binary.exists():
-        command = [sys.executable, str(GUARD_ROOT / "scripts/ci/fetch_pinned.py"), "tool", tool,
-                   "--output", str(binary)]
-        if member:
-            command += ["--member", member]
-        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, timeout=300)
-        binary.chmod(0o755)
-    return binary
-
-
-def conftest_binary() -> pathlib.Path:
-    return pinned_tool("conftest", "conftest.exe" if sys.platform == "win32" else "conftest")
-
-
-def compose_binary() -> pathlib.Path:
-    # The parser is part of the policy, so it is pinned too (tools/docker-compose.env).
-    return pinned_tool("docker-compose", None)
-
-
-def conftest_failures(path: str, namespace: str, target: pathlib.Path, data: pathlib.Path | None) -> None:
-    command = [str(conftest_binary()), "test", "--policy", str(COMPOSE_POLICY), "--namespace",
-               namespace, "--output", "json", "--no-color"]
-    if data is not None:
-        command += ["--data", str(data)]
-    completed = subprocess.run([*command, str(target)], capture_output=True, text=True, timeout=60)
+def judge(path: str, namespace: str, target: pathlib.Path, data: dict | None) -> None:
     try:
-        results = json.loads(completed.stdout)
-    except json.JSONDecodeError:
-        fail(path, 0, f"conftest could not judge it: {completed.stderr.strip()[:300]}")
-        return
-    for result in results:
-        for failure in result.get("failures") or []:
-            fail(path, 0, failure["msg"])
-    if completed.returncode not in (0, 1):
-        fail(path, 0, f"conftest exited {completed.returncode}: {completed.stderr.strip()[:300]}")
+        for message in compose_model.judge(COMPOSE_POLICY, namespace, target, data):
+            fail(path, 0, message)
+    except compose_model.ComposeError as error:
+        fail(path, 0, str(error))
 
 
 def check_compose(path: str, text: str) -> None:
     source = ROOT / path
-    conftest_failures(path, "compose_source", source, None)
-    normalized = subprocess.run(
-        [str(compose_binary()), "--file", str(source), *COMPOSE_CONFIG],
-        capture_output=True, text=True, timeout=120,
-    )
-    if normalized.returncode != 0:
-        detail = (normalized.stderr.strip().splitlines() or ["no output"])[-1]
-        fail(path, 0, f"compose config refused it: {detail[:300]}")
+    judge(path, "compose_source", source, None)
+    try:
+        model = compose_model.write_model(path, compose_model.model([source]))
+    except compose_model.ComposeError as error:
+        fail(path, 0, str(error))
         return
-    stem = re.sub(r"[^A-Za-z0-9_.-]", "_", path)
-    model = WORK / f"{stem}.json"
-    model.write_text(normalized.stdout, encoding="utf-8")
     owned = bool(CONTRACT_COMPOSE_OWNER.search(text))
-    context = {"context": {
+    judge(path, "compose", model, {"context": {
         "contract_images": sorted(contract_images),
         "contract_owner_valid": owned and contract_compose_owner_is_valid(path, text),
-    }}
-    data = WORK / f"{stem}.context.json"
-    data.write_text(json.dumps(context), encoding="utf-8")
-    conftest_failures(path, "compose", model, data)
+    }})
 
 
 def is_compose_path(relative: str) -> bool:
@@ -547,11 +501,10 @@ for relative in files:
 
 # Each Compose file is normalized and judged on its own; `docker compose config` dominates the run.
 if compose_files:
-    conftest_binary()
-    compose_binary()
+    compose_model.conftest_binary()
+    compose_model.compose_binary()
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         list(pool.map(lambda entry: check_compose(*entry), compose_files))
-shutil.rmtree(WORK, ignore_errors=True)
 if errors:
     for error in errors:
         print(f"FAIL container-runtime-policy: {error}", file=sys.stderr)
