@@ -196,3 +196,47 @@ tests:
             exp_annotations:
               summary: 호스트 자원 지표(cAdvisor·node-exporter 수집기)를 30분째 못 읽어요 — 디스크가 차거나 메모리가 모자라도 알림이 안 가요
               runbook: docs/runbooks/host-resources.md
+
+  # 2026-10-28..11-05: the 공매 lane served a manifest 191 hours old against its 48-hour budget.
+  # The stale lane fires with the lane named; a lane inside its budget stays quiet.
+  - interval: 1h
+    input_series:
+      - series: 'foundation_by_pnu_served_manifest_age_seconds{lane="parcel-public-auction"}'
+        values: '687600x3'
+      - series: 'foundation_by_pnu_serving_freshness_budget_seconds{lane="parcel-public-auction"}'
+        values: '172800x3'
+      - series: 'foundation_by_pnu_served_manifest_age_seconds{lane="parcel"}'
+        values: '3600x3'
+      - series: 'foundation_by_pnu_serving_freshness_budget_seconds{lane="parcel"}'
+        values: '172800x3'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: FoundationByPnuServingStale
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: serving-freshness
+              lane: parcel-public-auction
+            exp_annotations:
+              summary: 'parcel-public-auction 레인 화면이 7d 23h 0m 0s 전에 발행된 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@parcel-public-auction.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
+              runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+
+  # A monitor that stopped measuring (its timer gone) is said, not taken for a fresh lane.
+  - interval: 1h
+    input_series:
+      - series: 'foundation_by_pnu_serving_monitor_timestamp_seconds{lane="parcel"}'
+        values: '0x5'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: FoundationByPnuServingMonitorSilent
+        exp_alerts: []
+      - eval_time: 4h
+        alertname: FoundationByPnuServingMonitorSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+              lane: parcel
+            exp_annotations:
+              summary: 'parcel 레인의 서빙 모니터가 4h 0m 0s째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@parcel.timer 를 보세요'
+              runbook: docs/runbooks/parcel-by-pnu-serving-bake.md

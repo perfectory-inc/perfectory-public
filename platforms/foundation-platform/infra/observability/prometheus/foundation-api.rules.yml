@@ -380,6 +380,33 @@ groups:
   # timed out between 10-20 and 10-28: their cleanup found the container Docker was already removing
   # (`--rm`) and stopped before the network. At 31 every job's next project fails to start. The asset
   # reconciler counts them every five minutes (docker-networks.prom).
+  # What users see, lane by lane (root ADR-0306): the served manifest's age against its freshness
+  # budget, as the hourly serving monitor measured it (scripts/ops/by-pnu-serving-monitor.sh). A
+  # failed monitor unit alone said "serving-monitor 실패" once and once a day: 2026-10-28..11-05 the
+  # 공매 lane served its pre-photo 10-28 manifest for 191 hours (every round `photos: []`) and from
+  # 11-04 every served-universe lane stood still, among some thirty open notices, and nobody acted.
+  - name: foundation-by-pnu-serving
+    rules:
+      - alert: FoundationByPnuServingStale
+        expr: >-
+          foundation_by_pnu_served_manifest_age_seconds
+          > on(lane) foundation_by_pnu_serving_freshness_budget_seconds
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '{{ $labels.lane }} 레인 화면이 {{ humanizeDuration $value }} 전에 발행된 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@{{ $labels.lane }}.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
+          runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+      - alert: FoundationByPnuServingMonitorSilent
+        # The monitor runs hourly; three missed runs and the age above is no longer measured.
+        expr: time() - foundation_by_pnu_serving_monitor_timestamp_seconds > 3 * 3600
+        labels:
+          severity: ticket
+          service: serving-freshness
+        annotations:
+          summary: '{{ $labels.lane }} 레인의 서빙 모니터가 {{ humanizeDuration $value }}째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
+          runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+
   - name: foundation-docker-networks
     rules:
       - record: docker_address_pool_used_ratio

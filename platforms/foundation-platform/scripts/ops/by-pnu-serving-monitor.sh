@@ -17,4 +17,17 @@ by_pnu_lane_known "${LANE}" \
 PREFIX="$(by_pnu_lane_env_prefix "${LANE}")"
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 export "${PREFIX}_OUTPUT_STORAGE_DRIVER=r2"
-exec "${PUBLISHER_BIN}" "monitor-${LANE}-by-pnu-serving"
+
+# Root ADR-0306: the served manifest's age and the budget it is held to, as node-exporter textfile
+# series, so FoundationByPnuServingStale says in Slack that users see old data, lane by lane, and
+# reminds every four hours. A failed unit alone said only "serving-monitor 실패": 2026-10-28..11-05
+# the 공매 lane served a pre-photo manifest for 191 hours among some thirty open notices.
+METRICS_DIR="${FOUNDATION_BY_PNU_SERVING_MONITOR_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
+report="$(mktemp)"
+trap 'rm -f "${report}"' EXIT
+export "${PREFIX}_MONITOR_REPORT_PATH=${report}"
+rc=0
+"${PUBLISHER_BIN}" "monitor-${LANE}-by-pnu-serving" || rc=$?
+python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/serving_freshness_metrics.py" "${report}" "${LANE}" "${METRICS_DIR}" \
+  || echo "by-pnu-serving-monitor ${LANE}: freshness metrics not written" >&2 # never fails the monitor
+exit "${rc}"

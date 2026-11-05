@@ -31,6 +31,11 @@ pub struct SectionPacksState {
     pub format_version: u16,
     pub unit_prefix_length: usize,
     pub document_schema_version: String,
+    /// The schema registry revision the base's documents were baked under (root ADR-0336), when
+    /// the subject is registered and the base was published since this record (2026-11-06). Absent:
+    /// unknown, which explains no change set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_schema_revision: Option<u32>,
     pub gold_table: String,
     /// The Gold snapshot whose changes the packs fully reflect: the next change set of the pack
     /// lane is computed against it.
@@ -87,6 +92,10 @@ pub struct PackPatch {
     /// served as they are until the next whole generation (root ADR-0320). Absent: the base's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_schema_version: Option<String>,
+    /// The schema registry revision the patch's documents were baked under (root ADR-0336).
+    /// Absent: unknown (a patch published before this record), never "the base's".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_schema_revision: Option<u32>,
 }
 
 /// The evidence files the first pack publish was gated on, by checksum.
@@ -152,6 +161,21 @@ impl SectionPacksState {
                 self.patches
                     .iter()
                     .map(|patch| self.document_schema_of(patch)),
+            )
+            .collect()
+    }
+
+    /// The registry revision of every document set the lane serves: the base's and every listed
+    /// patch's, `None` where it was not recorded (root ADR-0336). Two revisions of one major share
+    /// one `schema_version`, so only this says an additive revision re-rendered the documents —
+    /// 2026-10-29..11-04 the 공매 lane's revision 2 -> 3 rewrote every document under the same
+    /// name and the bake refused the change set as unexplained for six days.
+    pub fn served_document_schema_revisions(&self) -> Vec<Option<u32>> {
+        std::iter::once(self.document_schema_revision)
+            .chain(
+                self.patches
+                    .iter()
+                    .map(|patch| patch.document_schema_revision),
             )
             .collect()
     }
@@ -335,6 +359,7 @@ pub mod tests {
             format_version: section_pack_policy()?.format_version,
             unit_prefix_length: section_pack_policy()?.unit_prefix_length,
             document_schema_version: "doc.v2".to_owned(),
+            document_schema_revision: None,
             gold_table: "gold.building_panel".to_owned(),
             reflected_gold_iceberg_snapshot_id: "999990000000000001".to_owned(),
             reflected_gold_snapshot_tag: None,
@@ -358,6 +383,33 @@ pub mod tests {
         })
     }
 
+    #[test]
+    fn served_revisions_name_the_base_and_every_patch_and_an_unrecorded_one_stays_unknown(
+    ) -> anyhow::Result<()> {
+        let mut block = state(1)?;
+        block.document_schema_revision = Some(2);
+        let mut newer = patch(2, &["11110"]);
+        newer.document_schema_revision = Some(3);
+        block.patches = vec![newer, patch(1, &["11110"])];
+        assert_eq!(
+            block.served_document_schema_revisions(),
+            vec![Some(2), Some(3), None]
+        );
+        // A manifest written before the record reads as unknown, and a record round-trips.
+        let written = serde_json::to_value(&block)?;
+        assert_eq!(written["document_schema_revision"], 2);
+        assert!(written["patches"][1]
+            .get("document_schema_revision")
+            .is_none());
+        let mut legacy = written.clone();
+        if let Some(fields) = legacy.as_object_mut() {
+            fields.remove("document_schema_revision");
+        }
+        let read: SectionPacksState = serde_json::from_value(legacy)?;
+        assert_eq!(read.document_schema_revision, None);
+        Ok(())
+    }
+
     pub fn patch(number: u64, units: &[&str]) -> PackPatch {
         PackPatch {
             patch: number,
@@ -366,6 +418,7 @@ pub mod tests {
             deleted: 1,
             units: units.iter().map(|unit| (*unit).to_owned()).collect(),
             document_schema_version: None,
+            document_schema_revision: None,
         }
     }
 

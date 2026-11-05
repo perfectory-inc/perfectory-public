@@ -32,3 +32,5 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
+# The served manifest's age, for FoundationByPnuServingStale (scripts/ops/by-pnu-serving-monitor.sh).
+ReadWritePaths=/var/lib/foundation-jobs/metrics
