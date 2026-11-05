@@ -1,0 +1,31 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "shape-ledger-check",
+  "jobs": [
+    {
+      "id": "shape_ledger_check",
+      "scope": "full",
+      "full_reason": "It reads the catalog metadata and the $files and $snapshots metadata tables of every table, no data file.",
+      "full_cost": "measured from the 2026-10-29 journal: 37 s a run (12:36:12-12:36:49 UTC), no data file read.",
+      "full_tracked_by": "justified permanently: a production shape is a whole-catalog fact, and metadata costs no row",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
+      "systemd_service": "foundation-shape-ledger-check.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "30 12 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 15,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-10-16T00:00:00Z",
+      "started_once_after_deploy": true
+    }
+  ]
+}

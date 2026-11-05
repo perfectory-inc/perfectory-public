@@ -1,0 +1,84 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-permit-demolition-loss",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_permit_demolition_loss",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 철거멸실관리대장 lane `building-permit-demolition-loss` (root ADR-0169 ②, ADR-0397): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_demolition_loss already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in one bucket and append to main only the rows it has not held and a removal marker per row it no longer holds (each row keyed by its SHA-256) (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-permit-demolition-loss.service",
+      "check_service": "foundation-silver-refresh-plan@building-permit-demolition-loss.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-permit-demolition-loss"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-04T00:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-permit-demolition-loss",
+      "type": "silver_table",
+      "title": "건축인허가 철거멸실관리대장",
+      "description": "철거·부분철거·멸실 신고마다 한 행: 지번, 철거멸실구분, 철거된 건물의 주용도·구조. 건물 수명 사건열의 끝이다. 제공자 키가 비어 행 글자의 SHA-256 이 키다. 원문 34칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0397).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-permit-demolition-loss-source-objects.json",
+        "docs/adr/0397-a-demolition-or-loss-report-lands-in-silver-keyed-by-its-own-content.md"
+      ],
+      "table_name": "silver.building_permit_demolition_loss",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_permit_demolition_loss"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-permit-demolition-loss",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-permit-demolition-loss-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_permit_demolition_loss"
+      ],
+      "description": "철거멸실관리대장(mart_kcy_07) 34칸을 행마다 새 행·사라진 행만 append-only Silver 로 쌓는다(루트 ADR-0397).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; a demolished building's 지번 often names a parcel since merged or split, which the consumer carries to the current pnu through the place-identity resolver (ADR-0288, ADR-0397)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_permit_demolition_loss": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

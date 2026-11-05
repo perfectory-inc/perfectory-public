@@ -1,0 +1,28 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "catalog-read-api-smoke",
+  "assets": [
+    {
+      "id": "catalog-read-api-smoke",
+      "type": "serving_surface",
+      "title": "카탈로그 조회 API",
+      "description": "산업단지를 조회한다. 빈 속성은 빈 상태로 반환한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "surface_kind": "api"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "serving-industrial-complex",
+      "to": "catalog-read-api-smoke",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-api/src/routes/mod.rs"
+      ]
+    }
+  ]
+}

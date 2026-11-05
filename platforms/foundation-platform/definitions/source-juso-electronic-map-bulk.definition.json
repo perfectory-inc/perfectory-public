@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-juso-electronic-map-bulk",
+  "assets": [
+    {
+      "id": "source-juso-electronic-map-bulk",
+      "type": "source_group",
+      "title": "주소정보 전자지도",
+      "description": "받은 객체 0, 수집기 없음. 제공처(주소기반산업지원서비스)가 이용 신청·승인 뒤에만 내려 주므로 사장의 신청이 먼저다. 승인 뒤 첫 판을 실측한 PR 이 수집기를 만든다. 건물 도형은 건물관리번호 앞 19자리로 PNU 에 붙으며 지금 연결 대상이다(루트 ADR-0355).",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0355-the-building-hub-juso-map-and-other-bulk-sources-are-judged-one-by-one-and-connected-in-order.md"
+      ],
+      "endpoint_catalog_group": "juso_electronic_map_bulk",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

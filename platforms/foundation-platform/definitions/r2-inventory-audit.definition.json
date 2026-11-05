@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "r2-inventory-audit",
+  "assets": [
+    {
+      "id": "r2-inventory-audit",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "객체 저장소 재고 감사",
+      "description": "저장 공간의 객체 재고와 삭제 후보를 확인한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/r2-inventory-audit.md",
+      "evidence_refs": [
+        "scripts/r2"
+      ],
+      "surface_kind": "r2_inventory"
+    }
+  ]
+}

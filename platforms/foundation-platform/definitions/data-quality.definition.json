@@ -1,0 +1,28 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "data-quality",
+  "jobs": [
+    {
+      "id": "data_quality",
+      "scope": "skip-if-unchanged",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Run the data contracts' executable checks (allowed values, schema) against the lakehouse and report each result to the data catalog (root ADR-0117 §6, ADR-0123).",
+      "systemd_service": "foundation-data-quality.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "20 7 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 30,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-10-01T14:51:40Z",
+      "started_once_after_deploy": true
+    }
+  ]
+}

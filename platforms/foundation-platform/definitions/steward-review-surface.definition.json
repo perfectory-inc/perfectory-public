@@ -1,0 +1,29 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "steward-review-surface",
+  "assets": [
+    {
+      "id": "steward-review-surface",
+      "type": "serving_surface",
+      "title": "스튜어드 검토 화면",
+      "description": "사람이 검토 목록의 필지마다 후보와 근거를 보고 결정한다. 결정은 evidence_kind=steward 계보 행이 된다(루트 ADR-0113 10항, ADR-0103 4항).",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "gold-lineage-review-queue",
+      "to": "steward-review-surface",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
+      ]
+    }
+  ]
+}

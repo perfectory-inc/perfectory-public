@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "grafana-lakehouse-dashboard",
+  "assets": [
+    {
+      "id": "grafana-lakehouse-dashboard",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "운영 관측 화면",
+      "description": "레이크하우스와 이벤트 대기열 지표를 표시한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/observability"
+      ],
+      "surface_kind": "dashboard_panel"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-tile-release",
+  "assets": [
+    {
+      "id": "serving-tile-release",
+      "type": "serving_group",
+      "title": "타일 릴리스",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "catalog.vector_tile_release",
+        "catalog.vector_tile_release_layer",
+        "catalog.vector_tile_release_source_file_asset",
+        "catalog.vector_tile_publication_unit"
+      ]
+    }
+  ]
+}

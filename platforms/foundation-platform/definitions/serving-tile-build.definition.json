@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-tile-build",
+  "assets": [
+    {
+      "id": "serving-tile-build",
+      "type": "serving_group",
+      "title": "타일 빌드·갱신",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "catalog.vector_tile_build_job",
+        "catalog.vector_tile_refresh_observation"
+      ]
+    }
+  ]
+}

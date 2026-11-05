@@ -1,0 +1,206 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "admin-boundary-release",
+  "jobs": [
+    {
+      "id": "admin_boundary_release",
+      "scope": "skip-if-unchanged",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the admin tiles (root ADR-0236; scripts/ops/admin-boundary-release.sh): read the round from the members of the boundary ZIPs the daily sweep collects, and unless silver.administrative_boundaries already holds it (`unchanged`), convert that round's ZIPs, merge them against the official code list, append the snapshot (a renumbered dong keeps its id), publish the admin place-id release and rebake the admin tiles with the hourly fold's own script. A round missing a sido is waited for (`unchanged`), not failed. Started when a source_sweep run lands new files, and daily as the fallback; it holds every spark slot, so it never runs beside a fold.",
+      "systemd_service": "foundation-admin-boundary-release.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/map-edit-fold"
+      ],
+      "schedule": "30 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 120,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-administrative-boundaries",
+        "reference-legal-dong-code-change-to-silver-administrative-boundaries",
+        "silver-administrative-boundaries-to-gold-place-id-registry",
+        "silver-administrative-boundaries-to-gold-place-id-bridge",
+        "silver-administrative-boundaries-to-gold-place-id-changelog"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-14T11:40:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-administrative-boundaries",
+      "type": "silver_table",
+      "title": "행정경계(읍면동)",
+      "description": "수집한 읍면동 경계를 원천 스냅숏 단위로 덧붙인다. id 는 법정동 코드의 UUIDv5 라 레이크하우스가 정본이다(루트 ADR-0112).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "silver.administrative_boundaries",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.administrative_boundaries"
+        }
+      ]
+    },
+    {
+      "id": "gold-place-id-registry",
+      "type": "gold_table",
+      "title": "발행 ID 목록",
+      "description": "발행마다 필지·읍면동이 가진 모든 ID 와 지금 상태(현재·과거·넘겨줌)를 낸다(루트 ADR-0113 8항).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.place_id_registry",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.place_id_registry"
+        }
+      ]
+    },
+    {
+      "id": "gold-place-id-bridge",
+      "type": "gold_table",
+      "title": "ID↔코드 연결표",
+      "description": "ID 와 PNU·법정동 코드가 언제부터 언제까지 짝이었는지 낸다. 옛 코드를 가진 쪽이 오늘의 땅을 찾는 길이다(루트 ADR-0113 8항).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.place_id_bridge",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.place_id_bridge"
+        }
+      ]
+    },
+    {
+      "id": "gold-place-id-changelog",
+      "type": "gold_table",
+      "title": "ID 변경 내역",
+      "description": "발행마다 생김·사라짐·번호 바뀜·넘겨줌을 쌓는다(루트 ADR-0113 8항).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "gold.place_id_changelog",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.place_id_changelog"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-vworld-dataset",
+      "to": "silver-administrative-boundaries",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/tiles/admin-boundary/convert.sh",
+        "platforms/foundation-platform/scripts/tiles/admin-boundary/merge.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py"
+      ],
+      "source_slugs": [
+        "vworldkr__boundary_emd"
+      ]
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "silver-administrative-boundaries",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "번호가 바뀐 읍면동이 옛 읍면동의 id 를 잇도록, 선행 코드를 변경표의 view 로 읽는다(루트 ADR-0113 §9, ADR-0145). 손으로 만든 선행 코드 파일은 없다."
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-registry",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-administrative-boundaries",
+      "to": "gold-place-id-registry",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-bridge",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-administrative-boundaries",
+      "to": "gold-place-id-bridge",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-changelog",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
+      ]
+    },
+    {
+      "from": "silver-administrative-boundaries",
+      "to": "gold-place-id-changelog",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
+      ]
+    }
+  ],
+  "host_memory": {
+    "admin_boundary_release": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      },
+      {
+        "contract": "platforms/foundation-platform/config/tile-bake-containers.contract.json",
+        "containers": [
+          "images"
+        ]
+      }
+    ]
+  }
+}

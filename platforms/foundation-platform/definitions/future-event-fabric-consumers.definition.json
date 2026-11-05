@@ -1,0 +1,22 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "future-event-fabric-consumers",
+  "assets": [
+    {
+      "id": "future-event-fabric-consumers",
+      "type": "serving_surface",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "title": "향후 이벤트 소비자",
+      "description": "검색·AI·알림 소비자는 초기 출시 범위 밖의 계획이다.",
+      "blocking_reason": "Future Event Fabric consumers are not part of the initial AWS launch scope.",
+      "target_state": "Future consumers subscribe through the Event Fabric contract without direct database reads.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [
+        "platforms/foundation-platform/docs/events/event-fabric-registry.v1.example.json"
+      ],
+      "surface_kind": "missing_capability"
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-land-use-zone-area",
+  "jobs": [
+    {
+      "id": "silver_refresh_land_use_zone_area",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 용도지역지구 도형 lane `land-use-zone-area` (root ADR-0169 ③, ADR-0362): pick the newest vintage whose AL_D<layer>_00 shapefiles cover every layer the lane contract lists, read from the ZIP members measured beside the Bronze ledger, and, unless silver.land_use_zone_area already records it or a newer one (`unchanged`), export each layer (geometry reprojected to EPSG:4326 WKB), stage the release on a load branch, compare it with the table's current rows one layer (compare bucket) at a time and append to main only the changed areas' rows and a removal marker per vanished area (lane contract compare.content_columns; root ADR-0311, ADR-0318), and read it back (`changed`). A run that reaches its time limit leaves the layers it did not compare to the next run. Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@land-use-zone-area.service",
+      "check_service": "foundation-silver-refresh-plan@land-use-zone-area.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-land-use-zone-area"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-land-use-zone-area",
+      "type": "silver_table",
+      "title": "용도지역지구 구역",
+      "description": "브이월드 용도지역지구 도형(NA/24) 중 처음 서빙하는 15개 층(개발제한구역·도시계획시설 7종·공장설립제한/승인지역·산업집적 용도구역·농업진흥지역·도시/농림/자연환경보전지역)의 구역과 EPSG:4326 도형(루트 ADR-0362). 판이 오면 층마다 바뀐 구역의 행만 덧붙인다. 필지별 저촉은 필지별 토지이용계획이 가진다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/vworld-land-use-zone-area-source-objects.json"
+      ],
+      "table_name": "silver.land_use_zone_area",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.land_use_zone_area"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-vworld-dataset",
+      "to": "silver-land-use-zone-area",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-land-use-zone-area-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py"
+      ],
+      "source_slugs": [
+        "vworldkr__land_use_zone"
+      ],
+      "description": "전체데이터 AL_D<층>_00 SHP 의 목록 층만 연결한다. 변동데이터 CH_D* 와 목록 밖 172개 층은 Bronze 에 남는다."
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_land_use_zone_area": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

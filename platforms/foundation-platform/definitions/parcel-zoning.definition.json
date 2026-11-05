@@ -1,0 +1,345 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-zoning",
+  "jobs": [
+    {
+      "id": "gold_kind_rebuild",
+      "scope": "full",
+      "full_reason": "It computes only the PNUs whose inputs changed (root ADR-0180, ADR-0193), but the copy-on-write MERGE rewrites every data file holding one, and a national vintage's changes reach every file even in PNU range order (#896; computed).",
+      "full_cost": "measured 2026-10-29 (journal and read-only Trino $snapshots): 2026-10-26 parcel_forest_ledger incremental, 48,477 PNUs changed, 892 s, wrote 1.855 GB (100%); 2026-10-23 parcel_transfer_history incremental, 52,780 PNUs, 6,249 s, wrote 3.256 GB (100%); 9.76 GB across the six kinds at 100% of bytes on each last commit. The shape-ledger check of 2026-10-29 12:36 still reports 100% bytes on every kind's last commit, and two kinds not ordered by PNU.",
+      "full_tracked_by": "PR #951 (plan: Gold MERGE writes merge-on-read deletes, compaction folds them)",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
+      "systemd_service": "foundation-gold-kind-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "15 9 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 160,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-panel-to-gold-parcel-zoning",
+        "gold-parcel-panel-to-gold-parcel-price",
+        "gold-parcel-panel-to-gold-parcel-characteristics",
+        "gold-parcel-panel-to-gold-parcel-forest-ledger",
+        "gold-parcel-panel-to-gold-parcel-transfer-history",
+        "gold-parcel-panel-to-gold-parcel-land-rights"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-12T22:17:38Z"
+    },
+    {
+      "id": "by_pnu_serving_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_panel, then gold.building_panel, then each pack-only lane's Gold panel this job carries the served edge of (config/r2-connections.contract.json by_pnu_lanes, root ADR-0190; a lane whose served edge another job carries bakes in that job, root ADR-0303, ADR-0333), in R2 by-PNU serving (root ADR-0096, ADR-0100, ADR-0141): a row_digest change set (by_pnu_panel_delta.py in the spark-small service, sequential with the export) decides between a create-only patch generation of the changed documents and tombstones, a manifest that only advances the reflected snapshot, and a full new base (forced with a reason, a document schema change, max_patches reached, or the cumulative change ratio exceeded). A patch is published only when its shards wrote exactly its change set; a base only when the shards' exported rows add up to the Gold row count. The lanes run one after the other in one unit: side by side they would not fit the host memory budget (root ADR-0138). Once a lane's manifest carries a section_packs block (root ADR-0147; the parcel lane too, ADR-0160), that lane bakes and publishes section packs instead: the change set goes from the packs' reflected snapshot, a patch writes each section's packs under the generation the lane serves it from, and a full bake is a new generation of every section. Started when a Gold rebuild committed a new snapshot, and at 10:15 as the fallback (root ADR-0171); a turn it defers (takes_turns) is taken at the next start, and each lane is an asset of the asset reconciler (asset_reconcile), which starts the job when a lane's Gold moved past what it serves or its last run failed.",
+      "capabilities": [
+        "building_section_pack_patches",
+        "parcel_section_pack_patches",
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-serving-bake.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "15 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 60,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 1200,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 1,
+      "retries": 0,
+      "takes_turns": true,
+      "pipeline_graph_edges": [
+        "gold-parcel-panel-to-parcel-by-pnu-serving",
+        "gold-building-panel-to-building-by-pnu-serving",
+        "gold-building-panel-to-building-by-pnu-section-packs",
+        "gold-parcel-panel-to-parcel-by-pnu-section-packs",
+        "gold-parcel-zoning-to-parcel-zoning-by-pnu-section-packs",
+        "gold-parcel-price-to-parcel-price-by-pnu-section-packs",
+        "gold-parcel-characteristics-to-parcel-characteristics-by-pnu-section-packs",
+        "gold-parcel-forest-ledger-to-parcel-forest-ledger-by-pnu-section-packs",
+        "gold-parcel-transfer-history-to-parcel-transfer-history-by-pnu-section-packs",
+        "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-07T19:55:24Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-zoning",
+      "type": "gold_table",
+      "title": "필지 용도지역 판정 by-PNU 표",
+      "description": "PNU마다 포함코드 1·2 의 용도지역과 코드표 앵커만 담는 데이터 종류 표(루트 ADR-0193). 계약의 종류 한 줄(parcel-zoning)에서 유도되고, 필지 패널의 같은 섹션 함수로 만든다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_zoning",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_zoning"
+        }
+      ]
+    },
+    {
+      "id": "building-by-pnu-serving",
+      "type": "serving_surface",
+      "title": "건물 by-PNU 서빙 문서",
+      "description": "gold.building_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0100). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    },
+    {
+      "id": "building-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "건물 by-PNU 묶음 파일",
+      "description": "gold.building_panel 의 PNU 문서를 법정동 묶음 파일(머리+색인+본문, 문서 통째의 gzip 덩어리)로 굽는다(루트 ADR-0147, ADR-0151). 2026-10-07 부터 운영 주소가 이 묶음으로 서빙하고, 매일 바뀐 문서는 패치 묶음으로 반영한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/by_pnu_pack.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    },
+    {
+      "id": "parcel-by-pnu-serving",
+      "type": "serving_surface",
+      "title": "필지 by-PNU 서빙 문서",
+      "description": "gold.parcel_panel 스냅숏을 PNU당 1객체 JSON으로 세대 디렉터리에 굽는다(루트 ADR-0096). manifest 발행은 별도 명령이며 운영 발행량은 실행 증거로 판단한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/parcel_by_pnu_serving_export.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    },
+    {
+      "id": "parcel-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 by-PNU 묶음 파일",
+      "description": "gold.parcel_panel 의 PNU 문서(용도지역·공시지가·토지특성·임야대장·토지이동이력·대지권을 합친 한 문서)를 법정동 묶음 파일로 굽는다(루트 ADR-0147 §8, ADR-0160). 건물 묶음과 같은 형식·관문·Worker 소스를 쓴다. 전환 전에는 객체가 서빙한다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/sections.rs",
+        "platforms/foundation-platform/services/foundation-by-pnu-gateway/src/lane.ts"
+      ],
+      "surface_kind": "r2_baked_documents"
+    },
+    {
+      "id": "parcel-zoning-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 용도지역 판정 by-PNU 묶음 파일",
+      "description": "gold.parcel_zoning 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/zoning/by-pnu/ 경로로 서빙한다(루트 ADR-0193). 첫 발행은 운영자의 묶음 전용 관문을 거친다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-zoning",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "description": "종류 표는 이 패널의 섹션이다: 패널이 지어진 Silver 스냅숏에 모든 입력을 고정해 같은 섹션 함수로 만들고, 전량 생성마다 모든 PNU 에서 패널과 대조한다(루트 ADR-0193 3항·6-2). 패널 Gold 가 커밋되면 종류 작업이 뒤따른다."
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-price",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "description": "종류 표는 이 패널의 섹션이다: 패널이 지어진 Silver 스냅숏에 모든 입력을 고정해 같은 섹션 함수로 만들고, 전량 생성마다 모든 PNU 에서 패널과 대조한다(루트 ADR-0193 3항·6-2). 패널 Gold 가 커밋되면 종류 작업이 뒤따른다."
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-characteristics",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "description": "종류 표는 이 패널의 섹션이다: 패널이 지어진 Silver 스냅숏에 모든 입력을 고정해 같은 섹션 함수로 만들고, 전량 생성마다 모든 PNU 에서 패널과 대조한다(루트 ADR-0193 3항·6-2). 패널 Gold 가 커밋되면 종류 작업이 뒤따른다."
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-forest-ledger",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "description": "종류 표는 이 패널의 섹션이다: 패널이 지어진 Silver 스냅숏에 모든 입력을 고정해 같은 섹션 함수로 만들고, 전량 생성마다 모든 PNU 에서 패널과 대조한다(루트 ADR-0193 3항·6-2). 패널 Gold 가 커밋되면 종류 작업이 뒤따른다."
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-transfer-history",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "description": "종류 표는 이 패널의 섹션이다: 패널이 지어진 Silver 스냅숏에 모든 입력을 고정해 같은 섹션 함수로 만들고, 전량 생성마다 모든 PNU 에서 패널과 대조한다(루트 ADR-0193 3항·6-2). 패널 Gold 가 커밋되면 종류 작업이 뒤따른다."
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "gold-parcel-land-rights",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py"
+      ],
+      "description": "종류 표는 이 패널의 섹션이다: 패널이 지어진 Silver 스냅숏에 모든 입력을 고정해 같은 섹션 함수로 만들고, 전량 생성마다 모든 PNU 에서 패널과 대조한다(루트 ADR-0193 3항·6-2). 패널 Gold 가 커밋되면 종류 작업이 뒤따른다."
+    },
+    {
+      "from": "gold-building-panel",
+      "to": "building-by-pnu-serving",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-building-by-pnu-serving",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "parcel-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-zoning",
+      "to": "parcel-zoning-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-price",
+      "to": "parcel-price-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-characteristics",
+      "to": "parcel-characteristics-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-forest-ledger",
+      "to": "parcel-forest-ledger-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-transfer-history",
+      "to": "parcel-transfer-history-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-land-rights",
+      "to": "parcel-land-rights-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-building-panel",
+      "to": "building-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "gold-parcel-panel",
+      "to": "parcel-by-pnu-serving",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-parcel-by-pnu-serving",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/parcel_by_pnu_serving_export.rs"
+      ]
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-zoning": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "zoning",
+      "section": "zonings",
+      "columns": [
+        "zonings_json"
+      ]
+    }
+  },
+  "host_memory": {
+    "gold_kind_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_serving_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  }
+}

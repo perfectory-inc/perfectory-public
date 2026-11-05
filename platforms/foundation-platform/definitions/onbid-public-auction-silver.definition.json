@@ -1,0 +1,48 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "onbid-public-auction-silver",
+  "jobs": [
+    {
+      "id": "onbid_public_auction_silver",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver load of 차세대 온비드 public sale (root ADR-0280; infra/lakehouse/spark/jobs/data_go_kr_onbid.py): the Bronze objects no commit of their table records (plan-silver-load-objects, R2 alone), oldest first, each in its own commit, append to silver.onbid_real_estate_item the item conditions whose content changed and, when the pass was complete, a removal marker for each condition that left the list (root ADR-0275), and to silver.onbid_item_bid_result each result answer; and (root ADR-0340) to the announcement, announcement bid-result, announcement detail, item detail and item bid-info tables the keys whose content changed, every column mapped from data-go-kr-onbid.fields.json. Hourly, after the collector (minute 7, at most 40 minutes); `unchanged` without starting Spark when nothing is owed.",
+      "systemd_service": "foundation-onbid-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/onbid"
+      ],
+      "schedule": "50 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 40,
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 10,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
+        "source-data-go-kr-onbid-to-silver-onbid-item-bid-result",
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-photo",
+        "source-data-go-kr-onbid-to-silver-onbid-announcement",
+        "source-data-go-kr-onbid-to-silver-onbid-announcement-bid-result",
+        "source-data-go-kr-onbid-to-silver-onbid-announcement-detail",
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-detail",
+        "source-data-go-kr-onbid-to-silver-onbid-item-bid-info"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-20T01:26:10Z"
+    }
+  ],
+  "host_memory": {
+    "onbid_public_auction_silver": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  }
+}

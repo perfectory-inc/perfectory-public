@@ -39,6 +39,9 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import declared_definitions  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE = Path(__file__).with_name("documentation-debt.baseline.json")
 CHECKS = ("dead-reference", "unindexed-runbook", "proposed-adr-cited-by-code", "supersession-unrecorded")
@@ -85,6 +88,8 @@ class Tree:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.files = {p for p in git(root, "ls-files", "-z").split("\0") if p}
+        # A generated artifact is a file of every checkout without being tracked (root ADR-0418).
+        self.files |= set(declared_definitions.GENERATED)
         self.dirs = {str(parent) for f in self.files for parent in PurePosixPath(f).parents}
         self.areas = area_dirs(root)
         self._texts: dict[str, str] = {}

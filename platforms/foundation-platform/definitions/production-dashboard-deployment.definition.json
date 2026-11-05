@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "production-dashboard-deployment",
+  "assets": [
+    {
+      "id": "production-dashboard-deployment",
+      "type": "serving_surface",
+      "status": "missing",
+      "owner": "foundation-platform",
+      "title": "운영 관측 화면 배포",
+      "description": "실제 배포된 대시보드와 알림 경로 증거가 필요하다.",
+      "blocking_reason": "No deployed dashboard URL or alert route evidence exists.",
+      "target_state": "Dashboard and alert route deployed with evidence.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/slo-alert-policy.md",
+      "evidence_refs": [],
+      "surface_kind": "missing_capability"
+    }
+  ]
+}

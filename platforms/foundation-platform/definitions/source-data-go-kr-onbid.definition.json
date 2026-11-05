@@ -1,0 +1,20 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-data-go-kr-onbid",
+  "assets": [
+    {
+      "id": "source-data-go-kr-onbid",
+      "type": "source_group",
+      "title": "차세대 온비드 공매 (data.go.kr)",
+      "description": "한국자산관리공사 온비드 부동산 물건·공고·입찰결과 OpenAPI(루트 ADR-0280). 물건마다 원천이 준 PNU(ltnoPnu)가 있다. 수집기와 Silver 적재가 돈다. 두 Silver 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다.",
+      "status": "partial",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json"
+      ],
+      "endpoint_catalog_group": "onbid_open_api",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}

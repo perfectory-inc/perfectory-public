@@ -1,0 +1,21 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-operator-actions",
+  "assets": [
+    {
+      "id": "serving-operator-actions",
+      "type": "serving_group",
+      "title": "운영자 스위치 원장",
+      "description": "작업마다 운영자가 낸 멈춤·재개·한 번 돌리기·중지를 누가·왜와 함께 덧붙이기만 하는 원장이다(root ADR-0282). foundation-api 가 직원 신원으로 쓰고, 한 번 돌리기의 소비만 한 번 채운다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/migrations/20261019120000_operator_actions_are_an_append_only_ledger.sql"
+      ],
+      "tables": [
+        "catalog.operator_action"
+      ]
+    }
+  ]
+}

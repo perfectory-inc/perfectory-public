@@ -56,6 +56,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Select
         id: select
         working-directory: .
@@ -100,6 +103,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -225,6 +231,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -328,6 +337,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -412,6 +424,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -499,6 +514,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Set dynamic database URL
         env:
@@ -626,6 +644,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Select Kafka integration gate
         working-directory: ${{ github.workspace }}
@@ -777,6 +798,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Select Compose smoke gate
         working-directory: ${{ github.workspace }}
@@ -880,6 +904,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Select boundary slice gate
         working-directory: ${{ github.workspace }}
@@ -948,6 +975,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Verify the Spark runtime file runner and the shard plan
         working-directory: ${{ github.workspace }}
@@ -1009,6 +1039,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2 (SHA pin, ADR 0028)
         with:
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Room for the build
         working-directory: ${{ github.workspace }}
         run: bash scripts/ci/release-build-runner-room.sh

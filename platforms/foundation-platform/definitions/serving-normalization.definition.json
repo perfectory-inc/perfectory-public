@@ -1,0 +1,22 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "serving-normalization",
+  "assets": [
+    {
+      "id": "serving-normalization",
+      "type": "serving_group",
+      "title": "정규화 제안·검토",
+      "description": "마이그레이션이 선언한 서빙 또는 운영 원장이다. 표 존재만으로 원천 적재 완료를 뜻하지 않는다.",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "tables": [
+        "catalog.normalization_application",
+        "catalog.normalization_proposal",
+        "catalog.normalization_proposal_review",
+        "catalog.normalization_proposal_submission_audit"
+      ]
+    }
+  ]
+}

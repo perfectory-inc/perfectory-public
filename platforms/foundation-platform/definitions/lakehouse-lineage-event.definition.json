@@ -1,0 +1,31 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "lakehouse-lineage-event",
+  "assets": [
+    {
+      "id": "lakehouse-lineage-event",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "레이크하우스 계보 이벤트",
+      "description": "원천·정제·품질·산출물의 연결 근거를 발행한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/lakehouse-incident-response.md",
+      "evidence_refs": [
+        "foundation-outbox-publisher publish-lakehouse-lineage-event"
+      ],
+      "surface_kind": "lineage_event"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "gold-complex-catalog",
+      "to": "lakehouse-lineage-event",
+      "relation": "emits",
+      "status": "implemented",
+      "via": [
+        "publish-lakehouse-lineage-event"
+      ]
+    }
+  ]
+}

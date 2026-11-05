@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from pipeline_graph import ROOT, GRAPH, EXAMPLE, ENDPOINTS, COLLECTION_CLASSES, collection_classes, load, reconcile
+import declared_definitions
 
 OUTPUT = Path('docs/data-pipeline-map.md')
 STATUS = {
@@ -141,13 +142,23 @@ def main() -> int:
     parser.add_argument('--root', type=Path, default=ROOT)
     args = parser.parse_args()
     try:
-        graph = load(args.root, GRAPH)
+        # The graph, and so the map and the example, are generated from the declared definitions where
+        # they exist (root ADR-0418): read from them, and a missing copy is only not generated yet.
+        declared = (args.root / declared_definitions.DEFINITIONS).is_dir()
+        if declared:
+            graph = declared_definitions.generate(
+                *declared_definitions.read_definitions(args.root / declared_definitions.DEFINITIONS))[GRAPH.as_posix()]
+            example = declared_definitions.dump(graph).encode('utf-8')
+        else:
+            graph = load(args.root, GRAPH)
+            example = (args.root / GRAPH).read_bytes()
         reconcile(args.root, graph)
-        artifacts = {OUTPUT: render(graph, load(args.root, ENDPOINTS)).encode('utf-8'),
-                     EXAMPLE: (args.root / GRAPH).read_bytes()}
+        artifacts = {OUTPUT: render(graph, load(args.root, ENDPOINTS)).encode('utf-8'), EXAMPLE: example}
         for path, content in artifacts.items():
             target = args.root / path
             if args.check:
+                if declared and not target.exists():
+                    continue
                 if not target.exists() or target.read_bytes() != content:
                     print(f'stale pipeline map artifact: {path}', file=sys.stderr)
                     return 1

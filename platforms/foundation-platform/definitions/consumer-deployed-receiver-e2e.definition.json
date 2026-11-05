@@ -1,0 +1,44 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "consumer-deployed-receiver-e2e",
+  "assets": [
+    {
+      "id": "consumer-deployed-receiver-e2e",
+      "type": "serving_surface",
+      "status": "blocked",
+      "owner": "foundation-platform",
+      "title": "배포된 수신기 종단 검증",
+      "description": "카탈로그 변경이 배포된 제품 수신기에서 처리된 증거가 필요하다.",
+      "blocking_reason": "No deployed receiver acknowledgement, required cache invalidation, and parcel marker anchor import enqueue evidence exists.",
+      "target_state": "Consumer receiver E2E evidence with covered_events for every supported event attached to cutover completion.",
+      "required_event_coverage": [
+        {
+          "event_type": "catalog.industrial_complex.gold_pointer.published.v1",
+          "consumers": [
+            {
+              "slug": "gongzzang",
+              "required_effect": "invalidate_catalog_cache"
+            },
+            {
+              "slug": "dawneer",
+              "required_effect": "invalidate_catalog_cache"
+            }
+          ]
+        },
+        {
+          "event_type": "catalog.parcel_marker_anchor.snapshot.published.v1",
+          "consumers": [
+            {
+              "slug": "gongzzang",
+              "required_effect": "enqueue_anchor_projection_import"
+            }
+          ]
+        }
+      ],
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/outbox-webhook-fanout.md",
+      "evidence_refs": [],
+      "surface_kind": "missing_capability"
+    }
+  ]
+}

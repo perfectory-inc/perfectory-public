@@ -47,6 +47,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       - name: Select
         id: select
         working-directory: .
@@ -86,6 +89,9 @@ jobs:
           fetch-depth: 0
           filter: blob:none
           persist-credentials: false
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Set up Rust
         working-directory: ${{ github.workspace }}

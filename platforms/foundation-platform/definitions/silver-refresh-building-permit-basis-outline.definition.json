@@ -1,0 +1,84 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-permit-basis-outline",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_permit_basis_outline",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 건축인허가 기본개요 lane `building-permit-basis-outline` (root ADR-0169 ②, ADR-0356): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_basis_outline already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed permits' rows and a removal marker per vanished permit (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-permit-basis-outline.service",
+      "check_service": "foundation-silver-refresh-plan@building-permit-basis-outline.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-permit-basis-outline"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-permit-basis-outline",
+      "type": "silver_table",
+      "title": "건축인허가 기본개요",
+      "description": "허가마다 한 행: 허가일·착공예정일·착공연기일·실제착공일·사용승인일과 건축구분·주용도·면적. 필지에 지금 짓는 건물과 허가만 난 건물을 말한다. 원문 41칸 보존. 적재 레인은 돌고, 읽는 소비자(건물 by-PNU 패널의 수명 칸)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0356).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-permit-basis-outline-source-objects.json",
+        "docs/adr/0356-building-permits-land-in-silver-as-the-life-of-a-building.md"
+      ],
+      "table_name": "silver.building_permit_basis_outline",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_permit_basis_outline"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-permit-basis-outline",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-permit-basis-outline-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_permit_basis_outline"
+      ],
+      "description": "건축인허가 기본개요(mart_kcy_01) 41칸을 관리허가대장PK 마다 바뀐 허가만 append-only Silver 로 쌓는다(루트 ADR-0356).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_permit_basis_outline": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

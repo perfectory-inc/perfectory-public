@@ -1,0 +1,115 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "gongzzang-panel",
+  "assets": [
+    {
+      "id": "gongzzang-panel",
+      "type": "serving_surface",
+      "title": "공짱 지도·상세 패널",
+      "description": "공개 HTTP 계약을 소비해 지도와 필지·건물·산업단지 정보를 표시한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [],
+      "surface_kind": "panel"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "parcel-tiles",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/apps/web/lib/map/foundation-vector-fill-layers.ts"
+      ]
+    },
+    {
+      "from": "admin-tiles",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/apps/web/lib/map/foundation-vector-fill-layers.ts"
+      ]
+    },
+    {
+      "from": "complex-tiles",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/apps/web/lib/map/foundation-vector-fill-layers.ts"
+      ]
+    },
+    {
+      "from": "catalog-read-api-smoke",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/services/gongzzang-api/src/foundation_parcel_lookup.rs",
+        "products/gongzzang/services/gongzzang-api/src/complex_reader.rs",
+        "products/gongzzang/apps/web/components/panels/parcel/summary.tsx",
+        "products/gongzzang/apps/web/components/panels/complex/summary.tsx"
+      ]
+    },
+    {
+      "from": "building-by-pnu-section-packs",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/apps/web/lib/api/building-edge.ts"
+      ]
+    },
+    {
+      "from": "unit-price-by-pnu-section-packs",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/apps/web/lib/api/unit-price-edge.ts"
+      ]
+    },
+    {
+      "from": "parcel-by-pnu-section-packs",
+      "to": "gongzzang-panel",
+      "relation": "serves",
+      "status": "implemented",
+      "via": [
+        "products/gongzzang/apps/web/lib/api/parcels.ts"
+      ]
+    },
+    {
+      "from": "gold-place-id-registry",
+      "to": "gongzzang-panel",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
+      ],
+      "description": "저장해 둔 필지·링크가 옛 코드를 들고 와도 연결표와 넘겨줌을 따라 오늘의 땅을 연다(루트 ADR-0113 8항)."
+    },
+    {
+      "from": "gold-place-id-bridge",
+      "to": "gongzzang-panel",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
+      ],
+      "description": "저장해 둔 필지·링크가 옛 코드를 들고 와도 연결표와 넘겨줌을 따라 오늘의 땅을 연다(루트 ADR-0113 8항)."
+    },
+    {
+      "from": "gold-place-id-changelog",
+      "to": "gongzzang-panel",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0113-parcel-lineage-absorbs-reorganizations-and-gates-every-map-bake.md"
+      ],
+      "description": "저장해 둔 필지·링크가 옛 코드를 들고 와도 연결표와 넘겨줌을 따라 오늘의 땅을 연다(루트 ADR-0113 8항)."
+    }
+  ]
+}

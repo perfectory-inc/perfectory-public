@@ -1,0 +1,82 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "rt-molit-real-transaction-collect",
+  "jobs": [
+    {
+      "id": "rt_molit_real_transaction_collect",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "국토교통부 실거래가 12종 from the rt.molit.go.kr 조건별 자료제공 bulk export (root ADR-0348, 사장 결정 2026-10-30 and 2026-10-31; scripts/ops/rt-molit-collect.sh): every hour, the (dataset, 계약 달) nationwide CSVs owed, in the order the decision sets: the months of age 0-2 (asked again daily), 3-12 (weekly) and 13-24 (monthly), whose re-pulls catch the reports and cancellations the provider adds up to 442 days after a contract, then the history never pulled, newest first, 공장창고·토지·상업업무용 first. The provider has no changed-since export, so a due month is the unit that may have changed; a month whose bytes did not change is not written again, one whose bytes changed lands content-qualified beside the earlier object. One session, 3 exports in flight, at most 30 a run and 90 a KST day under the provider's 100 (rt-molit-real-transaction.contract.json manners); a busy answer (429, 5xx) is retried after a doubling backoff; the state is saved after every export. An outright refusal, or a busy answer that outlasts the retries, ends the run and blocks later runs until a person removes refused.json. No Spark.",
+      "systemd_service": "foundation-rt-molit-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/real-transaction"
+      ],
+      "schedule": "25 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-rt-molit-bulk-to-silver-real-transaction"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-30T15:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-real-transaction",
+      "type": "silver_table",
+      "title": "실거래가",
+      "description": "12종의 (데이터셋, 계약 달) 전국 내보내기마다 새 이름·바뀐 행과 빠진 이름의 삭제 표지를 쌓는다. 계약해제는 같은 행의 새 판이다(루트 ADR-0349). 법정동과 PNU 는 정본 해석기로 정하고, 가린 지번은 법정동까지만 잇는다. 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/rt-molit-real-transaction.contract.json"
+      ],
+      "table_name": "silver.real_transaction",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.real_transaction"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-rt-molit-bulk",
+      "to": "silver-real-transaction",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-rt-molit-real-transaction",
+        "platforms/foundation-platform/scripts/ops/rt-molit-collect.sh",
+        "platforms/foundation-platform/scripts/ops/rt-molit-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "source_slugs": [
+        "rtmolitgokr__real_transaction_apartment_presale",
+        "rtmolitgokr__real_transaction_apartment_rent",
+        "rtmolitgokr__real_transaction_apartment_trade",
+        "rtmolitgokr__real_transaction_commercial_trade",
+        "rtmolitgokr__real_transaction_detached_house_rent",
+        "rtmolitgokr__real_transaction_detached_house_trade",
+        "rtmolitgokr__real_transaction_industrial_trade",
+        "rtmolitgokr__real_transaction_land_trade",
+        "rtmolitgokr__real_transaction_officetel_rent",
+        "rtmolitgokr__real_transaction_officetel_trade",
+        "rtmolitgokr__real_transaction_row_house_rent",
+        "rtmolitgokr__real_transaction_row_house_trade"
+      ],
+      "description": "매시간 빚진 달만 받고(최근 0–2달 매일, 3–12달 매주, 13–24달 매달, 이력은 새 달부터), 바이트가 바뀐 달만 Bronze 에 내용 주소로 쌓고, 달마다 바뀐 행과 빠진 이름의 삭제 표지를 쌓는다."
+    }
+  ]
+}

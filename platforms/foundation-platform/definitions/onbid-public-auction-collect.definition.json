@@ -1,0 +1,326 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "onbid-public-auction-collect",
+  "jobs": [
+    {
+      "id": "onbid_public_auction_collect",
+      "scope": "full",
+      "full_reason": "Every three hours it reads the whole open-item list: a condition that left the list is known only from a complete pass (root ADR-0275).",
+      "full_cost": "measured: a complete item-list pass is about 8.8 MB gzipped into Bronze (data-go-kr-onbid.contract.json item_list), every 3 hours, about 70 MB a day; 2026-10-29 it listed 50,192 open conditions (onbid-item-detail.prom), at page_size 1,000 over 20 (prptDivCd, pvctTrgtYn) combinations at most about 70 list calls a pass (computed). The rest of each run is new-objects: details, bid info and announcement details only for conditions owed one (root ADR-0330, ADR-0339).",
+      "full_tracked_by": "justified permanently by root ADR-0275: the provider has no changed-since query, and a condition that left the list is known only from a complete pass; its Silver load appends only changed rows",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "차세대 온비드 public sale from data.go.kr (root ADR-0280), the collection half: every hour, the announcement and announcement bid-result lists for their opening windows, the full open-item list when three hours have passed since the last complete pass, and the bid result of each item condition that left the list, each API within its own daily call limit (data-go-kr-onbid.contract.json). The 물건상세 of each open condition owed one (never complete, or its list row's mdfcnDt changed), open rounds and the earliest bid end first, with its photos and appraisals mirrored to the content-addressed media store; a condition is complete only once its media all landed, and the coverage is written to /var/lib/foundation-jobs/metrics for the FoundationOnbidDetailCoverage* alerts (root ADR-0330). Lands one gzip JSON Lines Bronze object per API per run; hands nothing on (onbid_public_auction_silver finds what it owes in R2). Since root ADR-0340 also, per open item, its 물건상세 입찰정보 (per_run_limit 300), and per announcement the list held, its 공고상세 with its attachments mirrored (per_run_limit 200), each within its own daily call limit and isolated on failure. No Spark.",
+      "systemd_service": "foundation-onbid-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/onbid",
+        "/var/lib/foundation-jobs/metrics"
+      ],
+      "schedule": "7 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 40,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",
+        "source-data-go-kr-onbid-to-silver-onbid-item-bid-result",
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-photo",
+        "source-data-go-kr-onbid-to-silver-onbid-announcement",
+        "source-data-go-kr-onbid-to-silver-onbid-announcement-bid-result",
+        "source-data-go-kr-onbid-to-silver-onbid-announcement-detail",
+        "source-data-go-kr-onbid-to-silver-onbid-real-estate-item-detail",
+        "source-data-go-kr-onbid-to-silver-onbid-item-bid-info"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-20T01:26:10Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-onbid-real-estate-item",
+      "type": "silver_table",
+      "title": "온비드 부동산 물건",
+      "description": "열린 공매 회차(물건관리번호·공매조건번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 회차에 삭제 표지를 쌓는다(루트 ADR-0280, ADR-0275). 적재 레인은 돌고, 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0287).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json"
+      ],
+      "table_name": "silver.onbid_real_estate_item",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_real_estate_item"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-real-estate-item-photo",
+      "type": "silver_table",
+      "title": "온비드 물건 사진",
+      "description": "물건 상세에서 받은 사진·감정평가서 첨부를 내용해시(sha256)로 색인해, 어느 회차(물건관리번호·공매조건번호)가 어떤 미디어 해시를 갖는지 쌓는다(루트 ADR-0298). 미디어 블롭은 content-addressed 저장소에 한 번만 쓴다. 적재 레인은 돌고, 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json"
+      ],
+      "table_name": "silver.onbid_real_estate_item_photo",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_real_estate_item_photo"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-item-bid-result",
+      "type": "silver_table",
+      "title": "온비드 물건 입찰결과",
+      "description": "목록에서 빠진(입찰이 끝난) 회차마다 한 번 묻는 입찰결과(낙찰금액·유효 입찰자 수·개찰일시)를 쌓는다(루트 ADR-0280). 적재 레인은 돌고, 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json"
+      ],
+      "table_name": "silver.onbid_item_bid_result",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_item_bid_result"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-announcement",
+      "type": "silver_table",
+      "title": "온비드 공고",
+      "description": "공고목록(15157216)의 공고 회차(온비드공고번호·공매번호)마다 내용이 바뀐 행을 쌓는다(루트 ADR-0340 §6). 공고명·기관·담당부점·공고일·개찰일시. 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json"
+      ],
+      "table_name": "silver.onbid_announcement",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_announcement"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-announcement-bid-result",
+      "type": "silver_table",
+      "title": "온비드 공고 입찰결과",
+      "description": "공고 입찰결과목록(15157222)의 공고 회차마다 집행상태(개찰준비중·개찰중·개찰완료)가 바뀐 행을 쌓는다(루트 ADR-0340 §6). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json"
+      ],
+      "table_name": "silver.onbid_announcement_bid_result",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_announcement_bid_result"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-announcement-detail",
+      "type": "silver_table",
+      "title": "온비드 공고상세",
+      "description": "공고상세(15157218)를 공고관리번호·공매번호마다 내용이 바뀌면 쌓는다: 공고문 전문·첨부파일(내용해시)·참가자격·참가수수료·취소사유(루트 ADR-0340 §6). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json"
+      ],
+      "table_name": "silver.onbid_announcement_detail",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_announcement_detail"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-real-estate-item-detail",
+      "type": "silver_table",
+      "title": "온비드 물건상세",
+      "description": "물건상세(15157247)를 물건마다 내용이 바뀌면 쌓는다(루트 ADR-0339, ADR-0340 §6): 부대조건·유의사항·공매재산명세서·임대차·점유·등기 주요정보·배분요구·면적·정정내역·감정평가 목록. 사인의 성명은 버린다(ADR-0340 §5). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json"
+      ],
+      "table_name": "silver.onbid_real_estate_item_detail",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_real_estate_item_detail"
+        }
+      ]
+    },
+    {
+      "id": "silver-onbid-item-bid-info",
+      "type": "silver_table",
+      "title": "온비드 물건 입찰정보",
+      "description": "물건상세 입찰정보(15157251)를 물건마다 내용이 바뀌면 쌓는다: 입찰보증금·잔대금·입찰성립기준·제한경쟁 자격·제출서류·평가방식·이전 회차 결과·회차별 일정(루트 ADR-0340 §6). 필지 공매 종류 표(gold.parcel_public_auction)가 읽는다(루트 ADR-0340 §7).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.fields.json"
+      ],
+      "table_name": "silver.onbid_item_bid_info",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.onbid_item_bid_info"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-real-estate-item",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_real_estate_item"
+      ],
+      "description": "3시간마다 열린 물건 전수를 Bronze 에 받고, 내용이 바뀐 회차와(전수가 완전할 때만) 빠진 회차의 삭제 표지를 쌓는다."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-real-estate-item-photo",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_real_estate_item_detail"
+      ],
+      "description": "물건 상세를 받을 때 사진·감정평가서를 content-addressed 저장소에 내려받고, 어느 회차가 어떤 미디어 해시를 갖는지 사진 색인에 쌓는다(루트 ADR-0298)."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-item-bid-result",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_item_bid_result"
+      ],
+      "description": "목록에서 빠진 회차마다 입찰결과를 한 번 묻고(아직 없으면 하루 뒤 다시, 최대 3번) 답을 쌓는다. 하루 호출 상한 안에서 오래된 것부터."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-announcement",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_announcement"
+      ],
+      "description": "매시 개찰 창의 공고목록을 받고, 공고 회차마다 내용이 바뀐 행만 쌓는다(루트 ADR-0340)."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-announcement-bid-result",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_announcement_bid_result"
+      ],
+      "description": "매시 공고 입찰결과목록을 받고, 공고 회차마다 바뀐 행만 쌓는다(루트 ADR-0340)."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-announcement-detail",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_announcement_detail"
+      ],
+      "description": "공고목록에 나온 공고마다 한 번(행이 바뀌면 다시) 공고상세를 묻고, 첨부를 content-addressed 저장소에 받은 뒤 바뀐 행만 쌓는다(루트 ADR-0340)."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-real-estate-item-detail",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_real_estate_item_detail"
+      ],
+      "description": "물건상세를 물건마다 한 번 받은 응답에서 미디어 밖의 모든 필드를 물건마다 바뀌면 쌓는다(루트 ADR-0340)."
+    },
+    {
+      "from": "source-data-go-kr-onbid",
+      "to": "silver-onbid-item-bid-info",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-onbid",
+        "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
+        "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "source_slugs": [
+        "datagokr__onbid_item_bid_info"
+      ],
+      "description": "열린 물건마다 한 번(목록 행의 수정일시가 바뀌면 다시) 입찰정보를 묻고 바뀐 행만 쌓는다(루트 ADR-0340)."
+    }
+  ]
+}

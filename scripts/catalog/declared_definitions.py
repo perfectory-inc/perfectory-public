@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """One declared definition per dataset group; every listed artifact is generated from them (root ADR-0415).
 
-A definition file (`<group>.definition.json`, schema `scripts/catalog/definition.v1.schema.json`) holds every fact
-of one group of datasets: its pipeline-graph nodes (the Dagster asset keys), the graph edges into
-them (their `deps`), the jobs that materialize them (the systemd unit Dagster launches), and its
-by-PNU lane, published schemas and host memory entries. `platform.definition.json` holds what no
-group owns: each artifact's prose and settings, and until the flip (ADR-0415 §5 phase 2) the order
-the committed files list their items in.
+A definition file (`platforms/foundation-platform/definitions/<group>.definition.json`, schema
+`scripts/catalog/definition.v1.schema.json`) holds every fact of one group of datasets: its
+pipeline-graph nodes (the Dagster asset keys), the graph edges into them (their `deps`), the jobs that
+materialize them (the systemd unit Dagster launches), and its by-PNU lane, published schemas and host
+memory entries. `platform.definition.json` holds what no group owns: each artifact's prose and
+settings, and the order the artifacts listed their items in before the flip (`order`): those keep
+their places and every later item follows sorted by id, so adding one never edits that file.
 
-Phase 1 (now) commits no definition: the committed artifacts stay the single source while open pull
-requests keep editing them. `check` splits the committed artifacts into definitions, writes and
-reads them back as files, generates every artifact from them and holds the result equal to what is
-committed: the same items, fields, values and order, and the byte-for-byte files for the artifacts
-that were generated already. So the flip is proven on every change before it is made. `split`
-writes the definitions the flip will commit; `generate` renders the artifacts from a definition
-directory; `measure` prints the counts ADR-0415 §7 reports.
+The generated artifacts (GENERATED) are not committed (root ADR-0418): `generate` writes them into the
+tree where every reader has always found them. CI runs it after every checkout, the local hooks after
+every checkout and merge, and the host's admission computes them from the canonical commit with the
+control checkout's own renderers (`--renderers-root`). `check` holds that they generate and that git
+tracks none of them; `show` gives an artifact at any commit, for the readers of history. `split` is
+the bootstrap that made the definitions from the committed artifacts (root ADR-0415).
 
 Standard library only, as every guard here: definition files are JSON, the YAML 1.2 subset.
 """
@@ -26,6 +26,7 @@ import copy
 import importlib.util
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -43,6 +44,8 @@ REGISTRY = "platforms/foundation-platform/contracts/schema-registry/registry.jso
 DEPENDENCIES = "platforms/foundation-platform/orchestration/job-dependencies.v1.json"
 MAP = "docs/data-pipeline-map.md"
 ENDPOINTS = "platforms/foundation-platform/docs/catalog/public-source-endpoint-catalog.v1.json"
+EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
+DEFINITIONS = "platforms/foundation-platform/definitions"
 
 # Every slot: the artifact, the path of the item collection in it, its shape (a list of objects
 # keyed by `key`, or an object keyed by name) and the definition section that holds its items.
@@ -58,10 +61,7 @@ SECTIONS = {slot[4]: name for name, slot in SLOTS.items()}
 SOURCE_ARTIFACTS = tuple(dict.fromkeys(slot[0] for slot in SLOTS.values()))
 # Artifacts that were generated before this ADR: rendered from the generated sources by their own
 # renderers, never a second implementation, and held to the committed bytes.
-DERIVED_ARTIFACTS = (DEPENDENCIES, MAP)
-EXAMPLE = "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.example.json"
-# Every artifact the definitions generate (root ADR-0418); the release carries them signed (ADR-0419).
-GENERATED = (*SOURCE_ARTIFACTS, EXAMPLE, DEPENDENCIES, MAP)
+DERIVED_ARTIFACTS = (EXAMPLE, DEPENDENCIES, MAP)
 
 
 class DefinitionError(Exception):
@@ -164,7 +164,11 @@ def split(documents):
     """The definitions that generate `documents` (artifact path -> parsed JSON)."""
     groups = groups_of(documents)
     definitions = {}
-    platform = {"definition": DEFINITION, "artifacts": {}, "order": {}}
+    # The coordinates here are the artifacts' runtime extents, each with its `*_review` line; the file
+    # marker says so to scripts/guard/public-fixture-safety.py, whose line marker a JSON array splits.
+    platform = {"definition": DEFINITION,
+                "$comment": "public-repository-safety: reviewed-runtime-coordinate-inputs (the configured extents of the artifacts below, not places)",
+                "artifacts": {}, "order": {}}
     for path in SOURCE_ARTIFACTS:
         platform["artifacts"][path] = copy.deepcopy(documents[path])
     for name, (path, where, shape, key, section) in SLOTS.items():
@@ -224,15 +228,11 @@ def generate(platform, definitions, ordered=True):
                 items[name][item_id] = item
     documents = copy.deepcopy(platform["artifacts"])
     for name, (path, where, shape, _key, _section) in SLOTS.items():
-        order = platform.get("order", {}).get(name) if ordered else None
-        if order is not None:
-            if sorted(order) != sorted(items[name]):
-                missing = sorted(set(items[name]) - set(order))
-                stale = sorted(set(order) - set(items[name]))
-                raise DefinitionError(f"{name}: order lists {stale} no definition holds and misses {missing}")
-            ids = order
-        else:
-            ids = sorted(items[name])
+        order = platform.get("order", {}).get(name, []) if ordered else []
+        stale = sorted(set(order) - set(items[name]))
+        if stale:
+            raise DefinitionError(f"{PLATFORM_FILE}: order.{name} lists {stale}, which no definition holds; remove them")
+        ids = [*order, *sorted(set(items[name]) - set(order))]
         if shape == "list":
             put(documents[path], where, [items[name][i] for i in ids])
         else:
@@ -251,13 +251,17 @@ def load_module(name, path, search):
         sys.path.remove(str(search))
 
 
-def derived(root, documents):
-    """The artifacts generated before this ADR, from the generated sources, by their own renderers."""
-    dags = root / "platforms/foundation-platform/orchestration/dags"
-    catalog = root / "scripts/catalog"
+def derived(root, documents, renderers_root=None):
+    """The artifacts generated before root ADR-0415, from the generated sources, by their own renderers
+    (those under `renderers_root`; the tree's own when None)."""
+    renderers_root = renderers_root or root
+    dags = renderers_root / "platforms/foundation-platform/orchestration/dags"
+    catalog = renderers_root / "scripts/catalog"
     job_specs = load_module("job_specs", dags / "job_specs.py", dags)
     pipeline_map = load_module("render_pipeline_map", catalog / "render-pipeline-map.py", catalog)
     return {
+        # The API example is the graph itself (render-pipeline-map.py `EXAMPLE`).
+        EXAMPLE: dump(documents[GRAPH]),
         DEPENDENCIES: job_specs.rendered_dependencies(documents[JOBS], documents[GRAPH]),
         MAP: pipeline_map.render(documents[GRAPH], read_json(root / ENDPOINTS)),
     }
@@ -268,10 +272,10 @@ def derived(root, documents):
 
 def write_definitions(directory, platform, definitions):
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / PLATFORM_FILE).write_text(dump(platform), encoding="utf-8")
+    (directory / PLATFORM_FILE).write_text(dump(platform), encoding="utf-8", newline="\n")
     for group, definition in definitions.items():
         (directory / f"{group}{SUFFIX}").write_text(
-            dump({"$schema": SCHEMA, **definition}), encoding="utf-8")
+            dump({"$schema": SCHEMA, **definition}), encoding="utf-8", newline="\n")
 
 
 def read_definitions(directory):
@@ -290,93 +294,126 @@ def committed(root):
     return {path: read_json(root / path) for path in SOURCE_ARTIFACTS}
 
 
-def ordered_equal(left, right):
-    """Equal values, with object keys in the same order (json.loads keeps file order)."""
-    if isinstance(left, dict) and isinstance(right, dict):
-        return list(left) == list(right) and all(ordered_equal(left[k], right[k]) for k in left)
-    if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(ordered_equal(a, b) for a, b in zip(left, right))
-    return type(left) is type(right) and left == right
+GENERATED = (*SOURCE_ARTIFACTS, *DERIVED_ARTIFACTS)
+
+
+def artifacts(root, renderers_root=None):
+    """Path -> text of every generated artifact, from the definitions under `root`."""
+    documents = generate(*read_definitions(root / DEFINITIONS))
+    files = {path: dump(document) for path, document in documents.items()}
+    files.update(derived(root, documents, renderers_root))
+    return {path: files[path] for path in GENERATED}
+
+
+def write_artifacts(out, files):
+    for path, text in files.items():
+        target = out / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+
+
+def with_generated(paths):
+    """`paths` (a change's files) and, when it changes a definition or the generator, every generated
+    artifact: a reader of an artifact is changed by what generates it (the CI selectors ask this)."""
+    paths = set(paths)
+    generator = ("scripts/catalog/declared_definitions.py", "scripts/catalog/definition.v1.schema.json")
+    if any(path.startswith(DEFINITIONS + "/") or path in generator for path in paths):
+        paths |= set(GENERATED)
+    return paths
+
+
+def tracked(root, paths):
+    listed = subprocess.run(["git", "-C", str(root), "ls-files", "--", *paths], capture_output=True,
+                            text=True, check=True).stdout.split()
+    return sorted(listed)
 
 
 def check(root):
-    """Problems; none when the definitions split from the committed artifacts generate them again."""
-    documents = committed(root)
-    platform, definitions = split(documents)
-    with tempfile.TemporaryDirectory() as scratch:
-        # Through files, so what the flip commits is what was proven.
-        write_definitions(pathlib.Path(scratch), platform, definitions)
-        platform, definitions = read_definitions(pathlib.Path(scratch))
-    problems = []
-    generated = generate(platform, definitions)
-    for path in SOURCE_ARTIFACTS:
-        if not ordered_equal(generated[path], documents[path]):
-            problems.append(f"{path}: the definitions do not generate the committed items, fields and order")
-    for path, text in derived(root, generated).items():
-        if text.encode("utf-8") != (root / path).read_bytes():
-            problems.append(f"{path}: the definitions do not generate the committed bytes")
-    # Phase 2 sorts by id (no order list): the same items, each id once.
-    canonical = generate(platform, definitions, ordered=False)
-    for name, (path, where, shape, key, _section) in SLOTS.items():
-        def ids(document):
-            found = at(document, where)
-            return sorted(item[key] for item in found) if shape == "list" else sorted(found)
-        if ids(canonical[path]) != ids(documents[path]):
-            problems.append(f"{path} {'.'.join(where)}: the id-sorted generation drops or adds items")
+    """Problems; none when the definitions generate, git tracks no generated artifact, and the tree's
+    copies (when present) are what the definitions generate now."""
+    files = artifacts(root)
+    problems = [f"{path}: generated from {DEFINITIONS} (root ADR-0418); remove it from git: git rm --cached {path}"
+                for path in tracked(root, GENERATED)]
+    for path, text in files.items():
+        target = root / path
+        if target.exists() and target.read_bytes() != text.encode("utf-8"):
+            problems.append(f"{path}: differs from what {DEFINITIONS} generate; edit the definition, then run "
+                            "python3 scripts/catalog/declared_definitions.py generate")
     return problems
 
 
+def _git(root, *args):
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True).stdout
+
+
+def show(root, rev, path):
+    """The text of generated artifact `path` at commit `rev`: generated from that commit's definitions,
+    or that commit's file before the definitions existed. Derived artifacts use this tree's renderers."""
+    has_definitions = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{rev}:{DEFINITIONS}"],
+                                     capture_output=True).returncode == 0
+    if not has_definitions:
+        return _git(root, "show", f"{rev}:{path}").decode("utf-8")
+    with tempfile.TemporaryDirectory() as scratch:
+        tree = pathlib.Path(scratch)
+        directory = tree / DEFINITIONS
+        directory.mkdir(parents=True)
+        for name in _git(root, "ls-tree", "--name-only", f"{rev}:{DEFINITIONS}").decode().split():
+            (directory / name).write_bytes(_git(root, "show", f"{rev}:{DEFINITIONS}/{name}"))
+        documents = generate(*read_definitions(directory))
+        if path in documents:
+            return dump(documents[path])
+        (tree / ENDPOINTS).parent.mkdir(parents=True, exist_ok=True)
+        (tree / ENDPOINTS).write_bytes(_git(root, "show", f"{rev}:{ENDPOINTS}"))
+        return derived(tree, documents, renderers_root=root)[path]
+
+
 def measure(root):
-    platform, definitions = split(committed(root))
-    lanes = sorted(at(committed(root)[R2], ("by_pnu_lanes",)))
-    report = {
+    platform, definitions = read_definitions(root / DEFINITIONS)
+    documents = generate(platform, definitions)
+    lanes = sorted(at(documents[R2], ("by_pnu_lanes",)))
+    return {
         "definitions": len(definitions),
-        "items": {name: len(platform["order"][name]) for name in SLOTS},
+        "items": {name: len(at(documents[SLOTS[name][0]], SLOTS[name][1])) for name in SLOTS},
         "by_pnu_lanes": len(lanes),
-        # Committed files one lane's items are spread over today (sources and derived), and after the flip.
-        "files_one_lane_touches": {},
+        # The definition files a lane's facts are in: one, so one edit adds a lane.
+        "files_one_lane_touches": {lane: sum(1 for d in definitions.values() if lane in d.get("by_pnu_lanes", {}))
+                                   for lane in lanes},
     }
-    for lane in lanes:
-        definition = definitions[lane]
-        touched = {SLOTS[SECTIONS[s]][0] for s in SECTIONS if definition.get(s)}
-        if touched & {JOBS, GRAPH}:
-            touched |= set(DERIVED_ARTIFACTS)
-        report["files_one_lane_touches"][lane] = {"today": len(touched), "after_flip": 1}
-    return report
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("check", "split", "generate", "measure"))
+    parser.add_argument("command", choices=("generate", "check", "show", "split", "measure"))
     parser.add_argument("--root", type=pathlib.Path, default=ROOT)
-    parser.add_argument("--definitions", type=pathlib.Path, help="split: write here; generate: read here")
-    parser.add_argument("--out", type=pathlib.Path, help="generate: write the artifacts under this root")
-    parser.add_argument("--sorted", action="store_true", help="generate: sort by id, ignoring the order list")
+    parser.add_argument("--out", type=pathlib.Path, help="generate: write under this root instead of --root")
+    parser.add_argument("--renderers-root", type=pathlib.Path,
+                        help="generate: run the renderers of this tree (the host's control checkout)")
+    parser.add_argument("--rev", help="show: the commit")
+    parser.add_argument("--path", help="show: the generated artifact")
+    parser.add_argument("--definitions", type=pathlib.Path, help="split: write here")
     args = parser.parse_args(argv)
     root = args.root.resolve()
     try:
+        if args.command == "generate":
+            renderers = args.renderers_root.resolve() if args.renderers_root else None
+            write_artifacts((args.out or root).resolve(), artifacts(root, renderers))
+            return 0
         if args.command == "check":
             problems = check(root)
             for problem in problems:
                 print(f"FAIL declared-definitions: {problem}", file=sys.stderr)
             return 1 if problems else 0
+        if args.command == "show":
+            if not args.rev or args.path not in GENERATED:
+                parser.error(f"show needs --rev and --path, one of {GENERATED}")
+            sys.stdout.buffer.write(show(root, args.rev, args.path).encode("utf-8"))
+            return 0
         if args.command == "measure":
             print(json.dumps(measure(root), ensure_ascii=False, indent=2))
             return 0
         if args.definitions is None:
-            parser.error(f"{args.command} needs --definitions")
-        if args.command == "split":
-            write_definitions(args.definitions, *split(committed(root)))
-            return 0
-        if args.out is None:
-            parser.error("generate needs --out")
-        documents = generate(*read_definitions(args.definitions), ordered=not args.sorted)
-        files = {path: dump(document) for path, document in documents.items()}
-        files.update(derived(root, documents))
-        for path, text in files.items():
-            target = args.out / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8", newline="\n")
+            parser.error("split needs --definitions")
+        write_definitions(args.definitions, *split(committed(root)))
         return 0
     except DefinitionError as error:
         print(f"FAIL declared-definitions: {error}", file=sys.stderr)

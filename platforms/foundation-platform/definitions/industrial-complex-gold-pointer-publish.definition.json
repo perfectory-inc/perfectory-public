@@ -1,0 +1,41 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "industrial-complex-gold-pointer-publish",
+  "assets": [
+    {
+      "id": "industrial-complex-gold-pointer-publish",
+      "type": "serving_surface",
+      "status": "waiting",
+      "owner": "foundation-platform",
+      "title": "산업단지 Gold 포인터 발행",
+      "description": "원천·파일·Gold 포인터·outbox 이벤트를 함께 발행한다.",
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/iceberg-snapshot-rollback.md",
+      "evidence_refs": [
+        "foundation-outbox-publisher publish-industrial-complex-gold-pointer"
+      ],
+      "surface_kind": "catalog_pointer"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "gold-complex-catalog",
+      "to": "industrial-complex-gold-pointer-publish",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-industrial-complex-gold-profiles",
+        "publish-industrial-complex-gold-pointer"
+      ]
+    },
+    {
+      "from": "lakehouse-quality-gate",
+      "to": "industrial-complex-gold-pointer-publish",
+      "relation": "validates",
+      "status": "implemented",
+      "via": [
+        "publish-industrial-complex-gold-pointer"
+      ]
+    }
+  ]
+}

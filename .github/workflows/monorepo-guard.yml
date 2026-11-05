@@ -33,6 +33,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
       # A tree's own guards cannot see another open pull request: on 2026-10-16 ADR numbers collided
       # four times and a migration version once. One GraphQL read of the open pull requests' added
       # paths with this job's read-only token (public data), and main's tree, a second or two.

@@ -1,0 +1,80 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "registered-factory",
+  "jobs": [
+    {
+      "id": "registered_factory",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "한국산업단지공단 전국등록공장현황 from data.go.kr (root ADR-0280 §4; scripts/ops/registered-factory-cycle.sh): ask the portal once which file is current and, only when it is not the last one landed, land the zip in Bronze, check its member against the source contract (name, CP949, header, row bounds), give each row the PNU its address resolves to (jibun address through the 법정동 code table and silver.parcel_boundaries, else road address through silver.building_register_titles) and append the edition to silver.registered_factory with its match rate. `unchanged` without Spark on the days the file is the same (the provider publishes about once a year).",
+      "systemd_service": "foundation-registered-factory.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/registered-factory"
+      ],
+      "schedule": "20 11 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 90,
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-data-go-kr-file-data-to-silver-registered-factory"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-19T14:49:09Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-registered-factory",
+      "type": "silver_table",
+      "title": "전국 등록공장",
+      "description": "등록공장 파일의 판마다 행 전부를 쌓고, 주소로 찾은 PNU 와 그 단계(지번 주소·도로명 주소), 못 찾은 이유를 남긴다(루트 ADR-0280 §4). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json"
+      ],
+      "table_name": "silver.registered_factory",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.registered_factory"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-registered-factory",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-registered-factory",
+        "platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+      ],
+      "source_slugs": [
+        "datagokr__registered_factory"
+      ],
+      "description": "새 판(포털이 알리는 파일 id 가 바뀌었을 때)만 Bronze 에 받고, 주소로 PNU 를 찾아(지번 → 도로명) 판 전체를 쌓는다."
+    }
+  ],
+  "host_memory": {
+    "registered_factory": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

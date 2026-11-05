@@ -1,0 +1,68 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "vworld-parcel-edition",
+  "jobs": [
+    {
+      "id": "vworld_parcel_edition",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "VWorld cadastral parcel editions (연속지적도, MK/30563; root ADR-0148): check the provider's newest edition against the source contract (vworld-parcel-source-objects.json); when it is new, collect its directly downloadable files into Bronze, measure each ZIP's members by ranged read, and propose the contract entry. No Spark: the Silver load runs from a release whose contract holds the edition (runbook vworld-parcel-editions.md). Exit 3 means an edition awaits the contract, not a fault: the job posts 'new edition waiting for contract entry' itself, and is not retried (a retry would only download and propose the same edition again).",
+      "systemd_service": "foundation-vworld-parcel-edition.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/vworld-parcel-edition"
+      ],
+      "schedule": "40 4 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 180,
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-vworld-dataset-to-silver-parcel-boundaries"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-16T01:00:00Z"
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-parcel-boundaries",
+      "type": "silver_table",
+      "title": "필지 경계",
+      "description": "저장소에 변환 실행 경로가 있다. 운영 적재량·최신 성공 여부는 실행 원장에서 확인한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "silver.parcel_boundaries",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.parcel_boundaries"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-vworld-dataset",
+      "to": "silver-parcel-boundaries",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-vworld-cadastral-shapefile-silver-handoff",
+        "export-vworld-cadastral-silver-handoff-shard",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_boundaries_handoff_to_silver.py"
+      ],
+      "source_slugs": [
+        "vworldkr__parcel"
+      ],
+      "pnu_resolution": "the canonical cadastral PNU itself from the VWorld parcel shapefile (the registry other sources resolve to), not resolved from an external code"
+    }
+  ]
+}

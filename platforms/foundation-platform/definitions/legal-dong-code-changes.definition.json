@@ -1,0 +1,31 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "legal-dong-code-changes",
+  "jobs": [
+    {
+      "id": "legal_dong_code_changes",
+      "scope": "skip-if-unchanged",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Legal-dong code changes from code.go.kr (root ADR-0143, ADR-0144), the collection half: first ask the site's own change-period filter which codes were created or abolished inside the window the last full run anchored (about 70 KB, root ADR-0322 §2); when it lists the same rows and no full reconcile is owed (code-go-kr-legal-dong.contract.json full_table.changed_since_probe), record the confirmation and stop. Otherwise land the full table (codes, parents, created and abolished dates) in Bronze (requests at least 15 seconds apart; the change-notice board is not a source), refuse a response whose shape changed or a table that shrank past the contract's bounds, record when the table was last confirmed, and, only when the table's rows changed, write a pending-load handoff. No Spark: lineage_stewardship loads and pairs the handoff under its spark slots before its own steps.",
+      "systemd_service": "foundation-legal-dong-code.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/legal-dong-code"
+      ],
+      "schedule": "15 5 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 30,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [
+        "source-code-go-kr-to-reference-legal-dong-code-snapshot"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-10-05T03:16:07Z",
+      "started_once_after_deploy": true
+    }
+  ]
+}
