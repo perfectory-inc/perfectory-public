@@ -31,8 +31,6 @@ apps / services
 - `crates/listing-photo-domain`
 - `crates/user-domain`
 - `crates/shared-kernel`
-- `crates/real-transaction-domain`
-- `crates/court-auction-domain`
 - `crates/{bookmark,search-history,analysis-report,notification}-domain`
 - `crates/{audit-log,outbox-event}-domain`
 

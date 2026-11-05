@@ -872,19 +872,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
-name = "court-auction-domain"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "gongzzang-workspace-hack",
- "serde",
- "serde_json",
- "shared-kernel",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3005,20 +2992,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caa0f4137e1c0a72f4c651489402276c8e8e1cf081f3b0ba156d2cbeef09e86a"
 dependencies = [
  "rand_core 0.10.1",
-]
-
-[[package]]
-name = "real-transaction-domain"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "geo-types",
- "gongzzang-workspace-hack",
- "serde",
- "serde_json",
- "shared-kernel",
- "thiserror 1.0.69",
 ]
 
 [[package]]
