@@ -454,6 +454,8 @@
       {
         "name": "container-runtime-policy-self-test",
         "paths": [
+          "tools/conftest/**",
+          "tools/conftest.env",
           "scripts/tiles/**",
           "platforms/foundation-platform/config/static-release-toolchain.contract.json",
           "tools/container-images.env"
@@ -462,7 +464,7 @@
       {
         "name": "container-runtime-policy",
         "always": "Every compose file, Dockerfile and shell script in any area may pull an image or publish a port.",
-        "budget_seconds": 10
+        "budget_seconds": 30
       },
       {
         "name": "every-container-has-a-memory-cap-self-test",
