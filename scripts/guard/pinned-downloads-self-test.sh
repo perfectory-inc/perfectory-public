@@ -72,11 +72,6 @@ sed -i 's/pinned-release-binaries-v1-\${{ runner.os }}-$/pinned-release-binaries
 expect_refused "a restore step with a drifted key" "differs from the one restore step"
 
 make_fixture
-printf 'curl -fsSL -o x https://github.com/acme/tool/releases/download/v1/tool.tar.gz\n' \
-  >>"$fixture/repo/scripts/ci/install-demo.sh"
-expect_refused "a raw release download" "release asset URL outside"
-
-make_fixture
 printf '  late:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: bash scripts/ci/install-demo.sh\n' \
   >>"$fixture/repo/.github/workflows/demo.yml"
 expect_refused "a second job that calls a fetching script" "job late reaches the pinned fetcher"

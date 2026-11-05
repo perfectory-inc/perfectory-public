@@ -83,3 +83,5 @@ cargo-chef, RAON 에이전트 `.deb`)도 CI 잡이 아니므로 여기서 다루
 
 - `scripts/ci/osv-vulnerability-gate.sh` → `cargo xtask ci osv-gate`(`tools/xtask/src/ci.rs`, #798)
 - `scripts/ci/install-cargo-deny.sh` → `cargo xtask ci install-cargo-deny`(`tools/xtask/src/ci.rs`, #798)
+
+2026-11-06: 릴리스 자산 URL(`releases/download`)을 고정 내려받기 밖에서 쓰지 않는다는 검사는 `scripts/guard/check-pinned-downloads.py` 에서 Semgrep 규칙 `tools/semgrep/rules/pinned-downloads.yml`(고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)로 옮겼다. 내려받는 작업이 먼저 캐시를 복원하는지는 워크플로 작업 구조의 성질이라 그 파이썬 가드에 남는다. 결정은 그대로다.

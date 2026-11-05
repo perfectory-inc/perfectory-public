@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """Prevents: a CI job losing a pull request to one 5xx from a release download (root ADR-0197).
 
-Two rules, both read from the tree rather than from a list kept here:
+Every workflow job that reaches the fetcher restores the pinned cache before it does. A job
+reaches the fetcher when a step names the fetcher, names a script that calls it, or runs
+`cargo xtask verify`, which runs the repository guard and with it actionlint. Every restore step
+is the same step, so the key and path cannot drift between jobs.
 
-1. A release asset is downloaded only by scripts/ci/fetch_pinned.py. The string
-   `releases/download` may appear only in the registry (tools/pinned-artifacts.json), in the
-   contracts that registry names, and in prose; a script or workflow that spells such a URL is
-   downloading around the cache, the retry and the checksum.
-2. Every workflow job that reaches the fetcher restores the pinned cache before it does. A job
-   reaches the fetcher when a step names the fetcher, names a script that calls it, or runs
-   `cargo xtask verify`, which runs the repository guard and with it actionlint. Every
-   restore step is the same step, so the key and path cannot drift between jobs.
+That a release asset is downloaded only by the fetcher is the Semgrep rule
+tools/semgrep/rules/pinned-downloads.yml.
 """
 
 from __future__ import annotations
@@ -22,7 +19,6 @@ import subprocess
 import sys
 
 FETCHER = "scripts/ci/fetch_pinned.py"
-REGISTRY = "tools/pinned-artifacts.json"
 CACHE_PATH = "~/.cache/perfectory/pinned"
 RESTORE_STEP = (
     "      - name: Restore pinned release binaries\n"
@@ -33,10 +29,6 @@ RESTORE_STEP = (
     "          restore-keys: pinned-release-binaries-v1-${{ runner.os }}-\n"
 )
 XTASK_ENTRY = "cargo xtask verify"
-# This guard and its self-test spell the forbidden shape on purpose.
-GUARD_FILES = frozenset(
-    {"scripts/guard/check-pinned-downloads.py", "scripts/guard/pinned-downloads-self-test.sh"}
-)
 SCRIPT_SUFFIXES = (".sh", ".py", ".rs", ".ps1")
 JOB = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 
@@ -53,30 +45,6 @@ def read(root: pathlib.Path, name: str) -> str:
         return (root / name).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
-
-
-def allowed_url_homes(root: pathlib.Path) -> set[str]:
-    import json
-
-    registry = json.loads(read(root, REGISTRY) or "{}")
-    return {REGISTRY, *registry.get("contracts", [])}
-
-
-def check_no_raw_downloads(root: pathlib.Path, files: list[str]) -> list[str]:
-    homes = allowed_url_homes(root)
-    failures = []
-    for name in files:
-        if name in homes or name in GUARD_FILES or name.endswith((".md", ".mdx")) or name.startswith("docs/"):
-            continue
-        # Image builds run on the release host, not in a CI job; ADR-0197 lists their downloads.
-        if not (name.endswith(SCRIPT_SUFFIXES) or name.startswith(".github/")):
-            continue
-        for number, line in enumerate(read(root, name).splitlines(), start=1):
-            if "releases/download" in line:
-                failures.append(
-                    f"{name}:{number}: a release asset URL outside {REGISTRY}; download it with {FETCHER}"
-                )
-    return failures
 
 
 def fetching_scripts(root: pathlib.Path, files: list[str]) -> set[str]:
@@ -148,9 +116,7 @@ def main() -> int:
     arguments = parser.parse_args()
     root = arguments.root.resolve()
     files = tracked(root)
-    failures = check_no_raw_downloads(root, files) + check_jobs(
-        root, files, arguments.workflows or root / ".github" / "workflows"
-    )
+    failures = check_jobs(root, files, arguments.workflows or root / ".github" / "workflows")
     for failure in failures:
         print(f"FAIL pinned-downloads: {failure}", file=sys.stderr)
     if failures:
