@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import address_pnu
+import code_change_follow as follow
 
 JOB_NAME = "courtauction_go_kr"
 ITEM_TABLE = "silver.court_auction_item"
@@ -289,6 +290,81 @@ def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: M
     return staged, changes
 
 
+def relinked_rows(rows: Sequence[Mapping[str, Any]], record: str, snapshot: str, ingested_at: datetime,
+                  prefixes: Mapping[str, str], dongs: Mapping[tuple[str, str], str]) -> list[dict[str, Any]]:
+    """The current rows again, each with what its kept address offers the joins now (root ADR-0416).
+
+    The row keeps every value it was observed with; only the link inputs are made again. It carries
+    the follow's record and instant, so the compare stamps it newer than the row it re-places."""
+
+    out = []
+    for current in rows:
+        row = dict(current)
+        given = offer(row, prefixes, dongs)
+        road = given["road"]
+        row.update(
+            legal_dong_code=given["legal_dong_code"], jibun_pnu=given["jibun_pnu"], reason=given["reason"],
+            road_sido=road.sido_code if road else None, road_sigungu=road.sigungu if road else None,
+            road_name_key=road.road if road else None, road_main_no=road.main_no if road else None,
+            road_sub_no=road.sub_no if road else None,
+            source_record_id=record, source_snapshot_id=snapshot, ingested_at_utc=ingested_at,
+        )
+        out.append(row)
+    return out
+
+
+def follow_code_changes(spark: Any, catalog: str, table: str, contract: Mapping[str, Any], prefixes: Mapping[str, str],
+                        dongs: Mapping[tuple[str, str], str], parcels: Any, titles: Any, now: datetime) -> dict[str, Any] | None:
+    """Re-link the current rows the 법정동 code changes since the table's last follow can move, and
+    append only the ones whose link moved (root ADR-0329 §3, ADR-0416). None when there is nothing
+    to follow (no change table, or the links are as of its newest snapshot)."""
+
+    from lakehouse_ingest import append_source_object, read_ingested_objects, unquoted_table_name  # noqa: PLC0415
+    from platform_contracts import column_names, current_rows  # noqa: PLC0415
+    from pyspark.sql import functions as F  # noqa: PLC0415
+    from silver_release_compare import release_changes  # noqa: PLC0415
+
+    after = follow.change_snapshot(spark, catalog)
+    if after is None:
+        return None
+    before = follow.last_followed(read_ingested_objects(spark, table, unquoted_table_name(table)))
+    if before == after:
+        return None
+    columns = list(column_names(contract))
+    moved = follow.changed_prefixes(spark, catalog, before, after, JOB_NAME)
+    current = current_rows(spark.table(table), contract)
+    if "row_state" in columns:
+        current = current.where(F.col("row_state").isNull())
+    affected = follow.rows_under(current, moved, ("legal_dong_code", "pnu"), "pnu").cache()
+    record = follow.follow_record(after, now)
+    rows = relinked_rows([r.asDict() for r in affected.collect()], record, f"{now:%Y%m%dT%H%M%SZ}", now,
+                         prefixes, dongs)
+    appended = 0
+    if rows:
+        names, ddl = offered_schema(contract)
+        offered = spark.createDataFrame(
+            [tuple(n if name == "row_id" else row.get(name) for name in names) for n, row in enumerate(rows)], schema=ddl)
+        resolved = address_pnu.resolve(
+            offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
+            parcels, titles)
+        staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
+                  .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
+        # Same keys on both sides: only the rows whose link moved are appended, and no removal marker.
+        changes = release_changes(staged, affected, key=KEY, content=content_columns(contract), removal="row_state",
+                                  source_snapshot_id=f"{now:%Y%m%dT%H%M%SZ}", ingested_at=F.lit(now).cast("timestamp"),
+                                  columns=columns)
+        changes = changes.join(staged.select(*KEY).distinct(), list(KEY), "left_semi").cache()
+        appended = changes.count()
+    else:
+        changes = spark.createDataFrame([], schema=spark.table(table).schema).select(*columns)
+    # The record is written even with no moved row: the next follow starts from this snapshot.
+    append_source_object(spark, changes, columns, table, record, contract_table=contract["table_name"])
+    checked = affected.count()
+    affected.unpersist()
+    return {"table": unquoted_table_name(table), "from_snapshot": before, "to_snapshot": after,
+            "prefixes": None if moved is None else len(moved), "checked": checked, "appended": appended}
+
+
 def plan_dir_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--plan-dir", action="append", default=[], required=True,
                         help="A directory `plan-silver-load-objects` wrote (plan.json + objects/); repeatable")
@@ -352,6 +428,15 @@ def _load(argv: Sequence[str]) -> int:
                                                          contract_table=contract_table)
             changes.unpersist()
             summary["objects"].append(counts)
+        summary["follows"] = []
+        for contract_table in ROLE_TABLE.values():
+            contract = load_lakehouse_contract(contract_table)
+            table = f"`{args.iceberg_catalog_name}`.`silver`.`{contract_table.split('.', 1)[1]}{args.table_suffix}`"
+            if spark.catalog.tableExists(table.replace("`", "")):
+                followed = follow_code_changes(spark, args.iceberg_catalog_name, table, contract, prefixes, dongs,
+                                               parcels, titles, now)
+                if followed:
+                    summary["follows"].append(followed)
     finally:
         spark.stop()
     _summary_line(summary)
