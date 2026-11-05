@@ -6,7 +6,13 @@ type Photo = { sha256: string; media_format: string; title?: string | null };
 
 /** Content-addressed photos from the shared media store on the parcel edge (root ADR-0296 §5),
  * as a thumbnail grid in the source's own order (root ADR-0070). 공매 and 경매 both show theirs here. */
-export function PhotoGrid({ photos, altFallback }: { photos: readonly Photo[]; altFallback: string }) {
+export function PhotoGrid({
+  photos,
+  altFallback,
+}: {
+  photos: readonly Photo[];
+  altFallback: string;
+}) {
   if (photos.length === 0) return null;
   return (
     <ul className="mt-2 grid grid-cols-3 gap-2">
