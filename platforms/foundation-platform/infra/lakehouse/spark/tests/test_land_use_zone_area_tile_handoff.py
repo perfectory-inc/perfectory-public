@@ -79,6 +79,14 @@ class LandUseZoneAreaTileHandoffTest(unittest.TestCase):
             self.assertEqual((report["reason"], report["keys"], report["sample"]), ("divergent_current_rows", 1, keys))
             self.assertEqual(report["key"], list(job.KEY))
 
+    def test_a_blank_source_value_is_handed_as_empty_text(self):
+        # 2026-11-05: the first zoning bake refused line 120801, a zone the provider left unnamed.
+        rows = [{"feature_id": "D999:SYN-0001:99999", "layer_code": "D999", "layer_name": "SYN",
+                 "zone_code": None, "zone_name": None, "geometry_wkb_hex": "00", "origin": "source"}]
+        line = json.loads(next(job.common.part_lines(rows, job.TILE_PROPERTIES, 4326)))
+        self.assertEqual(line["properties"], {"layer_code": "D999", "layer_name": "SYN", "zone_code": "", "zone_name": ""})
+        self.assertTrue(all(isinstance(value, str) for value in line["properties"].values()))
+
     def test_a_served_snapshot_must_be_a_snapshot_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             args = job.parse_args(["--output", f"{tmp}/h.jsonl", "--summary-output", f"{tmp}/s.json",
