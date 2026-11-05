@@ -33,7 +33,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Reflect each new Gold snapshot of gold.parcel_court_auction (the own-producer court-auction kind, root ADR-0287, ADR-0353) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-court-auction), as section packs (root ADR-0147, ADR-0193 §9), exactly as by_pnu_public_auction_bake does for its lane: a change set decides a create-only patch, a reflect-only manifest or a full new generation. Its own job and asset (root ADR-0303, ADR-0333). Until the operator's first cut-over of the lane (its pack-only gate) a run is `nothing to do`. Started when gold_court_auction_rebuild commits a new snapshot, by the asset reconciler (asset_reconcile) when that event was lost, and at 11:05 as the fallback (root ADR-0171), apart from the 10:15, 10:45 and 10:55 bakes so no two clock starts crowd the host at once; each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). It does not take turns. One slot, in the lane-bake template's instance (root ADR-0418 §8b) with its MemoryMax=5G (root ADR-0138): its Gold is the parcels with an item in progress, about 40,000 small documents (2026-10-19 Silver: 37,922 items with a PNU).",
+      "description": "Reflect each new Gold snapshot of gold.parcel_court_auction (the own-producer court-auction kind, root ADR-0287, ADR-0353) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-court-auction), as section packs (root ADR-0147, ADR-0193 §9), exactly as by_pnu_public_auction_bake does for its lane: a change set decides a create-only patch, a reflect-only manifest or a full new generation. Its own job and asset (root ADR-0303, ADR-0333). Until the operator's first cut-over of the lane (its pack-only gate) a run is `nothing to do`. Started when gold_court_auction_rebuild commits a new snapshot, by the asset reconciler (asset_reconcile) when that event was lost, and at 11:05 as the fallback (root ADR-0171), apart from the 10:15, 10:45 and 10:55 bakes so no two clock starts crowd the host at once; each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). It does not take turns. Two slots and the lane-bake template's MemoryMax=5G (its instance, root ADR-0418 §8b), the ownership bake's bound and for the same reason: two slots so it never runs beside both the panel bake and the public-auction bake (14 + 5 + 5 = 24g would exceed the host budget, root ADR-0138). Its Gold is the parcels with an item in progress, about 40,000 small documents (2026-10-19 Silver: 37,922 items with a PNU).",
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
@@ -48,7 +48,7 @@
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
       "pool": "spark",
-      "pool_slots": 1,
+      "pool_slots": 2,
       "priority_weight": 1,
       "retries": 0,
       "pipeline_graph_edges": [
