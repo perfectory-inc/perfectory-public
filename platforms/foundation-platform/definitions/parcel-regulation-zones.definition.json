@@ -9,7 +9,7 @@
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "규제 구역 kind Gold (root ADR-0375; scripts/ops/gold-panel-rebuild.sh parcel-regulation-zones): gold.parcel_regulation_zones from silver.land_use_zone_area and the served parcels' polygons, when the zone lane, the served parcel edition or the code change table moved past the pins the current Gold recorded. It recomputes only the parcels whose box meets the old or new box of a zone row the Silver release appended, the parcels that entered, left or changed in the served edition, and the parcels under a changed code pair (regulation_zones_silver_to_gold.affected_pnus), and merges them. Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_regulation_zones_bake bakes its commit.",
-      "systemd_service": "foundation-gold-parcel-regulation-zones-rebuild.service",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-regulation-zones.service",
       "systemd_timer": null,
       "state_paths": [],
       "schedule": "25 10 * * *",
@@ -38,7 +38,7 @@
       "capabilities": [
         "by_pnu_kind_section_pack_patches"
       ],
-      "systemd_service": "foundation-by-pnu-parcel-regulation-zones-bake.service",
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-regulation-zones.service",
       "systemd_timer": null,
       "state_paths": [
         "/data/foundation-platform/by-pnu-bake"
