@@ -311,6 +311,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_LAND_OWNERSHIP.table_name
             || contract.table_name == SILVER_LAND_USE_PLAN.table_name
             || contract.table_name == SILVER_LAND_USE_ZONE_AREA.table_name
+            || contract.table_name == lakehouse_domain::GOLD_LAND_USE_ZONE_AREA_BY_TILE.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_TITLES.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_UNITS.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_UNIT_AREAS.table_name

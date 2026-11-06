@@ -313,7 +313,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 158 -> 157: the retired data.go.kr API async executor's test read its own real_transaction.rs.
 # 157 -> 158: the 건축인허가 주차장 lane embeds its source contract once, as every hub part lane
 # does (root ADR-0402).
-COMPILE_TIME_READ_BASELINE="${3:-158}"
+# 158 -> 159: the tile patch test reads the golden tile ranges the Python by-tile membership also
+# computes (infra/lakehouse/spark/tests/fixtures/tile_range_golden.json) from CARGO_MANIFEST_DIR, so
+# the two languages' tile math cannot drift apart (root ADR-0375 §2).
+COMPILE_TIME_READ_BASELINE="${3:-159}"
 
 cd "$repo_root"
 

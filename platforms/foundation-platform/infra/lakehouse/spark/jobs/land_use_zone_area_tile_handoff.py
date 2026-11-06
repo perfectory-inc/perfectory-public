@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hand the regulation-zone tile bake the current rows of `silver.land_use_zone_area`.
+"""Hand the regulation-zone tile bake the zones a change touches, or every current zone.
 
 Root ADR-0373. The `zoning` tile unit has no staff edits and no served Gold table: the Silver
 current rows (newest row per `(layer_code, zone_feature_id, sigungu_code)`, removal markers dropped, read at one
@@ -23,6 +23,18 @@ tiles do not need (root ADR-0314).
   65 (`REFUSED_EXIT`): the run fails with a report, not a traceback (the first run of 2026-11-03
   raised on 308 keys and named five).
 
+Root ADR-0375 §2: the handoff is partial. First `gold.land_use_zone_area_by_tile`
+(`land_use_zone_area_by_tile.py`) is brought to the snapshot from the Silver rows appended since it
+last was. Then, given the by-tile snapshot the served tiles were made from
+(`--served-by-tile-snapshot`), the rows that table appended since name the changed zones and the
+dirty z10 tiles; the handoff is the current zones of those tile partitions (the neighbourhood the
+bake re-renders the dirty tiles from) plus a change list file: every changed zone id, `upsert` when
+it is current and `delete` when not. The bake merges the list into the served snapshot's feature
+index (root ADR-0323 §1) and patches. A partial handoff is never a base: when the bake declines the
+patch it exits 65, and the job runs this again with `--full`, the declared exception that hands
+every current zone, read from Silver as before. The summary says which (`handoff_scope`), why a full
+one is full, the snapshot a partial one applies to, and every row it read (`rows_read`).
+
 The executors write the rows as create-only parts; the driver then streams them into the one v1
 file, so no row passes through the driver's memory.
 """
@@ -41,6 +53,8 @@ from typing import Any
 import served_gold_common as common
 from lakehouse_engine import SHUFFLE_SETTINGS, apply_catalog_settings, assert_catalog_env, iceberg_packages
 from platform_contracts import current_rows, load_lakehouse_contract
+
+import land_use_zone_area_by_tile as by_tile
 
 JOB_NAME = "land_use_zone_area_tile_handoff"
 UNIT = "zoning"
@@ -86,6 +100,7 @@ def pending_layers(contract: dict[str, Any]) -> list[dict[str, str]]:
         raise ValueError(f"regions {both} are both loaded and pending")
     return [{"layer_code": f"D{item['region']}", "name": item["name"]} for item in pending]
 DEFAULT_PARTS = 16
+CHANGE_LIST_NAME = "changes.jsonl"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -93,6 +108,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="The v1 bake handoff JSONL. Never overwritten.")
     parser.add_argument("--summary-output", required=True, help="The served summary the bake reads.")
     parser.add_argument("--served-snapshot", default="", help="The Silver snapshot the tiles show now, if any.")
+    parser.add_argument("--served-by-tile-snapshot", default="",
+                        help="The gold.land_use_zone_area_by_tile snapshot those tiles were made from, if any.")
+    parser.add_argument("--full", action="store_true",
+                        help="Hand every current zone: the bake declined a partial handoff (root ADR-0375 §2).")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
     parser.add_argument("--parts", type=int, default=DEFAULT_PARTS)
@@ -100,8 +119,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.served_snapshot and not SNAPSHOT_PATTERN.fullmatch(args.served_snapshot):
-        raise ValueError("--served-snapshot is an Iceberg snapshot id")
+    for name in ("served_snapshot", "served_by_tile_snapshot"):
+        value = getattr(args, name)
+        if value and not SNAPSHOT_PATTERN.fullmatch(value):
+            raise ValueError(f"--{name.replace('_', '-')} is an Iceberg snapshot id")
     if args.parts <= 0:
         raise ValueError("--parts must be positive")
     if Path(args.output).exists():
@@ -199,6 +220,73 @@ def bucket_relative(location: str) -> str:
     return match.group(1)
 
 
+def partial_refusal(args: argparse.Namespace) -> str | None:
+    """Why this run cannot hand a partial handoff, or None (root ADR-0375 §2)."""
+
+    if args.full:
+        return "the bake declined the partial handoff (--full)"
+    if not args.served_snapshot:
+        return "no tiles are served yet: the unit's first bake"
+    if not args.served_by_tile_snapshot:
+        return f"the served tiles name no {by_tile.TABLE} snapshot"
+    return None
+
+
+def change_list_file(directory: Path, name: str, lines: list[dict[str, str]]) -> dict[str, Any]:
+    """Writes the change list create-only beside the handoff; returns what the summary records."""
+
+    body = "".join(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n" for line in lines).encode("utf-8")
+    with (directory / name).open("xb") as target:
+        target.write(body)
+    return {"path": name, "rows": len(lines), "sha256": hashlib.sha256(body).hexdigest()}
+
+
+def partial_handoff(spark: Any, by_tile_table: str, appended: Any) -> tuple[Any, dict[str, Any], list[dict[str, str]]]:
+    """The neighbourhood frame, the summary's partial block and the change list."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    memberships = appended.select("tile_key", "zone_id").distinct().collect()
+    changed = {str(row["zone_id"]) for row in memberships}
+    tiles = sorted({int(row["tile_key"]) for row in memberships})
+    frame = by_tile.neighbourhood(spark.table(by_tile_table.replace("`", "")), tiles)
+    wrong = int(frame.where(F.col("geometry_srid") != GEOMETRY_SRID).count())
+    if wrong:
+        raise ValueError(f"{wrong} filed zones are not EPSG:{GEOMETRY_SRID}")
+    live: set[str] = set()
+    if changed:
+        ids = spark.createDataFrame([(zone,) for zone in sorted(changed)], "zone_id string")
+        live = {str(row["zone_id"]) for row in frame.join(ids, "zone_id", "left_semi").select("zone_id").collect()}
+    block = {
+        "neighbourhood_zoom": by_tile.ZOOM,
+        "neighbourhood_tiles": [list(by_tile.tile_xy(tile)) for tile in tiles],
+        "by_tile_rows_appended": len(memberships),
+        "by_tile_neighbourhood_rows": by_tile.partition_records(spark, by_tile_table, tiles),
+    }
+    return frame.withColumn("origin", F.lit("source")), block, by_tile.change_list(changed, live)
+
+
+def write_frame(frame: Any, output: Path, parts_count: int, allow_empty: bool) -> tuple[int, str, dict[str, int]]:
+    """Writes `frame` as the create-only v1 handoff; returns rows, sha256 and zones per layer."""
+
+    parts_dir = output.with_name(output.name + ".parts")
+    parts = common.write_handoff_parts(frame, parts_dir, id_column=FEATURE_ID_PROPERTY,
+                                       property_columns=TILE_PROPERTIES, srid=GEOMETRY_SRID, parts=parts_count)
+    per_layer = {row["layer_code"]: int(row["count"]) for row in frame.groupBy("layer_code").count().collect()}
+    served = sum(part["rows"] for part in parts)
+    if served == 0 and allow_empty:
+        # A partial handoff whose changes left no zone in their tiles: the change list is the change.
+        shutil.rmtree(parts_dir)
+        output.open("xb").close()
+        return 0, hashlib.sha256(b"").hexdigest(), per_layer
+    common.verify_handoff_parts(parts_dir, parts, served)
+    rows, sha256 = concatenate_parts(parts_dir, parts, output)
+    if rows != served:
+        raise ValueError(f"the handoff holds {rows} rows, the parts {served}")
+    shutil.rmtree(parts_dir)
+    return rows, sha256, per_layer
+
+
 def report_refusal(summary_output: Path, refusal: Refused) -> int:
     """Writes the refusal report beside the summary the bake would have read, and says so."""
 
@@ -215,7 +303,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
     output = Path(args.output)
-    table = f"`{args.iceberg_catalog_name}`.`silver`.`land_use_zone_area`"
+    catalog = args.iceberg_catalog_name
+    table = f"`{catalog}`.`silver`.`land_use_zone_area`"
+    by_tile_table = f"`{catalog}`.`gold`.`land_use_zone_area_by_tile`"
     now = datetime.now(timezone.utc).replace(microsecond=0)
     spark = build_spark_session(args)
     try:
@@ -224,34 +314,45 @@ def main(argv: list[str] | None = None) -> int:
             print(f"land-use-zone-area-tile-handoff-unchanged snapshot={snapshot}")
             return UNCHANGED_EXIT
         metadata_key = metadata_object_key(spark, table, snapshot)
-        try:
-            frame = served_rows(spark, table, snapshot)
-        except Refused as refusal:
-            return report_refusal(Path(args.summary_output), refusal)
-        parts_dir = output.with_name(output.name + ".parts")
-        parts = common.write_handoff_parts(
-            frame,
-            parts_dir,
-            id_column=FEATURE_ID_PROPERTY,
-            property_columns=TILE_PROPERTIES,
-            srid=GEOMETRY_SRID,
-            parts=args.parts,
-        )
-        per_layer = {row["layer_code"]: int(row["count"]) for row in frame.groupBy("layer_code").count().collect()}
+        maintenance = by_tile.maintain(spark, by_tile_table, table, catalog, snapshot, now)
+        print("land-use-zone-area-by-tile-maintained " + json.dumps(maintenance, sort_keys=True), flush=True)
+        reason = partial_refusal(args)
+        appended = None
+        if reason is None:
+            appended = by_tile.appended_between(spark, by_tile_table, args.served_by_tile_snapshot,
+                                                maintenance["by_tile_snapshot"])
+            if appended is None:
+                reason = (f"{by_tile.TABLE} did not move from {args.served_by_tile_snapshot} to "
+                          f"{maintenance['by_tile_snapshot']} by its own appends and compactions")
+        rows_read = {"silver": maintenance["silver_rows_read"], "by_tile_key_scan": maintenance["key_rows_scanned"]}
+        if reason is None:
+            frame, block, changes = partial_handoff(spark, by_tile_table, appended)
+            block.update(base_snapshot=args.served_snapshot, base_by_tile_snapshot=args.served_by_tile_snapshot,
+                         change_list=change_list_file(output.parent, f"{output.name}.{CHANGE_LIST_NAME}", changes))
+            rows_read.update(by_tile_appended=block["by_tile_rows_appended"],
+                             by_tile_neighbourhood=block["by_tile_neighbourhood_rows"])
+            scope = {"handoff_scope": "partial", "partial": block,
+                     "changed_zones": {op: sum(line["op"] == op for line in changes) for op in ("upsert", "delete")}}
+        else:
+            try:
+                frame = served_rows(spark, table, snapshot)
+            except Refused as refusal:
+                return report_refusal(Path(args.summary_output), refusal)
+            rows_read["silver_full_read"] = by_tile.total_records(by_tile.snapshot_rows(spark, table), snapshot)
+            scope = {"handoff_scope": "full", "full_reason": reason}
+        served, sha256, per_layer = write_frame(frame, output, args.parts, allow_empty=reason is None)
     finally:
         spark.stop()
-    served = sum(part["rows"] for part in parts)
-    common.verify_handoff_parts(parts_dir, parts, served)
-    rows, sha256 = concatenate_parts(parts_dir, parts, output)
-    if rows != served:
-        raise ValueError(f"the handoff holds {rows} rows, the parts {served}")
-    shutil.rmtree(parts_dir)
+    print(f"land-use-zone-area-tile-handoff-read scope={scope['handoff_scope']} rows_handed={served} "
+          f"rows_read={json.dumps(rows_read, sort_keys=True)}")
     summary = common.summary(
         job=JOB_NAME, unit=UNIT, feature_id_property=FEATURE_ID_PROPERTY, srid=GEOMETRY_SRID,
         gold_snapshot=snapshot, through=0, handoff=0, appended=0, ledger=0, served=served, base=served,
         output=output, generated_at=now.isoformat().replace("+00:00", "Z"), counts={},
         extra={"silver_table": SILVER_TABLE, "silver_iceberg_snapshot_id": snapshot,
                "silver_metadata_object_key": metadata_key,
+               "by_tile_table": by_tile.TABLE, "by_tile_iceberg_snapshot_id": maintenance["by_tile_snapshot"],
+               "by_tile_maintenance": maintenance, "rows_read": rows_read, **scope,
                "handoff_sha256": sha256, "zones_per_layer": dict(sorted(per_layer.items())),
                "pending_layers": pending_layers(json.loads(LANE_CONTRACT.read_text(encoding="utf-8")))},
     )
