@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh): for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is not the last one landed, land it in Bronze under its own source (datagokr__<dataset_slug>). Each file commits on its own and its state is saved after its commit, so a stopped run loses nothing and one file's failure does not stop the others; the run fails at the end naming them. The run cap is the files themselves, measured 2026-11-04: all eight new is about 365 MB (the 349 MB 상가(상권) zip took 59 s) and about 3 minutes with the spacing. No Spark; the Silver loads read Bronze.",
+      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit.",
       "systemd_service": "foundation-data-go-kr-file-data.service",
       "systemd_timer": null,
       "state_paths": [
@@ -18,7 +18,7 @@
       "started_by": "schedule",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
-      "time_limit_minutes": 30,
+      "time_limit_minutes": 90,
       "per_run_cap": {
         "unit": "run",
         "limits": [],
@@ -26,13 +26,23 @@
         "measured_run_seconds": null,
         "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
       },
-      "pool": "default_pool",
+      "pool": "spark",
       "retries": 0,
       "pipeline_graph_edges": [
-        "data-go-kr-file-collection-to-source-data-go-kr-file-data"
+        "data-go-kr-file-collection-to-source-data-go-kr-file-data",
+        "source-data-go-kr-file-data-to-silver-highway-access-point",
+        "source-data-go-kr-file-data-to-silver-household-count",
+        "source-data-go-kr-file-data-to-silver-dong-population",
+        "source-data-go-kr-file-data-to-silver-railway-station",
+        "source-data-go-kr-file-data-to-silver-port",
+        "source-data-go-kr-file-data-to-silver-airport",
+        "source-data-go-kr-file-data-to-silver-commercial-district",
+        "source-data-go-kr-file-data-to-silver-adm-dong-code-linkage"
       ],
       "enabled": false,
-      "disabled_reason": "New, never run as its unit: off until its first attended run has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "New, never run as its unit: off until its first attended run has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4).",
+      "pool_slots": 3,
+      "priority_weight": 1
     }
   ],
   "assets": [
@@ -47,6 +57,158 @@
         "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
       ],
       "surface_kind": "scheduler"
+    },
+    {
+      "id": "silver-adm-dong-code-linkage",
+      "type": "silver_table",
+      "title": "법정동 연계정보",
+      "description": "국가데이터처 법정동 연계정보, (행정동코드, 법정동코드, 개정일자)마다 한 행. 행정동 단위 원천(인구·세대수)을 법정동에 잇는 다리다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.adm_dong_code_linkage",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.adm_dong_code_linkage"
+        }
+      ]
+    },
+    {
+      "id": "silver-airport",
+      "type": "silver_table",
+      "title": "공항",
+      "description": "한국공항공사 공항 위치정보. 행정구역 주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.airport",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.airport"
+        }
+      ]
+    },
+    {
+      "id": "silver-commercial-district",
+      "type": "silver_table",
+      "title": "상가(상권)",
+      "description": "소상공인시장진흥공단 상가(상권)정보, 상가업소번호마다 한 행. 제공자의 19자리 지번코드를 복사하지 않고 place-identity 해석기로 현재 PNU 를 정한다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.commercial_district",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.commercial_district"
+        }
+      ]
+    },
+    {
+      "id": "silver-dong-population",
+      "type": "silver_table",
+      "title": "행정동 성별 연령별 인구",
+      "description": "행정안전부 행정동 성별 연령별 주민등록 인구수(230칸), (행정기관코드, 기준연월)마다 한 행. 법정동은 연계정보 표로 잇는다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.dong_population",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.dong_population"
+        }
+      ]
+    },
+    {
+      "id": "silver-highway-access-point",
+      "type": "silver_table",
+      "title": "고속도로 출입시설",
+      "description": "한국도로공사 출입시설 준공년도. 도·시군구·읍면동 이름을 현재 법정동 코드표로 법정동 코드까지만 잇는다(지번이 없어 PNU 없음). 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.highway_access_point",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.highway_access_point"
+        }
+      ]
+    },
+    {
+      "id": "silver-household-count",
+      "type": "silver_table",
+      "title": "행정동 세대원수별 세대수",
+      "description": "행정안전부 행정동 세대원수별 주민등록 세대수, (행정기관코드, 기준연월)마다 한 행. 행정동 코드를 그대로 두고, 법정동은 읽을 때 법정동 연계정보 표의 현재 행으로 잇는다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.household_count",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.household_count"
+        }
+      ]
+    },
+    {
+      "id": "silver-port",
+      "type": "silver_table",
+      "title": "항만",
+      "description": "해양수산부 항만정보. 항만위치를 address_pnu 로 읽되, 시도·시군구만 적혀 있어 PNU 를 정하지 않고 이유를 남긴다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.port",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.port"
+        }
+      ]
+    },
+    {
+      "id": "silver-railway-station",
+      "type": "silver_table",
+      "title": "철도역",
+      "description": "국가철도공단 철도역 정보. 주소를 address_pnu(지번 → 도로명)로 PNU 에 잇는다. 관련노선 칸이 카탈로그의 역↔노선 endpoint 다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.railway_station",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.railway_station"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -59,6 +221,138 @@
         "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
         "collect-data-go-kr-file-data"
       ]
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-adm-dong-code-linkage",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__adm_dong_code_linkage"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-airport",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+      ],
+      "source_slugs": [
+        "datagokr__airport"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-commercial-district",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "source_slugs": [
+        "datagokr__commercial_district"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-dong-population",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__dong_population"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-highway-access-point",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__highway_access_point"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-household-count",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__household_count"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-port",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+      ],
+      "source_slugs": [
+        "datagokr__port"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-railway-station",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+      ],
+      "source_slugs": [
+        "datagokr__railway_station"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     }
-  ]
+  ],
+  "host_memory": {
+    "data_go_kr_file_data": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
 }

@@ -59,6 +59,7 @@ MODULES = (
     "data_go_kr_onbid",
     "onbid_public_auction_document",
     "address_pnu",
+    "data_go_kr_file_data",
     "data_go_kr_registered_factory",
     "courtauction_go_kr",
     "gold_incremental",

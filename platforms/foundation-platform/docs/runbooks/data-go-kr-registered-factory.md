@@ -60,10 +60,26 @@ last_reviewed: 2026-11-04
 
 ## 기타 공공 일괄 파일 (루트 ADR-0401)
 
-작업 `data_go_kr_file_data`(하루 한 번 11:40 UTC, default_pool, 30분) → `foundation-data-go-kr-file-data.service` →
-`scripts/ops/data-go-kr-file-data-cycle.sh` → `collect-data-go-kr-file-data`. 계약의 파일 가운데 등록공장을 뺀 전부를
-맡는다. 파일마다 메타데이터를 한 번 묻고 새 파일 id 일 때만 받아 그 원천의 Bronze(`bronze/source=datagokr__<dataset_slug>/`)에
-남긴다. Spark 는 없다. Silver 적재(바뀐 행만, ADR-0401 §3–4)는 다음 PR 이다.
+작업 `data_go_kr_file_data`(하루 한 번 11:40 UTC, spark 3칸, 90분) → `foundation-data-go-kr-file-data.service` →
+`scripts/ops/data-go-kr-file-data-cycle.sh`:
+
+1. `collect-data-go-kr-file-data`: 계약의 파일 가운데 등록공장을 뺀 전부. 파일마다 메타데이터를 한 번 묻고 새 파일 id 일
+   때만 받아 그 원천의 Bronze(`bronze/source=datagokr__<dataset_slug>/`)에 남긴다.
+2. `plan-silver-load-objects`: 표(`silver.<dataset_slug>`)마다, 그 표의 커밋 요약이 기록하지 않은 Bronze 파일을 하나.
+3. `data_go_kr_file_data.py load`(매일, 쌓을 판이 없어도): 판마다 인코딩·머리줄·칸 수·행 수 한계를 검사하고 UTF-8
+   사본을 만든 뒤, 행 키(제공자 키 또는 행 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓는다.
+   원문 칸은 `provider_fields_json` 에 머리줄 이름 그대로 있다. 그다음 코드 변경 따라가기: 표가 마지막으로 이은
+   `reference.legal_dong_code_change` 스냅숏(커밋 기록 `follow:reference.legal_dong_code_change@<스냅숏>@<시각>`)과 지금이
+   다르면, `views.changed_codes` 가 말하는 코드 아래 행과 잇지 못한 행만 다시 잇고, 연결이 바뀐 행만 쌓는다. 옛 스냅숏이
+   만료됐으면 모든 현재 행을 다시 잇는다(쌓는 것은 여전히 바뀐 행만). 요약 줄은 `data-go-kr-file-data-summary-json`.
+
+| `place_link` | 표 | 잇는 법 | 2026-11-04 실측(표본·전수) |
+|---|---|---|---|
+| `legal_dong_by_names` | highway_access_point | 도·시군구·읍면동 → 현재 법정동 코드 | 844 중 634(75.1%) |
+| `adm_dong_via_linkage` | household_count, dong_population | 행정동 코드를 두고, 읽을 때 `silver.adm_dong_code_linkage` 현재 행으로 | 3,620 중 3,547(98.0%)이 2026-10-01 연계에 있음 |
+| `address_pnu` | railway_station, airport, port | 지번 → 도로명 | 역 215 중 116(54.0%), 공항 14 중 6, 항만 72 중 0(위치가 시도·시군구뿐) |
+| `place_identity` | commercial_district | 지번코드 → place-identity 해석기 → 현재 필지 | 표본 2,000 중 1,980(99.0%) |
+| `is_the_bridge` | adm_dong_code_linkage | 행정동코드·법정동코드 그대로 | — |
 
 | 계약 `files` | data.go.kr | 형식 | 2026-11-04 실측 |
 |---|---|---|---|
@@ -80,8 +96,10 @@ last_reviewed: 2026-11-04
 두 endpoint 가 같은 Bronze 원천(`datagokr__railway_station`)을 가리킨다.
 
 - run 당 상한은 파일 자체다: 8개가 모두 새 판이면 약 365 MB, 요청 간격(5초)을 넣어 3분 안팎. 상가(상권) zip 만 계약에
-  자기 시간 한도(`request_timeout_seconds` 900)를 둔다.
+  자기 시간 한도(`request_timeout_seconds` 900)를 둔다. 상가 판의 UTF-8 사본(약 1.5 GB)은 실행 폴더에 잠시 놓였다가 지워진다.
 - 한 파일이 실패해도(HTTP 오류, 로그인 화면) 다른 파일은 받는다. run 은 끝에 실패한 파일을 모두 적고 실패한다. 상태:
   `/var/lib/foundation-platform/data-go-kr-file-data/`(`collector/<dataset_slug>/accepted.json`, `journal.log`).
 - 받지 않을 파일이 생기면(제공 중단) 계약에서 지우는 PR. 같은 파일을 다시 받게 하려면 그 파일의 `accepted.json` 을 지운다
   (Bronze 는 쓰기 한 번이라 같은 바이트면 그대로다).
+- 거부: 머리줄·칸 수가 계약과 다르거나 인코딩으로 읽히지 않는 바이트(제공자가 형식을 바꿈 → 계약을 고치는 PR), 제공자 키가
+  비었거나 겹침, 행이 바닥보다 적거나 현재 행보다 한계 넘게 줄어듦(잘린 파일일 수 있음 → 포털에서 받아 확인).

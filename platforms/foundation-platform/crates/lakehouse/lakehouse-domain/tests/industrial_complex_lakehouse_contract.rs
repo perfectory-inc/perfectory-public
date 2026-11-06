@@ -339,6 +339,9 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
             || contract.table_name == lakehouse_domain::SILVER_REAL_TRANSACTION.table_name
+            || lakehouse_domain::DATA_GO_KR_FILE_DATA_TABLES
+                .iter()
+                .any(|table| table.table_name == contract.table_name)
         {
             // A lane that appends its changes marks vanished keys (root ADR-0275, ADR-0311, ADR-0318).
             assert_eq!(contract.current_row_predicate, None);

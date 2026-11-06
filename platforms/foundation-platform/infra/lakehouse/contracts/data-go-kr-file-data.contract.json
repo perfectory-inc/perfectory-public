@@ -80,7 +80,12 @@
         "names": ["도", "시군구", "읍면동"],
         "$comment": "Names only, no lot: the 법정동 code, no PNU (ADR-0401 §4)."
       },
-      "measured": "2026-11-04 (2026-08 판): 49,092 bytes, 844 rows, 7 columns on every row, every row distinct."
+      "measured": "2026-11-04 (2026-08 판): 49,092 bytes, 844 rows, 7 columns on every row, every row distinct.",
+      "silver_load": {
+        "$comment": "What one load of silver.highway_access_point may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "household_count": {
       "operation": "fileData15097974",
@@ -102,14 +107,21 @@
       },
       "row_key": {
         "kind": "columns",
-        "columns": ["행정기관코드", "기준연월"]
+        "columns": ["행정기관코드", "기준연월"],
+        "period_column": "기준연월",
+        "$comment": "An edition is one 기준연월. Only the keys of the periods it holds are compared, so last month's rows stay current and the months pile up (ADR-0401 §3); a code that leaves within a month gets its removal marker."
       },
       "place_link": {
         "kind": "adm_dong_via_linkage",
         "code_column": "행정기관코드",
-        "$comment": "A 행정동 code: to 법정동 through adm_dong_code_linkage (ADR-0401 §4)."
+        "$comment": "A 행정동 code. The row keeps it in administrative_dong_code; a reader reaches the 법정동 through the current rows of silver.adm_dong_code_linkage (ADR-0401 §4), so a quarterly linkage edition moves every row at once and nothing here is re-resolved. Measured 2026-11-04: 3,547 of 3,620 codes are in the 2026-10-01 linkage (the rest are 출장소 rows and codes the linkage has not caught up with)."
       },
-      "measured": "2026-11-04 (2026-10 판): 315,551 bytes, 3,620 rows, 16 columns on every row; (행정기관코드, 기준연월) distinct on every row; one 기준연월 per edition."
+      "measured": "2026-11-04 (2026-10 판): 315,551 bytes, 3,620 rows, 16 columns on every row; (행정기관코드, 기준연월) distinct on every row; one 기준연월 per edition.",
+      "silver_load": {
+        "$comment": "What one load of silver.household_count may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "dong_population": {
       "operation": "fileData15097972",
@@ -131,13 +143,21 @@
       },
       "row_key": {
         "kind": "columns",
-        "columns": ["행정기관코드", "기준연월"]
+        "columns": ["행정기관코드", "기준연월"],
+        "period_column": "기준연월",
+        "$comment": "An edition is one 기준연월. Only the keys of the periods it holds are compared, so last month's rows stay current and the months pile up (ADR-0401 §3); a code that leaves within a month gets its removal marker."
       },
       "place_link": {
         "kind": "adm_dong_via_linkage",
-        "code_column": "행정기관코드"
+        "code_column": "행정기관코드",
+        "$comment": "A 행정동 code. The row keeps it in administrative_dong_code; a reader reaches the 법정동 through the current rows of silver.adm_dong_code_linkage (ADR-0401 §4), so a quarterly linkage edition moves every row at once and nothing here is re-resolved. Measured 2026-11-04: 3,547 of 3,620 codes are in the 2026-10-01 linkage (the rest are 출장소 rows and codes the linkage has not caught up with)."
       },
-      "measured": "2026-11-04 (2026-10 판): 2,568,629 bytes, 3,620 rows, 230 columns on every row; (행정기관코드, 기준연월) distinct on every row."
+      "measured": "2026-11-04 (2026-10 판): 2,568,629 bytes, 3,620 rows, 230 columns on every row; (행정기관코드, 기준연월) distinct on every row.",
+      "silver_load": {
+        "$comment": "What one load of silver.dong_population may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "railway_station": {
       "operation": "fileData15067652",
@@ -165,7 +185,12 @@
         "kind": "address_pnu",
         "address_column": "주소"
       },
-      "measured": "2026-11-04 (2025-11 판): 292,919 bytes, 215 rows, 14 columns on every row; 역이름 distinct. The catalog's railway_station_line endpoint is this file's 관련노선 column, not a second file."
+      "measured": "2026-11-04 (2025-11 판): 292,919 bytes, 215 rows, 14 columns on every row; 역이름 distinct. The catalog's railway_station_line endpoint is this file's 관련노선 column, not a second file.",
+      "silver_load": {
+        "$comment": "What one load of silver.railway_station may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "port": {
       "operation": "fileData15088273",
@@ -191,9 +216,15 @@
       },
       "place_link": {
         "kind": "address_pnu",
-        "address_column": "항만위치"
+        "address_column": "항만위치",
+        "$comment": "Measured 2026-11-04: 항만위치 names only 시도·시군구 (often two), so address_pnu reads none of the 72 as a lot or road; the rows keep pnu null with the reason (unparsed), never a guess."
       },
-      "measured": "2026-11-04 (2025-06 판): 39,677 bytes, 72 rows, 23 columns on every row; 항만명 distinct."
+      "measured": "2026-11-04 (2025-06 판): 39,677 bytes, 72 rows, 23 columns on every row; 항만명 distinct.",
+      "silver_load": {
+        "$comment": "What one load of silver.port may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "airport": {
       "operation": "fileData15002851",
@@ -221,7 +252,12 @@
         "kind": "address_pnu",
         "address_column": "행정구역"
       },
-      "measured": "2026-11-04 (2026-10 판): 1,053 bytes, 14 rows, 5 columns on every row; 공항명 distinct."
+      "measured": "2026-11-04 (2026-10 판): 1,053 bytes, 14 rows, 5 columns on every row; 공항명 distinct.",
+      "silver_load": {
+        "$comment": "What one load of silver.airport may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "commercial_district": {
       "operation": "fileData15083033",
@@ -256,7 +292,12 @@
         "provider_pnu_column": "지번코드",
         "$comment": "The provider's 19-digit lot code is resolved by the place-identity resolver (ADR-0288), never copied (ADR-0401 §4)."
       },
-      "measured": "2026-11-04 (2026-09 판): 349,070,686 bytes, downloaded in 59 s; 16 UTF-8 CSV members, 39 columns on every row, 2,753,778 rows, 상가업소번호 filled and distinct on every row; 지번코드 valid on 99.93%."
+      "measured": "2026-11-04 (2026-09 판): 349,070,686 bytes, downloaded in 59 s; 16 UTF-8 CSV members, 39 columns on every row, 2,753,778 rows, 상가업소번호 filled and distinct on every row; 지번코드 valid on 99.93%.",
+      "silver_load": {
+        "$comment": "What one load of silver.commercial_district may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     },
     "adm_dong_code_linkage": {
       "operation": "fileData15136368",
@@ -284,7 +325,12 @@
         "kind": "is_the_bridge",
         "$comment": "The 행정동 ↔ 법정동 bridge the 행정동 sources read."
       },
-      "measured": "2026-11-04 (2026-10 판): 12,270,065 bytes, 130,193 rows, 9 columns on every row; six 개정일자 (2025-10-01 to 2026-10-01) in one file; (행정동코드, 법정동코드, 개정일자) distinct on every row."
+      "measured": "2026-11-04 (2026-10 판): 12,270,065 bytes, 130,193 rows, 9 columns on every row; six 개정일자 (2025-10-01 to 2026-10-01) in one file; (행정동코드, 법정동코드, 개정일자) distinct on every row.",
+      "silver_load": {
+        "$comment": "What one load of silver.adm_dong_code_linkage may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     }
   }
 }
