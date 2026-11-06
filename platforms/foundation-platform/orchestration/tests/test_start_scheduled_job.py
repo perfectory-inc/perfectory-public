@@ -174,7 +174,7 @@ def epoch(text):
 
 
 class BatchStaysOutOfTheOperatorWindow(HostFixture):
-    """Root ADR-0424: a clock-started spark job its schedule places inside the daily scheduled window
+    """Root ADR-0425: a clock-started spark job its schedule places inside the daily scheduled window
     does not run into the by-PNU operator window when it starts late (2026-11-05 23:46Z)."""
 
     def setUp(self):

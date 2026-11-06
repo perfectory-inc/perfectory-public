@@ -9,7 +9,7 @@
                                                why the job's pool has no room for it now, or nothing
     job_units.py operator-window <jobs.v1.json> <job id> <epoch seconds>
                                                why a run of the job started then would reach into the
-                                               by-PNU operator window, or nothing (root ADR-0424)
+                                               by-PNU operator window, or nothing (root ADR-0425)
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -40,7 +40,7 @@ STOPPED_STATES = frozenset({"inactive", "failed"})
 DEFERRED_DIR = "/var/lib/foundation-scheduler/deferred"
 JOB_ID = re.compile(r"[a-z][a-z0-9_]*")
 # The scheduled window is the first daily start of a spark-pool job to the last one plus this; the
-# rest of the UTC day is the by-PNU operator window (by-pnu-lane-cutover.sh, root ADR-0424).
+# rest of the UTC day is the by-PNU operator window (by-pnu-lane-cutover.sh, root ADR-0425).
 WINDOW_TAIL_MINUTES = 15
 
 
@@ -142,7 +142,7 @@ def daily_minute(schedule: str) -> int | None:
 def scheduled_window(jobs) -> tuple[int, int]:
     """(start, end) in minutes of the UTC day: from the first daily start of a spark-pool job to the
     last one plus WINDOW_TAIL_MINUTES. Hourly jobs are not the window. The rest of the day, which
-    wraps midnight, is the by-PNU operator window, the cut-overs' (root ADR-0424)."""
+    wraps midnight, is the by-PNU operator window, the cut-overs' (root ADR-0425)."""
     daily = [minute for job in jobs if job.get("pool") == "spark"
              and (minute := daily_minute(job["schedule"])) is not None]
     if not daily:
@@ -153,7 +153,7 @@ def scheduled_window(jobs) -> tuple[int, int]:
 def kept_out_of_operator_window(job, window) -> bool:
     """A spark-pool job only its clock starts, whose daily run (time limit and stop grace) its
     schedule places inside the scheduled window: a later start of it (an unpause's catch-up of a
-    missed tick, a deploy's owed run) must not reach into the operator window (root ADR-0424)."""
+    missed tick, a deploy's owed run) must not reach into the operator window (root ADR-0425)."""
     if job.get("pool") != "spark" or job.get("started_by") != "schedule":
         return False
     start = daily_minute(job["schedule"])

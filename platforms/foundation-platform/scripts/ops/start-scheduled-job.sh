@@ -113,7 +113,7 @@ if [[ -n "${turn}" ]]; then
 fi
 
 # A spark-pool job its clock alone starts, scheduled to run inside the daily scheduled window, does
-# not run into the by-PNU operator window when it starts late (root ADR-0424; Slurm starts no job
+# not run into the by-PNU operator window when it starts late (root ADR-0425; Slurm starts no job
 # whose time limit reaches into a reservation): a start whose run (time limit and stop grace) would
 # reach into it runs nothing and says why, and the job's next scheduled start runs it. 2026-11-05
 # 23:46Z: the deploy that switched unit_price_versions_migration on unpaused its DAG, Airflow ran the

@@ -37,7 +37,7 @@ for unit, state in units.items():
 
 
 class TheOperatorWindowIsTheCutOvers(unittest.TestCase):
-    """Root ADR-0424: the scheduled window comes from the job list, and the clock-started batch it
+    """Root ADR-0425: the scheduled window comes from the job list, and the clock-started batch it
     places inside it is kept out of the rest of the day (2026-11-05 23:46Z)."""
 
     def setUp(self):

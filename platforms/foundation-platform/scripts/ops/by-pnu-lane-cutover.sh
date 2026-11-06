@@ -38,7 +38,7 @@
 #     before the first daily Spark job of orchestration/jobs.v1.json starts, or after the last one
 #     started plus the tail. The window is job_units.py's (scheduled_window), computed from that
 #     file; the scheduler's runner keeps the clock-started batch it places inside it out of the rest
-#     of the day, the operator window (start-scheduled-job.sh, root ADR-0424).
+#     of the day, the operator window (start-scheduled-job.sh, root ADR-0425).
 #   - one Spark job at a time: before `gold` and `bake` the run waits (up to SPARK_WAIT_MINUTES)
 #     until no unit of a spark-pool job, Gold rebuild or pack bake runs. The operator refuses again
 #     on its own when one does (exit 75).
