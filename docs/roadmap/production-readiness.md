@@ -91,7 +91,7 @@ last_reviewed: 2026-10-31
 | 호스트 자원 경보 | 초안. ADR-0385: node-exporter 호스트 수집기(디스크·메모리·OOM·CPU) + cAdvisor, `foundation-host` 경보 6개 → Slack, promtool 규칙 시험 가드. 처음 잰 것: 10-28~11-03 OOM 100번(공매 Silver 2.5GiB 상한) |
 | 수집 run 당 상한 + 가드 | 일부. 공매 각 API 에 `per_run_limit`(#871 등). 통일 어휘와 모든 수집 작업을 거는 가드는 없음 |
 | postgres 복원드릴 타이머 + 백업 freshness | freshness 끝(#882, 타이머 있음). 복원드릴은 스크립트뿐이고 postgres 타이머 없음 |
-| R2 객체 ↔ silver 색인 대조 | 미착수(main 에 없음) |
+| R2 객체 ↔ silver 색인 대조 | 초안: ADR-0387 — 공매 미디어 `onbid/media` ↔ `silver.onbid_real_estate_item_photo` 매일 대조(`media_reconcile`), 없음·고아 경보. 고아 정리(삭제)는 보고서 뒤 사람 결정 |
 | expand-contract 마이그레이션 가드 | 만들지 않기로 함 — #883 닫음(10-28): 막을 실제 사고가 없고 기존 두 장치가 막는다 |
 
 - P2/P3 는 ADR-0300 소유.

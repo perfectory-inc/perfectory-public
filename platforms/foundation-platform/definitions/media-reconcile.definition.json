@@ -1,0 +1,31 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "media-reconcile",
+  "jobs": [
+    {
+      "id": "media_reconcile",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The media reconciler (root ADR-0387, ADR-0299 G-recon): once a day, compares the keys the onbid media index names (data-go-kr-onbid.contract.json media.reconcile.index_table) with the objects R2 holds under media.object_prefix/sha256/. A key the index names that R2 lacks is missing (a broken photo on a parcel page); an object no index row names, older than orphan_min_age_hours, is an orphan (2026-10-26: the collector hit its 40-minute limit with its Bronze commit at the end, leaving stored photos no line named). Partial: the index is append-only, so the reconciler keeps the set of keys it has named under its state path and reads only the rows ingested since the newest it read, less two hours (2026-11-04: 6,074 of 29,738 keys when nothing new landed; the first run reads all 29,738 in 4 s). The listing is keys only, about one ListObjectsV2 call per thousand objects (~30 a run, $0.000135), no object read: hashed keys cannot be listed by time. Writes a report per run under its state path and foundation_media_reconcile_* gauges for node-exporter (/var/lib/foundation-jobs/metrics/media-reconcile.prom; the FoundationMediaObject* alerts). Read-only: its outcome is always unchanged.",
+      "systemd_service": "foundation-media-reconcile.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/media-reconcile",
+        "/var/lib/foundation-jobs/metrics"
+      ],
+      "schedule": "15 6 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 60,
+      "time_limit_minutes": 10,
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": true,
+      "enabled_since": "2026-11-03T18:51:10Z",
+      "started_once_after_deploy": true
+    }
+  ]
+}

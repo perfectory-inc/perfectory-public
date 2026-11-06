@@ -872,6 +872,16 @@ fn plan_silver_load_objects_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The media reconciler's read-only listing of one lakehouse prefix (root ADR-0387).
+#[test]
+fn list_lakehouse_objects_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "list-lakehouse-objects"])?,
+        Command::ListLakehouseObjects
+    );
+    Ok(())
+}
+
 /// The court auction list collector (root ADR-0280, ADR-0281).
 #[test]
 fn courtauction_go_kr_collect_command_is_explicit() -> anyhow::Result<()> {

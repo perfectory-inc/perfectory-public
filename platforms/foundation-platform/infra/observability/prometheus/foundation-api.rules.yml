@@ -524,3 +524,41 @@ groups:
         annotations:
           summary: 호스트 자원 지표(cAdvisor·node-exporter 수집기)를 30분째 못 읽어요 — 디스크가 차거나 메모리가 모자라도 알림이 안 가요
           runbook: docs/runbooks/host-resources.md
+  # The onbid media in R2 against the Silver index that names it (root ADR-0387, ADR-0299 G-recon).
+  # A parcel page shows a photo by the hash the index holds; nothing compared the two. On 2026-10-26
+  # the collector hit its 40-minute limit with its Bronze commit at the end of the run, so photos it
+  # had stored landed with no line naming them, and the same day R2's "no such object" read as an
+  # error stored no photo at all (errored 20, downloaded 0; #867). The media reconciler
+  # (scripts/ops/media_reconcile.py, daily) lists the prefix and reads the index, and writes these.
+  - name: foundation-media
+    rules:
+      - alert: FoundationMediaObjectMissing
+        # The index names a key R2 does not hold: a broken photo, from the first run that sees it.
+        expr: foundation_media_reconcile_missing_objects > 0
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '미디어 색인이 이름 대는 사진·첨부 {{ $value }}개가 R2 에 없어요({{ $labels.prefix }}) — 필지 화면에서 깨진 사진으로 보여요. /var/lib/foundation-platform/media-reconcile/reports 의 마지막 보고서 missing 을 보세요'
+          runbook: docs/runbooks/media-reconcile.md
+      - alert: FoundationMediaObjectOrphaned
+        # R2 holds media no index row names, past the grace in which its line reaches Silver.
+        expr: foundation_media_reconcile_orphan_objects > 0
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 'R2 에 어느 색인 줄도 이름 대지 않는 미디어가 {{ $value }}개 있어요({{ $labels.prefix }}) — 수집 run 이 커밋 없이 끝났거나 Silver 적재가 밀렸어요. 마지막 보고서 orphans 를 보세요'
+          runbook: docs/runbooks/media-reconcile.md
+      - alert: FoundationMediaReconcileStale
+        # Daily, and the deploy starts it once: 30 hours without a comparison means it stopped.
+        expr: >-
+          time() - foundation_media_reconcile_timestamp_seconds > 30 * 3600
+          or absent(foundation_media_reconcile_timestamp_seconds)
+        for: 1h
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 미디어 대조기(media_reconcile)가 30시간 넘게 비교하지 않았어요. journalctl -u foundation-media-reconcile.service 를 보세요
+          runbook: docs/runbooks/media-reconcile.md
