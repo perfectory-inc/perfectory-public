@@ -19,10 +19,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
 use anyhow::Context as _;
-use foundation_outbox::errors::PublishError;
-use foundation_outbox::object_storage::{ObjectWriteMode, PutObjectRequest};
 use foundation_outbox::ObjectStorageService;
-use foundation_shared_kernel::{content_addressed_key, MediaFormat, ObjectKeyPrefix, Sha256Hex};
+use foundation_shared_kernel::ObjectKeyPrefix;
 use futures_util::StreamExt as _;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -31,6 +29,7 @@ use crate::data_go_kr_onbid_collect::{
     LineOutcome, MediaFields, MediaRef, OriginalRule, RenditionBudget,
 };
 use crate::media_renditions::{self, Laddered};
+use crate::media_store::{self, Stored, StoredMedia};
 
 const PHOTO_FIELD: &str = "potoUrlList";
 /// The key beside a list field (`<field>Original`) naming the originals of its thumbnails (root
@@ -227,17 +226,6 @@ pub(crate) struct MediaReport {
     pub(crate) ladders_deferred: usize,
 }
 
-/// The content-addressed facts a stored (or already-present) media file yields for the Silver photo
-/// index. Identical bytes always give the same three, so a re-seen or deduplicated file still maps.
-pub(crate) struct StoredMedia {
-    pub(crate) sha256: String,
-    /// `MediaFormat::extension` of the stored file.
-    pub(crate) media_format: String,
-    pub(crate) size_bytes: u64,
-    /// The longest side its header declares, when downloaded this run and readable.
-    pub(crate) longest_px: Option<u32>,
-}
-
 impl StoredMedia {
     fn memo(&self, cltr_mng_no: &str) -> MediaRef {
         MediaRef {
@@ -258,15 +246,6 @@ impl From<&MediaRef> for StoredMedia {
             longest_px: None,
         }
     }
-}
-
-enum Stored {
-    New(StoredMedia),
-    Deduplicated(StoredMedia),
-    Oversize,
-    UnknownFormat,
-    /// The provider answered 4xx: the link is gone, asking again will not bring it back.
-    Gone,
 }
 
 /// How many downloads one run may attempt, and whether the day's budget (not this run's own cap) is
@@ -838,50 +817,7 @@ async fn download_and_store(
         .bytes()
         .await
         .context("reading the media body failed")?;
-    // A chunked response carries no length; the same cap still holds once the bytes are in hand.
-    if bytes.len() as u64 > max_file_bytes {
-        return Ok(Stored::Oversize);
-    }
-    let Some(format) = MediaFormat::sniff(&bytes) else {
-        return Ok(Stored::UnknownFormat);
-    };
-    let hash = Sha256Hex::of(&bytes);
-    let hash_hex = hash.as_str().to_owned();
-    let key =
-        content_addressed_key(prefix, &hash, format).context("media object key is invalid")?;
-    let media = StoredMedia {
-        sha256: hash_hex.clone(),
-        media_format: format.extension().to_owned(),
-        size_bytes: bytes.len() as u64,
-        longest_px: foundation_media_renditions::dimensions(&bytes)
-            .map(|(width, height)| width.max(height)),
-    };
-    // The key is the content hash: if it exists, the stored bytes are identical, so skip the write.
-    if storage
-        .read_object_sha256(key.as_str())
-        .await
-        .context("media head failed")?
-        .is_some()
-    {
-        return Ok(Stored::Deduplicated(media));
-    }
-    match storage
-        .put_object(PutObjectRequest {
-            key: key.as_str().to_owned(),
-            body: bytes.to_vec(),
-            content_type: format.content_type().to_owned(),
-            // Never changes once stored (the key is its content hash): the edge's one cache policy.
-            cache_control: media_renditions::cache_control()?.to_owned(),
-            write_mode: ObjectWriteMode::CreateOnly,
-            sha256: Some(hash_hex),
-        })
-        .await
-    {
-        Ok(()) => Ok(Stored::New(media)),
-        // A concurrent run stored the same content first: identical bytes, so it is a dedup, not a fault.
-        Err(PublishError::ObjectAlreadyExists { .. }) => Ok(Stored::Deduplicated(media)),
-        Err(error) => Err(error).context("media put_object failed"),
-    }
+    media_store::store_bytes(&bytes, prefix, storage, max_file_bytes).await
 }
 
 #[cfg(test)]

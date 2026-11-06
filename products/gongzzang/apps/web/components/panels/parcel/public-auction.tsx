@@ -2,13 +2,9 @@
 "use client";
 import { partition } from "es-toolkit";
 import { useTranslations } from "next-intl";
-import { type ReactNode, useState } from "react";
-import {
-  onbidMediaSrc,
-  type PublicAuctionRound,
-  photoRenditionSrc,
-  photoRenditionSrcSet,
-} from "@/lib/api/public-auction";
+import type { ReactNode } from "react";
+import { PhotoGrid } from "@/components/media/photo-grid";
+import { onbidMediaSrc, type PublicAuctionRound, parcelMediaStore } from "@/lib/api/public-auction";
 import { formatAreaM2, formatPriceKrw } from "@/lib/listings/format";
 import { RoundDetails, shown } from "./public-auction-details";
 
@@ -72,18 +68,17 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
   if (images.length === 0 && appraisals.length === 0) return null;
   return (
     <>
-      {images.length > 0 && (
-        <ul className="mt-2 grid grid-cols-3 gap-2">
-          {images.map((photo) => (
-            <li
-              key={photo.sha256}
-              className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-[var(--color-surface-cream-strong)]"
-            >
-              <PhotoTile t={t} photo={photo} />
-            </li>
-          ))}
-        </ul>
-      )}
+      <PhotoGrid
+        store={parcelMediaStore()}
+        // The ladder is made from the original when it has landed (root ADR-0424), else from the
+        // provider's thumbnail; the caption is the photo's own.
+        photos={images.map((photo) => {
+          const source = photo.original ?? photo;
+          return { sha256: source.sha256, media_format: source.media_format, title: photo.title };
+        })}
+        altFallback={t("photoAltFallback")}
+        viewOriginal={t("viewOriginal")}
+      />
       {appraisals.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1">
           {appraisals.map((doc) => (
@@ -101,61 +96,6 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
         </ul>
       )}
     </>
-  );
-}
-
-/** The tile is a third of the panel: 160px wide on a desktop panel, a third of a phone. */
-const TILE_SIZES = "(max-width: 640px) 33vw, 160px";
-
-/**
- * One photo from our own rendition ladder (root ADR-0427): AVIF, else WebP, the browser
- * taking the smallest width that fills the tile at its pixel density, loaded lazily. The ladder is
- * made from the original when it has landed (root ADR-0424), else from the provider's thumbnail;
- * the tile links to that file itself, so the original is fetched only when asked for. Until a
- * ladder exists (a photo newer than its collector run's ladder budget) the file itself is shown.
- */
-function PhotoTile({ t, photo }: { t: Translate; photo: PublicAuctionRound["photos"][number] }) {
-  const [laddered, setLaddered] = useState(true);
-  const source = photo.original ?? photo;
-  const file = onbidMediaSrc(source);
-  const alt = photo.title ?? t("photoAltFallback");
-  return (
-    <a
-      href={file}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={t("viewOriginal")}
-      className="block h-full w-full"
-    >
-      {laddered ? (
-        <picture>
-          <source
-            type="image/avif"
-            srcSet={photoRenditionSrcSet(source, "avif")}
-            sizes={TILE_SIZES}
-          />
-          <img
-            src={photoRenditionSrc(source)}
-            srcSet={photoRenditionSrcSet(source, "webp")}
-            sizes={TILE_SIZES}
-            alt={alt}
-            loading="lazy"
-            decoding="async"
-            onError={() => setLaddered(false)}
-            className="h-full w-full object-cover"
-          />
-        </picture>
-      ) : (
-        // biome-ignore lint/performance/noImgElement: immutable content-addressed CDN media (sha256); the Next optimizer adds a hop for no gain.
-        <img
-          src={file}
-          alt={alt}
-          loading="lazy"
-          decoding="async"
-          className="h-full w-full object-cover"
-        />
-      )}
-    </a>
   );
 }
 
