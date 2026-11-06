@@ -40,7 +40,7 @@ unsound = "all"
 # sqlx releases depending on webpki-roots >= 1.0.10, or at once if our DB TLS begins validating
 # untrusted servers through this set.
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23" },
+    { id = "RUSTSEC-2024-0436", reason = "parquet 59.1.0 still directly depends on paste; no compatible released Parquet 59.x removes it as of 2026-07-23; rav1e 0.8.1 (the AVIF encoder of the photo ladder, root ADR-0427) uses it as a compile-time proc-macro too" },
     { id = "RUSTSEC-2026-0253", reason = "lru is reached only via aws-sdk-s3, whose every published release through 1.141.0 requires lru ^0.16.3 while the fix landed in 0.18.2, as of 2026-08-13" },
     { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.26.11 via sqlx-core 0.8.6 (pins ^0.26); fix only in >=1.0.10, semver-unreachable without a breaking sqlx major; used only as sqlx's TLS roots for our own Postgres endpoints, not arbitrary-server validation; the 1.x copy is bumped to 1.0.10; review by 2026-11-20" },
 ]

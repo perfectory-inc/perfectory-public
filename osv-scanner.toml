@@ -26,3 +26,9 @@ reason = "basic-ftp: Gongzzang 개발 도구(@puppeteer/browsers 시험 브라�
 id = "GHSA-g3hv-75wg-m249"
 ignoreUntil = 2026-11-30
 reason = "minimatch: Dawneer 웹과 Gongzzang 의 openapi-typescript 7.13.0(최신)→@redocly/openapi-core 1.34.x 가 고정하는 5.1.9. 수정판은 11.0.1 뿐인데 11 은 require(\"minimatch\") 를 함수로 내보내지 않아 redocly 를 깨므로 override 로 올리지 못한다. API 타입 생성 개발 도구라 서비스 실행 경로에 없고 우리 OpenAPI 문서의 고정 패턴만 맞춘다. 10.x 는 override(11.0.1)로 닫았다. redocly 1.x 가 minimatch 를 올리거나 openapi-typescript 가 openapi-core 2.x 로 옮길 때 닫는다."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+ignoreUntil = 2027-02-02
+reason = "paste: 취약점이 아니라 '관리 중단' 권고다. 사진 사다리(root ADR-0427)의 AVIF 인코더 rav1e 0.8.1(최신)이 컴파일 때만 쓰는 proc-macro 로 끌어온다 — 실행 바이너리에 코드가 없다. deny.toml 이 같은 권고를 parquet 때문에 이미 열어 두었다. rav1e 가 paste 를 떼면(업스트림 이슈) 닫는다."
+
