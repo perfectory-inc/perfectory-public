@@ -161,6 +161,26 @@ class VintageVersionsSparkTest(unittest.TestCase):
         for vintage, copy in copies:
             self.assert_reconstructs(contract, versions, job.UNIT_PRICE_CONTENT, vintage, copy)
 
+    def test_only_the_keys_whose_inputs_changed_are_joined_again(self):
+        """Root ADR-0317 §6: a changed price, a moved unit and a newly named priced unit, not the rest."""
+        import unit_official_price as job
+
+        prices = self.spark.createDataFrame(
+            [("K1", "209908"), ("K2", "209908"), ("K2", "209909"), ("K3", "209908"), ("K4", "209908"), ("K5", "209911")],
+            "mgmt_key string, vintage string")
+        dictionary = self.spark.createDataFrame(
+            [("K1", PNU, "101동", "102호"), ("K2", PNU, "101동", "201호"), ("K3", PNU, "101동", "301호"),
+             ("K4", PNU, "101동", "401호"), ("K6", PNU, "101동", "601호")],
+            "mgmt_key string, pnu string, dong_name string, ho_name string")
+        joined = self.spark.createDataFrame(
+            [("K1", PNU, "101동", "101호"), ("K2", PNU, "101동", "201호"), ("K3", PNU, "101동", "301호"),
+             ("K7", PNU, "101동", "701호")],
+            "mgm_bldrgst_pk string, pnu string, dong_name string, ho_name string")
+        keys = {row.key for row in job.rejoined_keys(prices, dictionary, joined, "209909", "209910").collect()}
+        # K2: a price version at the held vintage; K1: moved to another ho; K7: dropped from the
+        # dictionary; K4: newly named and priced. K3 is unchanged, K6 has no price, K5's change is later.
+        self.assertEqual(keys, {"K1", "K2", "K4", "K7"})
+
     def test_an_older_vintage_is_refused_and_a_table_without_markers_cannot_be_read_as_of(self):
         from platform_contracts import rows_as_of
         from silver_release_compare import refuse_older_edition

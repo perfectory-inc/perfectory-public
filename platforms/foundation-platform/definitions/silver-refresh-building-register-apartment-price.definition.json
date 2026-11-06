@@ -11,7 +11,7 @@
       "full_tracked_by": "PR #919 (root ADR-0317 stage 3: the price lane compares into a versions table and appends only the changed keys)",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price already records it or a newer one (`unchanged`), export, load and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 공동주택가격 lane `building-register-apartment-price` (root ADR-0169 ②): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_apartment_price_versions already records it or a newer one (`unchanged`), export, stage it on a load branch and append only its changed keys and removal markers (`changed`, root ADR-0317). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-apartment-price.service",
       "check_service": "foundation-silver-refresh-plan@building-register-apartment-price.service",
       "systemd_timer": null,
@@ -46,7 +46,7 @@
       "priority_weight": 4,
       "retries": 0,
       "pipeline_graph_edges": [
-        "source-building-hub-bulk-to-silver-building-register-apartment-price"
+        "source-building-hub-bulk-to-silver-building-register-apartment-price-versions"
       ],
       "enabled": true,
       "enabled_since": "2026-10-14T02:51:17Z"
@@ -57,7 +57,7 @@
       "id": "silver-building-register-apartment-price",
       "type": "silver_table",
       "title": "건축물대장 공동주택가격",
-      "description": "헤더 없는 원천을 레이아웃 계약과 스트리밍으로 변환하는 코드 경로가 있다. 운영 적재량·조인율은 실행 증거로 확인한다.",
+      "description": "헤더 없는 원천을 레이아웃 계약과 스트리밍으로 변환하는 코드 경로가 있다. 운영 적재량·조인율은 실행 증거로 확인한다. ADR-0317 이후 이 경로는 버전 표에 쓴다. 옛 전체 사본 표는 보존하고 더 쓰지 않는다(지울지는 사장 결정).",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -70,7 +70,9 @@
           "kind": "lakehouse_contract",
           "value": "silver.building_register_apartment_price"
         }
-      ]
+      ],
+      "runbook_ref": "platforms/foundation-platform/docs/runbooks/silver-refresh.md",
+      "unscheduled": "on_event"
     }
   ],
   "dependencies": [
@@ -78,7 +80,7 @@
       "from": "source-building-hub-bulk",
       "to": "silver-building-register-apartment-price",
       "relation": "feeds",
-      "status": "implemented",
+      "status": "disabled",
       "via": [
         "export-building-register-apartment-price-silver-handoff",
         "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
@@ -87,7 +89,24 @@
       "source_slugs": [
         "hubgokr__building_register_apartment_price"
       ],
-      "description": "장부의 가장 새 완전한 판(root ADR-0169) 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다.",
+      "description": "장부의 가장 새 완전한 판(root ADR-0169) 하나의 mart_djy_08 원천 25칸과 PNU 실패 행을 보존한다. 전체 ZIP 검증 후 manifest에 기록된 부분 파일만 적재한다. ADR-0317 이후 이 경로는 버전 표에 쓴다. 옛 전체 사본 표는 보존하고 더 쓰지 않는다(지울지는 사장 결정).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
+    },
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-register-apartment-price-versions",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "export-building-register-apartment-price-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_release_compare.py"
+      ],
+      "description": "공동주택가격 판을 버전 표의 load branch 에 쌓고, (관리번호, 기준일)마다 현재 행과 비교해 바뀐 키의 행과 사라진 키의 삭제 표시만 main 에 덧붙인다(루트 ADR-0275, ADR-0317).",
+      "source_slugs": [
+        "hubgokr__building_register_apartment_price"
+      ],
       "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; subdivision convergence tracked by ADR-0288"
     }
   ],

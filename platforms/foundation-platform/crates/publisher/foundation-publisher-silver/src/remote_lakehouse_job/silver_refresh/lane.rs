@@ -107,7 +107,11 @@ impl Lane {
 
     /// The Silver table this lane writes, the one its contract must name.
     pub(in crate::remote_lakehouse_job) fn table(self) -> String {
-        format!("silver.{}", self.id().replace('-', "_"))
+        match self {
+            // Its vintages are stored as versions beside the full copies (root ADR-0317).
+            Self::ApartmentPrice => "silver.building_register_apartment_price_versions".to_owned(),
+            _ => format!("silver.{}", self.id().replace('-', "_")),
+        }
     }
 
     pub(in crate::remote_lakehouse_job) const fn contract_source(
@@ -350,7 +354,8 @@ struct Block {
     #[serde(default)]
     export_chunk_rows: Option<u32>,
     spark: SparkRunner,
-    /// Land lanes that append a release's changes instead of publishing it whole (root ADR-0275).
+    /// Lanes that append a release's changes instead of publishing it whole (root ADR-0275): land
+    /// lanes, and hub part lanes whose vintages are stored as versions (root ADR-0317).
     #[serde(default)]
     compare: Option<CompareBlock>,
     /// Why an overwriting lane still writes its release whole, and what that costs (root ADR-0311).
