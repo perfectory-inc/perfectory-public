@@ -182,7 +182,6 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
   );
 }
 
-/** The section the reader is in: the last one whose top has passed the scroller's top. */
 /** The 실거래 category's page: the parcel's own deals, then its 법정동's 공장·창고 deals when it carries them. */
 function realTransactionSections(
   t: ReturnType<typeof useTranslations>,
@@ -206,6 +205,7 @@ function realTransactionSections(
   ];
 }
 
+/** The section the reader is in: the last one whose top has passed the scroller's top. */
 function useScrollSpy(ref: React.RefObject<HTMLDivElement | null>, ids: string): string | null {
   const [active, setActive] = useState<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ids` re-arms the spy when a category's sections change; the effect reads them from the DOM.
