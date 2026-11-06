@@ -181,10 +181,15 @@ timer를 운영 상태로 인정하기 전에 첫 서비스 실행이 성공적�
 | 유닛(timer) | 언제 | 하는 일 |
 |---|---|---|
 | `foundation-postgres-backup-freshness` | 6시간마다 | pgBackRest 저장소에서 가장 새 백업이 26시간보다 오래됐으면 실패한다. 라이브 DB 가 아니라 저장소를 읽기 전용 키로 읽으므로 Postgres 가 떠 있을 필요가 없다. 백업 유닛이 아예 돌지 않은 경우도 여기서 잡는다. |
+| `foundation-postgres-restore-drill` | 매주 일요일 05:30 (일요일 전체 백업·신원 드릴 뒤) | 읽기 전용 키로 가장 새 백업 세트를 받고 보관된 WAL 을 끝까지 재생해 임시 볼륨에 복원한다(`--archive-mode=off`: 승격된 사본은 WAL 을 저장소에 밀지 않는다). 보관 끄고 TCP 없이 띄운 뒤 운영과 견준다: 서버 버전·표 수·적용된 마이그레이션이 같고, 운영 통계(`pg_stat_user_tables.n_live_tup`)가 행이 있다고 하는 표마다 사본에도 행이 있어야 한다. 운영 쪽은 통계만 읽고 표를 훑지 않는다. 시작 전 docker 루트에 세트 크기 + 1/5 이 남았는지 보고, 끝나면 볼륨을 지운다. 증거는 `/var/lib/foundation-platform/recovery/postgres-restore-drill.json`. 2026-10-14 손 복원 실측: 130.1GB·23분. |
 
-실패하면 `foundation-unit-failed@` 가 알린다. 운영 백업의 주간 자동 복원 드릴은 아직 없다. 아래
-"복구 리허설"의 `postgres-restore-drill.sh` 는 빈 저장소 prefix 로 백업부터 만드는 합성 리허설이라,
-운영 저장소에 타이머로 걸면 안 된다.
+실패하면 `foundation-unit-failed@` 가 알린다(루트 ADR-0300 K). 주간 복원 드릴은
+`scripts/recovery/run-postgres-restore-drill.sh` 다. 아래 "복구 리허설"의 `postgres-restore-drill.sh` 는 빈 저장소
+prefix 로 백업부터 만드는 합성 리허설이라, 운영 저장소에 타이머로 걸면 안 된다. 주간 드릴은 백업을 만들지 않는다
+(`deploy_contract` 시험이 `foundation-backup`·`stanza-create`·쓰기 키를 거부한다).
+
+주간 드릴은 세트 전체를 복원한다. 부분 처리 원칙의 선언된 예외다: 복원이 되는지는 전체 복원만 증명한다. 비용은 R2
+Class B 읽기(무시할 만함, egress 무료)와 한 시간 안쪽의 `/data` 디스크 IO 다. 같은 디스크의 굽기가 그 동안 느려질 수 있다.
 
 ### 신원 DB 백업 (로그인에 필요한 두 DB)
 
