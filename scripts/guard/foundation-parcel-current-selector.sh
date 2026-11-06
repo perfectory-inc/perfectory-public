@@ -33,15 +33,10 @@ pattern="$sql_pattern|$spark_method_pattern|$spark_index_method_pattern|$spark_a
 
 while IFS= read -r -d '' candidate; do
   basename="${candidate##*/}"
-  case "$basename" in
-    spatial_tile_publication_wap.py) ;;
-    *)
-      if ! grep -Eiq 'parcel[[:alnum:]_]*boundar' <<<"$basename" \
-        && ! grep -Eiq 'parcel[[:alnum:]_]*boundar' "$candidate"; then
-        continue
-      fi
-      ;;
-  esac
+  if ! grep -Eiq 'parcel[[:alnum:]_]*boundar' <<<"$basename" \
+    && ! grep -Eiq 'parcel[[:alnum:]_]*boundar' "$candidate"; then
+    continue
+  fi
   # Ignore only unambiguous full-line Python/SQL comments. Inline comments and
   # string literals containing an exact selector remain fail-closed; parsing
   # both languages here would create a second analyzer.
