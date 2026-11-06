@@ -68,6 +68,7 @@ mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
+mod lakehouse_object_listing;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
@@ -163,6 +164,7 @@ enum Command {
     CollectCourtauctionGoKr,
     CollectDataGoKrRegisteredFactory,
     PlanSilverLoadObjects,
+    ListLakehouseObjects,
     CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
@@ -334,6 +336,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(data_go_kr_registered_factory_collect::run())
         }
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
+        Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
@@ -682,6 +685,7 @@ where
             Ok(Command::CollectDataGoKrRegisteredFactory)
         }
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
+        Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
         }

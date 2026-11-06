@@ -128,6 +128,10 @@
         {
           "path": "/var/lib/foundation-platform/asset-reconcile",
           "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/media-reconcile",
+          "mode": "0755"
         }
       ],
       "state_paths_not_created_here": {},

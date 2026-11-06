@@ -65,6 +65,12 @@
       "inputs": ["scripts/ops/parcel-edition-readiness.sh", "infra/systemd/foundation-parcel-edition-readiness.service",
                  "infra/lakehouse/spark/jobs/parcel_edition_readiness.py", "infra/lakehouse/spark/jobs/vworld_parcel_editions.py",
                  "infra/lakehouse/contracts/vworld-parcel-source-objects.json"]
+    },
+    "start-once.media_reconcile": {
+      "inputs": ["scripts/ops/media-reconcile.sh", "scripts/ops/media_reconcile.py", "scripts/ops/admitted-writer-runtime.sh",
+                 "infra/systemd/foundation-media-reconcile.service",
+                 "services/foundation-outbox-publisher/src/lakehouse_object_listing.rs",
+                 "infra/lakehouse/contracts/data-go-kr-onbid.contract.json"]
     }
   }
 }

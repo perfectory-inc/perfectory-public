@@ -1,0 +1,32 @@
+[Unit]
+Description=Foundation Platform media reconciler: the onbid media in R2 against the Silver index that names it (root ADR-0387)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/media-reconcile.sh
+# The job list's time_limit_minutes (jobs.v1.json): the index rows since the last run through Trino
+# (4 s on 2026-11-04) and ~30 list calls. Generated from the list, not hand-set: `cargo run -p
+# foundation-jobs -- generate` (committed_units test).
+TimeoutStartSec=10m
+TimeoutStopSec=30
+# A Python process holding ~30,000 keys twice, and the publisher listing them; counted under
+# host_reserved like the other default_pool jobs.
+MemoryMax=512M
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+# Its reports and journal, and its textfile for node-exporter.
+ReadWritePaths=/var/lib/foundation-platform/media-reconcile /var/lib/foundation-jobs/metrics
+
+[Install]
+WantedBy=multi-user.target
