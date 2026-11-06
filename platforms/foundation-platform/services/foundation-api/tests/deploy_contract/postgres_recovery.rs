@@ -8,6 +8,7 @@ fn postgres_recovery_contract_is_encrypted_bounded_and_rehearsable() -> TestResu
     assert_postgres_recovery_compose_contract()?;
     assert_pgbackrest_repository_contract()?;
     assert_postgres_restore_drill_contract()?;
+    assert_postgres_production_restore_drill_contract()?;
     assert_postgres_backup_scheduler_contract()?;
     assert_postgres_recovery_lock_boundary()?;
     Ok(())
@@ -123,6 +124,73 @@ fn assert_postgres_restore_drill_contract() -> TestResult {
     assert!(drill.contains("-c \"INSERT INTO recovery_drill.recovery_probe"));
     assert!(!drill.contains("| \"${source_psql[@]}\""));
     assert!(!drill.contains("set -x"));
+    Ok(())
+}
+
+// The production backup is restored every week, as the identity dumps are (root ADR-0300 K): until
+// 2026-11 only the synthetic rehearsal above ran on a timer-less script, and the only restores of
+// production were by hand. The drill reads with the repository's reader key alone and keeps the
+// promoted copy from archiving, so it can never write into the repository it proves.
+fn assert_postgres_production_restore_drill_contract() -> TestResult {
+    let drill = read_area_file("scripts/recovery/run-postgres-restore-drill.sh")?;
+    for required in [
+        "set -Eeuo pipefail",
+        "trap cleanup EXIT",
+        "down --volumes --remove-orphans",
+        "foundation-restore-drill pgbackrest-backup info --output=json",
+        "pgbackrest-restore restore --archive-mode=off",
+        "postgres -c archive_mode=off -c \"listen_addresses=\"",
+        "pg_stat_user_tables WHERE n_live_tup > 0",
+        "postgres-restore-drill.json",
+    ] {
+        assert!(
+            drill.contains(required),
+            "the production restore drill is missing {required}"
+        );
+    }
+    // Never the synthetic rehearsal's steps: they back up into the repository first.
+    for forbidden in [
+        "foundation-backup",
+        "pgbackrest-backup backup",
+        "stanza-create",
+        "RECOVERY_WRITER_",
+        "set -x",
+    ] {
+        assert!(
+            !drill.contains(forbidden),
+            "the production restore drill must not run {forbidden}"
+        );
+    }
+    let recovery = read_area_file("compose.recovery.yml")?;
+    for reader in ["foundation-restore-drill:", "foundation-restored-postgres:"] {
+        let block = recovery
+            .split(reader)
+            .nth(1)
+            .and_then(|rest| rest.split("\n  foundation-").next())
+            .ok_or("compose.recovery.yml lost a restore service")?;
+        assert!(
+            block.contains("*foundation-recovery-reader-environment"),
+            "{reader} must carry the repository's reader key only"
+        );
+    }
+
+    let unit = "foundation-postgres-restore-drill";
+    let service = read_area_file(&format!("infra/systemd/{unit}.service"))?;
+    assert!(service.contains(
+        "ExecStart=/opt/foundation-platform/current/scripts/recovery/run-postgres-restore-drill.sh"
+    ));
+    assert!(service.contains("EnvironmentFile=/etc/foundation-platform/recovery.env"));
+    assert!(service.contains("OnFailure=foundation-unit-failed@%n.service"));
+    let timer = read_area_file(&format!("infra/systemd/{unit}.timer"))?;
+    assert!(timer.contains(&format!("Unit={unit}.service")));
+    assert!(timer.contains("Persistent=true"));
+    // After Sunday's full backup (02:15 plus its run) and the identity drill (04:30 plus 30 minutes).
+    assert!(timer.contains("OnCalendar=Sun *-*-* 05:30:00"));
+    let release = read_area_file("scripts/deploy/foundation-release.sh")?;
+    assert!(
+        release.contains(&format!("{unit}.timer")),
+        "the deploy must enable {unit}.timer"
+    );
     Ok(())
 }
 
