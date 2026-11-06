@@ -644,3 +644,68 @@ pub struct ParcelEditions {
     /// Why the report could not be read, when it could not.
     pub error: Option<String>,
 }
+
+/// One event of an approved by-PNU cut-over, as the host appended it to the approval's progress
+/// (`scripts/ops/release-progress.py`, root ADR-0433 §6).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ByPnuCutoverEvent {
+    /// When the host wrote it, UTC.
+    pub at: String,
+    /// `scheduled`, `refused`, `cancelled`, `started`, `step` or `finished`.
+    pub state: String,
+    /// A `step`'s lane.
+    #[serde(default)]
+    pub lane: Option<String>,
+    /// A `step`'s name: history, preview, gold, parity, bake, equality, latency, publish or
+    /// monitor-sample.
+    #[serde(default)]
+    pub step: Option<String>,
+    /// A `step`'s or a `finished`'s outcome: `passed`, `failed` or `not-declared`.
+    #[serde(default)]
+    pub outcome: Option<String>,
+    /// A `step`'s duration in seconds.
+    #[serde(default)]
+    pub seconds: Option<i64>,
+    /// Why, as the host said it.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// A `scheduled`'s start, when the operator window opens, UTC.
+    #[serde(default)]
+    pub start_at: Option<String>,
+    /// A `started`'s systemd unit.
+    #[serde(default)]
+    pub unit: Option<String>,
+}
+
+/// A by-PNU cut-over an operator approved and what the host did with it (root ADR-0433).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ByPnuCutoverApproval {
+    /// The approval's id: the ledger row's.
+    pub id: String,
+    /// The staff member who approved.
+    pub actor: String,
+    /// Why.
+    pub reason: String,
+    /// `lanes`, a lane or `lane,lane,...`.
+    pub lanes: String,
+    /// The pack generation.
+    pub generation: i32,
+    /// When it was approved.
+    pub requested_at: String,
+    /// When it stops being startable.
+    pub expires_at: String,
+    /// Its state now: `pending` (the host has not answered yet), or its last event's state, with a
+    /// `finished` one told apart as `passed` or `failed`.
+    pub state: String,
+    /// Oldest first.
+    pub events: Vec<ByPnuCutoverEvent>,
+}
+
+/// The newest approved by-PNU cut-overs, newest first, as the host's files say (root ADR-0433 §6).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ByPnuCutovers {
+    /// Newest first, at most twenty.
+    pub approvals: Vec<ByPnuCutoverApproval>,
+    /// Why they could not be read, when they could not.
+    pub error: Option<String>,
+}

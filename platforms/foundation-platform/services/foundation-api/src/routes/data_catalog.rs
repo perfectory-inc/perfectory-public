@@ -14,11 +14,11 @@ use axum::{
     Json, Router,
 };
 use foundation_contracts::data_catalog::{
-    CiTimeTrend, CiWeek, DataCatalogEntity, DataCatalogEntityKind, DataCatalogField,
-    DataCatalogNeighbourhood, DataCatalogSearchPage, DataContractQuality, DataQualityCheck,
-    DataQualityDetail, DataQualityResult, DataQualityStatus, DatasetSnapshot, DatasetSnapshotLink,
-    DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause, OperationsLinks,
-    OperatorActionRecorded, OperatorActionRequest, ParcelEditionPromotion,
+    ByPnuCutoverApproval, ByPnuCutoverEvent, ByPnuCutovers, CiTimeTrend, CiWeek, DataCatalogEntity,
+    DataCatalogEntityKind, DataCatalogField, DataCatalogNeighbourhood, DataCatalogSearchPage,
+    DataContractQuality, DataQualityCheck, DataQualityDetail, DataQualityResult, DataQualityStatus,
+    DatasetSnapshot, DatasetSnapshotLink, DatasetSnapshots, EdgeCheck, EdgeHostCheck, FailureCause,
+    OperationsLinks, OperatorActionRecorded, OperatorActionRequest, ParcelEditionPromotion,
     ParcelEditionPromotionReadiness, ParcelEditionPromotionRequest, ParcelEditionReadiness,
     ParcelEditionStage, ParcelEditionStages, ParcelEditions, ScheduledJobDataset,
     ScheduledJobProblem, ScheduledJobRun, ScheduledJobRunOutcome, ScheduledJobStart,
@@ -34,6 +34,7 @@ use super::api_error::ApiError;
 use crate::state::AppState;
 
 mod alerts;
+mod by_pnu_cutovers;
 mod facts;
 mod health;
 mod operations;
@@ -65,7 +66,8 @@ const MAX_NEIGHBOURS: u32 = 200;
         operator_actions::record_operator_action,
         snapshots::dataset_snapshots,
         service_checks::service_checks,
-        parcel_editions::parcel_editions
+        parcel_editions::parcel_editions,
+        by_pnu_cutovers::by_pnu_cutovers
     ),
     components(schemas(
         DataCatalogEntity,
@@ -98,6 +100,9 @@ const MAX_NEIGHBOURS: u32 = 200;
         CiTimeTrend,
         CiWeek,
         ParcelEditions,
+        ByPnuCutovers,
+        ByPnuCutoverApproval,
+        ByPnuCutoverEvent,
         ParcelEditionReadiness,
         ParcelEditionStages,
         ParcelEditionStage,
@@ -167,6 +172,10 @@ pub(super) fn routes(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(
             "/data-catalog/v1/parcel-editions",
             super::protected_route(get(parcel_editions::parcel_editions), state, read, None),
+        )
+        .route(
+            "/data-catalog/v1/by-pnu-cutovers",
+            super::protected_route(get(by_pnu_cutovers::by_pnu_cutovers), state, read, None),
         )
         .route(
             "/data-catalog/v1/scheduled-jobs/{job_id}/operator-actions",
