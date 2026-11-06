@@ -41,7 +41,8 @@
         "silver-unit-official-price-to-silver-unit-official-price-versions"
       ],
       "enabled": true,
-      "enabled_since": "2026-11-05T22:24:33Z"
+      "enabled_since": "2026-11-05T22:24:33Z",
+      "dagster_stage": "shadow"
     }
   ],
   "host_memory": {

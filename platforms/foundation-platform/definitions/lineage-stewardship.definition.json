@@ -55,7 +55,8 @@
         "gold-lineage-review-queue-to-serving-lineage-stewardship"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-01T10:33:44Z"
+      "enabled_since": "2026-10-01T10:33:44Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
