@@ -5,13 +5,16 @@ What a load owes is decided from R2 alone (`plan-silver-load-objects`, one plan 
 planned file, oldest first, this job:
 
 1. reads its data (the CSV, or every zip member the contract's name pattern matches) strictly in the
-   contract's encoding, refuses a header that is not the contract's exactly, and stages a UTF-8 copy;
+   contract's encoding, refuses a header that is not the contract's exactly, and stages a UTF-8 copy; a
+   표준데이터 pass (`openapi_pages`, gzip JSON lines of raw OpenAPI pages) is staged the same way, its rows'
+   fields in the contract's header order, refusing a field the header does not name or a pass whose rows
+   are not the total its pages report;
 2. builds one row per data line: `row_key` (the provider key's values joined by U+001F, or the
    SHA-256 of the row's cells joined so, ADR-0397) and `provider_fields_json` (every cell under its
    header name); refuses an empty or repeated provider key, an edition under the row floor or shrunk
    past its bound against the table's current rows;
 3. links each row by the contract's `place_link`: an address through `address_pnu` (지번, then
-   도로명), the provider's 19-digit lot code through the place-identity resolver (never copied),
+   도로명; with `address_columns`, the 지번 column's lot first, then the 도로명 column's road), the provider's 19-digit lot code through the place-identity resolver (never copied),
    도·시군구·읍면동 names to a 법정동 code, or a 행정동 code kept for the linkage table to bridge;
 4. appends only the keys that are new or changed and a removal marker per key the edition no longer
    holds (`silver_release_compare.release_changes`), in a commit that records the file. A file whose
@@ -32,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -85,6 +89,9 @@ def link_kind(entry: Mapping[str, Any]) -> str:
     return "parcel" if entry["place_link"]["kind"] in PARCEL_LINKS else "area"
 
 
+OK_CODE, NO_DATA_CODE = "00", "03"  # data-go-kr-file-data.contract.json openapi.result_codes
+
+
 def data_spec(entry: Mapping[str, Any]) -> Mapping[str, Any]:
     """Where the encoding, header and bounds are: the zip's member rule, or the CSV entry itself."""
 
@@ -123,6 +130,53 @@ def data_streams(path: Path, entry: Mapping[str, Any]) -> Iterator[tuple[str, io
                 yield _member_name(info), stream
 
 
+def page_items(body: str) -> tuple[list[dict[str, Any]], int | None]:
+    """(rows, the total the page reports) of one raw OpenAPI page; no rows and None for a 03 answer. The
+    Python twin of the collector's `read_answer`: any other code refuses."""
+
+    value = json.loads(body)
+    value = value.get("response", value)
+    header = value.get("header") or value.get("result") or {}
+    code = header.get("resultCode")
+    if code == NO_DATA_CODE:
+        return [], None
+    if code != OK_CODE:
+        raise ValueError(f"a page answered resultCode {code!r}")
+    page = value["body"]
+    items = page.get("items")
+    if isinstance(items, dict):
+        items = items.get("item")
+    items = [items] if isinstance(items, dict) else (items if isinstance(items, list) else [])
+    return items, int(str(page["totalCount"]).strip())
+
+
+def stage_pages(path: Path, entry: Mapping[str, Any], out_dir: Path) -> list[Path]:
+    """The UTF-8 copy of one 표준데이터 pass: each row's fields in header order (an absent or null field
+    is empty), refused when a row has a field the header does not name (every provider field is kept)
+    or the rows are not the total the pages report. Row n is numbered n + 1, as a CSV line would be."""
+
+    header = list(entry["header"])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = out_dir / "000.csv"
+    rows, total = 0, None
+    with gzip.open(path, "rt", encoding="utf-8") as lines, target.open("w", encoding="utf-8", newline="") as out:
+        writer = csv.writer(out, lineterminator="\n")
+        for line in lines:
+            if not line.strip():
+                continue
+            items, reported = page_items(json.loads(line)["body"])
+            total = reported if reported is not None else total
+            for item in items:
+                extra = sorted(set(item) - set(header))
+                if extra:
+                    raise ValueError(f"{entry['dataset_slug']}: the answer has fields the contract header does not name: {extra}")
+                rows += 1
+                writer.writerow([rows + 1, *("" if item.get(name) is None else str(item[name]) for name in header)])
+    if total is not None and rows != total:
+        raise ValueError(f"{entry['dataset_slug']}: {rows} rows, but the pages report {total}")
+    return [target]
+
+
 def stage(path: Path, entry: Mapping[str, Any], out_dir: Path) -> list[Path]:
     """UTF-8 copies of every data part, each refused unless it decodes strictly, its header is the
     contract's exactly and every row has the header's width. A copy has no header; each row starts
@@ -132,6 +186,8 @@ def stage(path: Path, entry: Mapping[str, Any], out_dir: Path) -> list[Path]:
     header = list(spec["header"])
     if len(set(header)) != len(header):
         raise ValueError(f"{entry['dataset_slug']}: the contract header repeats a name")
+    if entry["format"] == "openapi_pages":
+        return stage_pages(path, entry, out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     staged = []
     for number, (name, stream) in enumerate(data_streams(path, entry)):
@@ -185,6 +241,23 @@ def names_code(names: Sequence[str], prefixes: Mapping[str, str],
         return None, "unparsed"
     code = dongs.get((sido, " ".join(words[1:])))
     return (code, None) if code else (None, "no_legal_dong")
+
+
+def address_offer(addresses: Sequence[str], prefixes: Mapping[str, str],
+                  dongs: Mapping[tuple[str, str], str]) -> dict[str, Any]:
+    """What a row's address columns offer `address_pnu.resolve`, 지번 first: the first column's jibun
+    PNU candidate and the first column's road key (the join tries the lot, then the road); when no
+    column offers either, the first reason that is not an empty column (else no_address)."""
+
+    import address_pnu  # noqa: PLC0415
+
+    offers = [address_pnu.candidates(address or "", prefixes, dongs) for address in addresses]
+    jibun = next((o for o in offers if o["jibun_pnu"]), None)
+    road = next((o["road"] for o in offers if o["road"]), None)
+    reasons = [o["reason"] for o in offers if o["reason"]]
+    return {"jibun_pnu": jibun["jibun_pnu"] if jibun else None,
+            "legal_dong_code": jibun["legal_dong_code"] if jibun else None, "road": road,
+            "reason": None if jibun or road else next((r for r in reasons if r != "no_address"), reasons[0] if reasons else None)}
 
 
 def planned_objects(plan_dirs: Sequence[Path], slugs: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -321,10 +394,11 @@ def link(frame: Any, entry: Mapping[str, Any], inputs: LinkInputs) -> Any:
                 .withColumn("legal_dong_code", F.when(F.col("pnu").isNotNull(), F.col("legal_dong_code")))
                 .drop("place_identity_grade"))
     if kind == "address_pnu":
-        rows = frame.select("row_key", field(place["address_column"]).alias("_address")).collect()
+        columns = place.get("address_columns") or [place["address_column"]]
+        rows = frame.select("row_key", *(field(c).alias(f"_a{i}") for i, c in enumerate(columns))).collect()
         offered = []
         for number, row in enumerate(rows):
-            offer = address_pnu.candidates(row["_address"] or "", inputs.prefixes, inputs.dongs)
+            offer = address_offer([row[f"_a{i}"] for i in range(len(columns))], inputs.prefixes, inputs.dongs)
             road = offer["road"]
             offered.append((number, row["row_key"], offer["jibun_pnu"], offer["legal_dong_code"], offer["reason"],
                             road.sido_code if road else None, road.sigungu if road else None,

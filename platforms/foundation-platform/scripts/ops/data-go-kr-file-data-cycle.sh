@@ -54,14 +54,17 @@ run_log="${work}/run.log"
 trap 'job_journal "${journal}" "data.go.kr file data FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 trap 'rm -rf "${work}/collect" "${lake}"' EXIT
 
-# 1. 수집
+# 1. 수집 — 한 파일의 실패가 다른 파일의 적재를 막지 않는다: 수집기가 실패해도 받은 파일의 manifest 는 남으니
+#    계획·적재까지 하고, 끝에서 실패로 끝난다(표준데이터 3개는 사장의 OpenAPI 활용신청 전까지 실패한다).
 datasets="$(python3 -I -c '
 import json, sys
 files = json.load(open(sys.argv[1], encoding="utf-8"))["files"]
 print(",".join(slug for slug in files if slug != "registered_factory"))
 ' "${CONTRACT}")"
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
-  "${COLLECT}_DATASETS=${datasets}" "${PUBLISHER_BIN}" collect-data-go-kr-file-data >> "${run_log}" 2>&1
+  "${COLLECT}_DATASETS=${datasets}" "${PUBLISHER_BIN}" collect-data-go-kr-file-data >> "${run_log}" 2>&1 || collect_status=$?
+collect_status="${collect_status:-0}"
+[ -f "${work}/collect/manifest.json" ] || exit "${collect_status}" # 설정 거부: 아무것도 받지 않았다
 landed="$(python3 -I -c 'import json, sys; print(" ".join(f["dataset_slug"] for f in json.load(open(sys.argv[1], encoding="utf-8"))["files"]))' "${work}/collect/manifest.json")"
 
 # 2. 계획: 표마다, R2 의 Bronze 와 표의 커밋 기록만 본다.
@@ -109,6 +112,12 @@ late="$(python3 -I -c '
 import json, sys
 print(sum(len(json.load(open(p, encoding="utf-8")).get("selection", {}).get("late", [])) for p in sys.argv[1:]))
 ' "${lake}"/plans/*/plan.json)"
+if [ "${collect_status}" != 0 ]; then
+  failed="$(python3 -I -c 'import json, sys; print("; ".join(json.load(open(sys.argv[1], encoding="utf-8"))["failed"]))' "${work}/collect/manifest.json")"
+  job_journal "${journal}" "data.go.kr file data COLLECT FAILED run=${run_id}: ${failed}; the files that landed were loaded ${summary}" >&2
+  echo "data.go.kr file data: collection failed for ${failed}" >&2
+  exit 1
+fi
 if [ "${late}" != 0 ]; then
   job_journal "${journal}" "data.go.kr file data LATE run=${run_id}: loaded ${late} file(s) older than the window that no load had recorded ${summary}" >&2
   echo "data.go.kr file data: ${late} edition(s) waited past the window unloaded; they are loaded now, and this run fails so the gap is seen" >&2

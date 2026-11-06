@@ -4,6 +4,7 @@
 """
 
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -39,7 +40,7 @@ def csv_bytes(rows, encoding="cp949"):
 
 class Contract(unittest.TestCase):
     def test_every_file_but_the_registered_factory_is_loaded_into_its_own_table(self):
-        self.assertEqual(len(FILES), 8)
+        self.assertEqual(len(FILES), 11)
         self.assertNotIn("registered_factory", FILES)
         artifact = json.loads((job.CONTRACT_PATH.parent / "industrial_complex_lakehouse_contracts.json")
                               .read_text(encoding="utf-8"))["contracts"]
@@ -51,6 +52,8 @@ class Contract(unittest.TestCase):
             self.assertEqual(table["current_row_latest"]["keep_ties"], entry["row_key"]["kind"] == "sha256_of_row", slug)
             self.assertIn("silver_load", entry, slug)
             for column in entry["row_key"].get("columns", []):
+                self.assertIn(column, job.data_spec(entry)["header"], slug)
+            for column in entry["place_link"].get("address_columns", []):
                 self.assertIn(column, job.data_spec(entry)["header"], slug)
             if "period_column" in entry["row_key"]:
                 self.assertIn(entry["row_key"]["period_column"], entry["row_key"]["columns"], slug)
@@ -102,6 +105,42 @@ class Reading(unittest.TestCase):
             copies = job.stage(source, entry, Path(tmp) / "out")
             self.assertEqual(len(copies), 2)
             self.assertEqual(copies[0].read_text(encoding="utf-8"), "2," + ",".join(["x"] * len(header)) + "\n")
+
+    def pass_file(self, tmp, pages):
+        path = Path(tmp) / "pass.gz"
+        with gzip.open(path, "wt", encoding="utf-8") as out:
+            for page in pages:
+                out.write(json.dumps({"operation": "synthetic", "request": {"pageNo": "1"}, "http_status": 200,
+                                      "body": json.dumps(page, ensure_ascii=False)}, ensure_ascii=False) + "\n")
+        return path
+
+    @staticmethod
+    def page(rows, total, code="00"):
+        return {"response": {"header": {"resultCode": code}, "body": {"items": rows, "totalCount": str(total)}}}
+
+    def test_a_standard_data_pass_is_staged_in_header_order_and_an_unknown_field_refuses(self):
+        entry = {**FILES["school_location"], "header": ["schoolId", "schoolNm", "lnmadr"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self.pass_file(tmp, [self.page([{"lnmadr": "합성도 합성시 가상동 1", "schoolId": "S1"}], 2),
+                                          self.page([{"schoolId": "S2", "schoolNm": "합성학교", "lnmadr": None}], 2)])
+            [copy] = job.stage(source, entry, Path(tmp) / "out")
+            self.assertEqual(copy.read_text(encoding="utf-8").splitlines(),
+                             ["2,S1,,합성도 합성시 가상동 1", "3,S2,합성학교,"])
+            for pages in ([self.page([{"schoolId": "S1", "newField": "x"}], 1)],  # a field the contract lacks
+                          [self.page([{"schoolId": "S1"}], 2)],  # fewer rows than reported
+                          [self.page([], 0, code="30")]):  # a refusal is not rows
+                with self.assertRaises(ValueError):
+                    job.stage(self.pass_file(tmp, pages), entry, Path(tmp) / "bad")
+
+    def test_the_lot_column_is_tried_first_then_the_road_column(self):
+        lot, road = "합성도 합성시 가상동 12-3", "합성도 합성시 가상로 45"
+        offer = job.address_offer([lot, road], PREFIXES, DONGS)
+        self.assertEqual((offer["jibun_pnu"], offer["legal_dong_code"]), ("9999910100100120003", "9999910100"))
+        self.assertEqual((offer["road"].road, offer["road"].main_no), ("가상로", 45))
+        offer = job.address_offer(["", road], PREFIXES, DONGS)
+        self.assertEqual((offer["jibun_pnu"], offer["road"].road, offer["reason"]), (None, "가상로", None))
+        self.assertEqual(job.address_offer(["", "합성도 합성시 가상로 지하 45"], PREFIXES, DONGS)["reason"], "unparsed")
+        self.assertEqual(job.address_offer(["", ""], PREFIXES, DONGS)["reason"], "no_address")
 
     def test_the_row_key_is_the_provider_key_or_the_rows_sha256(self):
         header = ["노선번호", "출입시설", "준공년도"]

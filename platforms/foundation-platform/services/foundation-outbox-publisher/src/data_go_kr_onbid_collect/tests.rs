@@ -84,7 +84,7 @@ fn an_answer_is_rows_empty_quota_or_refused() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let two = rows(&[item("A-1", 1), item("A-2", 2)]).to_string();
     assert_eq!(
-        read_answer(&contract, 200, &two)?,
+        read_answer(&contract.result_codes, 200, &two)?,
         Answer::Rows {
             items: vec![item("A-1", 1), item("A-2", 2)],
             total: 2
@@ -93,25 +93,25 @@ fn an_answer_is_rows_empty_quota_or_refused() -> anyhow::Result<()> {
     // One item arrives as an object, not an array.
     let one = json!({"header": {"resultCode": "00"}, "body": {"items": {"item": item("A-1", 1)}, "totalCount": "1"}});
     assert_eq!(
-        read_answer(&contract, 200, &one.to_string())?,
+        read_answer(&contract.result_codes, 200, &one.to_string())?,
         Answer::Rows {
             items: vec![item("A-1", 1)],
             total: 1
         }
     );
     assert_eq!(
-        read_answer(&contract, 200, &no_data().to_string())?,
+        read_answer(&contract.result_codes, 200, &no_data().to_string())?,
         Answer::NoData
     );
     assert_eq!(
-        read_answer(&contract, 429, "API token quota exceeded")?,
+        read_answer(&contract.result_codes, 429, "API token quota exceeded")?,
         Answer::QuotaRefused
     );
     // A missing parameter, an unregistered key (XML) and a server error must never read as "no items".
     let missing = json!({"result": {"resultCode": "11", "resultMsg": "NO_MANDATORY_REQUEST_PARAMETERS_ERROR"}});
-    assert!(read_answer(&contract, 200, &missing.to_string()).is_err());
-    assert!(read_answer(&contract, 200, "<OpenAPI_ServiceResponse><returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg></OpenAPI_ServiceResponse>").is_err());
-    assert!(read_answer(&contract, 500, "").is_err());
+    assert!(read_answer(&contract.result_codes, 200, &missing.to_string()).is_err());
+    assert!(read_answer(&contract.result_codes, 200, "<OpenAPI_ServiceResponse><returnAuthMsg>SERVICE_KEY_IS_NOT_REGISTERED_ERROR</returnAuthMsg></OpenAPI_ServiceResponse>").is_err());
+    assert!(read_answer(&contract.result_codes, 500, "").is_err());
     Ok(())
 }
 

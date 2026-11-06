@@ -3,8 +3,8 @@
 //!
 //! For every entry with an approved provider domain this asserts
 //! `entry.bronze.source_slug == source_slug(entry.provider, entry.dataset_slug)`, which makes the
-//! catalog file unable to drift away from the generator. The 3 `mixed_public_source` / POI entries
-//! are the only named non-provider sentinel: they keep their legacy slug and carry no `dataset_slug`
+//! catalog file unable to drift away from the generator. `mixed_public_source` / POI entries
+//! are the only named non-provider sentinel (none is left since ADR-0401): they keep their legacy slug and carry no `dataset_slug`
 //! (Phase 2 scope boundary). Every other unregistered label fails.
 
 use std::{error::Error, path::Path, path::PathBuf};
@@ -98,10 +98,13 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // getCltrBidInf2 (15157251) and 공고상세 getPbancDtlInf2 (15157218), root ADR-0340 §3; the
     // 136th–147th are the twelve rt.molit.go.kr 실거래가 bulk exports (root ADR-0348); the
     // 148th–154th are seven of the other public bulk files, whose real provider is the data.go.kr
-    // file data (root ADR-0401; the two mois.go.kr ones were already in scope). The three left are
-    // the 표준데이터 files, collected through another route (ADR-0401).
-    assert_eq!(checked, 154, "expected 154 in-scope catalog entries");
-    assert_eq!(skipped, 3, "expected 3 skipped mixed_public_source entries");
+    // file data (root ADR-0401; the two mois.go.kr ones were already in scope); the 155th–157th are
+    // the three 표준데이터 the same collector asks through the public-data OpenAPI (ADR-0401).
+    assert_eq!(checked, 157, "expected 157 in-scope catalog entries");
+    assert_eq!(
+        skipped, 0,
+        "expected no skipped mixed_public_source entries"
+    );
     Ok(())
 }
 
@@ -232,11 +235,11 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
         onbid_checked, 7,
         "expected all 7 onbid operations to match the catalog"
     );
-    // The registered factory and the nine other public bulk endpoints (root ADR-0401): the
-    // railway station and station-line endpoints are one file.
+    // The registered factory, the nine other public bulk endpoints (root ADR-0401: the railway
+    // station and station-line endpoints are one file) and the three 표준데이터 OpenAPI ones.
     assert_eq!(
-        file_data_checked, 10,
-        "expected the 10 file-data endpoints to match the catalog"
+        file_data_checked, 13,
+        "expected the 13 file-data endpoints to match the catalog"
     );
     Ok(())
 }

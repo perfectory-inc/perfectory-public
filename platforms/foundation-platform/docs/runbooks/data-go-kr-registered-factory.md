@@ -103,3 +103,23 @@ last_reviewed: 2026-11-04
   (Bronze 는 쓰기 한 번이라 같은 바이트면 그대로다).
 - 거부: 머리줄·칸 수가 계약과 다르거나 인코딩으로 읽히지 않는 바이트(제공자가 형식을 바꿈 → 계약을 고치는 PR), 제공자 키가
   비었거나 겹침, 행이 바닥보다 적거나 현재 행보다 한계 넘게 줄어듦(잘린 파일일 수 있음 → 포털에서 받아 확인).
+
+### 표준데이터 3개 — 공공데이터 OpenAPI (루트 ADR-0401)
+
+학교 위치·대학·도시철도역은 포털의 표준데이터라 파일 두 단계로 받을 수 없다(메타데이터가 파일 id 를 주지 않는다). 같은
+수집기가 계약 `openapi`(api.data.go.kr/openapi/tn_pubr_*)로 받는다(`format: openapi_pages`).
+
+| 계약 `files` | data.go.kr · 작업 | 행 키 | 2026-11-04 실측(포털 내려받기로 읽음) | 필지 연결 |
+|---|---|---|---|---|
+| `school_location` | 15021148 `tn_pubr_public_elesch_mskul_lc_api` | 학교ID(`schoolId`) | 12,004행, 13쪽, JSON 약 8 MB | 표본 2,000 중 1,939(97.0%) |
+| `university` | 15107736 `tn_pubr_public_univ_info_api` | (학교명, 본분교구분명) | 1,995행, 2쪽 | 1,995 중 1,356(68.0%), 599 는 road_ambiguous |
+| `subway_station` | 15013205 `tn_pubr_public_ctyrlroad_statn_api` | 행 SHA-256 | 898행, 1쪽 | 898 중 205(22.8%), 511 은 `지하` 건물번호라 unparsed |
+
+- 한 run 이 파일마다 쪽을 전부(`numOfRows` 1,000) 읽는다. 행(정렬한 행의 SHA-256)이 마지막으로 받은 판과 같으면 아무것도 남기지
+  않는다. 다르면 모든 쪽의 원문 줄을 gzip JSON lines 객체 하나로 그 원천의 Bronze 에 남긴다(요청 기록에 키는 없다).
+  run 당 상한은 계약의 `max_pages`(18·3·2쪽)다. 넘으면 거부한다.
+- 키: `DATA_GO_KR_SERVICE_KEY`(`/etc/foundation-platform/data-go-kr.env`, 온비드와 같은 키). **2026-11-04 세 작업 모두
+  `SERVICE_KEY_IS_NOT_REGISTERED_ERROR`(HTTP 403)** — 사장이 data.go.kr 로그인 후 세 데이터셋 페이지에서 「활용신청」(자동승인)을
+  눌러야 한다. 그때까지 세 파일의 수집이 실패하고, 나머지 파일은 받고 적재된 뒤 run 이 실패로 끝난다(`COLLECT FAILED`).
+- 머리줄은 OpenAPI 의 필드 이름이다. 학교·대학은 데이터셋 페이지의 문서대로, 도시철도역은 문서가 없어 포털 내려받기의 칸 이름을
+  같은 낙타 표기로 옮긴 추정이다. 첫 답에 계약에 없는 필드가 있으면 그 판은 거부되고 오류가 필드를 말한다 → 계약을 고치는 PR.
