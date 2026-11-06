@@ -11,9 +11,8 @@ use std::path::PathBuf;
 use shared_kernel::media::{MediaFormat, RENDITION_FORMATS, RENDITION_VERSION, RENDITION_WIDTHS};
 
 fn foundation(path: &str) -> String {
-    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../platforms/foundation-platform")
-        .join(path);
+    // cargo runs a test with the package root as its working directory.
+    let file = PathBuf::from("../../../../platforms/foundation-platform").join(path);
     std::fs::read_to_string(&file).unwrap_or_else(|error| panic!("{}: {error}", file.display()))
 }
 
