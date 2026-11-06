@@ -1391,7 +1391,7 @@ mod tests {
             auction.document_schema_expands,
             [format!("{}.v2", subject.subject)]
         );
-        assert_eq!(auction.document_schema_revision, Some(3));
+        assert_eq!(auction.document_schema_revision, Some(4));
         let contract = written()?;
         let line = &contract["by_pnu_lanes"]["parcel-public-auction"];
         for field in [

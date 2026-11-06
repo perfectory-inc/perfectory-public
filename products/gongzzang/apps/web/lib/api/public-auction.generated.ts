@@ -258,6 +258,10 @@ export const ParcelPublicAuctionByPnuSchema = z.object({
       photos: z.array(z.object({
         media_format: z.enum(["jpg", "png", "gif", "pdf"]),
         media_kind: z.enum(["photo", "appraisal"]),
+        original: z.object({
+          sha256: z.string().regex(/^[0-9a-f]{64}$/),
+          media_format: z.enum(["jpg", "png", "gif", "pdf"]),
+        }).nullish(),
         sequence: z.number().int().nullish(),
         sha256: z.string().regex(/^[0-9a-f]{64}$/),
         size_bytes: z.number().int(),

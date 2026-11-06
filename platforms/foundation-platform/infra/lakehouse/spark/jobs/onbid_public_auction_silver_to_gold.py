@@ -57,9 +57,11 @@ CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
 # The source's own PNU text, kept beside the resolved one (data_go_kr_onbid.py, root ADR-0288 §1).
 RAW_PNU = "ltno_pnu_raw"
 # A round's media as the document carries it (root ADR-0296 §5): the content hash and its facts, from
-# which the web builds the public URL. Order matches the Silver columns the struct is built from.
+# which the web builds the public URL, and a photo's full-size `original` beside it (root ADR-0424).
+# Order matches the Silver columns the struct is built from.
+ORIGINAL_STRUCT = "struct<sha256:string,media_format:string,size_bytes:bigint>"
 PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,sequence:int,title:string,"
-                "media_format:string,size_bytes:bigint>>")
+                f"media_format:string,size_bytes:bigint,original:{ORIGINAL_STRUCT}>>")
 REMOVED = "removed"
 LINEAGE_MISSING = "lineage_missing"
 # Lineage grades not yet in effect (root ADR-0113 §4): never followed.
@@ -199,13 +201,22 @@ def with_usage_names(round_rows: Any, usage_codes: Any | None) -> Any:
 def photos_by_item(photo_rows: Any) -> Any:
     """Each item's media as one array, keyed by item: its current (item, hash) rows (the photo
     table's `current_rows`, root ADR-0339), ordered by kind then the provider's list order
-    (`sequence`)."""
+    (`sequence`). A photo carries its full-size `original` — the original row of its item and
+    sequence, the latest landed (root ADR-0424) — or null while none has landed."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    photo_rows = photo_rows.where(F.col("media_kind").isin(*document.ROUND_MEDIA_KINDS))
+    kinds = document.original_kinds()
+    landed = F.col("ingested_at_utc") if "ingested_at_utc" in photo_rows.columns else F.lit(0)
+    originals = (photo_rows.where(F.col("media_kind").isin(*kinds))
+                 .withColumn("media_kind", F.col("media_kind").cast("string"))
+                 .replace(kinds, subset=["media_kind"])
+                 .groupBy(ITEM, "media_kind", "sequence")
+                 .agg(F.max_by(F.struct("sha256", "media_format", "size_bytes"), landed).alias("original")))
+    photo_rows = (photo_rows.where(F.col("media_kind").isin(*document.ROUND_MEDIA_KINDS))
+                  .join(originals, [ITEM, "media_kind", "sequence"], "left"))
     return (photo_rows.groupBy(ITEM).agg(F.array_sort(F.collect_list(F.struct(
         F.col("media_kind").alias("_kind"), F.col("sequence").alias("_seq"),
-        F.struct("sha256", "media_kind", "sequence", "title", "media_format", "size_bytes").alias("_photo"),
+        F.struct("sha256", "media_kind", "sequence", "title", "media_format", "size_bytes", "original").alias("_photo"),
     ))).alias("_sorted")).select(ITEM, F.col("_sorted._photo").alias("photos")))
 
 

@@ -276,11 +276,13 @@ def private_keys(api: str) -> frozenset[str]:
 
 @lru_cache(maxsize=None)
 def known_fields(api: str) -> frozenset[str]:
-    """Every response key the inventory knows for `api`, with the collector's `<field>Media` siblings."""
+    """Every response key the inventory knows for `api`, with the collector's `<field>Media` and
+    `<field>Original` siblings."""
 
-    contract = load_source_contract()
+    fields = load_source_contract()["media"]["fields"]
     tops = {top_field(f["path"]) for f in load_inventory()["apis"][api]["fields"]}
-    return frozenset(tops | {f"{field}Media" for field in contract["media"]["fields"]["pipe"]})
+    return frozenset(tops | {f"{field}Media" for field in fields["pipe"]}
+                     | {f"{field}Original" for field in fields.get("originals", {})})
 
 
 def column_types(table: str) -> dict[str, str]:
@@ -350,8 +352,9 @@ def photo_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_
     """One row per stored media file of each item: its content hash, kind and order in the list.
 
     The detail Bronze line carries each `[{urlAdr}]` media entry with a `sha256` ref (root ADR-0290
-    §7), and each `|`-joined media field's stored files in `<field>Media` (root ADR-0340 §4); an entry
-    the collector could not store has no `sha256`, so it is skipped. The media fields and their kinds
+    §7), each `|`-joined media field's stored files in `<field>Media` (root ADR-0340 §4), and the
+    full-size originals of a thumbnail list in `<field>Original`, each at its thumbnail's `sequence`
+    (root ADR-0424); an entry the collector could not store has no `sha256`, so it is skipped. The media fields and their kinds
     are the source contract's `media.fields`. The last line that holds an (item, hash) wins, so a
     re-paged item keeps one row.
     """
@@ -359,6 +362,7 @@ def photo_rows_of(lines: Sequence[Mapping[str, Any]], object_key: str, snapshot_
     fields = load_source_contract()["media"]["fields"]
     sources = [(kind, field, field) for field, kind in fields["list"].items()]
     sources += [(kind, f"{field}Media", field) for field, kind in fields["pipe"].items()]
+    sources += [(rule["media_kind"], f"{field}Original", field) for field, rule in fields.get("originals", {}).items()]
     rows: dict[tuple[str, int | None, str], dict[str, Any]] = {}
     for number, line in enumerate(lines, start=1):
         for item in answer_items(line):

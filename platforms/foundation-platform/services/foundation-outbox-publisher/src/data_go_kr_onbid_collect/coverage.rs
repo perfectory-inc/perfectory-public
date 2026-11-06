@@ -118,10 +118,11 @@ pub(crate) fn owed_bid_infos(
 }
 
 /// The media fields the collector mirrors (`media.fields`): 1 since root ADR-0340 §4 added the
-/// location map, cadastral map, 360-degree photo and video to the photos and appraisals. An item
-/// completed under a lower number is fetched once more; that refetch is not a refresh, so the
-/// media it already stored are not downloaded again.
-pub(crate) const MEDIA_FIELDS: u32 = 1;
+/// location map, cadastral map, 360-degree photo and video to the photos and appraisals; 2 since
+/// root ADR-0424 added the photos' full-size originals. An item completed under a lower number is
+/// fetched once more; that refetch is not a refresh, so the media it already stored are not
+/// downloaded again.
+pub(crate) const MEDIA_FIELDS: u32 = 2;
 
 fn owed_items(
     marks: &mut BTreeMap<String, ItemMark>,
