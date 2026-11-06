@@ -18,6 +18,10 @@
       "regions_from": "reference.legal_dong_code_snapshot"
     },
     "export": "export-land-transfer-history-silver-handoff",
+    "run_budget": {
+      "step_seconds_max": 2805,
+      "measured": "2026-11-03 journal of foundation-silver-refresh@land-transfer-history (read-only): compare bucket \"41\" started 05:05:07 and the run ended 05:51:52, 2,805s with the publish; the next largest bucket took 1,697s (\"47\"), a load batch at most 284s (04:04:02 to 04:08:46)."
+    },
     "spark": {
       "master": "local[8,8]",
       "driver_memory": "16g",
