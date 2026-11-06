@@ -36,7 +36,9 @@
 # Two guards around every step that is not read-only:
 #   - the daily scheduled window: no step starts unless it would end, at its time budget below,
 #     before the first daily Spark job of orchestration/jobs.v1.json starts, or after the last one
-#     started plus WINDOW_TAIL_MINUTES. The window is computed from that file, not written here.
+#     started plus the tail. The window is job_units.py's (scheduled_window), computed from that
+#     file; the scheduler's runner keeps the clock-started batch it places inside it out of the rest
+#     of the day, the operator window (start-scheduled-job.sh, root ADR-0425).
 #   - one Spark job at a time: before `gold` and `bake` the run waits (up to SPARK_WAIT_MINUTES)
 #     until no unit of a spark-pool job, Gold rebuild or pack bake runs. The operator refuses again
 #     on its own when one does (exit 75).
@@ -64,7 +66,6 @@ GOLD_STATE_ROOT="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-
 # The FOUNDATION_CUTOVER_* overrides exist for the tests; the operator's sudo grant resets them.
 POLL_SECONDS="${FOUNDATION_CUTOVER_POLL_SECONDS:-60}"
 SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-45}"
-WINDOW_TAIL_MINUTES=15
 now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 
 # Each step's time budget in minutes: the window guard starts a step only if this much time is
@@ -78,9 +79,9 @@ STEPS=(preview gold parity bake equality latency publish monitor-sample)
 # One line per lane to cut over: lane, gold table, rebuild unit, parity argument or -, preview
 # hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file.
 # Then a last line: the window's start and end in minutes of the UTC day, and the spark-pool units.
-mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" "${WINDOW_TAIL_MINUTES}" <<'PY'
+mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" <<'PY'
 import json, os, sys
-root, target, etc, tail = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+root, target, etc = sys.argv[1], sys.argv[2], sys.argv[3]
 def load(path):
     with open(os.path.join(root, path), encoding="utf-8") as handle:
         return json.load(handle)
@@ -88,7 +89,8 @@ r2 = load("config/r2-connections.contract.json")
 # Every table the rebuild builds and every lane's fields, a kind line's derived (root ADR-0193 §9).
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(root, "infra/lakehouse/spark/jobs"))
-import by_pnu_kinds, gold_rebuild  # noqa: E402
+sys.path.insert(0, os.path.join(root, "scripts/deploy"))
+import by_pnu_kinds, gold_rebuild, job_units  # noqa: E402
 rebuild = gold_rebuild.load_contract()["tables"]
 groups = {group["name"]: group["path"] for group in load("config/runtime-secrets.contract.json")["groups"]}
 jobs = load("orchestration/jobs.v1.json")["jobs"]
@@ -135,19 +137,14 @@ for lane in chosen:
           own["section_packs"]["preview_worker"]["public_hostname"], capabilities,
           base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor)
 
-# The daily scheduled window: from the first daily start of a spark-pool job to the last daily
-# start plus the tail. Hourly jobs (hour `*`) are not the window; the Spark wait catches them.
-daily, units = [], set()
-for job in jobs:
-    if job.get("pool") != "spark":
-        continue
-    units.add(job["systemd_service"])
-    minute, hour, *rest = job["schedule"].split()
-    if minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"]:
-        daily.append(int(hour) * 60 + int(minute))
-if not daily:
-    sys.exit("orchestration/jobs.v1.json has no daily spark-pool job to place the window at")
-print("window", min(daily), max(daily) + tail, " ".join(sorted(units)))
+# The daily scheduled window (job_units.py). Hourly jobs (hour `*`) are not the window; the Spark
+# wait catches them.
+units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"})
+try:
+    start, end = job_units.scheduled_window(jobs)
+except ValueError as error:
+    sys.exit(f"orchestration/jobs.v1.json: {error}")
+print("window", start, end, " ".join(units))
 PY
 ) || refuse "cannot read the lanes to cut over from the contracts" 65
 ((${#PLAN[@]} > 0)) || refuse "cannot read the lanes to cut over from the contracts" 65
