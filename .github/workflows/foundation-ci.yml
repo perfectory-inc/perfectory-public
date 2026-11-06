@@ -1063,6 +1063,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Generate the declared artifacts (root ADR-0418)
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
 
       - name: Select Dagster observer gate
         working-directory: ${{ github.workspace }}

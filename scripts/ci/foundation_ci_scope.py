@@ -156,6 +156,8 @@ RULES = {
             "scripts/verify/foundation-dagster-observe.sh",
         ],
         "prefixes": [
+            # The definitions themselves: the asset groups and checks are read from them in place.
+            "platforms/foundation-platform/definitions/",
             "platforms/foundation-platform/orchestration/dagster/",
             "platforms/foundation-platform/orchestration/tests/fixtures/",
         ],

@@ -220,20 +220,42 @@ class AirliftParityTest(unittest.TestCase):
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
 class CodeLocationTest(unittest.TestCase):
-    def test_every_graph_node_is_one_asset_and_the_unit_price_checks_attach(self):
+    def test_every_graph_node_is_one_asset_in_its_definitions_group(self):
         import observe_assets
-        import unit_price_checks
-        from dagster import AssetKey, Definitions
 
         jobs, graph = observe_assets.contracts()
         assets = observe_assets.observed_assets(jobs, graph)
         self.assertEqual(len({spec.key for spec in assets}), len(graph["nodes"]))
-        Definitions(assets=assets, asset_checks=unit_price_checks.CHECKS).resolve_asset_graph()
-        checked = {check.asset_key for checks in unit_price_checks.CHECKS for check in checks.check_specs}
-        self.assertEqual(checked, {AssetKey(["iceberg", "gold", "unit_price"]),
-                                   AssetKey(["perfectory", "unit-price-by-pnu-section-packs"])})
-        self.assertFalse(any(spec.blocking for checks in unit_price_checks.CHECKS for spec in checks.check_specs),
-                         "stage 0 checks report only")
+        groups = observe_assets.asset_groups()
+        self.assertEqual({spec.metadata["pipeline_graph_node"]: spec.group_name for spec in assets}, groups)
+        self.assertEqual(groups["gold-unit-price-panel"], "gold_unit_price_rebuild")
+
+    def test_the_declared_checks_attach_and_the_unit_price_ones_only_report(self):
+        import asset_checks
+        import observe_assets
+        from dagster import AssetKey, Definitions
+
+        jobs, graph = observe_assets.contracts()
+        checks = asset_checks.build(graph)
+        Definitions(assets=observe_assets.observed_assets(jobs, graph), asset_checks=checks).resolve_asset_graph()
+        specs = {(spec.asset_key, spec.name): spec for check in checks for spec in check.check_specs}
+        declared = {(observe_assets.node_keys(graph)[c["asset"]], c["check"])
+                    for group in asset_checks.definitions().values() for c in group}
+        self.assertEqual(set(specs), declared, "the code location carries exactly the declared checks")
+        unit_price = {(AssetKey(["iceberg", "gold", "unit_price"]), "rows_valid_per_sido"),
+                      (AssetKey(["perfectory", "unit-price-by-pnu-section-packs"]), "serves_the_newest_gold")}
+        self.assertLessEqual(unit_price, set(specs))
+        self.assertFalse(any(specs[key].blocking for key in unit_price), "stage 0 checks report only")
+
+    def test_a_check_on_an_unknown_node_or_of_an_unknown_kind_is_refused(self):
+        import asset_checks
+        import observe_assets
+
+        _, graph = observe_assets.contracts()
+        with self.assertRaisesRegex(observe_assets.job_specs.JobListError, "nodes"):
+            asset_checks.build(graph, {"g": [{"asset": "no-such-node", "check": "rows_valid_per_sido", "blocking": False}]})
+        with self.assertRaisesRegex(observe_assets.job_specs.JobListError, "implements"):
+            asset_checks.build(graph, {"g": [{"asset": "gold-unit-price-panel", "check": "no_such", "blocking": True}]})
 
     def test_rows_check_names_the_failing_sido(self):
         import unit_price_checks

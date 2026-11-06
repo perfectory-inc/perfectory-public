@@ -1,8 +1,10 @@
 """Dagster's assets, generated from the two files Airflow's DAGs come from (root ADR-0333 §2, stage 0).
 
 Nothing here is written by hand: every pipeline-graph node (docs/catalog/pipeline-graph.v1.json) is
-an asset, its edges are the asset's deps, and the jobs in orchestration/jobs.v1.json that write it
-are mapped to it through dagster-airlift. The mapping is the task that records the job's output
+an asset, its edges are the asset's deps, its declared definition (definitions/<group>.definition.json,
+root ADR-0415) is its asset group, and the jobs in orchestration/jobs.v1.json that write it are mapped
+to it through dagster-airlift. The two files are generated from the definitions (root ADR-0418), so
+every asset, dep, group and mapping comes from one place. The mapping is the task that records the job's output
 asset events (`job_specs.PUBLISH_TASK_ID`): Airflow records them exactly when that task succeeds, so
 Dagster's materialization is the same fact as Airflow's asset event, read from the same job spec
 (`job_specs.load_specs`, which foundation_jobs.py builds the DAGs from). The two orchestrators
@@ -34,6 +36,25 @@ def asset_key(dataset):
     """
     namespace, name = dataset
     return AssetKey([namespace, *name.split(".")])
+
+
+DEFINITIONS = job_specs.PLATFORM_ROOT / "definitions"
+DEFINITION_SUFFIX = ".definition.json"
+PLATFORM_DEFINITION = "platform.definition.json"
+
+
+def declared_definitions():
+    """group -> its definition, the files jobs.v1.json and the pipeline graph are generated from."""
+    return {path.name[: -len(DEFINITION_SUFFIX)]: json.loads(path.read_text(encoding="utf-8"))
+            for path in sorted(DEFINITIONS.glob(f"*{DEFINITION_SUFFIX}")) if path.name != PLATFORM_DEFINITION}
+
+
+def asset_groups(definitions=None):
+    """Pipeline-graph node id -> its Dagster group: the definition that holds it, as Dagster spells a
+    group name (letters, digits and underscores)."""
+    definitions = declared_definitions() if definitions is None else definitions
+    return {node["id"]: group.replace("-", "_")
+            for group, definition in definitions.items() for node in definition.get("assets", [])}
 
 
 def contracts():
@@ -87,11 +108,12 @@ def feedback_edges(graph):
     return feedback
 
 
-def observed_assets(jobs=None, graph=None):
+def observed_assets(jobs=None, graph=None, definitions=None):
     """One AssetSpec per pipeline-graph node; the nodes a job writes are mapped to its publish task."""
     if jobs is None or graph is None:
         jobs, graph = contracts()
     keys = node_keys(graph)
+    groups = asset_groups(definitions)
     feedback = feedback_edges(graph)
     deps, fed_back = {}, {}
     for edge in graph["edges"]:
@@ -104,9 +126,10 @@ def observed_assets(jobs=None, graph=None):
             keys[node["id"]],
             deps=[keys[source] for source in sorted(deps.get(node["id"], ()))],
             description=node.get("title"),
-            group_name=node["type"],
+            group_name=groups[node["id"]],
             kinds={dataset[0]},
-            metadata={"pipeline_graph_node": node["id"], "dataset": job_specs.asset_uri(dataset),
+            metadata={"pipeline_graph_node": node["id"], "node_type": node["type"],
+                      "dataset": job_specs.asset_uri(dataset),
                       **({"fed_back_by": sorted(fed_back[node["id"]])} if node["id"] in fed_back else {})},
         )
         if node["id"] in written:

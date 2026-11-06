@@ -112,5 +112,12 @@
         "service": "spark"
       }
     ]
-  }
+  },
+  "asset_checks": [
+    {
+      "asset": "gold-unit-price-panel",
+      "check": "rows_valid_per_sido",
+      "blocking": false
+    }
+  ]
 }

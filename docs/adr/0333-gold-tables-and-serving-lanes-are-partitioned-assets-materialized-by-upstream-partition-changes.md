@@ -209,7 +209,19 @@ Airflow 가 모든 작업을 그대로 돌리고, Dagster 는 보기만 한다.
   271·410 MiB 의 약 1.12·1.17 배 — 2026-11-05 호스트 예산에 남은 0.81g 안. 처음 352m·544m(×1.3)은 그사이 늘어난 다른 상한과 합쳐 62g 를 넘었다), 저장소는 airflow-db 안의 자기 데이터베이스·역할, UI 는 `127.0.0.1:19085`. 이미지는 릴리스와
   같은 서명 공급망으로 오고(`OPTIONAL_COMPOSE_IMAGES`), 스위치는 `orchestration/jobs.v1.json`
   `observers.dagster.enabled`(기본 꺼짐)이며 켜고 끄는 것은 배포가 부르는 `airflow-runtime.sh` 다. 호스트 메모리 예산
-  61.02g → 61.89g / 62g.
+  61.20g → 61.97g / 62g(2026-11-06 main 위에서 다시 잼).
 - **다음**: 스위치를 켜 일주일 동안 observe 가 깨끗하면(센서 오류 0, 동등성 유지) 레인 하나씩 migrate 한다. 첫 레인은
   단가(`gold.unit_price` → 단가 레인): 1단계(#940)가 이미 자기 작업 둘로 떼었고, 검사가 붙어 있으며, 작고, (d) 의 피해
   자산이다.
+
+### 2026-11-06 — 선언 정의 위로(ADR-0415·0418)
+
+main 이 생성물을 커밋하지 않게 되어(#1073) 0단계를 그 위로 다시 쌓았다. `jobs.v1.json` 의 `observers` 와 호스트
+메모리 예산의 `dagster-observe` 프로필은 이제 `definitions/platform.definition.json` 에 있고, 두 파일은 생성된다.
+
+- **자산 그룹은 정의다**: 자산 175개의 Dagster 그룹은 노드를 가진 정의 파일(142개)이다. 노드 종류(`gold_table` 등)는
+  그룹이 아니라 메타데이터 `node_type` 으로 남는다.
+- **검사도 정의에 선언한다**: 정의의 `asset_checks` 절(`asset`·`check`·`blocking`·`reads`)이 어느 자산에 어떤 검사를
+  붙이고 막는지 정한다. 코드(`orchestration/dagster/asset_checks.py`)는 검사 종류만 구현하고 노드 id·표 이름을 손으로
+  적지 않는다. 생성기는 남의 그룹 자산에 붙은 검사와 같은 검사의 중복을 거부한다. 단가 검사 둘은
+  `gold-unit-price-rebuild`·`unit-price` 정의에 `blocking: false` 로 있다.

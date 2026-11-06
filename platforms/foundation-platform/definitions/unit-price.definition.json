@@ -191,5 +191,15 @@
         "service": "spark-small"
       }
     ]
-  }
+  },
+  "asset_checks": [
+    {
+      "asset": "unit-price-by-pnu-section-packs",
+      "check": "serves_the_newest_gold",
+      "blocking": false,
+      "reads": [
+        "gold-unit-price-panel"
+      ]
+    }
+  ]
 }
