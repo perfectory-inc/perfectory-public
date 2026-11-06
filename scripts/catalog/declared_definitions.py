@@ -60,6 +60,9 @@ SLOTS = {
     "subjects": (REGISTRY, ("subjects",), "list", "subject", "published_schemas"),
 }
 SECTIONS = {slot[4]: name for name, slot in SLOTS.items()}
+# Sections no artifact holds: their one reader reads the definitions themselves. `asset_checks`: the
+# Dagster code location attaches each to its asset (orchestration/dagster/asset_checks.py, root ADR-0333 §8).
+READ_IN_PLACE = ("asset_checks",)
 SOURCE_ARTIFACTS = tuple(dict.fromkeys(slot[0] for slot in SLOTS.values()))
 # Artifacts that were generated before this ADR: rendered from the generated sources by their own
 # renderers, never a second implementation, and held to the committed bytes.
@@ -206,9 +209,10 @@ def generate(platform, definitions, ordered=True):
     for group, definition in sorted(definitions.items()):
         if definition.get("definition") != DEFINITION or definition.get("group") != group:
             raise DefinitionError(f"{group}{SUFFIX}: definition must be {DEFINITION} and group {group}")
-        unknown = set(definition) - {"definition", "group", "$schema", *SECTIONS}
+        unknown = set(definition) - {"definition", "group", "$schema", *SECTIONS, *READ_IN_PLACE}
         if unknown:
             raise DefinitionError(f"{group}{SUFFIX}: unknown sections {sorted(unknown)}")
+        own_checks(group, definition)
         for section, name in SECTIONS.items():
             shape, key = SLOTS[name][2], SLOTS[name][3]
             held = definition.get(section, [] if shape == "list" else {})
@@ -240,6 +244,20 @@ def generate(platform, definitions, ordered=True):
         else:
             put(documents[path], where, {i: items[name][i] for i in ids})
     return documents
+
+
+def own_checks(group, definition):
+    """A group checks only its own assets, once per check name each (root ADR-0415 §1: one definition
+    owns one fact). A check on another group's node, or the same check twice, is refused."""
+    assets = {node["id"] for node in definition.get("assets", [])}
+    seen = set()
+    for check in definition.get("asset_checks", []):
+        if check.get("asset") not in assets:
+            raise DefinitionError(f"{group}{SUFFIX}: asset check {check.get('check')} is on {check.get('asset')}, "
+                                  "not an asset of this group; the asset's own definition holds its checks")
+        if (check["asset"], check.get("check")) in seen:
+            raise DefinitionError(f"{group}{SUFFIX}: asset check {check.get('check')} is listed twice on {check['asset']}")
+        seen.add((check["asset"], check.get("check")))
 
 
 def lane_index(documents):

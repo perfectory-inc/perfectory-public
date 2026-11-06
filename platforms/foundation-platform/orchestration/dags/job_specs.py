@@ -31,6 +31,9 @@ DEPENDENCIES_SCHEMA = "foundation-platform.orchestration_job_dependencies.v1"
 # until this task gets its slot. Rendered into the dependencies so the data catalog screen tells
 # the run's waiting from its running without a second copy of the name.
 RUN_TASK_ID = "run"
+# The task that records a job's output asset events when its run changed them (foundation_jobs.py).
+# Its success is the job's materialization, which is what Dagster observes (root ADR-0333 stage 0).
+PUBLISH_TASK_ID = "publish_outputs"
 SYSTEMD = PLATFORM_ROOT / "infra" / "systemd"
 CONTRACTS = PLATFORM_ROOT / "contracts" / "data"
 # Where a unit's ExecStart finds the release on the host.
