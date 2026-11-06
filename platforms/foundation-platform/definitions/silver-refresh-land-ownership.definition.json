@@ -42,7 +42,8 @@
         "source-vworld-dataset-to-silver-land-ownership"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-30T13:00:00Z"
+      "enabled_since": "2026-10-30T13:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

@@ -42,7 +42,8 @@
         "source-building-hub-bulk-to-silver-building-register-master"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-30T13:00:00Z"
+      "enabled_since": "2026-10-30T13:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

@@ -42,7 +42,8 @@
         "source-building-hub-bulk-to-silver-building-permit-parking"
       ],
       "enabled": true,
-      "enabled_since": "2026-11-04T00:00:00Z"
+      "enabled_since": "2026-11-04T00:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

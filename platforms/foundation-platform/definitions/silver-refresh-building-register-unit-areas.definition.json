@@ -46,7 +46,8 @@
         "source-building-hub-bulk-to-silver-building-register-unit-areas"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-10T22:13:25Z"
+      "enabled_since": "2026-10-10T22:13:25Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

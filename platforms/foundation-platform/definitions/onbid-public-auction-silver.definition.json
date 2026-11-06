@@ -54,7 +54,8 @@
         "source-data-go-kr-onbid-to-silver-onbid-item-bid-info"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-20T01:26:10Z"
+      "enabled_since": "2026-10-20T01:26:10Z",
+      "dagster_stage": "shadow"
     }
   ],
   "host_memory": {
