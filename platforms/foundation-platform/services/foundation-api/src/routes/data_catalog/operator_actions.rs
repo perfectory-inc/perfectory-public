@@ -9,7 +9,7 @@ use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use catalog_application::{RecordOperatorActionError, RecordOperatorActionInput};
-use catalog_domain::operator_action::{OperatorActionError, RunWindow};
+use catalog_domain::operator_action::{OperatorActionError, RunWindow, CUTOVER_SUBJECT};
 use chrono::Utc;
 use foundation_contracts::data_catalog::{OperatorActionRecorded, OperatorActionRequest};
 use foundation_contracts::error::{ApiErrorResponse, InternalApiErrorResponse};
@@ -23,14 +23,14 @@ use crate::identity_authorization::AuthorizedPrincipal;
     post,
     path = "/data-catalog/v1/scheduled-jobs/{job_id}/operator-actions",
     operation_id = "recordOperatorAction",
-    params(("job_id" = String, Path, description = "The job's id in orchestration/jobs.v1.json")),
+    params(("job_id" = String, Path, description = "The job's id in orchestration/jobs.v1.json, or by_pnu_lane_cutover for a cut-over approval (root ADR-0433)")),
     request_body = OperatorActionRequest,
     responses(
         (status = 201, body = OperatorActionRecorded, description = "Recorded in the append-only ledger"),
         (status = 401, description = "Staff identity credential is missing or invalid"),
         (status = 403, description = "Principal may not operate scheduled jobs"),
         (status = 404, description = "No such job in the job list", body = ApiErrorResponse),
-        (status = 422, description = "Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, or an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness", body = ApiErrorResponse),
+        (status = 422, description = "Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness, or an approve_cutover (of by_pnu_lane_cutover: lanes and a generation 1 to 9999) or force_full (of a by-PNU bake job: one lane) that breaks its rules", body = ApiErrorResponse),
         (status = 503, description = "The ledger could not be written; nothing was recorded", body = InternalApiErrorResponse),
     )
 )]
@@ -40,7 +40,8 @@ pub(super) async fn record_operator_action(
     Extension(principal): Extension<AuthorizedPrincipal>,
     Json(body): Json<OperatorActionRequest>,
 ) -> Result<(StatusCode, Json<OperatorActionRecorded>), ApiError> {
-    if !is_listed_job(&job_id)? {
+    // The cut-over runner is not a scheduled job; it takes the cut-over approval (root ADR-0433).
+    if job_id != CUTOVER_SUBJECT && !is_listed_job(&job_id)? {
         return Err(ApiError::NotFound(format!(
             "no job {job_id} in the job list"
         )));
@@ -63,6 +64,8 @@ pub(super) async fn record_operator_action(
                 action: body.action,
                 window,
                 edition: body.edition,
+                lanes: body.lanes,
+                generation: body.generation,
                 drop_pending: body.drop_pending,
                 reason: body.reason,
                 actor: StaffId::new(principal.principal_id),
@@ -101,6 +104,8 @@ pub(super) async fn record_operator_action(
             window_start: record.window_start,
             window_end: record.window_end,
             edition: record.edition,
+            lanes: record.lanes,
+            generation: record.generation,
         }),
     ))
 }

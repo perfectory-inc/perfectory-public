@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use catalog_domain::operator_action::{
-    check_edition, check_reason, check_window, OperatorAction, OperatorActionError, RunWindow,
-    PROMOTION_EXPIRY_HOURS, PROMOTION_JOB, RUN_NOW_EXPIRY_MINUTES,
+    check_edition, check_generation, check_lanes, check_reason, check_window, is_by_pnu_bake,
+    OperatorAction, OperatorActionError, RunWindow, CUTOVER_EXPIRY_HOURS, CUTOVER_SUBJECT,
+    FORCE_FULL_EXPIRY_HOURS, PROMOTION_EXPIRY_HOURS, PROMOTION_JOB, RUN_NOW_EXPIRY_MINUTES,
 };
 use chrono::{DateTime, Duration, Utc};
 use foundation_shared_kernel::ids::StaffId;
@@ -25,6 +26,11 @@ pub struct RecordOperatorActionInput {
     pub window: Option<RunWindow>,
     /// The edition a `promote_edition` asks to serve, `YYYYMM`; none for the other actions.
     pub edition: Option<String>,
+    /// The lanes an `approve_cutover` cuts over, or the one lane a `force_full` re-bases; none
+    /// for the other actions (root ADR-0433).
+    pub lanes: Option<String>,
+    /// The pack generation an `approve_cutover` cuts over at; none for the other actions.
+    pub generation: Option<i32>,
     /// Drop the pending runs too (a pause only).
     pub drop_pending: bool,
     /// Why, in one line.
@@ -96,11 +102,18 @@ impl RecordOperatorAction {
         if action == OperatorAction::PromoteEdition && input.job_id != PROMOTION_JOB {
             return Err(OperatorActionError::PromotionIsTheReadinessChecks.into());
         }
+        check_release(&input, action)?;
         let expires_at = match (&input.window, action) {
             (Some(window), _) => Some(now + Duration::hours(window.hours)),
             (None, OperatorAction::RunNow) => Some(now + Duration::minutes(RUN_NOW_EXPIRY_MINUTES)),
             (None, OperatorAction::PromoteEdition) => {
                 Some(now + Duration::hours(PROMOTION_EXPIRY_HOURS))
+            }
+            (None, OperatorAction::ApproveCutover) => {
+                Some(now + Duration::hours(CUTOVER_EXPIRY_HOURS))
+            }
+            (None, OperatorAction::ForceFull) => {
+                Some(now + Duration::hours(FORCE_FULL_EXPIRY_HOURS))
             }
             (None, _) => None,
         };
@@ -116,10 +129,47 @@ impl RecordOperatorAction {
             window_start: input.window.as_ref().map(|window| window.start.clone()),
             window_end: input.window.map(|window| window.end),
             edition: input.edition,
+            lanes: input.lanes,
+            generation: input.generation,
         };
         self.switches.ready()?;
         self.ledger.record(&record).await?;
         self.switches.apply(&record)?;
         Ok(record)
+    }
+}
+
+/// The rules of the two release approvals (root ADR-0433): a cut-over names its lanes and
+/// generation and is the cut-over runner's; a full bake names one lane of a by-PNU bake job; the
+/// runner takes nothing but a cut-over approval and a stop; nothing else names a lane or a
+/// generation.
+fn check_release(
+    input: &RecordOperatorActionInput,
+    action: OperatorAction,
+) -> Result<(), OperatorActionError> {
+    let runner = input.job_id == CUTOVER_SUBJECT;
+    match action {
+        OperatorAction::ApproveCutover | OperatorAction::Stop if runner => {}
+        OperatorAction::ApproveCutover => return Err(OperatorActionError::CutoverIsTheRunners),
+        _ if runner => return Err(OperatorActionError::CutoverIsTheRunners),
+        _ => {}
+    }
+    if action == OperatorAction::ForceFull && !is_by_pnu_bake(&input.job_id) {
+        return Err(OperatorActionError::FullBakeIsABakes);
+    }
+    match (&input.lanes, action) {
+        (Some(lanes), OperatorAction::ApproveCutover) => check_lanes(lanes, false)?,
+        (Some(lanes), OperatorAction::ForceFull) => check_lanes(lanes, true)?,
+        (None, OperatorAction::ApproveCutover | OperatorAction::ForceFull) | (Some(_), _) => {
+            return Err(OperatorActionError::LanesAreARelease)
+        }
+        (None, _) => {}
+    }
+    match (input.generation, action) {
+        (Some(generation), OperatorAction::ApproveCutover) => check_generation(generation),
+        (None, OperatorAction::ApproveCutover) | (Some(_), _) => {
+            Err(OperatorActionError::GenerationIsACutover)
+        }
+        (None, _) => Ok(()),
     }
 }
