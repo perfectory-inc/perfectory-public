@@ -325,7 +325,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (root ADR-0402).
 # 160 -> 161: the 대수선 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0402).
-COMPILE_TIME_READ_BASELINE="${3:-161}"
+# 161 -> 162: the 공작물관리대장 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+COMPILE_TIME_READ_BASELINE="${3:-162}"
 
 cd "$repo_root"
 
