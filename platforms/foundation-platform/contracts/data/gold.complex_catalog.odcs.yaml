@@ -61,6 +61,10 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: false
+      - name: "sido_name"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
       - name: "address_text"
         physicalType: "string"
         logicalType: "string"
@@ -179,4 +183,6 @@ customProperties:
       - "complex_id"
   - property: "upstreamDatasets"
     value:
+      - "reference.legal_dong_code_change"
+      - "reference.legal_dong_code_snapshot"
       - "silver.industrial_complexes"

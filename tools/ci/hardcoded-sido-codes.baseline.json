@@ -1,20 +1,4 @@
 {
   "$comment": "Shrink-only (scripts/guard/sido-codes-come-from-the-legal-dong-table.py, root ADR-0403). A file that stops holding a hand-written 시도 table leaves this list; never add one.",
-  "files": [
-    {
-      "path": "consoles/dawneer/web/src/lib/catalogLabels.ts",
-      "reason": "산업단지 시도 필터의 선택지다. 필터는 catalog.industrial_complex.sido_code 와 같은 값을 보여야 하는데, 그 칸이 아직 폐지된 29·46 을 싣는다(2026-11-04 운영 135개 단지). 화면만 12 로 바꾸면 필터가 그 단지들을 못 찾는다.",
-      "removed_by": "catalog.industrial_complex.sido_code 가 법정동 코드 변경(views.changed_codes)을 따라가고, 필터가 그 시도 선택지와 이름을 API(법정동 표)에서 읽는 PR (root ADR-0403 §4)."
-    },
-    {
-      "path": "products/gongzzang/apps/web/lib/complexes/sido.ts",
-      "reason": "산업단지 시도 필터의 선택지다. 필터는 catalog.industrial_complex.sido_code 와 같은 값을 보여야 하는데, 그 칸이 아직 폐지된 29·46 을 싣는다(2026-11-04 운영 135개 단지). 화면만 12 로 바꾸면 필터가 그 단지들을 못 찾는다.",
-      "removed_by": "catalog.industrial_complex.sido_code 가 법정동 코드 변경(views.changed_codes)을 따라가고, 필터가 그 시도 선택지와 이름을 API(법정동 표)에서 읽는 PR (root ADR-0403 §4)."
-    },
-    {
-      "path": "products/gongzzang/apps/web/lib/i18n/ko.json",
-      "reason": "산업단지 시도 필터의 선택지다. 필터는 catalog.industrial_complex.sido_code 와 같은 값을 보여야 하는데, 그 칸이 아직 폐지된 29·46 을 싣는다(2026-11-04 운영 135개 단지). 화면만 12 로 바꾸면 필터가 그 단지들을 못 찾는다.",
-      "removed_by": "catalog.industrial_complex.sido_code 가 법정동 코드 변경(views.changed_codes)을 따라가고, 필터가 그 시도 선택지와 이름을 API(법정동 표)에서 읽는 PR (root ADR-0403 §4)."
-    }
-  ]
+  "files": []
 }

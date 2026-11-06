@@ -767,6 +767,12 @@ pub(super) const GOLD_COMPLEX_CATALOG_COLUMNS: &[LakehouseColumn] = &[
         logical_type: "string",
         required: false,
     },
+    // The current name of `sido_code` in the 법정동 code table (root ADR-0426).
+    LakehouseColumn {
+        name: "sido_name",
+        logical_type: "string",
+        required: false,
+    },
     // The columns from here to `invited_industries_raw` describe the complex itself and reach Gold
     // unchanged from Silver. They are optional here for the same reason they are optional there:
     // the profile source leaves a cell blank rather than stating a value, and a projection may not

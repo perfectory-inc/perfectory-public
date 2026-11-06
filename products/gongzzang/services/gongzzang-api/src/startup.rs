@@ -59,6 +59,7 @@ impl routes::complexes::ComplexCatalogReader for NoOpComplexCatalogReader {
                 page: query.page,
                 size: query.size,
                 has_next: false,
+                sido_facet: Vec::new(),
             })
         })
     }

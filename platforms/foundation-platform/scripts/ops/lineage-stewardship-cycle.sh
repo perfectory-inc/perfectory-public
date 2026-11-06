@@ -3,6 +3,8 @@
 #
 #   0a. 법정동 — 수집 작업이 넘긴 법정동 코드 변경을 먼저 적재하고 짝을 맞춘다(legal-dong-code-load.sh,
 #               root ADR-0143). 넘김이 없으면 그렇게 남기고 지나간다.
+#   0a'. 산업단지 — 0a 가 짝을 새로 썼으면(또는 아직 한 번도 따라가지 않았으면) 바뀐 짝의 코드 밑의 산업단지만
+#               시도·시군구·시도 이름을 다시 놓고 canonical 표에 올린다(root ADR-0426). 실패해도 계보는 돌고 단위는 끝에 실패한다.
 #
 #   0b. 도출   — 원천 계약의 필지 판 이웃 쌍마다, 시도 묶음마다 계보를 한 번 도출해 쌓는다
 #               (parcel_lineage_scheduled.py, root ADR-0113 §1). 쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
@@ -105,6 +107,36 @@ json_field() { python3 -c "import json,sys; print(json.load(open(sys.argv[1]))$2
 source "$(dirname "${BASH_SOURCE[0]}")/legal-dong-code-load.sh"
 load_legal_dong_code_handoffs
 
+# 0a'. 산업단지의 시도·시군구가 코드 변경을 따라간다 (root ADR-0426). 따라간 변경표 행을 상태 파일에 두고, 다음
+# 회차는 그와 지금 표의 차이(views.changed_codes) 밑의 단지만 본다. 상태는 canonical 적재까지 성공한 뒤에만 바뀐다.
+COMPLEX_REGION_STATE="${STATE_ROOT}/industrial-complex-region-codes/followed-code-changes.json"
+# Called on the left of `||`, where errexit does not reach a function body: every step returns its own failure.
+follow_industrial_complex_region_codes() {
+  local out="${work}/complex-region" cout="${container_work}/complex-region" previous=()
+  mkdir -p "${out}" "$(dirname "${COMPLEX_REGION_STATE}")"
+  chmod 0777 "${out}"
+  if [ -f "${COMPLEX_REGION_STATE}" ]; then
+    cp "${COMPLEX_REGION_STATE}" "${out}/followed-before.json" || return
+    previous=(--followed-code-changes "${cout}/followed-before.json")
+  fi
+  spark industrial_complex_silver_to_gold.py --follow-region-codes --input-mode iceberg --write-mode iceberg \
+    ${previous[@]+"${previous[@]}"} --followed-code-changes-output "${cout}/followed.json" \
+    --summary-output "${cout}/summary.json" || return
+  if [ "$(json_field "${out}/summary.json" '["followed"]')" = True ]; then
+    FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_CANONICAL_LOAD_CONFIRM=true \
+    FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_CANONICAL_LOAD_SUMMARY_PATH="${out}/canonical-load.json" \
+      publisher load-industrial-complex-canonical >> "${run_log}" 2>&1 || return
+  fi
+  legal_dong_install "${out}/followed.json" "${COMPLEX_REGION_STATE}" || return
+  job_journal "${journal}" "industrial-complex region codes followed=$(json_field "${out}/summary.json" '["followed"]') replaced=$(json_field "${out}/summary.json" '["replaced_complexes"].__len__()') run=${run_id}"
+}
+complex_region_rc=0
+complex_region_wrote=0
+if [ "${legal_dong_code_wrote}" != 0 ] || [ ! -f "${COMPLEX_REGION_STATE}" ]; then
+  follow_industrial_complex_region_codes || complex_region_rc=$?
+  complex_region_wrote=1
+fi
+
 # 0b. 계보 도출 (root ADR-0113 §1). 원천 계약이 가진 필지 판의 이웃 쌍마다, 시도 묶음마다 한 번 도출해
 # silver.parcel_lineage 에 쌓는다. 이미 쌓은 묶음은 건너뛰고, 예산이 지나면 새 묶음을 시작하지 않는다 —
 # 남은 묶음은 다음 회차가 잇는다. 예산은 단위 상한(2h) 안에서 뒤 단계 몫을 남긴다.
@@ -175,6 +207,11 @@ PY
 )"
 job_journal "${journal}" "stewardship ok run=${run_id} ${summary}"
 notify_slack "${summary}"
+if [ "${complex_region_rc}" != 0 ]; then
+  job_journal "${journal}" "stewardship FAILED: industrial-complex region codes did not follow rc=${complex_region_rc} run=${run_id}" >&2
+  printf 'foundation-job-outcome failed industrial-complex region codes\n'
+  exit 1
+fi
 if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
   # What a person acts on: which group, and which 동 codes the code change table does not pair.
@@ -185,7 +222,7 @@ fi
 # The run's last line (root ADR-0171, ADR-0260): `changed` only when a step wrote — the 법정동 load or
 # pairing, a derived group, a folded decision, a rebuilt queue (10-24..27 said `changed` daily on
 # derived=0, folded 0, queue unchanged).
-if [ "${legal_dong_code_wrote}" != 0 ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
+if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
   || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ]; then
   printf 'foundation-job-outcome changed\n'
 else

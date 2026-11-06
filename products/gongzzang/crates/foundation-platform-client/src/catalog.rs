@@ -302,6 +302,20 @@ pub struct CatalogIndustrialComplexListResponse {
     pub size: u32,
     /// Whether a further page exists.
     pub has_next: bool,
+    /// Every 시도 with a live complex, ascending, whatever the filters (root ADR-0426).
+    pub sido_facet: Vec<CatalogIndustrialComplexSidoFacetEntry>,
+}
+
+/// One option of the Foundation 시도 filter: code, current 법정동 name, complex count.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct CatalogIndustrialComplexSidoFacetEntry {
+    /// Two-digit province code.
+    pub sido_code: String,
+    /// Current name; absent for rows loaded before the provider carried it.
+    #[serde(default)]
+    pub sido_name: Option<String>,
+    /// Live complexes with this code.
+    pub complex_count: u64,
 }
 
 /// Query parameters for the Foundation Catalog industrial-complex collection.

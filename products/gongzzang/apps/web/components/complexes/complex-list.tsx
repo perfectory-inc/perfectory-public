@@ -1,7 +1,7 @@
 "use client";
 import { Separator, Skeleton } from "@gongzzang/ui";
 import { useTranslations } from "next-intl";
-import { Fragment } from "react";
+import { Fragment, useRef } from "react";
 import { ComplexFilterBar } from "@/components/complexes/complex-filter-bar";
 import { ComplexPager } from "@/components/complexes/complex-pager";
 import { ComplexRow } from "@/components/complexes/complex-row";
@@ -23,6 +23,9 @@ export function ComplexList() {
   const { filters, setSearch, patch, goToPage } = useComplexFilters();
   const query = useComplexesQuery(filters);
   const page = query.data;
+  // The facet does not depend on the filters, so the last one stays while the next page loads.
+  const sidoFacet = useRef<ComplexesResponse["sido_facet"]>([]);
+  if (page) sidoFacet.current = page.sido_facet;
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-canvas)]">
@@ -39,6 +42,7 @@ export function ComplexList() {
         filters={filters}
         total={page?.total}
         shown={page?.complexes.length ?? 0}
+        sidoFacet={sidoFacet.current}
         onPatch={patch}
       />
       <Separator />

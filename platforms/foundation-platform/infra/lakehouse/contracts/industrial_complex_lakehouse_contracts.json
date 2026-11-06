@@ -3401,6 +3401,11 @@
           "required": false
         },
         {
+          "name": "sido_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "address_text",
           "logical_type": "string",
           "required": false

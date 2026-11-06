@@ -345,6 +345,7 @@ async fn a_reloaded_archived_code_refreshes_the_archived_row() -> TestResult {
                 status: None,
                 sido_code: None,
                 sigungu_code: None,
+                sido_name: None,
                 address_text: None,
                 management_agency_name: None,
                 developer_name: None,
