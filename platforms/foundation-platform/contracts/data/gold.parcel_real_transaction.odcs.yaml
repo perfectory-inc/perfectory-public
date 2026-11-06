@@ -76,6 +76,7 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
+      - "gold.real_transaction_region_stats"
       - "reference.legal_dong_code_change"
       - "reference.legal_dong_code_snapshot"
       - "silver.building_register_titles"

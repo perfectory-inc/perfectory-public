@@ -8504,6 +8504,122 @@
         "unit": "derived"
       }
     },
+    "gold.real_transaction_region_stats": {
+      "table_name": "gold.real_transaction_region_stats",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "dataset_slug",
+          "region_level",
+          "region_code",
+          "period_kind",
+          "period"
+        ]
+      },
+      "columns": [
+        {
+          "name": "dataset_slug",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "region_level",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "region_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "period_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "period",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "deal_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "cancelled_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "land_price_per_m2_p25",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_price_per_m2_median",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_price_per_m2_p75",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_p25",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_median",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_p75",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "dataset_slug"
+      ],
+      "sort_order": [
+        "region_code",
+        "period"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "one row per (dataset_slug, region_level, region_code, period_kind, period)",
+        "region_code is a 10-digit 법정동 or 시군구 code",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
     "silver.onbid_announcement": {
       "table_name": "silver.onbid_announcement",
       "physical_format": "Parquet",

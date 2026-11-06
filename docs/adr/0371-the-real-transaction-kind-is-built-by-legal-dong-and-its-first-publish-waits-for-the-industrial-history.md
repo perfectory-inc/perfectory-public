@@ -52,10 +52,18 @@ ADR-0350 은 실거래를 필지 화면에 싣는 종류를 정했다. ADR-0351 
    계보 선행 필지의 법정동이다. 코드 표·스냅숏·계보는 통째로 읽는다(수천 행). 패리티 표본은 1,000 PNU 다
    (`kind_tables.overrides`): 표본 PNU 하나가 법정동 하나를 통째로 읽기 때문이다(계약의 이유). 빌드의 창은 빌드 달에
    맞춘다. 그래서 같은 달 안의 다시 빌드는 같은 문서를 낸다.
-4. **스키마.** 레지스트리 주제는 `foundation-platform.parcel_real_transaction_by_pnu` major 1 rev 1 이다. Spark 시험이
-   쓴 JSON 경로를 레지스트리와 같게 묶는다(`SPARK_HELD`). 지역 통계 Gold 표(ADR-0350 §4)는 이 PR 에 없다. 문서의
-   `region` 은 그 법정동의 12개월 건수와 m² 금액 사분위만 싣는다. 시군구 통계는 범위가 법정동을 넘으므로 그 표의
-   PR 로 미룬다.
+4. **스키마와 지역 통계.** 레지스트리 주제는 `foundation-platform.parcel_real_transaction_by_pnu` major 1 rev 1 이다.
+   Spark 시험이 쓴 JSON 경로를 레지스트리와 같게 묶는다(`SPARK_HELD`). 지역 통계 Gold `gold.real_transaction_region_stats`
+   (ADR-0350 §4)는 같은 생산자가 같은 실행에서 같은 거래로 쓴다.
+   - 키: (데이터셋, `legal_dong`|`sigungu`, 코드, `month`(계약 달)|`trailing_12_months`(빌드 달 앞 12개월), 기간).
+   - 값: 거래 수, 해제 수, 해제되지 않은 거래의 m²당 금액 p25·중앙값·p75(만원). 대지·계약면적 기준으로 하나, 토지가
+     아니면 건물면적 기준으로 하나 더.
+   - 지역은 거래의 현재 법정동이다(주소 → 코드 쌍). 그래서 코드가 바뀌면 통계가 따라간다. 분기 대신 달로 두었다.
+     분기는 달에서 다시 셀 수 없지만(사분위) 달은 가치평가가 묶음을 고를 수 있다.
+   - 바뀐 것만: 전량 빌드는 표를 통째로 쓴다. 증분 실행은 3항의 닿는 법정동을 시군구로 넓힌다. 시군구 행은 그 아래 모든
+     법정동을 읽기 때문이다. 그 시군구의 행만 다시 계산해 키로 합치고, 사라진 키는 지운다(`merge_region_stats`).
+   - 문서의 `region` 은 이 표의 그 법정동 `trailing_12_months` 행이다.
+
 5. **첫 발행은 이력이 찬 뒤다.**
    - 레인 줄의 `first_publish_waits_for_history` 가 기다릴 데이터셋을 적는다. 값은 계약 `priority` 의 산업용 세 종이다.
    - 첫 컷오버(`by-pnu-lane-cutover.sh`)의 첫 단계 `history` 가 `scripts/ops/serving_history_readiness.py` 를 부른다.
@@ -97,4 +105,4 @@ ADR-0350 은 실거래를 필지 화면에 싣는 종류를 정했다. ADR-0351 
 
   - 걸린 시간은 실행의 `summary.json` 과 로그(`/var/lib/foundation-gold-panel-rebuild/parcel-real-transaction/runs/<run>`)
     에 남는다. 150분 안에 끝나면 두 작업을 켜는 PR 을 낸다.
-- 남은 일: 지역 통계 Gold 표(ADR-0350 §4), 웹 `실거래` 탭(별도 PR), 첫 전량 빌드 시간 측정, 컷오버.
+- 남은 일: 웹 `실거래` 탭(별도 PR), 첫 전량 빌드 시간 측정, 컷오버.

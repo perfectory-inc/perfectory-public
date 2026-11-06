@@ -30,6 +30,7 @@ mod onbid_public_auction;
 mod parcel_number_change_history;
 mod parcel_panel;
 mod real_transaction;
+mod real_transaction_region_stats;
 mod real_transaction_rejected;
 mod registered_factory;
 mod unit_official_price;

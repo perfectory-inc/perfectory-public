@@ -75,6 +75,12 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(job.aged_out_months(date(2098, 4, 28), date(2098, 6, 2)),
                          [(date(2095, 4, 1), date(2095, 6, 1)), (date(2097, 4, 1), date(2097, 6, 1))])
 
+    def test_region_statistics_are_rewritten_by_whole_sigungu(self):
+        # A 시군구 row reads every 법정동 under it, so a change to one 법정동 rewrites its 시군구.
+        self.assertEqual(job.region_scope(None, ["99999101", "99"]), ["99", "99999"])
+        self.assertEqual(job.region_scope(None, []), [])
+        self.assertEqual(job.REGION_KEY[:3], ("dataset_slug", "region_level", "region_code"))
+
     def test_an_address_takes_its_current_code_through_the_pairs_in_force(self):
         rows, remap, ambiguous = job.address_codes(SNAPSHOT, REORGANIZED)
         self.assertEqual(remap, {OLD: NEW})
@@ -232,6 +238,37 @@ class DocumentSparkTest(unittest.TestCase):
         first = job.gold_rows(frames, INFERENCE, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS).first()
         again = job.gold_rows(frames, INFERENCE, date(2098, 5, 28), "snap-2", "2098-05-28T00:00:00Z", GOLD_COLUMNS).first()
         self.assertEqual(first.row_digest, again.row_digest)
+
+
+    def test_region_statistics_follow_the_deal_to_its_current_code(self):
+        deals = [self.deal("a-1", OLD_NAME, "12", date(2098, 3, 10), amount=60000, land=1000.0, building=500.0),
+                 self.deal("a-2", OLD_NAME, "3**", date(2098, 3, 20), amount=40000, land=500.0, building=None),
+                 self.deal("a-3", OLD_NAME, "3**", date(2098, 4, 2), cancelled=True)]
+        rows = {(r.region_level, r.region_code, r.period_kind, r.period): r for r in job.region_rows(
+            self.frames(deals, REORGANIZED, [], [])[job.RT_SOURCE], date(2098, 5, 3)).collect()}
+        # Under the pair the deals count in the new 법정동 and its 시군구, never the old code.
+        self.assertNotIn(("legal_dong", OLD, job.MONTH, "2098-03"), rows)
+        march = rows[("legal_dong", NEW, job.MONTH, "2098-03")]
+        self.assertEqual((march.deal_count, march.cancelled_count), (2, 0))
+        self.assertEqual(march.land_price_per_m2_median, 70.0)
+        self.assertEqual(march.building_price_per_m2_median, 120.0)
+        trailing = rows[("sigungu", NEW[:5] + "00000", job.TRAILING, "2098-05")]
+        self.assertEqual((trailing.deal_count, trailing.cancelled_count), (3, 1))
+        # Without the pair the same deals are the old code's.
+        before = {(r.region_level, r.region_code) for r in job.region_rows(
+            self.frames(deals, [], [], [])[job.RT_SOURCE], date(2098, 5, 3)).collect()}
+        self.assertIn(("legal_dong", OLD), before)
+        self.assertNotIn(("legal_dong", NEW), before)
+
+    def test_the_region_gold_has_its_contract_s_columns_and_one_row_per_key(self):
+        from platform_contracts import column_names, load_lakehouse_contract
+
+        columns = tuple(column_names(load_lakehouse_contract(job.REGION_TABLE)))
+        deals = [self.deal("o-1", OTHER_NAME, "5", date(2098, 2, 1)), self.deal("o-2", OTHER_NAME, "6", date(2098, 2, 9))]
+        gold = job.region_gold_rows(self.frames(deals, [], [], [])[job.RT_SOURCE], date(2098, 5, 3), "s",
+                                    "2098-05-03T00:00:00Z", columns)
+        self.assertEqual(tuple(gold.columns), columns)
+        self.assertEqual(gold.count(), gold.select(*job.REGION_KEY).distinct().count())
 
 
 if __name__ == "__main__":
