@@ -14,7 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
 from building_register_floor_history import (  # noqa: E402
-    validate_receipt, verify_metadata, verify_lineage, load_history_witness,
+    WITNESS_TAG, pin_witness, validate_receipt, verify_metadata, verify_lineage, load_history_witness,
+    witness_tag_sql,
 )
 from lakehouse_ingest import INGEST_BATCH_OBJECTS_KEY, INGEST_BATCH_TOKEN_KEY, ingest_batch_token
 
@@ -207,6 +208,30 @@ class FloorHistoryTests(unittest.TestCase):
                         [dict(row, ingested_at_utc="2099-09-29T11:09:43.585677Z")]]:
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 verify_lineage(witness, changed)
+
+    def test_the_authenticated_witness_is_pinned_and_a_foreign_pin_is_refused(self):
+        """Root ADR-0338: expiry keeps the witness chain only while this tag names the witness."""
+        witness = binding()
+
+        class Refs:
+            def __init__(self, tagged):
+                self.tagged, self.queries = tagged, []
+
+            def sql(self, query):
+                self.queries.append(query)
+                return self
+
+            def collect(self):
+                return [(self.tagged,)] if self.queries[-1].startswith("SELECT") else []
+
+        spark = Refs(witness["snapshot_id"])
+        pin_witness(spark, "lakehouse.silver.building_register_floors", witness)
+        self.assertEqual(spark.queries[0], witness_tag_sql("lakehouse.silver.building_register_floors",
+                                                           witness["snapshot_id"]))
+        self.assertIn(f"CREATE TAG IF NOT EXISTS `{WITNESS_TAG}` AS OF VERSION {int(witness['snapshot_id'])}",
+                      spark.queries[0])
+        with self.assertRaises(ValueError):
+            pin_witness(Refs("1"), "lakehouse.silver.building_register_floors", witness)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ ADR-0237)은 작업이 그 표를 찾아갈 때만 의미가 있다.
    뒤에는 새 표를 시작하지 않는다. 못 간 표는 다음 실행에서 맨 먼저다. 한 표의 실패는 나머지를 멈추지 않고, 하나라도
    실패하면 실행이 실패한다.
 3. 만료는 이 레이크하우스가 메타데이터에서 다시 읽는 스냅숏을 지우지 않는다(`protected_snapshots`).
+   (2026-10-29: 이 항은 [ADR-0338](./0338-a-reader-of-an-old-snapshot-pins-it-with-its-own-tag-and-the-rest-expire-in-30-days.md) 이
+   대신한다. `protected_snapshots` 는 없어지고, 옛 스냅숏을 읽는 독자가 각자 태그로 고정한다.)
    - `main` 계보의 모든 적재 기록 스냅숏(`lakehouse_ingest.INGEST_BATCH_OBJECTS_KEY`).
    - `main` 계보에서 가장 새 Gold pin 스냅숏(`gold_rebuild.SOURCE_SNAPSHOTS_PROPERTY`).
    - `older_than` 을 보호 스냅숏 중 가장 오래된 것의 커밋 시각(밀리초)까지 당긴다. 키 이름은 그것을 쓰는 모듈의 상수를
