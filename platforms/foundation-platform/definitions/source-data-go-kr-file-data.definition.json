@@ -7,11 +7,12 @@
       "id": "source-data-go-kr-file-data",
       "type": "source_group",
       "title": "data.go.kr 파일 데이터",
-      "description": "data.go.kr 의 파일 데이터(일괄 내려받기). 지금은 한국산업단지공단 전국등록공장현황(15105482) 하나다(루트 ADR-0280). 수집기와 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다.",
+      "description": "data.go.kr 의 파일 데이터(일괄 내려받기). 수집기 하나가 계약(data-go-kr-file-data.contract.json)의 파일 9개를 돈다(루트 ADR-0280 §4, ADR-0401): 한국산업단지공단 전국등록공장현황(15105482)과 기타 공공 일괄 8개 — 고속도로 출입시설·행정동 세대수·행정동 인구·철도역(역↔노선은 같은 파일의 관련노선 칸)·항만·공항·상가(상권)·법정동 연계정보. 등록공장만 Silver 가 있고, 나머지 8개의 Silver 는 ADR-0401 §3–4 의 다음 PR 이다. 표를 읽는 소비자(by-PNU 섹션)가 아직 없어 partial 이다.",
       "status": "partial",
       "owner": "foundation-platform",
       "evidence_refs": [
-        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json"
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json",
+        "docs/adr/0401-other-public-bulk-files-are-collected-by-the-data-go-kr-file-collector-and-land-as-changed-rows.md"
       ],
       "endpoint_catalog_group": "data_go_kr_file_data",
       "unmapped_status": "collected_only"

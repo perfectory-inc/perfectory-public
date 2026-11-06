@@ -55,8 +55,8 @@ mod building_register_unit_silver_export;
 mod canonical_release_proof;
 mod code_go_kr_legal_dong_collect;
 mod courtauction_go_kr_collect;
+mod data_go_kr_file_data_collect;
 mod data_go_kr_onbid_collect;
-mod data_go_kr_registered_factory_collect;
 mod dbase_table;
 mod industrial_complex_address_resolution_build;
 mod industrial_complex_address_source_collect;
@@ -162,7 +162,7 @@ enum Command {
     CollectDataGoKrOnbid,
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
-    CollectDataGoKrRegisteredFactory,
+    CollectDataGoKrFileData,
     PlanSilverLoadObjects,
     ListLakehouseObjects,
     CollectIndustrialComplexAddressSource,
@@ -332,9 +332,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
         Command::CollectCourtauctionGoKr => Box::pin(courtauction_go_kr_collect::run()),
-        Command::CollectDataGoKrRegisteredFactory => {
-            Box::pin(data_go_kr_registered_factory_collect::run())
-        }
+        Command::CollectDataGoKrFileData => Box::pin(data_go_kr_file_data_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
         Command::CollectIndustrialComplexAddressSource => {
@@ -682,9 +680,7 @@ where
         Some("collect-data-go-kr-onbid") => Ok(Command::CollectDataGoKrOnbid),
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
-        Some("collect-data-go-kr-registered-factory") => {
-            Ok(Command::CollectDataGoKrRegisteredFactory)
-        }
+        Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
         Some("collect-industrial-complex-address-source") => {

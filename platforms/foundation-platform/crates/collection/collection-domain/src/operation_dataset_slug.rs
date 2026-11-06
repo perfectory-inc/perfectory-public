@@ -119,6 +119,16 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
 pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
     match operation {
         "fileData15105482" => Some("registered_factory"),
+        // The other public bulk files (root ADR-0401). 15067652 is also the catalog's
+        // railway_station_line endpoint: that endpoint is the same file's 관련노선 column.
+        "fileData15116370" => Some("highway_access_point"),
+        "fileData15097974" => Some("household_count"),
+        "fileData15097972" => Some("dong_population"),
+        "fileData15067652" => Some("railway_station"),
+        "fileData15088273" => Some("port"),
+        "fileData15002851" => Some("airport"),
+        "fileData15083033" => Some("commercial_district"),
+        "fileData15136368" => Some("adm_dong_code_linkage"),
         _ => None,
     }
 }
@@ -473,6 +483,10 @@ mod tests {
         assert!(operation_collapses_into_slug(
             "fileData15105482",
             "datagokr__registered_factory"
+        ));
+        assert!(operation_collapses_into_slug(
+            "fileData15083033",
+            "datagokr__commercial_district"
         ));
     }
 

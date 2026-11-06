@@ -1,0 +1,64 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "data-go-kr-file-data",
+  "jobs": [
+    {
+      "id": "data_go_kr_file_data",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh): for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is not the last one landed, land it in Bronze under its own source (datagokr__<dataset_slug>). Each file commits on its own and its state is saved after its commit, so a stopped run loses nothing and one file's failure does not stop the others; the run fails at the end naming them. The run cap is the files themselves, measured 2026-11-04: all eight new is about 365 MB (the 349 MB 상가(상권) zip took 59 s) and about 3 minutes with the spacing. No Spark; the Silver loads read Bronze.",
+      "systemd_service": "foundation-data-go-kr-file-data.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/data-go-kr-file-data"
+      ],
+      "schedule": "40 11 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "data-go-kr-file-collection-to-source-data-go-kr-file-data"
+      ],
+      "enabled": false,
+      "disabled_reason": "New, never run as its unit: off until its first attended run has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "data-go-kr-file-collection",
+      "type": "serving_surface",
+      "title": "data.go.kr 파일 매일 확인",
+      "description": "계약의 파일마다 포털 메타데이터를 하루 한 번 묻고, 파일 id(atchFileId)가 새로울 때만 받아 그 원천의 Bronze(datagokr__<dataset_slug>)에 남긴다(루트 ADR-0401 §1). 파일마다 따로 커밋한다. 등록공장은 작업 registered_factory 가, 나머지 8개는 작업 data_go_kr_file_data 가 받는다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "surface_kind": "scheduler"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "data-go-kr-file-collection",
+      "to": "source-data-go-kr-file-data",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "collect-data-go-kr-file-data"
+      ]
+    }
+  ]
+}

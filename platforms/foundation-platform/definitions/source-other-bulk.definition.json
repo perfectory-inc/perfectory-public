@@ -7,11 +7,11 @@
       "id": "source-other-bulk",
       "type": "source_group",
       "title": "기타 공공 일괄 파일",
-      "description": "받은 객체 0, 수집기 없음. 카탈로그 제공자가 mixed_public_source 라 어느 기관의 어느 파일인지 적힌 적이 없다. 원천마다 실제 제공자를 적고 data.go.kr 파일 데이터 수집기(루트 ADR-0280 §4)를 넓혀 받는다. 고속도로 IC·항만·공항·역·행정동 인구는 나중 연결, 나머지는 보관만이다(루트 ADR-0355).",
+      "description": "수집 객체 0, 수집기 없음. 남은 셋(학교 위치·대학·도시철도역)은 공공데이터포털의 표준데이터라 파일 두 단계로 받을 수 없고, 같은 행을 표준데이터 OpenAPI 로 받는 다음 PR 이 수집기를 만든다(루트 ADR-0401). 나머지 9개는 실제 제공자인 data.go.kr 파일 데이터로 옮겼다.",
       "status": "planned",
       "owner": "foundation-platform",
       "evidence_refs": [
-        "docs/adr/0355-the-building-hub-juso-map-and-other-bulk-sources-are-judged-one-by-one-and-connected-in-order.md"
+        "docs/adr/0401-other-public-bulk-files-are-collected-by-the-data-go-kr-file-collector-and-land-as-changed-rows.md"
       ],
       "endpoint_catalog_group": "other_bulk",
       "unmapped_status": "collected_only"
