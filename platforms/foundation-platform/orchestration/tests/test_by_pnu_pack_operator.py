@@ -227,11 +227,7 @@ class PackOperator(OperatorHarness):
         self.assertTrue(args[-3].endswith("/scripts/ops/silver-refresh.sh"))
         self.assertTrue(any(prop.startswith("EnvironmentFile=") for prop in props), props)
 
-    def test_silver_start_and_status_name_the_lanes_scheduled_unit(self):
-        result, calls = self.run_operator("silver", "start", "building-register-titles", *fresh())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
-                         [["start", "--no-block", "foundation-silver-refresh@building-register-titles.service"]])
+    def test_silver_status_names_the_lanes_scheduled_unit(self):
         result, calls = self.run_operator("silver", "status", "building-register-titles")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any(c["tool"] == "journalctl" and
@@ -239,25 +235,24 @@ class PackOperator(OperatorHarness):
 
     def test_the_unit_price_versions_migration_is_a_job_that_holds_the_spark_pool(self):
         # 2026-11-04: as a unit beside the job list it ran beside the Spark jobs the pool did not know
-        # it shared with and was killed at 8 h. As the scheduled job it is, Airflow starts it, not
-        # `job start`, and while it runs the pool counts it for every other start.
-        job = "unit_price_versions_migration"
-        result, calls = self.run_operator("job", "start", job, *fresh())
-        self.assertEqual(result.returncode, 64, result.stderr)
-        self.assertIn("an enabled job is Airflow's", result.stderr)
-        self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
-        self.log.unlink(missing_ok=True)
-        result, _ = self.run_operator("silver", "start", "building-register-titles", *fresh(),
+        # it shared with and was killed at 8 h. As the scheduled job it is, Airflow starts it, and
+        # while it runs the pool counts it for every other start this script makes.
+        result, _ = self.run_operator("parcel-tiles", "rehearse", "bake", *fresh(),
                                       activating=["foundation-unit-price-versions-migrate.service"])
         self.assertEqual(result.returncode, 75, result.stderr)
 
-    def test_silver_start_waits_for_another_lane_and_the_gold_rebuild(self):
-        for active in (["foundation-silver-refresh@land-use-plan.service"],
-                       ["foundation-gold-panel-rebuild.service"]):
-            with self.subTest(active=active):
-                result, calls = self.run_operator("silver", "start", "land-characteristic", *fresh(), active=active)
-                self.assertEqual(result.returncode, 75, result.stderr)
-                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+    def test_a_job_or_a_lane_is_started_from_the_console_not_here(self):
+        # Root ADR-0282 stage f: a shell can start them at any time; a console request expires.
+        self.switch_off("legal_dong_code_changes")
+        for args in (("job", "start", "legal_dong_code_changes"), ("job", "start", "unit_price_versions_migration"),
+                     ("silver", "start", "land-characteristic")):
+            for flags in (True, False):
+                with self.subTest(args=args, flags=flags):
+                    self.log.unlink(missing_ok=True)
+                    result, calls = self.run_operator(*args, flags=flags)
+                    self.assertEqual(result.returncode, 64, result.stderr)
+                    self.assertIn("is retired: start it from 더니어", result.stderr)
+                    self.assertEqual((calls, self.journal), ([], []))
 
     def test_a_running_oneshot_job_is_running(self):
         # A oneshot job is `activating` for its whole run; `is-active` called a running Gold rebuild
@@ -276,7 +271,7 @@ class PackOperator(OperatorHarness):
                                ("foundation-building-pack-bake-g7.service", ("parcel", "gold-rebuild")),
                                ("foundation-parcel-pack-equality-g1.service", ("parcel", "equality", "1")),
                                ("foundation-silver-refresh@land-use-plan.service",
-                                ("silver", "start", "land-characteristic", *fresh()))):
+                                ("parcel-tiles", "rehearse", "bake"))):
                 with self.subTest(state=state, unit=unit):
                     self.log.unlink(missing_ok=True)
                     result, calls = self.run_operator(*args, states={unit: state})
@@ -343,12 +338,8 @@ class PackOperator(OperatorHarness):
                 job.pop("enabled_since", None)
         path.write_text(json.dumps(jobs), encoding="utf-8")
 
-    def test_job_start_and_status_name_the_off_jobs_unit(self):
+    def test_job_status_names_the_off_jobs_unit(self):
         self.switch_off("legal_dong_code_changes")
-        result, calls = self.run_operator("job", "start", "legal_dong_code_changes", *fresh())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
-                         [["start", "--no-block", "foundation-legal-dong-code.service"]])
         result, calls = self.run_operator("job", "status", "legal_dong_code_changes")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any(c["tool"] == "journalctl" and
@@ -423,22 +414,9 @@ class PackOperator(OperatorHarness):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
 
-    def test_job_start_waits_for_its_own_run_and_a_spark_job_for_the_spark_work(self):
-        self.switch_off("legal_dong_code_changes", "lineage_stewardship")
-        for job_id, active in (("legal_dong_code_changes", ["foundation-legal-dong-code.service"]),
-                               ("lineage_stewardship", ["foundation-gold-panel-rebuild.service"]),
-                               ("lineage_stewardship", ["foundation-silver-refresh@land-use-plan.service"])):
-            with self.subTest(job=job_id, active=active):
-                self.log.unlink(missing_ok=True)
-                result, calls = self.run_operator("job", "start", job_id, *fresh(), activating=active)
-                self.assertEqual(result.returncode, 75, result.stderr)
-                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
-
     def test_an_operator_start_takes_the_pools_slots_a_scheduled_run_holds(self):
         # Root ADR-0270 §2b (2026-10-18): an operator's spark one-off beside a scheduled FLOOR run.
-        self.switch_off("lineage_stewardship")
-        for args in (("job", "start", "lineage_stewardship", *fresh()), ("silver", "start", "land-characteristic", *fresh()),
-                     ("parcel-tiles", "rehearse", "bake")):
+        for args in (("parcel-tiles", "rehearse", "bake"), ("parcel-tiles", "rehearse", "gold", "202609")):
             with self.subTest(args=args):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator(*args, activating=["foundation-building-register-floor.service"])
@@ -478,8 +456,7 @@ class PackOperator(OperatorHarness):
     def test_an_operator_start_is_attended_immediate_and_recorded(self):
         # Root ADR-0270 §2b (2026-10-16): a nohup wait script started a production Silver write ten
         # hours after it was written. A start names when it was asked and why; an old request is refused.
-        self.switch_off("parcel_registry")
-        for args in (("job", "start", "parcel_registry"), ("silver", "start", "land-characteristic")):
+        for args in (("parcel-tiles", "rehearse", "bake"), ("parcel-tiles", "rehearse", "gold", "202609")):
             with self.subTest(args=args, case="ten hours late"):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator(*args, *fresh(age_seconds=10 * 3600))
@@ -562,9 +539,7 @@ class PackOperator(OperatorHarness):
     def test_an_operator_start_runs_beside_a_deploy_unless_the_deploy_holds_it(self):
         # Proposal 1 (2026-10-19): a deploy holds every job until its build is done, then only what
         # its release changes (D5); an operator start follows the same rule as a scheduled one.
-        self.switch_off("legal_dong_code_changes")
-        starts = (("job", "start", "legal_dong_code_changes"), ("silver", "start", "land-characteristic"),
-                  ("parcel-tiles", "rehearse", "bake"))
+        starts = (("parcel-tiles", "rehearse", "bake"), ("parcel-tiles", "rehearse", "gold", "202609"))
         self.hold("*")
         for args in starts:
             with self.subTest(args=args, hold="building"):
@@ -573,7 +548,7 @@ class PackOperator(OperatorHarness):
                 self.assertEqual(result.returncode, 75, result.stderr)
                 self.assertIn("every job waits until the build is done", result.stderr)
                 self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
-        self.hold("legal_dong_code_changes", "silver_refresh_land_characteristic", "parcel_tile_bake")
+        self.hold("parcel_served_gold", "parcel_tile_bake")
         for args in starts:
             with self.subTest(args=args, hold="its writers"):
                 self.log.unlink(missing_ok=True)
@@ -593,20 +568,11 @@ class PackOperator(OperatorHarness):
         result, _ = self.run_operator(*starts[0])
         self.assertEqual(result.returncode, 0, "a hold its deploy left behind holds nothing: " + result.stderr)
 
-    def test_every_silver_lane_is_held_by_its_job_id(self):
-        jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["jobs"]
-        prefix = "foundation-silver-refresh@"
-        lanes = {job["systemd_service"][len(prefix):-len(".service")]: job["id"]
-                 for job in jobs if job["systemd_service"].startswith(prefix)}
-        self.assertTrue(lanes)
-        for lane, job_id in lanes.items():
-            self.assertEqual("silver_refresh_" + lane.replace("-", "_"), job_id)
-
     def test_job_takes_only_an_off_job_that_is_not_a_silver_lane(self):
         self.switch_off("silver_refresh_land_use_plan")
-        for args in (("job", "start", "source_sweep"), ("job", "start", "silver_refresh_land_use_plan"),
-                     ("job", "start", "no_such_job"), ("job", "start", "../../etc/passwd"), ("job", "start"),
-                     ("job", "drop", "source_sweep"), ("job", "start", "source_sweep", "extra")):
+        for args in (("job", "status", "source_sweep"), ("job", "status", "silver_refresh_land_use_plan"),
+                     ("job", "status", "no_such_job"), ("job", "status", "../../etc/passwd"), ("job", "status"),
+                     ("job", "drop", "source_sweep"), ("job", "status", "source_sweep", "extra")):
             with self.subTest(args=args):
                 self.log.unlink(missing_ok=True)
                 result, calls = self.run_operator(*args)
