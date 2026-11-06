@@ -3,7 +3,7 @@
 - Status: Accepted (2026-11-06, 소유자 지시 "근본 구조전환까지 전부 알아서 빠르게 진행해")
 - Date: 2026-11-06
 - Builds on: [ADR-0333](./0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md)(엔진은 Dagster, 0단계 airlift observe #946),
-  ADR-0416(발행 검사, #1067), ADR-0417(강제 명령으로 systemd 유닛을 돌리는 Pipes, #1070),
+  ADR-0432(발행 검사, #1067), ADR-0417(강제 명령으로 systemd 유닛을 돌리는 Pipes, #1070),
   [ADR-0415](./0415-every-dataset-group-is-one-declared-definition-and-every-copy-is-generated-from-it.md)·[ADR-0418](./0418-the-artifacts-the-declared-definitions-generate-are-never-committed-and-every-checkout-and-release-generates-them.md)(정의가 정본),
   [ADR-0425](./0425-clock-started-batch-never-runs-into-the-by-pnu-operator-window-and-a-late-start-waits-for-its-next-schedule.md)(운영자 창),
   [ADR-0420](./0420-ci-capacity-is-not-taken-from-the-production-host-and-a-self-hosted-runner-runs-only-trusted-events-on-a-dedicated-machine.md)(운영 호스트에 CI 러너 없음),
@@ -11,7 +11,7 @@
 
 ## Context
 
-ADR-0333 의 0단계(#946)에서 Dagster 는 Airflow 를 보기만 한다. 발행 검사(ADR-0416)와 실행기(ADR-0417)도 준비됐다. 3단계는
+ADR-0333 의 0단계(#946)에서 Dagster 는 Airflow 를 보기만 한다. 발행 검사(ADR-0432)와 실행기(ADR-0417)도 준비됐다. 3단계는
 작업의 결정(언제 시작하나)과 실행(무엇이 유닛을 돌리나)을 Dagster 로 옮기는 일이다. 작업 69개 중 켜진 54개는 공유 독자
 (`data_quality`·`asset_reconcile`·`lakehouse_maintenance` 등)를 통해 거의 모두 한 덩어리로 이어져 있어(연결 성분 2개: 53 + 1), 한 번에
 옮기면 되돌릴 단위가 없다.
