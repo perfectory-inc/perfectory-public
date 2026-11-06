@@ -447,10 +447,17 @@ export interface components {
              * @description When a `run_now` stops being consumable or a `set_window` ends; absent for the other actions.
              */
             expires_at?: string | null;
+            /**
+             * Format: int32
+             * @description An `approve_cutover`'s pack generation.
+             */
+            generation?: number | null;
             /** @description The request's id; a `run_now` is consumed by it. */
             id: string;
             /** @description The job's id. */
             job_id: string;
+            /** @description An `approve_cutover`'s lanes or a `force_full`'s lane. */
+            lanes?: string | null;
             /**
              * Format: date-time
              * @description When it was asked.
@@ -475,6 +482,17 @@ export interface components {
              *     `YYYYMM` (root ADR-0381). The readiness check grants it only for a ready edition.
              */
             edition?: string | null;
+            /**
+             * Format: int32
+             * @description An `approve_cutover` only: the pack generation, 1 to 9999.
+             */
+            generation?: number | null;
+            /**
+             * @description An `approve_cutover` of `by_pnu_lane_cutover`: the lanes to cut over (`lanes` for every lane
+             *     not cut over yet, one lane, or `lane,lane,...` in order); a `force_full` of a by-PNU bake
+             *     job: the one lane its next run re-bases with a full bake (root ADR-0433).
+             */
+            lanes?: string | null;
             /** @description Why, in one line of 1 to 300 characters; kept in the append-only ledger. */
             reason: string;
             /**
@@ -1044,7 +1062,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The job's id in orchestration/jobs.v1.json */
+                /** @description The job's id in orchestration/jobs.v1.json, or by_pnu_lane_cutover for a cut-over approval (root ADR-0433) */
                 job_id: string;
             };
             cookie?: never;
@@ -1087,7 +1105,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
-            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, or an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness */
+            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness, or an approve_cutover (of by_pnu_lane_cutover: lanes and a generation 1 to 9999) or force_full (of a by-PNU bake job: one lane) that breaks its rules */
             422: {
                 headers: {
                     [name: string]: unknown;

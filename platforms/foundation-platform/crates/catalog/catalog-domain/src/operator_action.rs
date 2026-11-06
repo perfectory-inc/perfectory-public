@@ -19,6 +19,21 @@ pub const PROMOTION_JOB: &str = "parcel_edition_readiness";
 /// have (`readiness.max_report_age_hours` of the cadastral source contract).
 pub const PROMOTION_EXPIRY_HOURS: i64 = 48;
 
+/// The subject of a cut-over approval: the by-PNU lane cut-over runner, which
+/// `by-pnu-pack-operator.sh` starts as `foundation-by-pnu-lane-cutover-g<generation>` (root
+/// ADR-0433). It is not a scheduled job; a `stop` of it cancels an approval or ends its run.
+pub const CUTOVER_SUBJECT: &str = "by_pnu_lane_cutover";
+
+/// How long a cut-over approval may wait for its start, in hours: the operator window opens once a
+/// day, so its next opening is always within this (root ADR-0433 §2).
+pub const CUTOVER_EXPIRY_HOURS: i64 = 48;
+
+/// How long a full bake request may wait for its bake's next run, in hours (root ADR-0433 §4).
+pub const FORCE_FULL_EXPIRY_HOURS: i64 = 7 * 24;
+
+/// The highest pack generation the operator script takes (`^[1-9][0-9]{0,3}$`).
+pub const MAX_GENERATION: i32 = 9999;
+
 /// What an operator asks of one scheduled job.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OperatorAction {
@@ -37,6 +52,11 @@ pub enum OperatorAction {
     /// Serve another cadastral edition: a request the readiness check grants only for a ready
     /// edition, and only through a reviewed change of the source contract (root ADR-0381).
     PromoteEdition,
+    /// Cut over by-PNU lanes at a pack generation: the cut-over runner starts once, inside the
+    /// operator window, and runs its gates as its steps (root ADR-0433).
+    ApproveCutover,
+    /// Re-base one by-PNU lane with a full bake on its bake's next run (root ADR-0433 §4).
+    ForceFull,
 }
 
 impl OperatorAction {
@@ -51,6 +71,8 @@ impl OperatorAction {
             Self::SetWindow => "set_window",
             Self::ClearWindow => "clear_window",
             Self::PromoteEdition => "promote_edition",
+            Self::ApproveCutover => "approve_cutover",
+            Self::ForceFull => "force_full",
         }
     }
 
@@ -67,16 +89,26 @@ impl OperatorAction {
             "set_window" => Ok(Self::SetWindow),
             "clear_window" => Ok(Self::ClearWindow),
             "promote_edition" => Ok(Self::PromoteEdition),
+            "approve_cutover" => Ok(Self::ApproveCutover),
+            "force_full" => Ok(Self::ForceFull),
             _ => Err(OperatorActionError::UnknownAction),
         }
     }
 
     /// Whether the request expires: a `run_now` after [`RUN_NOW_EXPIRY_MINUTES`] (root ADR-0282 §4),
     /// a `set_window` after the hours it asked for, a `promote_edition` after
-    /// [`PROMOTION_EXPIRY_HOURS`].
+    /// [`PROMOTION_EXPIRY_HOURS`], an `approve_cutover` after [`CUTOVER_EXPIRY_HOURS`], a
+    /// `force_full` after [`FORCE_FULL_EXPIRY_HOURS`].
     #[must_use]
     pub const fn expires(self) -> bool {
-        matches!(self, Self::RunNow | Self::SetWindow | Self::PromoteEdition)
+        matches!(
+            self,
+            Self::RunNow
+                | Self::SetWindow
+                | Self::PromoteEdition
+                | Self::ApproveCutover
+                | Self::ForceFull
+        )
     }
 }
 
@@ -105,6 +137,76 @@ pub enum OperatorActionError {
     /// A `promote_edition` was asked of a job other than the readiness check.
     #[error("a promotion is asked of the parcel_edition_readiness job")]
     PromotionIsTheReadinessChecks,
+    /// Lanes were given to an action other than `approve_cutover` or `force_full`, none to them, or
+    /// they are not `lanes`, a lane or `lane,lane,...` (one lane for a `force_full`).
+    #[error("only approve_cutover (a lane, lanes or lane,lane,...) and force_full (one lane) name lanes, and they must")]
+    LanesAreARelease,
+    /// A generation was given to an action other than `approve_cutover`, none to it, or it is not
+    /// 1 to 9999.
+    #[error("only approve_cutover names a pack generation, 1 to 9999, and it must")]
+    GenerationIsACutover,
+    /// An `approve_cutover` was asked of another subject than the cut-over runner, or the runner
+    /// was asked anything but `approve_cutover` or `stop`.
+    #[error(
+        "a cut-over is approved of by_pnu_lane_cutover, which takes approve_cutover or stop only"
+    )]
+    CutoverIsTheRunners,
+    /// A `force_full` was asked of a job that is not a by-PNU bake.
+    #[error("a full bake is asked of a by-PNU bake job (by_pnu_<lane>_bake)")]
+    FullBakeIsABakes,
+}
+
+/// Whether `lane` has the shape of a by-PNU contract lane: lowercase words joined by `-`.
+fn is_lane(lane: &str) -> bool {
+    !lane.is_empty()
+        && !lane.starts_with('-')
+        && !lane.ends_with('-')
+        && lane
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+/// Checks the lanes of a cut-over (`lanes`, one lane, or lane,lane,... each once) or, `single`, of
+/// a full bake (one lane). The host refuses a lane its contract does not name.
+///
+/// # Errors
+/// Returns [`OperatorActionError::LanesAreARelease`] when they are not.
+pub fn check_lanes(lanes: &str, single: bool) -> Result<(), OperatorActionError> {
+    let listed: Vec<&str> = lanes.split(',').collect();
+    let mut unique = listed.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    let fits = listed.iter().all(|lane| is_lane(lane))
+        && unique.len() == listed.len()
+        && (listed.len() == 1 || !listed.contains(&"lanes"))
+        && (!single || (listed.len() == 1 && lanes != "lanes"));
+    if fits {
+        Ok(())
+    } else {
+        Err(OperatorActionError::LanesAreARelease)
+    }
+}
+
+/// Checks a pack generation: 1 to [`MAX_GENERATION`].
+///
+/// # Errors
+/// Returns [`OperatorActionError::GenerationIsACutover`] when it is not.
+pub const fn check_generation(generation: i32) -> Result<(), OperatorActionError> {
+    if generation >= 1 && generation <= MAX_GENERATION {
+        Ok(())
+    } else {
+        Err(OperatorActionError::GenerationIsACutover)
+    }
+}
+
+/// Whether `job_id` names a by-PNU bake job (`by_pnu_<lane>_bake`), the only jobs a full bake is
+/// asked of.
+#[must_use]
+pub fn is_by_pnu_bake(job_id: &str) -> bool {
+    job_id
+        .strip_prefix("by_pnu_")
+        .and_then(|rest| rest.strip_suffix("_bake"))
+        .is_some_and(|lane| !lane.is_empty())
 }
 
 /// Checks a promotion's edition: `YYYYMM`, a month 01 to 12.
@@ -189,6 +291,8 @@ mod tests {
             OperatorAction::SetWindow,
             OperatorAction::ClearWindow,
             OperatorAction::PromoteEdition,
+            OperatorAction::ApproveCutover,
+            OperatorAction::ForceFull,
         ] {
             assert_eq!(OperatorAction::parse(action.as_str()), Ok(action));
         }
@@ -249,6 +353,60 @@ mod tests {
             );
         }
         assert!(OperatorAction::PromoteEdition.expires());
+    }
+
+    #[test]
+    fn a_cut_over_names_its_lanes_and_a_full_bake_one_lane() {
+        for good in [
+            "lanes",
+            "parcel-ownership",
+            "parcel-energy,parcel-ownership",
+        ] {
+            assert_eq!(check_lanes(good, false), Ok(()), "{good}");
+        }
+        for bad in [
+            "",
+            "Parcel",
+            "parcel-energy,parcel-energy",
+            "lanes,parcel-energy",
+            "parcel energy",
+            "-parcel",
+            "parcel,",
+        ] {
+            assert_eq!(
+                check_lanes(bad, false),
+                Err(OperatorActionError::LanesAreARelease),
+                "{bad}"
+            );
+        }
+        assert_eq!(check_lanes("parcel", true), Ok(()));
+        for bad in ["lanes", "parcel,building"] {
+            assert_eq!(
+                check_lanes(bad, true),
+                Err(OperatorActionError::LanesAreARelease),
+                "{bad}"
+            );
+        }
+        assert_eq!(check_generation(1), Ok(()));
+        assert_eq!(check_generation(MAX_GENERATION), Ok(()));
+        for bad in [0, -1, 10_000] {
+            assert_eq!(
+                check_generation(bad),
+                Err(OperatorActionError::GenerationIsACutover)
+            );
+        }
+        assert!(is_by_pnu_bake("by_pnu_serving_bake"));
+        assert!(is_by_pnu_bake("by_pnu_parcel_ownership_bake"));
+        for wrong in [
+            "by_pnu__bake",
+            "by_pnu_bake",
+            "parcel_tile_bake",
+            CUTOVER_SUBJECT,
+        ] {
+            assert!(!is_by_pnu_bake(wrong), "{wrong}");
+        }
+        assert!(OperatorAction::ApproveCutover.expires());
+        assert!(OperatorAction::ForceFull.expires());
     }
 
     #[test]

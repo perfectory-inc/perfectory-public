@@ -4,7 +4,9 @@
 //! are dropped. A resume removes it. `<job>.window`: the job's run window (KST `start`, `end`) until
 //! `until`, instead of its contract's; `clear_window` removes it. `<job>.stop`: end the run in progress (the runner consumes it).
 //! `run-now.d/<request id>`: a single-use request to run once, until it expires (the gate consumes
-//! it). `operator-actions.log`: one line per request, appended. A job id is `[a-z][a-z0-9_]*`, so it
+//! it). `cutover.d/<request id>`: an approved by-PNU cut-over, its lanes and generation (the host's
+//! run-now dispatcher starts it once, in the operator window). `full.d/<request id>`: a full bake of
+//! one lane (that lane's bake uses it once); both root ADR-0433. `operator-actions.log`: one line per request, appended. A job id is `[a-z][a-z0-9_]*`, so it
 //! never collides with the dotted names.
 
 use std::fs::{self, OpenOptions};
@@ -21,6 +23,10 @@ pub const RUN_NOW_DIR: &str = "run-now.d";
 /// The directory of pending `promote_edition` requests inside the switch directory (root ADR-0381):
 /// the readiness check reads them and grants a ready edition's.
 pub const PROMOTE_DIR: &str = "promote.d";
+/// The directory of approved cut-overs inside the switch directory (root ADR-0433).
+pub const CUTOVER_DIR: &str = "cutover.d";
+/// The directory of full bake requests inside the switch directory (root ADR-0433 §4).
+pub const FULL_BAKE_DIR: &str = "full.d";
 
 /// Writes switches under `dir` (the host's `/var/lib/foundation-jobs/switches`).
 pub struct FileJobSwitchBoard {
@@ -56,14 +62,25 @@ fn fields(record: &OperatorActionRecord) -> String {
     if record.action == OperatorAction::Pause {
         lines.push(format!("drop_pending={}", record.drop_pending));
     }
-    if let (OperatorAction::RunNow | OperatorAction::PromoteEdition, Some(expires_at)) =
-        (record.action, record.expires_at)
+    if let (
+        OperatorAction::RunNow
+        | OperatorAction::PromoteEdition
+        | OperatorAction::ApproveCutover
+        | OperatorAction::ForceFull,
+        Some(expires_at),
+    ) = (record.action, record.expires_at)
     {
         lines.push(format!("job={}", record.job_id));
         lines.push(format!("expires_at={}", expires_at.to_rfc3339()));
     }
     if let Some(edition) = &record.edition {
         lines.push(format!("edition={edition}"));
+    }
+    if let Some(lanes) = &record.lanes {
+        lines.push(format!("lanes={lanes}"));
+    }
+    if let Some(generation) = record.generation {
+        lines.push(format!("generation={generation}"));
     }
     lines.join("\n") + "\n"
 }
@@ -111,11 +128,15 @@ impl JobSwitchBoard for FileJobSwitchBoard {
                     Err(error) => return Err(unavailable(&window, &error)),
                 }
             }
-            OperatorAction::RunNow | OperatorAction::PromoteEdition => {
-                let requests = self.dir.join(if record.action == OperatorAction::RunNow {
-                    RUN_NOW_DIR
-                } else {
-                    PROMOTE_DIR
+            OperatorAction::RunNow
+            | OperatorAction::PromoteEdition
+            | OperatorAction::ApproveCutover
+            | OperatorAction::ForceFull => {
+                let requests = self.dir.join(match record.action {
+                    OperatorAction::RunNow => RUN_NOW_DIR,
+                    OperatorAction::PromoteEdition => PROMOTE_DIR,
+                    OperatorAction::ApproveCutover => CUTOVER_DIR,
+                    _ => FULL_BAKE_DIR,
                 });
                 fs::create_dir_all(&requests).map_err(|error| unavailable(&requests, &error))?;
                 write_whole(&requests.join(record.id.to_string()), &fields(record))?;
@@ -180,6 +201,12 @@ mod tests {
             window_start: (action == OperatorAction::SetWindow).then(|| "09:00".to_owned()),
             window_end: (action == OperatorAction::SetWindow).then(|| "18:00".to_owned()),
             edition: (action == OperatorAction::PromoteEdition).then(|| "209910".to_owned()),
+            lanes: match action {
+                OperatorAction::ApproveCutover => Some("parcel-energy,parcel-ownership".to_owned()),
+                OperatorAction::ForceFull => Some("parcel-ownership".to_owned()),
+                _ => None,
+            },
+            generation: (action == OperatorAction::ApproveCutover).then_some(7),
         }
     }
 
@@ -254,6 +281,43 @@ mod tests {
         board.apply(&record(OperatorAction::ClearWindow))?;
         assert!(!dir.path().join("shape_ledger_check.window").exists());
         board.apply(&record(OperatorAction::ClearWindow))?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_cut_over_approval_and_a_full_bake_leave_requests_the_host_uses_once(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (dir, board) = board()?;
+        board.apply(&record(OperatorAction::ApproveCutover))?;
+        let approval =
+            fs::read_to_string(dir.path().join(CUTOVER_DIR).join(Uuid::nil().to_string()))?;
+        for line in [
+            "lanes=parcel-energy,parcel-ownership
+",
+            "generation=7
+",
+            "expires_at=2026-10-19T09:10:00+00:00
+",
+            "actor=00000000-0000-0000-0000-000000000000
+",
+        ] {
+            assert!(approval.contains(line), "{line} in {approval}");
+        }
+        board.apply(&record(OperatorAction::ForceFull))?;
+        let full =
+            fs::read_to_string(dir.path().join(FULL_BAKE_DIR).join(Uuid::nil().to_string()))?;
+        assert!(
+            full.contains(
+                "lanes=parcel-ownership
+"
+            ),
+            "{full}"
+        );
+        assert!(!full.contains("generation="), "{full}");
+        assert!(
+            !dir.path().join(RUN_NOW_DIR).exists(),
+            "neither is a run-now request"
+        );
         Ok(())
     }
 

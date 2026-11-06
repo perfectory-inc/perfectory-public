@@ -505,6 +505,14 @@ pub struct OperatorActionRequest {
     /// `YYYYMM` (root ADR-0381). The readiness check grants it only for a ready edition.
     #[serde(default)]
     pub edition: Option<String>,
+    /// An `approve_cutover` of `by_pnu_lane_cutover`: the lanes to cut over (`lanes` for every lane
+    /// not cut over yet, one lane, or `lane,lane,...` in order); a `force_full` of a by-PNU bake
+    /// job: the one lane its next run re-bases with a full bake (root ADR-0433).
+    #[serde(default)]
+    pub lanes: Option<String>,
+    /// An `approve_cutover` only: the pack generation, 1 to 9999.
+    #[serde(default)]
+    pub generation: Option<i32>,
 }
 
 /// The ledger's record of an operator request.
@@ -530,6 +538,10 @@ pub struct OperatorActionRecorded {
     pub window_end: Option<String>,
     /// A `promote_edition`'s edition, `YYYYMM`.
     pub edition: Option<String>,
+    /// An `approve_cutover`'s lanes or a `force_full`'s lane.
+    pub lanes: Option<String>,
+    /// An `approve_cutover`'s pack generation.
+    pub generation: Option<i32>,
 }
 
 /// One readiness stage of a cadastral edition (root ADR-0291 §2, ADR-0379).

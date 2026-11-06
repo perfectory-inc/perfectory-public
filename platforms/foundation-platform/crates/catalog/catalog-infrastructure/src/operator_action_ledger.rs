@@ -25,8 +25,8 @@ impl OperatorActionLedger for PgOperatorActionLedger {
         sqlx::query(
             "INSERT INTO catalog.operator_action
                  (id, job_id, action, drop_pending, actor, reason, requested_at, expires_at,
-                  window_start, window_end, edition)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                  window_start, window_end, edition, lanes, generation)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
         .bind(record.id)
         .bind(&record.job_id)
@@ -39,6 +39,8 @@ impl OperatorActionLedger for PgOperatorActionLedger {
         .bind(&record.window_start)
         .bind(&record.window_end)
         .bind(&record.edition)
+        .bind(&record.lanes)
+        .bind(record.generation)
         .execute(&self.pool)
         .await
         .map_err(|error| OperatorActionLedgerError::Unavailable(error.to_string()))?;

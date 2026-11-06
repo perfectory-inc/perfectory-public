@@ -455,3 +455,140 @@ async fn a_promotion_request_names_its_edition_and_is_asked_of_the_readiness_che
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_cut_over_is_approved_of_its_runner_and_a_full_bake_of_a_bake_job(
+) -> Result<(), Box<dyn Error>> {
+    // Root ADR-0433, the 2026-11-06 cut-over: at 00:24 a sudo password failed, then a hand-written
+    // `90-force-full.conf` drop-in made the public auction lane's bake full, and at 00:37 and 03:46
+    // `sudo by-pnu-pack-operator.sh parcel-ownership cutover 1` started the cut-over. Both are now
+    // approvals of a staff identity with a reason.
+    let ledger = Arc::new(RecordingLedger::default());
+    let board = Arc::new(RecordingSwitchBoard::default());
+    let (status, body) = ask_with(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        board.clone(),
+        post(
+            "by_pnu_lane_cutover",
+            r#"{"action":"approve_cutover","reason":"the energy lane's Gold fits the window first","lanes":"parcel-energy,parcel-ownership","generation":1}"#,
+            true,
+        )?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["lanes"], "parcel-energy,parcel-ownership");
+    assert_eq!(body["generation"], 1);
+    let (status, body) = ask_with(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        board.clone(),
+        post(
+            "by_pnu_public_auction_bake",
+            r#"{"action":"force_full","reason":"the public auction lane re-bases before the cut-over","lanes":"parcel-public-auction"}"#,
+            true,
+        )?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let (status, body) = ask_with(
+        Arc::new(StaffJobOperatorAuthorization::default()),
+        ledger.clone(),
+        board.clone(),
+        post(
+            "by_pnu_lane_cutover",
+            r#"{"action":"stop","reason":"the generation was baked from the wrong Gold"}"#,
+            true,
+        )?,
+    )
+    .await?;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let records = ledger.records.lock().await.clone();
+    let hours: Vec<Option<i64>> = records
+        .iter()
+        .map(|record| {
+            record
+                .expires_at
+                .map(|at| (at - record.requested_at).num_hours())
+        })
+        .collect();
+    assert_eq!(hours, [Some(48), Some(168), None]);
+    assert_eq!(
+        board.applied.lock().map_err(|_| "poisoned")?.len(),
+        3,
+        "every recorded approval is switched"
+    );
+    for (job, body) in [
+        // An approval names its lanes and generation.
+        (
+            "by_pnu_lane_cutover",
+            r#"{"action":"approve_cutover","reason":"r","generation":1}"#,
+        ),
+        (
+            "by_pnu_lane_cutover",
+            r#"{"action":"approve_cutover","reason":"r","lanes":"lanes"}"#,
+        ),
+        (
+            "by_pnu_lane_cutover",
+            r#"{"action":"approve_cutover","reason":"r","lanes":"lanes","generation":0}"#,
+        ),
+        (
+            "by_pnu_lane_cutover",
+            r#"{"action":"approve_cutover","reason":"r","lanes":"parcel-energy,parcel-energy","generation":1}"#,
+        ),
+        // And no reason, no approval: the reason is the audit.
+        (
+            "by_pnu_lane_cutover",
+            r#"{"action":"approve_cutover","reason":" ","lanes":"lanes","generation":1}"#,
+        ),
+        // The runner takes only an approval and a stop, and an approval is only the runner's.
+        (
+            "by_pnu_lane_cutover",
+            r#"{"action":"run_now","reason":"r"}"#,
+        ),
+        (
+            "shape_ledger_check",
+            r#"{"action":"approve_cutover","reason":"r","lanes":"lanes","generation":1}"#,
+        ),
+        // A full bake is one lane of a by-PNU bake.
+        (
+            "shape_ledger_check",
+            r#"{"action":"force_full","reason":"r","lanes":"parcel"}"#,
+        ),
+        (
+            "by_pnu_serving_bake",
+            r#"{"action":"force_full","reason":"r","lanes":"parcel,building"}"#,
+        ),
+        (
+            "by_pnu_serving_bake",
+            r#"{"action":"force_full","reason":"r"}"#,
+        ),
+        (
+            "by_pnu_serving_bake",
+            r#"{"action":"force_full","reason":"r","lanes":"parcel","generation":2}"#,
+        ),
+        // Nothing else names a lane.
+        (
+            "shape_ledger_check",
+            r#"{"action":"run_now","reason":"r","lanes":"parcel"}"#,
+        ),
+    ] {
+        let (status, answer) = ask(
+            Arc::new(StaffJobOperatorAuthorization::default()),
+            ledger.clone(),
+            post(job, body, true)?,
+        )
+        .await?;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{job} {body}: {answer}"
+        );
+    }
+    assert_eq!(
+        ledger.records.lock().await.len(),
+        3,
+        "a refused approval was recorded"
+    );
+    Ok(())
+}

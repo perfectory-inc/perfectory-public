@@ -224,3 +224,147 @@ async fn a_window_override_names_its_window_and_lasts_at_most_a_week() -> Result
     );
     tx.rollback().await
 }
+
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn a_cut_over_approval_and_a_full_bake_name_their_lanes_and_keep_them(
+) -> Result<(), sqlx::Error> {
+    // Root ADR-0433: the 2026-11-06 cut-over (lanes and a generation) and a lane's full bake are
+    // approvals in the ledger, with who and why, never rewritten.
+    let pool = pool().await?;
+    let mut tx = pool.begin().await?;
+    let id = Uuid::new_v4();
+    let insert = |job: &'static str,
+                  action: &'static str,
+                  expires: &'static str,
+                  lanes: &'static str,
+                  generation: &'static str| {
+        format!(
+            "INSERT INTO catalog.operator_action (id, job_id, action, actor, reason, expires_at, lanes, generation)
+             VALUES ($1, '{job}', '{action}', 'staff:owner', 'the first publish of the lanes', {expires}, {lanes}, {generation})"
+        )
+    };
+    let day = "now() + interval '1 day'";
+    for (sql, accepted) in [
+        (
+            insert(
+                "by_pnu_lane_cutover",
+                "approve_cutover",
+                day,
+                "'parcel-energy,parcel-ownership'",
+                "1",
+            ),
+            true,
+        ),
+        (
+            insert(
+                "by_pnu_lane_cutover",
+                "approve_cutover",
+                day,
+                "'lanes'",
+                "NULL",
+            ),
+            false,
+        ),
+        (
+            insert(
+                "by_pnu_lane_cutover",
+                "approve_cutover",
+                "NULL",
+                "'lanes'",
+                "1",
+            ),
+            false,
+        ),
+        (
+            insert(
+                "by_pnu_lane_cutover",
+                "approve_cutover",
+                "now() + interval '3 days'",
+                "'lanes'",
+                "1",
+            ),
+            false,
+        ),
+        (
+            insert(
+                "by_pnu_lane_cutover",
+                "approve_cutover",
+                day,
+                "'lanes'",
+                "0",
+            ),
+            false,
+        ),
+        (
+            insert("shape_ledger_check", "approve_cutover", day, "'lanes'", "1"),
+            false,
+        ),
+        (
+            insert("by_pnu_lane_cutover", "pause", "NULL", "NULL", "NULL"),
+            false,
+        ),
+        (
+            insert("by_pnu_lane_cutover", "stop", "NULL", "NULL", "NULL"),
+            true,
+        ),
+        (
+            insert(
+                "by_pnu_parcel_ownership_bake",
+                "force_full",
+                day,
+                "'parcel-ownership'",
+                "NULL",
+            ),
+            true,
+        ),
+        (
+            insert(
+                "by_pnu_serving_bake",
+                "force_full",
+                day,
+                "'parcel,building'",
+                "NULL",
+            ),
+            false,
+        ),
+        (
+            insert("shape_ledger_check", "force_full", day, "'parcel'", "NULL"),
+            false,
+        ),
+        (
+            insert(
+                "by_pnu_serving_bake",
+                "force_full",
+                "now() + interval '8 days'",
+                "'parcel'",
+                "NULL",
+            ),
+            false,
+        ),
+        (
+            insert("shape_ledger_check", "pause", "NULL", "'parcel'", "NULL"),
+            false,
+        ),
+    ] {
+        assert_eq!(!refused(&mut tx, &sql, Some(id)).await?, accepted, "{sql}");
+    }
+    let id = Uuid::new_v4();
+    sqlx::query(&insert(
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        day,
+        "'parcel-ownership'",
+        "1",
+    ))
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    for sql in [
+        "UPDATE catalog.operator_action SET lanes = 'lanes' WHERE id = $1",
+        "UPDATE catalog.operator_action SET generation = 2 WHERE id = $1",
+    ] {
+        assert!(refused(&mut tx, sql, Some(id)).await?, "rewritten: {sql}");
+    }
+    tx.rollback().await
+}
