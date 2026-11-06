@@ -22,7 +22,7 @@
       "per_run_cap": {
         "unit": "object",
         "limits": [
-          "infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json#/silver_load/max_objects"
+          "infra/lakehouse/contracts/data-go-kr-file-data.contract.json#/files/registered_factory/silver_load/max_objects"
         ],
         "deadline": null,
         "measured_run_seconds": {
