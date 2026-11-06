@@ -9,6 +9,7 @@ export const FLOW_TABS = [
   { id: "catalog", label: "데이터 찾기" },
   { id: "service", label: "서비스 점검" },
   { id: "editions", label: "지적 판" },
+  { id: "cutovers", label: "cut-over 승인" },
 ] as const;
 export type FlowTab = (typeof FLOW_TABS)[number]["id"];
 
