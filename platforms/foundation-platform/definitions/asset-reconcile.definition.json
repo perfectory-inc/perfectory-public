@@ -43,7 +43,8 @@
         "by_pnu_serving_bake"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-29T12:00:00Z"
+      "enabled_since": "2026-10-29T12:00:00Z",
+      "dagster_stage": "shadow"
     }
   ]
 }

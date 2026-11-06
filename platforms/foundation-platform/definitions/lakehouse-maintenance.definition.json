@@ -40,7 +40,8 @@
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,
       "enabled": true,
-      "enabled_since": "2026-10-14T19:37:57Z"
+      "enabled_since": "2026-10-14T19:37:57Z",
+      "dagster_stage": "shadow"
     }
   ],
   "host_memory": {
