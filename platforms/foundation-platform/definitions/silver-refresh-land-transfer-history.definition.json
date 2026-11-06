@@ -46,7 +46,8 @@
         "source-vworld-dataset-to-silver-land-transfer-history"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-14T02:51:17Z"
+      "enabled_since": "2026-10-14T02:51:17Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

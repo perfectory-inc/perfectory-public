@@ -41,7 +41,8 @@
         "source-building-hub-bulk-to-silver-building-register-floors"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-02T06:42:17Z"
+      "enabled_since": "2026-10-02T06:42:17Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

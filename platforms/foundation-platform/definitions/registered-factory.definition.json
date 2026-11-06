@@ -43,7 +43,8 @@
         "source-data-go-kr-file-data-to-silver-registered-factory"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-19T14:49:09Z"
+      "enabled_since": "2026-10-19T14:49:09Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
