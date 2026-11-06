@@ -175,7 +175,7 @@
       "observers_means": "Schedulers that watch these jobs and run none of them (root ADR-0333 stage 0). `dagster`: Dagster with dagster-airlift in its \"observe\" step. Its assets and their mapping to each job's publish_outputs task are generated from this list and the pipeline graph (orchestration/dagster/observe_assets.py), so it materializes exactly what Airflow records events for (orchestration/tests/test_dagster_observe.py replays a recorded production day). When `enabled` is true, scripts/deploy/airflow-runtime.sh, which the deploy runs, turns on compose.orchestration.yml's `dagster-observe` profile, makes the instance's own database and role in airflow-db and its Airflow Viewer account, and restarts it on each release; when false, it stops and removes those two containers and leaves the database. Moving a job's execution to Dagster is a later, per-lane change, not this switch.",
       "observers": {
         "dagster": {
-          "enabled": false,
+          "enabled": true,
           "decision": "docs/adr/0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md",
           "ui": "http://127.0.0.1:19085"
         }

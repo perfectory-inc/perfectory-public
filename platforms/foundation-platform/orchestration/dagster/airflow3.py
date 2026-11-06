@@ -94,6 +94,23 @@ class Airflow3Instance(AirflowInstance):
             for ti in instances
         ]
 
+    def get_event_logs(self, dag_id, events, *, after=None, before=None, newest_first=False, limit=100, offset=0):
+        """A page of a DAG's audit-log records of the named events (`GET /eventLogs`, which a Viewer
+        may read): (records, total). `after` and `before` are datetimes; Airflow orders by `when`."""
+        # `included_events` is an array: one query parameter per event (3.3.2's v2-rest-api-generated.yaml).
+        params = {"dag_id": dag_id, "included_events": list(events), "limit": limit, "offset": offset,
+                  "order_by": "-when" if newest_first else "when"}
+        if after is not None:
+            params["after"] = after.isoformat()
+        if before is not None:
+            params["before"] = before.isoformat()
+        response = self.auth_backend.get_session().get(f"{self.get_api_url()}/eventLogs", params=params,
+                                                       timeout=REQUEST_SECONDS)
+        if response.status_code != 200:
+            raise RuntimeError(f"GET /eventLogs answered {response.status_code}: {response.text[:200]}")
+        body = response.json()
+        return body["event_logs"], body["total_entries"]
+
     def get_task_instance_batch(self, *args, **kwargs):
         return self._dated(super().get_task_instance_batch(*args, **kwargs))
 

@@ -14,8 +14,10 @@ against it; it is left out and named, and at least half the day's decisions must
 import datetime
 import importlib.util
 import json
+import math
 import pathlib
 import sys
+import tempfile
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
@@ -93,7 +95,54 @@ class RulesTest(unittest.TestCase):
         busy = [dual_run.Run("scheduled__x", "scheduled", 1.25 * HOUR, 4.25 * HOUR)]
         ticks = [0.0, 1 * HOUR, 2 * HOUR, 3 * HOUR, 4 * HOUR, 5 * HOUR]
         self.assertEqual(dual_run.due_ticks(ticks, busy), [0.0, 1 * HOUR, 4 * HOUR, 5 * HOUR])
-        self.assertEqual(dual_run.due_ticks(ticks, [dual_run.Run("r", "manual", 2.5 * HOUR, None)]), [0.0, 1 * HOUR, 2 * HOUR, 5 * HOUR])
+        # A run still in progress (a manual one too: one run at a time) holds every tick after it.
+        self.assertEqual(dual_run.due_ticks(ticks, [dual_run.Run("r", "manual", 2.5 * HOUR, None)]), [0.0, 1 * HOUR, 2 * HOUR])
+
+    def test_a_pause_holds_its_ticks_and_the_latest_runs_when_it_ends(self):
+        import dual_run
+
+        ticks = [0.0, 1 * HOUR, 2 * HOUR, 3 * HOUR, 4 * HOUR]
+        paused = [(0.5 * HOUR, 3.2 * HOUR)]
+        catch_up = dual_run.Run("scheduled__3", "scheduled", 3.2 * HOUR + 2, 3.3 * HOUR)
+        self.assertEqual(dual_run.due_ticks(ticks, [catch_up], paused), [0.0, 3 * HOUR, 4 * HOUR])
+        self.assertEqual(dual_run.due_ticks(ticks, [], [(0.5 * HOUR, math.inf)]), [0.0], "a pause still open holds them all")
+
+    def test_a_tick_within_the_schedulers_lag_of_the_end_runs_after_the_catch_up(self):
+        import dual_run
+
+        # map_edit_fold_admin 2026-11-03: the 11:35 run ended 4 s after the 13:35 tick; 12:35 and 13:35 both ran.
+        ticks = [0.0, 1 * HOUR, 2 * HOUR, 3 * HOUR]
+        runs = [dual_run.Run("scheduled__0", "scheduled", 2, 2 * HOUR + 4),
+                dual_run.Run("scheduled__1", "scheduled", 2 * HOUR + 7, 2 * HOUR + 27),
+                dual_run.Run("scheduled__2", "scheduled", 2 * HOUR + 30, 2 * HOUR + 49)]
+        self.assertEqual(dual_run.due_ticks(ticks, runs), [0.0, 1 * HOUR, 2 * HOUR, 3 * HOUR])
+
+    def test_an_operators_run_that_takes_the_job_first_keeps_the_ticks_waiting(self):
+        import dual_run
+
+        # onbid_public_auction_silver 2026-11-04 08:27: a manual run 3 s after an unpause.
+        ticks = [0.0, 1 * HOUR, 3 * HOUR, 4 * HOUR]
+        manual = dual_run.Run("manual__x", "manual", 2 * HOUR + 3, 3.5 * HOUR)
+        catch_up = dual_run.Run("scheduled__3", "scheduled", 3.5 * HOUR + 2, 3.6 * HOUR)
+        self.assertEqual(dual_run.due_ticks(ticks, [manual, catch_up], [(0.5 * HOUR, 2 * HOUR)]), [0.0, 3 * HOUR, 4 * HOUR])
+
+    def test_a_pause_is_read_from_the_last_event_before_it_never_the_next(self):
+        import dual_run
+
+        # Both events repeat: every deploy unpauses every enabled DAG, paused or not.
+        events = [(1 * HOUR, False), (2 * HOUR, True), (2.5 * HOUR, True), (3 * HOUR, False), (4 * HOUR, False)]
+        self.assertEqual(dual_run.paused_spans(events, 0.0, 5 * HOUR), [(2 * HOUR, 3 * HOUR)])
+        self.assertEqual(dual_run.paused_spans(events, 0.0, 5 * HOUR, paused_at_start=True),
+                         [(0.0, 1 * HOUR), (2 * HOUR, 3 * HOUR)])
+        self.assertEqual(dual_run.paused_spans([(1 * HOUR, True)], 0.0, 5 * HOUR), [(1 * HOUR, math.inf)])
+
+    def test_ticks_and_input_events_while_paused_are_reported_apart(self):
+        import dual_run
+
+        hourly = self.spec(schedule="0 * * * *", started_by="inputs")
+        found = dual_run.compare(hourly, {}, [], [0.75 * HOUR], 0.0, 3 * HOUR, paused=[(0.0, math.inf)])
+        self.assertTrue(found.matches)
+        self.assertEqual(found.paused, [("schedule", 0.0), ("schedule", 1 * HOUR), ("schedule", 2 * HOUR), ("inputs", 0.75 * HOUR)])
 
     def test_an_input_event_without_a_run_and_a_run_without_an_event(self):
         import dual_run
@@ -123,6 +172,119 @@ class RulesTest(unittest.TestCase):
 
         self.assertEqual(dual_run.outages([0.5 * HOUR, 1 * HOUR, 4 * HOUR], HOUR, 0.0, 5 * HOUR), [(1 * HOUR, 4 * HOUR)])
         self.assertEqual(dual_run.outage_gap_seconds([self.spec(schedule="0,30 * * * *")]), HOUR)
+
+
+def synthetic_spec(**fields):
+    return RulesTest.spec(None, **fields)
+
+
+class EventLogs:
+    """Airflow 3.3.2's `GET /api/v2/eventLogs` over a list of audit-log records."""
+
+    def __init__(self, test, records):
+        self.test, self.records, self.calls = test, records, []
+
+    def get(self, url, params=None, **_):
+        from test_dagster_observe import Answer
+
+        self.calls.append(params)
+        self.test.assertTrue(url.endswith("/api/v2/eventLogs"))
+        found = [record for record in self.records if record["dag_id"] == params["dag_id"]
+                 and record["event"] in params["included_events"]
+                 and ("after" not in params or record["when"] >= params["after"])
+                 and ("before" not in params or record["when"] < params["before"])]
+        found.sort(key=lambda record: record["when"], reverse=params["order_by"] == "-when")
+        page = found[params["offset"]:params["offset"] + params["limit"]]
+        return Answer({"event_logs": page, "total_entries": len(found)})
+
+
+def audit(at, event, dag="foundation_synthetic"):
+    return {"dag_id": dag, "event": event, "when": datetime.datetime.fromtimestamp(at, datetime.UTC).isoformat()}
+
+
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
+class LiveCheckTest(unittest.TestCase):
+    def airflow(self, records):
+        from airflow3 import Airflow3Instance
+        from dagster_airlift.core.airflow_instance import AirflowAuthBackend
+
+        server = EventLogs(self, records)
+
+        class Backend(AirflowAuthBackend):
+            def get_session(self):
+                return server
+
+            def get_webserver_url(self):
+                return "http://airflow.invalid"
+
+        return Airflow3Instance(auth_backend=Backend(), name="foundation_airflow"), server
+
+    def test_pauses_are_read_from_airflows_audit_log(self):
+        import dual_run
+
+        airflow, server = self.airflow([audit(0.5 * HOUR, "cli_dag_pause"), audit(2 * HOUR, "cli_dag_unpause"),
+                                        audit(3 * HOUR, "cli_dag_pause"), audit(3.5 * HOUR, "cli_dag_unpause"),
+                                        audit(3.2 * HOUR, "cli_dag_pause", dag="foundation_other")])
+        self.assertEqual(dual_run.airflow_pauses(airflow, "foundation_synthetic", 1 * HOUR, 5 * HOUR),
+                         [(1 * HOUR, 2 * HOUR), (3 * HOUR, 3.5 * HOUR)])
+        self.assertEqual(server.calls[0]["included_events"], ["cli_dag_pause", "cli_dag_unpause"])
+        # No event at all before the window: Airflow made the DAG paused.
+        self.assertEqual(dual_run.airflow_pauses(airflow, "foundation_new", 1 * HOUR, 5 * HOUR), [(1 * HOUR, math.inf)])
+
+    def test_every_comparison_is_appended_to_the_ledger(self):
+        import dual_run
+
+        spec = synthetic_spec(schedule="0 * * * *")
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = pathlib.Path(directory) / "dual-run" / "comparisons.jsonl"
+            differs = dual_run.Comparison(decisions=3, only_dagster=[("schedule", 2 * HOUR)])
+            dual_run.append(ledger, dual_run.ledger_line(spec, differs, 0.0, 24 * HOUR, "run-1", "release-a"))
+            dual_run.append(ledger, dual_run.ledger_line(spec, dual_run.Comparison(decisions=1), HOUR, 25 * HOUR,
+                                                         "run-2", "release-a"))
+            lines = [json.loads(text) for text in ledger.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([line["dagster_run_id"] for line in lines], ["run-1", "run-2"])
+        self.assertEqual(lines[0]["only_dagster"], [["schedule", "1970-01-01T02:00:00+00:00"]])
+        self.assertEqual([line["matches"] for line in lines], [False, True])
+
+    def test_the_gate_counts_consecutive_passing_days_ending_yesterday(self):
+        import dual_run
+
+        def line(day, matches=True, decisions=1, job="synthetic", paused=()):
+            return {"evaluated_at": f"2099-11-{day:02d}T12:00:00+00:00", "job": job, "matches": matches,
+                    "decisions": decisions, "airflow_out": [], "paused": [list(item) for item in paused]}
+
+        lines = [line(day) for day in range(1, 15)] + [line(9, matches=False)]
+        lines += [line(day, job="quiet", decisions=0) for day in range(1, 15)]
+        lines += [line(day, job="steady", paused=[("schedule", "2099-11-10T03:00:00+00:00")]) for day in range(5, 15)]
+        found = dual_run.gate(lines, ["synthetic", "quiet", "steady", "absent"], datetime.date(2099, 11, 15))
+        self.assertEqual(found["synthetic"]["passing_days"], 5, "11-09 failed once")
+        self.assertFalse(found["synthetic"]["ready"])
+        self.assertEqual(found["quiet"]["passing_days"], 0, "a day without a decision proves nothing")
+        self.assertTrue(found["steady"]["ready"])
+        self.assertEqual(found["steady"]["to_review"], [("schedule", "2099-11-10T03:00:00+00:00")])
+        self.assertEqual(found["absent"], {"passing_days": 0, "ready": False, "to_review": []})
+
+    def test_a_check_compares_appends_and_reports(self):
+        from dagster import DagsterInstance, build_asset_check_context
+
+        import dual_run
+
+        spec = synthetic_spec(schedule="0 * * * *")
+        airflow, _ = self.airflow([])
+        original = dual_run.airflow_runs
+        dual_run.airflow_runs = lambda *_: {}
+        try:
+            with tempfile.TemporaryDirectory() as directory, DagsterInstance.ephemeral() as instance:
+                ledger = pathlib.Path(directory) / "comparisons.jsonl"
+                evaluate = dual_run._evaluator(airflow, spec, {}, [spec.dag_id], HOUR, ledger)
+                reported = evaluate(build_asset_check_context(instance=instance))
+                (line,) = [json.loads(text) for text in ledger.read_text(encoding="utf-8").splitlines()]
+        finally:
+            dual_run.airflow_runs = original
+        # No pause or unpause ever: Airflow created the DAG paused and it stayed so; nothing differs.
+        self.assertTrue(reported.passed)
+        self.assertEqual((line["job"], line["only_dagster"], line["dagster_run_id"]), ("synthetic", [], None))
+        self.assertGreater(len(line["paused"]), 20)
 
 
 if __name__ == "__main__":
