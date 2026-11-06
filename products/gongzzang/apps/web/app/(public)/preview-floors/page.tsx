@@ -369,9 +369,7 @@ export default async function PreviewFloorsPage() {
         </div>
       </section>
 
-      <p className="pf-foot">
-        {COPY.footnote} <code>building-edge (R2)</code> {COPY.footnoteDetail}
-      </p>
+      <p className="pf-foot">{COPY.footnote}</p>
     </main>
   );
 }

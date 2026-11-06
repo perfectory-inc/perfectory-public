@@ -793,10 +793,7 @@ function MapZonesGroup({ zones }: { zones: RegulationZones }) {
     .at(-1);
   const more = zones.zoneTotal - zones.zones.length;
   return (
-    <Group
-      title={t("mapZones")}
-      note={asOf ? t("mapZonesSourceAsOf", { date: asOf }) : t("mapZonesSource")}
-    >
+    <Group title={t("mapZones")} note={asOf ? t("mapZonesAsOf", { date: asOf }) : undefined}>
       {groups.map(([label, list]) => (
         <div key={label} className="flex flex-col gap-1">
           <h4 className="text-[length:var(--text-caption)] text-[var(--color-muted)]">{label}</h4>
@@ -846,7 +843,6 @@ function ParcelFooter({ pnu }: { pnu: string }) {
           {copied ? t("copied") : t("copy")}
         </button>
       </div>
-      <div>{t("sources")}</div>
       <div>{t("notice")}</div>
     </footer>
   );

@@ -45,12 +45,6 @@
     }
   },
   "map": {
-    "attribution": {
-      "parcelSourceLabel": "필지 polygon",
-      "vWorldLink": "V-World",
-      "license": "(공공누리 제1유형: 출처표시)",
-      "ariaDataSource": "데이터 출처"
-    },
     "zoning": {
       "legend": "규제 구역 지도 층",
       "families": {
@@ -241,8 +235,7 @@
       "unitCount": "호실 {count}개",
       "buildingCount": " · {count}개 동"
     },
-    "footnote": "데이터 출처: 표제부·전유부·전유공용면적 (hub.go.kr, 2026-06 스냅샷) · 서빙",
-    "footnoteDetail": "· 지상/지하는 표제부, 옥탑 유무·면적·용도는 전유공용면적 옥탑 행(층구분 30)에서 정합. 데모 8필지 중 5필지 수록."
+    "footnote": "지상/지하는 표제부, 옥탑 유무·면적·용도는 전유공용면적 옥탑 행(층구분 30)에서 정합. 데모 8필지 중 5필지 수록."
   },
   "panels": {
     "parcel": {
@@ -343,15 +336,13 @@
           "included": "포함",
           "conflicting": "저촉",
           "mapZones": "지도 규제 구역",
-          "mapZonesSource": "용도지역지구",
-          "mapZonesSourceAsOf": "용도지역지구 · 기준일 {date}",
+          "mapZonesAsOf": "기준일 {date}",
           "mapZonesMore": "외 {count}개 구역",
           "otherFamily": "기타",
           "pendingNote": "일부 구역 수집 대기: {layers}"
         },
         "copy": "복사",
         "copied": "복사됨",
-        "sources": "출처: 국토교통부 토지특성·개별공시지가·토지이용계획·토지이동이력·토지(임야)대장·건축물대장",
         "notice": "법적 효력이 없는 참고 정보예요"
       },
       "buildings": {
@@ -408,7 +399,6 @@
         "share": "지분 물건",
         "photoAltFallback": "공매 물건 사진",
         "viewOriginal": "원본 보기",
-        "attribution": "출처: 온비드(한국자산관리공사)",
         "appraisalDocument": "감정평가서",
         "fields": {
           "round": {

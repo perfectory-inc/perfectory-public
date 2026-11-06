@@ -39,3 +39,7 @@
 ---
 
 개정 각주(2026-10-19): §1 의 연락처 필수 규칙은 [ADR-0283](./0283-the-court-auction-user-agent-names-us-without-a-contact-address.md) 이 고쳤다. User-Agent 는 제품 이름만 필수이고, 연락처는 선택이다.
+
+---
+
+개정 각주(2026-11-06): §6 의 "화면에 내보낼 때 출처 표시는 소비자(Gongzzang)의 몫"은 [ADR-0428](./0428-gongzzang-screens-show-no-data-source-attribution-and-provenance-stays-in-the-data.md)로 대체됐다 — 공짱 화면은 출처를 보이지 않는다; Silver·ODCS 의 출처는 그대로다.

@@ -148,18 +148,6 @@ describe("public auction gallery", () => {
     );
   });
 
-  it("names the source under the rounds (KOGL type 1)", () => {
-    renderCard([
-      {
-        cltr_mng_no: "X-0001",
-        item_name: "테스트 물건",
-        bid_ends_at: "2099-01-01T00:00:00.000Z",
-        photos: [],
-      },
-    ]);
-    expect(screen.getByText("출처: 온비드(한국자산관리공사)")).not.toBeNull();
-  });
-
   it("renders no gallery when a round has no photos", () => {
     renderCard([
       {
