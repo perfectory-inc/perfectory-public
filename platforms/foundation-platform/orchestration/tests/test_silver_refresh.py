@@ -95,7 +95,7 @@ class TheLanes(unittest.TestCase):
         found = list(lane_contracts())
         # The hub lanes of root ADR-0169 step 2 (건축인허가 root ADR-0356, 총괄표제부 root ADR-0357) and
         # the nine VWorld land lanes of step 3 (토지소유 root ADR-0360, 용도지역지구 root ADR-0362).
-        self.assertEqual(sorted(name.split("-")[0] for name, _ in found), ["hub"] * 14 + ["vworld"] * 9)
+        self.assertEqual(sorted(name.split("-")[0] for name, _ in found), ["hub"] * 15 + ["vworld"] * 9)
         for name, document in found:
             with self.subTest(contract=name):
                 lane = document["silver_refresh"]

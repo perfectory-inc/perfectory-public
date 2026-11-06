@@ -288,6 +288,18 @@ fn permit_building_outline_streaming_export_command_is_explicit() -> anyhow::Res
 }
 
 #[test]
+fn permit_major_repair_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-major-repair-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitMajorRepairSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

@@ -14,6 +14,8 @@ mod energy_monthly_tests;
 mod exclusive_unit_tests;
 mod layout;
 #[cfg(test)]
+mod major_repair_tests;
+#[cfg(test)]
 mod permit_parking_tests;
 #[cfg(test)]
 mod sub_parcel_tests;
