@@ -206,12 +206,14 @@ def photos_by_item(photo_rows: Any) -> Any:
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     kinds = document.original_kinds()
-    landed = F.col("ingested_at_utc") if "ingested_at_utc" in photo_rows.columns else F.lit(0)
+    # The latest landed wins; max over a struct keeps a row whose landing time is null (max_by drops it).
+    landed = F.col("ingested_at_utc") if "ingested_at_utc" in photo_rows.columns else F.lit(None).cast("timestamp")
     originals = (photo_rows.where(F.col("media_kind").isin(*kinds))
-                 .withColumn("media_kind", F.col("media_kind").cast("string"))
                  .replace(kinds, subset=["media_kind"])
                  .groupBy(ITEM, "media_kind", "sequence")
-                 .agg(F.max_by(F.struct("sha256", "media_format", "size_bytes"), landed).alias("original")))
+                 .agg(F.max(F.struct(landed.alias("_at"), "sha256", "media_format", "size_bytes")).alias("_latest"))
+                 .select(ITEM, "media_kind", "sequence",
+                         F.struct("_latest.sha256", "_latest.media_format", "_latest.size_bytes").alias("original")))
     photo_rows = (photo_rows.where(F.col("media_kind").isin(*document.ROUND_MEDIA_KINDS))
                   .join(originals, [ITEM, "media_kind", "sequence"], "left"))
     return (photo_rows.groupBy(ITEM).agg(F.array_sort(F.collect_list(F.struct(
