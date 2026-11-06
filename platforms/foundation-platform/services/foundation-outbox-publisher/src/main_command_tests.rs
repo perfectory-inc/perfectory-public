@@ -348,6 +348,18 @@ fn permit_site_location_streaming_export_command_is_explicit() -> anyhow::Result
 }
 
 #[test]
+fn maintenance_regular_inspection_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-maintenance-regular-inspection-history-silver-handoff"
+        ])?,
+        Command::ExportBuildingMaintenanceRegularInspectionSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

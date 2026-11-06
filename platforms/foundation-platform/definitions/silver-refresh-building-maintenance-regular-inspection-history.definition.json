@@ -1,0 +1,91 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-maintenance-regular-inspection-history",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_maintenance_regular_inspection_history",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 건축물 정기점검이력 lane `building-maintenance-regular-inspection-history` (root ADR-0169 ②, ADR-0402, ADR-0404): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_maintenance_regular_inspection_history already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in one piece and append to main only the new rows and a removal marker per vanished one (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-maintenance-regular-inspection-history.service",
+      "check_service": "foundation-silver-refresh-plan@building-maintenance-regular-inspection-history.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-maintenance-regular-inspection-history"
+      ],
+      "enabled": false,
+      "disabled_reason": "New lane, never run as its unit: off until its first supervised run (runbooks/silver-refresh.md §3) has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-maintenance-regular-inspection-history",
+      "type": "silver_table",
+      "title": "건축물 정기점검이력",
+      "description": "정기점검이 다룬 건물마다 한 행: 점검실시PK, 관리건축물대장PK, 점검기관, 점검시작일, 처리일자. 대지구분 칸이 없어 pnu 를 짓지 않는다; 읽는 쪽이 관리건축물대장PK 로 표제부(silver.building_register_titles) 현재 행에 이어 그 pnu 를 쓴다(루트 ADR-0404). 원문 11칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0402).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-maintenance-regular-inspection-history-source-objects.json",
+        "docs/adr/0404-a-regular-inspection-reaches-its-parcel-through-its-building-register-key-at-read.md",
+        "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md"
+      ],
+      "table_name": "silver.building_maintenance_regular_inspection_history",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_maintenance_regular_inspection_history"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-maintenance-regular-inspection-history",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-maintenance-regular-inspection-history-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_maintenance_regular_inspection_history"
+      ],
+      "description": "건축물 정기점검이력(mart_ll_02) 11칸을 행 글자 키로 새 행·사라진 행만 append-only Silver 로 쌓는다. pnu 칸은 없다: 필지는 관리건축물대장PK 를 표제부 현재 행에 읽을 때 이어 얻는다(표제부 키 = <네 자리 기관 코드>||'1'||<일련번호>, 같은 시군구 또는 같은 법정동·번·지; 표본 2,000 행 94.7%) — 적재 때 고정하지 않으므로 표제부 pnu 의 재조합·코드 변경을 따라간다(루트 ADR-0404, ADR-0329)."
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_maintenance_regular_inspection_history": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

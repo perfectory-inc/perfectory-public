@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0404-a-regular-inspection-reaches-its-parcel-through-its-building-register-key-at-read.md",
+  "source": "bronze/source=hubgokr__building_maintenance_regular_inspection_history",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_ll_02",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 1,631,660 바이트, 멤버 mart_ll_02.txt)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 64,328 행, 모든 행 11칸, 서로 다른 행 64,328. 칸 6(점검실시PK)은 모든 행이 채워져 있지만 서로 다른 값이 58,343 개뿐이다(한 점검이 여러 건물에 걸쳐 같은 값이 최대 198 행). 칸 6·7 쌍은 64,328 개 모두 다르다. 칸 7(관리건축물대장PK)은 모든 행이 <다섯 자리>-<숫자> 꼴이고 앞 다섯 자리가 칸 0(시군구) 과 같은 행이 63,778 개(99.1%), 서로 다른 값 39,163 개다. 칸 0–3(시군구 5·법정동 5·번 4·지 4 자리 숫자)은 모든 행이 유효하지만 대지구분 칸이 없다. 표제부(silver.building_register_titles 현재 행)에 키 글자 그대로는 표본 2,000 개 중 0 개가 맞는다. 표본 2,000 행(무작위)을 ADR-0404 의 규칙으로 이으면 1,894 행(94.7%)이 표제부 하나에 맞고 그 표제부 모두 pnu 가 있다; 시군구 조건만 쓰면 1,878 행(93.9%)이고 그중 1,870 행(99.6%)은 표제부 pnu 의 법정동·번·지도 이 행과 같다. 2026-09 판과 비교: 10판에만 있는 행 792, 9판에만 있는 행 71.",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축물유지점검_정기점검이력(data.go.kr 15102805)의 항목 설명(시군구코드·법정동코드·번·지·건물명·동명·점검실시PK·관리건축물대장PK·점검기관명·점검시작일·승인 및 처리일자, 11개)과 2026-10 판 실측의 교차 확인. 대량 파일의 칸 순서는 설명의 순서 그대로다: 칸 0–3 은 다섯·다섯·네·네 자리 숫자, 칸 6 은 숫자, 칸 7 은 <시군구>-<숫자>, 칸 8 은 기관 이름 글자, 칸 9·10 은 여덟 자리 날짜다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(건물명 4)은 raw_columns 의 원래 index 로만 보존한다. 건물명에는 개인 이름이 들어 있을 수 있다: 화면에 내보내지 않는다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_ll_02.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 11,
+  "row_key": "sha256_of_row",
+  "parcel_link": {
+    "$comment": "파일에 대지구분 칸이 없어 PNU 를 짓지 않는다(FP-ADR-0023 의 대지구분을 짐작하지 않는다). 행은 이 키로 표제부 현재 행에 읽을 때 잇고 그 행의 pnu 를 쓴다(root ADR-0404). 키 꼴이 달라 같음 비교가 아니다: 표제부 키 = <네 자리 기관 코드> || '1' || <일련번호>, 그 표제부 pnu 의 앞 다섯 자리가 이 키의 시군구이거나 pnu 의 법정동·번·지가 이 행의 법정동·번·지와 같은 것 하나.",
+    "column": "building_register_key",
+    "register": "silver.building_register_titles",
+    "register_column": "mgm_bldrgst_pk"
+  },
+  "columns": {
+    "sigungu_cd": {
+      "index": 0,
+      "meaning": "시군구코드 원문"
+    },
+    "bjdong_cd": {
+      "index": 1,
+      "meaning": "법정동코드 원문"
+    },
+    "bonbeon": {
+      "index": 2,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 3,
+      "meaning": "지 원문"
+    },
+    "dong_name": {
+      "index": 5,
+      "meaning": "동명 원문"
+    },
+    "inspection_key": {
+      "index": 6,
+      "meaning": "점검실시PK 원문(한 점검이 여러 건물에 걸쳐 같은 값이 최대 198 행에 되풀이된다)"
+    },
+    "building_register_key": {
+      "index": 7,
+      "meaning": "관리건축물대장PK 원문, `<시군구코드>-<일련번호>` 꼴. 표제부의 mgm_bldrgst_pk 와 글자가 같지 않다: 읽을 때 ADR-0404 의 규칙으로 표제부 현재 행에 잇는다"
+    },
+    "inspection_agency_name": {
+      "index": 8,
+      "meaning": "점검기관명 원문"
+    },
+    "inspection_start_date": {
+      "index": 9,
+      "meaning": "점검시작일 원문(YYYYMMDD, 모든 행 여덟 자리)"
+    },
+    "processed_date": {
+      "index": 10,
+      "meaning": "처리일자(승인 및 처리일자) 원문; 빈칸 509 행·네 자리 101 행 등 여덟 자리가 아닌 행이 있다"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_maintenance_regular_inspection_history",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-maintenance-regular-inspection-history.service 의 실행 값(root ADR-0169 §3, ADR-0402, ADR-0404). 판은 장부가 정한다. 키는 행 글자의 SHA-256 이다(점검실시PK 가 행을 가르지 못한다; ADR-0397 의 row_key). 부분은 판의 load branch 에 쌓고, compare 가 main 의 현재 행과 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 한 묶음으로 커밋하고 main 으로 한 번에 발행한다(ADR-0318). 첫 판 실행 시간(추정): 6만 4천 행으로 기본개요 첫 판(653만 행, 실측 6분)의 1% 라 Spark 기동이 대부분인 몇 분이고 단위 시간 150분 안에 든다.",
+    "table": "silver.building_maintenance_regular_inspection_history",
+    "roles": {
+      "source": "hubgokr__building_maintenance_regular_inspection_history"
+    },
+    "export": "export-building-maintenance-regular-inspection-history-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "sigungu_cd",
+        "bjdong_cd",
+        "bonbeon",
+        "bubeon",
+        "dong_name",
+        "inspection_key",
+        "building_register_key",
+        "inspection_agency_name",
+        "inspection_start_date",
+        "processed_date",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 0
+    }
+  }
+}
