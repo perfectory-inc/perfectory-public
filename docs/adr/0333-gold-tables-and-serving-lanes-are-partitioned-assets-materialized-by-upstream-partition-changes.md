@@ -219,7 +219,7 @@ Airflow 가 모든 작업을 그대로 돌리고, Dagster 는 보기만 한다.
 main 이 생성물을 커밋하지 않게 되어(#1073) 0단계를 그 위로 다시 쌓았다. `jobs.v1.json` 의 `observers` 와 호스트
 메모리 예산의 `dagster-observe` 프로필은 이제 `definitions/platform.definition.json` 에 있고, 두 파일은 생성된다.
 
-- **자산 그룹은 정의다**: 자산 175개의 Dagster 그룹은 노드를 가진 정의 파일(142개)이다. 노드 종류(`gold_table` 등)는
+- **자산 그룹은 정의다**: 자산 175개의 Dagster 그룹은 노드를 가진 정의 파일(정의 142개 중 132개)이다. 노드 종류(`gold_table` 등)는
   그룹이 아니라 메타데이터 `node_type` 으로 남는다.
 - **검사도 정의에 선언한다**: 정의의 `asset_checks` 절(`asset`·`check`·`blocking`·`reads`)이 어느 자산에 어떤 검사를
   붙이고 막는지 정한다. 코드(`orchestration/dagster/asset_checks.py`)는 검사 종류만 구현하고 노드 id·표 이름을 손으로
