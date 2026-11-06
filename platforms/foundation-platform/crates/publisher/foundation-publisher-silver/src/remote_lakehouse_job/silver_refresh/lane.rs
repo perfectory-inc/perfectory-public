@@ -361,6 +361,18 @@ struct Block {
     /// the newest complete provider month is the release (ADR-0169 §2).
     #[serde(default)]
     release_unit: Option<String>,
+    /// The slowest step of a run (a load batch or a compare bucket), measured (root ADR-0391).
+    #[serde(default)]
+    run_budget: Option<RunBudgetBlock>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RunBudgetBlock {
+    /// The longest one step took: the run starts no step later than its unit allows with this.
+    step_seconds_max: u32,
+    /// When, from what and how it was measured: a budget nobody measured is a guess.
+    measured: String,
 }
 
 #[derive(Deserialize)]
@@ -446,6 +458,30 @@ pub(in crate::remote_lakehouse_job) struct LaneContract {
     pub compare_geometry_tolerance: Option<String>,
     /// Every Bronze object is its own release, loaded oldest first (`Block::release_unit`).
     pub releases_each_object: bool,
+    /// The measured slowest step (`RunBudgetBlock::step_seconds_max`); `None` keeps the default
+    /// (`super::LARGEST_BUCKET_MINUTES`).
+    pub step_seconds_max: Option<u32>,
+}
+
+/// A measured budget must leave a run time to start a step: the deadline is the unit's fit
+/// (`super::FIT_SHARE_PERCENT` of its limit) less the slowest step (root ADR-0391).
+fn checked_run_budget(table: &str, budget: Option<RunBudgetBlock>) -> anyhow::Result<Option<u32>> {
+    let Some(budget) = budget else {
+        return Ok(None);
+    };
+    ensure!(
+        !budget.measured.trim().is_empty(),
+        "{table}: run_budget.measured says when and how step_seconds_max was measured"
+    );
+    ensure!(
+        budget.step_seconds_max > 0
+            && super::last_step_start_seconds(Some(budget.step_seconds_max))
+                >= super::MIN_STEP_START_SECONDS,
+        "{table}: a step of {}s leaves a run less than {}s to start one inside its unit's fit; the step must get smaller (more batches, finer buckets), not the unit longer",
+        budget.step_seconds_max,
+        super::MIN_STEP_START_SECONDS
+    );
+    Ok(Some(budget.step_seconds_max))
 }
 
 fn checked_prefix(prefix: Option<String>) -> anyhow::Result<String> {
@@ -603,6 +639,7 @@ impl LaneContract {
                 compare_release_buckets_only,
                 compare_geometry_tolerance,
             ) = checked_compare_block(&block.table, block.compare)?;
+            let step_seconds_max = checked_run_budget(&block.table, block.run_budget)?;
             return Ok(Self {
                 lane,
                 table: block.table,
@@ -618,6 +655,7 @@ impl LaneContract {
                 compare_release_buckets_only,
                 compare_geometry_tolerance,
                 releases_each_object: false,
+                step_seconds_max,
             });
         }
         ensure!(
@@ -643,6 +681,7 @@ impl LaneContract {
             "{}: a lane whose objects are releases compares only the buckets each release holds",
             block.table
         );
+        let step_seconds_max = checked_run_budget(&block.table, block.run_budget)?;
         let block_roles = block
             .roles
             .context("a hub lane names the roles of its release")?;
@@ -697,6 +736,7 @@ impl LaneContract {
             compare_release_buckets_only,
             compare_geometry_tolerance,
             releases_each_object,
+            step_seconds_max,
         })
     }
 }
