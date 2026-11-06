@@ -35,6 +35,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitStructureLedger,
     PermitFloorOverview,
     PermitTemporaryBuilding,
+    PermitSiteLocation,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -47,7 +48,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 27] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 28] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -66,6 +67,7 @@ impl Lane {
         Self::PermitStructureLedger,
         Self::PermitFloorOverview,
         Self::PermitTemporaryBuilding,
+        Self::PermitSiteLocation,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -99,6 +101,7 @@ impl Lane {
             Self::PermitStructureLedger => "building-permit-structure-ledger",
             Self::PermitFloorOverview => "building-permit-floor-overview",
             Self::PermitTemporaryBuilding => "building-permit-temporary-building",
+            Self::PermitSiteLocation => "building-permit-site-location",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -203,6 +206,10 @@ impl Lane {
             Self::PermitTemporaryBuilding => (
                 "hub-building-permit-temporary-building-source-objects.json",
                 crate::building_permit_temporary_building_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitSiteLocation => (
+                "hub-building-permit-site-location-source-objects.json",
+                crate::building_permit_site_location_silver_export::CONTRACT_JSON,
             ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
@@ -318,6 +325,9 @@ impl ExportKind {
             },
             "export-building-permit-temporary-building-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_TEMPORARY_BUILDING",
+            },
+            "export-building-permit-site-location-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_SITE_LOCATION",
             },
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {

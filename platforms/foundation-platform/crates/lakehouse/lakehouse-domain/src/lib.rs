@@ -18,6 +18,7 @@ mod building_permit_demolition_loss;
 mod building_permit_floor_overview;
 mod building_permit_major_repair;
 mod building_permit_parking;
+mod building_permit_site_location;
 mod building_permit_structure_ledger;
 mod building_permit_temporary_building;
 mod building_register_apartment_price;
@@ -68,6 +69,7 @@ pub use building_permit_demolition_loss::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS;
 pub use building_permit_floor_overview::SILVER_BUILDING_PERMIT_FLOOR_OVERVIEW;
 pub use building_permit_major_repair::SILVER_BUILDING_PERMIT_MAJOR_REPAIR;
 pub use building_permit_parking::SILVER_BUILDING_PERMIT_PARKING;
+pub use building_permit_site_location::SILVER_BUILDING_PERMIT_SITE_LOCATION;
 pub use building_permit_structure_ledger::SILVER_BUILDING_PERMIT_STRUCTURE_LEDGER;
 pub use building_permit_temporary_building::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING;
 pub use building_register_apartment_price::{

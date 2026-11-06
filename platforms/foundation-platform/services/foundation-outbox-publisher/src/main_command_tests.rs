@@ -336,6 +336,18 @@ fn permit_temporary_building_streaming_export_command_is_explicit() -> anyhow::R
 }
 
 #[test]
+fn permit_site_location_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-site-location-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitSiteLocationSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
