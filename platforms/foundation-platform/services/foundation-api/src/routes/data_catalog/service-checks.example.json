@@ -64,6 +64,19 @@
         "reason": null,
         "error": null,
         "run_id": 1,
+        "verdicts": [
+          {
+            "run_id": 1,
+            "findings": [
+              {
+                "advisory": "GHSA-dddd-eeee-ffff",
+                "package": "crates.io/example-crate",
+                "severity": "",
+                "link": "https://github.com/example-org/example-repo/actions/workflows/monorepo-guard.yml?query=branch%3Amain"
+              }
+            ]
+          }
+        ],
         "findings": [
           {
             "advisory": "GHSA-dddd-eeee-ffff",
