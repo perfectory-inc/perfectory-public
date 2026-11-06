@@ -203,6 +203,30 @@ class RaonLargeFiles(unittest.TestCase):
         (self.release / "config/provider-agent-packages.contract.json").unlink()
         self.assert_refused_before_anything(self.run_script("run", str(self.evidence)), "package pin")
 
+    def test_a_host_that_still_has_the_vendor_agent_installed_stops_the_lane(self):
+        # 2026-11-03 (root ADR-0394): the vendor package on the data host itself left world-writable
+        # scripts under /opt/raonk-2018 that root's cron ran every minute. The lane refuses that host.
+        self.scenario([job("70")])
+        legacy = pathlib.Path(self.temp.name) / "opt/raonk-2018"
+        (legacy / "scripts").mkdir(parents=True)
+        self.write_pin(host_install_forbidden={"paths": [str(legacy)], "why": "synthetic"})
+        self.assert_refused_before_anything(self.run_script("run", str(self.evidence)), "vendor RAON agent")
+        # Purged, the same host runs.
+        shutil.rmtree(legacy)
+        self.assertNotEqual(self.run_script("plan", str(self.evidence)).returncode, 78)
+        for name in ("publisher.log", "docker.log"):
+            (self.fake / name).unlink(missing_ok=True)
+        shutil.rmtree(self.work, ignore_errors=True)
+        # A pin that drops the list, or empties it, is refused rather than read as "nothing forbidden".
+        for override in ({"host_install_forbidden": None}, {"host_install_forbidden": {"paths": []}}):
+            with self.subTest(override):
+                self.write_pin(**override)
+                self.assert_refused_before_anything(self.run_script("run", str(self.evidence)), "host_install_forbidden")
+
+    def test_the_pin_forbids_the_vendor_install_path_on_the_host(self):
+        package = json.loads(PACKAGES.read_text(encoding="utf-8"))["packages"]["raonk-2018"]
+        self.assertIn("/opt/raonk-2018", package["host_install_forbidden"]["paths"])
+
     def test_a_silent_docker_daemon_stops_the_lane(self):
         self.scenario([job("70")], docker_info_rc=1)
         self.assert_refused_before_anything(self.run_script("run", str(self.evidence)), "docker daemon")
