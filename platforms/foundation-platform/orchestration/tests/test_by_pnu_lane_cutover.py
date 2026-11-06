@@ -133,7 +133,8 @@ class LaneCutover(OperatorHarness):
         self.assertIn(str(work / "equality.json"), (self.etc / f"{LANE}-serving-monitor.env").read_text())
         steps = self.evidence()
         self.assertEqual([step["step"] for step in steps],
-                         ["preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample"])
+                         ["history", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
+                          "monitor-sample"])
         self.assertTrue(all(isinstance(step["seconds"], int) and step["generation"] == 1 for step in steps))
         # A table with no declared parity is never reported as a passed parity.
         parity = next(step for step in steps if step["step"] == "parity")
@@ -142,7 +143,9 @@ class LaneCutover(OperatorHarness):
                              .read_text(encoding="utf-8"))["tables"][table]
         declared = (rebuild.get("pins_from") or {}).get("parity_argument")
         self.assertEqual(parity["outcome"], "passed" if declared else "not-declared")
-        self.assertEqual({step["outcome"] for step in steps if step["step"] != "parity"}, {"passed"})
+        # The lane waits for no history (root ADR-0371 §5): never reported as a passed history.
+        self.assertEqual(next(step for step in steps if step["step"] == "history")["outcome"], "not-declared")
+        self.assertEqual({step["outcome"] for step in steps if step["step"] not in ("parity", "history")}, {"passed"})
         # `lanes` now finds nothing left to cut over and starts nothing.
         self.mark_cut_over(*[lane for lane in CONTRACT["by_pnu_lanes"] if lane != LANE])
         self.log.unlink()
@@ -284,10 +287,23 @@ class LaneCutover(OperatorHarness):
         self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
         self.assertIn("would run into the scheduled window", self.evidence()[-1]["reason"])
 
+    def test_a_lane_waiting_for_history_starts_nothing_until_the_history_is_whole(self):
+        # Root ADR-0350 §6, ADR-0371 §5: a half-filled 실거래 history reads as "no deal" on the screen,
+        # so a lane whose line names first_publish_waits_for_history is not cut over while the check
+        # cannot say the history is whole (here no catalog answers it, exit 65 "cannot tell").
+        lane = "parcel-real-transaction"
+        self.assertTrue(CONTRACT["by_pnu_lanes"][lane]["first_publish_waits_for_history"])
+        result, calls = self.runner(lane, "1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
+        (step,) = self.evidence()
+        self.assertEqual((step["step"], step["outcome"]), ("history", "failed"))
+        self.assertIn("cannot tell", step["reason"])
+
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for step in ("preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample"):
+        for step in ("history", "preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample"):
             self.assertIn(f"dry run {LANE} {step}:", result.stderr)
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "systemctl")])
         self.assertFalse((self.bake / "cutover").exists())

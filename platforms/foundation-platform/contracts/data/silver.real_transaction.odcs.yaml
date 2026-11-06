@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.real_transaction"
 name: "실거래가"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "12종의 (데이터셋, 계약 달) 전국 내보내기마다 새 이름·바뀐 행과 빠진 이름의 삭제 표지를 쌓는다. 계약해제는 같은 행의 새 판이다(루트 ADR-0349). 법정동과 PNU 는 정본 해석기로 정하고, 가린 지번은 법정동까지만 잇는다. 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
+  purpose: "12종의 (데이터셋, 계약 달) 전국 내보내기마다 새 이름·바뀐 행과 빠진 이름의 삭제 표지를 쌓는다. 계약해제는 같은 행의 새 판이다(루트 ADR-0349). 법정동과 PNU 는 정본 해석기로 정하고, 가린 지번은 법정동까지만 잇는다. 적재 레인이 돌고, 실거래 by-PNU 종류(gold.parcel_real_transaction, 루트 ADR-0371)가 매 빌드 원천 열에서 다시 이어 읽는다."
 team:
   name: "foundation-platform"
 servers:
@@ -242,7 +242,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-real-transaction"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

@@ -7,7 +7,7 @@
       "id": "source-rt-molit-bulk",
       "type": "source_group",
       "title": "실거래가 벌크 (rt.molit.go.kr)",
-      "description": "국토교통부 실거래가 공개시스템 조건별 자료제공의 전국 월 CSV 12종(FP-ADR-0020, 루트 ADR-0348, 사장 결정 2026-10-30: 이용안내의 자동화 조항을 알고 벌크 경로를 유지). 수집기와 Silver 적재가 돈다. 표를 읽는 소비자(by-PNU 레인)가 아직 없어 partial 이다.",
+      "description": "국토교통부 실거래가 공개시스템 조건별 자료제공의 전국 월 CSV 12종(FP-ADR-0020, 루트 ADR-0348, 사장 결정 2026-10-30: 이용안내의 자동화 조항을 알고 벌크 경로를 유지). 수집기와 Silver 적재가 돈다. 이력 백필(루트 ADR-0348 5항)이 차는 중이라 partial 이다.",
       "status": "partial",
       "owner": "foundation-platform",
       "evidence_refs": [

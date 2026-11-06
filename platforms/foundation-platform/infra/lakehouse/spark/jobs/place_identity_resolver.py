@@ -176,13 +176,16 @@ def served_parcels_among(spark: Any, catalog: str, pnus: Iterable[str]) -> Any:
     return every.join(F.broadcast(asked), "pnu", "left_semi").distinct().cache()
 
 
-def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], parcels: Any) -> Any:
+def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], parcels: Any,
+            keep_candidate: bool = False) -> Any:
     """Replace ``staged.pnu`` (a format-valid source code, or null) with the CURRENT pnu and add
     ``place_identity_grade`` and ``pnu_unresolved_reason``.
 
     ``remap`` is old → current legal-dong code (``code_crosswalk``); ``ambiguous`` the old codes that
     split; ``parcels`` holds the served parcels' ``pnu`` (``served_parcels_among``). A pnu is
-    kept only when its current form is a current parcel.
+    kept only when its current form is a current parcel. ``keep_candidate`` also keeps that current
+    form as ``pnu_candidate`` when it is not one, so a reader can follow the parcel lineage from it
+    (root ADR-0350 §1: a deal on a parcel split or merged since).
     """
 
     from pyspark.sql import functions as F  # noqa: PLC0415
@@ -215,6 +218,8 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
                         .when(is_ambiguous, F.lit("code_subdivision_ambiguous"))
                         .otherwise(F.lit("parcel_absent")))
             .withColumn("pnu", F.when(held, F.col("_candidate")))
+            .transform(lambda frame: frame.withColumn("pnu_candidate", F.when(~held, F.col("_candidate")))
+                       if keep_candidate else frame)
             .drop("_code10", "current_code", "_amb", "_candidate", "_held"))
 
 
@@ -386,13 +391,13 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
               .where(F.col("_n") == 1).drop("_n"))
     # Unlinked: the candidate count of the weakest level tried says ambiguous or none.
     last = tried.where(F.col("_rank") == len(levels) - 1).select("row_id", F.col("_count").alias("_last"))
-    # A group level's one parcel stands for its 본번 group: every current parcel with its key (only
-    # the keys a deal links to are read).
+    # A group level's one parcel stands for its 본번 group: every current parcel with its key. The
+    # parcels are the caller's share (a Gold build hands only the 법정동s its change reaches), and
+    # the groups are not narrowed by `linked` so its plan is not read twice.
     grouped = F.col("_grade") == F.lit(MAIN_LOT_GROUP)
     linked = linked.withColumn("_key", F.when(grouped, F.substring("_pnu", 1, MAIN_LOT_KEY_LENGTH)))
     members = ((parcels if group_parcels is None else group_parcels).select("pnu").distinct()
                .withColumn("_key", F.substring("pnu", 1, MAIN_LOT_KEY_LENGTH))
-               .join(linked.where(F.col("_key").isNotNull()).select("_key").distinct(), "_key", "left_semi")
                .groupBy("_key").agg(F.array_sort(F.collect_set("pnu")).alias("_members")))
     linked = (linked.join(members, "_key", "left")
               # The pick itself is in its group even if `group_parcels` does not hold it.
