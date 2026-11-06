@@ -619,6 +619,14 @@ pub(super) const SILVER_BUILDING_REGISTER_UNIT_AREAS_COLUMNS: &[LakehouseColumn]
         logical_type: "string",
         required: false,
     },
+    // The handoff part the row was loaded from: the table's load identity (root ADR-0391
+    // addendum, as ADR-0357's part lanes; required like every load column, ADR-0069). A release
+    // loaded whole is one part named by its run, which the migration backfills on older rows.
+    LakehouseColumn {
+        name: "source_part_id",
+        logical_type: "string",
+        required: true,
+    },
 ];
 
 pub(super) const SILVER_COMPLEX_PARCEL_MEMBERSHIPS_COLUMNS: &[LakehouseColumn] = &[

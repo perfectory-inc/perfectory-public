@@ -125,7 +125,26 @@ pub(in crate::remote_lakehouse_job) fn export_environment(
             set(prefix, "SUMMARY_PATH", path(EXPORT_SUMMARY));
             set(prefix, "SOURCE_SNAPSHOT_ID", identity.to_owned());
             set(prefix, "VALID_FROM_UTC", release.valid_from_utc());
-            if let Some(rows) = contract.export_chunk_rows {
+            if contract.kind == ExportKind::UnitArea {
+                // Parts under an R2 manifest, loaded part by part (root ADR-0391 addendum).
+                set(prefix, "OUTPUT_FORMAT", "r2-parts".to_owned());
+                set(
+                    prefix,
+                    "OUTPUT_OBJECT_PREFIX",
+                    contract
+                        .handoff_prefix
+                        .clone()
+                        .context("the unit-area lane has a handoff prefix")?,
+                );
+                set(
+                    prefix,
+                    "CHUNK_ROWS",
+                    contract
+                        .export_chunk_rows
+                        .context("the unit-area lane names its part size")?
+                        .to_string(),
+                );
+            } else if let Some(rows) = contract.export_chunk_rows {
                 set(prefix, "OUTPUT_FORMAT", "parquet".to_owned());
                 set(prefix, "CHUNK_ROWS", rows.to_string());
             }

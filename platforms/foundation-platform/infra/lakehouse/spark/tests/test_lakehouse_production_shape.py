@@ -72,8 +72,15 @@ class ProductionShape(unittest.TestCase):
                 )
                 # The transfer history gained it with #728 (ledger of 10-18); the other four gain it now.
                 live_names = {name for _, name, _, _ in live}
-                self.assertEqual(plan["add"], [] if "row_state" in live_names else ["row_state"])
-                self.assertEqual((plan["backfill"], plan["reorder"]), ([], False))
+                expected = [] if "row_state" in live_names else ["row_state"]
+                # The unit areas load part by part since root ADR-0391's addendum: a nullable column
+                # the rows loaded whole leave null.
+                backfill = []
+                if table == "silver.building_register_unit_areas" and "source_part_id" not in live_names:
+                    expected.append("source_part_id")
+                    backfill = ["source_part_id"]  # its run: lakehouse_schema_migrate.BACKFILLS
+                self.assertEqual(plan["add"], expected)
+                self.assertEqual((plan["backfill"], plan["reorder"]), (backfill, False))
 
     def test_a_required_column_planted_on_a_table_with_rows_is_refused(self) -> None:
         table = "reference.legal_dong_code_snapshot"

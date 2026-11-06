@@ -37,7 +37,7 @@ mod tests;
 
 use super::invocation_cleanup::{self, Job};
 use execute::{Runtime, SparkLoad};
-use lane::{Lane, LaneContract};
+use lane::{ExportKind, Lane, LaneContract};
 use release::Release;
 
 /// The publisher command every lane's contract names as its export. The executable owns the
@@ -655,11 +655,18 @@ async fn refresh_parts(
     if let Some(manifest) = &manifest {
         validate_manifest(manifest, prefix, release)?;
     }
-    let decision = match &manifest {
+    let mut decision = match &manifest {
         // An object is its own release: a newer one loaded first says nothing about it (ADR-0396).
         None if contract.releases_each_object => Decision::ExportAndLoad,
         _ => decide_parts(prefix, release, manifest.as_ref(), ingested),
     };
+    // The unit areas loaded a release as one run until 2026-11 (root ADR-0391 addendum): a month a
+    // run identity records is held, whatever its parts would be called.
+    if contract.kind == ExportKind::UnitArea {
+        if let Decision::Unchanged(reason) = decide_run(contract.lane, release, ingested) {
+            decision = Decision::Unchanged(reason);
+        }
+    }
     if matches!(decision, Decision::Unchanged(_)) || plan {
         return Ok((decision, key, None));
     }
@@ -671,6 +678,10 @@ async fn refresh_parts(
             release.vintage()
         );
         let identity = release.run_identity(contract.lane.id());
+        if contract.kind == ExportKind::UnitArea {
+            // The unit-area export reads its ZIP from the work directory, twice (root ADR-0331).
+            execute::stage(release, &runtime.work()).await?;
+        }
         let environment =
             execute::export_environment(contract, release, &identity, &runtime.work())?;
         execute::export(runtime, contract, &environment)?;

@@ -721,6 +721,92 @@ fn the_unit_export_reads_exactly_the_release_the_ledger_picked() -> anyhow::Resu
     Ok(())
 }
 
+/// Root ADR-0391 addendum: the unit areas load part by part, the way ADR-0357's part lanes do, so
+/// no step of theirs is the 7,246s one-run Spark step of 2026-10-20.
+#[test]
+fn the_unit_areas_load_part_by_part_and_each_step_fits_the_unit() -> anyhow::Result<()> {
+    let contract = Lane::UnitAreas.contract()?;
+    assert_eq!(contract.kind, ExportKind::UnitArea);
+    assert!(!contract.kind.loads_as_one_run());
+    assert_eq!(contract.spark.iceberg_write_mode, WriteMode::Append);
+    assert_eq!(
+        contract.handoff_prefix.as_deref(),
+        Some("silver-handoff/hubgokr__building_register_exclusive_common_area")
+    );
+    let part_rows = u64::from(contract.export_chunk_rows.context("part size")?);
+    let batch_rows = part_rows * u64::from(contract.spark.input_file_batch_size);
+    // A load batch is no bigger than the measured 2026-10-20 load cut to it: 114,461,830 rows took
+    // 6,843s of Spark besides its 386s null-share check (13:24:29 to 15:24:58), so a batch takes that share; it must fit the budget.
+    let batch_seconds = 6_843 * batch_rows / 114_461_830 + 386 + 60;
+    let step = u64::from(
+        contract
+            .step_seconds_max
+            .context("the unit areas measure a run budget")?,
+    );
+    assert!(
+        batch_seconds <= step,
+        "a load batch of {batch_rows} rows is about {batch_seconds}s, more than the budget {step}s"
+    );
+    let fit = UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100;
+    assert!(last_step_start_seconds(contract.step_seconds_max) + i64::try_from(step)? <= fit);
+
+    let release = release::select(
+        &roles(&[(
+            "unit_area",
+            "hubgokr__building_register_exclusive_common_area",
+        )]),
+        &[object(
+            "hubgokr__building_register_exclusive_common_area",
+            "20990720",
+            None,
+        )?],
+    )?;
+    let env = env_map(execute::export_environment(
+        &contract,
+        &release,
+        "id-3",
+        Path::new("/w"),
+    )?);
+    let key = |name: &str| {
+        format!("FOUNDATION_PLATFORM_BUILDING_REGISTER_UNIT_AREA_SILVER_HANDOFF_{name}")
+    };
+    assert_eq!(env[&key("OUTPUT_FORMAT")], "r2-parts");
+    assert_eq!(
+        env[&key("OUTPUT_OBJECT_PREFIX")],
+        "silver-handoff/hubgokr__building_register_exclusive_common_area"
+    );
+    assert_eq!(env[&key("CHUNK_ROWS")], "1000000");
+    Ok(())
+}
+
+#[test]
+fn a_unit_area_contract_that_loads_the_release_whole_is_refused() -> anyhow::Result<()> {
+    // Synthetic: the one-run shape of 2026-10 (overwrite in one input batch) and a part lane with
+    // no part size; either would bring back a step the unit cannot hold.
+    let refused: Vec<Box<dyn FnOnce(&mut serde_json::Value)>> = vec![
+        Box::new(|v| {
+            v["silver_refresh"]["spark"]["iceberg_write_mode"] = "overwrite".into();
+            v["silver_refresh"]["spark"]["input_file_batch_size"] = 0.into();
+        }),
+        Box::new(|v| {
+            v["silver_refresh"]
+                .as_object_mut()
+                .map(|block| block.remove("export_chunk_rows"));
+        }),
+        Box::new(|v| {
+            v.as_object_mut().map(|doc| doc.remove("handoff_prefix"));
+        }),
+    ];
+    for edit in refused {
+        let text = planted(Lane::UnitAreas, edit)?;
+        assert!(
+            LaneContract::parse(Lane::UnitAreas, &text).is_err(),
+            "accepted {text}"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn the_hub_export_gets_the_ledger_size_and_the_contract_prefix() -> anyhow::Result<()> {
     let contract = Lane::ApartmentPrice.contract()?;
@@ -823,7 +909,11 @@ fn a_measured_lane_starts_its_last_step_early_enough_to_end_inside_its_unit() ->
         measured.push(lane);
     }
     // The lanes whose measured runs did not fit their unit (2026-10-20, 10-21, 11-03).
-    for lane in [Lane::ApartmentPrice, Lane::LandTransferHistory] {
+    for lane in [
+        Lane::ApartmentPrice,
+        Lane::LandTransferHistory,
+        Lane::UnitAreas,
+    ] {
         assert!(
             measured.contains(&lane),
             "{} measures no run_budget",

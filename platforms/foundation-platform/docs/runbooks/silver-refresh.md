@@ -26,7 +26,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | --- | --- | --- | --- |
 | `building-register-titles` | `silver.building_register_titles` | 표제부 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`, ADR-0318) |
 | `building-register-units` | `silver.building_register_units` | 전유부 + 같은 날 표제부·기본개요 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
-| `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
+| `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | R2 에 100만 행 부분 + manifest, 부분 20개씩 load branch 에 append, 바뀐 대장만 main 에 (`compare`, 묶음 = PK 앞 세 자리, 루트 ADR-0391 덧붙임) |
 | `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
 | `building-register-master` | `silver.building_register_master` | 총괄표제부 `mart_djy_02` (루트 ADR-0357) | 부분을 load branch 에 쌓고 바뀐 대지만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |

@@ -216,7 +216,8 @@ pub(in crate::remote_lakehouse_job) enum ExportKind {
     Title,
     /// 전유부: local Parquet parts from the unit, title and basis ZIPs of one export day.
     Unit,
-    /// 전유공용면적: local Parquet parts from one staged ZIP.
+    /// 전유공용면적: gzip JSONL parts under an R2 manifest from one staged ZIP, loaded part by part
+    /// like the hub part lanes (root ADR-0391 addendum).
     UnitArea,
     /// A national hub ZIP streamed from R2 into gzip JSONL parts under an R2 manifest.
     HubParts { env_prefix: &'static str },
@@ -281,7 +282,7 @@ impl ExportKind {
 
     /// Whether one load is one `source_snapshot_id` (a run) rather than one handoff part.
     pub(in crate::remote_lakehouse_job) const fn loads_as_one_run(self) -> bool {
-        matches!(self, Self::Title | Self::Unit | Self::UnitArea)
+        matches!(self, Self::Title | Self::Unit)
     }
 }
 
@@ -713,11 +714,14 @@ impl LaneContract {
             );
             None
         } else {
+            // The unit-area export cuts its own parts (`export_chunk_rows` rows each); a hub part
+            // lane's engine reads its part size from the layout.
             ensure!(
                 spark.input_file_batch_size > 0
                     && spark.iceberg_write_mode == WriteMode::Append
-                    && block.export_chunk_rows.is_none(),
-                "a part lane appends its parts in batches of input_file_batch_size and has no chunk size"
+                    && block.export_chunk_rows.is_some() == (kind == ExportKind::UnitArea),
+                "a part lane appends its parts in batches of input_file_batch_size; only the \
+                 unit-area export names its part size (export_chunk_rows)"
             );
             Some(checked_prefix(document.handoff_prefix)?)
         };

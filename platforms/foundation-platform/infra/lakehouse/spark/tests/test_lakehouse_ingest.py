@@ -270,15 +270,15 @@ class DeclaredLoadIdentityTest(unittest.TestCase):
         frame = FakeBatchFrame(["run-2026-06"], column="source_snapshot_id")
         spark = FakeAnsweringSpark(
             registry=[FakeRow(7, {INGEST_BATCH_OBJECTS_KEY: "run-2026-06"})],
-            total_records=113_813_264,
+            total_records=19_765_555,
         )
 
         result = append_batch_once(
             spark,
             frame,
             ["unit_row_id"],
-            "`c`.`silver`.`building_register_unit_areas`",
-            "silver.building_register_unit_areas",
+            "`c`.`silver`.`building_register_units`",
+            "silver.building_register_units",
         )
 
         self.assertEqual(frame.selected, ("source_snapshot_id",))

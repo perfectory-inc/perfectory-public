@@ -3096,6 +3096,11 @@
           "name": "row_state",
           "logical_type": "string",
           "required": false
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
         }
       ],
       "partition_spec": [
@@ -3118,8 +3123,10 @@
         "ordinary_land_pnu_null_share <= 0.0005 and increase <= 0.001"
       ],
       "load": {
-        "unit": "run",
-        "column": "source_snapshot_id"
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
       }
     },
     "silver.complex_parcel_memberships": {

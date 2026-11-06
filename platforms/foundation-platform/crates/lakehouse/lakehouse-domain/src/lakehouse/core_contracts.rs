@@ -411,9 +411,13 @@ pub const SILVER_BUILDING_REGISTER_UNIT_AREAS: LakehouseTableContract = Lakehous
         "row_checksum_sha256_valid",
         ORDINARY_LAND_PNU_NULL_SHARE_GATE,
     ],
-    // 2026-09-01 실측: 값 1개, 파이프라인 실행 이름. 113,813,264 행이 한 실행에서 나왔다.
-    load: LakehouseLoadUnit::Run {
-        column: "source_snapshot_id",
+    // A release loads part by part, one handoff part one load identity (root ADR-0391 addendum,
+    // ADR-0357): a run that ends resumes at the next part. Until 2026-10 one load was one run
+    // (113,813,264 rows, one `source_snapshot_id`), whose Spark step alone took 7,246s on 2026-10-20.
+    load: LakehouseLoadUnit::Object {
+        column: "source_part_id",
+        object_prefix: None,
+        object_suffix_separator: None,
     },
 };
 
