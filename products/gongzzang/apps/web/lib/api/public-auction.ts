@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { type MediaStore, mediaFileSrc, type StoredFile } from "@/lib/media/photo-ladder";
 import { PnuSchema } from "./building-edge";
 import { ParcelPublicAuctionByPnuSchema as Generated } from "./public-auction.generated";
 
@@ -32,12 +33,16 @@ export const PublicAuctionDocumentSchema = Generated.extend({
 
 /**
  * The catalog edge serves each onbid media object content-addressed by its sha256 (root ADR-0298),
- * off the same host the by-PNU documents come from. Returns the public URL of a photo, map, appraisal
- * report or announcement attachment.
+ * off the same host the by-PNU documents come from, with each photo's rendition ladder beside it
+ * (root ADR-0427). 경매 photos are stored in the same store (root ADR-0384).
  */
-export function onbidMediaSrc(photo: { sha256: string; media_format: string }): string {
-  const base = env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL.replace(/\/$/, "");
-  return `${base}/onbid/media/sha256/${photo.sha256}.${photo.media_format}`;
+export function parcelMediaStore(): MediaStore {
+  return { base: env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL, prefix: "onbid/media" };
+}
+
+/** The public URL of a photo, map, appraisal report or announcement attachment. */
+export function onbidMediaSrc(photo: StoredFile): string {
+  return mediaFileSrc(parcelMediaStore(), photo);
 }
 
 type PublicAuction = z.infer<typeof PublicAuctionDocumentSchema>["public_auction"];

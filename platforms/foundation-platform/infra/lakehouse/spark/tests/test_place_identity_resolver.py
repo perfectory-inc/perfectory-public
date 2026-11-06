@@ -43,6 +43,43 @@ class Crosswalk(unittest.TestCase):
         self.assertEqual(ambiguous, {"9999902000"})
 
 
+class CurrentRegion(unittest.TestCase):
+    """A complex's 시도·시군구·법정동 carried to the current codes (root ADR-0426). Synthetic codes: 97 and
+    98 merged into 96, the way 29 and 46 merged into 12 on 2026-07-01."""
+
+    REMAP = {"9700000000": "9600000000", "9800000000": "9600000000", "9717000000": "9630000000",
+             "9889000000": "9685000000", "9717010100": "9630010100"}
+
+    def test_a_merged_sido_and_its_sigungu_take_the_current_codes(self) -> None:
+        self.assertEqual(r.current_region("97", "97170", None, self.REMAP, set()), ("96", "96300", None))
+        self.assertEqual(r.current_region("98", "98890", None, self.REMAP, set()), ("96", "96850", None))
+
+    def test_the_finest_resolved_level_names_the_levels_above_it(self) -> None:
+        # A 시군구 that moved 시도 on its own pair (군위군 47720 → 27720) takes the 시도 with it.
+        self.assertEqual(r.current_region("95", "95720", None, {"9572000000": "9472000000"}, set()),
+                         ("94", "94720", None))
+        self.assertEqual(r.current_region("97", "97170", "9717010100", self.REMAP, set()),
+                         ("96", "96300", "9630010100"))
+
+    def test_current_codes_stay_and_a_split_keeps_no_code_at_its_level(self) -> None:
+        self.assertEqual(r.current_region("95", "95110", None, self.REMAP, set()), ("95", "95110", None))
+        self.assertEqual(r.current_region("97", "97170", None, self.REMAP, {"9717000000"}), ("96", None, None))
+        self.assertEqual(r.current_region(None, None, None, self.REMAP, set()), (None, None, None))
+        self.assertEqual(r.current_region("9", "97x", None, self.REMAP, set()), (None, None, None))
+
+
+class SidoNames(unittest.TestCase):
+    def test_a_current_sido_is_named_by_its_own_row_else_its_smallest_current_code(self) -> None:
+        names = r.sido_names([
+            ("9600000000", "Southsynth City", "존재"),
+            ("9630000000", "Southsynth City Westgu", "존재"),
+            ("9700000000", "Oldsynth City", "폐지"),           # abolished: not a current name
+            ("9512000000", "Midsynth City Eastgu", "존재"),    # no 9500000000 row (세종's shape)
+            ("9511000000", "Midsynth Town", "존재"),
+        ])
+        self.assertEqual(names, {"95": "Midsynth", "96": "Southsynth"})
+
+
 class ReconstructPnu(unittest.TestCase):
     def test_the_lot_is_kept_when_the_legal_code_moves(self) -> None:
         # The forward map changes only the 10-digit legal code; the lot (san·본번·부번) is kept.

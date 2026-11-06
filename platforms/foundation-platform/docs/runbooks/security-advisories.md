@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-18
+last_reviewed: 2026-11-04
 ---
 
 # 보안 권고 알림 (#alerts) — 토큰·확인·전달 시험 런북
@@ -13,7 +13,7 @@ last_reviewed: 2026-10-18
 | 무엇 | 정본 |
 | --- | --- |
 | 읽기 (매시 41분) | `scripts/ops/service-checks.py` 의 `security` 부분, `infra/systemd/foundation-service-checks.service` |
-| 출처 | `dependabot`(열린 Dependabot 알림, 토큰 필요), `osv-ratchet`(main 의 매일 `monorepo-guard`), `cargo-advisories`(main 의 매일 `dependency-advisories`). 두 래칫은 거부한 권고를 `advisory` 주석으로 남기고, 그 주석을 익명으로 읽는다 |
+| 출처 | `dependabot`(열린 Dependabot 알림, 토큰 필요), `osv-ratchet`(`monorepo-guard`), `cargo-advisories`(`dependency-advisories`). 두 래칫은 거부한 권고를 `advisory` 주석으로 남기고, 그 주석을 익명으로 읽는다. main 의 판정은 가장 새 run(매일·push·dispatch)이고, `osv-ratchet` 은 그보다 새로 lockfile 을 안 건드린 PR·merge queue 의 거부도 main 의 것으로 센다([루트 ADR-0388](../../../../docs/adr/0388-a-security-gate-refusal-alerts-from-the-first-run-that-sees-it-not-only-the-daily-one.md)) |
 | 지표 | foundation-api `/metrics`: `foundation_security_advisory`, `foundation_security_advisories_readable`, `foundation_security_token_expires_days` |
 | 규칙 | `infra/observability/prometheus/foundation-api.rules.yml` 의 `FoundationSecurity*` 셋 |
 | 경로 | `infra/observability/alertmanager/alertmanager.yml` 의 `service = "security"`: 열릴 때 한 번, 없어질 때 한 번 |
@@ -25,7 +25,7 @@ last_reviewed: 2026-10-18
 | --- | --- | --- |
 | `FIRING FoundationSecurityAdvisory` | 새 권고가 열렸다. 출처·권고 ID·패키지·심각도·링크 한 줄 | 링크를 연다. Renovate 보안 PR(ADR-0271)이 이미 왔는지 보고, 없으면 고친다 |
 | `RESOLVED FoundationSecurityAdvisory` | 읽어 보니 그 권고가 없어졌다(고침·해제·래칫 통과) | 없음 |
-| `FoundationSecurityAdvisoriesUnreadable` | 한 출처를 6시간째 못 읽는다. 괄호 안이 까닭: `no-token`(토큰 없음), `github-error`(GitHub 이 거부·시간 초과), `stale`(service checks 가 3시간 넘게 안 돌았다), `too-many`(열린 알림 100개 이상) | 까닭대로. 못 읽는 동안에도 마지막으로 알던 권고는 열린 채로 남는다 |
+| `FoundationSecurityAdvisoriesUnreadable` | 한 출처를 6시간째 못 읽는다. 괄호 안이 까닭: `no-token`(토큰 없음), `github-error`(GitHub 이 거부·시간 초과), `stale`(service checks 가 3시간 넘게 안 돌았다), `too-many`(열린 알림 100개 이상), `no-verdict`(main 의 새 run 셋이 모두 래칫 전에 실패했고 전에 읽은 판정도 없다) | 까닭대로. 못 읽는 동안에도 마지막으로 알던 권고는 열린 채로 남는다 |
 | `FoundationSecurityTokenExpiring` | 토큰이 14일 안에 만료된다 | 아래 1절로 새 토큰을 넣는다 |
 
 같은 권고가 열려 있는 동안 다시 오지 않는다. 알림 기록 보관(`--data.retention=120h`)이 지나면 열린 권고는 한 번 더 온다.

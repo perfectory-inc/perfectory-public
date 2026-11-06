@@ -49,7 +49,7 @@ crates/
   lakehouse/      {lakehouse-domain, lakehouse-application, lakehouse-infrastructure}
   normalization/  {foundation-normalization-domain, -application, -infrastructure}
   stewardship/    {stewardship-domain, stewardship-application, stewardship-infrastructure}
-  technical/      {outbound-http-infrastructure, foundation-shapefile, foundation-disposable-database}
+  technical/      {outbound-http-infrastructure, foundation-shapefile, foundation-disposable-database, foundation-media-renditions}
   ops/foundation-jobs
   publisher/      {foundation-publisher-core, -by-pnu, -collection, -silver, -tiles}
 services/

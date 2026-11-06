@@ -523,10 +523,11 @@ fn the_contract_bakes_parcels_at_maxzoom_detail_14_and_refuses_another_range() -
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     assert_eq!(contract.maxzoom_detail.get("parcels"), Some(&14));
     assert_eq!(contract.maxzoom_detail.get("complex"), None);
-    let args: Vec<String> = tippecanoe_args(&parcel_layer(14, 16), &["pnu".to_owned()], Some(14))
-        .into_iter()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
+    let args: Vec<String> =
+        tippecanoe_args(&parcel_layer(14, 16), &["pnu".to_owned()], Some(14), None)
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
     assert!(args.contains(&"--full-detail=14".to_owned()), "{args:?}");
     for bad in [11, 17] {
         let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
@@ -683,10 +684,11 @@ fn a_container_profile_without_a_memory_cap_is_refused() -> anyhow::Result<()> {
 
 #[test]
 fn tippecanoe_keeps_the_measured_flags_and_adds_only_temp_and_parallel_read() {
-    let args: Vec<String> = tippecanoe_args(&complex_layer(), &complex_layer().properties, None)
-        .into_iter()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
+    let args: Vec<String> =
+        tippecanoe_args(&complex_layer(), &complex_layer().properties, None, None)
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
     assert_eq!(
         args,
         [
@@ -967,6 +969,104 @@ fn the_contract_registers_zoning_partitioned_by_its_layer_code() -> anyhow::Resu
     assert!(
         BakeContract::parse(&value.to_string()).is_err(),
         "no lakehouse: prefix"
+    );
+    Ok(())
+}
+
+fn args_of(unit: &str, layer: &ServedLayer, contract: &BakeContract) -> Vec<String> {
+    tippecanoe_args(
+        layer,
+        &layer.properties,
+        contract.maxzoom_detail.get(unit).copied(),
+        contract.feature_min_zoom.get(unit),
+    )
+    .into_iter()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect()
+}
+
+#[test]
+fn zoning_starts_the_urban_facility_layers_at_z11_by_a_zoom_filter() -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let layer = contract.units_born_from_a_lakehouse_bake["zoning"].served_layer();
+    let args = args_of("zoning", &layer, &contract);
+    let at = args
+        .iter()
+        .position(|arg| arg == "-j")
+        .context("zoning bakes with a feature filter (root ADR-0375 §3)")?;
+    let filter: Value = serde_json::from_str(&args[at + 1])?;
+    let codes: Vec<Value> = (142..=148).map(|code| json!(format!("D{code}"))).collect();
+    let mut not_in = vec![json!("!in"), json!("layer_code")];
+    not_in.extend(codes);
+    // Every other layer, default 10, is the layer's minzoom: no clause of its own.
+    assert_eq!(
+        filter,
+        json!({"zoning": ["all", ["any", not_in, [">=", "$zoom", 11]]]})
+    );
+    // The filter is part of the bake inputs: an index made without it is not this bake's.
+    let mut without = contract.feature_min_zoom.clone();
+    without.remove("zoning");
+    assert_ne!(
+        args,
+        tippecanoe_args(&layer, &layer.properties, None, without.get("zoning"))
+            .into_iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[test]
+fn only_zoning_has_a_feature_filter_and_other_units_bake_as_before() -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    assert_eq!(
+        contract.feature_min_zoom.keys().collect::<Vec<_>>(),
+        ["zoning"]
+    );
+    for (unit, layer) in [
+        ("parcels", parcel_layer(14, 16)),
+        ("complex", complex_layer()),
+        ("admin", complex_layer()),
+    ] {
+        let args = args_of(unit, &layer, &contract);
+        assert!(!args.contains(&"-j".to_owned()), "{unit}: {args:?}");
+        let expected: Vec<String> = tippecanoe_args(
+            &layer,
+            &layer.properties,
+            contract.maxzoom_detail.get(unit).copied(),
+            None,
+        )
+        .into_iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+        assert_eq!(args, expected);
+    }
+    Ok(())
+}
+
+#[test]
+fn a_feature_min_zoom_outside_the_layer_or_on_another_property_is_refused() -> anyhow::Result<()> {
+    for (path, bad) in [
+        ("/feature_min_zoom/zoning/min_zoom/D142", json!(15)),
+        ("/feature_min_zoom/zoning/default", json!(9)),
+        ("/feature_min_zoom/zoning/property", json!("sigungu_code")),
+    ] {
+        let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+        *value.pointer_mut(path).context("contract path")? = bad.clone();
+        assert!(
+            BakeContract::parse(&value.to_string()).is_err(),
+            "{path} = {bad}"
+        );
+    }
+    // A default past the minzoom passes every listed value and the rest only from that zoom.
+    let min_zoom: FeatureMinZoom = serde_json::from_value(
+        json!({"property": "layer_code", "min_zoom": {"D998": 10}, "default": 12}),
+    )?;
+    let layer = BakeContract::parse(CONTRACT_JSON)?.units_born_from_a_lakehouse_bake["zoning"]
+        .served_layer();
+    assert_eq!(
+        serde_json::from_str::<Value>(&min_zoom.filter(&layer).context("a filter")?)?,
+        json!({"zoning": ["all", ["any", ["in", "layer_code", "D998"], [">=", "$zoom", 12]]]})
     );
     Ok(())
 }

@@ -504,7 +504,12 @@ cargo run -p foundation-outbox-publisher -- load-industrial-complex-canonical
 ```
 
 읽기에 `FOUNDATION_PLATFORM_LAKEHOUSE_*`(Iceberg REST) 와 `FOUNDATION_PLATFORM_R2_LAKEHOUSE_*`
-(객체 저장소) 설정이 필요하다. 요약 JSON 이 읽은 행수 · 삽입 · 갱신 · 무변경 · 건너뜀을 낸다.
+(객체 저장소) 설정, 그리고 읽기 키 한 쌍(`FOUNDATION_PLATFORM_LAKEHOUSE_READER_*`, root ADR-0152)이 필요하다.
+요약 JSON 이 읽은 행수 · 삽입 · 갱신 · 무변경 · 건너뜀을 낸다.
+
+시도·시군구 코드와 `sido_name` 은 Gold 를 지을 때 기록된 법정동 코드 쌍으로 현재 코드까지 옮긴 값이다(root ADR-0426).
+코드 변경 기록이 바뀌면 `lineage_stewardship` 이 `industrial_complex_silver_to_gold.py --follow-region-codes` 로 그 짝이
+닿는 단지만 Gold 에서 다시 놓고 이 커맨드를 돌린다. 손으로 할 일은 없다.
 
 주소·상태·지정일·착공일·준공일·관리기관·시행자·시도/시군구 코드에 더해, 분양상태·조성진행률·
 사업기간(원문과 파생 두 달)·지정근거법·개발방식·조성목적·유치업종이 모두 신원 필드와 같은 Gold

@@ -32,7 +32,8 @@ use crate::by_pnu_gateway_contract::{by_pnu_serving_patch_policy, ByPnuLane};
 use crate::by_pnu_section_pack_manifest::SectionPacksState;
 use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_manifest_publish::{
-    document_schema_version, gold_table, readable_document_schema_versions,
+    document_schema_revision, document_schema_version, gold_table,
+    readable_document_schema_versions,
 };
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
@@ -52,6 +53,9 @@ pub struct LaneState {
     gold_iceberg_snapshot_id: Option<String>,
     /// The document schema the export bakes now.
     document_schema_version: &'static str,
+    /// The schema registry revision the export bakes now (root ADR-0336); `None` for a lane the
+    /// registry does not list.
+    document_schema_revision: Option<u32>,
     /// The document schemas a served state may hold for this release to patch over it: the one
     /// it bakes, then the earlier versions that one only adds optional fields to (root ADR-0320).
     readable_document_schema_versions: Vec<&'static str>,
@@ -75,6 +79,10 @@ pub struct PackLaneState {
     newest_document_schema_version: String,
     /// Every schema an answer may be stamped with: the base's and every listed patch's.
     served_document_schema_versions: Vec<String>,
+    /// The registry revision of the base and of every listed patch, in that order, `null` where
+    /// it was not recorded: the bake reads a move to the export's revision as a record that
+    /// explains a change set over the delta bound (root ADR-0336, ADR-0346).
+    served_document_schema_revisions: Vec<Option<u32>>,
     document_count: u64,
     newest_patch: u64,
     /// The most patches any one section reads (its live patches).
@@ -218,6 +226,7 @@ pub async fn read_state(
         gold_table: gold_table(lane),
         gold_iceberg_snapshot_id,
         document_schema_version: document_schema_version(lane),
+        document_schema_revision: document_schema_revision(lane),
         readable_document_schema_versions: readable_document_schema_versions(lane),
         published: PublishedState {
             manifest_schema_version: manifest.wire_schema_version,
@@ -276,6 +285,7 @@ async fn pack_lane_state(
             .into_iter()
             .map(ToOwned::to_owned)
             .collect(),
+        served_document_schema_revisions: packs.served_document_schema_revisions(),
         document_count: packs.document_count,
         newest_patch: packs.newest_patch(),
         max_live_patches: packs

@@ -117,6 +117,19 @@ pub struct ComplexCatalogPage {
     pub size: u32,
     /// 다음 쪽 존재 여부.
     pub has_next: bool,
+    /// 단지가 있는 모든 시도와 그 현재 이름(Foundation 이 법정동 표에서 실어 와요, root ADR-0426).
+    pub sido_facet: Vec<ComplexSidoFacetEntry>,
+}
+
+/// 시도 필터의 선택지 하나.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComplexSidoFacetEntry {
+    /// 2자리 시도 코드.
+    pub sido_code: String,
+    /// 현재 이름. 이름이 실리기 전 적재된 줄이면 없어요.
+    pub sido_name: Option<String>,
+    /// 그 시도의 단지 수.
+    pub complex_count: u64,
 }
 
 /// `/api/complexes` 핸들러 공유 상태.
@@ -407,6 +420,7 @@ mod tests {
                     page: query.page,
                     size: query.size,
                     has_next: false,
+                    sido_facet: Vec::new(),
                 })
             })
         }

@@ -830,8 +830,9 @@ pub(in crate::remote_lakehouse_job) fn export_side_by_side<T: Sync, R: Send>(
 }
 
 /// Exports and loads a release `decide` found the table lacks; returns the rows the loads hold and
-/// whether `main` holds the release now (false: a compare stopped at `deadline` with buckets left,
-/// which the next run resumes, root ADR-0318).
+/// what the run did: `ExportAndLoad` when `main` holds the release now, `LoadInProgress` when the
+/// deadline passed before every batch was staged, `CompareInProgress` when a compare stopped at it
+/// with buckets left; the next run resumes either (root ADR-0318, ADR-0391).
 pub(in crate::remote_lakehouse_job) async fn load(
     contract: &LaneContract,
     rule: &LandRule,
@@ -839,7 +840,7 @@ pub(in crate::remote_lakehouse_job) async fn load(
     runtime: &Runtime,
     catalog: &IcebergRestCatalog,
     deadline: chrono::DateTime<chrono::Utc>,
-) -> anyhow::Result<(u64, bool)> {
+) -> anyhow::Result<(u64, Decision)> {
     let ExportKind::Land { env_prefix } = contract.kind else {
         bail!("a land release runs a land export");
     };
@@ -893,6 +894,11 @@ pub(in crate::remote_lakehouse_job) async fn load(
                 .sum::<u64>();
             continue;
         }
+        // The batches staged so far stay on the branch; the next run stages the rest (ADR-0391).
+        if chrono::Utc::now() >= deadline {
+            println!("silver-refresh lane={lane} batch={index}: the run's deadline passed; staging resumes next run");
+            return Ok((rows, Decision::LoadInProgress));
+        }
         let load = SparkLoad {
             input: batch
                 .iter()
@@ -944,8 +950,9 @@ pub(in crate::remote_lakehouse_job) async fn load(
             true
         }
     };
-    if published {
-        runtime.reset_work()?;
+    if !published {
+        return Ok((rows, Decision::CompareInProgress));
     }
-    Ok((rows, published))
+    runtime.reset_work()?;
+    Ok((rows, Decision::ExportAndLoad))
 }

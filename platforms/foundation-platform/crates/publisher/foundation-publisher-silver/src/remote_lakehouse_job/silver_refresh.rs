@@ -60,8 +60,26 @@ pub(super) const UNIT_TIME_LIMIT_MINUTES: i64 = 150;
 /// measured 2026-10-28), is about 31 minutes at the 2026-10-21 rate (131,664,668 rows in 87 minutes),
 /// so the 40 minutes left hold it and the publish.
 pub(super) const LAST_BUCKET_START_MINUTES: i64 = UNIT_TIME_LIMIT_MINUTES - LARGEST_BUCKET_MINUTES;
-/// What the deadline leaves for the bucket that starts last and the publish (see above).
+/// What the deadline leaves for the bucket that starts last and the publish (see above), for a
+/// lane whose contract measures no `run_budget`.
 const LARGEST_BUCKET_MINUTES: i64 = 40;
+/// A measured run ends inside this share of its unit's limit, the margin #988 left rt-molit's
+/// Silver load and ADR-0386's guard holds every job to (root ADR-0391).
+pub(super) const FIT_SHARE_PERCENT: i64 = 90;
+/// A budget that leaves less than this to start a step would let a run do nothing but export.
+pub(super) const MIN_STEP_START_SECONDS: i64 = 30 * 60;
+
+/// How far into a run the last step may start: the unit's fit less the lane's measured slowest
+/// step (a load batch or a compare bucket, `run_budget.step_seconds_max`), so the step that starts
+/// last still ends inside the fit; without a measured step, the 40-minute default (root ADR-0391).
+/// On 2026-11-03 bucket 41 of `silver.land_transfer_history` took 2,779s, past the default's 40
+/// minutes: started at 110 minutes it would have run into the 150-minute kill.
+pub(super) fn last_step_start_seconds(step_seconds_max: Option<u32>) -> i64 {
+    match step_seconds_max {
+        Some(step) => UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100 - i64::from(step),
+        None => LAST_BUCKET_START_MINUTES * 60,
+    }
+}
 
 /// What the run found, and what it reports on its last line.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,6 +93,9 @@ pub(super) enum Decision {
     /// The release is staged and part of its compare is done; the run's time ran out before the
     /// rest, and `main` is unchanged until the next run finishes it (root ADR-0318).
     CompareInProgress,
+    /// Part of the release is staged on its load branch; the run's time ran out before the next
+    /// batch, and the next run stages the rest without reading the staged batches again (ADR-0391).
+    LoadInProgress,
 }
 
 /// `ExecStopPost`: remove the Spark container a killed run left (the Compose project of this
@@ -92,7 +113,8 @@ pub(super) async fn run() -> anyhow::Result<()> {
         .await
         .context("cannot connect to the Bronze ledger")?;
     let plan = super::optional_bool_lookup(&mut lookup, PLAN_ENV)?.unwrap_or(false);
-    let deadline = chrono::Utc::now() + chrono::Duration::minutes(LAST_BUCKET_START_MINUTES);
+    let deadline = chrono::Utc::now()
+        + chrono::Duration::seconds(last_step_start_seconds(contract.step_seconds_max));
     if let Some(rule) = &contract.land {
         let measured = land::read_measured(&pool, &rule.source).await;
         pool.close().await;
@@ -183,11 +205,9 @@ async fn refresh_land(
         .unwrap_or_default();
     let mut decision = land::decide(&release, &candidates.found, &ingested);
     let rows = if decision == Decision::ExportAndLoad && !plan {
-        let (rows, published) =
+        let (rows, state) =
             land::load(contract, rule, &release, runtime, &catalog, deadline).await?;
-        if !published {
-            decision = Decision::CompareInProgress;
-        }
+        decision = state;
         Some(rows)
     } else {
         None
@@ -261,6 +281,7 @@ pub(super) fn outcome_line(
         Decision::ExportAndLoad => ("changed", "exported_and_loaded"),
         Decision::LoadOnly => ("changed", "loaded_existing_handoff"),
         Decision::CompareInProgress => ("unchanged", "compare_resumes_next_run"),
+        Decision::LoadInProgress => ("unchanged", "load_resumes_next_run"),
     };
     format!(
         "silver-refresh-outcome lane={} outcome={outcome} reason={reason} release={release} identity={identity} rows={}",
@@ -378,6 +399,14 @@ async fn append_changes(
         .load_snapshot_refs(table)
         .await?
         .is_some_and(|refs| refs.refs.contains_key(&compare.branch));
+    if staged && past(compare.deadline_utc.as_deref())? {
+        // A compare started past the deadline only reads both sides to find it has no time for a
+        // bucket; the next run starts it with the whole budget (root ADR-0391).
+        println!(
+            "silver-refresh {table}: the run's deadline passed after staging; comparing next run"
+        );
+        return Ok(false);
+    }
     if staged {
         // Buckets compared against an older main would be published over it: start them again.
         if catalog
@@ -416,6 +445,18 @@ async fn append_changes(
     }
     confirm_recorded(catalog, table, &compare.objects).await?;
     Ok(true)
+}
+
+/// Whether an RFC 3339 deadline has passed; no deadline never has.
+fn past(deadline: Option<&str>) -> anyhow::Result<bool> {
+    Ok(match deadline {
+        Some(deadline) => {
+            chrono::DateTime::parse_from_rfc3339(deadline)
+                .with_context(|| format!("{deadline} is not an RFC 3339 deadline"))?
+                <= chrono::Utc::now()
+        }
+        None => false,
+    })
 }
 
 /// The R2 manifest the hub export publishes after its last part (root ADR-0092).
@@ -664,6 +705,14 @@ async fn refresh_parts(
             );
             rows += batch.iter().map(|part| part.rows).sum::<u64>();
             continue;
+        }
+        // The batches staged so far stay on the branch; the next run stages the rest (ADR-0391).
+        if chrono::Utc::now() >= deadline {
+            println!(
+                "silver-refresh lane={} batch={index}: the run's deadline passed; staging resumes next run",
+                contract.lane.id()
+            );
+            return Ok((Decision::LoadInProgress, key, Some(rows)));
         }
         let load = SparkLoad {
             input: batch

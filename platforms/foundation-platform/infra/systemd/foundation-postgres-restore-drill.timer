@@ -1,0 +1,11 @@
+[Unit]
+Description=Drill the PostgreSQL backup restore weekly, after Sunday's full backup and the identity drill
+
+[Timer]
+OnCalendar=Sun *-*-* 05:30:00
+Persistent=true
+RandomizedDelaySec=30m
+Unit=foundation-postgres-restore-drill.service
+
+[Install]
+WantedBy=timers.target

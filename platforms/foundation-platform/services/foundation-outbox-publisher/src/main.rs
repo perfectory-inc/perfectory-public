@@ -68,19 +68,21 @@ mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
+mod lakehouse_object_listing;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
 mod industrial_complex_silver_export;
-#[cfg(test)]
-mod test_crosswalk;
-use foundation_publisher_silver::lakehouse_engine_contract;
 mod lakehouse_inventory;
 mod lakehouse_quality_rules_evaluate;
 mod lakehouse_registry_control;
+#[cfg(test)]
+mod test_crosswalk;
 use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_silver::land_use_silver_export;
 #[cfg(test)]
 mod main_tests;
+mod media_renditions;
+mod media_store;
 mod onbid_media;
 use foundation_publisher_by_pnu::building_by_pnu_serving_export;
 use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;
@@ -135,7 +137,6 @@ use foundation_publisher_core::runtime_environment;
 use foundation_publisher_silver::remote_lakehouse_job;
 mod serving_source_lineage_register;
 mod shapefile_polygon_reader;
-mod spatial_tile_wap_command;
 mod staging_namespace;
 use foundation_publisher_tiles::static_release_readdress;
 use foundation_publisher_tiles::static_release_toolchain;
@@ -163,6 +164,7 @@ enum Command {
     CollectCourtauctionGoKr,
     CollectDataGoKrRegisteredFactory,
     PlanSilverLoadObjects,
+    ListLakehouseObjects,
     CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
@@ -247,7 +249,6 @@ enum Command {
     LoadIndustrialComplexCanonical,
     IngestVWorldDatasetFiles,
     InventoryVWorldDatasetFiles,
-    ProbeSpatialTileWap,
     PublishIndustrialComplexGoldPointer,
     PublishIndustrialComplexGoldPointers,
     PublishLakehouseLineageEvent,
@@ -334,6 +335,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             Box::pin(data_go_kr_registered_factory_collect::run())
         }
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
+        Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
@@ -555,7 +557,6 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::IngestVWorldDatasetFiles => Box::pin(vworld_dataset_file_ingest::run()),
         Command::InventoryVWorldDatasetFiles => Box::pin(vworld_dataset_file_inventory::run()),
-        Command::ProbeSpatialTileWap => Box::pin(async { spatial_tile_wap_command::run() }),
         Command::RegisterServingSourceLineage => Box::pin(serving_source_lineage_register::run()),
         Command::RunPublisher => Box::pin(run_publisher()),
         // main() runs it before any runtime starts and exits with its outcome.
@@ -669,7 +670,6 @@ where
         Some("write-canonical-release-proof") => Ok(Command::WriteCanonicalReleaseProof),
         Some("plan-provider-acquisition-jobs") => Ok(Command::PlanProviderAcquisitionJobs),
         Some("inventory-vworld-dataset-files") => Ok(Command::InventoryVWorldDatasetFiles),
-        Some("probe-spatial-tile-wap") => Ok(Command::ProbeSpatialTileWap),
         Some("ingest-vworld-dataset-files") => Ok(Command::IngestVWorldDatasetFiles),
         Some("build-industrial-complex-address-resolution") => {
             Ok(Command::BuildIndustrialComplexAddressResolution)
@@ -682,6 +682,7 @@ where
             Ok(Command::CollectDataGoKrRegisteredFactory)
         }
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
+        Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
         }

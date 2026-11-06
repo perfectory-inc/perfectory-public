@@ -67,6 +67,8 @@ ADDED_COLUMNS = (
     "development_stage",
     "kind_raw",
     "status_raw",
+    # The current 시도 name the build reads off the 법정동 code table (root ADR-0426).
+    "sido_name",
     "management_agency_name",
     "developer_name",
     "designated_date",
@@ -245,6 +247,10 @@ class GoldProjectionColumnTest(unittest.TestCase):
             with self.subTest(column=column):
                 inputs = lineage[column]
                 self.assertEqual(len(inputs), 1)
+                if column == "sido_name":
+                    # Not a Silver column: the 법정동 code table names the current code (root ADR-0426).
+                    self.assertEqual(inputs[0]["dataset"], job.LEGAL_DONG_SNAPSHOT_TABLE)
+                    continue
                 self.assertEqual(inputs[0]["dataset"], job.SILVER_CONTRACT_NAME)
                 # Gold names the kind `kind`, so its source words follow it as `kind_raw`.
                 silver_column = "complex_kind_raw" if column == "kind_raw" else column

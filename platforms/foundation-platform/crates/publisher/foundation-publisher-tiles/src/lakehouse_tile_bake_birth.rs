@@ -119,7 +119,7 @@ pub(super) async fn bear(
         summary.geometry_srid,
         &layer,
         &prepared.0,
-        config.maxzoom_detail,
+        config,
     );
     if config.rehearsal {
         return rehearse(

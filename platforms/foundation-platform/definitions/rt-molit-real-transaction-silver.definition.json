@@ -20,6 +20,23 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/rt-molit-real-transaction.contract.json#/silver_load/max_objects"
+        ],
+        "deadline": "infra/lakehouse/contracts/rt-molit-real-transaction.contract.json#/silver_load/run_time_budget_seconds",
+        "measured_run_seconds": {
+          "runs": 86,
+          "p50": 4,
+          "p90": 189,
+          "max": 314,
+          "timeouts": 0,
+          "from": "2026-10-31T00:55:02Z",
+          "to": "2026-11-03T15:50:32Z",
+          "from_change": "#988 merged 2026-10-31T00:50:11Z, the cap measured after the 2026-10-30 40-minute kills"
+        }
+      },
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 10,

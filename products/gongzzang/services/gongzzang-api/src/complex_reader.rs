@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::routes::complexes::search::ComplexSearchRequest;
 use crate::routes::complexes::{
     ComplexCatalogError, ComplexCatalogListRecord, ComplexCatalogPage, ComplexCatalogReader,
-    ComplexCatalogRecord, ComplexGoldProfileRef, ComplexSearchRejected,
+    ComplexCatalogRecord, ComplexGoldProfileRef, ComplexSearchRejected, ComplexSidoFacetEntry,
 };
 use foundation_platform_client::{
     CatalogIndustrialComplexListResponse, CatalogIndustrialComplexResponse,
@@ -174,6 +174,15 @@ fn complex_page_from_response(page: CatalogIndustrialComplexListResponse) -> Com
         page: page.page,
         size: page.size,
         has_next: page.has_next,
+        sido_facet: page
+            .sido_facet
+            .into_iter()
+            .map(|entry| ComplexSidoFacetEntry {
+                sido_code: entry.sido_code,
+                sido_name: entry.sido_name,
+                complex_count: entry.complex_count,
+            })
+            .collect(),
     }
 }
 

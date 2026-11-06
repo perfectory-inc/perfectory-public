@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The regulation-zone map tiles (root ADR-0373; scripts/ops/zoning-tile-bake.sh): unless the tiles already show silver.land_use_zone_area's current snapshot (`unchanged`, nothing read), hand its current zones to bake-lakehouse-tiles as unit `zoning` (land_use_zone_area_tile_handoff.py, feature id <layer_code>:<zone_feature_id>:<sigungu_code>). The first run registers the unit with its first release (root ADR-0374); every later run publishes only the tiles the changed zones touch as a patch (root ADR-0323), and when the patch bounds say a new base, rebakes only the layers whose rows changed (partitioned by layer, root ADR-0316). The layers the lane does not load yet (lane contract pending_regions, RAON only) are named in the run's summary and journal. Started when the Silver lane reports a change, and daily as the fallback.",
+      "description": "The regulation-zone map tiles (root ADR-0373; scripts/ops/zoning-tile-bake.sh): unless the tiles already show silver.land_use_zone_area's current snapshot (`unchanged`, nothing read), first maintain gold.land_use_zone_area_by_tile, every zone filed under each z10 tile it touches, from only the Silver rows appended since the snapshot it last maintained (an Iceberg incremental append read; its first build reads the current rows once), then hand bake-lakehouse-tiles unit `zoning` only the current zones of the z10 tiles the changed zones touch and the changed ids (land_use_zone_area_tile_handoff.py, root ADR-0375 §2). The bake merges that change list into the served snapshot's feature index and publishes only the tiles the changes touch as a patch (root ADR-0323). A partial handoff never becomes a base: when the patch path declines, the bake exits 65 with lakehouse-tile-bake-partial-declined and the job hands it every current zone instead (the declared full exception), which rebakes only the layers whose rows changed (partitioned by layer, root ADR-0316). The first run registers the unit with its first release (root ADR-0374). The layers the lane does not load yet (lane contract pending_regions, RAON only) are named in the run's summary and journal, and so are the rows each run read. Started when the Silver lane reports a change, and daily as the fallback.",
       "systemd_service": "foundation-zoning-tile-bake.service",
       "systemd_timer": null,
       "state_paths": [
@@ -19,12 +19,28 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 2,
+          "p50": 44,
+          "p90": 110,
+          "max": 110,
+          "timeouts": 0,
+          "from": "2026-11-03T22:21:36Z",
+          "to": "2026-11-05T02:34:05Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
       "retries": 0,
       "pipeline_graph_edges": [
-        "silver-land-use-zone-area-to-zoning-overlay-tiles"
+        "silver-land-use-zone-area-to-zoning-overlay-tiles",
+        "silver-land-use-zone-area-to-gold-land-use-zone-area-by-tile",
+        "gold-land-use-zone-area-by-tile-to-zoning-overlay-tiles"
       ],
       "enabled": true,
       "enabled_since": "2026-11-04T00:00:00Z"
@@ -43,6 +59,25 @@
         "platforms/foundation-platform/config/r2-connections.contract.json"
       ],
       "surface_kind": "tiles"
+    },
+    {
+      "id": "gold-land-use-zone-area-by-tile",
+      "type": "gold_table",
+      "title": "규제 구역 타일 색인",
+      "description": "규제 구역마다 그 상자가 닿는 z10 타일 아래에 한 줄씩 둔다(루트 ADR-0375 §2). 타일 키로 파티션해 규제 구역 타일 넘김이 바뀐 구역이 닿는 타일만 읽는다. Silver 에 덧붙은 행만 읽어 유지하고, 구역이 타일을 떠나거나 사라지면 그 타일에 삭제 표시를 덧붙인다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/config/tile-bake-containers.contract.json"
+      ],
+      "table_name": "gold.land_use_zone_area_by_tile",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.land_use_zone_area_by_tile"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -57,6 +92,30 @@
         "platforms/foundation-platform/scripts/ops/zoning-tile-bake.sh"
       ],
       "description": "Silver 현재 행을 한 스냅숏에 고정해 넘기고, 바뀐 구역이 닿는 타일만 패치로 낸다(루트 ADR-0373, ADR-0323). 서빙 Gold 표는 두지 않는다: 편집이 없어 Silver 현재 행이 곧 타일이다."
+    },
+    {
+      "from": "silver-land-use-zone-area",
+      "to": "gold-land-use-zone-area-by-tile",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/land_use_zone_area_by_tile.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/land_use_zone_area_tile_handoff.py",
+        "platforms/foundation-platform/scripts/ops/zoning-tile-bake.sh"
+      ],
+      "description": "서빙한 판 이후 Silver 에 덧붙은 행만 읽어(Iceberg 증분 append 읽기) 그 구역의 옛 타일 소속을 찾고 새 소속과 삭제 표시를 덧붙인다. 첫 유지만 현재 행 전부를 읽는다(선언된 전량 예외)."
+    },
+    {
+      "from": "gold-land-use-zone-area-by-tile",
+      "to": "zoning-overlay-tiles",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/land_use_zone_area_tile_handoff.py",
+        "bake-lakehouse-tiles",
+        "platforms/foundation-platform/scripts/ops/zoning-tile-bake.sh"
+      ],
+      "description": "바뀐 구역의 옛·새 상자가 닿는 z10 타일 파티션의 현재 행(이웃)과 바뀐 id 목록만 넘긴다. 굽기는 옛 지문 색인에 목록을 합쳐 패치를 낸다. 패치를 못 하면 넘김을 전량으로 다시 한다(루트 ADR-0375 §2)."
     }
   ],
   "host_memory": {

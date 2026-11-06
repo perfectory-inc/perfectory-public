@@ -349,6 +349,17 @@ class FieldInventoryTest(unittest.TestCase):
         self.assertEqual((row["media_kind"], row["sha256"], row["sequence"]), ("location_map", a, 0))
         self.assertEqual(job.unrepresented([self._detail([it])], "item_detail"), [])
 
+    def test_a_photos_original_lands_beside_its_thumbnail_at_its_sequence(self) -> None:
+        # 2026-11-06: potoUrlList served 178x134 thumbnails; the original is kept beside (root ADR-0424).
+        a, b = "a" * 64, "b" * 64
+        it = {"cltrMngNo": "X-1", "pbctCdtnNo": 1,
+              "potoUrlList": [{"urlAdr": f"sha256:{a}", "sha256": a, "media_format": "jpg", "size_bytes": 3}],
+              "potoUrlListOriginal": [{"sequence": 0, "sha256": b, "media_format": "jpg", "size_bytes": 900}]}
+        rows = job.photo_rows_of([self._detail([it])], "k", "s", NOW)
+        self.assertEqual(sorted((r["media_kind"], r["sha256"][0], r["sequence"], r["size_bytes"]) for r in rows),
+                         [("photo", "a", 0, 3), ("photo_original", "b", 0, 900)])
+        self.assertEqual(job.unrepresented([self._detail([it])], "item_detail"), [])
+
     def test_the_item_columns_are_the_ones_before_the_inventory(self) -> None:
         row = job.item_row(item(prptDivNm="압류재산", cltrUsgSclsCtgrNm="대지", apslPrcCtrsLowstBidRto="90"), CONTRACT)
         self.assertEqual((row["prpt_div_nm"], row["cltr_usg_scls_ctgr_nm"], row["apsl_prc_ctrs_lowst_bid_rto"]),

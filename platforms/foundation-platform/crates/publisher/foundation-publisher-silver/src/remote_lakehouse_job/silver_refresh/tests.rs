@@ -801,3 +801,56 @@ fn spark_gets_secrets_by_name_and_the_lane_contracts_runner_values() -> anyhow::
     );
     Ok(())
 }
+
+/// Root ADR-0391: a lane that measured its slowest step starts its last step early enough that the
+/// step ends inside the fit of its unit, from the measured number (rt-molit's `FitsItsUnit`, #988).
+#[test]
+fn a_measured_lane_starts_its_last_step_early_enough_to_end_inside_its_unit() -> anyhow::Result<()>
+{
+    let fit = UNIT_TIME_LIMIT_MINUTES * 60 * FIT_SHARE_PERCENT / 100;
+    let mut measured = Vec::new();
+    for lane in Lane::ALL {
+        let contract = lane.contract()?;
+        let Some(step) = contract.step_seconds_max else {
+            continue;
+        };
+        let start = last_step_start_seconds(Some(step));
+        assert!(
+            start >= MIN_STEP_START_SECONDS && start + i64::from(step) <= fit,
+            "{}: a step of {step}s started at {start}s does not end inside {fit}s",
+            lane.id()
+        );
+        measured.push(lane);
+    }
+    // The lanes whose measured runs did not fit their unit (2026-10-20, 10-21, 11-03).
+    for lane in [Lane::ApartmentPrice, Lane::LandTransferHistory] {
+        assert!(
+            measured.contains(&lane),
+            "{} measures no run_budget",
+            lane.id()
+        );
+    }
+    // Without a measured step, the default the other lanes keep.
+    assert_eq!(
+        last_step_start_seconds(None),
+        LAST_BUCKET_START_MINUTES * 60
+    );
+    Ok(())
+}
+
+#[test]
+fn a_step_too_long_for_its_unit_or_an_unmeasured_budget_is_refused() -> anyhow::Result<()> {
+    // Synthetic: the 전유공용면적 one-run load is one Spark step of 7,246s (2026-10-20), which leaves
+    // a run 854s to start it; the guard refuses it rather than let the unit kill the run.
+    for (step, measured) in [(7_246, "2026-10-20 journal"), (2_805, " "), (0, "x")] {
+        let text = planted(Lane::LandTransferHistory, |v| {
+            v["silver_refresh"]["run_budget"] =
+                serde_json::json!({"step_seconds_max": step, "measured": measured});
+        })?;
+        assert!(
+            LaneContract::parse(Lane::LandTransferHistory, &text).is_err(),
+            "accepted {step}s measured {measured:?}"
+        );
+    }
+    Ok(())
+}

@@ -31,27 +31,6 @@ export const TILE_UNIT_LABEL: Record<string, string> = {
   parcel: "필지",
 };
 
-/** Two-digit province codes (행정표준코드), for the complex filter. */
-export const SIDO_LABEL: Record<string, string> = {
-  "11": "서울",
-  "26": "부산",
-  "27": "대구",
-  "28": "인천",
-  "29": "광주",
-  "30": "대전",
-  "31": "울산",
-  "36": "세종",
-  "41": "경기",
-  "43": "충북",
-  "44": "충남",
-  "46": "전남",
-  "47": "경북",
-  "48": "경남",
-  "50": "제주",
-  "51": "강원",
-  "52": "전북",
-};
-
 /**
  * The word to show for a coded value: the source's own word when the platform carries it
  * (`*_raw`, root ADR-0117 §5), otherwise this screen's table, otherwise the code itself. The

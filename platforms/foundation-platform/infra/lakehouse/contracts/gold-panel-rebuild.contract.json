@@ -102,7 +102,11 @@
       "regulation_zones_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
       "regulation_zones_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "court_auction_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
-      "court_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs."
+      "court_auction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "real_transaction_silver_to_gold.affected_dongs": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "real_transaction_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "real_transaction_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "real_transaction_silver_to_gold.under": "As parcel_panel_silver_to_gold.restrict_inputs: the 법정동 filter the restriction and the change map share."
     },
     "scoped_contracts": {
       "industrial_complex_lakehouse_contracts.json": {
@@ -138,6 +142,13 @@
       "parcel-court-auction": {
         "max_row_loss_fraction": 0.5,
         "max_row_loss_reason": "The 경매 kind's rows are the parcels with a court auction item in progress as of the build (root ADR-0353), which leave as their sale dates pass and arrive as cases are listed: like the 공매 kind, the count swings day to day, unlike the slowly-growing registers the 1% default is for. The bound catches a catastrophic loss (the item Silver lost a region, a join broke, a night's pass loaded only in part) rather than daily variation; tighten it once a month of daily counts is measured."
+      },
+      "parcel-real-transaction": {
+        "incremental": {
+          "max_changed_key_fraction": 0.3,
+          "parity_sample_keys": 1000,
+          "reason": "Root ADR-0371 §3: the unit of change is the 법정동, so a parity PNU is rebuilt from every deal, parcel and register of its 법정동. 20,000 PNUs drawn from the ~40M served parcels fall in most of the ~20,000 법정동 that hold parcels, which would read most of the deals on every run; 1,000 reach about 5% of them and still prove the current Gold is what the build makes of its pins (any disagreement falls back to the full build)."
+        }
       }
     },
     "incremental": {

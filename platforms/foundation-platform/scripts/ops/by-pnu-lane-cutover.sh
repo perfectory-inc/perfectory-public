@@ -12,6 +12,9 @@
 #
 # For each lane, in order, each step only after the one before passed:
 #
+#   history    the lane line's first_publish_waits_for_history (root ADR-0350 §6, ADR-0371 §5): every
+#              month of those 실거래 datasets is loaded (scripts/ops/serving_history_readiness.py,
+#              read with the operations map's reader token); a lane without it is `not-declared`
 #   preview    the lane's and its latency baseline lane's preview hostnames answer their
 #              capabilities path (gate (나) reads both)
 #   gold       the operator's `<lane> gold-rebuild`: gold-panel-rebuild.sh <the table's unit>, the
@@ -36,7 +39,9 @@
 # Two guards around every step that is not read-only:
 #   - the daily scheduled window: no step starts unless it would end, at its time budget below,
 #     before the first daily Spark job of orchestration/jobs.v1.json starts, or after the last one
-#     started plus WINDOW_TAIL_MINUTES. The window is computed from that file, not written here.
+#     started plus the tail. The window is job_units.py's (scheduled_window), computed from that
+#     file; the scheduler's runner keeps the clock-started batch it places inside it out of the rest
+#     of the day, the operator window (start-scheduled-job.sh, root ADR-0425).
 #   - one Spark job at a time: before `gold` and `bake` the run waits (up to SPARK_WAIT_MINUTES)
 #     until no unit of a spark-pool job, Gold rebuild or pack bake runs. The operator refuses again
 #     on its own when one does (exit 75).
@@ -64,23 +69,23 @@ GOLD_STATE_ROOT="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-
 # The FOUNDATION_CUTOVER_* overrides exist for the tests; the operator's sudo grant resets them.
 POLL_SECONDS="${FOUNDATION_CUTOVER_POLL_SECONDS:-60}"
 SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-45}"
-WINDOW_TAIL_MINUTES=15
 now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 
 # Each step's time budget in minutes: the window guard starts a step only if this much time is
 # left before the window. Gold and bake are twice ADR-0193 §7's targets (Gold full ≤ 30 min for the
 # heaviest kind, bake generation ≤ 30 min); the gates are the publisher's, measured at the parcel and
 # building cut-overs well inside these.
-declare -A BUDGET=([preview]=1 [gold]=60 [parity]=0 [bake]=60 [equality]=30 [latency]=20 [publish]=30
+declare -A BUDGET=([history]=0 [preview]=1 [gold]=60 [parity]=0 [bake]=60 [equality]=30 [latency]=20 [publish]=30
   [monitor-sample]=1)
-STEPS=(preview gold parity bake equality latency publish monitor-sample)
+STEPS=(history preview gold parity bake equality latency publish monitor-sample)
 
 # One line per lane to cut over: lane, gold table, rebuild unit, parity argument or -, preview
-# hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file.
+# hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file,
+# the 실거래 datasets whose history it waits for (comma-separated) or -.
 # Then a last line: the window's start and end in minutes of the UTC day, and the spark-pool units.
-mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" "${WINDOW_TAIL_MINUTES}" <<'PY'
+mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" <<'PY'
 import json, os, sys
-root, target, etc, tail = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+root, target, etc = sys.argv[1], sys.argv[2], sys.argv[3]
 def load(path):
     with open(os.path.join(root, path), encoding="utf-8") as handle:
         return json.load(handle)
@@ -88,7 +93,8 @@ r2 = load("config/r2-connections.contract.json")
 # Every table the rebuild builds and every lane's fields, a kind line's derived (root ADR-0193 §9).
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(root, "infra/lakehouse/spark/jobs"))
-import by_pnu_kinds, gold_rebuild  # noqa: E402
+sys.path.insert(0, os.path.join(root, "scripts/deploy"))
+import by_pnu_kinds, gold_rebuild, job_units  # noqa: E402
 rebuild = gold_rebuild.load_contract()["tables"]
 groups = {group["name"]: group["path"] for group in load("config/runtime-secrets.contract.json")["groups"]}
 jobs = load("orchestration/jobs.v1.json")["jobs"]
@@ -133,21 +139,17 @@ for lane in chosen:
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"
     print(lane, entry["gold_table"], table["unit"], parity,
           own["section_packs"]["preview_worker"]["public_hostname"], capabilities,
-          base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor)
+          base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor,
+          ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-")
 
-# The daily scheduled window: from the first daily start of a spark-pool job to the last daily
-# start plus the tail. Hourly jobs (hour `*`) are not the window; the Spark wait catches them.
-daily, units = [], set()
-for job in jobs:
-    if job.get("pool") != "spark":
-        continue
-    units.add(job["systemd_service"])
-    minute, hour, *rest = job["schedule"].split()
-    if minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"]:
-        daily.append(int(hour) * 60 + int(minute))
-if not daily:
-    sys.exit("orchestration/jobs.v1.json has no daily spark-pool job to place the window at")
-print("window", min(daily), max(daily) + tail, " ".join(sorted(units)))
+# The daily scheduled window (job_units.py). Hourly jobs (hour `*`) are not the window; the Spark
+# wait catches them.
+units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"})
+try:
+    start, end = job_units.scheduled_window(jobs)
+except ValueError as error:
+    sys.exit(f"orchestration/jobs.v1.json: {error}")
+print("window", start, end, " ".join(units))
 PY
 ) || refuse "cannot read the lanes to cut over from the contracts" 65
 ((${#PLAN[@]} > 0)) || refuse "cannot read the lanes to cut over from the contracts" 65
@@ -183,7 +185,7 @@ if [[ -n "${DRY_RUN}" ]]; then
   running="$(spark_running)"
   [[ -z "${running}" ]] || log "dry run: Spark runs now ($(cut -d' ' -f1 <<<"${running}" | paste -sd' ')); gold and bake would wait"
   for entry in ${PLAN[@]+"${PLAN[@]}"}; do
-    read -r lane table unit parity preview path base base_path monitor <<<"${entry}"
+    read -r lane table unit parity preview path base base_path monitor history <<<"${entry}"
     for host_path in "${preview}${path}" "${base}${base_path}"; do
       code="$(preview_answers "${host_path%%/*}" "/${host_path#*/}")"
       log "dry run ${lane}: https://${host_path} answers ${code:-nothing}"
@@ -191,6 +193,7 @@ if [[ -n "${DRY_RUN}" ]]; then
     done
     for step in "${STEPS[@]}"; do
       case "${step}" in
+        history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: every month of ${history} is loaded" ;;
         preview) what="GET the two capabilities paths above" ;;
         gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table})" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
@@ -232,7 +235,7 @@ wait_for_spark() {  # lane step
 log "run ${RUN_ID}: generation ${GENERATION}, lanes: $(for e in ${PLAN[@]+"${PLAN[@]}"}; do printf '%s ' "${e%% *}"; done)"
 ((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"; exit 0; }
 for entry in "${PLAN[@]}"; do
-  read -r lane table unit parity preview path base base_path monitor <<<"${entry}"
+  read -r lane table unit parity preview path base base_path monitor history <<<"${entry}"
   lane_started="$(now)" gold_output=""
   for step in "${STEPS[@]}"; do
     [[ "${step}" == gold || "${step}" == bake ]] && wait_for_spark "${lane}" "${step}"
@@ -241,6 +244,15 @@ for entry in "${PLAN[@]}"; do
     started="$(now)" reason=""
     log "${lane} ${step}: starting"
     case "${step}" in
+      history)
+        if [[ "${history}" == - ]]; then
+          record "${lane}" "${step}" not-declared 0 "the lane line waits for no history"
+          log "${lane} history: not-declared"
+          continue
+        fi
+        reason="$( (set -a; [[ ! -r "${ETC}/operations-map.env" ]] || . "${ETC}/operations-map.env"; set +a
+                    python3 -I -B "${PLATFORM_ROOT}/scripts/ops/serving_history_readiness.py" "${lane}" 2>&1) )"           || fail "${lane}" "${step}" "$(($(now) - started))" "${reason:-serving_history_readiness.py ${lane} could not tell}"
+        ;;
       preview)
         for host_path in "${preview}${path}" "${base}${base_path}"; do
           code="$(preview_answers "${host_path%%/*}" "/${host_path#*/}")"

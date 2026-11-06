@@ -20,6 +20,24 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 8,
+          "p50": 4,
+          "p90": 9009,
+          "max": 9009,
+          "timeouts": 1,
+          "from": "2026-10-16T03:54:06Z",
+          "to": "2026-11-03T15:50:32Z"
+        },
+        "open_exception": {
+          "why": "Timed out 2026-10-21T03:48Z at 9,009 s; on 2026-11-03 a run took 7,415 s (82% of the limit).",
+          "tracked_by": "root ADR-0386 §5: the refresh lanes take a per-run bucket cap and a deadline (root ADR-0318, #914)"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 4,

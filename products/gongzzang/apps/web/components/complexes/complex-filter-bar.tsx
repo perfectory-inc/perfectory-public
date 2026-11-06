@@ -8,13 +8,14 @@ import {
   SelectValue,
 } from "@gongzzang/ui";
 import { useTranslations } from "next-intl";
+import type { SidoFacetEntry } from "@/lib/complexes/api";
 import {
   COMPLEX_SORTS,
   COMPLEX_STATUS_FILTERS,
   type ComplexFilters,
   type ComplexSortKey,
+  isSidoCode,
 } from "@/lib/complexes/filters";
-import { isSidoCode, SIDO_CODES } from "@/lib/complexes/sido";
 import type { ComplexStatus } from "@/lib/complexes/wire-values";
 
 /**
@@ -34,6 +35,7 @@ export function ComplexFilterBar({
   filters,
   total,
   shown,
+  sidoFacet,
   onPatch,
 }: {
   filters: ComplexFilters;
@@ -41,10 +43,11 @@ export function ComplexFilterBar({
   total: number | undefined;
   /** Rows on the current page. */
   shown: number;
+  /** 시도 options from the API (root ADR-0426); empty before the first page arrives. */
+  sidoFacet: readonly SidoFacetEntry[];
   onPatch: (patch: Partial<ComplexFilters>) => void;
 }) {
   const t = useTranslations("complexes");
-  const tSido = useTranslations("complexes.sido");
   const tStatus = useTranslations("complexValues.status");
 
   const statusOptions = COMPLEX_STATUS_FILTERS.map((value) => ({
@@ -68,9 +71,9 @@ export function ComplexFilterBar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ANY_SIDO}>{t("filter.anySido")}</SelectItem>
-            {SIDO_CODES.map((code) => (
-              <SelectItem key={code} value={code}>
-                {tSido(code)}
+            {sidoFacet.map((entry) => (
+              <SelectItem key={entry.sido_code} value={entry.sido_code}>
+                {entry.sido_name ?? entry.sido_code}
               </SelectItem>
             ))}
           </SelectContent>

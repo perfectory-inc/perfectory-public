@@ -1,0 +1,346 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-real-transaction",
+  "jobs": [
+    {
+      "id": "gold_parcel_real_transaction_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "실거래 kind Gold (root ADR-0350, ADR-0371; scripts/ops/gold-panel-rebuild.sh parcel-real-transaction): gold.parcel_real_transaction from silver.real_transaction, every deal placed again from its address and lot through the one place-identity resolver (never the Silver's pnu), daily at 09:50, as the 공매 kind's Gold: its Silver loads hourly, and an input-started Gold would wait in the spark pool behind every job within 20 of those hourly cycles; a run whose inputs did not move past the pins the current Gold recorded does nothing. It recomputes only the PNUs of the 법정동s a change reaches (the deals the load appended, both codes of a changed code pair through views.changed_codes, changed parcels, registers, owners and lineage, and the 법정동s whose window lost a month) and merges them; nothing rebuilds it whole. Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_real_transaction_bake bakes its commit.",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-real-transaction.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "50 9 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-real-transaction-to-gold-parcel-real-transaction",
+        "reference-legal-dong-code-change-to-gold-parcel-real-transaction",
+        "reference-legal-dong-code-snapshot-to-gold-parcel-real-transaction",
+        "silver-land-characteristic-to-gold-parcel-real-transaction",
+        "silver-building-register-titles-to-gold-parcel-real-transaction",
+        "silver-land-ownership-to-gold-parcel-real-transaction",
+        "silver-parcel-lineage-to-gold-parcel-real-transaction",
+        "silver-real-transaction-to-gold-real-transaction-region-stats",
+        "reference-legal-dong-code-change-to-gold-real-transaction-region-stats",
+        "gold-real-transaction-region-stats-to-gold-parcel-real-transaction"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0371). Off until its first full build has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh parcel-real-transaction gold-rebuild; measured 2026-11-03: 828,897 deal rows loaded; computed: about 210 thousand a month across the 12 datasets, so about 50 million once their 250 months of history are in, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4)."
+    },
+    {
+      "id": "by_pnu_parcel_real_transaction_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_real_transaction (the own-producer 실거래 kind, root ADR-0371) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-real-transaction), as section packs (root ADR-0147, ADR-0193 §9): a change set decides a create-only patch, a reflect-only manifest or a full new generation, exactly as the panel bake does per lane. Its own job, as every own-producer kind's (root ADR-0303 §2): a slow national parcel re-bake in by_pnu_serving_bake never holds it. Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_real_transaction_rebuild commits a new snapshot, and at 10:50 as the fallback (root ADR-0171); each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). Two slots and MemoryMax=5G, the public-auction bake's bound: a scheduled run patches the parcels of the 법정동s a day's deals changed, and the lane's whole generation is the operator's cut-over bake (root ADR-0190), not this job's. Two slots, as the ownership bake, so it never runs beside both the panel bake and another 5G bake (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-real-transaction.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "50 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-real-transaction-to-parcel-real-transaction-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0371). Off with gold_parcel_real_transaction_rebuild, which feeds it, and until the operator has cut the lane over (by-pnu-pack-operator.sh parcel-real-transaction cutover 1, root ADR-0190), which the cut-over refuses until the three industrial datasets' history is whole (first_publish_waits_for_history, root ADR-0350 §6); switching both on is one separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-real-transaction",
+      "type": "gold_table",
+      "title": "필지 실거래 by-PNU 표",
+      "description": "PNU마다 그 필지로 이어진 실거래(12종, 해제 포함)와, 공장용지·창고용지 필지면 같은 법정동의 공장창고 거래 새 20건, 법정동의 12개월 건수·m²당 금액 사분위를 담는 데이터 종류 표(루트 ADR-0350, ADR-0371). 매 빌드 원천 주소·지번에서 정본 해석기로 다시 잇고, 바뀐 법정동만 다시 계산한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_real_transaction",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_real_transaction"
+        }
+      ]
+    },
+    {
+      "id": "parcel-real-transaction-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 실거래 by-PNU 묶음 파일",
+      "description": "gold.parcel_real_transaction 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/real-transaction/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0371). 첫 발행은 운영자의 묶음 전용 관문을 거치고, 산업용 세 종의 이력이 다 차기 전에는 거부된다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    },
+    {
+      "id": "gold-real-transaction-region-stats",
+      "type": "gold_table",
+      "title": "실거래 지역 통계",
+      "description": "(데이터셋, 법정동·시군구, 계약 달 또는 빌드 달 앞 12개월)마다 거래 수·해제 수와 해제되지 않은 거래의 m²당 금액(대지·계약면적, 토지 아닌 것은 건물면적) 사분위를 만원으로 담는다(루트 ADR-0350 4항, ADR-0371). 거래의 현재 법정동으로 세므로 코드 변경을 따라간다. 실거래 종류와 한 실행에서 같은 거래로 만들고, 변경이 닿은 시군구만 다시 계산해 키로 합친다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "table_name": "gold.real_transaction_region_stats",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.real_transaction_region_stats"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-real-transaction",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "자기 생산자를 가진 종류(루트 ADR-0287 9항, ADR-0371): 현재 거래 행을 주소·지번에서 매 빌드 다시 이어 PNU 문서로 묶는다. Silver 의 pnu·법정동은 읽지 않는다. 적재가 덧붙인 행의 법정동만 다시 계산한다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "코드 쌍으로 옛 코드의 거래를 현재 코드로 옮긴다. 바뀐 쌍의 두 코드 아래 법정동만 다시 계산한다(views.changed_codes, 루트 ADR-0329 3항)."
+    },
+    {
+      "from": "reference-legal-dong-code-snapshot",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "거래의 시군구 주소를 가장 새 스냅숏의 법정동 이름으로 코드에 잇는다. 이름이 바뀐 코드의 법정동만 다시 계산한다."
+    },
+    {
+      "from": "silver-land-characteristic",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "비교 거래를 싣는 지목(공장용지·창고용지)과 가린 지번 추정의 면적·용도지역을 읽는다(루트 ADR-0351)."
+    },
+    {
+      "from": "silver-building-register-titles",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "가린 지번 추정의 사용승인 연도·연면적을 읽는다(루트 ADR-0351)."
+    },
+    {
+      "from": "silver-land-ownership",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "가린 지번 추정의 소유권 변동을 읽는다(루트 ADR-0351, ADR-0370)."
+    },
+    {
+      "from": "silver-parcel-lineage",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "계약 뒤 분할·합병된 필지의 거래를 계보로 현재 필지에 옮긴다(공매와 같은 placed)."
+    },
+    {
+      "from": "gold-parcel-real-transaction",
+      "to": "parcel-real-transaction-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    },
+    {
+      "from": "silver-real-transaction",
+      "to": "gold-real-transaction-region-stats",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "description": "거래를 주소의 현재 법정동과 계약 달로 묶는다. 적재가 덧붙인 거래의 시군구만 다시 계산한다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-real-transaction-region-stats",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "코드 쌍으로 옛 코드의 거래를 현재 코드의 통계로 옮긴다. 바뀐 쌍의 두 코드가 걸친 시군구만 다시 계산한다(views.changed_codes)."
+    },
+    {
+      "from": "gold-real-transaction-region-stats",
+      "to": "gold-parcel-real-transaction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      ],
+      "description": "문서의 region 은 그 법정동의 앞 12개월 통계 행이다(같은 실행의 같은 계산)."
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-real-transaction": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "real-transaction",
+      "section": "real_transaction",
+      "columns": [
+        "real_transaction_json",
+        "transaction_total:long"
+      ],
+      "producer": "real_transaction_silver_to_gold",
+      "decision": "docs/adr/0371-the-real-transaction-kind-is-built-by-legal-dong-and-its-first-publish-waits-for-the-industrial-history.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_real_transaction_gold.py",
+      "first_publish_waits_for_history": [
+        "real_transaction_industrial_trade",
+        "real_transaction_land_trade",
+        "real_transaction_commercial_trade"
+      ],
+      "first_publish_waits_for_history_reason": "root ADR-0350 §6, ADR-0371 §5: a half-filled history reads as 'no deal' on the screen, so the lane's first cutover (by-pnu-pack-operator.sh <lane> cutover) is refused until silver.real_transaction's commits record every month of these datasets from their first_month (rt-molit-real-transaction.contract.json) to the last whole month (scripts/ops/serving_history_readiness.py). The three are the contract's priority, the industrial datasets the collector fills first"
+    }
+  },
+  "host_memory": {
+    "gold_parcel_real_transaction_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_parcel_real_transaction_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_real_transaction_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-real-transaction",
+        "producer": "infra/lakehouse/spark/jobs/real_transaction_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_real_transaction_by_pnu.v1",
+          "decision": "docs/adr/0371-the-real-transaction-kind-is-built-by-legal-dong-and-its-first-publish-waits-for-the-industrial-history.md",
+          "reason": "the first document: a parcel's 실거래 deals of all 12 datasets, the 공장창고 comparables of its 법정동 and the 법정동's 12-month counts and m² price quartiles, from silver.real_transaction placed again on every build; the Gold JSON column as written, nulls included"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "source",
+              "required": true
+            },
+            {
+              "path": "real_transaction",
+              "required": true
+            },
+            {
+              "path": "transaction_total",
+              "required": false
+            },
+            {
+              "path": "attached_via",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

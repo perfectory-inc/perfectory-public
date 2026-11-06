@@ -15,7 +15,7 @@ const B: &str = "9999900000000000002";
 const C: &str = "9999900000000000003";
 const D: &str = "9999900000000000004";
 
-fn square(lon: f64, lat: f64, side: f64) -> String {
+pub(crate) fn square(lon: f64, lat: f64, side: f64) -> String {
     let mut wkb = vec![1_u8];
     wkb.extend(3_u32.to_le_bytes());
     wkb.extend(1_u32.to_le_bytes());
@@ -459,14 +459,14 @@ fn a_manifest_for_another_base_or_with_unknown_fields_is_refused() -> anyhow::Re
 }
 
 /// One synthetic regulation zone (root ADR-0373): reserved layer codes and area numbers only.
-fn zone(id: &str, name: &str, wkb: &str) -> String {
+pub(crate) fn zone(id: &str, name: &str, wkb: &str) -> String {
     json!({"feature_id": id, "geometry_wkb_hex": wkb, "geometry_srid": 4326, "origin": "source",
         "properties": {"layer_code": &id[..4], "layer_name": "SYN/합성", "zone_code": "SYN999",
             "zone_name": name}})
     .to_string()
 }
 
-fn zoning_index(rows: &[String]) -> anyhow::Result<Vec<Record>> {
+pub(crate) fn zoning_index(rows: &[String]) -> anyhow::Result<Vec<Record>> {
     let text: String = rows
         .iter()
         .map(|line| {
@@ -546,5 +546,36 @@ fn a_changed_zone_re_tiles_only_the_tiles_it_touches() -> anyhow::Result<()> {
     // One small zone touches a handful of tiles per zoom, far below the 5% patch bound of a base.
     assert!(dirty.len() <= 40, "{} dirty tiles", dirty.len());
     assert!(diff(&new, &new).is_empty());
+    Ok(())
+}
+
+/// Root ADR-0375 §2: the Python membership of `gold.land_use_zone_area_by_tile` and this tile math
+/// compute the same ranges for the same boxes, with the contract's buffer.
+#[test]
+fn the_tile_range_matches_the_golden_ranges_python_computes() -> anyhow::Result<()> {
+    let contract: serde_json::Value = serde_json::from_str(super::super::CONTRACT_JSON)?;
+    assert_eq!(
+        contract["patch_buffer_pixels"].as_f64(),
+        Some(BUFFER_PIXELS),
+        "tile-bake-containers.contract.json patch_buffer_pixels is this buffer"
+    );
+    let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../infra/lakehouse/spark/tests/fixtures/tile_range_golden.json"),
+    )?)?;
+    assert_eq!(golden["buffer_pixels"].as_f64(), Some(BUFFER_PIXELS));
+    let zoom = u8::try_from(golden["zoom"].as_u64().unwrap_or_default())?;
+    let cases = golden["cases"].as_array().map_or(&[][..], Vec::as_slice);
+    assert!(cases.len() >= 5, "the golden fixture holds its cases");
+    for case in cases {
+        let bbox: [f32; 4] = serde_json::from_value(case["bbox"].clone())?;
+        let expected: Option<[u32; 4]> = serde_json::from_value(case["tiles"].clone())?;
+        assert_eq!(
+            tile_range(bbox, zoom).map(|(x0, y0, x1, y1)| [x0, y0, x1, y1]),
+            expected,
+            "{}",
+            case["case"]
+        );
+    }
     Ok(())
 }

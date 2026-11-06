@@ -390,15 +390,6 @@ fn run_remote_lakehouse_job_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn probe_spatial_tile_wap_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "probe-spatial-tile-wap",])?,
-        Command::ProbeSpatialTileWap
-    );
-    Ok(())
-}
-
-#[test]
 fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Result<()> {
     let cases = [
         (
@@ -868,6 +859,16 @@ fn plan_silver_load_objects_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "plan-silver-load-objects"])?,
         Command::PlanSilverLoadObjects
+    );
+    Ok(())
+}
+
+/// The media reconciler's read-only listing of one lakehouse prefix (root ADR-0387).
+#[test]
+fn list_lakehouse_objects_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "list-lakehouse-objects"])?,
+        Command::ListLakehouseObjects
     );
     Ok(())
 }

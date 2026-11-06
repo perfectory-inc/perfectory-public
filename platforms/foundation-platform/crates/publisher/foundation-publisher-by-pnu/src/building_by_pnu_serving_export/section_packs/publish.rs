@@ -583,6 +583,7 @@ async fn base(
                 unit_prefix_length: policy.unit_prefix_length,
                 document_schema_version: manifest_publish::document_schema_version(config.lane)
                     .to_owned(),
+                document_schema_revision: manifest_publish::document_schema_revision(config.lane),
                 gold_table: gold_table(config.lane).to_owned(),
                 reflected_gold_iceberg_snapshot_id: snapshot.to_owned(),
                 reflected_gold_snapshot_tag: None,
@@ -635,6 +636,8 @@ async fn base(
                 )
                 .await?;
                 baked.clone_into(&mut next.document_schema_version);
+                next.document_schema_revision =
+                    manifest_publish::document_schema_revision(config.lane);
             } else {
                 ensure!(
                     baked == current.document_schema_version,
@@ -642,6 +645,14 @@ async fn base(
                      schema re-bakes every section",
                     current.document_schema_version
                 );
+                // A section re-baked alone under another revision of the same name serves beside
+                // the others' documents: the base no longer holds one revision, so its record is
+                // unknown rather than wrong (root ADR-0336).
+                if next.document_schema_revision
+                    != manifest_publish::document_schema_revision(config.lane)
+                {
+                    next.document_schema_revision = None;
+                }
             }
             for section in &mut next.sections {
                 if by_section.contains_key(&section.name) {
@@ -1017,6 +1028,7 @@ async fn patched(
             units: units.unwrap_or_default().into_iter().collect(),
             document_schema_version: (baked != current.document_schema_version)
                 .then(|| baked.to_owned()),
+            document_schema_revision: manifest_publish::document_schema_revision(config.lane),
         },
     );
     next.reflected_gold_iceberg_snapshot_id = snapshot.to_owned();

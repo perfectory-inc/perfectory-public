@@ -15,7 +15,9 @@ use catalog_application::complex_search::{
     ComplexSearchQueryError, ComplexSearchSort, ComplexSearchText, SidoCodeFilter,
 };
 use catalog_application::ports::CatalogRepository;
-use foundation_contracts::catalog::IndustrialComplexListResponse;
+use foundation_contracts::catalog::{
+    IndustrialComplexListResponse, IndustrialComplexSidoFacetEntry,
+};
 use serde::Deserialize;
 
 use super::super::ApiError;
@@ -131,6 +133,17 @@ pub async fn list_complexes(
         .into_iter()
         .map(|pointer| (pointer.complex_id, pointer))
         .collect::<HashMap<_, _>>();
+    let sido_facet = state
+        .catalog_repo
+        .complex_sido_facet()
+        .await?
+        .into_iter()
+        .map(|entry| IndustrialComplexSidoFacetEntry {
+            sido_code: entry.sido_code,
+            sido_name: entry.sido_name,
+            complex_count: entry.complex_count,
+        })
+        .collect();
 
     Ok(Json(IndustrialComplexListResponse {
         complexes: industrial_complex_list_response(page.rows, gold_pointers),
@@ -138,6 +151,7 @@ pub async fn list_complexes(
         page: query.paging.page(),
         size: query.paging.size(),
         has_next: query.paging.has_next(page.total),
+        sido_facet,
     }))
 }
 

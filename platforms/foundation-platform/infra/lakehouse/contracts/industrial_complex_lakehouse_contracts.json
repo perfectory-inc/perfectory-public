@@ -3401,6 +3401,11 @@
           "required": false
         },
         {
+          "name": "sido_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "address_text",
           "logical_type": "string",
           "required": false
@@ -7904,6 +7909,135 @@
         "unit": "derived"
       }
     },
+    "gold.land_use_zone_area_by_tile": {
+      "table_name": "gold.land_use_zone_area_by_tile",
+      "physical_format": "GeoParquet",
+      "serving_role": "SpatialLocator",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "tile_key",
+          "zone_id"
+        ],
+        "newest_first": [
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "tile_key",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "zone_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "layer_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "layer_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "zone_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "geometry_wkb",
+          "logical_type": "binary",
+          "required": false
+        },
+        {
+          "name": "geometry_srid",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "bbox_min_x",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "bbox_min_y",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "bbox_max_x",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "bbox_max_y",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "geometry_checksum_sha256",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "content_sha256",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "silver_iceberg_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "tile_key"
+      ],
+      "sort_order": [
+        "tile_key",
+        "zone_id"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(tile_key, zone_id, ingested_at_utc) unique",
+        "a live row carries geometry_wkb and content_sha256; a removal marker carries neither"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "silver_iceberg_snapshot_id"
+      }
+    },
     "gold.place_id_registry": {
       "table_name": "gold.place_id_registry",
       "physical_format": "Parquet",
@@ -8572,6 +8706,189 @@
         "one row per pnu",
         "pnu matches the cadastral grammar",
         "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.parcel_real_transaction": {
+      "table_name": "gold.parcel_real_transaction",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "pnu"
+        ]
+      },
+      "columns": [
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "real_transaction_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "transaction_total",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "source_snapshot_id"
+      ],
+      "sort_order": [
+        "pnu"
+      ],
+      "write_distribution": "range",
+      "quality_gates": [
+        "one row per pnu",
+        "pnu matches the cadastral grammar",
+        "every row has its section",
+        "row_digest contains content only",
+        "published_at_utc is present"
+      ],
+      "load": {
+        "unit": "derived"
+      }
+    },
+    "gold.real_transaction_region_stats": {
+      "table_name": "gold.real_transaction_region_stats",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "replaced",
+        "key": [
+          "dataset_slug",
+          "region_level",
+          "region_code",
+          "period_kind",
+          "period"
+        ]
+      },
+      "columns": [
+        {
+          "name": "dataset_slug",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "region_level",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "region_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "period_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "period",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "deal_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "cancelled_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "land_price_per_m2_p25",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_price_per_m2_median",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "land_price_per_m2_p75",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_p25",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_median",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "building_price_per_m2_p75",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "row_digest",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "published_at_utc",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [
+        "dataset_slug"
+      ],
+      "sort_order": [
+        "region_code",
+        "period"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "one row per (dataset_slug, region_level, region_code, period_kind, period)",
+        "region_code is a 10-digit 법정동 or 시군구 code",
         "row_digest contains content only",
         "published_at_utc is present"
       ],

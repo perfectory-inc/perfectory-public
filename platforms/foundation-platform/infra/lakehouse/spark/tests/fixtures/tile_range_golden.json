@@ -1,0 +1,107 @@
+{
+  "_reason": "Root ADR-0375 §2: synthetic boxes near 10°E 10°N (no real place) [min_lon, min_lat, max_lon, max_lat] and the inclusive tile range [x0, y0, x1, y1] (null for an empty box) at zoom 10 with the bake's patch buffer (tile-bake-containers.contract.json patch_buffer_pixels). lakehouse_tile_patch.rs tile_range and land_use_zone_area_by_tile.py tile_range must both compute these; a box's edges sit 5.5 and 6.5 pixels from a tile edge so the buffer itself is tested. The boxes are given in f32-exact values, so both languages read the same numbers.",
+  "zoom": 10,
+  "buffer_pixels": 6.0,
+  "cases": [
+    {
+      "case": "inside one tile",
+      "bbox": [
+        9.9810791015625,
+        9.939092636108398,
+        10.008544921875,
+        10.006719589233398
+      ],
+      "tiles": [
+        540,
+        483,
+        540,
+        483
+      ]
+    },
+    {
+      "case": "buffer reaches the right neighbour",
+      "bbox": [
+        10.118408203125,
+        9.939092636108398,
+        10.187759399414062,
+        10.006719589233398
+      ],
+      "tiles": [
+        540,
+        483,
+        541,
+        483
+      ]
+    },
+    {
+      "case": "buffer stops short of the right neighbour",
+      "bbox": [
+        10.118408203125,
+        9.939092636108398,
+        10.186386108398438,
+        10.006719589233398
+      ],
+      "tiles": [
+        540,
+        483,
+        540,
+        483
+      ]
+    },
+    {
+      "case": "buffer reaches the tile above",
+      "bbox": [
+        9.9810791015625,
+        9.939092636108398,
+        10.008544921875,
+        10.134496688842773
+      ],
+      "tiles": [
+        540,
+        482,
+        540,
+        483
+      ]
+    },
+    {
+      "case": "a box spanning several tiles",
+      "bbox": [
+        9.88494873046875,
+        9.600749969482422,
+        10.8050537109375,
+        10.08785343170166
+      ],
+      "tiles": [
+        540,
+        483,
+        542,
+        484
+      ]
+    },
+    {
+      "case": "clamped at the antimeridian and the poles",
+      "bbox": [
+        -180.0,
+        -89.0,
+        180.0,
+        89.0
+      ],
+      "tiles": [
+        0,
+        0,
+        1023,
+        1023
+      ]
+    },
+    {
+      "case": "an empty box",
+      "bbox": [
+        1.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      "tiles": null
+    }
+  ]
+}

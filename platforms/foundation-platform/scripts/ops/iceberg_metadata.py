@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 
 def history(metadata: dict) -> dict:
-    """The planner's {"head", "snapshots"} of an Iceberg table-metadata document."""
+    """The planner's {"head", "snapshots"} of an Iceberg table-metadata document, and its "properties"."""
     refs = metadata.get("refs") or {}
     head = refs["main"]["snapshot-id"] if "main" in refs else metadata.get("current-snapshot-id")
     snapshots = []
@@ -38,7 +38,9 @@ def history(metadata: dict) -> dict:
             "operation": summary.get("operation"),
             "summary": summary,
         })
-    return {"head": None if head in (None, -1) else str(head), "snapshots": snapshots}
+    # The table properties too: the durable copy of a commit's ingest record (root ADR-0332) is one.
+    return {"head": None if head in (None, -1) else str(head), "snapshots": snapshots,
+            "properties": dict(metadata.get("properties") or {})}
 
 
 def table_absent(error: urllib.error.HTTPError) -> bool:

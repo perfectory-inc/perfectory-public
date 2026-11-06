@@ -79,6 +79,13 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 시간 한계는 150 분(유닛 `TimeoutStartSec`, 작업 `timeout_minutes` 160)이다. 이보다 길면 매시 접기가 굶주림 상한을
 넘는다(ADR-0171 §5). 첫 감독 실행이 150 분 가까이 걸리면 켜지 말고 그 수치로 결정을 다시 연다.
 
+레인 계약의 `silver_refresh.run_budget.step_seconds_max` 는 그 레인에서 잰 가장 긴 단계(load 묶음 또는 비교 묶음)다.
+run 은 시작 + (150 분의 90% − 그 값)이 지나면 새 단계를 시작하지 않는다. 그때 `reason=load_resumes_next_run` 이나
+`compare_resumes_next_run` 으로 끝나고, 다음 run 이 이어 간다. 값이 없는 레인은 110 분 기본값을 쓴다
+(루트 [ADR-0391](../../../../docs/adr/0391-a-silver-refresh-run-starts-no-step-its-measured-time-cannot-finish-and-a-batch-reads-back-only-its-own-commit.md)).
+더 긴 단계를 재면 그 값으로 계약을 고친다. 시작할 시간이 30 분보다 적게 남는 값은 발행기가 거부한다. 그때는 단계를
+작게 한다.
+
 ## 3. 레인의 첫 감독 실행
 
 레인마다 한 번, 이 순서로 한다. 권하는 첫 순서는 표제부 → 전유부 → 면적 → 공동주택가격 → 전유부 다리다.

@@ -60,6 +60,52 @@ def code_crosswalk(pair_rows: Iterable[tuple[str, str]]) -> tuple[dict[str, str]
     return remap, ambiguous
 
 
+def current_region(sido: str | None, sigungu: str | None, bjdong: str | None, remap: Mapping[str, str],
+                   ambiguous: Iterable[str]) -> tuple[str | None, str | None, str | None]:
+    """A source's (시도, 시군구, 법정동) codes carried to the current ones (root ADR-0426).
+
+    Each level is read as its 10-digit code (시도 ``xx00000000``, 시군구 ``xxxxx00000``), because the
+    change table records the 시도 and 시군구 pairs in that form (2026-07-01: 2900000000 → 1200000000,
+    2917000000 → 1230000000). A code whose chain splits keeps no code at that level: the old one is not
+    current and the new one is a steward's decision. The finest level that resolves names the levels
+    above it (the codes nest), so a 시군구 that moved 시도 on its own pair (군위군 47720 → 27720) takes
+    the 시도 with it.
+    """
+
+    split = set(ambiguous)
+
+    def carried(code: str | None, digits: int) -> str | None:
+        if not code or len(code) != digits:
+            return None
+        padded = code + "0" * (10 - digits)
+        if padded in split:
+            return None
+        return remap.get(padded, padded)[:digits]
+
+    sido_now, sigungu_now, bjdong_now = carried(sido, 2), carried(sigungu, 5), carried(bjdong, 10)
+    if bjdong_now:
+        sigungu_now = bjdong_now[:5]
+    if sigungu_now:
+        sido_now = sigungu_now[:2]
+    return sido_now, sigungu_now, bjdong_now
+
+
+def sido_names(names: Iterable[tuple[str, str, str]]) -> dict[str, str]:
+    """{current 2-digit 시도 code: its name}, the first word of the full name of the newest 법정동
+    snapshot's current rows under it, the 시도 row (``xx00000000``) first and otherwise the smallest
+    code (세종 has no ``3600000000``: its rows start at 3611000000)."""
+
+    out: dict[str, tuple[str, str]] = {}
+    for code, full_name, status in names:
+        words = (full_name or "").split()
+        if status != "존재" or len(code or "") != 10 or not words:
+            continue
+        rank = ("0" if code[2:] == "00000000" else "1") + code
+        if code[:2] not in out or rank < out[code[:2]][0]:
+            out[code[:2]] = (rank, words[0])
+    return {sido: name for sido, (_, name) in sorted(out.items())}
+
+
 def with_current_code(pnu: str, current_legal_code: str) -> str:
     """A 19-digit pnu with its 10-digit legal-dong code replaced by the current one; the lot is kept."""
 
@@ -176,13 +222,16 @@ def served_parcels_among(spark: Any, catalog: str, pnus: Iterable[str]) -> Any:
     return every.join(F.broadcast(asked), "pnu", "left_semi").distinct().cache()
 
 
-def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], parcels: Any) -> Any:
+def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], parcels: Any,
+            keep_candidate: bool = False) -> Any:
     """Replace ``staged.pnu`` (a format-valid source code, or null) with the CURRENT pnu and add
     ``place_identity_grade`` and ``pnu_unresolved_reason``.
 
     ``remap`` is old → current legal-dong code (``code_crosswalk``); ``ambiguous`` the old codes that
     split; ``parcels`` holds the served parcels' ``pnu`` (``served_parcels_among``). A pnu is
-    kept only when its current form is a current parcel.
+    kept only when its current form is a current parcel. ``keep_candidate`` also keeps that current
+    form as ``pnu_candidate`` when it is not one, so a reader can follow the parcel lineage from it
+    (root ADR-0350 §1: a deal on a parcel split or merged since).
     """
 
     from pyspark.sql import functions as F  # noqa: PLC0415
@@ -215,6 +264,8 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
                         .when(is_ambiguous, F.lit("code_subdivision_ambiguous"))
                         .otherwise(F.lit("parcel_absent")))
             .withColumn("pnu", F.when(held, F.col("_candidate")))
+            .transform(lambda frame: frame.withColumn("pnu_candidate", F.when(~held, F.col("_candidate")))
+                       if keep_candidate else frame)
             .drop("_code10", "current_code", "_amb", "_candidate", "_held"))
 
 
@@ -386,13 +437,13 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
               .where(F.col("_n") == 1).drop("_n"))
     # Unlinked: the candidate count of the weakest level tried says ambiguous or none.
     last = tried.where(F.col("_rank") == len(levels) - 1).select("row_id", F.col("_count").alias("_last"))
-    # A group level's one parcel stands for its 본번 group: every current parcel with its key (only
-    # the keys a deal links to are read).
+    # A group level's one parcel stands for its 본번 group: every current parcel with its key. The
+    # parcels are the caller's share (a Gold build hands only the 법정동s its change reaches), and
+    # the groups are not narrowed by `linked` so its plan is not read twice.
     grouped = F.col("_grade") == F.lit(MAIN_LOT_GROUP)
     linked = linked.withColumn("_key", F.when(grouped, F.substring("_pnu", 1, MAIN_LOT_KEY_LENGTH)))
     members = ((parcels if group_parcels is None else group_parcels).select("pnu").distinct()
                .withColumn("_key", F.substring("pnu", 1, MAIN_LOT_KEY_LENGTH))
-               .join(linked.where(F.col("_key").isNotNull()).select("_key").distinct(), "_key", "left_semi")
                .groupBy("_key").agg(F.array_sort(F.collect_set("pnu")).alias("_members")))
     linked = (linked.join(members, "_key", "left")
               # The pick itself is in its group even if `group_parcels` does not hold it.

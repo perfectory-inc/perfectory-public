@@ -20,6 +20,20 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 65,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 15,
+          "p50": 264,
+          "p90": 541,
+          "max": 543,
+          "timeouts": 0,
+          "from": "2026-10-24T07:36:42Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
@@ -57,6 +71,20 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 42,
+          "p50": 42,
+          "p90": 60,
+          "max": 82,
+          "timeouts": 0,
+          "from": "2026-10-28T21:04:13Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 1,
@@ -277,6 +305,13 @@
           "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
           "decision": "docs/adr/0340-every-onbid-field-is-carried-to-the-screen-or-says-why-not.md",
           "reason": "every collected Onbid field a buyer reads, all optional: each round gains the rest of its list row (the provider's code names, bid conditions, organisations); the document gains items[] (detail with the 공매재산명세서, tenancy, occupancy, rights, areas, corrections and appraisals; bid information with earlier rounds and every round's schedule; closed rounds' results; maps) and announcements[] (text, attachments, organisation, opening), once each for the rounds that name them"
+        },
+        {
+          "major": 1,
+          "revision": 4,
+          "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
+          "decision": "docs/adr/0424-a-public-auction-photo-is-stored-at-its-original-size-beside-the-providers-thumbnail.md",
+          "reason": "each round photo gains its full-size original (rounds[].photos[].original: sha256, media_format, size_bytes), an optional object: the photo's own file is the provider's 178x134 thumbnail (measured 2026-11-06)"
         }
       ],
       "consumers": [
@@ -375,6 +410,18 @@
             },
             {
               "path": "public_auction.rounds[].photos[].size_bytes",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].photos[].original",
+              "required": false
+            },
+            {
+              "path": "public_auction.rounds[].photos[].original.sha256",
+              "required": true
+            },
+            {
+              "path": "public_auction.rounds[].photos[].original.media_format",
               "required": true
             },
             {

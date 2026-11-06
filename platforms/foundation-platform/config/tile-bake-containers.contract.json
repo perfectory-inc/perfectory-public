@@ -39,6 +39,16 @@
     }
   },
   "units_born_from_a_lakehouse_bake_reason": "Root ADR-0374. A unit listed here that Catalog does not hold yet is registered by its first bake-lakehouse-tiles run with this layer, its first static release and a complete runtime manifest in one transaction; it never has a PostGIS release. Once the unit exists its layer is read from Catalog like every other unit's, so editing this entry after the birth changes nothing. zoning (root ADR-0373): the regulation zones of silver.land_use_zone_area, feature id <layer_code>:<zone_feature_id>:<sigungu_code> (partitioned by its first 4 characters, the layer), tiles 10-14 measured from the 2026-10-31 load: by bounding box at most 196 tiles at z10, 661 at z11, 2,395 at z12, 9,067 at z13 and 34,983 at z14 (47,302 in all) over 655,266 zones; at z10 an average tile already carries about 3,400 zones, at z8 26,000, so lower zooms are not baked.",
+  "feature_min_zoom": {
+    "zoning": {
+      "property": "layer_code",
+      "min_zoom": {"D142": 11, "D143": 11, "D144": 11, "D145": 11, "D146": 11, "D147": 11, "D148": 11},
+      "default": 10
+    }
+  },
+  "feature_min_zoom_reason": "Root ADR-0375 §3. A unit listed here starts the features whose property has a listed value at that zoom; every other feature starts at default. bake-lakehouse-tiles passes it to tippecanoe as one -j feature filter on $zoom (README of the pinned commit: the special variable $zoom is the current zoom level), so it is part of the bake inputs and an index or partition archive made under other inputs is not reused. Every zoom lies inside the layer's tile zooms, so every feature still reaches the maxzoom tiles the id gate reads. zoning, measured 2026-11-04 on the densest z10 tile (x=873 y=396, 35,973 zones) by encoding real MVT at extent 4096 with simplification 1 unit, a 5 px buffer and gzip (mapbox-vector-tile and shapely, tippecanoe's documented tolerance), per family: z10 urbanFacilities (D142-D148) 497 KB, landUse 281 KB, greenbelt 30 KB, factoryLocation 10 KB, agriculturalPromotion about 0 KB (all together about 818 KB); z11, the largest of its 4 tiles: 226, 138, 17, 10 and about 0 KB (about 391 KB together); z12: landUse 62, greenbelt 8, factoryLocation 6, agriculturalPromotion 1 KB. The budget is 500 KB gzip per tile, tippecanoe's own default maximum tile size and the Mapbox Tiling Service limit: the 도시계획시설 layers from z11 keep that tile under it, every other family fits at z10.",
+  "patch_buffer_pixels": 6,
+  "patch_buffer_pixels_reason": "Root ADR-0323 §2 and ADR-0375 §2. The pixels (of a tile's 256) a feature's box is widened by when the patch path asks which tiles it touches: tippecanoe's default buffer of 5 (the bake does not set -b) plus 1 for the rounding between a box and the rendered geometry. lakehouse_tile_patch.rs BUFFER_PIXELS is this number (a test reads it here), and land_use_zone_area_by_tile.py reads it to file each regulation zone under the z10 tiles it touches, with one pixel more so its float boxes cover the bake's f32 ones. infra/lakehouse/spark/tests/fixtures/tile_range_golden.json holds boxes and the tile ranges both languages must compute for them.",
   "work_disk": {
     "min_free_bytes": 2147483648,
     "min_free_bytes_per_handoff_byte": 8,

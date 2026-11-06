@@ -68,6 +68,7 @@ elif command.startswith("show-"):
                    "gold_iceberg_snapshot_id": os.environ["FAKE_GOLD"] or None,
                    "document_schema_version": "doc.v2",
                    "readable_document_schema_versions": json.loads(os.environ.get("FAKE_READABLE", '["doc.v2"]')),
+                   "document_schema_revision": json.loads(os.environ.get("FAKE_REVISION", "null")),
                    "published": {"manifest_schema_version": 2,
                                  "base_generation": int(os.environ["FAKE_PUBLISHED_GENERATION"]),
                                  "base_object_count": int(os.environ.get("FAKE_BASE_OBJECTS", "100")),

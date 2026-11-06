@@ -3,9 +3,9 @@
 import { partition } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
-import { onbidMediaSrc, type PublicAuctionRound } from "@/lib/api/public-auction";
+import { PhotoGrid } from "@/components/media/photo-grid";
+import { onbidMediaSrc, type PublicAuctionRound, parcelMediaStore } from "@/lib/api/public-auction";
 import { formatAreaM2, formatPriceKrw } from "@/lib/listings/format";
-import { PhotoGrid } from "./photo-grid";
 import { RoundDetails, shown } from "./public-auction-details";
 
 /** The parcel's on-bid public auctions as a category page, one card per auction round. */
@@ -57,6 +57,10 @@ export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound
           </li>
         ))}
       </ul>
+      {/* KOGL type 1 (출처표시): the photos and the round data are 온비드's (root ADR-0427 §5). */}
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("attribution")}
+      </p>
     </div>
   );
 }
@@ -68,7 +72,17 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
   if (images.length === 0 && appraisals.length === 0) return null;
   return (
     <>
-      <PhotoGrid photos={images} altFallback={t("photoAltFallback")} />
+      <PhotoGrid
+        store={parcelMediaStore()}
+        // The ladder is made from the original when it has landed (root ADR-0424), else from the
+        // provider's thumbnail; the caption is the photo's own.
+        photos={images.map((photo) => {
+          const source = photo.original ?? photo;
+          return { sha256: source.sha256, media_format: source.media_format, title: photo.title };
+        })}
+        altFallback={t("photoAltFallback")}
+        viewOriginal={t("viewOriginal")}
+      />
       {appraisals.length > 0 && (
         <ul className="mt-2 flex flex-col gap-1">
           {appraisals.map((doc) => (

@@ -136,7 +136,8 @@ const SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO_COLUMNS: &[LakehouseColumn] = &[
     column("sha256", "string", true),
     // "photo" (potoUrlList), "appraisal" (apslEvlClgList), and from root ADR-0340 §4
     // "location_map" (lmapUrlAdrList), "cadastral_map" (lrmUrlAdrList), "photo_360"
-    // (poto360DgrUrlList) and "video" (vdoUrlAdrList): the contract's media.fields; one media store.
+    // (poto360DgrUrlList) and "video" (vdoUrlAdrList), and from root ADR-0424 "photo_original" (a
+    // photo's full-size original beside its thumbnail): the contract's media.fields; one media store.
     column("media_kind", "string", true),
     // The order the provider lists it in, as given; its title when the provider gives one.
     column("sequence", "int", false),

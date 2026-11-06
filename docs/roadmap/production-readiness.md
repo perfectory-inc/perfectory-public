@@ -89,9 +89,9 @@ last_reviewed: 2026-10-31
 | 항목 | 상태 |
 | --- | --- |
 | 호스트 자원 경보 | 초안. ADR-0385: node-exporter 호스트 수집기(디스크·메모리·OOM·CPU) + cAdvisor, `foundation-host` 경보 6개 → Slack, promtool 규칙 시험 가드. 처음 잰 것: 10-28~11-03 OOM 100번(공매 Silver 2.5GiB 상한) |
-| 수집 run 당 상한 + 가드 | 일부. 공매 각 API 에 `per_run_limit`(#871 등). 통일 어휘와 모든 수집 작업을 거는 가드는 없음 |
-| postgres 복원드릴 타이머 + 백업 freshness | freshness 끝(#882, 타이머 있음). 복원드릴은 스크립트뿐이고 postgres 타이머 없음 |
-| R2 객체 ↔ silver 색인 대조 | 미착수(main 에 없음) |
+| 수집 run 당 상한 + 가드 | 가드 있음(ADR-0386): 작업 69개 모두 `per_run_cap` + 잰 run 시간, `test_per_run_cap.py`. 안 맞는 열린 예외 5개(고침은 초안, 배포 뒤 다시 재고 예외를 지운다): `onbid_public_auction_silver`(10-30 timeout 5회·OOM 67회 — #1008), `silver_refresh_building_register_unit_areas`(제한의 95% — #1017), `silver_refresh_building_register_apartment_price`(10-20 timeout — #1010), `silver_refresh_land_transfer_history`(10-21 timeout, 11-03 82% — #1010), `gold_panel_rebuild`(timeout 10회, 마지막 11-03 — #1009) |
+| postgres 복원드릴 타이머 + 백업 freshness | freshness 끝(#882, 타이머 있음). 주간 운영 복원 드릴 `foundation-postgres-restore-drill`(W6, 초안) — 병합·첫 일요일 실행 확인 남음 |
+| R2 객체 ↔ silver 색인 대조 | 초안: ADR-0387 — 공매 미디어 `onbid/media` ↔ `silver.onbid_real_estate_item_photo` 매일 대조(`media_reconcile`), 없음·고아 경보. 고아 정리(삭제)는 보고서 뒤 사람 결정 |
 | expand-contract 마이그레이션 가드 | 만들지 않기로 함 — #883 닫음(10-28): 막을 실제 사고가 없고 기존 두 장치가 막는다 |
 
 - P2/P3 는 ADR-0300 소유.
@@ -126,6 +126,8 @@ last_reviewed: 2026-10-31
   초안. 용도지역지구 규제 구역 ADR-0362 #974 초안. 500MB 넘는 파일은 RAON 레인(ADR-0170).
 - **주소 전자지도 11종.** 사장의 juso.go.kr 이용 신청이 먼저(ADR-0355 §3).
 - **기타 공공 일괄 12종.** 원천마다 실제 제공자를 먼저 적고 data.go.kr 파일 수집기를 넓힌다(ADR-0355 §4). 미착수.
+- **법원경매.** 수집·Silver 켜기 #969, 재수집 목록은 lakehouse 에서 계산 ADR-0352 #967, 필지 패널 경매 칸
+  ADR-0353·0382 #978. 사진은 물건상세 수집(ADR-0289/0290 2단계) 뒤.
 - **규칙: 모든 데이터셋은 법정동 코드 변경을 따른다.** 대체가 닿는 코드 아래 PNU 만 다시 계산한다
   (ADR-0329 §3 `views.changed_codes`). 지금 쓰는 곳은 필지 패널 Gold 하나다. 실거래 Gold(ADR-0350)는
   여기에 배선해야 한다.

@@ -375,6 +375,19 @@ def run(spark: Any, args: argparse.Namespace, contract: dict[str, Any]) -> dict[
     return summary
 
 
+def run_state(summary: dict[str, Any]) -> tuple[str, bool]:
+    """What a run did, from its summary: (`complete` | `progress` | `stalled`, whether it took a step).
+
+    The job runs daily until it is done (unit-price-versions-migration.definition.json): a complete run
+    takes no step and is a no-op. Every step fits an empty run (load_contract), so a run that is not
+    complete and took none is stuck, and fails rather than say `unchanged` day after day."""
+    took = any("appended_seconds" in entry or "parity_seconds" in entry
+               for report in summary["targets"].values() for entry in report["vintages"].values())
+    if summary["complete"]:
+        return "complete", took
+    return ("progress" if took else "stalled"), took
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     from pyspark.sql import SparkSession  # noqa: PLC0415

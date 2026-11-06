@@ -8,7 +8,7 @@
       "scope": "skip-if-unchanged",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115) only when the queue's inputs changed since the last load (scripts/ops/lineage-queue-check.py; otherwise no Spark and no load: gold.lineage_review_queue's 857 rows were last written 2026-10-20). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs.",
+      "description": "Parcel lineage stewardship cycle: fold steward decisions, rebuild and load the review queue (root ADR-0115) only when the queue's inputs changed since the last load (scripts/ops/lineage-queue-check.py; otherwise no Spark and no load: gold.lineage_review_queue's 857 rows were last written 2026-10-20). First it loads any pending 필지고유번호변동연혁 handoff into silver.parcel_number_change_history (root ADR-0144 §4), then loads and pairs any pending legal-dong code handoff (root ADR-0143), reading the official links of the pairing window once that table holds rows: the snapshot into reference.legal_dong_code_snapshot, the changes into reference.legal_dong_code_change (the one record of region code changes, root ADR-0145), and the crosswalk projection the hub exports read, a view of that table; a failure there fails the run before lineage starts. Then it derives silver.parcel_lineage (root ADR-0113 §1): for each consecutive pair of the parcel editions the source contract holds, once per sido group (parcel_lineage_scheduled.py), skipping groups already held and starting none after FOUNDATION_LINEAGE_DERIVE_DEADLINE_MINUTES (60), so a backlog spreads over the next runs. After the legal-dong step, when it recorded new pairs (or no follow has run yet), the industrial complexes under the codes of the pairs that changed since the last follow (legal_dong_code_change_views.changed_codes) get their 시도·시군구 codes and 시도 name re-placed in gold.complex_catalog (industrial_complex_silver_to_gold.py --follow-region-codes, a MERGE of only the complexes whose carried codes differ) and the canonical load writes the rows that changed into catalog.industrial_complex (root ADR-0426); a failure there fails the unit at the end without stopping lineage.",
       "systemd_service": "foundation-lineage-stewardship.service",
       "systemd_timer": "foundation-lineage-stewardship.timer",
       "state_paths": [
@@ -21,6 +21,20 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 120,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 30,
+          "p50": 222,
+          "p90": 1665,
+          "max": 4489,
+          "timeouts": 0,
+          "from": "2026-10-16T06:50:07Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 10,
@@ -32,6 +46,9 @@
         "silver-parcel-number-change-history-to-reference-legal-dong-code-change",
         "silver-parcel-boundaries-to-silver-parcel-lineage",
         "reference-legal-dong-code-change-to-silver-parcel-lineage",
+        "reference-legal-dong-code-change-to-gold-complex-catalog",
+        "reference-legal-dong-code-snapshot-to-gold-complex-catalog",
+        "silver-industrial-complexes-to-serving-industrial-complex",
         "silver-land-transfer-history-to-silver-parcel-lineage",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
@@ -319,6 +336,29 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_steward_fold_to_silver.py"
       ],
       "description": "서 있는 스튜어드 결정을 evidence_kind=steward 계보 행으로 접는다. 모든 계보 소비자는 steward_resolved 로 읽는다(루트 ADR-0115 9항)."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-complex-catalog",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "산업단지의 시도·시군구 코드는 원천 코드를 기록된 짝으로 현재 코드까지 옮긴 것이다(루트 ADR-0426). 표가 바뀌면 바뀐 짝의 코드 밑의 단지만 다시 놓는다(views.changed_codes, lineage_stewardship). 2026-11-04 에 135개 단지가 폐지된 29·46 에 남아 있었다."
+    },
+    {
+      "from": "reference-legal-dong-code-snapshot",
+      "to": "gold-complex-catalog",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "sido_name: 단지의 현재 시도 코드가 가장 새 법정동 스냅숏에서 갖는 이름이다(루트 ADR-0426). 화면의 시도 필터는 손 목록 대신 이 이름을 API 로 읽는다."
     }
   ],
   "host_memory": {

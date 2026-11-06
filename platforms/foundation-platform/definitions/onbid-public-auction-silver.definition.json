@@ -19,6 +19,26 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/silver_load/max_objects"
+        ],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 329,
+          "p50": 66,
+          "p90": 655,
+          "max": 2401,
+          "timeouts": 5,
+          "from": "2026-10-19T05:07:18Z",
+          "to": "2026-11-03T15:50:32Z"
+        },
+        "open_exception": {
+          "why": "Five runs reached the 40-minute limit, 2026-10-29T22:29Z to 2026-10-30T01:50Z, catching up after #943 and #945 widened the Silver rows; since then the longest run is 1,418 s. max_objects 24 is a count with no measured object time and no deadline, so the next backlog of large objects can outlive the unit again.",
+          "tracked_by": "root ADR-0386 §5: give silver_load a run_time_budget_seconds and measured_object_seconds, as rt-molit's (#988)"
+        }
+      },
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 10,

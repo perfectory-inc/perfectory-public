@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use catalog_application::complex_search::{
-    ComplexSearchQuery, ComplexSearchResult, ComplexSearchSort, SidoCodeFilter,
+    ComplexSearchQuery, ComplexSearchResult, ComplexSearchSort, SidoCodeFilter, SidoFacetEntry,
 };
 use catalog_application::ports::CatalogRepository;
 use catalog_domain::{
@@ -178,6 +178,33 @@ impl CatalogRepository for PgCatalogRepository {
         };
 
         Ok(ComplexSearchResult { rows, total })
+    }
+
+    /// One `GROUP BY` over the live rows (1,442 on 2026-11-04). `max` keeps the name when rows of one
+    /// code disagree only by some lacking it (a load that has not reached them yet).
+    async fn complex_sido_facet(&self) -> Result<Vec<SidoFacetEntry>, CatalogError> {
+        let rows = sqlx::query(
+            "SELECT sido_code, max(sido_name) AS sido_name, COUNT(*)::bigint AS complex_count
+             FROM catalog.industrial_complex
+             WHERE archived_at IS NULL AND sido_code IS NOT NULL
+             GROUP BY sido_code
+             ORDER BY sido_code",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        rows.iter()
+            .map(|row| {
+                let count: i64 = row.try_get("complex_count").map_err(map_sqlx)?;
+                Ok(SidoFacetEntry {
+                    sido_code: row.try_get("sido_code").map_err(map_sqlx)?,
+                    sido_name: row.try_get("sido_name").map_err(map_sqlx)?,
+                    complex_count: u64::try_from(count).map_err(|error| {
+                        CatalogError::Infrastructure(format!("sido facet count overflow: {error}"))
+                    })?,
+                })
+            })
+            .collect()
     }
 
     async fn find_complex(&self, id: ComplexId) -> Result<Option<IndustrialComplex>, CatalogError> {

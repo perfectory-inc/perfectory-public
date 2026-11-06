@@ -39,6 +39,7 @@ use catalog_domain::{
 };
 use catalog_infrastructure::PgCatalogUnitOfWork;
 use chrono::{NaiveDate, SecondsFormat, Utc};
+use foundation_outbox::object_storage::R2ObjectStorageConfig;
 use foundation_shared_kernel::ids::ComplexId;
 use lakehouse_domain::GOLD_COMPLEX_CATALOG;
 use lakehouse_infrastructure::{IcebergRestCatalog, LakehouseCatalogConfig};
@@ -79,7 +80,12 @@ pub async fn run() -> anyhow::Result<()> {
             )
         })?;
 
-    let lakehouse = LakehouseObjectReader::from_env()?;
+    // A read: the read-only pair (root ADR-0152), so the lineage stewardship unit that runs this
+    // after it follows a code change (root ADR-0426) needs no writer key.
+    let lakehouse = LakehouseObjectReader::from_config(
+        R2ObjectStorageConfig::lakehouse_reader_from_env()
+            .context("failed to configure lakehouse R2 reads")?,
+    );
     let scanned = scan_snapshot_rows(&GOLD_COMPLEX_CATALOG, &lakehouse, &snapshot).await?;
     let scanned_row_count =
         u64::try_from(scanned.rows.len()).context("scanned row count overflow")?;
@@ -228,6 +234,7 @@ const GOLD_COLUMNS_LOADED: &[&str] = &[
     "status_raw",
     "sido_code",
     "sigungu_code",
+    "sido_name",
     "address_text",
     "management_agency_name",
     "developer_name",
@@ -373,6 +380,7 @@ fn plan_catalog_rows(rows: &[JsonMap<String, JsonValue>]) -> anyhow::Result<Cano
                 status,
                 sido_code: optional_row_string(row, "sido_code"),
                 sigungu_code: optional_row_string(row, "sigungu_code"),
+                sido_name: optional_row_string(row, "sido_name"),
                 address_text: optional_row_string(row, "address_text"),
                 management_agency_name: optional_row_string(row, "management_agency_name"),
                 developer_name: optional_row_string(row, "developer_name"),

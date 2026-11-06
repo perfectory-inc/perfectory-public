@@ -854,6 +854,35 @@ def restrict_to_batch_loads(persisted: Any, frame: Any, contract_name: str) -> A
     return persisted.join(frame.select(column).distinct(), column, "left_semi").select(*persisted.columns)
 
 
+def committed_append_snapshot(spark: Any, args: argparse.Namespace, outcome: dict[str, Any]) -> int:
+    """The snapshot that appended this batch, as the ingest registry records it (the commit's own
+    summary names its objects), so its readback can read that commit's files and nothing else."""
+    table = qualified_iceberg_table(args)
+    recorded = read_ingested_objects(spark, table, unquoted_table_name(table), outcome.get("ref", MAIN))
+    snapshots = {recorded.get(record_id) for record_id in outcome["record_ids"]}
+    if len(snapshots) != 1 or None in snapshots:
+        raise ValueError(f"the batch's objects are not recorded by one append: {sorted(map(str, snapshots))}")
+    return int(next(iter(snapshots)))
+
+
+def read_committed_appends(spark: Any, snapshots: Sequence[int], args: argparse.Namespace, contract: dict[str, Any]) -> Any:
+    """The rows the given appends added: an incremental read of each commit's own files.
+
+    The readback used to filter the whole ref by the batch's (source_snapshot_id, ingested_at_utc)
+    pairs. Every batch of a staged release shares its ref, so each batch read every batch before it
+    back: `silver.building_register_apartment_price` on 2026-10-20 spent 8, 13, 18, 24 and 33 minutes
+    reading back its 1st to 5th 40M-row batch, and its 150-minute unit was killed (root ADR-0391).
+    """
+    table = qualified_iceberg_table(args)
+    frames = [read_recorded_append(spark, table, snapshot).select(*column_names(contract)) for snapshot in snapshots]
+    if not frames:
+        raise ValueError("Cannot verify Iceberg write because no batch was appended")
+    persisted = frames[0]
+    for frame in frames[1:]:
+        persisted = persisted.unionByName(frame)
+    return persisted
+
+
 def read_iceberg_snapshot_for_batch(spark: Any, frame: Any, args: argparse.Namespace, contract: dict[str, Any], F: Any) -> Any:
     return read_iceberg_snapshot_for_pairs(
         spark, collect_readback_pairs(frame), args, contract, F
@@ -1057,6 +1086,9 @@ def run_batched_input(
     row_count = 0
     batch_metrics: list[dict[str, int]] = []
     source_snapshot_ids: list[str] = []
+    # The appends this run committed; None once a batch was overwritten or already held, whose
+    # rows only the pair readback below finds.
+    appended: list[int] | None = []
 
     for batch_index, batch in enumerate(batches):
         frame = None
@@ -1077,14 +1109,19 @@ def run_batched_input(
                 collect_source_snapshot_summary(frame)["source_snapshot_ids"]
             )
             if not args.validate_only:
+                batch_mode = iceberg_write_mode_for_input_batch(args, batch_index)
                 outcome = write_silver_iceberg(
                     spark,
                     frame,
                     args,
                     contract,
                     F,
-                    iceberg_write_mode_for_input_batch(args, batch_index),
+                    batch_mode,
                 )
+                if appended is not None and outcome["appended"] and batch_mode == "append":
+                    appended.append(committed_append_snapshot(spark, args, outcome))
+                else:
+                    appended = None
                 if not outcome["appended"]:
                     # The loader offers every batch on every run, so a resumed load walks
                     # batches the table already holds. Saying so and moving on is the resume;
@@ -1124,13 +1161,17 @@ def run_batched_input(
         persisted_count = row_count
         persisted_quality_metrics = quality_metrics
     else:
-        persisted = read_iceberg_snapshot_for_pairs(
-            spark,
-            readback_pairs,
-            args,
-            contract,
-            F,
-            outcome.get("ref", MAIN),
+        persisted = (
+            read_committed_appends(spark, appended, args, contract)
+            if appended
+            else read_iceberg_snapshot_for_pairs(
+                spark,
+                readback_pairs,
+                args,
+                contract,
+                F,
+                outcome.get("ref", MAIN),
+            )
         )
         persisted_count, persisted_quality_metrics = validate_frame(
             persisted,

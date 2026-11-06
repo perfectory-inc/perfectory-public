@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import type { Complex, ComplexFilter, DawneerClient } from "../api/client";
 import {
@@ -8,7 +8,6 @@ import {
   formatArea,
   label,
   LOT_SALES_LABEL,
-  SIDO_LABEL,
   sourceWord,
 } from "../lib/catalogLabels";
 
@@ -79,6 +78,12 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
 
   const filter: ComplexFilter = { q: q.trim(), sidoCode, developmentStage, sort, page, size: PAGE_SIZE };
   const list = useQuery({ queryKey: ["complexes", filter], queryFn: () => client.listComplexes(filter) });
+  // 시도 options and names come from the API's facet (법정동 code table, root ADR-0426); it does not
+  // depend on the filter, so the last one stays while the next page loads.
+  const sidoNames = useRef<Record<string, string>>({});
+  if (list.data) {
+    sidoNames.current = Object.fromEntries(list.data.sido_facet.map((e) => [e.sido_code, e.sido_name ?? e.sido_code]));
+  }
   const reset = () => setPage(0);
   const select = "rounded border border-slate-300 bg-white px-2 py-1";
 
@@ -108,7 +113,7 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
             }}
           >
             <option value="">전체</option>
-            {Object.entries(SIDO_LABEL).map(([code, name]) => (
+            {Object.entries(sidoNames.current).map(([code, name]) => (
               <option key={code} value={code}>
                 {name}
               </option>
@@ -183,7 +188,7 @@ export function ComplexesPage({ client }: { client: DawneerClient }) {
                       <span className="ml-2 font-mono text-xs text-slate-400">{c.official_complex_code}</span>
                     </td>
                     <td className="px-3 py-2">{sourceWord(c.kind_raw, COMPLEX_KIND_LABEL, c.kind)}</td>
-                    <td className="px-3 py-2">{label(SIDO_LABEL, c.sido_code)}</td>
+                    <td className="px-3 py-2">{label(sidoNames.current, c.sido_code)}</td>
                     <td className="px-3 py-2">{sourceWord(c.status_raw, DEVELOPMENT_STAGE_LABEL, c.development_stage)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{c.area_m2.toLocaleString("ko-KR")}</td>
                   </tr>

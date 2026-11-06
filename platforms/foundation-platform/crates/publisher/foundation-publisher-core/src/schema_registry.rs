@@ -165,10 +165,11 @@ mod tests {
         assert_eq!(subject.major_of(&format!("{name}.v1")), Some(1));
         assert_eq!(subject.major_of(&format!("{name}.v3")), None);
         // 2026-10-29 (root ADR-0340): revision 3 is the first the registry made, so it is written
-        // as `<subject>.v1` and its documents carry schema_revision 3.
-        assert_eq!(subject.current().revision, 3);
+        // as `<subject>.v1` and its documents carry schema_revision 3; 2026-11-06 (root ADR-0424)
+        // revision 4 adds each photo's original, written the same way.
+        assert_eq!(subject.current().revision, 4);
         assert_eq!(subject.current().schema_version, format!("{name}.v1"));
-        assert_eq!(subject.written_revision(), Some(3));
+        assert_eq!(subject.written_revision(), Some(4));
         assert!(subject_of_lane("parcel-zoning")?.is_none());
         Ok(())
     }

@@ -26,8 +26,18 @@ export const ComplexListItemSchema = z.object({
 
 export type ComplexListItem = z.infer<typeof ComplexListItemSchema>;
 
+/** One 시도 filter option: code, its current name from the 법정동 code table, complex count. */
+export const SidoFacetEntrySchema = z.object({
+  sido_code: z.string(),
+  sido_name: z.string().nullish(),
+  complex_count: z.number().int(),
+});
+
+export type SidoFacetEntry = z.infer<typeof SidoFacetEntrySchema>;
+
 export const ComplexesResponseSchema = z.object({
   complexes: z.array(ComplexListItemSchema),
+  sido_facet: z.array(SidoFacetEntrySchema),
   total: z.number().int(),
   page: z.number().int(),
   size: z.number().int(),

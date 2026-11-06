@@ -141,10 +141,14 @@ class Security(unittest.TestCase):
     NOW = datetime(2026, 10, 13, 2, 17, tzinfo=timezone.utc)
 
     @staticmethod
-    def github(cargo_fails=False, run_ids=None, calls=None):
+    def github(cargo_fails=False, run_ids=None, calls=None, main_runs=None, change_runs=(), pull_files=None,
+               silent=()):
         """A fake GitHub: two alerts on one advisory and package, a failed OSV run that annotated one
-        advisory (and a note that is not one), and a Cargo run that cannot be read."""
+        advisory (and a note that is not one), and a Cargo run that cannot be read. `main_runs`
+        replaces main's run list, `change_runs` are the failed pull request and merge-queue runs,
+        `pull_files` each pull request's files, and a run in `silent` failed without an annotation."""
         run_ids = run_ids or {"monorepo-guard.yml": 11, "dependency-advisories.yml": 22}
+        pull_files = pull_files or {}
         alert = lambda number: {"number": number, "html_url": f"https://github.com/x/security/dependabot/{number}",
                                 "dependency": {"package": {"ecosystem": "npm", "name": "example-package"}},
                                 "security_advisory": {"ghsa_id": "GHSA-aaaa-bbbb-cccc", "severity": "high"}}
@@ -157,10 +161,21 @@ class Security(unittest.TestCase):
             if cargo_fails and "dependency-advisories.yml" in path:
                 raise OSError("timed out")
             for workflow, run_id in run_ids.items():
+                if f"/workflows/{workflow}/runs?status=failure" in path:
+                    return {"workflow_runs": list(change_runs)}, {}
                 if f"/workflows/{workflow}/runs" in path:
-                    return {"workflow_runs": [{"id": run_id}]}, {}
+                    return {"workflow_runs": main_runs if main_runs is not None else [
+                        {"id": run_id, "event": "schedule", "conclusion": "failure", "created_at": "2026-10-13T00:00:00Z"}]}, {}
+            if "/pulls/" in path:
+                number = int(path.split("/pulls/")[1].split("/")[0])
+                return [{"filename": name} for name in pull_files.get(number, ["README.md"])], {}
             if "/jobs" in path:
-                return {"jobs": [{"id": 1, "conclusion": "success"}, {"id": 2, "conclusion": "failure"}]}, {}
+                run_id = int(path.split("/runs/")[1].split("/")[0])
+                if any(run["id"] == run_id and run["conclusion"] == "success" for run in main_runs or []):
+                    return {"jobs": [{"id": 1, "conclusion": "success"}]}, {}
+                return {"jobs": [{"id": 1, "conclusion": "success"}, {"id": 3 if run_id in silent else 2, "conclusion": "failure"}]}, {}
+            if "/check-runs/3/annotations" in path:
+                return [{"title": "", "message": "Process completed with exit code 1."}], {}
             if "/check-runs/2/annotations" in path:
                 return [{"title": "advisory", "message": "GHSA-dddd-eeee-ffff crates.io/example-crate"},
                         {"title": "", "message": "Node.js 20 is deprecated."},
@@ -231,6 +246,91 @@ class Security(unittest.TestCase):
     def test_the_token_is_never_written(self):
         security = self.measure(self.github(), token="secret-value-123")
         self.assertNotIn("secret-value-123", json.dumps(security))
+
+
+class SecurityGateBeyondTheDailyRun(unittest.TestCase):
+    """Root ADR-0388: 2026-10-30 an npm advisory (published 23:09Z) was refused by a pull request at
+    23:16Z and by main's push at 23:24Z while the alert read only the scheduled run, which next ran at
+    00:48Z and was green because the fix had merged: nothing was announced. Main's verdict is its
+    newest run of any event, and a newer pull request or merge-queue refusal counts when its change
+    touches no lockfile."""
+
+    REPOSITORY = Security.REPOSITORY
+    GREEN_SCHEDULE = {"id": 10, "event": "schedule", "conclusion": "success", "created_at": "2026-10-30T00:48:00Z"}
+    ADVISORY = ("GHSA-dddd-eeee-ffff", "crates.io/example-crate")
+
+    @staticmethod
+    def change(run_id, created_at, number=None, branch="feature", event="pull_request"):
+        return {"id": run_id, "event": event, "conclusion": "failure", "created_at": created_at,
+                "head_branch": branch, "pull_requests": [{"number": number}] if number else []}
+
+    def osv(self, previous=None, remaining=60, **fake):
+        security = checks.measure_security(self.REPOSITORY, None, previous, Security.NOW,
+                                           ask=Security.github(**fake), remaining=lambda: remaining)
+        return security["sources"]["osv-ratchet"], security
+
+    def pairs(self, source):
+        return [(f["advisory"], f["package"]) for f in source["findings"]]
+
+    def test_a_pull_request_refusal_alerts_while_the_scheduled_run_is_still_green(self):
+        # The synthetic failing case: only a pull request's run is red, main's daily run is green.
+        source, _ = self.osv(main_runs=[self.GREEN_SCHEDULE],
+                             change_runs=[self.change(41, "2026-10-30T23:16:59Z", number=982)])
+        self.assertEqual(self.pairs(source), [self.ADVISORY])
+        self.assertTrue(source["readable"])
+
+    def test_a_merge_group_refusal_counts_through_its_queued_pull_request(self):
+        calls = []
+        source, _ = self.osv(main_runs=[self.GREEN_SCHEDULE], calls=calls, change_runs=[
+            self.change(42, "2026-10-30T23:20:00Z", branch="gh-readonly-queue/main/pr-971-d4b0230ed3", event="merge_group")])
+        self.assertEqual(self.pairs(source), [self.ADVISORY])
+        self.assertTrue(any("/pulls/971/files" in path for path, _ in calls))
+
+    def test_a_change_that_touches_a_lockfile_owns_its_refusal(self):
+        for files in (["platforms/x/pnpm-lock.yaml"], ["Cargo.lock"], [f"f{n}" for n in range(100)]):
+            source, _ = self.osv(main_runs=[self.GREEN_SCHEDULE], pull_files={982: files},
+                                 change_runs=[self.change(41, "2026-10-30T23:16:59Z", number=982)])
+            self.assertEqual(source["findings"], [], files[:1])
+        fork, _ = self.osv(main_runs=[self.GREEN_SCHEDULE], change_runs=[self.change(43, "2026-10-30T23:16:59Z")])
+        self.assertEqual(fork["findings"], [], "a pull request the runs API does not name is not main's")
+
+    def test_a_push_to_main_is_main_s_verdict_before_the_next_scheduled_run(self):
+        push = {"id": 44, "event": "push", "conclusion": "failure", "created_at": "2026-10-30T23:24:07Z"}
+        source, _ = self.osv(main_runs=[push, self.GREEN_SCHEDULE])
+        self.assertEqual((self.pairs(source), source["run_id"]), ([self.ADVISORY], 44))
+
+    def test_a_newer_green_run_on_main_supersedes_an_older_refusal(self):
+        fixed = {"id": 45, "event": "push", "conclusion": "success", "created_at": "2026-10-31T00:24:43Z"}
+        source, _ = self.osv(main_runs=[fixed, self.GREEN_SCHEDULE],
+                             change_runs=[self.change(41, "2026-10-30T23:16:59Z", number=982)])
+        self.assertEqual(source["findings"], [])
+
+    def test_a_main_run_that_failed_before_the_ratchet_spoke_does_not_resolve_an_advisory(self):
+        red = {"id": 44, "event": "push", "conclusion": "failure", "created_at": "2026-10-30T23:24:07Z"}
+        broken = {"id": 46, "event": "push", "conclusion": "failure", "created_at": "2026-10-31T00:10:00Z"}
+        source, _ = self.osv(main_runs=[broken, red, self.GREEN_SCHEDULE], silent={46})
+        self.assertEqual((self.pairs(source), source["run_id"]), ([self.ADVISORY], 44))
+
+    def test_runs_past_the_hour_s_budget_wait_for_the_next_hour(self):
+        changes = [self.change(41, "2026-10-30T23:16:59Z", number=982)]
+        # Budget left for the lists but not for a new run: main's green verdict stands, the refusal waits.
+        first = checks.ratchet(self.REPOSITORY, "monorepo-guard.yml", None, None,
+                               Security.github(main_runs=[self.GREEN_SCHEDULE], change_runs=changes),
+                               lambda: checks.API_RESERVE + checks.RUN_REQUESTS - 1)
+        self.assertEqual((first["findings"], first["verdicts"]), ([], [{"run_id": 10, "findings": []}]))
+        calls = []
+        later, _ = self.osv(previous={"sources": {"osv-ratchet": first}}, main_runs=[self.GREEN_SCHEDULE],
+                            change_runs=changes, calls=calls)
+        self.assertEqual(self.pairs(later), [self.ADVISORY])
+        again, _ = self.osv(previous={"sources": {"osv-ratchet": later}}, main_runs=[self.GREEN_SCHEDULE],
+                            change_runs=changes, calls=(calls := []))
+        self.assertEqual(again["findings"], later["findings"])
+        self.assertFalse(any("/jobs" in path or "/pulls/" in path for path, _ in calls), "a run already read")
+
+    def test_the_cargo_ratchet_runs_on_no_change_and_is_not_asked_for_one(self):
+        calls = []
+        self.osv(calls=calls)
+        self.assertFalse(any("dependency-advisories.yml/runs?status=failure" in path for path, _ in calls))
 
 
 class File(unittest.TestCase):

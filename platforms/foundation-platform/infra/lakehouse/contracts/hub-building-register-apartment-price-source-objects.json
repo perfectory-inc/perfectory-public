@@ -34,6 +34,10 @@
     "table": "silver.building_register_apartment_price",
     "roles": {"source": "hubgokr__building_register_apartment_price"},
     "export": "export-building-register-apartment-price-silver-handoff",
+    "run_budget": {
+      "step_seconds_max": 2774,
+      "measured": "2026-10-20 journal of foundation-silver-refresh@building-register-apartment-price and silver.building_register_apartment_price$snapshots (read-only): one 40M-row batch, Spark start to its write-ok, took 1,120s, 1,340s, 1,702s, 1,979s and 2,774s for batches 1 to 5 (the readback of each read every batch staged before it, root ADR-0391); the largest is the budget until a release loads with the batch's own readback and is measured again."
+    },
     "spark": {"master": "local[8,8]", "driver_memory": "16g", "iceberg_write_mode": "append", "input_file_batch_size": 40}
   }
 }

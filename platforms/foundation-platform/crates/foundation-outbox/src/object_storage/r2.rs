@@ -874,6 +874,10 @@ impl ObjectStorageService for R2ObjectStorage {
         .await
     }
 
+    async fn read_object_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
+        self.get_object_bytes(key).await
+    }
+
     async fn read_object_sha256(&self, key: &str) -> Result<Option<String>, PublishError> {
         // A missing object is Ok(None), not an error: content-addressed writers HEAD before every
         // write and the key is usually absent (the sibling read_object_sha256_and_size_by_rehash

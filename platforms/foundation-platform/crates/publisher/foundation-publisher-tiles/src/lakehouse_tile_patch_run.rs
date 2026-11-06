@@ -21,7 +21,7 @@ use super::pmtiles_feature_ids::{Archive, Header, COMPRESSION_GZIP, HEADER_BYTES
 use super::{
     bake_inputs, bake_unit, create_only_upload_and_rehash, gate::classify_missing, prepare_handoff,
     read_active_static, record_fold, required_env_value, ActiveStatic, BakeContract, Config,
-    ServedSummary, TileDerivativeR2Config,
+    ServedIds, ServedSummary, TileDerivativeR2Config,
 };
 
 /// Range reads of a base or patch archive: a directory or a few tiles per request.
@@ -42,6 +42,13 @@ impl Indexed {
     pub fn keep(&self, config: &Config, snapshot: &str, inputs: &str) -> anyhow::Result<()> {
         let path = patch::index_path(&config.work_root, &config.unit_key, snapshot, inputs)?;
         patch::keep_index(&self.pending, &path)
+    }
+
+    /// Root ADR-0375 §2: a partial handoff's index becomes the merged one, file and records.
+    fn replace_records(&mut self, records: Vec<Record>) -> anyhow::Result<()> {
+        patch::write_index(&self.pending, &records)?;
+        self.records = Arc::new(records);
+        Ok(())
     }
 
     /// Frees the records; a full bake keeps only the file.
@@ -123,7 +130,7 @@ pub async fn try_patch(
     policy: &PatchPolicy,
     summary: &Arc<ServedSummary>,
     work: &Path,
-    indexed: &Indexed,
+    indexed: &mut Indexed,
 ) -> anyhow::Result<bool> {
     let unit = config.unit_key.as_str();
     let pool = PgPool::connect(&required_env_value("DATABASE_URL")?).await?;
@@ -147,7 +154,7 @@ pub async fn try_patch(
         summary.geometry_srid,
         &active.layer,
         &indexed.columns,
-        config.maxzoom_detail,
+        config,
     );
     let old_path = patch::index_path(&config.work_root, unit, served, &inputs)?;
     if !old_path.exists() {
@@ -168,12 +175,42 @@ pub async fn try_patch(
         .as_ref()
         .and_then(|(manifest, _)| manifest.patch.as_ref())
         .map_or(0, |patch| patch.tiles as usize);
-    let records = indexed.records.clone();
-    let changes = tokio::task::spawn_blocking(move || {
-        anyhow::Ok(patch::diff(&patch::read_index(&old_path)?, &records))
+    if let Some(partial) = summary
+        .partial
+        .as_ref()
+        .filter(|partial| partial.base_snapshot != served)
+    {
+        return full(
+            unit,
+            &format!(
+                "the partial handoff applies to snapshot {}, the tiles serve {served}",
+                partial.base_snapshot
+            ),
+        );
+    }
+    let (records, partial, handoff) = (
+        indexed.records.clone(),
+        summary.partial.clone(),
+        config.served_handoff.clone(),
+    );
+    let (changes, merged) = tokio::task::spawn_blocking(move || {
+        let old = patch::read_index(&old_path)?;
+        let Some(partial) = partial else {
+            return anyhow::Ok((patch::diff(&old, &records), None));
+        };
+        let list = super::partial::read_change_list(&partial.change_list, &handoff)?;
+        Ok(match super::partial::merge(&old, &records, &list) {
+            Ok(merged) => (patch::diff(&old, &merged), Some(Ok(merged))),
+            Err(reason) => (patch::Changes::default(), Some(Err(reason))),
+        })
     })
     .await
     .context("the change detection stopped")??;
+    match merged {
+        Some(Err(reason)) => return full(unit, &reason),
+        Some(Ok(merged)) => indexed.replace_records(merged)?,
+        None => {}
+    }
     let zooms = (active.layer.tile_min_zoom, active.layer.tile_max_zoom);
     let Some(dirty) =
         patch::dirty_tiles(&changes.boxes, zooms, limit.saturating_sub(previous_tiles))
@@ -186,6 +223,12 @@ pub async fn try_patch(
             ),
         );
     };
+    if let Some(partial) = &summary.partial {
+        let needed = patch::neighbourhood(&dirty, active.layer.tile_min_zoom)?;
+        if let Some(reason) = partial.uncovered(&needed, active.layer.tile_min_zoom) {
+            return full(unit, &reason);
+        }
+    }
     println!(
         "lakehouse-tile-bake-patch-plan unit={unit} served={served} upserted={} deleted={} dirty_tiles={} previous_tiles={previous_tiles} limit={limit}",
         changes.upserted.len(),
@@ -272,7 +315,7 @@ async fn build_patch(
         indexed.records.clone(),
         layer.tile_min_zoom,
     );
-    let (columns, ids, kept) = tokio::task::spawn_blocking(move || {
+    let (columns, handed_ids, kept) = tokio::task::spawn_blocking(move || {
         let out = BufWriter::with_capacity(1 << 20, File::create(&csv)?);
         let csv = patch::NeighbourhoodCsv {
             inner: out,
@@ -302,6 +345,14 @@ async fn build_patch(
         missing.is_empty(),
         "the served snapshot lacks properties the served layer promises: {missing:?}"
     );
+    // Root ADR-0375 §2: a partial handoff hands only the neighbourhood; the snapshot serves every
+    // id of the merged index.
+    let ids = if publish.summary.partial.is_some() {
+        ServedIds::from_hashes(indexed.records.iter().map(|record| record.id).collect())
+            .map_err(|_| anyhow::anyhow!("the merged feature index holds an id twice"))?
+    } else {
+        handed_ids
+    };
     let neighbourhood = dir.join("unit.pmtiles");
     if kept > 0 {
         bake_unit(

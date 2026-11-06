@@ -101,6 +101,34 @@ class LandUseZoneAreaTileHandoffTest(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 job.validate_args(args)
 
+    def test_a_handoff_is_partial_unless_declined_first_or_unanchored(self):
+        def args(*extra):
+            return job.parse_args(["--output", "h.jsonl", "--summary-output", "s.json", *extra])
+
+        self.assertIsNone(job.partial_refusal(args("--served-snapshot", "1", "--served-by-tile-snapshot", "2")))
+        self.assertIn("declined", job.partial_refusal(
+            args("--served-snapshot", "1", "--served-by-tile-snapshot", "2", "--full")))
+        self.assertIn("first bake", job.partial_refusal(args()))
+        self.assertIn("by_tile", job.partial_refusal(args("--served-snapshot", "1")))
+
+    def test_a_served_by_tile_snapshot_must_be_a_snapshot_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = job.parse_args(["--output", f"{tmp}/h.jsonl", "--summary-output", f"{tmp}/s.json",
+                                   "--served-by-tile-snapshot", "x1"])
+            with self.assertRaisesRegex(ValueError, "by-tile-snapshot"):
+                job.validate_args(args)
+
+    def test_the_change_list_is_written_once_beside_the_handoff_with_its_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lines = [{"feature_id": "D999:a", "op": "upsert"}, {"feature_id": "D999:b", "op": "delete"}]
+            recorded = job.change_list_file(Path(tmp), "h.jsonl.changes.jsonl", lines)
+            body = Path(tmp, "h.jsonl.changes.jsonl").read_bytes()
+            self.assertEqual(body, b'{"feature_id":"D999:a","op":"upsert"}\n{"feature_id":"D999:b","op":"delete"}\n')
+            self.assertEqual(recorded["rows"], 2)
+            self.assertEqual(recorded["path"], "h.jsonl.changes.jsonl")
+            with self.assertRaises(FileExistsError):
+                job.change_list_file(Path(tmp), "h.jsonl.changes.jsonl", lines)
+
     def test_parts_are_joined_in_name_order_into_one_create_only_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             parts_dir = Path(tmp, "parts")

@@ -68,6 +68,20 @@ pub trait ObjectStorageService: Send + Sync {
     ///
     /// Returns `PublishError` when the provider rejects the read or cannot be reached.
     async fn read_object_sha256(&self, key: &str) -> Result<Option<String>, PublishError>;
+
+    /// Reads a whole stored object back, for a derivative made from a stored original (root
+    /// ADR-0427: a photo's renditions are made from the original in the store, not from a second
+    /// download). The default fails closed for adapters that do not read.
+    ///
+    /// # Errors
+    ///
+    /// Returns `PublishError` when the object is absent, the provider rejects the read, or the
+    /// adapter does not read.
+    async fn read_object_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
+        Err(PublishError::Infrastructure(format!(
+            "object storage adapter does not read objects back ({key})"
+        )))
+    }
 }
 
 #[async_trait]

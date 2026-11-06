@@ -145,43 +145,6 @@ pub(crate) struct ResultCodes {
     pub(crate) no_data: String,
 }
 
-/// How 물건상세 photos and appraisal attachments are mirrored to the shared content-addressed store
-/// (ADR-0296 §2 / ADR-0297). Consumed by `onbid_media`.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Media {
-    /// Object-key prefix the content-addressed media lands under (`<prefix>/sha256/<hash>.<ext>`).
-    pub(crate) object_prefix: String,
-    /// The only host whose URLs are fetched (the provider serves all media from `www.onbid.co.kr`).
-    pub(crate) url_host: String,
-    /// Downloads attempted per KST day; the day's total across runs.
-    pub(crate) daily_download_limit: u32,
-    /// Downloads attempted in one collect run — bounds one run's wall time (attempts ×
-    /// `download_timeout_seconds`) so a high daily budget cannot make a run exceed its time limit
-    /// (ADR-0300 H: every collection job declares a per-run bound).
-    pub(crate) per_run_limit: u32,
-    /// Per-download timeout (seconds); short because photos are small — a hung link must not let the
-    /// media step eat the job's time limit.
-    pub(crate) download_timeout_seconds: u64,
-    /// A single file larger than this is not stored (safety valve; root: the 5.89 GB single-PUT stall).
-    pub(crate) max_file_bytes: u64,
-    /// Downloads of one condition's media in flight at once (root ADR-0330 §3).
-    pub(crate) concurrency: usize,
-    /// No new condition's media is started once this many seconds of the media step have passed,
-    /// so the step's wall time is bounded whatever the counts (root ADR-0330 §3).
-    pub(crate) run_time_budget_seconds: u64,
-    /// Which response fields are media, and the `media_kind` each lands as (root ADR-0340 §4).
-    pub(crate) fields: MediaFields,
-}
-
-/// The media fields of the 물건상세 and 공고상세 responses, by shape (root ADR-0340 §4).
-#[derive(Clone, Debug, Default, Deserialize)]
-pub(crate) struct MediaFields {
-    /// `[{urlAdr}]` arrays: field → media_kind.
-    pub(crate) list: BTreeMap<String, String>,
-    /// `|`-joined URL strings: field → media_kind.
-    pub(crate) pipe: BTreeMap<String, String>,
-}
-
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SourceContract {
     pub(crate) base_url: String,
@@ -1326,6 +1289,7 @@ pub async fn run() -> anyhow::Result<()> {
             deadline: std::time::Instant::now()
                 + Duration::from_secs(contract.media.run_time_budget_seconds),
             fields: &contract.media.fields,
+            renditions: Some(&contract.media.renditions),
         };
         if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail).cloned() {
             match &http {
@@ -1438,7 +1402,13 @@ pub async fn run() -> anyhow::Result<()> {
         state.save(&state_path)?;
         if let Some(dir) = &config.metrics_dir {
             // A metrics write never fails the run; a stale file pages on its own (the rule's age check).
-            if let Err(error) = write_metrics(dir, &Coverage::of(&state, now), now) {
+            let mut coverage = Coverage::of(&state, now);
+            if let Some(media) = &media_report {
+                coverage.originals_attempted = media.originals_attempted;
+                coverage.originals_rule_mismatched = media.originals_rule_mismatched;
+                coverage.ladders_deferred = media.ladders_deferred;
+            }
+            if let Err(error) = write_metrics(dir, &coverage, now) {
                 tracing::warn!(error = %error, "Onbid coverage metrics were not written");
             }
         }
@@ -1474,6 +1444,8 @@ pub async fn run() -> anyhow::Result<()> {
 }
 
 mod coverage;
+mod media_contract;
+pub(crate) use media_contract::{Media, MediaFields, OriginalRule, RenditionBudget};
 mod follow_ups;
 #[cfg(test)]
 pub(crate) use coverage::{kst14, kst14_of, MEDIA_FIELDS};

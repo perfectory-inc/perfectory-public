@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::complex_search::{ComplexSearchQuery, ComplexSearchResult};
+use crate::complex_search::{ComplexSearchQuery, ComplexSearchResult, SidoFacetEntry};
 use async_trait::async_trait;
 use catalog_domain::{
     Blueprint, BuildEvidenceDigest, CanonicalIcebergSnapshotId, CatalogError, CatalogMutationKind,
@@ -600,6 +600,8 @@ pub struct UpsertIndustrialComplexCommand {
     pub sido_code: Option<String>,
     /// City/county/district administrative code to write.
     pub sigungu_code: Option<String>,
+    /// Current name of `sido_code` in the 법정동 code table to write (root ADR-0426).
+    pub sido_name: Option<String>,
     /// Address text to write.
     pub address_text: Option<String>,
     /// Managing organization to write.
@@ -689,6 +691,12 @@ pub trait CatalogRepository: Send + Sync {
         &self,
         query: &ComplexSearchQuery,
     ) -> Result<ComplexSearchResult<IndustrialComplex>, CatalogError>;
+
+    /// Every 시도 at least one live complex is in, ascending by code (root ADR-0426).
+    ///
+    /// # Errors
+    /// Returns `CatalogError` when repository access fails.
+    async fn complex_sido_facet(&self) -> Result<Vec<SidoFacetEntry>, CatalogError>;
 
     /// Finds an industrial complex by id.
     ///

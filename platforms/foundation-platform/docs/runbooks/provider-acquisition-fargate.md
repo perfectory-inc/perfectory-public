@@ -296,6 +296,45 @@ raon -E FOUNDATION_RAON_LARGE_FILES_MAX_FILES=1 \
 카탈로그에 적는 PR을 연다. journal 줄에는 `budget_override=1`이 붙는다. 실행 ID·파일 식별자·크기·checksum은 이
 문서가 아니라 ADR 0007의 private operations evidence에 남긴다.
 
+### 호스트에 직접 깔린 제조사 패키지 지우기 (사장, 한 번 — 루트 ADR-0394)
+
+에이전트는 raon-batch image 안에서만 돈다. 데이터 호스트 자체에 손으로 깐 제조사 패키지 `raonk-2018` 은
+아래 일을 한다(확인한 날짜와 측정값은 루트 ADR-0394 에 있다):
+
+- root crontab 에 매분 `/opt/raonk-2018/scripts/service.sh` 와 `@reboot` 를 넣는다. 그 스크립트는 1분 동안 5초마다
+  12번 화면 없는 GUI 에이전트를 `su -` 로 띄우고, 매번 실패한다(`cannot open display`).
+- `/opt/raonk-2018` 아래 파일이 모두 누구나 쓸 수 있다(777). root 의 cron 이 그 스크립트를 실행하므로 이 호스트의
+  어느 계정이든 root 가 될 수 있다.
+- 그때마다 apparmor `userns_create` 감사 줄과 `su-l` 세션 줄을 journal 에 남긴다.
+
+`raon-large-files.sh` 는 계약 `config/provider-agent-packages.contract.json` 의 `host_install_forbidden.paths`
+중 하나라도 있는 호스트에서는 무엇도 하기 전에 78로 거부한다. 레인을 켜기 전에 사장이 PowerShell 이나 cmd 에서
+한 줄씩 지운다(달러 기호 없음, 그대로 붙여 넣는다). 패키지의 prerm 이 root crontab 의 두 줄을 지우고 돌던
+`service.sh` 를 끝낸다:
+
+```powershell
+ssh -t ai-server "sudo apt-get purge -y raonk-2018"
+ssh -t ai-server "sudo pkill -f /opt/raonk-2018/scripts/service.sh"
+ssh -t ai-server "sudo rm -rf /opt/raonk-2018"
+```
+
+확인(세 줄 모두 아무것도 출력하지 않거나 "No such file" 이어야 한다):
+
+```powershell
+ssh -t ai-server "sudo crontab -l | grep raonk"
+ssh ai-server "ls -d /opt/raonk-2018"
+ssh ai-server "pgrep -fa raonk-2018"
+```
+
+`sudo crontab -l | grep raonk` 가 줄을 내면 prerm 이 지우지 못한 것이다. 그때만 한 번 더 지운다:
+
+```powershell
+ssh -t ai-server "sudo crontab -l | grep -v raonk-2018 | sudo crontab -"
+```
+
+`pkill` 은 이미 끝났으면 1로 끝난다(문제 없음). image 는 같은 패키지를 계약의 제조사 주소에서 받아 sha256 으로
+확인하므로 호스트 사본은 필요 없다.
+
 ## Linux RAON 에이전트 컨테이너 증명
 
 정확한 provider bulk 파일에 cloud runtime을 선택하기 전에 proof image를 사용한다. Xvfb 아래에서

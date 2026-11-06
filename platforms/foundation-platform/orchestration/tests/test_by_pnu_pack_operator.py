@@ -136,7 +136,8 @@ class OperatorHarness(unittest.TestCase):
         (release / "scripts/ops").mkdir(parents=True)
         # The granted copy hands every action to the release's own copy of itself.
         for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh", "by-pnu-pack-bake.sh",
-                     "by-pnu-bake-shards.sh", "by-pnu-lane-cutover.sh", "held-lock.sh", "by-pnu-lane-index.sh"):
+                     "by-pnu-bake-shards.sh", "by-pnu-lane-cutover.sh", "held-lock.sh", "by-pnu-lane-index.sh",
+                     "serving_history_readiness.py", "iceberg_metadata.py"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops")
         health = release / "scripts/ops/by-pnu-gateway-health.sh"
         health.write_text(FAKE_HEALTH)
@@ -238,21 +239,13 @@ class PackOperator(OperatorHarness):
 
     def test_the_unit_price_versions_migration_is_a_job_that_holds_the_spark_pool(self):
         # 2026-11-04: as a unit beside the job list it ran beside the Spark jobs the pool did not know
-        # it shared with and was killed at 8 h. As the job it is, `job start` refuses beside any of
-        # them, and while it runs the pool counts it for every other start.
+        # it shared with and was killed at 8 h. As the scheduled job it is, Airflow starts it, not
+        # `job start`, and while it runs the pool counts it for every other start.
         job = "unit_price_versions_migration"
         result, calls = self.run_operator("job", "start", job, *fresh())
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([c["args"] for c in calls if c["tool"] == "systemctl"],
-                         [["start", "--no-block", "foundation-unit-price-versions-migrate.service"]])
-        for active in (["foundation-silver-refresh@land-use-plan.service"],
-                       ["foundation-gold-panel-rebuild.service"],
-                       ["foundation-unit-price-versions-migrate.service"]):
-            with self.subTest(active=active):
-                self.log.unlink(missing_ok=True)
-                result, calls = self.run_operator("job", "start", job, *fresh(), activating=active)
-                self.assertEqual(result.returncode, 75, result.stderr)
-                self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
+        self.assertEqual(result.returncode, 64, result.stderr)
+        self.assertIn("an enabled job is Airflow's", result.stderr)
+        self.assertFalse([c for c in calls if c["tool"] == "systemctl" and c["args"][0] == "start"])
         self.log.unlink(missing_ok=True)
         result, _ = self.run_operator("silver", "start", "building-register-titles", *fresh(),
                                       activating=["foundation-unit-price-versions-migrate.service"])

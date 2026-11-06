@@ -8,7 +8,7 @@
       "scope": "full",
       "full_reason": "Every night it walks every list search page by page: the site offers no changed-since query.",
       "full_cost": "measured from the journal of its supervised nights (the job is disabled since): 2026-10-19 one night took 78 minutes (16:02-17:20 UTC); 2026-10-20 the site refused it after 174 requests in 10 minutes.",
-      "full_tracked_by": "PR #840 (root ADR-0304): the recrawl frontier is computed each run from the lakehouse, so a night asks only for what is not yet known or is due again",
+      "full_tracked_by": "root ADR-0352: the recrawl frontier is computed each run from the lakehouse, so a night asks only for what is not yet known or is due again",
       "interruptible": false,
       "commits": "at_end",
       "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified by our product name, only between 01:00 and 06:00 KST unless an operator overrides that window for a bounded time (switches/court_auction_collect.window, root ADR-0282), and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Hands nothing on: court_auction_silver finds what it owes in R2. No Spark.",
@@ -22,6 +22,23 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 300,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/manners/max_requests_per_run",
+          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/item_detail/photos/renditions/per_run_limit"
+        ],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 2,
+          "p50": 610,
+          "p90": 4666,
+          "max": 4666,
+          "timeouts": 0,
+          "from": "2026-10-19T16:02:34Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [
