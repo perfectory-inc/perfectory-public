@@ -19,9 +19,10 @@ pub const PROMOTION_JOB: &str = "parcel_edition_readiness";
 /// have (`readiness.max_report_age_hours` of the cadastral source contract).
 pub const PROMOTION_EXPIRY_HOURS: i64 = 48;
 
-/// The subject of a cut-over approval: the by-PNU lane cut-over runner, which
-/// `by-pnu-pack-operator.sh` starts as `foundation-by-pnu-lane-cutover-g<generation>` (root
-/// ADR-0433). It is not a scheduled job; a `stop` of it cancels an approval or ends its run.
+/// The subject of a cut-over approval: the by-PNU lane cut-over runner (root ADR-0433).
+///
+/// `by-pnu-pack-operator.sh` starts it as `foundation-by-pnu-lane-cutover-g<generation>`. It is not
+/// a scheduled job; a `stop` of it cancels an approval or ends its run.
 pub const CUTOVER_SUBJECT: &str = "by_pnu_lane_cutover";
 
 /// How long a cut-over approval may wait for its start, in hours: the operator window opens once a

@@ -518,61 +518,71 @@ async fn a_cut_over_is_approved_of_its_runner_and_a_full_bake_of_a_bake_job(
         3,
         "every recorded approval is switched"
     );
-    for (job, body) in [
-        // An approval names its lanes and generation.
-        (
-            "by_pnu_lane_cutover",
-            r#"{"action":"approve_cutover","reason":"r","generation":1}"#,
-        ),
-        (
-            "by_pnu_lane_cutover",
-            r#"{"action":"approve_cutover","reason":"r","lanes":"lanes"}"#,
-        ),
-        (
-            "by_pnu_lane_cutover",
-            r#"{"action":"approve_cutover","reason":"r","lanes":"lanes","generation":0}"#,
-        ),
-        (
-            "by_pnu_lane_cutover",
-            r#"{"action":"approve_cutover","reason":"r","lanes":"parcel-energy,parcel-energy","generation":1}"#,
-        ),
-        // And no reason, no approval: the reason is the audit.
-        (
-            "by_pnu_lane_cutover",
-            r#"{"action":"approve_cutover","reason":" ","lanes":"lanes","generation":1}"#,
-        ),
-        // The runner takes only an approval and a stop, and an approval is only the runner's.
-        (
-            "by_pnu_lane_cutover",
-            r#"{"action":"run_now","reason":"r"}"#,
-        ),
-        (
-            "shape_ledger_check",
-            r#"{"action":"approve_cutover","reason":"r","lanes":"lanes","generation":1}"#,
-        ),
-        // A full bake is one lane of a by-PNU bake.
-        (
-            "shape_ledger_check",
-            r#"{"action":"force_full","reason":"r","lanes":"parcel"}"#,
-        ),
-        (
-            "by_pnu_serving_bake",
-            r#"{"action":"force_full","reason":"r","lanes":"parcel,building"}"#,
-        ),
-        (
-            "by_pnu_serving_bake",
-            r#"{"action":"force_full","reason":"r"}"#,
-        ),
-        (
-            "by_pnu_serving_bake",
-            r#"{"action":"force_full","reason":"r","lanes":"parcel","generation":2}"#,
-        ),
-        // Nothing else names a lane.
-        (
-            "shape_ledger_check",
-            r#"{"action":"run_now","reason":"r","lanes":"parcel"}"#,
-        ),
-    ] {
+    Ok(())
+}
+
+/// Release approvals the route refuses before the ledger (root ADR-0433).
+const REFUSED_RELEASE_REQUESTS: [(&str, &str); 12] = [
+    // An approval names its lanes and generation.
+    (
+        "by_pnu_lane_cutover",
+        r#"{"action":"approve_cutover","reason":"r","generation":1}"#,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        r#"{"action":"approve_cutover","reason":"r","lanes":"lanes"}"#,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        r#"{"action":"approve_cutover","reason":"r","lanes":"lanes","generation":0}"#,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        r#"{"action":"approve_cutover","reason":"r","lanes":"parcel-energy,parcel-energy","generation":1}"#,
+    ),
+    // And no reason, no approval: the reason is the audit.
+    (
+        "by_pnu_lane_cutover",
+        r#"{"action":"approve_cutover","reason":" ","lanes":"lanes","generation":1}"#,
+    ),
+    // The runner takes only an approval and a stop, and an approval is only the runner's.
+    (
+        "by_pnu_lane_cutover",
+        r#"{"action":"run_now","reason":"r"}"#,
+    ),
+    (
+        "shape_ledger_check",
+        r#"{"action":"approve_cutover","reason":"r","lanes":"lanes","generation":1}"#,
+    ),
+    // A full bake is one lane of a by-PNU bake.
+    (
+        "shape_ledger_check",
+        r#"{"action":"force_full","reason":"r","lanes":"parcel"}"#,
+    ),
+    (
+        "by_pnu_serving_bake",
+        r#"{"action":"force_full","reason":"r","lanes":"parcel,building"}"#,
+    ),
+    (
+        "by_pnu_serving_bake",
+        r#"{"action":"force_full","reason":"r"}"#,
+    ),
+    (
+        "by_pnu_serving_bake",
+        r#"{"action":"force_full","reason":"r","lanes":"parcel","generation":2}"#,
+    ),
+    // Nothing else names a lane.
+    (
+        "shape_ledger_check",
+        r#"{"action":"run_now","reason":"r","lanes":"parcel"}"#,
+    ),
+];
+
+#[tokio::test]
+async fn a_release_approval_that_breaks_a_rule_is_refused_before_the_ledger(
+) -> Result<(), Box<dyn Error>> {
+    let ledger = Arc::new(RecordingLedger::default());
+    for (job, body) in REFUSED_RELEASE_REQUESTS {
         let (status, answer) = ask(
             Arc::new(StaffJobOperatorAuthorization::default()),
             ledger.clone(),
@@ -585,9 +595,8 @@ async fn a_cut_over_is_approved_of_its_runner_and_a_full_bake_of_a_bake_job(
             "{job} {body}: {answer}"
         );
     }
-    assert_eq!(
-        ledger.records.lock().await.len(),
-        3,
+    assert!(
+        ledger.records.lock().await.is_empty(),
         "a refused approval was recorded"
     );
     Ok(())
