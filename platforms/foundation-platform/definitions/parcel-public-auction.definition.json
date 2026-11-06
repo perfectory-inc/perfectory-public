@@ -50,7 +50,8 @@
         "reference-legal-dong-code-change-to-gold-parcel-public-auction"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-20T16:12:59Z"
+      "enabled_since": "2026-10-20T16:12:59Z",
+      "dagster_stage": "shadow"
     },
     {
       "id": "by_pnu_public_auction_bake",
@@ -93,7 +94,8 @@
         "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-28T00:00:00Z"
+      "enabled_since": "2026-10-28T00:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
