@@ -53,6 +53,7 @@ use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_target_preflight,
     BronzeObjectStorageWriter,
 };
+use crate::media_renditions;
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
@@ -1012,6 +1013,9 @@ pub async fn run() -> anyhow::Result<()> {
         entry["rows"] = json!(result.rows);
         objects.push(entry);
     }
+    let ladder_sources = details
+        .as_ref()
+        .map(|(result, _)| result.photos.sources.clone());
     let detail_report = match details {
         Some((result, report)) if !result.lines.is_empty() => {
             let search = contract.item_detail.as_search();
@@ -1033,6 +1037,32 @@ pub async fn run() -> anyhow::Result<()> {
         Some((_, report)) => report,
         None => json!({"asked": 0, "skipped": "the list pass did not end cleanly"}),
     };
+    // After the night's Bronze landed (no site request is made here): each photo stored or seen this
+    // night gets its display ladder from the shared store, within the contract's budget (root
+    // ADR-0427 §7). A ladder that fails or is deferred is not lost: the backlog job takes it from
+    // the Silver photo index. A ladder failure never fails the night.
+    let mut detail_report = detail_report;
+    if let (Some((_, storage)), Some(sources)) = (live, ladder_sources.as_deref()) {
+        let prefix = detail::photo_prefix(&contract.item_detail)?;
+        match media_renditions::ensure_ladders(
+            prefix.as_str(),
+            sources,
+            &contract.item_detail.photos.renditions,
+            storage,
+        )
+        .await
+        {
+            Ok((ladders, _left)) => detail_report["ladders"] = json!(ladders),
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: no rendition ladder this night");
+                detail_report["ladders"] = json!({"skipped": format!("{error:#}")});
+            }
+        }
+        println!(
+            "courtauction.go.kr photo ladders: {}",
+            detail_report["ladders"]
+        );
+    }
     write_json_file(
         &config.output_dir.join("manifest.json"),
         &json!({

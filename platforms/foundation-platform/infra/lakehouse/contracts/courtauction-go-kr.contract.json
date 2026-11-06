@@ -79,7 +79,13 @@
       "sequence_field": "cortAuctnPicSeq",
       "page_field": "pageSeq",
       "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
-      "max_file_bytes": 52428800
+      "max_file_bytes": 52428800,
+      "$renditions": "루트 ADR-0427 §7. 그 밤의 Bronze 가 커밋된 뒤(사이트 요청 없음), 그 밤 저장했거나 이미 있던 사진마다 공용 저장소의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 공매와 같은 media_renditions::ensure_ladders 로 만든다. 이미 사다리 표시가 있으면 HEAD 한 번이다. 상한(계산): 사진 원천 하나 ~4.5 초(ADR-0427 Consequences 의 rav1e 추정) × per_run_limit 1,500 ÷ concurrency 4 ≈ 28 분 ≤ run_time_budget_seconds 1,800. 작업 한도 300 분 안: 목록 실측 최장 78 분(4,666 초) + 상세 1,800 × ~4 초 ≈ 120 분 + 사다리 30 분 ≈ 228 분 ≤ 270 분(90 %). 남거나 실패한 사진은 잃지 않는다: media_ladder_backlog 가 Silver 사진 색인에서 가져간다.",
+      "renditions": {
+        "per_run_limit": 1500,
+        "concurrency": 4,
+        "run_time_budget_seconds": 1800
+      }
     }
   },
   "collection": {

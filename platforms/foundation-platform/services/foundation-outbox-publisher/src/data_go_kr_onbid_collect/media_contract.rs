@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
+/// The bound of the photos' rendition ladder step: one budget type for every source.
+pub(crate) use crate::media_renditions::RenditionBudget;
+
 /// How 물건상세 photos and appraisal attachments are mirrored to the shared content-addressed store
 /// (ADR-0296 §2 / ADR-0297). Consumed by `onbid_media`.
 #[derive(Clone, Debug, Deserialize)]
@@ -33,15 +36,6 @@ pub(crate) struct Media {
     pub(crate) fields: MediaFields,
     /// The bound of the photos' rendition ladder step (root ADR-0427 §2).
     pub(crate) renditions: RenditionBudget,
-}
-
-/// How much of a run the photos' rendition ladders may take (root ADR-0427 §2, ADR-0300 H): no line
-/// starts once `per_run_limit` photo sources were taken or `run_time_budget_seconds` passed.
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct RenditionBudget {
-    pub(crate) per_run_limit: u32,
-    pub(crate) concurrency: usize,
-    pub(crate) run_time_budget_seconds: u64,
 }
 
 /// The media fields of the 물건상세 and 공고상세 responses, by shape (root ADR-0340 §4).

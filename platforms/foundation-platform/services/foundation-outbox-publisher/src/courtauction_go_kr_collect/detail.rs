@@ -9,10 +9,12 @@
 //!
 //! The response carries the case's photos as base64 (`csPicLst[].picFile`, 99.5% of its bytes).
 //! Each is decoded and stored once in the shared content-addressed media store
-//! (`onbid_media::store_bytes`, root ADR-0298); the Bronze line keeps the response with the value
-//! replaced by `sha256:<hex>`, so the line and the store together give the response back.
+//! (`media_store::store_bytes`, root ADR-0298); the Bronze line keeps the response with the value
+//! replaced by `sha256:<hex>`, so the line and the store together give the response back. Each
+//! stored photo then gets its display ladder (`media_renditions::ensure_ladders`, root ADR-0427 §7)
+//! once the night's Bronze has landed.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context as _;
 use base64::Engine as _;
@@ -26,7 +28,8 @@ use serde_json::{json, Value as JsonValue};
 use sha2::{Digest as _, Sha256};
 
 use super::{Collector, Search, SourceContract, Stop, KST_HOURS};
-use crate::onbid_media::{store_bytes, Stored};
+use crate::media_renditions::RenditionBudget;
+use crate::media_store::{store_bytes, Stored};
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct PhotoFields {
@@ -34,6 +37,9 @@ pub(crate) struct PhotoFields {
     pub(crate) file_field: String,
     pub(crate) object_prefix_from: String,
     pub(crate) max_file_bytes: u64,
+    /// The bound of the night's ladder step (root ADR-0427 §7); what it leaves, the backlog job
+    /// takes from the Silver photo index.
+    pub(crate) renditions: RenditionBudget,
 }
 
 /// The contract's `item_detail` (root ADR-0384).
@@ -312,6 +318,12 @@ pub(crate) struct PhotoReport {
     pub(crate) deduplicated: u64,
     pub(crate) bytes_stored: u64,
     pub(crate) not_stored: u64,
+    /// Each stored (or already-stored) photo once, `(sha256, media_format)`, in the order read: the
+    /// sources of the night's ladder step.
+    #[serde(skip)]
+    pub(crate) sources: Vec<(String, String)>,
+    #[serde(skip)]
+    seen: HashSet<String>,
 }
 
 /// Rewrites one response's photos in place: each `file_field` value is decoded, stored once (when
@@ -365,6 +377,11 @@ pub(crate) async fn rewrite_photos(
                     photo[fields.file_field.as_str()] = JsonValue::Null;
                     continue;
                 }
+            }
+            if report.seen.insert(sha256.clone()) {
+                report
+                    .sources
+                    .push((sha256.clone(), format.extension().to_owned()));
             }
         }
         photo[fields.file_field.as_str()] = json!(format!("sha256:{sha256}"));
@@ -702,6 +719,40 @@ mod tests {
             "no base64 is kept in Bronze"
         );
         assert_eq!((report.photos, report.not_stored), (2, 1));
+    }
+
+    #[tokio::test]
+    async fn every_stored_photo_is_a_ladder_source_once_in_the_shared_store() {
+        let contract = contract();
+        let fields = &contract.item_detail.photos;
+        let root = tempfile::tempdir().unwrap();
+        let storage =
+            foundation_outbox::object_storage::FileObjectStorage::new(root.path()).unwrap();
+        let mut pixels = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut pixels, 90)
+            .encode(&[90_u8; 8 * 8 * 3], 8, 8, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let jpeg = base64::engine::general_purpose::STANDARD.encode(&pixels);
+        // The same photo twice in one case (and so in the store once).
+        let mut result = json!({"csPicLst": [
+            {"picFile": jpeg, "cortAuctnPicSeq": "1"},
+            {"picFile": jpeg, "cortAuctnPicSeq": "2"}
+        ]});
+        let mut report = PhotoReport::default();
+        let prefix = photo_prefix(&contract.item_detail).unwrap();
+        rewrite_photos(&mut result, fields, &prefix, Some(&storage), &mut report)
+            .await
+            .unwrap();
+        assert_eq!((report.stored, report.deduplicated), (1, 1));
+        let sha = hex(&Sha256::digest(&pixels));
+        assert_eq!(report.sources, vec![(sha.clone(), "jpg".to_owned())]);
+        assert!(storage
+            .read_object_sha256(&format!("onbid/media/sha256/{sha}.jpg"))
+            .await
+            .unwrap()
+            .is_some());
+        // The night's budget is the contract's (root ADR-0427 §7).
+        assert_eq!(fields.renditions.per_run_limit, 1500);
     }
 
     #[test]

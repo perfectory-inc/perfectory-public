@@ -1,9 +1,10 @@
 // apps/web/components/panels/parcel/court-auction.tsx
 "use client";
 import { useTranslations } from "next-intl";
+import { PhotoGrid } from "@/components/media/photo-grid";
 import type { CourtAuction, CourtAuctionRound } from "@/lib/api/court-auction";
+import { parcelMediaStore } from "@/lib/api/public-auction";
 import { formatPriceKrw } from "@/lib/listings/format";
-import { PhotoGrid } from "./photo-grid";
 
 /** The parcel's 법원경매 (court auctions) as a category page, one card per item.
  *
@@ -46,7 +47,13 @@ export function ParcelCourtAuctionCard({ data }: { data: CourtAuction }) {
                 </div>
               ))}
             </dl>
-            <PhotoGrid photos={r.photos ?? []} altFallback={t("photoAltFallback")} />
+            {/* 경매 photos are in the 공매 store, each with its ladder (root ADR-0384, ADR-0427 §7). */}
+            <PhotoGrid
+              store={parcelMediaStore()}
+              photos={r.photos ?? []}
+              altFallback={t("photoAltFallback")}
+              viewOriginal={t("viewOriginal")}
+            />
           </li>
         ))}
       </ul>
