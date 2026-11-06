@@ -58,10 +58,18 @@ describe("ComplexesResponseSchema", () => {
       page: 0,
       size: 20,
       has_next: true,
+      sido_facet: [
+        { sido_code: "99", sido_name: "합성시도", complex_count: 3 },
+        { sido_code: "98", complex_count: 1 },
+      ],
       unexpected_column: "dropped",
     });
 
     expect(page.total).toBe(1442);
+    expect(page.sido_facet.map((entry) => entry.sido_name ?? entry.sido_code)).toEqual([
+      "합성시도",
+      "98",
+    ]);
     expect(page).not.toHaveProperty("unexpected_column");
   });
 });

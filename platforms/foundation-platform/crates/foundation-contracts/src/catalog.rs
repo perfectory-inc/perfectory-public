@@ -227,6 +227,21 @@ pub struct IndustrialComplexListResponse {
     pub size: u32,
     /// Whether a further page exists behind `total`.
     pub has_next: bool,
+    /// Every 시도 at least one live complex is in, ascending by code, whatever this request's
+    /// filters: the 시도 filter's options, from the 법정동 code table through the load (root ADR-0426).
+    pub sido_facet: Vec<IndustrialComplexSidoFacetEntry>,
+}
+
+/// One option of the 시도 filter.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct IndustrialComplexSidoFacetEntry {
+    /// Two-digit province code, the value `sido_code` filters by.
+    pub sido_code: String,
+    /// The code's current name in the 법정동 code table; absent for rows loaded before it was carried.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sido_name: Option<String>,
+    /// Live complexes with this code.
+    pub complex_count: u64,
 }
 
 /// Thin pointer to R2/Iceberg Gold industrial-complex data.

@@ -1,5 +1,7 @@
 //! Industrial complex upsert by official code. Moved out of `unit_of_work.rs` unchanged.
 
+use sqlx::Row;
+
 use super::{
     insert_outbox_event, is_unique_violation_code, map_sqlx, row_to_complex, u64_to_i64,
     CatalogError, CatalogEvent, ComplexId, IndustrialComplex, IndustrialComplexDevelopmentStage,
@@ -23,8 +25,10 @@ pub(super) async fn upsert_industrial_complexes_by_official_code(
         // By the derived id, archived or not (root ADR-0250): a code names one complex for good, so
         // a source that still lists an archived complex refreshes that row and leaves it archived
         // rather than minting a second one beside it.
+        // `sido_name` is read beside the aggregate, not into it: only this load writes it and only
+        // the 시도 facet reads it (root ADR-0426).
         let existing_row = sqlx::query(&format!(
-            "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}
+            "SELECT {INDUSTRIAL_COMPLEX_COLUMNS}, sido_name AS stored_sido_name
              FROM catalog.industrial_complex
              WHERE id = $1
              FOR UPDATE"
@@ -55,7 +59,11 @@ pub(super) async fn upsert_existing_industrial_complex(
     row: &sqlx::postgres::PgRow,
 ) -> Result<UpsertIndustrialComplexOutcome, CatalogError> {
     let existing = row_to_complex(row)?;
-    let changed_fields = changed_industrial_complex_fields(&existing, command);
+    let stored_sido_name: Option<String> = row.try_get("stored_sido_name").map_err(map_sqlx)?;
+    let mut changed_fields = changed_industrial_complex_fields(&existing, command);
+    if stored_sido_name != command.sido_name {
+        changed_fields.push("sido_name".to_owned());
+    }
     if changed_fields.is_empty() {
         return Ok(UpsertIndustrialComplexOutcome {
             complex: existing,
@@ -107,6 +115,7 @@ pub(super) async fn update_industrial_complex_from_upsert(
              status_raw = $25,
              lot_sales_status_raw = $26,
              development_stage = $27,
+             sido_name = $28,
              updated_at = now(),
              version = version + 1
          WHERE id = $1
@@ -147,6 +156,7 @@ pub(super) async fn update_industrial_complex_from_upsert(
             .development_stage
             .map(IndustrialComplexDevelopmentStage::wire_name),
     )
+    .bind(command.sido_name.as_deref())
     .fetch_one(&mut **tx)
     .await;
 
@@ -177,9 +187,9 @@ pub(super) async fn insert_industrial_complex_from_upsert(
           business_period_end_month, development_progress_percent, designation_basis_law_raw,
           development_method_raw, development_purpose_raw, invited_industries_raw,
           created_at, updated_at, version, kind_raw, status_raw, lot_sales_status_raw,
-          development_stage)
+          development_stage, sido_name)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-                 $18, $19, $20::numeric, $21, $22, $23, $24, $25, $26, 1, $27, $28, $29, $30)
+                 $18, $19, $20::numeric, $21, $22, $23, $24, $25, $26, 1, $27, $28, $29, $30, $31)
          RETURNING {INDUSTRIAL_COMPLEX_COLUMNS}"
     ))
     .bind(ComplexId::for_official_complex_code(&command.official_complex_code).as_uuid())
@@ -220,6 +230,7 @@ pub(super) async fn insert_industrial_complex_from_upsert(
             .development_stage
             .map(IndustrialComplexDevelopmentStage::wire_name),
     )
+    .bind(command.sido_name.as_deref())
     .fetch_one(&mut **tx)
     .await;
 

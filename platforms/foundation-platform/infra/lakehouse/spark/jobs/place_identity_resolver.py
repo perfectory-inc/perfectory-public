@@ -60,6 +60,52 @@ def code_crosswalk(pair_rows: Iterable[tuple[str, str]]) -> tuple[dict[str, str]
     return remap, ambiguous
 
 
+def current_region(sido: str | None, sigungu: str | None, bjdong: str | None, remap: Mapping[str, str],
+                   ambiguous: Iterable[str]) -> tuple[str | None, str | None, str | None]:
+    """A source's (시도, 시군구, 법정동) codes carried to the current ones (root ADR-0426).
+
+    Each level is read as its 10-digit code (시도 ``xx00000000``, 시군구 ``xxxxx00000``), because the
+    change table records the 시도 and 시군구 pairs in that form (2026-07-01: 2900000000 → 1200000000,
+    2917000000 → 1230000000). A code whose chain splits keeps no code at that level: the old one is not
+    current and the new one is a steward's decision. The finest level that resolves names the levels
+    above it (the codes nest), so a 시군구 that moved 시도 on its own pair (군위군 47720 → 27720) takes
+    the 시도 with it.
+    """
+
+    split = set(ambiguous)
+
+    def carried(code: str | None, digits: int) -> str | None:
+        if not code or len(code) != digits:
+            return None
+        padded = code + "0" * (10 - digits)
+        if padded in split:
+            return None
+        return remap.get(padded, padded)[:digits]
+
+    sido_now, sigungu_now, bjdong_now = carried(sido, 2), carried(sigungu, 5), carried(bjdong, 10)
+    if bjdong_now:
+        sigungu_now = bjdong_now[:5]
+    if sigungu_now:
+        sido_now = sigungu_now[:2]
+    return sido_now, sigungu_now, bjdong_now
+
+
+def sido_names(names: Iterable[tuple[str, str, str]]) -> dict[str, str]:
+    """{current 2-digit 시도 code: its name}, the first word of the full name of the newest 법정동
+    snapshot's current rows under it, the 시도 row (``xx00000000``) first and otherwise the smallest
+    code (세종 has no ``3600000000``: its rows start at 3611000000)."""
+
+    out: dict[str, tuple[str, str]] = {}
+    for code, full_name, status in names:
+        words = (full_name or "").split()
+        if status != "존재" or len(code or "") != 10 or not words:
+            continue
+        rank = ("0" if code[2:] == "00000000" else "1") + code
+        if code[:2] not in out or rank < out[code[:2]][0]:
+            out[code[:2]] = (rank, words[0])
+    return {sido: name for sido, (_, name) in sorted(out.items())}
+
+
 def with_current_code(pnu: str, current_legal_code: str) -> str:
     """A 19-digit pnu with its 10-digit legal-dong code replaced by the current one; the lot is kept."""
 

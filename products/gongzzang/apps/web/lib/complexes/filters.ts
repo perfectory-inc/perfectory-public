@@ -10,7 +10,6 @@
 // Parameter names match the API (`q`, `sido_code`, `status`, `sort`, `page`) so a URL a reader
 // copies out of the address bar is readable against the route it feeds.
 
-import { isSidoCode, type SidoCode } from "./sido";
 import { COMPLEX_STATUSES, type ComplexStatus } from "./wire-values";
 
 export type ComplexSortKey = "name_asc" | "area_desc" | "official_complex_code_asc";
@@ -39,11 +38,19 @@ export const COMPLEX_STATUS_FILTERS: readonly ComplexStatus[] = [
 
 export const DEFAULT_COMPLEX_SORT: ComplexSortKey = "name_asc";
 
+/**
+ * Whether a value has the shape of a 시도 code (two ASCII digits). Which codes exist is the API's
+ * `sido_facet`, read from the 법정동 code table (root ADR-0426) — this screen keeps no list of them.
+ */
+export function isSidoCode(value: string): boolean {
+  return /^[0-9]{2}$/.test(value);
+}
+
 export interface ComplexFilters {
   /** Name or official-code substring. Empty string means "no search word". */
   q: string;
   /** Province filter, or `undefined` for every province. */
-  sidoCode: SidoCode | undefined;
+  sidoCode: string | undefined;
   /** Development lifecycle filter. Empty means every value. */
   statuses: ComplexStatus[];
   /** Row order. */

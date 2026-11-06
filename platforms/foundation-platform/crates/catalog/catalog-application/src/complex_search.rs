@@ -241,6 +241,21 @@ pub struct ComplexSearchResult<T> {
     pub total: u64,
 }
 
+/// One 시도 of the canonical collection: the options of the 시도 filter (root ADR-0426).
+///
+/// The code and the name are what the load carried from the 법정동 code table, so a filter that
+/// offers these finds every complex, and a 시도 a code change abolished stops being offered once its
+/// complexes are re-placed. No screen keeps its own list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SidoFacetEntry {
+    /// Two-digit province code.
+    pub sido_code: String,
+    /// The code's current name, or `None` for rows loaded before the name was carried.
+    pub sido_name: Option<String>,
+    /// Live complexes with this code.
+    pub complex_count: u64,
+}
+
 /// A caller's search parameters could not be accepted.
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum ComplexSearchQueryError {

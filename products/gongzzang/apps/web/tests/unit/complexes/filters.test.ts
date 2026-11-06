@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyComplexFiltersToSearchParams,
   DEFAULT_COMPLEX_FILTERS,
+  isSidoCode,
   narrowingChanged,
   parseComplexFiltersFromSearchParams,
 } from "@/lib/complexes/filters";
@@ -21,13 +22,23 @@ describe("parseComplexFiltersFromSearchParams", () => {
   it("drops values the screen does not serve rather than passing them on", () => {
     // A hand-edited URL is a caller like any other. What it must not do is reach the API as a
     // filter nobody offers and come back as an error the reader cannot act on.
-    const sp = new URLSearchParams("sido_code=99&status=operating,sold_out&sort=price_asc&page=-3");
+    const sp = new URLSearchParams(
+      "sido_code=999&status=operating,sold_out&sort=price_asc&page=-3",
+    );
     const filters = parseComplexFiltersFromSearchParams(sp);
 
     expect(filters.sidoCode).toBeUndefined();
     expect(filters.statuses).toEqual(["operating"]);
     expect(filters.sort).toBe("name_asc");
     expect(filters.page).toBe(0);
+  });
+});
+
+describe("isSidoCode", () => {
+  it("accepts any two-digit code, so a code the 법정동 table adds needs no screen change", () => {
+    expect(isSidoCode("12")).toBe(true);
+    expect(isSidoCode("1")).toBe(false);
+    expect(isSidoCode("ab")).toBe(false);
   });
 });
 

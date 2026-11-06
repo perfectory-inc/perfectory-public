@@ -17,7 +17,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::http::problem::{problem, ProblemResponse};
 
-use super::{ComplexCatalogListRecord, ComplexCatalogPage, ComplexSearchRejected, ComplexesState};
+use super::{
+    ComplexCatalogListRecord, ComplexCatalogPage, ComplexSearchRejected, ComplexSidoFacetEntry,
+    ComplexesState,
+};
 
 /// 기본 쪽 크기. 매물 검색과 같은 값이에요.
 const DEFAULT_PAGE_SIZE: u32 = 20;
@@ -199,6 +202,30 @@ pub struct ComplexesResponse {
     pub size: u32,
     /// 다음 쪽 존재 여부.
     pub has_next: bool,
+    /// 시도 필터의 선택지: 단지가 있는 모든 시도, 코드 순, 조건과 무관해요(root ADR-0426).
+    pub sido_facet: Vec<SidoFacetEntryResponse>,
+}
+
+/// 시도 선택지 하나. 이름이 없으면 키가 빠지고 화면은 코드를 보여요.
+#[derive(Debug, Serialize)]
+pub struct SidoFacetEntryResponse {
+    /// 2자리 시도 코드.
+    pub sido_code: String,
+    /// 법정동 표의 현재 이름.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sido_name: Option<String>,
+    /// 그 시도의 단지 수.
+    pub complex_count: u64,
+}
+
+impl From<ComplexSidoFacetEntry> for SidoFacetEntryResponse {
+    fn from(entry: ComplexSidoFacetEntry) -> Self {
+        Self {
+            sido_code: entry.sido_code,
+            sido_name: entry.sido_name,
+            complex_count: entry.complex_count,
+        }
+    }
 }
 
 impl From<ComplexCatalogPage> for ComplexesResponse {
@@ -213,6 +240,11 @@ impl From<ComplexCatalogPage> for ComplexesResponse {
             page: page.page,
             size: page.size,
             has_next: page.has_next,
+            sido_facet: page
+                .sido_facet
+                .into_iter()
+                .map(SidoFacetEntryResponse::from)
+                .collect(),
         }
     }
 }
@@ -387,6 +419,18 @@ mod tests {
             page: 0,
             size: 20,
             has_next: false,
+            sido_facet: vec![
+                ComplexSidoFacetEntry {
+                    sido_code: "99".to_owned(),
+                    sido_name: Some("합성시도".to_owned()),
+                    complex_count: 1,
+                },
+                ComplexSidoFacetEntry {
+                    sido_code: "98".to_owned(),
+                    sido_name: None,
+                    complex_count: 2,
+                },
+            ],
         };
 
         let json = serde_json::to_value(ComplexesResponse::from(page)).expect("serialize");
@@ -399,5 +443,10 @@ mod tests {
         assert!(!row.contains_key("status"));
         assert_eq!(row["name"], "테스트산업단지");
         assert_eq!(json["total"], 1);
+        assert_eq!(json["sido_facet"][0]["sido_name"], "합성시도");
+        assert!(!json["sido_facet"][1]
+            .as_object()
+            .expect("facet entry")
+            .contains_key("sido_name"));
     }
 }

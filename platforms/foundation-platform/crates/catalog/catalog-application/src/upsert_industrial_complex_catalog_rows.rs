@@ -45,6 +45,8 @@ pub struct IndustrialComplexCatalogRow {
     pub sido_code: Option<String>,
     /// City/county/district administrative code the address resolution produced.
     pub sigungu_code: Option<String>,
+    /// Current name of `sido_code` in the 법정동 code table (root ADR-0426).
+    pub sido_name: Option<String>,
     /// Address the source stated, verbatim.
     pub address_text: Option<String>,
     /// Organization that manages the complex.
@@ -167,6 +169,7 @@ fn catalog_row_to_upsert_command(
     // nothing" gets smuggled in as a value, which is the one thing this loader must not do; the
     // caller has to send `None` instead.
     validate_optional_clean_text("address_text", row.address_text.as_deref())?;
+    validate_optional_clean_text("sido_name", row.sido_name.as_deref())?;
     validate_optional_clean_text(
         "management_agency_name",
         row.management_agency_name.as_deref(),
@@ -222,6 +225,7 @@ fn catalog_row_to_upsert_command(
         status: row.status,
         sido_code: row.sido_code.clone(),
         sigungu_code: row.sigungu_code.clone(),
+        sido_name: row.sido_name.clone(),
         address_text: row.address_text.clone(),
         management_agency_name: row.management_agency_name.clone(),
         developer_name: row.developer_name.clone(),
@@ -262,6 +266,7 @@ mod tests {
             status: None,
             sido_code: None,
             sigungu_code: None,
+            sido_name: None,
             address_text: None,
             management_agency_name: None,
             developer_name: None,

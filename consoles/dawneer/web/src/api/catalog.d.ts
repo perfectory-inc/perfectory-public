@@ -628,6 +628,11 @@ export interface components {
              */
             page: number;
             /**
+             * @description Every 시도 at least one live complex is in, ascending by code, whatever this request's
+             *     filters: the 시도 filter's options, from the 법정동 code table through the load (root ADR-0426).
+             */
+            sido_facet: components["schemas"]["IndustrialComplexSidoFacetEntry"][];
+            /**
              * Format: int32
              * @description Page size that was served.
              */
@@ -776,6 +781,18 @@ export interface components {
              * @description Monotonic record version used for optimistic concurrency.
              */
             version: number;
+        };
+        /** @description One option of the 시도 filter. */
+        IndustrialComplexSidoFacetEntry: {
+            /**
+             * Format: int64
+             * @description Live complexes with this code.
+             */
+            complex_count: number;
+            /** @description Two-digit province code, the value `sido_code` filters by. */
+            sido_code: string;
+            /** @description The code's current name in the 법정동 code table; absent for rows loaded before it was carried. */
+            sido_name?: string | null;
         };
         /** @enum {string} */
         IndustrialComplexStatusValue: "planned" | "developing" | "operating" | "changed" | "abolished" | "unknown";

@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Build the Gold industrial-complex catalog projection from Silver rows."""
+"""Build the Gold industrial-complex catalog projection from Silver rows.
+
+A complex's 시도·시군구 codes are the source's codes carried to the current ones through the
+recorded 법정동 code pairs (`reference.legal_dong_code_change`, `place_identity_resolver.current_region`),
+and `sido_name` is the current code's name in the newest 법정동 code snapshot (root ADR-0426). The
+codes are re-derived on every build, never kept as the load first read them.
+
+`--follow-region-codes` re-places only the complexes a change of that table reaches: the codes of
+every pair that differs from the rows the last follow read (`legal_dong_code_change_views.changed_codes`)
+name the complexes under them, and only the ones whose carried codes differ from Gold are merged
+(lineage_stewardship runs it after it records new pairs; the canonical load follows it).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +22,7 @@ import re
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable, Mapping, NamedTuple
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
@@ -40,6 +51,8 @@ from platform_contracts import (
     sort_order,
     string_column_names,
 )
+import legal_dong_code_change_views as code_change_views
+import place_identity_resolver as resolver
 
 
 DEFAULT_ICEBERG_PACKAGES = iceberg_packages()
@@ -61,6 +74,81 @@ REQUIRED_GOLD_COLUMNS: tuple[str, ...] = required_column_names(GOLD_CONTRACT)
 GOLD_PARTITION_COLUMNS: tuple[str, ...] = partition_column_names(GOLD_CONTRACT)
 
 GOLD_SORT_COLUMNS: tuple[str, ...] = sort_order(GOLD_CONTRACT)
+
+CODE_CHANGE_TABLE = code_change_views.CHANGE_TABLE
+LEGAL_DONG_SNAPSHOT_TABLE = "reference.legal_dong_code_snapshot"
+CODE_CHANGE_COLUMNS = ("kind", "old_code", "new_code", "level", "effective_date", "source")
+# What `changed_codes` compares two reads of the change table by; the follow's state file keeps these.
+FOLLOWED_COLUMNS = ("kind", "old_code", "new_code", "level")
+REGION_COLUMNS = ("sido_code", "sigungu_code", "sido_name")
+
+
+class RegionCodes(NamedTuple):
+    """The recorded pairs as old → current code, the codes that split, and the current 시도 names."""
+
+    remap: Mapping[str, str]
+    ambiguous: set[str]
+    names: Mapping[str, str]
+
+
+def region_codes(change_rows: Iterable[Mapping[str, Any]], snapshot_names: Iterable[tuple[str, str, str]]) -> RegionCodes:
+    """``RegionCodes`` from the change table's rows (the pairs in force, root ADR-0329) and the newest
+    snapshot's (code, full name, status) rows."""
+
+    remap, ambiguous = resolver.code_crosswalk(
+        (pair["old_code"], pair["new_code"]) for pair in code_change_views.pair_rows(change_rows))
+    return RegionCodes(remap, ambiguous, resolver.sido_names(snapshot_names))
+
+
+def carried_region(region: RegionCodes, sido: str | None, sigungu: str | None,
+                   bjdong: str | None) -> tuple[str | None, str | None, str | None]:
+    """(current 시도, current 시군구, the 시도's current name) for a complex's source codes."""
+
+    sido_now, sigungu_now, _ = resolver.current_region(sido, sigungu, bjdong, region.remap, region.ambiguous)
+    return sido_now, sigungu_now, region.names.get(sido_now) if sido_now else None
+
+
+def region_replacements(
+    gold: Mapping[str, tuple[str | None, str | None, str | None]],
+    source: Mapping[str, tuple[str | None, str | None, str | None]],
+    prefixes: set[str] | None,
+    region: RegionCodes,
+) -> list[tuple[str, str | None, str | None, str | None]]:
+    """[(complex_id, sido_code, sigungu_code, sido_name)] for each Gold complex under ``prefixes``
+    whose held region columns differ from what its source codes carry to now.
+
+    ``gold`` is {complex_id: (sido_code, sigungu_code, sido_name)} as Gold holds them, ``source``
+    {complex_id: (sido_code, sigungu_code, primary_bjdong_code)} as Silver's current rows state them.
+    A complex is under a prefix when its source code or its held code starts with it (a pair's code
+    prefix, ``legal_dong_code_change_views.code_prefix``): the source code finds a newly recorded
+    pair, the held one a pair a supersession withdrew. ``prefixes`` None reaches every complex (the
+    first follow, which has no earlier read to compare with). A Gold complex without a current
+    Silver row is left to the full build.
+    """
+
+    out = []
+    for complex_id in sorted(gold):
+        codes = source.get(complex_id)
+        if codes is None:
+            continue
+        held = gold[complex_id]
+        if prefixes is not None and not any(
+                code.startswith(prefix) for code in (*codes, *held[:2]) if code for prefix in prefixes):
+            continue
+        carried = carried_region(region, *codes)
+        if carried != tuple(held):
+            out.append((complex_id, *carried))
+    return out
+
+
+def changed_prefixes(previous: list[Mapping[str, Any]] | None, current: list[Mapping[str, Any]]) -> set[str] | None:
+    """The code prefixes a change of the table between two reads reaches; None when there is no
+    earlier read (everything is reached)."""
+
+    if previous is None:
+        return None
+    return {code_change_views.code_prefix(code)
+            for code in code_change_views.changed_codes(previous, current, FOLLOWED_COLUMNS)}
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,8 +210,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--iceberg-snapshot-id",
-        required=True,
-        help="Iceberg snapshot id represented by this Gold projection.",
+        default=None,
+        help="Iceberg snapshot id represented by this Gold projection (required unless --follow-region-codes).",
+    )
+    parser.add_argument(
+        "--follow-region-codes",
+        action="store_true",
+        help="Re-place only the complexes a change of the 법정동 code change table reaches (root ADR-0426).",
+    )
+    parser.add_argument(
+        "--followed-code-changes",
+        default=None,
+        help="The change-table rows the last follow read (JSON); absent on the first follow.",
+    )
+    parser.add_argument(
+        "--followed-code-changes-output",
+        default=None,
+        help="Where the follow writes the change-table rows it read, for the next follow to compare with.",
     )
     parser.add_argument(
         "--published-at-utc",
@@ -196,6 +299,12 @@ def normalize_utc_timestamp(value: str | None) -> str:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.follow_region_codes:
+        if args.input_mode != "iceberg" or args.write_mode != "iceberg" or not args.followed_code_changes_output:
+            raise ValueError("--follow-region-codes reads and merges Iceberg tables "
+                             "(--input-mode iceberg --write-mode iceberg) and needs --followed-code-changes-output")
+    elif not args.iceberg_snapshot_id:
+        raise ValueError("--iceberg-snapshot-id is required")
     if args.summary_output is not None and args.summary_output.strip() == "":
         raise ValueError("--summary-output must not be empty")
     if args.lineage_output is not None and args.lineage_output.strip() == "":
@@ -239,15 +348,40 @@ def read_silver_input(spark: SparkSession, args: argparse.Namespace) -> DataFram
     return frame.select(*SILVER_COLUMNS)
 
 
+def with_current_region(latest: DataFrame, region: RegionCodes | None) -> DataFrame:
+    """``latest`` with its 시도·시군구 codes carried to the current ones and ``sido_name`` added
+    (root ADR-0426). The distinct source code triples are a few hundred, so they are carried in plain
+    Python and joined back. Without ``region`` (a local build with no catalog) the source codes stay
+    and no name is claimed."""
+
+    if region is None:
+        return latest.withColumn("sido_name", F.lit(None).cast(T.StringType()))
+    triples = latest.select("sido_code", "sigungu_code", "primary_bjdong_code").distinct().collect()
+    lookup = latest.sparkSession.createDataFrame(
+        [(row[0], row[1], row[2], *carried_region(region, row[0], row[1], row[2])) for row in triples],
+        "src_sido string, src_sigungu string, src_bjdong string, "
+        "cur_sido string, cur_sigungu string, cur_sido_name string",
+    )
+    same = (latest["sido_code"].eqNullSafe(lookup["src_sido"])
+            & latest["sigungu_code"].eqNullSafe(lookup["src_sigungu"])
+            & latest["primary_bjdong_code"].eqNullSafe(lookup["src_bjdong"]))
+    return (latest.join(F.broadcast(lookup), same, "left")
+            .withColumn("sido_code", F.col("cur_sido"))
+            .withColumn("sigungu_code", F.col("cur_sigungu"))
+            .withColumn("sido_name", F.col("cur_sido_name"))
+            .drop("src_sido", "src_sigungu", "src_bjdong", "cur_sido", "cur_sigungu", "cur_sido_name"))
+
+
 def build_gold_catalog_frame(
     silver: DataFrame,
     iceberg_snapshot_id: str,
     published_at_utc: str,
     boundary_object_key: str | None,
+    region: RegionCodes | None = None,
 ) -> DataFrame:
     # Which row is current is the contract's rule, the same one every reader of this table uses
     # (root ADR-0267), not a window this job keeps for itself.
-    latest = current_rows(silver, SILVER_CONTRACT)
+    latest = with_current_region(current_rows(silver, SILVER_CONTRACT), region)
 
     return latest.select(
         F.col("complex_id"),
@@ -260,6 +394,7 @@ def build_gold_catalog_frame(
         F.col("status_raw"),
         F.col("sido_code"),
         F.col("sigungu_code"),
+        F.col("sido_name"),
         F.col("address_text"),
         F.col("management_agency_name"),
         F.col("developer_name"),
@@ -599,11 +734,17 @@ def column_lineage() -> list[dict[str, Any]]:
         "status_raw": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "status_raw", "transform": "identity"}
         ],
+        # Carried to the current codes through the recorded pairs (root ADR-0426).
         "sido_code": [
-            {"dataset": SILVER_CONTRACT_NAME, "column": "sido_code", "transform": "identity"}
+            {"dataset": SILVER_CONTRACT_NAME, "column": "sido_code", "transform": "current_region_code"},
+            {"dataset": CODE_CHANGE_TABLE, "column": "new_code", "transform": "current_region_code"},
         ],
         "sigungu_code": [
-            {"dataset": SILVER_CONTRACT_NAME, "column": "sigungu_code", "transform": "identity"}
+            {"dataset": SILVER_CONTRACT_NAME, "column": "sigungu_code", "transform": "current_region_code"},
+            {"dataset": CODE_CHANGE_TABLE, "column": "new_code", "transform": "current_region_code"},
+        ],
+        "sido_name": [
+            {"dataset": LEGAL_DONG_SNAPSHOT_TABLE, "column": "full_name", "transform": "sido_name"}
         ],
         "address_text": [
             {"dataset": SILVER_CONTRACT_NAME, "column": "address_text", "transform": "identity"}
@@ -879,6 +1020,90 @@ def write_gold_iceberg(
     return added_columns
 
 
+def read_region_inputs(spark: SparkSession, catalog: str) -> tuple[list[dict[str, Any]], list[tuple[str, str, str]]]:
+    """The change table's rows and the newest 법정동 snapshot's (code, full name, status) rows: about
+    3,500 and 53,000 rows, read whole like ``address_pnu.lakehouse_sido_prefixes``."""
+
+    schema, name = CODE_CHANGE_TABLE.split(".")
+    changes = [row.asDict() for row in spark.sql(
+        f"SELECT {', '.join(CODE_CHANGE_COLUMNS)} FROM `{catalog}`.`{schema}`.`{name}`").collect()]
+    schema, name = LEGAL_DONG_SNAPSHOT_TABLE.split(".")
+    table = f"`{catalog}`.`{schema}`.`{name}`"
+    names = [(row["region_cd"], row["full_name"], row["status"]) for row in spark.sql(
+        f"SELECT region_cd, full_name, status FROM {table} "
+        f"WHERE snapshot_date = (SELECT max(snapshot_date) FROM {table})").collect()]
+    return changes, names
+
+
+def build_region(spark: SparkSession, args: argparse.Namespace) -> RegionCodes | None:
+    """The region codes a build carries the source codes through. A live (non-smoke) Gold refuses to
+    build without them: the source codes alone are how 135 complexes kept 29·46 after 2026-07-01."""
+
+    catalog = args.iceberg_catalog_name
+    if args.input_mode != "iceberg" and args.write_mode != "iceberg":
+        return None
+    present = all(spark.catalog.tableExists(f"{catalog}.{table}")
+                  for table in (CODE_CHANGE_TABLE, LEGAL_DONG_SNAPSHOT_TABLE))
+    if not present:
+        if args.write_mode == "iceberg" and not args.target_iceberg_table.endswith("_smoke"):
+            raise ValueError(f"{CODE_CHANGE_TABLE} and {LEGAL_DONG_SNAPSHOT_TABLE} are required to build a live Gold")
+        return None
+    return region_codes(*read_region_inputs(spark, catalog))
+
+
+def followed_rows(changes: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
+    """The change-table rows as the follow's state file keeps them: the columns `changed_codes` reads."""
+
+    rows = {tuple(str(row.get(column) or "") for column in FOLLOWED_COLUMNS) for row in changes}
+    return [dict(zip(FOLLOWED_COLUMNS, row)) for row in sorted(rows)]
+
+
+def follow_region_codes(spark: SparkSession, args: argparse.Namespace) -> dict[str, Any]:
+    """Re-place the region columns of the complexes a change of the code change table reaches."""
+
+    table = qualified_target_table(args)
+    changes, names = read_region_inputs(spark, args.iceberg_catalog_name)
+    followed_path = Path(args.followed_code_changes) if args.followed_code_changes else None
+    previous = (json.loads(followed_path.read_text(encoding="utf-8"))
+                if followed_path is not None and followed_path.exists() else None)
+    prefixes = changed_prefixes(previous, changes)
+    summary: dict[str, Any] = {
+        "job_name": JOB_NAME, "mode": "follow_region_codes", "target": unquoted_target_table(args),
+        "first_follow": previous is None, "changed_prefixes": None if prefixes is None else sorted(prefixes),
+        "replaced_complexes": [],
+    }
+    if prefixes is not None and not prefixes:
+        summary["followed"] = False
+    elif not spark.catalog.tableExists(table.replace("`", "")):
+        summary["followed"] = False
+        summary["reason"] = "no_gold_table"
+    else:
+        # The merge replaces the region columns of the rows it covers (gold.complex_catalog is Replaced).
+        admit_write(GOLD_CONTRACT_NAME, "replace", target=table)
+        evolve_gold_iceberg_table_to_contract(spark, table)
+        gold = {row["complex_id"]: (row["sido_code"], row["sigungu_code"], row["sido_name"])
+                for row in spark.table(table).select("complex_id", *REGION_COLUMNS).collect()}
+        silver = current_rows(read_silver_input(spark, args), SILVER_CONTRACT)
+        source = {row["complex_id"]: (row["sido_code"], row["sigungu_code"], row["primary_bjdong_code"])
+                  for row in silver.select("complex_id", "sido_code", "sigungu_code",
+                                           "primary_bjdong_code").collect()}
+        replacements = region_replacements(gold, source, prefixes, region_codes(changes, names))
+        if replacements:
+            view = "gold_complex_catalog_region_replacements"
+            spark.createDataFrame(replacements, "complex_id string, sido_code string, sigungu_code string, "
+                                  "sido_name string").createOrReplaceTempView(view)
+            spark.sql(f"MERGE INTO {table} t USING {view} s ON t.complex_id = s.complex_id "
+                      "WHEN MATCHED THEN UPDATE SET t.sido_code = s.sido_code, "
+                      "t.sigungu_code = s.sigungu_code, t.sido_name = s.sido_name")
+            spark.catalog.dropTempView(view)
+        summary["followed"] = True
+        summary["replaced_complexes"] = [{"complex_id": r[0], "sido_code": r[1], "sigungu_code": r[2],
+                                          "sido_name": r[3]} for r in replacements]
+    Path(args.followed_code_changes_output).write_text(
+        json.dumps(followed_rows(changes), ensure_ascii=False) + "\n", encoding="utf-8")
+    return summary
+
+
 def build_spark_session(args: argparse.Namespace) -> SparkSession:
     builder = (
         SparkSession.builder.appName("foundation-platform-industrial-complex-silver-to-gold")
@@ -923,12 +1148,19 @@ def main() -> int:
     spark = build_spark_session(args)
 
     try:
+        if args.follow_region_codes:
+            summary = follow_region_codes(spark, args)
+            emit_run_summary(summary, args.summary_output)
+            print(f"gold-complex-catalog-region-codes followed={str(summary['followed']).lower()} "
+                  f"replaced={len(summary['replaced_complexes'])}")
+            return 0
         silver = read_silver_input(spark, args)
         gold = build_gold_catalog_frame(
             silver,
             iceberg_snapshot_id=args.iceberg_snapshot_id,
             published_at_utc=args.published_at_utc,
             boundary_object_key=args.boundary_object_key,
+            region=build_region(spark, args),
         ).persist(StorageLevel.MEMORY_AND_DISK)
         row_count, quality_metrics = validate_gold_frame(gold, args.expected_count)
         source_snapshot_summary = collect_source_snapshot_summary(gold)

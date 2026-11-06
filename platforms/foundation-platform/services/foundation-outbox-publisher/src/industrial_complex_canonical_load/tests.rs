@@ -19,8 +19,9 @@ fn gold_row(code: &str, kind: &str, official_area_sqm: JsonValue) -> JsonMap<Str
         "development_stage": "site_completed",
         "kind_raw": "국가",
         "status_raw": "조성완료",
-        "sido_code": "46",
-        "sigungu_code": "46830",
+        "sido_code": "99",
+        "sigungu_code": "99999",
+        "sido_name": "Synthetic Province",
         "address_text": "sourced address text",
         "designated_date": "1964-04-15",
         "construction_start_date": "1965-03-12",
@@ -137,6 +138,8 @@ fn the_sourced_description_columns_reach_the_canonical_row() -> anyhow::Result<(
     assert_eq!(row.kind_raw.as_deref(), Some("국가"));
     assert_eq!(row.status_raw.as_deref(), Some("조성완료"));
     assert_eq!(row.lot_sales_status_raw.as_deref(), Some("분양완료"));
+    // The current 시도 name the Gold build read off the 법정동 code table (root ADR-0426).
+    assert_eq!(row.sido_name.as_deref(), Some("Synthetic Province"));
     Ok(())
 }
 
