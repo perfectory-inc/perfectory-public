@@ -5,12 +5,12 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-use std::str::FromStr;
-
 use chrono::{DateTime, TimeZone, Utc};
 use shared_kernel::id::{Id, ListingMarker, ListingPhotoMarker};
 
-use super::{ListingPhoto, PhotoContentType, PhotoContentTypeError};
+use shared_kernel::media::{MediaFormat, Sha256Hex};
+
+use super::{upload_format, ListingPhoto};
 use crate::errors::ListingPhotoError;
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
@@ -33,8 +33,9 @@ fn sample_listing_id() -> Id<ListingMarker> {
 
 const SAMPLE_R2_KEY: &str =
     "media/listing-photo/listings/lst_01HXY3NK0Z9F6S1B2C3D4E5F6G/photos/p1.jpg";
-const SAMPLE_THUMB_KEY: &str =
-    "media/listing-photo/listings/lst_01HXY3NK0Z9F6S1B2C3D4E5F6G/photos/p1_thumb.jpg";
+fn sample_sha() -> Sha256Hex {
+    Sha256Hex::parse(&"0123456789abcdef".repeat(4)).unwrap()
+}
 
 /// 모든 `Some` 필드 + `Jpeg`로 happy path 빌드.
 fn build_full() -> ListingPhoto {
@@ -42,13 +43,13 @@ fn build_full() -> ListingPhoto {
         sample_id(),
         sample_listing_id(),
         SAMPLE_R2_KEY,
-        Some(SAMPLE_THUMB_KEY),
+        Some(sample_sha()),
         Some("정문에서 본 외관"),
         0,
         Some(1920),
         Some(1080),
         Some(524_288),
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .expect("full happy path valid")
@@ -65,7 +66,7 @@ fn build_pending() -> ListingPhoto {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .expect("pending photo metadata valid")
@@ -77,13 +78,13 @@ fn build_pending() -> ListingPhoto {
 fn try_new_full_fields_succeeds() {
     let photo = build_full();
     assert_eq!(photo.r2_key, SAMPLE_R2_KEY);
-    assert_eq!(photo.thumbnail_r2_key.as_deref(), Some(SAMPLE_THUMB_KEY));
+    assert_eq!(photo.content_sha256, Some(sample_sha()));
     assert_eq!(photo.caption.as_deref(), Some("정문에서 본 외관"));
     assert_eq!(photo.display_order, 0);
     assert_eq!(photo.width_px, Some(1920));
     assert_eq!(photo.height_px, Some(1080));
     assert_eq!(photo.file_size_bytes, Some(524_288));
-    assert_eq!(photo.content_type, PhotoContentType::Jpeg);
+    assert_eq!(photo.content_type, MediaFormat::Jpeg);
     assert_eq!(photo.uploaded_at, sample_now());
     assert!(photo.deleted_at.is_none());
 }
@@ -100,11 +101,11 @@ fn try_new_all_optionals_none_succeeds() {
         None,
         None,
         None,
-        PhotoContentType::Png,
+        MediaFormat::Png,
         sample_now(),
     )
     .expect("optionals None is valid");
-    assert!(photo.thumbnail_r2_key.is_none());
+    assert!(photo.content_sha256.is_none());
     assert!(photo.caption.is_none());
     assert!(photo.width_px.is_none());
     assert!(photo.height_px.is_none());
@@ -120,11 +121,7 @@ fn all_optionals_none_is_pending_upload() {
 
 #[test]
 fn try_new_all_three_content_types_succeed() {
-    for ct in [
-        PhotoContentType::Jpeg,
-        PhotoContentType::Png,
-        PhotoContentType::Webp,
-    ] {
+    for ct in [MediaFormat::Jpeg, MediaFormat::Png, MediaFormat::Webp] {
         let photo = ListingPhoto::try_new(
             sample_id(),
             sample_listing_id(),
@@ -155,7 +152,7 @@ fn try_new_zero_display_order_accepted() {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .expect("0 is non-negative");
@@ -175,7 +172,7 @@ fn try_new_caption_exactly_200_chars_accepted() {
         None,
         None,
         None,
-        PhotoContentType::Webp,
+        MediaFormat::Webp,
         sample_now(),
     )
     .expect("200 chars is the boundary");
@@ -196,7 +193,7 @@ fn try_new_empty_r2_key_rejected() {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .unwrap_err();
@@ -215,7 +212,7 @@ fn try_new_whitespace_r2_key_rejected_via_trim() {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .unwrap_err();
@@ -234,7 +231,7 @@ fn try_new_negative_display_order_rejected() {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .unwrap_err();
@@ -254,7 +251,7 @@ fn try_new_caption_201_chars_rejected() {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         sample_now(),
     )
     .unwrap_err();
@@ -388,50 +385,41 @@ fn reorder_negative_rejected() {
     assert_eq!(photo.display_order, 0);
 }
 
-// ── PhotoContentType ───────────────────────────────────────────────────────
+// ── upload format ──────────────────────────────────────────────────────────
 
 #[test]
-fn content_type_as_str_matches_db_strings() {
-    assert_eq!(PhotoContentType::Jpeg.as_str(), "image/jpeg");
-    assert_eq!(PhotoContentType::Png.as_str(), "image/png");
-    assert_eq!(PhotoContentType::Webp.as_str(), "image/webp");
-}
-
-#[test]
-fn content_type_display_renders_mime() {
-    assert_eq!(format!("{}", PhotoContentType::Jpeg), "image/jpeg");
-    assert_eq!(format!("{}", PhotoContentType::Png), "image/png");
-    assert_eq!(format!("{}", PhotoContentType::Webp), "image/webp");
-}
-
-#[test]
-fn content_type_from_str_roundtrip() {
-    for ct in [
-        PhotoContentType::Jpeg,
-        PhotoContentType::Png,
-        PhotoContentType::Webp,
-    ] {
-        let parsed = PhotoContentType::from_str(ct.as_str()).expect("valid mime");
-        assert_eq!(parsed, ct);
-    }
-}
-
-#[test]
-fn content_type_from_str_rejects_unsupported() {
-    let err = PhotoContentType::from_str("image/gif").unwrap_err();
+fn upload_format_takes_jpeg_png_webp_only() {
+    assert_eq!(upload_format("image/jpeg"), Ok(MediaFormat::Jpeg));
+    assert_eq!(upload_format("image/png"), Ok(MediaFormat::Png));
+    assert_eq!(upload_format("image/webp"), Ok(MediaFormat::Webp));
     assert_eq!(
-        err,
-        PhotoContentTypeError::Unsupported("image/gif".to_owned())
+        upload_format("image/gif"),
+        Err(ListingPhotoError::UnsupportedContentType(
+            "image/gif".to_owned()
+        ))
     );
 }
 
 #[test]
-fn content_type_serde_roundtrip() {
-    let ct = PhotoContentType::Webp;
-    let json = serde_json::to_string(&ct).expect("serialize");
-    assert_eq!(json, "\"Webp\"");
-    let back: PhotoContentType = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(back, ct);
+fn try_new_rejects_a_format_listings_do_not_take() {
+    let err = ListingPhoto::try_new(
+        sample_id(),
+        sample_listing_id(),
+        SAMPLE_R2_KEY,
+        None,
+        None,
+        0,
+        None,
+        None,
+        None,
+        MediaFormat::Pdf,
+        sample_now(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        err,
+        ListingPhotoError::UnsupportedContentType("application/pdf".to_owned())
+    );
 }
 
 // ── ListingPhoto serde ─────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ use gongzzang_persistence::listing_photo::PgListingPhotoRepository;
 use gongzzang_persistence::user::PgUserRepository;
 use listing_domain::entity::Listing;
 use listing_domain::repository::ListingRepository;
-use listing_photo_domain::entity::{ListingPhoto, PhotoContentType};
+use listing_photo_domain::entity::ListingPhoto;
 use listing_photo_domain::repository::ListingPhotoRepository;
 use shared_kernel::area::AreaM2;
 use shared_kernel::description::Description;
@@ -35,6 +35,7 @@ use shared_kernel::id::{
 };
 use shared_kernel::listing_title::ListingTitle;
 use shared_kernel::listing_type::ListingType;
+use shared_kernel::media::MediaFormat;
 use shared_kernel::money::MoneyKrw;
 use shared_kernel::mutation::MutationContext;
 use shared_kernel::pnu::Pnu;
@@ -443,7 +444,7 @@ async fn find_detail_excludes_pending_upload_photos() {
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         Utc::now(),
     )
     .expect("pending photo");

@@ -24,6 +24,7 @@ pub mod land_use_type;
 pub mod listing_status;
 pub mod listing_title;
 pub mod listing_type;
+pub mod media;
 pub mod money;
 pub mod mutation;
 pub mod phone_kr;

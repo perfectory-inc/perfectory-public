@@ -1,12 +1,11 @@
 use std::env;
-use std::str::FromStr;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::Client as S3Client;
-use listing_photo_domain::entity::PhotoContentType;
 use serde::Serialize;
+use shared_kernel::media::{MediaFormat, Sha256Hex};
 use thiserror::Error;
 
 const LISTING_PHOTO_UPLOAD_EXPIRES: Duration = Duration::from_mins(15);
@@ -65,7 +64,10 @@ fn require_env(name: &'static str) -> Result<String, ListingPhotoUploadConfigErr
 #[derive(Debug, Clone)]
 pub struct PhotoUploadUrlRequest {
     pub r2_key: String,
-    pub content_type: PhotoContentType,
+    pub content_type: MediaFormat,
+    /// The sha256 the client declared for a content-addressed upload (root ADR-0427): the PUT is
+    /// signed with `x-amz-checksum-sha256`, so the store refuses bytes that are not those.
+    pub content_sha256: Option<Sha256Hex>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -142,13 +144,13 @@ impl ListingPhotoDownloadUrlIssuer for DisabledListingPhotoDownloadUrlIssuer {
 #[derive(Debug, Clone)]
 pub struct PhotoObjectVerifyRequest {
     pub r2_key: String,
-    pub expected_content_type: PhotoContentType,
+    pub expected_content_type: MediaFormat,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhotoObjectMetadata {
     pub file_size_bytes: i64,
-    pub content_type: PhotoContentType,
+    pub content_type: MediaFormat,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -165,7 +167,7 @@ pub enum PhotoObjectVerifyError {
     MissingContentType,
     #[error("listing photo object content-type mismatch: expected {expected}, got {actual}")]
     ContentTypeMismatch {
-        expected: PhotoContentType,
+        expected: MediaFormat,
         actual: String,
     },
     #[error("listing photo object HEAD failed: {0}")]
@@ -271,7 +273,8 @@ impl ListingPhotoUploadUrlIssuer for R2ListingPhotoUploadUrlIssuer {
             .put_object()
             .bucket(&self.bucket)
             .key(&request.r2_key)
-            .content_type(request.content_type.as_str())
+            .content_type(request.content_type.content_type())
+            .set_checksum_sha256(request.content_sha256.as_ref().map(sha256_base64))
             .presigned(presigning_config)
             .await
             .map_err(|error| PhotoUploadUrlError::Presign(error.to_string()))?;
@@ -346,7 +349,7 @@ impl ListingPhotoObjectVerifier for R2ListingPhotoObjectVerifier {
 }
 
 fn verified_object_metadata_from_head(
-    expected_content_type: PhotoContentType,
+    expected_content_type: MediaFormat,
     content_length: Option<i64>,
     content_type: Option<&str>,
 ) -> Result<PhotoObjectMetadata, PhotoObjectVerifyError> {
@@ -357,7 +360,7 @@ fn verified_object_metadata_from_head(
         });
     }
     let actual_content_type = content_type.ok_or(PhotoObjectVerifyError::MissingContentType)?;
-    let actual = PhotoContentType::from_str(actual_content_type).map_err(|_| {
+    let actual = MediaFormat::from_content_type(actual_content_type).ok_or_else(|| {
         PhotoObjectVerifyError::ContentTypeMismatch {
             expected: expected_content_type,
             actual: actual_content_type.to_owned(),
@@ -373,6 +376,21 @@ fn verified_object_metadata_from_head(
         file_size_bytes,
         content_type: actual,
     })
+}
+
+/// The `x-amz-checksum-sha256` value: the digest's 32 bytes in base64.
+fn sha256_base64(hash: &Sha256Hex) -> String {
+    let bytes = hash
+        .as_str()
+        .as_bytes()
+        .chunks(2)
+        .filter_map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+        })
+        .collect::<Vec<u8>>();
+    aws_smithy_types::base64::encode(bytes)
 }
 
 #[cfg(test)]
