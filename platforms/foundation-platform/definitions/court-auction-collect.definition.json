@@ -22,6 +22,22 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 300,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/manners/max_requests_per_run"
+        ],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 2,
+          "p50": 610,
+          "p90": 4666,
+          "max": 4666,
+          "timeouts": 0,
+          "from": "2026-10-19T16:02:34Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [

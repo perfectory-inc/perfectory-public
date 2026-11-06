@@ -23,6 +23,24 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 6,
+          "p50": 2,
+          "p90": 9008,
+          "max": 9008,
+          "timeouts": 1,
+          "from": "2026-10-16T03:53:23Z",
+          "to": "2026-11-03T15:50:32Z"
+        },
+        "open_exception": {
+          "why": "Timed out 2026-10-20T04:10Z at 9,008 s; the rerun took 4,329 s. It still writes whole (scope full).",
+          "tracked_by": "root ADR-0386 §5, and its full_tracked_by"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 4,

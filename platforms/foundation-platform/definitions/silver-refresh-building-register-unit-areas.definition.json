@@ -20,6 +20,24 @@
       "stop_grace_minutes": 10,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 5,
+          "p50": 2,
+          "p90": 8573,
+          "max": 8573,
+          "timeouts": 0,
+          "from": "2026-10-16T03:55:28Z",
+          "to": "2026-11-03T15:50:32Z"
+        },
+        "open_exception": {
+          "why": "Its one long run, 2026-10-20T13:02Z, took 8,573 s of the 9,000 s limit (95%); a refresh of more changed keys would not fit.",
+          "tracked_by": "root ADR-0386 §5: the refresh lanes take a per-run bucket cap and a deadline (root ADR-0318 compares bucket by bucket and resumes, #914)"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 4,

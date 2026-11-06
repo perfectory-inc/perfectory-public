@@ -19,6 +19,20 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,
       "time_limit_minutes": 10,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 5,
+          "p50": 1,
+          "p90": 1,
+          "max": 1,
+          "timeouts": 0,
+          "from": "2026-11-04T02:28:59Z",
+          "to": "2026-11-05T02:34:05Z"
+        }
+      },
       "pool": "default_pool",
       "retries": 1,
       "pipeline_graph_edges": [

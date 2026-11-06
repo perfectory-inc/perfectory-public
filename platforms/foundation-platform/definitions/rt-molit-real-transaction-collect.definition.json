@@ -19,6 +19,22 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 30,
+      "per_run_cap": {
+        "unit": "download",
+        "limits": [
+          "infra/lakehouse/contracts/rt-molit-real-transaction.contract.json#/manners/max_downloads_per_run"
+        ],
+        "deadline": "infra/lakehouse/contracts/rt-molit-real-transaction.contract.json#/manners/run_time_budget_seconds",
+        "measured_run_seconds": {
+          "runs": 95,
+          "p50": 1,
+          "p90": 74,
+          "max": 239,
+          "timeouts": 0,
+          "from": "2026-10-30T17:37:27Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "default_pool",
       "retries": 0,
       "pipeline_graph_edges": [

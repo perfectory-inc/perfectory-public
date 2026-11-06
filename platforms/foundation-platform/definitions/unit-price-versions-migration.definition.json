@@ -17,6 +17,21 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 160,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 1,
+          "p50": 7334,
+          "p90": 7334,
+          "max": 7334,
+          "timeouts": 0,
+          "from": "2026-11-05T23:46:35Z",
+          "to": "2026-11-06T06:11:37Z",
+          "from_change": "#1097 merged 2026-11-05T21:52:04Z, the bounded resumable run after the 2026-11-04 8-hour timeout"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 1,
