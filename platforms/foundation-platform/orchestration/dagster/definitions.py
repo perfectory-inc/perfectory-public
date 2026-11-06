@@ -5,7 +5,7 @@ from jobs.v1.json and the pipeline graph (observe_assets.py), each mapped to the
 records it, and airlift's sensor turns every successful mapped task into a materialization. Airflow
 keeps running everything; this location starts no job. The asset checks are the definitions'
 `asset_checks` (asset_checks.py): the unit-price ones report only; the publish checks
-(publish_checks.py, root ADR-0416) block, from the day their lane's job moves here.
+(publish_checks.py, root ADR-0432) block, from the day their lane's job moves here.
 
 Settings (compose.orchestration.yml, profile `dagster-observe`):
   FOUNDATION_DAGSTER_AIRFLOW_URL       Airflow's API, as the scheduler's API base (http://127.0.0.1:19080)

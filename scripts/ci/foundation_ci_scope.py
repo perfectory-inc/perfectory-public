@@ -150,7 +150,7 @@ RULES = {
             "platforms/foundation-platform/config/r2-connections.contract.json",
             "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json",
             "platforms/foundation-platform/infra/datahub/dataset_names.py",
-            # The publish checks read the current-row rule and the photo producer (root ADR-0416).
+            # The publish checks read the current-row rule and the photo producer (root ADR-0432).
             "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
             "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py",
             "platforms/foundation-platform/infra/lakehouse/spark/jobs/platform_contracts.py",

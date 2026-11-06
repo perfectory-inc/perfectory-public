@@ -1,4 +1,4 @@
-"""Publish checks: a published dataset is audited before its readers take it (root ADR-0416).
+"""Publish checks: a published dataset is audited before its readers take it (root ADR-0432).
 
 Every check here is declared `blocking: true` (severity ERROR) in its asset's definition
 (`asset_checks`, asset_checks.py); this file holds only the kinds. In a Dagster run that materializes the asset,

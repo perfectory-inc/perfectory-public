@@ -1,4 +1,4 @@
-"""The publish checks (orchestration/dagster/publish_checks.py, root ADR-0416) block and read what their rule says.
+"""The publish checks (orchestration/dagster/publish_checks.py, root ADR-0432) block and read what their rule says.
 
 Run by the CI `dagster-observe` lane in the code location's image; skipped elsewhere, where a skip
 fails that lane. The SQL ran against production Trino on 2026-11-05 (read-only): the zoning table had
