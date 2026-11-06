@@ -208,6 +208,17 @@ class AirliftParityTest(unittest.TestCase):
                     return seen
         self.fail("the sensor did not finish the recorded day in 50 ticks")
 
+    def test_the_dual_run_checks_attach_to_the_shadow_jobs_dags(self):
+        import definitions
+        import dual_run
+
+        graph = definitions.build(self.instance).resolve_asset_graph()
+        checked = {key.asset_key for key in graph.asset_check_keys if key.name == dual_run.CHECK_NAME}
+        shadow = {dual_run.dag_key(spec) for spec, _ in dual_run.shadow_jobs(*dual_run.observe_assets.contracts())}
+        self.assertTrue(shadow)
+        self.assertEqual(checked, shadow)
+        self.assertTrue(all(key in graph.get_all_asset_keys() for key in shadow))
+
     def test_dagster_materializes_what_airflow_recorded(self):
         recorded, outputs = recorded_events(), contract_outputs()
         keep, drifted = comparable(recorded, outputs)

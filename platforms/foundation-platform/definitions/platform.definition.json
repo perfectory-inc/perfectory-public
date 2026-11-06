@@ -158,7 +158,8 @@
           "decision": "docs/adr/0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md",
           "ui": "http://127.0.0.1:19085"
         }
-      }
+      },
+      "dagster_stage_means": "Which orchestrator decides when a job runs and which runs it (root ADR-0431), absent meaning `airflow`. `airflow`: Airflow decides and runs, as it always has. `shadow`: Airflow still decides and runs; Dagster, observing those runs (observers.dagster), decides beside it by its own rules (the job's schedule, the materializations of its inputs) and its `dual_run_matches_airflow` check on the job's DAG asset compares the two decisions after every Airflow run (orchestration/dagster/dual_run.py). `proxied`: Airflow decides, Dagster runs the job's systemd unit (orchestration/dagster/systemd_pipes.py). `dagster`: Dagster decides and runs, Airflow builds no DAG for the job. orchestration/dags/job_specs.py refuses a stage nothing implements yet, a switched-off job past `airflow`, and a `dagster` job feeding an inputs-started job that is not `dagster` (downstream families move first)."
     },
     "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json": {
       "schema_version": 2,

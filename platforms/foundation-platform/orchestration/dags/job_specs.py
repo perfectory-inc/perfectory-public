@@ -56,6 +56,12 @@ ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
 STARTED_BY = ("schedule", "inputs")
+# Which orchestrator runs a job (jobs.v1.json `dagster_stage`, root ADR-0431), in the order a job moves:
+# `airflow` (absent) Airflow decides and runs; `shadow` Airflow decides and runs while Dagster decides
+# beside it and compares; `proxied` Airflow decides, Dagster runs; `dagster` Dagster decides and runs.
+DAGSTER_STAGES = ("airflow", "shadow", "proxied", "dagster")
+# The stages something implements today; a later stage is refused until its slice lands (ADR-0431 §5).
+IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow")
 # The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0260):
 # `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
 # output events; a run that does not say counts as changed, and the jobs it starts find nothing to
@@ -99,6 +105,7 @@ class JobSpec:
     check_service: str | None = None  # decides, without a pool slot, whether the run has work
     enabled_since: str | None = None  # jobs.v1.json `enabled_since` (root ADR-0239)
     reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
+    dagster_stage: str = "airflow"  # DAGSTER_STAGES
 
     @property
     def starting_inputs(self):
@@ -468,6 +475,29 @@ def longest_wait_minutes(starved, others, slots):
                         combined, combined_ids = hold_minutes(job), [member["id"] for member in group]
                     break
     return total + combined, [job["id"] for job in ahead] + combined_ids
+
+
+def dagster_stage(job):
+    """Which orchestrator decides and runs a job (jobs.v1.json `dagster_stage`, root ADR-0431)."""
+    value = job.get("dagster_stage", "airflow")
+    if value not in DAGSTER_STAGES:
+        raise JobListError(f"{job['id']}: dagster_stage must be one of {list(DAGSTER_STAGES)}")
+    if value not in IMPLEMENTED_DAGSTER_STAGES:
+        raise JobListError(f"{job['id']}: dagster_stage {value} has no implementation yet (root ADR-0431 §5)")
+    if value != "airflow" and not job["enabled"]:
+        raise JobListError(f"{job['id']}: a switched-off job runs nowhere; it stays at dagster_stage airflow")
+    return value
+
+
+def dagster_order(jobs, feeders):
+    """Problems of the move order (root ADR-0431 §3): a job Dagster decides (`dagster`) feeds only jobs
+    Dagster decides, since an Airflow job started by its inputs waits for an Airflow asset event that
+    a Dagster run never records. Downstream families move first."""
+    stages = {job["id"]: job.get("dagster_stage", "airflow") for job in jobs["jobs"]}
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    return [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
+            for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
+            for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
 
 
 def started_by(job):
@@ -843,11 +873,12 @@ def load_specs(jobs=None, graph=None):
                 check_service=check,
                 enabled_since=since,
                 reconciles=reconciles,
+                dagster_stage=dagster_stage(job),
             )
         )
-    starvation = pool_starvation(jobs, graph)
-    if starvation:
-        raise JobListError("; ".join(starvation))
+    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders)
+    if problems:
+        raise JobListError("; ".join(problems))
     return specs
 
 
