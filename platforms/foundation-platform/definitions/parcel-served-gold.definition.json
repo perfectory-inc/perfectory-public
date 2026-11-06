@@ -8,7 +8,7 @@
       "scope": "full",
       "full_reason": "A new cadastral edition rebuilds the national served Gold and its matching gate over every 시도; an edition already baked or waiting does nothing.",
       "full_cost": "measured 2026-10-13 (root ADR-0322 §4, the job is disabled since): the matching gate 13.5 minutes and the served Gold 59 minutes per edition, over about 39.9M parcels; the 2026-10-16 rehearsal failed before measuring.",
-      "full_tracked_by": "PR #953 (plan: root ADR-0322 §4, a fingerprint per 시도 so the gate and the served Gold redo only the 시도 whose inputs changed)",
+      "full_tracked_by": "root ADR-0322 §4 and its progress notes (a fingerprint per 시도 so the gate and the served Gold redo only the 시도 whose inputs changed); its tracking PR #953 was folded there",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. Nothing reads PostGIS.",

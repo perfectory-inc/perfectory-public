@@ -110,3 +110,17 @@ copy-on-write 로 100% 쓰기다.
   수로 바꿨다(3, 2 의 델타). `gold_rebuild` 의 비용 추정·shape ledger 의 키 비율 분모는 근삿값이라 그대로 둔다.
 - MERGE 직후 데이터 파일은 변경분 파일이 전국 범위로 겹친다. 기준 파일은 범위를 지키고, 작은 파일 합치기와 5 가
   변경분을 정렬해 접는다. ADR-0307 §4 의 "MERGE 뒤 파일 경계가 겹치지 않는다"는 기준 파일에만 성립한다.
+
+## 진행 기록
+
+- 2026-11-06: 추적 PR #951(빈 커밋 초안)을 닫고 남은 일의 주인을 이 ADR §6 으로 옮긴다. 작업 정의
+  (`definitions/gold-panel-rebuild.definition.json`·`parcel-zoning.definition.json`)의 `full_tracked_by` 와
+  `open_exception.tracked_by` 는 이제 "root ADR-0344 §6" 을 가리킨다.
+  - 끝난 것: §2·§3·§4 Rust 스캔의 위치 삭제 적용과 Spark 대조 관문(#959), §1 merge-on-read MERGE 와 §5 문턱 접기(#960,
+    2026-10-29T17:26Z 병합).
+  - 남은 것: §6 측정. 운영(읽기 전용 Trino `$snapshots`, 2026-11-06)에서 10-30 이후 `gold.parcel_panel`·
+    `gold.parcel_forest_ledger` 의 커밋은 10-30 `replace` 하나씩(정렬 다시 쓰기)뿐이고 `gold.building_panel` 은 없다.
+    merge-on-read 증분 MERGE 는 아직 운영에서 한 번도 커밋되지 않았다. `gold_panel_rebuild` 가 11-03 부터 매 실행
+    증분 `parcel_panel` 계산 중에 160분 제한(timeout)이나 중지 신호로 끝났기 때문이다(journal, 11-03..06 10회).
+    그 계산 시간은 MERGE 쓰기가 아니라 affected 쪽이다(ADR-0392). 첫 증분 커밋이 남으면 그 커밋의
+    `added-files-size` / `total-files-size` 로 §6 을 잰다.
