@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md",
+  "source": "bronze/source=hubgokr__building_permit_temporary_building",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_kcy_08",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 55,171,421 바이트, 멤버 mart_kcy_08.txt 402,637,576 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 2,308,148 행, 모든 행 23칸. 칸 0(관리허가대장PK)은 모든 행이 채워졌지만 서로 다른 값이 1,361,608 개뿐이다(한 허가에 여러 행). 서로 다른 행 1,789,704 개(같은 행 최대 446번 되풀이). PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 2,306,492 행(99.93%), 표준 PNU 로 조합되는 행(대지구분 0·1) 2,236,655 행(96.90%). 표본 2,000 행(조합된 PNU, 대응표 없는 단순 조합)의 1,842 행(92.1%)이 silver.parcel_boundaries 현재 행에 있다. 2026-09 판(2,293,212 행)과 비교해 이 판에만 있는 행 13,694 개, 앞 판에만 있는 행 4,024 개. 주용도: 가설건축물 1,944,375·창고시설 118,361·제2종근린생활시설 64,731·공장 31,902·임시창고 3,213. 구조: 컨테이너조 770,101·경량철골구조 471,504. 존치만료일 채움 2.60%.",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축인허가 가설건축물(data.go.kr 15044691)의 속성 목록(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리허가대장PK·건물명·특수지명·블록·로트·전체건축면적·전체연면적·대지면적·가설건축물존치만료일·구조코드·명·주용도코드·명·건축면적·연면적·지상층수·생성일자, 23개)과 2026-10 판 실측의 교차 확인. 대량 파일은 같은 목록에서 관리허가대장PK·대지위치·건물명이 앞으로 와 칸 0–2 이고, 칸 3 부터 시군구코드 순서다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치 1·건물명 2·특수지명 8·블록 9·로트 10·생성일자 22)은 raw_columns 의 원래 index 로만 보존한다. 칸 2(건물명)는 화면에 내보내지 않는다(ADR-0356 §4).",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_08.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 23,
+  "row_key": "sha256_of_row",
+  "columns": {
+    "permit_mgmt_key": {
+      "index": 0,
+      "meaning": "관리허가대장PK 원문: 건축인허가 기본개요(silver.building_permit_basis_outline)의 mgmt_key 와 같은 허가 키. 한 허가에 여러 행이 있어 행을 가르지 못한다"
+    },
+    "sigungu_cd": {
+      "index": 3,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 4,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 5,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 6,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 7,
+      "meaning": "지 원문"
+    },
+    "whole_building_area_m2": {
+      "index": 11,
+      "meaning": "전체건축면적 원문(㎡)"
+    },
+    "whole_floor_area_m2": {
+      "index": 12,
+      "meaning": "전체연면적 원문(㎡)"
+    },
+    "plot_area_m2": {
+      "index": 13,
+      "meaning": "대지면적 원문(㎡)"
+    },
+    "existence_expiry_date": {
+      "index": 14,
+      "meaning": "가설건축물존치만료일 YYYYMMDD 또는 빈칸"
+    },
+    "structure_code": {
+      "index": 15,
+      "meaning": "구조코드 원문"
+    },
+    "structure_name": {
+      "index": 16,
+      "meaning": "구조코드명 원문(컨테이너조·경량철골구조 등)"
+    },
+    "main_purpose_code": {
+      "index": 17,
+      "meaning": "주용도코드 원문"
+    },
+    "main_purpose_name": {
+      "index": 18,
+      "meaning": "주용도코드명 원문(가설건축물·창고시설·공장·임시창고 등)"
+    },
+    "building_area_m2": {
+      "index": 19,
+      "meaning": "건축면적 원문(㎡)"
+    },
+    "total_floor_area_m2": {
+      "index": 20,
+      "meaning": "연면적 원문(㎡)"
+    },
+    "ground_floor_count": {
+      "index": 21,
+      "meaning": "지상층수 원문"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_temporary_building",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-temporary-building.service 의 실행 값(root ADR-0169 §3, ADR-0402). 판은 장부가 정한다. 칸 0(관리허가대장PK)은 모든 행에 있지만 2,308,148 행에 1,361,608 값이라 행을 가르지 못해 mgmt_key 는 행 글자의 SHA-256 이다(row_key, ADR-0397). 허가 키는 permit_mgmt_key 로 남긴다. compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 한 묶음으로 커밋하고(전국 231만 행이라 나누지 않는다), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 2026-09 → 2026-10 은 새 행 13,694·사라진 행 4,024 이다.",
+    "table": "silver.building_permit_temporary_building",
+    "roles": {
+      "source": "hubgokr__building_permit_temporary_building"
+    },
+    "export": "export-building-permit-temporary-building-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "permit_mgmt_key",
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "whole_building_area_m2",
+        "whole_floor_area_m2",
+        "plot_area_m2",
+        "existence_expiry_date",
+        "structure_code",
+        "structure_name",
+        "main_purpose_code",
+        "main_purpose_name",
+        "building_area_m2",
+        "total_floor_area_m2",
+        "ground_floor_count",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 0
+    }
+  }
+}

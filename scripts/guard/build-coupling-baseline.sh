@@ -329,7 +329,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (root ADR-0402).
 # 162 -> 163: the 건축인허가 층별개요 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0402).
-COMPILE_TIME_READ_BASELINE="${3:-163}"
+# 163 -> 164: the 가설건축물 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+COMPILE_TIME_READ_BASELINE="${3:-164}"
 
 cd "$repo_root"
 

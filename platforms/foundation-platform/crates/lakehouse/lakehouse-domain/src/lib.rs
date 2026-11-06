@@ -19,6 +19,7 @@ mod building_permit_floor_overview;
 mod building_permit_major_repair;
 mod building_permit_parking;
 mod building_permit_structure_ledger;
+mod building_permit_temporary_building;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod building_register_master;
@@ -68,6 +69,7 @@ pub use building_permit_floor_overview::SILVER_BUILDING_PERMIT_FLOOR_OVERVIEW;
 pub use building_permit_major_repair::SILVER_BUILDING_PERMIT_MAJOR_REPAIR;
 pub use building_permit_parking::SILVER_BUILDING_PERMIT_PARKING;
 pub use building_permit_structure_ledger::SILVER_BUILDING_PERMIT_STRUCTURE_LEDGER;
+pub use building_permit_temporary_building::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING;
 pub use building_register_apartment_price::{
     SILVER_BUILDING_REGISTER_APARTMENT_PRICE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
 };
