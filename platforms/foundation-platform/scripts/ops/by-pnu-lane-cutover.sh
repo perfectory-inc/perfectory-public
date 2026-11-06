@@ -2,7 +2,7 @@
 # The supervised first cut-over of the pack-only by-PNU lanes (root ADR-0190, ADR-0193 §6), one lane
 # after another, each through the operator script's own steps (root ADR-0161, ADR-0166):
 #
-#   by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run]
+#   by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run|--start-budget]
 #
 # Started only by `by-pnu-pack-operator.sh <lane|lanes|lane,lane,...> cutover <generation>` (as root,
 # in its own transient unit) or, with --dry-run, run by it in the caller's terminal. `lanes` is every
@@ -58,14 +58,24 @@
 #
 # --dry-run prints the lanes, their steps, each step's command and window verdict and the preview
 # answers; it starts, writes and waits for nothing. It exits 1 when a step could not start now.
+# --start-budget prints the minutes the first lane's steps may take, the sum of their budgets below
+# (0 when every lane is cut over): the run-now dispatcher starts an approved cut-over only when the
+# operator window has that much room left, else when it next opens (root ADR-0433 §3). It reads the
+# contracts only.
+#
+# A cut-over approved in the console (root ADR-0433) carries its approval id in
+# FOUNDATION_CUTOVER_APPROVAL (set by by-pnu-pack-operator.sh --approved): each step's line and the
+# run's end are also appended to that approval's progress (scripts/ops/release-progress.py), which
+# the console shows.
 set -euo pipefail
 log() { printf '%s by-pnu-lane-cutover: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run]"
+USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run|--start-budget]"
 
-TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN=""
-[[ "$#" == 2 || ( "$#" == 3 && "${3}" == --dry-run ) ]] || refuse "${USAGE}"
-[[ "$#" == 3 ]] && DRY_RUN=1
+TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN="" START_BUDGET=""
+[[ "$#" == 2 || ( "$#" == 3 && ( "${3}" == --dry-run || "${3}" == --start-budget ) ) ]] || refuse "${USAGE}"
+[[ "${3:-}" == --dry-run ]] && DRY_RUN=1
+[[ "${3:-}" == --start-budget ]] && START_BUDGET=1
 [[ "${GENERATION}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "${USAGE}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLATFORM_ROOT="$(cd "${here}/../.." && pwd -P)"
@@ -195,6 +205,25 @@ preview_answers() {
   curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "https://$1$2" 2>/dev/null || true
 }
 
+if [[ -n "${START_BUDGET}" ]]; then
+  total=0
+  if ((${#PLAN[@]})); then
+    read -r lane table unit parity preview path base base_path monitor history gold_budget <<<"${PLAN[0]}"
+    for step in "${STEPS[@]}"; do total=$((total + $(budget "${step}"))); done
+  fi
+  echo "${total}"
+  exit 0
+fi
+
+APPROVAL="${FOUNDATION_CUTOVER_APPROVAL:-}"
+[[ -z "${APPROVAL}" || "${APPROVAL}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]   || refuse "FOUNDATION_CUTOVER_APPROVAL is not an approval id"
+# The approval's progress line, when there is one; a line that cannot be written does not stop the
+# run (the evidence file holds every step).
+progress() {
+  [[ -n "${APPROVAL}" ]] || return 0
+  python3 -I -B "${here}/release-progress.py" "${APPROVAL}" "$@" || log "could not append to the progress of ${APPROVAL}"
+}
+
 if [[ -n "${DRY_RUN}" ]]; then
   blocked=0
   log "dry run: generation ${GENERATION}; scheduled window $(hhmm "${WINDOW_START}")-$(hhmm "${WINDOW_END}") UTC; nothing is started"
@@ -228,13 +257,18 @@ fi
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 EVIDENCE="${BAKE_ROOT}/cutover/${RUN_ID}.jsonl"
 mkdir -p "${EVIDENCE%/*}"
+# An operator's stop (systemctl stop of this unit, root ADR-0433 §1) ends the run between steps: the
+# step in progress runs on in its own unit, nothing after it starts.
+trap 'progress finished outcome=failed "reason=stopped by an operator: the step in progress finishes in its own unit, nothing after it starts" "run=${RUN_ID}"; exit 143' TERM
 record() {  # lane step outcome seconds reason
+  progress step "lane=$1" "step=$2" "outcome=$3" "seconds=$4" "reason=$5" "run=${RUN_ID}"
   python3 -I -c 'import json,sys; print(json.dumps({"lane": sys.argv[1], "step": sys.argv[2], "outcome": sys.argv[3], "seconds": int(sys.argv[4]), "reason": sys.argv[5], "generation": int(sys.argv[6])}))' \
     "$@" "${GENERATION}" >>"${EVIDENCE}"
 }
 fail() {  # lane step seconds reason
   record "$1" "$2" failed "$3" "$4"
   log "${1} ${2}: FAILED after ${3}s: ${4}; the run stops here (evidence ${EVIDENCE})"
+  progress finished outcome=failed "reason=${1} ${2}: ${4}" "run=${RUN_ID}"
   exit 1
 }
 wait_for_spark() {  # lane step
@@ -250,7 +284,8 @@ wait_for_spark() {  # lane step
 }
 
 log "run ${RUN_ID}: generation ${GENERATION}, lanes: $(for e in ${PLAN[@]+"${PLAN[@]}"}; do printf '%s ' "${e%% *}"; done)"
-((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"; exit 0; }
+((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"
+  progress finished outcome=passed "reason=every lane is cut over already" "run=${RUN_ID}"; exit 0; }
 for entry in "${PLAN[@]}"; do
   read -r lane table unit parity preview path base base_path monitor history gold_budget <<<"${entry}"
   lane_started="$(now)" gold_output=""
@@ -330,3 +365,4 @@ PY
   log "${lane}: cut over at generation ${GENERATION} in $(($(now) - lane_started))s"
 done
 log "run ${RUN_ID}: every lane cut over (evidence ${EVIDENCE})"
+progress finished outcome=passed "reason=every lane cut over at generation ${GENERATION}" "run=${RUN_ID}"

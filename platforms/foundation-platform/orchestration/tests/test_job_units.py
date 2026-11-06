@@ -71,6 +71,79 @@ class TheOperatorWindowIsTheCutOvers(unittest.TestCase):
                     self.assertEqual(self.units.operator_window(JOBS, job["id"], self.at(23, 46)), "")
 
 
+class AnApprovedCutOverStartsInTheWindow(unittest.TestCase):
+    """Root ADR-0433 §3: an approved cut-over starts when the operator window has room for its first
+    lane's steps, now or at the window's next opening; it is never refused for the hour. Window
+    04:30-21:50 UTC (synthetic jobs, the 2026-11-06 edges)."""
+
+    JOBS = [{"pool": "spark", "schedule": "30 4 * * *"}, {"pool": "spark", "schedule": "35 21 * * *"},
+            {"pool": "spark", "schedule": "5 * * * *"}, {"pool": "light", "schedule": "0 12 * * *"}]
+
+    def setUp(self):
+        sys.path.insert(0, str(JOB_UNITS.parent))
+        self.addCleanup(sys.path.remove, str(JOB_UNITS.parent))
+        import job_units
+        self.units = job_units
+
+    def at(self, hour, minute, second=0, day=0):
+        return 1793923200 + day * 86400 + hour * 3600 + minute * 60 + second  # 2026-11-06T00:00:00Z
+
+    def test_the_eleven_o_six_starts(self):
+        # 00:37:35Z: 233 minutes left for parcel-ownership's 202: now. 03:46:38Z: 44 left: 21:50.
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(0, 37, 35), 202), self.at(0, 37, 35))
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(3, 46, 38), 202), self.at(21, 50))
+
+    def test_the_window_runs_past_midnight_and_a_late_evening_waits_a_day(self):
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(12, 0), 60), self.at(21, 50))
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(21, 50), 400), self.at(21, 50))
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(23, 0), 330), self.at(23, 0))
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(23, 1), 330), self.at(21, 50, day=1))
+        self.assertEqual(self.units.operator_start(self.JOBS, self.at(4, 29), 1), self.at(4, 29))
+
+    def test_steps_longer_than_the_whole_window_never_fit(self):
+        with self.assertRaises(ValueError):
+            self.units.operator_start(self.JOBS, self.at(22, 0), 401)
+        result = subprocess.run([sys.executable, str(JOB_UNITS), "operator-start", str(JOBS), "0", "100000"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 64, result.stderr)
+        self.assertIn("never fit", result.stderr)
+
+    def test_the_command_answers_from_the_real_job_list(self):
+        result = subprocess.run([sys.executable, str(JOB_UNITS), "operator-start", str(JOBS), str(self.at(12, 0)), "202"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        start, end = self.units.scheduled_window(json.loads(JOBS.read_text(encoding="utf-8"))["jobs"])
+        self.assertEqual(int(result.stdout), self.at(12, 0) if not start <= 720 < end else self.at(0, 0) + end * 60)
+
+
+class AnApprovalsProgressIsAppendedLineByLine(unittest.TestCase):
+    """Root ADR-0433 §6: scripts/ops/release-progress.py appends one JSON line per event."""
+
+    SCRIPT = PLATFORM / "scripts/ops/release-progress.py"
+    APPROVAL = "44444444-4444-4444-8444-444444444444"
+
+    def run_progress(self, directory, *args):
+        return subprocess.run([sys.executable, str(self.SCRIPT), *args], capture_output=True, text=True,
+                              env={**os.environ, "FOUNDATION_RELEASE_PROGRESS_DIR": str(directory)})
+
+    def test_each_call_appends_a_line_and_nothing_else_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for args in ((self.APPROVAL, "scheduled", "start_at=2026-11-06T21:50:00Z", "budget_minutes=202"),
+                         (self.APPROVAL, "step", "lane=parcel-ownership", "step=gold", "outcome=passed", "seconds=1602",
+                          "reason=a=b")):
+                self.assertEqual(self.run_progress(directory, *args).returncode, 0)
+            lines = [json.loads(line) for line in
+                     (pathlib.Path(directory) / f"{self.APPROVAL}.jsonl").read_text().splitlines()]
+            self.assertEqual([(line["state"], line.get("budget_minutes"), line.get("seconds")) for line in lines],
+                             [("scheduled", 202, None), ("step", None, 1602)])
+            self.assertEqual(lines[1]["reason"], "a=b")
+            for args in (("../etc/passwd", "scheduled"), (self.APPROVAL, "done"), (self.APPROVAL, "step", "nokey"),
+                         (self.APPROVAL, "step", "state=x"), (self.APPROVAL,)):
+                with self.subTest(args=args):
+                    self.assertEqual(self.run_progress(directory, *args).returncode, 64)
+            self.assertEqual(sorted(path.name for path in pathlib.Path(directory).iterdir()), [f"{self.APPROVAL}.jsonl"])
+
+
 class EveryStartTakesThePoolsSlots(unittest.TestCase):
     """Root ADR-0270 §2b: what runs holds its pool's slots, whoever started it (2026-10-18)."""
 

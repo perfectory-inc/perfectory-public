@@ -13,6 +13,7 @@
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes|lane,lane,...> cutover <generation> [--dry-run]
+#   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes|lane,lane,...> cutover <generation> --approved <approval id>
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|status <silver-lane>
@@ -29,6 +30,12 @@
 # nothing. `lanes` is every lane not cut over yet. The steps it calls wait for their unit
 # (FOUNDATION_OPERATOR_WAIT, which sudo's env_reset removes from a granted run: only the root
 # runner sets it).
+# `cutover <generation> --approved <id>` is the cut-over an operator approved in the console (root
+# ADR-0433): the run-now dispatcher starts it as root, in the operator window, once. The approval
+# stands in for the attended start below: a staff identity's request with its reason, in the ledger.
+# It is taken only from root without sudo (a granted run carries SUDO_USER and is refused), only when
+# switches/cutover.d/<id> names these lanes and this generation and has not expired, and only once
+# (a mark made exclusively under the run-now dispatcher's state directory).
 #
 # `gold rebuild <unit>` rebuilds that one Gold table the way `gold-rebuild` does, and only when an
 # input moved: a table's first full build is run and timed outside the scheduled job this way (root
@@ -178,9 +185,58 @@ fi
 if [[ ("${LANE}" == job || "${LANE}" == silver) && "${ACTION}" == start ]]; then
   refuse "${LANE} start is retired: start it from 더니어 (데이터 흐름 → 예약 작업 → 운영 → 지금 한 번 돌리기), root ADR-0282"
 fi
+# A console approval of a cut-over (root ADR-0433 §4) is its attended start: who and why are the
+# ledger's, and the approval is used once. The FOUNDATION_OPERATOR_* paths exist for the tests; a
+# granted run never gets here (SUDO_USER), and sudo's env_reset removes them anyway.
+APPROVAL=""
+APPROVALS="${FOUNDATION_OPERATOR_SWITCHES:-/var/lib/foundation-jobs/switches}/cutover.d"
+APPROVALS_USED="${FOUNDATION_OPERATOR_APPROVALS_USED:-/var/lib/foundation-run-now/cutover-used}"
+progress() { # <state> [key=value ...]: the approval's progress line (scripts/ops/release-progress.py)
+  [[ -z "${APPROVAL}" ]] || python3 -I -B "${here}/release-progress.py" "${APPROVAL}" "$@" \
+    || log "could not append to the progress of ${APPROVAL}"
+}
+if [[ "${ACTION}" == cutover && "$#" == 3 && "${2}" == --approved ]]; then
+  [[ "${3}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || refuse "--approved takes an approval id"
+  # Root is not tested: only root can mark the approval used below and start the units.
+  [[ -z "${SUDO_USER:-}" ]] \
+    || refuse "an approved cut-over is started by the run-now dispatcher as root, not through sudo; approve it in 더니어 (root ADR-0433)" 77
+  APPROVAL="${3}"
+  # From here a refusal is the approval's answer too.
+  refuse() { log "refused: $1"; progress refused "reason=$1"; exit "${2:-64}"; }
+  approved="$(python3 -I - "${APPROVALS}/${APPROVAL}" "${LANE}" "${1}" "$(date +%s)" <<'PY'
+import datetime, sys
+path, lanes, generation, now = sys.argv[1:]
+def answer(verdict):
+    print(verdict)
+    sys.exit(0)
+try:
+    with open(path, encoding="utf-8") as handle:
+        fields = dict(line.split("=", 1) for line in handle.read().splitlines() if "=" in line)
+except OSError:
+    answer("no no such approval")
+if fields.get("job") != "by_pnu_lane_cutover":
+    answer("no the request is not a cut-over approval")
+if fields.get("lanes") != lanes or fields.get("generation") != generation:
+    answer(f"no it approves {fields.get('lanes')} generation {fields.get('generation')}, not {lanes} generation {generation}")
+try:
+    expires = datetime.datetime.fromisoformat(fields["expires_at"]).timestamp()
+except (KeyError, ValueError):
+    answer("no it has no readable expiry")
+if int(now) >= expires:
+    answer(f"no it expired at {fields['expires_at']}")
+answer(f"ok who={fields.get('actor', 'unknown')} approved={fields.get('request')} reason={fields.get('reason', '')}")
+PY
+)" || refuse "cannot read approval ${APPROVAL}" 70
+  [[ "${approved}" == ok\ * ]] || refuse "approval ${APPROVAL}: ${approved#no }"
+  mkdir -p "${APPROVALS_USED}" && (set -C && : >"${APPROVALS_USED}/${APPROVAL}") 2>/dev/null \
+    || refuse "approval ${APPROVAL} was used already" 77
+  START_REQUEST="${approved#ok }"
+  set -- "$1"
+  record_start "${LANE} ${ACTION} $1"
+fi
 # Every action that starts or writes is attended and immediate (see attended_start above), asked
 # once, in the copy that does the work: the control checkout's copy above passes the request on.
-if [[ "${ACTION}" != status && "${ACTION}" != plan && "${ACTION}" != health ]] \
+if [[ -z "${APPROVAL}" && "${ACTION}" != status && "${ACTION}" != plan && "${ACTION}" != health ]] \
   && ! [[ "${FOUNDATION_OPERATOR_WAIT:-}" == 1 && -z "${SUDO_USER:-}" ]]; then
   (($# >= 4)) && [[ "${*: -4:1}" == --requested-at && "${*: -2:1}" == --reason ]] \
     || refuse "${LANE} ${ACTION} takes ${ATTENDED_FLAGS} last"
@@ -476,8 +532,13 @@ if [[ "${ACTION}" == cutover ]]; then
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${BAKE_ROOT}/cutover" "${BAKE_ROOT}/cutover/logs"
   log="${BAKE_ROOT}/cutover/logs/cutover-g$1.log"
   log "starting ${CUTOVER_UNIT}: by-pnu-lane-cutover.sh ${LANE} $1; output ${log}"
+  approval=()
+  if [[ -n "${APPROVAL}" ]]; then
+    approval=(-E "FOUNDATION_CUTOVER_APPROVAL=${APPROVAL}")
+    progress started "unit=${CUTOVER_UNIT}" "log=${log}" "lanes=${LANE}" "generation=$1"
+  fi
   # Root, like this script: each step it calls starts its own unit as the service user.
-  exec "${SYSTEMD_RUN}" --collect --unit="${CUTOVER_UNIT}" \
+  exec "${SYSTEMD_RUN}" --collect --unit="${CUTOVER_UNIT}" ${approval[@]+"${approval[@]}"} \
     --description="Foundation Platform pack-only lane cut-over, generation $1 (root ADR-0190, ADR-0193)" \
     -p StandardOutput=append:"${log}" -p StandardError=append:"${log}" \
     "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1"

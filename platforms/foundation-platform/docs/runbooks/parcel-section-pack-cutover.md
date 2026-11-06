@@ -81,11 +81,21 @@ sudo -n $op parcel monitor-sample 1 --requested-at "$(date +%s)" --reason "<왜>
 묶음 전용 레인(`by_pnu_lanes`, 루트 ADR-0190·ADR-0193 §6)의 첫 전환은 위 단계를 한 번에 감독 실행한다. 단계·
 멈춤 조건·예약 창·Spark 대기의 정본은 `scripts/ops/by-pnu-lane-cutover.sh` 머리말이다.
 
+**시작은 더니어 승인이다(루트 ADR-0433).** 데이터 흐름 → 운영 → by-PNU cut-over 에서 레인(`lanes`·레인 하나·
+`a,b,...` 순서)·세대·이유를 적고 승인한다(원장 동작 `approve_cutover`, 대상 `by_pnu_lane_cutover`). 서버 셸·sudo
+비밀번호는 필요 없다. 호스트의 `run-now-dispatch.sh` 가 운영자 창에 첫 레인 단계 시간(`--start-budget`)이 남아
+있으면 바로, 아니면 창이 열리는 시각(`job_units.py operator-start`, 2026-11-06 기준 21:50 UTC)에 일회성 타이머
+`operator-cutover-<승인 id>` 로 한 번 시작한다. 진행은 같은 화면과 `/var/lib/foundation-jobs/releases/<승인 id>.jsonl`.
+취소·중지는 같은 대상의 `stop`(아직 시작 안 한 승인 취소, 도는 run 은 지금 단계 뒤 멈춤). 승인은 48시간 뒤 만료된다.
+
 ```bash
-sudo -n $op lanes cutover 1 --dry-run --requested-at "$(date +%s)" --reason "<왜>"  # 아직 전환 안 된 레인 전부: 단계·미리보기 응답·예약 창 판정, 아무것도 시작하지 않는다
-sudo -n $op unit-price cutover 1 --requested-at "$(date +%s)" --reason "<왜>"  # 한 레인: Gold → 대등성 → 굽기 → (가) → (나) → 발행 → 감시 표본, 첫 실패에서 멈춘다
+# 읽기만 하는 미리보기는 여전히 셸에서도 된다: 단계·미리보기 응답·예약 창 판정, 아무것도 시작하지 않는다
+sudo -n $op lanes cutover 1 --dry-run --requested-at "$(date +%s)" --reason "<왜>"
 # 진행: <굽기 뿌리>/cutover/logs/cutover-g1.log, 단계별 시간·결과: <굽기 뿌리>/cutover/<실행 id>.jsonl
 ```
+
+셸의 `sudo -n $op <lanes> cutover <세대> --requested-at ... --reason ...` 도 남아 있지만(사람이 터미널에서 10분 안),
+승인 경로가 정본이다. 2026-11-06 의 비밀번호 실패·창 놓침이 그 이유다.
 
 굽기(`bake`)가 하는 일은 `scripts/ops/by-pnu-pack-bake.sh` 머리말이 정본이다.
 
