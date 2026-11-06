@@ -26,15 +26,11 @@ use foundation_shared_kernel::{content_addressed_key, MediaFormat, ObjectKeyPref
 use futures_util::StreamExt as _;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
-use sha2::{Digest as _, Sha256};
 
 use crate::data_go_kr_onbid_collect::{
     LineOutcome, MediaFields, MediaRef, OriginalRule, RenditionBudget,
 };
 use crate::media_renditions::{self, Laddered};
-
-/// Media objects never change once stored (the key is their content hash), so they cache forever.
-const MEDIA_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 const PHOTO_FIELD: &str = "potoUrlList";
 /// The key beside a list field (`<field>Original`) naming the originals of its thumbnails (root
@@ -849,8 +845,8 @@ async fn download_and_store(
     let Some(format) = MediaFormat::sniff(&bytes) else {
         return Ok(Stored::UnknownFormat);
     };
-    let hash_hex = sha256_hex(&bytes);
-    let hash = Sha256Hex::parse(&hash_hex).context("sha-256 is not canonical")?;
+    let hash = Sha256Hex::of(&bytes);
+    let hash_hex = hash.as_str().to_owned();
     let key =
         content_addressed_key(prefix, &hash, format).context("media object key is invalid")?;
     let media = StoredMedia {
@@ -874,7 +870,8 @@ async fn download_and_store(
             key: key.as_str().to_owned(),
             body: bytes.to_vec(),
             content_type: format.content_type().to_owned(),
-            cache_control: MEDIA_CACHE_CONTROL.to_owned(),
+            // Never changes once stored (the key is its content hash): the edge's one cache policy.
+            cache_control: media_renditions::cache_control()?.to_owned(),
             write_mode: ObjectWriteMode::CreateOnly,
             sha256: Some(hash_hex),
         })
@@ -885,16 +882,6 @@ async fn download_and_store(
         Err(PublishError::ObjectAlreadyExists { .. }) => Ok(Stored::Deduplicated(media)),
         Err(error) => Err(error).context("media put_object failed"),
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let digest = Sha256::digest(bytes);
-    let mut hex = String::with_capacity(64);
-    for byte in digest {
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
 }
 
 #[cfg(test)]

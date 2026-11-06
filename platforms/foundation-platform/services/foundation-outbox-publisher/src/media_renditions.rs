@@ -15,45 +15,48 @@ use foundation_media_renditions::{render, Spec};
 use foundation_outbox::errors::PublishError;
 use foundation_outbox::object_storage::{ObjectWriteMode, PutObjectRequest};
 use foundation_outbox::ObjectStorageService;
+use foundation_shared_kernel::{
+    content_addressed_key, rendition_key, rendition_manifest_key, MediaFormat, ObjectKeyPrefix,
+    Sha256Hex,
+};
+use serde::Deserialize;
 use serde_json::json;
-use sha2::{Digest as _, Sha256};
 
 const CONNECTIONS: &str = include_str!("../../../config/r2-connections.contract.json");
-const CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
-/// The stored formats a ladder is made from (`MediaFormat::extension`); a PDF has none.
-const SOURCE_FORMATS: [&str; 3] = ["jpg", "png", "gif"];
+
+/// `parcel_media` of the connection contract: how the edge serves the media store, and its ladder.
+#[derive(Debug, Deserialize)]
+struct ParcelMedia {
+    cache_control: String,
+    renditions: Spec,
+}
+
+fn parcel_media() -> anyhow::Result<&'static ParcelMedia> {
+    static POLICY: OnceLock<Result<ParcelMedia, String>> = OnceLock::new();
+    POLICY
+        .get_or_init(|| {
+            serde_json::from_str::<serde_json::Value>(CONNECTIONS)
+                .and_then(|contract| serde_json::from_value(contract["parcel_media"].clone()))
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| anyhow::anyhow!("parcel_media does not parse: {error}"))
+}
 
 /// The contract's ladder, parsed once.
 pub(crate) fn spec() -> anyhow::Result<&'static Spec> {
-    static SPEC: OnceLock<Result<Spec, String>> = OnceLock::new();
-    SPEC.get_or_init(|| {
-        serde_json::from_str::<serde_json::Value>(CONNECTIONS)
-            .and_then(|contract| {
-                serde_json::from_value(contract["parcel_media"]["renditions"].clone())
-            })
-            .map_err(|error| error.to_string())
-    })
-    .as_ref()
-    .map_err(|error| anyhow::anyhow!("parcel_media.renditions does not parse: {error}"))
+    parcel_media().map(|policy| &policy.renditions)
+}
+
+/// The one `Cache-Control` of every media object (originals and renditions): the edge's
+/// `parcel_media.cache_control`, so what is stored and what is served cannot differ.
+pub(crate) fn cache_control() -> anyhow::Result<&'static str> {
+    parcel_media().map(|policy| policy.cache_control.as_str())
 }
 
 /// Whether a stored file of this extension gets a ladder.
 pub(crate) fn is_source(media_format: &str) -> bool {
-    SOURCE_FORMATS.contains(&media_format)
-}
-
-pub(crate) fn manifest_key(prefix: &str, version: &str, source_sha256: &str) -> String {
-    format!("{prefix}/renditions/{version}/{source_sha256}.json")
-}
-
-pub(crate) fn rendition_key(
-    prefix: &str,
-    version: &str,
-    source_sha256: &str,
-    width: u32,
-    extension: &str,
-) -> String {
-    format!("{prefix}/renditions/{version}/{source_sha256}/{width}.{extension}")
+    MediaFormat::from_extension(media_format).is_some_and(MediaFormat::is_image)
 }
 
 /// What one source came to.
@@ -80,9 +83,13 @@ pub(crate) async fn ensure_ladder(
     spec: &'static Spec,
     storage: &dyn ObjectStorageService,
 ) -> anyhow::Result<Laddered> {
-    let manifest = manifest_key(prefix, &spec.version, source_sha256);
+    let prefix = ObjectKeyPrefix::parse(prefix).context("media prefix is invalid")?;
+    let source_hash = Sha256Hex::parse(source_sha256).context("source sha-256 is not canonical")?;
+    let source_format = MediaFormat::from_extension(media_format)
+        .with_context(|| format!("{media_format} is not a media format"))?;
+    let manifest = rendition_manifest_key(&prefix, &spec.version, &source_hash)?;
     if storage
-        .read_object_sha256(&manifest)
+        .read_object_sha256(manifest.as_str())
         .await
         .context("rendition manifest head failed")?
         .is_some()
@@ -90,7 +97,7 @@ pub(crate) async fn ensure_ladder(
         return Ok(Laddered::Present);
     }
     let source = storage
-        .read_object_bytes(&format!("{prefix}/sha256/{source_sha256}.{media_format}"))
+        .read_object_bytes(content_addressed_key(&prefix, &source_hash, source_format)?.as_str())
         .await
         .context("reading the stored original failed")?;
     // Decoding and AV1 encoding are CPU work: off the async workers.
@@ -108,27 +115,27 @@ pub(crate) async fn ensure_ladder(
     let mut entries = Vec::new();
     for rendition in rendered.renditions {
         let key = rendition_key(
-            prefix,
+            &prefix,
             &spec.version,
-            source_sha256,
+            &source_hash,
             rendition.rung,
-            rendition.extension,
-        );
-        let sha256 = sha256_hex(&rendition.bytes);
+            rendition.format,
+        )?;
+        let sha256 = Sha256Hex::of(&rendition.bytes);
         let size = rendition.bytes.len() as u64;
         entries.push(json!({
             "width": rendition.rung,
-            "format": rendition.extension,
+            "format": rendition.format.extension(),
             "pixel_width": rendition.width,
             "pixel_height": rendition.height,
-            "sha256": sha256,
+            "sha256": sha256.as_str(),
             "size_bytes": size,
         }));
         put_once(
             storage,
-            key,
+            key.as_str(),
             rendition.bytes,
-            rendition.content_type,
+            rendition.format.content_type(),
             sha256,
         )
         .await?;
@@ -145,8 +152,8 @@ pub(crate) async fn ensure_ladder(
         "renditions": entries,
     }))
     .context("the rendition manifest does not serialize")?;
-    let sha256 = sha256_hex(&body);
-    put_once(storage, manifest, body, "application/json", sha256).await?;
+    let sha256 = Sha256Hex::of(&body);
+    put_once(storage, manifest.as_str(), body, "application/json", sha256).await?;
     Ok(Laddered::Written(written))
 }
 
@@ -154,32 +161,25 @@ pub(crate) async fn ensure_ladder(
 /// or interrupted earlier run), so it is kept.
 async fn put_once(
     storage: &dyn ObjectStorageService,
-    key: String,
+    key: &str,
     body: Vec<u8>,
     content_type: &str,
-    sha256: String,
+    sha256: Sha256Hex,
 ) -> anyhow::Result<()> {
     match storage
         .put_object(PutObjectRequest {
-            key,
+            key: key.to_owned(),
             body,
             content_type: content_type.to_owned(),
-            cache_control: CACHE_CONTROL.to_owned(),
+            cache_control: cache_control()?.to_owned(),
             write_mode: ObjectWriteMode::CreateOnly,
-            sha256: Some(sha256),
+            sha256: Some(sha256.as_str().to_owned()),
         })
         .await
     {
         Ok(()) | Err(PublishError::ObjectAlreadyExists { .. }) => Ok(()),
         Err(error) => Err(error).context("rendition put_object failed"),
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 #[cfg(test)]
@@ -206,18 +206,15 @@ mod tests {
                 .as_str()
                 .unwrap_or_default()
         ))?;
-        let sha = "a".repeat(64);
+        let prefix = ObjectKeyPrefix::parse("onbid/media")?;
+        let sha = Sha256Hex::of(b"source");
         for width in &spec.widths {
             for format in &spec.formats {
-                let key = rendition_key(
-                    "onbid/media",
-                    &spec.version,
-                    &sha,
-                    *width,
-                    format.extension(),
-                );
+                let key =
+                    rendition_key(&prefix, &spec.version, &sha, *width, format.media_format())?;
+                let key = key.as_str();
                 assert!(
-                    pattern.is_match(&key),
+                    pattern.is_match(key),
                     "{key} is not served by the parcel edge"
                 );
             }
@@ -230,13 +227,13 @@ mod tests {
         let root = tempfile::tempdir()?;
         let storage = FileObjectStorage::new(root.path())?;
         let source = jpeg(400, 300);
-        let sha = sha256_hex(&source);
+        let sha = Sha256Hex::of(&source).as_str().to_owned();
         storage
             .put_object(PutObjectRequest {
                 key: format!("onbid/media/sha256/{sha}.jpg"),
                 body: source,
                 content_type: "image/jpeg".to_owned(),
-                cache_control: CACHE_CONTROL.to_owned(),
+                cache_control: cache_control()?.to_owned(),
                 write_mode: ObjectWriteMode::CreateOnly,
                 sha256: None,
             })
@@ -245,7 +242,14 @@ mod tests {
         let first = ensure_ladder("onbid/media", &sha, "jpg", spec, &storage).await?;
         assert!(matches!(first, Laddered::Written(bytes) if bytes > 0));
         let manifest: serde_json::Value = serde_json::from_slice(
-            &storage.get_object_bytes(&manifest_key("onbid/media", &spec.version, &sha))?,
+            &storage.get_object_bytes(
+                rendition_manifest_key(
+                    &ObjectKeyPrefix::parse("onbid/media")?,
+                    &spec.version,
+                    &Sha256Hex::parse(&sha)?,
+                )?
+                .as_str(),
+            )?,
         )?;
         let entries = manifest["renditions"].as_array().map_or(0, Vec::len);
         assert_eq!(entries, spec.widths.len() * spec.formats.len());
@@ -273,7 +277,7 @@ mod tests {
                 key: format!("onbid/media/sha256/{sha}.jpg"),
                 body: vec![0xFF, 0xD8, 0xFF, 0x00, 0x01],
                 content_type: "image/jpeg".to_owned(),
-                cache_control: CACHE_CONTROL.to_owned(),
+                cache_control: cache_control()?.to_owned(),
                 write_mode: ObjectWriteMode::CreateOnly,
                 sha256: None,
             })

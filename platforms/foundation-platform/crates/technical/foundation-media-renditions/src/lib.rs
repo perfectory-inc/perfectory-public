@@ -13,6 +13,7 @@
 
 use std::io::Cursor;
 
+use foundation_shared_kernel::MediaFormat;
 use image::codecs::avif::AvifEncoder;
 use image::imageops::FilterType;
 use image::{DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageReader, Limits};
@@ -50,21 +51,12 @@ pub enum FormatSpec {
 }
 
 impl FormatSpec {
-    /// The file extension a rendition of this format is stored under.
+    /// The shared kernel's format of a rendition in this spec: its extension and served type.
     #[must_use]
-    pub const fn extension(&self) -> &'static str {
+    pub const fn media_format(&self) -> MediaFormat {
         match self {
-            Self::Avif { .. } => "avif",
-            Self::Webp { .. } => "webp",
-        }
-    }
-
-    /// The `Content-Type` a rendition of this format is served with.
-    #[must_use]
-    pub const fn content_type(&self) -> &'static str {
-        match self {
-            Self::Avif { .. } => "image/avif",
-            Self::Webp { .. } => "image/webp",
+            Self::Avif { .. } => MediaFormat::Avif,
+            Self::Webp { .. } => MediaFormat::Webp,
         }
     }
 }
@@ -78,10 +70,8 @@ pub struct Rendition {
     pub width: u32,
     /// Its pixel size after the scale-down.
     pub height: u32,
-    /// Its extension (`avif`, `webp`).
-    pub extension: &'static str,
-    /// Its `Content-Type`.
-    pub content_type: &'static str,
+    /// Its format (extension and served type).
+    pub format: MediaFormat,
     /// The encoded file.
     pub bytes: Vec<u8>,
 }
@@ -158,8 +148,7 @@ pub fn render(source: &[u8], spec: &Spec) -> Result<Rendered, RenderError> {
                 rung,
                 width,
                 height,
-                extension: format.extension(),
-                content_type: format.content_type(),
+                format: format.media_format(),
                 bytes: encode(&scaled, *format)?,
             });
         }

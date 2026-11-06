@@ -1986,6 +1986,7 @@ dependencies = [
 name = "foundation-media-renditions"
 version = "0.1.0"
 dependencies = [
+ "foundation-shared-kernel",
  "foundation-workspace-hack",
  "image",
  "serde",
@@ -2318,6 +2319,7 @@ dependencies = [
  "foundation-workspace-hack",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 1.0.69",
  "uuid",
 ]

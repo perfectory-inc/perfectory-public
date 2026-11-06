@@ -604,7 +604,7 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
 ) -> anyhow::Result<()> {
     use super::{mirror_detail_lines, MirrorSettings};
     use crate::data_go_kr_onbid_collect::RenditionBudget;
-    use crate::media_renditions::{manifest_key, spec};
+    use crate::media_renditions::spec;
     use std::collections::BTreeMap;
     use std::time::{Duration, Instant};
     use wiremock::matchers::{method, query_param};
@@ -675,12 +675,14 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
     assert!(response["body"]["items"]["item"]
         .get("potoUrlListOriginal")
         .is_none());
-    let thumbnail_sha = super::sha256_hex(&thumbnail_bytes);
-    let manifest = storage.get_object_bytes(&manifest_key(
-        "onbid/media",
-        &spec()?.version,
-        &thumbnail_sha,
-    ))?;
+    let manifest = storage.get_object_bytes(
+        foundation_shared_kernel::rendition_manifest_key(
+            &foundation_shared_kernel::ObjectKeyPrefix::parse("onbid/media")?,
+            &spec()?.version,
+            &foundation_shared_kernel::Sha256Hex::of(&thumbnail_bytes),
+        )?
+        .as_str(),
+    )?;
     assert!(!manifest.is_empty());
     Ok(())
 }

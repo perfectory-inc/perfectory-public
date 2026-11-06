@@ -11,6 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+foundation-shared-kernel = { workspace = true }
 image = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }

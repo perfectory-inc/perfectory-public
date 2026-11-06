@@ -70,7 +70,7 @@ fn turns_the_source_upright_and_keeps_no_metadata() -> Result<(), RenderError> {
         assert!(
             !contains(&rendition.bytes, b"Exif"),
             "{} kept EXIF",
-            rendition.extension
+            rendition.format.extension()
         );
         assert!(!contains(&rendition.bytes, b"SYNTHETIC-GPS-MAKER"));
         assert_eq!(
@@ -90,7 +90,7 @@ fn scales_down_to_each_rung_and_never_up() -> Result<(), RenderError> {
         .map(|rendition| {
             (
                 rendition.rung,
-                rendition.extension,
+                rendition.format.extension(),
                 rendition.width,
                 rendition.height,
             )

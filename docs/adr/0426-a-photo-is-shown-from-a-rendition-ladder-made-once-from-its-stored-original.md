@@ -7,7 +7,9 @@
   [ADR-0298](./0298-content-addressed-media-is-a-write-once-store-not-a-per-object-bronze-ledger.md),
   [ADR-0330](./0330-a-public-auction-round-is-detailed-until-its-media-landed-open-rounds-first.md),
   ADR-0384(경매 사진, #1100 에서 열린 채)
-- Amends: ADR-0424 §6 — 화면은 원본 파일 자체가 아니라 원본에서 만든 사다리를 보인다.
+- Amends: [ADR-0297](./0297-parcel-media-captures-originals-first-and-pre-generates-display-sizes.md) §2·§8 — 사다리의
+  크기·형식·키·규격의 자리를 정한다(§1 원본 우선·§3 위생·§4 즉석 변환 허용·§6 한 저장소는 그대로).
+  ADR-0424 §6 — 화면은 원본 파일 자체가 아니라 원본에서 만든 사다리를 보인다.
 
 ## Context
 
@@ -38,10 +40,13 @@ ADR-0424 로 공매 사진의 원본(평균 0.87 MB, 최대 3.6 MB·4000×3000)�
    압축 폭탄 상한). 원본보다 크게 늘리지 않는다: 원천보다 큰 단계는 원천 크기로, 아래 단계와 같은 파일을 쓴다.
    만들기는 새 크레이트 `crates/technical/foundation-media-renditions` 하나다 — `image`(디코딩·EXIF 방향·Lanczos3·AVIF
    = ravif/rav1e, nasm 없이)와 `webp`(libwebp) 크레이트, 손으로 쓴 코덱 없음. EXIF 방향으로 세운 뒤 줄이고, 파일은
-   디코딩한 픽셀에서만 쓰므로 EXIF·GPS 가 남지 않는다(시험이 합성 EXIF·GPS 문자열로 확인한다).
+   디코딩한 픽셀에서만 쓰므로 EXIF·GPS 가 남지 않는다(시험이 합성 EXIF·GPS 문자열로 확인한다). 형식·키·해시는
+   공용 커널 하나다: `foundation-shared-kernel` `MediaFormat` 에 WebP·AVIF 를 더하고(바이트 판정·확장자·형식 이름),
+   `rendition_key`·`rendition_manifest_key` 를 `content_addressed_key` 옆에, `Sha256Hex::of` 로 해시를 만든다.
 3. **키는 (원본 해시, version) 이다.** 단계는 `<prefix>/renditions/<version>/<원본 sha256>/<width>.<확장자>`, 다 쓴 뒤
    마지막에 `<prefix>/renditions/<version>/<원본 sha256>.json`(단계·픽셀·바이트·각 파일 sha256)을 쓴다 — 그 파일이
-   있으면 사다리가 다 있다(write-audit-publish 의 publish 표시). 전부 CreateOnly·`immutable` 1 년 캐시. 값을 바꾸면
+   있으면 사다리가 다 있다(write-audit-publish 의 publish 표시). 전부 CreateOnly 이고, 저장 때의 `Cache-Control` 은
+   엣지가 내보내는 `parcel_media.cache_control` 하나를 읽는다(원본·사다리 모두; 수집기에 따로 적던 값을 지웠다). 값을 바꾸면
    version 을 올린다: 새 version 만 새로 만들고 옛 것은 지우지 않는다. 웹은 엣지 계약 시험(`edge-contract.test.ts`)으로
    같은 version·단계·형식에 묶인 사본으로 `<picture>` 의 AVIF `srcset` 과 WebP `<img srcset>`·`sizes` 를 만들고
    `loading="lazy"` 다; 원본 파일은 사진을 눌러야만 받는다. 사다리가 아직 없는 사진(그 run 의 사다리 상한에 걸린 새
@@ -95,3 +100,22 @@ ADR-0424 로 공매 사진의 원본(평균 0.87 MB, 최대 3.6 MB·4000×3000)�
 - 판정되지 않는 형식(PDF 감정평가서·지도 외)은 사다리를 만들지 않는다. 색 프로필(ICC) 변환은 하지 않는다(원본
   대부분 sRGB JPEG). 지각 해시 중복 제거는 하지 않는다.
 - 문서 스키마는 바뀌지 않는다: 사다리 키는 문서가 이미 싣는 원천 해시와 계약의 version 으로 정해진다.
+
+## 이어지는 PR 사슬과 남은 중복
+
+사장 지시(2026-11-06, 미루지 않는다)로 모든 사진이 이 파이프라인 하나에 모인다. 각 PR 은 작고, 아래 PR 이 병합될
+때까지 초안으로 쌓는다.
+
+1. **이 PR**: 커널(`MediaFormat` WebP·AVIF, 사다리 키, `Sha256Hex::of`), 사다리 크레이트, 공매 수집기·원본 규칙 감시,
+   엣지 경로, 공매 화면·출처.
+2. **경매**(#1100 위): #1100 의 `store_bytes` 를 모든 원천의 저장 하나로 삼고(이름을 원천 중립으로), 저장한 사진마다
+   `ensure_ladder`; 공매·경매·매물이 같은 사진 칸 컴포넌트(`srcset`)를 쓴다.
+3. **공짱 매물 사진**: 지금 따로 있는 것 — id 로 키를 잡는 저장소(`gongzzang-lakehouse-prod` 의 `media/listing-photo`),
+   채워진 적 없는 `thumbnail_r2_key` 열, 따로 정의한 `PhotoContentType`(jpeg/png/webp), Next `next/image` 기본
+   최적화기 — 를 이 파이프라인으로 옮긴다: 업로드는 공용 내용주소 저장소에, `thumbnail_r2_key` 대신 사다리,
+   `PhotoContentType` 은 `MediaFormat` 으로, 화면은 같은 사진 칸 컴포넌트.
+   **배포 순서(공짱 운영은 AWS 이고 우리는 코드만 바꾼다)**: ① API 가 옛 키(`media/listing-photo/<id>`)와 새
+   내용주소 키를 둘 다 읽게 한 코드를 병합(새 열은 비어도 옛 키로 동작 — 하위 호환); ② 공짱을 배포하는 사람이 그
+   코드를 배포; ③ append-only 백필 작업이 옛 객체를 내용주소 저장소로 복사하고 (옛 키 → sha256) 대응을 적는다(옛
+   객체는 지우지 않는다); ④ 그 뒤 새 업로드는 내용주소로만 쓰고, 사다리는 같은 `ensure_ladder` 가 만든다; ⑤ 옛 키
+   읽기 경로는 모든 행이 대응을 가진 뒤 별도 PR 로 지운다. 이 저장소에서 AWS 자원·설정·버킷 쓰기는 하지 않는다.
