@@ -36,6 +36,41 @@ for unit, state in units.items():
 '''
 
 
+class TheOperatorWindowIsTheCutOvers(unittest.TestCase):
+    """Root ADR-0424: the scheduled window comes from the job list, and the clock-started batch it
+    places inside it is kept out of the rest of the day (2026-11-05 23:46Z)."""
+
+    def setUp(self):
+        sys.path.insert(0, str(JOB_UNITS.parent))
+        self.addCleanup(sys.path.remove, str(JOB_UNITS.parent))
+        import job_units
+        self.units = job_units
+        self.jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
+
+    def at(self, hour, minute):
+        return 1793836800 + hour * 3600 + minute * 60  # 2026-11-05T00:00:00Z
+
+    def test_the_unit_price_migration_is_held_out_of_the_night_and_its_schedule_fits(self):
+        window = self.units.scheduled_window(self.jobs)
+        (migration,) = [job for job in self.jobs if job["id"] == "unit_price_versions_migration"]
+        self.assertTrue(self.units.kept_out_of_operator_window(migration, window),
+                        "its 18:45 schedule is meant to end before the operator window")
+        self.assertEqual(self.units.operator_window(JOBS, migration["id"], self.at(18, 45)), "")
+        # The deploy's unpause at 23:46Z ran the missed 18:45 tick; the cut-over at 00:37Z lost to it.
+        for hour, minute in ((23, 46), (0, 37), (20, 0)):
+            with self.subTest(at=f"{hour:02d}:{minute:02d}"):
+                self.assertIn("operator window",
+                              self.units.operator_window(JOBS, migration["id"], self.at(hour, minute)))
+
+    def test_jobs_an_input_starts_or_whose_schedule_runs_past_the_window_are_not_held(self):
+        window = self.units.scheduled_window(self.jobs)
+        for job in self.jobs:
+            if job["started_by"] != "schedule" or job["pool"] != "spark":
+                with self.subTest(job=job["id"]):
+                    self.assertFalse(self.units.kept_out_of_operator_window(job, window))
+                    self.assertEqual(self.units.operator_window(JOBS, job["id"], self.at(23, 46)), "")
+
+
 class EveryStartTakesThePoolsSlots(unittest.TestCase):
     """Root ADR-0270 §2b: what runs holds its pool's slots, whoever started it (2026-10-18)."""
 
