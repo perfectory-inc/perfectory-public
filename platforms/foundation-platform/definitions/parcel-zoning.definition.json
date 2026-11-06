@@ -47,7 +47,8 @@
         "gold-parcel-panel-to-gold-parcel-land-rights"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-12T22:17:38Z"
+      "enabled_since": "2026-10-12T22:17:38Z",
+      "dagster_stage": "shadow"
     },
     {
       "id": "by_pnu_serving_bake",
@@ -102,7 +103,8 @@
         "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-07T19:55:24Z"
+      "enabled_since": "2026-10-07T19:55:24Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

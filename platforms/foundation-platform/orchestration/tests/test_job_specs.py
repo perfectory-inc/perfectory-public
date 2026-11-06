@@ -473,8 +473,10 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
 
 def switch_off(entry, **fields):
-    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239)."""
+    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239) and back
+    with Airflow (a switched-off job runs nowhere, root ADR-0431)."""
     entry.pop("enabled_since", None)
+    entry.pop("dagster_stage", None)
     entry.update(enabled=False, **fields)
 
 
