@@ -38,9 +38,16 @@ class ApartmentPriceContractTest(unittest.TestCase):
         for hand_picked in ("selected_vintage", "objects", "granularity_counts"):
             self.assertNotIn(hand_picked, c)
         lane = c["silver_refresh"]
-        self.assertEqual(lane["table"], "silver.building_register_apartment_price")
+        # Its vintages are stored as versions: staged, then only the changed keys appended (root ADR-0317).
+        self.assertEqual(lane["table"], "silver.building_register_apartment_price_versions")
         self.assertEqual(lane["roles"], {"source": c["source"].removeprefix("bronze/source=")})
         self.assertEqual(lane["spark"]["iceberg_write_mode"], "append")
+        # The handoff is the full-copy table's columns; the versions table adds only the marker,
+        # which the JSON reader leaves null.
+        versions = {x["name"] for x in load_lakehouse_contract(lane["table"])["columns"]}
+        copies = {x["name"] for x in load_lakehouse_contract("silver.building_register_apartment_price")["columns"]}
+        self.assertEqual(versions - copies, {"row_state"})
+        self.assertEqual(copies - versions, set())
 
     def test_silver_retains_raw_array_and_loads_each_part_once(self):
         c = load_lakehouse_contract("silver.building_register_apartment_price")

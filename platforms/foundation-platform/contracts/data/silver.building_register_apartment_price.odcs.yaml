@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "헤더 없는 원천을 레이아웃 계약과 스트리밍으로 변환하는 코드 경로가 있다. 운영 적재량·조인율은 실행 증거로 확인한다."
+  purpose: "헤더 없는 원천을 레이아웃 계약과 스트리밍으로 변환하는 코드 경로가 있다. 운영 적재량·조인율은 실행 증거로 확인한다. ADR-0317 이후 이 경로는 버전 표에 쓴다. 옛 전체 사본 표는 보존하고 더 쓰지 않는다(지울지는 사장 결정)."
 team:
   name: "foundation-platform"
 servers:

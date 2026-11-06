@@ -830,14 +830,17 @@ class UndeclaredOverwriteTest(unittest.TestCase):
                 # An appending lane may compare its staged parts (ADR-0318); it never excuses a full write.
                 self.assertNotIn(FULL_REASON, block, table)
         compared = sorted(t for t, b in lanes.items() if COMPARE in b)
-        # Every overwriting lane compares, and so does the exclusive-unit part lane (ADR-0318).
+        # Every overwriting lane compares, and so do the exclusive-unit and apartment-price part lanes
+        # (ADR-0318, ADR-0317).
         self.assertEqual(compared, ["silver.building_energy_monthly_electricity", "silver.building_energy_monthly_gas",
                                     "silver.building_maintenance_regular_inspection_history", "silver.building_permit_annex_parking",
                                     "silver.building_permit_basis_outline", "silver.building_permit_building_outline",
                                     "silver.building_permit_demolition_loss", "silver.building_permit_floor_overview",
                                     "silver.building_permit_major_repair", "silver.building_permit_parking",
                                     "silver.building_permit_site_location", "silver.building_permit_structure_ledger",
-                                    "silver.building_permit_temporary_building", "silver.building_register_exclusive_unit",
+                                    "silver.building_permit_temporary_building",
+                                    "silver.building_register_apartment_price_versions",
+                                    "silver.building_register_exclusive_unit",
                                     "silver.building_register_master", "silver.building_register_sub_parcel",
                                     "silver.building_register_titles", "silver.building_register_unit_areas",
                                     "silver.building_register_units", "silver.land_characteristic",
