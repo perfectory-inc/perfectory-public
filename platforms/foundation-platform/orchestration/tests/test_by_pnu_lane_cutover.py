@@ -28,8 +28,18 @@ def at(hour, minute=0):
     return str(int(datetime.datetime(2026, 10, 13, hour, minute, tzinfo=datetime.timezone.utc).timestamp()))
 
 
-# Clear of every daily scheduled Spark start with the longest step budget to spare.
-NIGHT = at(2)
+# Clear of every daily scheduled Spark start with the longest step budget to spare: the operator
+# window opens at 21:50 UTC, and an untimed Gold's budget is the rebuild unit's 160 minutes.
+NIGHT = at(22)
+
+
+def untimed_lanes():
+    """The lanes whose own Gold job never ran as its unit: their gold budget is the unit's limit."""
+    unmeasured = {job["systemd_service"] for job in JOBS
+                  if (job.get("per_run_cap") or {}).get("measured_run_seconds", 0) is None}
+    return [lane for lane in CONTRACT["by_pnu_lanes"]
+            if f"foundation-gold-lane-rebuild@{lane}.service" in unmeasured and "host" in CONTRACT["by_pnu_lanes"][lane]
+            and not CONTRACT["by_pnu_lanes"][lane].get("first_publish_waits_for_history")]
 
 
 class LaneCutover(OperatorHarness):
@@ -299,6 +309,52 @@ class LaneCutover(OperatorHarness):
         (step,) = self.evidence()
         self.assertEqual((step["step"], step["outcome"]), ("history", "failed"))
         self.assertIn("cannot tell", step["reason"])
+
+    def test_the_operator_takes_lanes_listed_in_the_order_to_cut_them_over(self):
+        # 2026-11-06: five lanes waited for their first publish, and contract order put the untimed
+        # regulation-zones Gold second; the operator orders them so the light Gold builds go first.
+        listed = f"{LANE},parcel-demolitions"
+        result, calls = self.run_operator(listed, "cutover", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, _ = self.unit(calls)
+        self.assertEqual(args[-2:], [listed, "1"])
+        for args in ((f"{LANE},nope", "cutover", "1"), (f"{LANE},", "cutover", "1"), (f"{LANE},lanes", "cutover", "1"),
+                     (listed, "bake", "1"), (f"{LANE};id,parcel-demolitions", "cutover", "1")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertEqual(calls, [])
+        # The runner keeps the order given, leaves out a lane cut over already, and refuses a repeat.
+        result, _ = self.run_operator(f"parcel-demolitions,{LANE}", "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(result.stderr.index("dry run parcel-demolitions gold:"), result.stderr.index(f"dry run {LANE} gold:"))
+        self.mark_cut_over(LANE)
+        result, _ = self.run_operator(f"parcel-demolitions,{LANE}", "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(f"dry run {LANE} gold:", result.stderr)
+        result, _ = self.runner(f"{LANE},{LANE}", "1", "--dry-run")
+        self.assertEqual(result.returncode, 65, result.stderr)
+
+    def test_an_untimed_gold_starts_only_with_its_unit_limit_left_before_the_window(self):
+        # A first full build never timed is bounded only by the unit it starts (the panel rebuild's
+        # 160 minutes, which it reached ten times after 2026-10-20); 60 minutes would let it run on
+        # into the daily scheduled jobs. A timed lane keeps 60.
+        lanes = untimed_lanes()
+        if not lanes:
+            self.skipTest("every lane's Gold job is timed")
+        limit = next(job["time_limit_minutes"] for job in JOBS if job["id"] == "gold_panel_rebuild")
+        self.assertGreater(limit, 60)
+        # 02:00 UTC: 150 minutes before the window, enough for 60, not for the unit limit.
+        result, _ = self.runner(f"{LANE},{lanes[0]}", "1", "--dry-run", now=at(2))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        lines = result.stderr.splitlines()
+        gold = {lane: next(line for line in lines if f"dry run {lane} gold:" in line) for lane in (LANE, lanes[0])}
+        self.assertNotIn("would not start now", gold[LANE])
+        self.assertIn(f"budget {limit} min", gold[lanes[0]])
+        self.assertIn("would not start now", gold[lanes[0]])
+        result, _ = self.runner(f"{LANE},{lanes[0]}", "1", "--dry-run", now=at(22))
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)

@@ -2,11 +2,15 @@
 # The supervised first cut-over of the pack-only by-PNU lanes (root ADR-0190, ADR-0193 §6), one lane
 # after another, each through the operator script's own steps (root ADR-0161, ADR-0166):
 #
-#   by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes> <generation> [--dry-run]
+#   by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run]
 #
-# Started only by `by-pnu-pack-operator.sh <lane|lanes> cutover <generation>` (as root, in its own
-# transient unit) or, with --dry-run, run by it in the caller's terminal. `lanes` is every lane of
-# the contract that is not cut over yet, in contract order; a lane is cut over once its monitor
+# Started only by `by-pnu-pack-operator.sh <lane|lanes|lane,lane,...> cutover <generation>` (as root,
+# in its own transient unit) or, with --dry-run, run by it in the caller's terminal. `lanes` is every
+# lane of the contract that is not cut over yet, in contract order; `lane,lane,...` is those lanes
+# that are not cut over yet, in the order given, so the operator puts the Gold builds that fit the
+# operator window first and an untimed heavy one last (2026-11-06: five lanes waited for their first
+# publish, and contract order put the untimed 124-million-pair regulation-zones Gold second); a
+# lane is cut over once its monitor
 # file (runtime-secrets group <lane>-serving-monitor, or the kinds' one group, root ADR-0193 §9)
 # names its sample, which only `monitor-sample` writes.
 #
@@ -18,7 +22,13 @@
 #   preview    the lane's and its latency baseline lane's preview hostnames answer their
 #              capabilities path (gate (나) reads both)
 #   gold       the operator's `<lane> gold-rebuild`: gold-panel-rebuild.sh <the table's unit>, the
-#              scheduled unit's definition; a Gold whose inputs did not move is "nothing to do"
+#              scheduled unit's definition; a Gold whose inputs did not move is "nothing to do".
+#              Its window budget is 60 min, or, for a lane whose own Gold job
+#              (foundation-gold-lane-rebuild@<unit>) has no measured run in orchestration/jobs.v1.json
+#              (per_run_cap.measured_run_seconds, root ADR-0386), the whole time limit of the unit
+#              the step starts (gold_panel_rebuild's time_limit_minutes): an untimed first full build
+#              is bounded only by that limit, and the panel rebuild ran to its 160-minute limit ten
+#              times after 2026-10-20 (its per_run_cap), far past a 60-minute guess
 #   parity     the producer's check against the bundle Gold, when the rebuild contract declares one
 #              for the table (`pins_from.parity_argument`): a full rebuild refuses, before it
 #              writes, a kind that differs from the bundle on any PNU (ADR-0193 §6-2). An
@@ -51,7 +61,7 @@
 set -euo pipefail
 log() { printf '%s by-pnu-lane-cutover: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
-USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes> <generation> [--dry-run]"
+USAGE="usage: by-pnu-lane-cutover.sh <a by_pnu_lanes lane|lanes|lane,lane,...> <generation> [--dry-run]"
 
 TARGET="${1:-}" GENERATION="${2:-}" DRY_RUN=""
 [[ "$#" == 2 || ( "$#" == 3 && "${3}" == --dry-run ) ]] || refuse "${USAGE}"
@@ -73,15 +83,16 @@ now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 
 # Each step's time budget in minutes: the window guard starts a step only if this much time is
 # left before the window. Gold and bake are twice ADR-0193 §7's targets (Gold full ≤ 30 min for the
-# heaviest kind, bake generation ≤ 30 min); the gates are the publisher's, measured at the parcel and
-# building cut-overs well inside these.
+# heaviest kind, bake generation ≤ 30 min), Gold an untimed lane's unit limit instead (the lane line's
+# gold budget, see `gold` above); the gates are the publisher's, measured at the parcel and building
+# cut-overs well inside these.
 declare -A BUDGET=([history]=0 [preview]=1 [gold]=60 [parity]=0 [bake]=60 [equality]=30 [latency]=20 [publish]=30
   [monitor-sample]=1)
 STEPS=(history preview gold parity bake equality latency publish monitor-sample)
 
 # One line per lane to cut over: lane, gold table, rebuild unit, parity argument or -, preview
 # hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file,
-# the 실거래 datasets whose history it waits for (comma-separated) or -.
+# the 실거래 datasets whose history it waits for (comma-separated) or -, its gold step's budget.
 # Then a last line: the window's start and end in minutes of the UTC day, and the spark-pool units.
 mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" <<'PY'
 import json, os, sys
@@ -113,22 +124,23 @@ def block(lane):
         return host, path
     return entry, entry["request_path"]["capabilities"]
 
-if target == "lanes":
-    chosen = list(lanes)
-elif target in lanes:
-    chosen = [target]
-else:
-    sys.exit(f"{target!r} is not a by_pnu_lanes lane of the contract ({', '.join(lanes)}) or `lanes`")
-done = []
+chosen = list(lanes) if target == "lanes" else target.split(",")
+if [lane for lane in chosen if lane not in lanes] or len(set(chosen)) != len(chosen):
+    sys.exit(f"{target!r} is not a by_pnu_lanes lane of the contract ({', '.join(lanes)}), `lanes`,"
+             " or such lanes listed once each as lane,lane,...")
+# A list, like `lanes`, leaves out the lanes cut over already; one named lane is cut over again.
+listed = target == "lanes" or len(chosen) > 1
+by_service = {job["systemd_service"]: job for job in jobs}
+panel_limit = next(job["time_limit_minutes"] for job in jobs if job["id"] == "gold_panel_rebuild")
 for lane in chosen:
     entry = by_pnu_kinds.lane_fields(lane)
     follows = entry["documents_follow_lane"]
     if follows in lanes and follows in chosen and chosen.index(follows) > chosen.index(lane):
-        sys.exit(f"{lane} follows {follows}, which the contract lists after it")
+        sys.exit(f"{lane} follows {follows}, which this run cuts over after it")
     monitor = os.path.join(etc, os.path.basename(groups[entry["monitor_group"]]))
     # Cut over already: its monitor file names its sample (the kinds share one file, a line each).
     sample = f"FOUNDATION_PLATFORM_{lane.replace('-', '_').upper()}_BY_PNU_SERVING_MONITOR_SAMPLE_PATH="
-    if target == "lanes" and os.path.exists(monitor) and any(
+    if listed and os.path.exists(monitor) and any(
             line.startswith(sample) for line in open(monitor, encoding="utf-8")):
         continue
     table = rebuild.get(entry["gold_table"])
@@ -137,10 +149,14 @@ for lane in chosen:
     own, capabilities = block(lane)
     base, base_capabilities = block(entry["latency_baseline_lane"])
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"
+    # The step starts a copy of the panel rebuild's unit, whose limit bounds an untimed build.
+    gold_job = by_service.get(f"foundation-gold-lane-rebuild@{table['unit']}.service")
+    timed = gold_job is None or (gold_job.get("per_run_cap") or {}).get("measured_run_seconds") is not None
     print(lane, entry["gold_table"], table["unit"], parity,
           own["section_packs"]["preview_worker"]["public_hostname"], capabilities,
           base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor,
-          ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-")
+          ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-",
+          60 if timed else panel_limit)
 
 # The daily scheduled window (job_units.py). Hourly jobs (hour `*`) are not the window; the Spark
 # wait catches them.
@@ -158,6 +174,7 @@ unset 'PLAN[-1]'
 # Units that run Spark: every spark-pool job, the operator's Gold rebuild and the pack bakes.
 read -ra SPARK_UNITS <<<"${SPARK_UNITS} foundation-gold-panel-rebuild-unconditional.service foundation-*-pack-bake-g*.service"
 hhmm() { printf '%02d:%02d' "$(($1 / 60))" "$(($1 % 60))"; }
+budget() { [[ "$1" == gold ]] && echo "${gold_budget}" || echo "${BUDGET[$1]}"; }
 
 # Whether a step of $1 minutes may start now: it may not start inside the window, and may not run
 # into it. Minutes of the UTC day; the window does not wrap midnight.
@@ -185,7 +202,7 @@ if [[ -n "${DRY_RUN}" ]]; then
   running="$(spark_running)"
   [[ -z "${running}" ]] || log "dry run: Spark runs now ($(cut -d' ' -f1 <<<"${running}" | paste -sd' ')); gold and bake would wait"
   for entry in ${PLAN[@]+"${PLAN[@]}"}; do
-    read -r lane table unit parity preview path base base_path monitor history <<<"${entry}"
+    read -r lane table unit parity preview path base base_path monitor history gold_budget <<<"${entry}"
     for host_path in "${preview}${path}" "${base}${base_path}"; do
       code="$(preview_answers "${host_path%%/*}" "/${host_path#*/}")"
       log "dry run ${lane}: https://${host_path} answers ${code:-nothing}"
@@ -195,12 +212,12 @@ if [[ -n "${DRY_RUN}" ]]; then
       case "${step}" in
         history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: every month of ${history} is loaded" ;;
         preview) what="GET the two capabilities paths above" ;;
-        gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table})" ;;
+        gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table}; budget ${gold_budget} min)" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
                   || what="passes only if ${table}'s head was committed by a full rebuild, whose ${parity} checks every PNU" ;;
         *) what="by-pnu-pack-operator.sh ${lane} ${step} ${GENERATION}" ;;
       esac
-      verdict="$(window_verdict "${BUDGET[${step}]}")"
+      verdict="$(window_verdict "$(budget "${step}")")"
       log "dry run ${lane} ${step}: ${what}${verdict:+ — would not start now: ${verdict}}"
       [[ -z "${verdict}" ]] || blocked=1
     done
@@ -235,11 +252,11 @@ wait_for_spark() {  # lane step
 log "run ${RUN_ID}: generation ${GENERATION}, lanes: $(for e in ${PLAN[@]+"${PLAN[@]}"}; do printf '%s ' "${e%% *}"; done)"
 ((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"; exit 0; }
 for entry in "${PLAN[@]}"; do
-  read -r lane table unit parity preview path base base_path monitor history <<<"${entry}"
+  read -r lane table unit parity preview path base base_path monitor history gold_budget <<<"${entry}"
   lane_started="$(now)" gold_output=""
   for step in "${STEPS[@]}"; do
     [[ "${step}" == gold || "${step}" == bake ]] && wait_for_spark "${lane}" "${step}"
-    verdict="$(window_verdict "${BUDGET[${step}]}")"
+    verdict="$(window_verdict "$(budget "${step}")")"
     [[ -z "${verdict}" ]] || fail "${lane}" "${step}" 0 "not started: ${verdict}"
     started="$(now)" reason=""
     log "${lane} ${step}: starting"

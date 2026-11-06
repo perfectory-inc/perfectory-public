@@ -12,7 +12,7 @@
 #   by-pnu-pack-operator.sh <building|parcel> rollback-rehearsal
 #   by-pnu-pack-operator.sh <building|parcel> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
-#   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes> cutover <generation> [--dry-run]
+#   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes|lane,lane,...> cutover <generation> [--dry-run]
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|status <silver-lane>
@@ -121,7 +121,7 @@ record_start() {
   logger -t foundation-operator-start -- "start $1 ${START_REQUEST}" || refuse "cannot record the start of $1 in the journal" 70
 }
 ATTENDED_FLAGS="--requested-at <epoch second> --reason <why>"
-USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
+USAGE="usage: by-pnu-pack-operator.sh <lane> <action> <arguments> ${ATTENDED_FLAGS}, where every action but status, plan and health takes the two flags last: parcel-tiles rehearse gold <YYYYMM> | parcel-tiles rehearse bake | parcel-tiles status | <building|parcel> bake|equality|latency|publish|monitor-sample|status <generation> | <building|parcel> rollback-rehearsal | gold-rebuild | kind-sizes | <lane|lanes|lane,lane,...> cutover <generation> [--dry-run] | gold rebuild <unit> [--dry-run] | health <new-version> [<old-version>] | health --preflight | silver plan|start|status <silver-lane> | job start|status <disabled job id> | job start-outside-quiet-hours court_auction_collect | job clear-refusal court_auction_collect | raon build|plan|status | raon run <max-files|all> <new-bytes-budget>"
 
 # The pack-only lanes the contract this script ships with names (root ADR-0190).
 mapfile -t PACK_LANES < <(python3 -I - "$(dirname "${BASH_SOURCE[0]}")/../../config/r2-connections.contract.json" <<'PY'
@@ -130,6 +130,12 @@ print("\n".join(json.load(open(sys.argv[1], encoding="utf-8")).get("by_pnu_lanes
 PY
 )
 is_pack_lane() { [[ -n "$1" && " ${PACK_LANES[*]-} " == *" $1 "* ]]; }
+# Pack-only lanes in the order the operator lists them, comma-separated: one cut-over run of them.
+is_lane_list() {
+  local lane
+  [[ "$1" =~ ^[a-z0-9-]+(,[a-z0-9-]+)+$ ]] || return 1
+  for lane in ${1//,/ }; do is_pack_lane "${lane}" || return 1; done
+}
 LANE="${1:-}" ACTION="${2:-}"
 # A pack-only lane of the contract (root ADR-0190) takes bake, equality, latency, publish, status,
 # and after its first publish monitor-sample and health: its cut-over is the pack-only gate, and from
@@ -137,9 +143,10 @@ LANE="${1:-}" ACTION="${2:-}"
 # or, for a lane written as a host and a kind (root ADR-0193 §4), its host's: the same Worker and
 # preview serve it by path.
 [[ "${LANE}" == building || "${LANE}" == parcel || "${LANE}" == silver || "${LANE}" == job || "${LANE}" == raon || "${LANE}" == parcel-tiles ]] || is_pack_lane "${LANE}" \
-  || [[ "${LANE}" == lanes && "${ACTION}" == cutover ]] || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
+  || { [[ "${ACTION}" == cutover ]] && { [[ "${LANE}" == lanes ]] || is_lane_list "${LANE}"; }; } \
+  || [[ "${LANE}" == gold && "${ACTION}" == rebuild ]] \
   || refuse "${USAGE}"
-if [[ "${LANE}" == lanes || "${LANE}" == gold ]]; then
+if [[ "${LANE}" == lanes || "${LANE}" == gold || "${LANE}" == *,* ]]; then
   GATEWAY_BLOCK=""
 elif is_pack_lane "${LANE}"; then
   [[ " bake equality latency publish status monitor-sample health gold-rebuild cutover " == *" ${ACTION} "* ]] || refuse "a pack-only lane takes bake, equality, latency, publish, status, monitor-sample, health, gold-rebuild or cutover"
@@ -471,7 +478,8 @@ if [[ "${ACTION}" == kind-sizes ]]; then
 fi
 
 if [[ "${ACTION}" == cutover ]]; then
-  is_pack_lane "${LANE}" || [[ "${LANE}" == lanes ]] || refuse "cutover is the first cut-over of a pack-only lane, or of lanes"
+  is_pack_lane "${LANE}" || [[ "${LANE}" == lanes ]] || is_lane_list "${LANE}" \
+    || refuse "cutover is the first cut-over of a pack-only lane, of lanes, or of lane,lane,... in that order"
   [[ "$#" == 1 || ( "$#" == 2 && "${2}" == --dry-run ) ]] || refuse "cutover takes <generation> [--dry-run]"
   [[ "${1}" =~ ^[1-9][0-9]{0,3}$ ]] || refuse "cutover takes a generation number"
   if [[ "$#" == 2 ]]; then
