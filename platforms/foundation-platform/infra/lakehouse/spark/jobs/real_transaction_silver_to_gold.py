@@ -440,7 +440,7 @@ def merge_region_stats(spark: Any, table: str, frames: dict[str, Any], scope: li
     deals = frames[RT_SOURCE]
     if scope is None:
         rows = region_gold_rows(deals, as_of, source_snapshot_id, published_at_utc, columns)
-        write_gold_snapshot(rows, table, "overwrite", {}, F.lit(True), properties)
+        write_gold_snapshot(rows, table, "overwrite", {}, F.lit(True), properties, contract_table=REGION_TABLE)
         return {"region_scope_sigungu": -1, "region_rows": rows.count()}
     if not scope:
         return {"region_scope_sigungu": 0}
@@ -449,7 +449,8 @@ def merge_region_stats(spark: Any, table: str, frames: dict[str, Any], scope: li
     current = spark.table(table).where(inside("region_code"))
     source, counts = incremental.merge_source(rows, current, REGION_KEY)
     incremental.merge_into_gold(spark, table, source, {**properties,
-                                incremental.KEYS_CHANGED_PROPERTY: str(incremental.keys_changed(counts))}, REGION_KEY)
+                                incremental.KEYS_CHANGED_PROPERTY: str(incremental.keys_changed(counts))}, REGION_KEY,
+                                contract_table=REGION_TABLE)
     return {"region_scope_sigungu": len(scope), **{f"region_{k}": v for k, v in counts.items()}}
 
 
