@@ -78,6 +78,21 @@ if not package["url"].startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}"
 print(package["url"], package["sha256"])
 PY
 ) || refuse "the RAON agent package pin in ${PACKAGES} is missing or malformed"
+# The agent runs only inside the image. The vendor package installed on the host itself leaves
+# world-writable scripts that root's cron runs every minute (found 2026-11-03, root ADR-0394): a
+# host that still holds it is not a host to run the lane on until the owner purges it (runbook).
+forbidden_paths="$(python3 -I - "${PACKAGES}" <<'PY'
+import json, sys
+for path in json.load(open(sys.argv[1], encoding="utf-8"))["packages"]["raonk-2018"]["host_install_forbidden"]["paths"]:
+    print(path)
+PY
+)" || refuse "the RAON agent package's host_install_forbidden in ${PACKAGES} is missing"
+mapfile -t forbidden <<<"${forbidden_paths}"
+[ -n "${forbidden_paths}" ] || forbidden=()
+[ "${#forbidden[@]}" -gt 0 ] || refuse "the RAON agent package's host_install_forbidden in ${PACKAGES} names no path"
+for path in "${forbidden[@]}"; do
+  [ ! -e "${path}" ] || refuse "the host still has the vendor RAON agent installed at ${path} (world-writable, run by root's cron); purge it first (docs/runbooks/vworld-dataset-file-bronze-ingest.md)"
+done
 command -v docker >/dev/null 2>&1 || refuse "docker is not installed"
 # A stopped daemon answers nothing rather than an error; the timeout turns that into a refusal.
 timeout 30 docker info >/dev/null 2>&1 || refuse "the docker daemon does not answer"
