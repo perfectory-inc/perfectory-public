@@ -1,4 +1,4 @@
-//! A photo's rendition ladder, made from its stored original (root ADR-0426, ADR-0297 §2·§3).
+//! A photo's rendition ladder, made from its stored original (root ADR-0427, ADR-0297 §2·§3).
 //!
 //! [`render`] decodes the source bytes (JPEG, PNG, GIF, WebP), turns the pixels upright by the
 //! EXIF orientation, and for each rung of the [`Spec`] scales the longest side down to the rung
@@ -19,7 +19,7 @@ use image::imageops::FilterType;
 use image::{DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageReader, Limits};
 use serde::Deserialize;
 
-/// A rendition ladder: which longest sides, in which formats (root ADR-0426 §2).
+/// A rendition ladder: which longest sides, in which formats (root ADR-0427 §2).
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Spec {
     /// Names the ladder in rendition keys; a change to anything below takes a new version.
@@ -107,7 +107,7 @@ pub enum RenderError {
 }
 
 /// The pixel size an image file declares in its header, without decoding it; `None` when the bytes
-/// are not an image this crate reads. The provider-rule monitor reads it (root ADR-0426 §4).
+/// are not an image this crate reads. The provider-rule monitor reads it (root ADR-0427 §4).
 #[must_use]
 pub fn dimensions(source: &[u8]) -> Option<(u32, u32)> {
     ImageReader::new(Cursor::new(source))

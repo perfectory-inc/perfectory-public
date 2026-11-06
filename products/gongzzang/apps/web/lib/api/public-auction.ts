@@ -41,7 +41,7 @@ export function onbidMediaSrc(photo: { sha256: string; media_format: string }): 
 }
 
 /**
- * The display ladder the foundation makes once from each stored photo (root ADR-0426): every width
+ * The display ladder the foundation makes once from each stored photo (root ADR-0427): every width
  * (longest side, never larger than the source) in every format, under the source's own hash. A copy
  * of `config/r2-connections.contract.json` `parcel_media.renditions`, held to it by
  * edge-contract.test.ts.
@@ -62,7 +62,7 @@ export function photoRenditionSrcSet(source: { sha256: string }, format: Renditi
 }
 
 /** The smallest WebP of a photo source's ladder: the `src` (WebP is read by 97% of browsers, root
- * ADR-0426 §3; a browser that reads neither falls back to the stored file on error). */
+ * ADR-0427 §3; a browser that reads neither falls back to the stored file on error). */
 export function photoRenditionSrc(source: { sha256: string }): string {
   const base = env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL.replace(/\/$/, "");
   const [smallest] = PHOTO_RENDITIONS.widths;

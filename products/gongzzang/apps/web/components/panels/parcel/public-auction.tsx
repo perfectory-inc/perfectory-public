@@ -61,7 +61,7 @@ export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound
           </li>
         ))}
       </ul>
-      {/* KOGL type 1 (출처표시): the photos and the round data are 온비드's (root ADR-0426 §5). */}
+      {/* KOGL type 1 (출처표시): the photos and the round data are 온비드's (root ADR-0427 §5). */}
       <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
         {t("attribution")}
       </p>
@@ -112,7 +112,7 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
 const TILE_SIZES = "(max-width: 640px) 33vw, 160px";
 
 /**
- * One photo from our own rendition ladder (root ADR-0426): AVIF, else WebP, the browser
+ * One photo from our own rendition ladder (root ADR-0427): AVIF, else WebP, the browser
  * taking the smallest width that fills the tile at its pixel density, loaded lazily. The ladder is
  * made from the original when it has landed (root ADR-0424), else from the provider's thumbnail;
  * the tile links to that file itself, so the original is fetched only when asked for. Until a

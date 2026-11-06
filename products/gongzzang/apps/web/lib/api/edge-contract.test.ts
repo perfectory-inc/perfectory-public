@@ -62,7 +62,7 @@ describe("the web reads what the foundation publishes", () => {
     }
   });
 
-  // Root ADR-0426: the web builds the photo ladder's URLs the collector writes and the edge serves.
+  // Root ADR-0427: the web builds the photo ladder's URLs the collector writes and the edge serves.
   it("builds the photo rendition ladder the contract names", () => {
     const ladder = connections.parcel_media.renditions as {
       version: string;

@@ -31,11 +31,11 @@ pub(crate) struct Media {
     pub(crate) run_time_budget_seconds: u64,
     /// Which response fields are media, and the `media_kind` each lands as (root ADR-0340 §4).
     pub(crate) fields: MediaFields,
-    /// The bound of the photos' rendition ladder step (root ADR-0426 §2).
+    /// The bound of the photos' rendition ladder step (root ADR-0427 §2).
     pub(crate) renditions: RenditionBudget,
 }
 
-/// How much of a run the photos' rendition ladders may take (root ADR-0426 §2, ADR-0300 H): no line
+/// How much of a run the photos' rendition ladders may take (root ADR-0427 §2, ADR-0300 H): no line
 /// starts once `per_run_limit` photo sources were taken or `run_time_budget_seconds` passed.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct RenditionBudget {
@@ -64,6 +64,6 @@ pub(crate) struct OriginalRule {
     pub(crate) path_suffix: String,
     pub(crate) query: BTreeMap<String, String>,
     /// The provider's thumbnail's longest side: an "original" no larger than this means the rule
-    /// stopped reaching originals (root ADR-0426 §4).
+    /// stopped reaching originals (root ADR-0427 §4).
     pub(crate) thumbnail_longest_px: u32,
 }

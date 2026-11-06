@@ -54,9 +54,9 @@ ADR-0296 §2 로 "사진을 내용 해시로 한 저장소에 한 번만 담는�
 - **수집 enable(=실비 발생·attended)은 운영자/사장 승인 사안**이다. 이 ADR 은 전략 결정이고, 실행 go 는 별도다(출시 전 돈 드는 대량작업은 금액·승인 후).
 - 감정평가서 PDF 의 첫 페이지 썸네일 생성 여부.
 
-## 덧붙임 (2026-11-06): §2·§3·§8 의 이행은 ADR-0426
+## 덧붙임 (2026-11-06): §2·§3·§8 의 이행은 ADR-0427
 
-§2 의 사다리는 [ADR-0426](./0426-a-photo-is-shown-from-a-rendition-ladder-made-once-from-its-stored-original.md) 이
+§2 의 사다리는 [ADR-0427](./0427-a-photo-is-shown-from-a-rendition-ladder-made-once-from-its-stored-original.md) 이
 정해 지었다(Amends): WebP 만이 아니라 AVIF 다음 WebP, 긴 변 400·960·1920, 키는 (원본 해시, 사다리 version). §8 의
 "사다리 규격 = 서빙 계약(공매 by-PNU v2)" 은 `parcel_media.renditions`(엣지 정책 옆) 로 옮겼다. §4 의 즉석 변환은
 그대로 열려 있다.

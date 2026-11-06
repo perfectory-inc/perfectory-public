@@ -30,7 +30,7 @@ pub enum MediaFormat {
     Gif,
     /// PDF document (`%PDF-`), e.g. an appraisal attachment.
     Pdf,
-    /// WebP image (`RIFF....WEBP`): a provider's or one of our display renditions (root ADR-0426).
+    /// WebP image (`RIFF....WEBP`): a provider's or one of our display renditions (root ADR-0427).
     Webp,
     /// AVIF image (an ISO-BMFF `ftyp` box of brand `avif`/`avis`): our display renditions.
     Avif,
@@ -78,7 +78,7 @@ impl MediaFormat {
         .find(|format| format.extension() == extension)
     }
 
-    /// Whether it is a picture a display ladder can be made from (root ADR-0426): not a PDF.
+    /// Whether it is a picture a display ladder can be made from (root ADR-0427): not a PDF.
     #[must_use]
     pub const fn is_image(self) -> bool {
         !matches!(self, Self::Pdf)
@@ -187,7 +187,7 @@ pub fn content_addressed_key(
     ))
 }
 
-/// The key of one display rendition of the stored source `source` (root ADR-0426):
+/// The key of one display rendition of the stored source `source` (root ADR-0427):
 /// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`. A rendition is named by its source
 /// and the ladder version, not by its own bytes, so a page can name it from the source's hash alone.
 ///
@@ -208,7 +208,7 @@ pub fn rendition_key(
     ))
 }
 
-/// The key of a source's ladder manifest, written after every rendition (root ADR-0426):
+/// The key of a source's ladder manifest, written after every rendition (root ADR-0427):
 /// `<prefix>/renditions/<version>/<source sha256>.json`. Its presence means the ladder is whole.
 ///
 /// # Errors

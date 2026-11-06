@@ -72,7 +72,7 @@ describe("public auction gallery", () => {
     // and the untitled one falls back to the generic label.
     const images = screen.getAllByRole("img");
     expect(images.map((img) => img.getAttribute("alt"))).toEqual(["정면 사진", "공매 물건 사진"]);
-    // Root ADR-0426: the tile shows our ladder's smallest JPEG, not the stored file.
+    // Root ADR-0427: the tile shows our ladder's smallest JPEG, not the stored file.
     expect(screen.getByRole("img", { name: "정면 사진" }).getAttribute("src")).toBe(
       `https://catalog.perfectory.io/onbid/media/renditions/r1/${sha("a")}/400.webp`,
     );
@@ -88,7 +88,7 @@ describe("public auction gallery", () => {
     );
   });
 
-  // Root ADR-0426: the ladder is made from the original (root ADR-0424) and only a click asks for it.
+  // Root ADR-0427: the ladder is made from the original (root ADR-0424) and only a click asks for it.
   it("shows a photo from the original's ladder in AVIF and WebP and links to the original", () => {
     renderCard([
       {

@@ -105,7 +105,7 @@ geo = { version = "0.33", default-features = false }
 proj4rs = { version = "0.1.10", default-features = false }
 proj4wkt = "0.1.1"
 shapefile = { version = "0.9.0", default-features = false, features = ["encoding_rs", "geo-types"] }
-# Photo rendition ladder (root ADR-0426): decode with EXIF orientation, Lanczos3 resize, JPEG and
+# Photo rendition ladder (root ADR-0427): decode with EXIF orientation, Lanczos3 resize, JPEG and
 # AVIF (rav1e through ravif, no nasm) encode. WebP lossy is libwebp itself (the `image` WebP
 # encoder is lossless only). No hand-written codec.
 image = { version = "0.25.10", default-features = false, features = ["avif", "gif", "jpeg", "png", "rayon", "webp"] }

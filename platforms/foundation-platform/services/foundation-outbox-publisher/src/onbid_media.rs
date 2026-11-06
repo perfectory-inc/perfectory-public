@@ -213,12 +213,12 @@ pub(crate) struct MediaReport {
     pub(crate) per_run_reached: bool,
     /// Originals downloaded through `media.fields.originals` (root ADR-0424), and of those the ones
     /// the rule no longer reaches: an HTML page, or an image no larger than the provider's thumbnail
-    /// (root ADR-0426 §4). Those are not recorded as originals, so the screen keeps the thumbnail.
+    /// (root ADR-0427 §4). Those are not recorded as originals, so the screen keeps the thumbnail.
     pub(crate) originals_attempted: usize,
     pub(crate) originals_rule_mismatched: usize,
     /// Photo sources (the original, else the thumbnail) whose rendition ladder was already there,
     /// written now (and its bytes), not renderable (bytes that do not decode), failed in the store,
-    /// or left for a later run by the ladder budget (root ADR-0426 §2).
+    /// or left for a later run by the ladder budget (root ADR-0427 §2).
     pub(crate) ladders_present: usize,
     pub(crate) ladders_written: usize,
     pub(crate) ladder_bytes_stored: u64,
@@ -295,7 +295,7 @@ pub(crate) struct MirrorSettings<'a> {
     pub(crate) deadline: Instant,
     /// Which response fields are media (root ADR-0340 §4).
     pub(crate) fields: &'a MediaFields,
-    /// The photos' rendition ladder step (root ADR-0426); `None` leaves it out.
+    /// The photos' rendition ladder step (root ADR-0427); `None` leaves it out.
     pub(crate) renditions: Option<&'a RenditionBudget>,
 }
 
@@ -519,7 +519,7 @@ pub(crate) async fn mirror_detail_lines(
 }
 
 /// Whether an original download is one: not an HTML page, and not an image whose header says it is
-/// no larger than the provider's thumbnail (root ADR-0426 §4; the rule's `thumbnail_longest_px`). An
+/// no larger than the provider's thumbnail (root ADR-0427 §4; the rule's `thumbnail_longest_px`). An
 /// image whose header does not read is let through: its size cannot be told.
 fn reaches_original(stored: &anyhow::Result<Stored>, rule: &OriginalRule) -> bool {
     match stored {
@@ -556,7 +556,7 @@ fn photo_sources(
     sources
 }
 
-/// The rendition ladder of every line's photo sources (root ADR-0426 §2), line by line in the
+/// The rendition ladder of every line's photo sources (root ADR-0427 §2), line by line in the
 /// order the lines were asked, `budget.concurrency` sources at a time. A source whose ladder is
 /// already there costs one HEAD. No line starts once `budget.per_run_limit` sources were taken or
 /// `budget.run_time_budget_seconds` passed; such a line, and a line whose ladder the store refused,

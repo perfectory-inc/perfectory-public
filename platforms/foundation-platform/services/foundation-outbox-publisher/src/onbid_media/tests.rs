@@ -598,7 +598,7 @@ fn jpeg(width: u32, height: u32) -> Vec<u8> {
     out
 }
 
-// Root ADR-0426 §4: the provider changed the original rule and answers with the thumbnail's size.
+// Root ADR-0427 §4: the provider changed the original rule and answers with the thumbnail's size.
 #[tokio::test]
 async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_thumbnail(
 ) -> anyhow::Result<()> {

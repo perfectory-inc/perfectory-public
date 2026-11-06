@@ -1,5 +1,5 @@
 //! A stored photo's rendition ladder, written beside it in the shared content-addressed media store
-//! (root ADR-0426, ADR-0297 §2). 공매 (`onbid_media.rs`) and 경매 photos both end here.
+//! (root ADR-0427, ADR-0297 §2). 공매 (`onbid_media.rs`) and 경매 photos both end here.
 //!
 //! The ladder is `config/r2-connections.contract.json` `parcel_media.renditions` and is rendered by
 //! the `foundation-media-renditions` crate from the original's stored bytes. Each rendition lands at

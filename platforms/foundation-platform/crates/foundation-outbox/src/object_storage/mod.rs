@@ -70,7 +70,7 @@ pub trait ObjectStorageService: Send + Sync {
     async fn read_object_sha256(&self, key: &str) -> Result<Option<String>, PublishError>;
 
     /// Reads a whole stored object back, for a derivative made from a stored original (root
-    /// ADR-0426: a photo's renditions are made from the original in the store, not from a second
+    /// ADR-0427: a photo's renditions are made from the original in the store, not from a second
     /// download). The default fails closed for adapters that do not read.
     ///
     /// # Errors

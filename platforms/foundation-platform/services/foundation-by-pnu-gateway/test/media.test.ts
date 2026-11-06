@@ -51,7 +51,7 @@ describe("the parcel edge serves content-addressed media", () => {
 		expect(new Uint8Array(await response.arrayBuffer())).toEqual(BYTES);
 	});
 
-	// Root ADR-0426: a photo's rendition ladder lands under its source's hash and is served the same way.
+	// Root ADR-0427: a photo's rendition ladder lands under its source's hash and is served the same way.
 	it("serves a rendition under its source hash with its stored type", async () => {
 		if (runtime === undefined) throw new Error("Miniflare did not start");
 		const ladder = MEDIA.renditions;
