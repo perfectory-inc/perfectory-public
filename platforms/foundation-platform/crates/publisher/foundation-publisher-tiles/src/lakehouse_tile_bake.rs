@@ -78,6 +78,10 @@ pub mod tile_equivalence;
 mod birth;
 #[path = "lakehouse_tile_bake_gate.rs"]
 mod gate;
+#[path = "lakehouse_tile_bake_min_zoom.rs"]
+mod min_zoom;
+#[path = "lakehouse_tile_patch_partial.rs"]
+pub mod partial;
 #[path = "lakehouse_tile_bake_partitions.rs"]
 mod partitions;
 #[path = "lakehouse_tile_patch.rs"]
@@ -93,6 +97,7 @@ pub use birth::NewbornUnit;
 use birth::{bear, unit_exists};
 use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
+pub use min_zoom::FeatureMinZoom;
 pub use partitions::{
     bake_partitions, partition_archive, tile_join_args, CsvOut, CsvPart, PartitionedCsv,
 };
@@ -132,6 +137,9 @@ pub struct BakeContract {
     /// first lakehouse bake, with this layer; once it exists its layer is read from Catalog.
     #[serde(default)]
     pub units_born_from_a_lakehouse_bake: std::collections::BTreeMap<String, NewbornUnit>,
+    /// Root ADR-0375 §3: a unit listed here starts some features at a deeper zoom, by a property.
+    #[serde(default)]
+    pub feature_min_zoom: std::collections::BTreeMap<String, FeatureMinZoom>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,6 +201,12 @@ impl BakeContract {
         for (unit, newborn) in &contract.units_born_from_a_lakehouse_bake {
             newborn.validate(unit)?;
         }
+        for (unit, min_zoom) in &contract.feature_min_zoom {
+            min_zoom.validate(unit)?;
+            if let Some(newborn) = contract.units_born_from_a_lakehouse_bake.get(unit) {
+                min_zoom.validate_for(unit, &newborn.served_layer())?;
+            }
+        }
         Ok(contract)
     }
 
@@ -247,6 +261,12 @@ pub struct ServedSummary {
     /// release names it as its source (root ADR-0374).
     #[serde(default)]
     pub silver_metadata_object_key: Option<String>,
+    /// Root ADR-0375 §2: `partial` when the handoff holds only the rows of the tiles a change
+    /// touches and `partial` names them; absent or `full` for every row.
+    #[serde(default)]
+    pub handoff_scope: Option<String>,
+    #[serde(default)]
+    pub partial: Option<partial::PartialHandoff>,
 }
 
 impl ServedSummary {
@@ -257,10 +277,18 @@ impl ServedSummary {
             "served summary is for unit {}, not {unit}",
             self.unit
         );
-        ensure!(
-            self.served_row_count > 0,
-            "the served snapshot is empty; baking it would erase the layer"
-        );
+        match (self.handoff_scope.as_deref(), &self.partial) {
+            (None | Some("full"), None) => ensure!(
+                self.served_row_count > 0,
+                "the served snapshot is empty; baking it would erase the layer"
+            ),
+            // A partial handoff may hold no row: its changes left no zone in their tiles.
+            (Some("partial"), Some(partial)) => partial.validate()?,
+            (scope, partial) => bail!(
+                "handoff_scope {scope:?} with{} a partial block",
+                if partial.is_some() { "" } else { "out" }
+            ),
+        }
         ensure!(
             SERVED_SRIDS.contains(&self.geometry_srid),
             "served snapshot CRS EPSG:{} is not one the bake reprojects",
@@ -629,6 +657,8 @@ struct Config {
     maxzoom_detail: Option<u8>,
     /// ADR-0316: the contract's partition prefix length for this unit, if it sets one.
     partition_prefix: Option<usize>,
+    /// ADR-0375 §3: the contract's per-feature first zooms for this unit, if it sets them.
+    feature_min_zoom: Option<FeatureMinZoom>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -693,6 +723,7 @@ impl Config {
             rehearsal: rehearsal_flag(optional_env_value(&format!("{PREFIX}_REHEARSAL"))?)?,
             maxzoom_detail: None,
             partition_prefix: None,
+            feature_min_zoom: None,
         })
     }
 }
@@ -853,6 +884,7 @@ pub fn tippecanoe_args(
     layer: &ServedLayer,
     columns: &[String],
     maxzoom_detail: Option<u8>,
+    feature_min_zoom: Option<&FeatureMinZoom>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         "-o".to_owned(),
@@ -877,6 +909,10 @@ pub fn tippecanoe_args(
     .into();
     if let Some(detail) = maxzoom_detail {
         args.push(format!("--full-detail={detail}").into());
+    }
+    if let Some(filter) = feature_min_zoom.and_then(|min_zoom| min_zoom.filter(layer)) {
+        args.push("-j".into());
+        args.push(filter.into());
     }
     for property in columns {
         args.push("-y".into());
@@ -908,7 +944,7 @@ async fn build_archive(
         bake_unit(config, images, work, columns, srid, layer).await?;
         return Ok(work.join("unit.pmtiles"));
     };
-    let bake_inputs = bake_inputs(images, srid, layer, columns, config.maxzoom_detail);
+    let bake_inputs = bake_inputs(images, srid, layer, columns, config);
     let root = config
         .work_root
         .join(format!("{}-partitions", config.unit_key));
@@ -960,9 +996,14 @@ fn bake_inputs(
     srid: i32,
     layer: &ServedLayer,
     columns: &[String],
-    detail: Option<u8>,
+    config: &Config,
 ) -> String {
-    let args = tippecanoe_args(layer, columns, detail);
+    let args = tippecanoe_args(
+        layer,
+        columns,
+        config.maxzoom_detail,
+        config.feature_min_zoom.as_ref(),
+    );
     let banner = &images.tippecanoe.version_banner;
     format!("{:?}", (&images.gdal.image, banner, srid, args))
 }
@@ -1030,7 +1071,12 @@ async fn bake_unit(
     );
 
     let mut tippecanoe = run_args(work, &images.tippecanoe, project);
-    tippecanoe.extend(tippecanoe_args(layer, columns, config.maxzoom_detail));
+    tippecanoe.extend(tippecanoe_args(
+        layer,
+        columns,
+        config.maxzoom_detail,
+        config.feature_min_zoom.as_ref(),
+    ));
     docker(tippecanoe, config.tool_timeout, "tippecanoe").await?;
     // The GeoJSON sequence is the largest file in the work directory; the gate reads the archive.
     std::fs::remove_file(work.join("served.geojsons"))?;
@@ -1079,6 +1125,7 @@ pub async fn run() -> anyhow::Result<()> {
         .partition_by_feature_id_prefix
         .get(&config.unit_key)
         .copied();
+    config.feature_min_zoom = contract.feature_min_zoom.get(&config.unit_key).cloned();
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1133,11 +1180,16 @@ async fn bake_in(
     // Root ADR-0323: a patched unit first tries to publish only the tiles its changes touch. A
     // newborn unit has no base to patch, but its index lets the next bake patch it.
     let policy = patch::PatchPolicy::load()?;
+    if summary.partial.is_some() {
+        // Root ADR-0375 §2: a partial handoff patches or declines; it never becomes a base.
+        return partial::bake_partial(config, contract, &policy, &summary, work, newborn.is_some())
+            .await;
+    }
     let mut indexed = None;
     if policy.covers(&config.unit_key) {
-        let index = patch_run::index_handoff(&summary, &config.served_handoff, work).await?;
+        let mut index = patch_run::index_handoff(&summary, &config.served_handoff, work).await?;
         if newborn.is_none()
-            && patch_run::try_patch(config, contract, &policy, &summary, work, &index).await?
+            && patch_run::try_patch(config, contract, &policy, &summary, work, &mut index).await?
         {
             return Ok(());
         }
@@ -1192,13 +1244,7 @@ async fn bake_in(
         active.snapshot
     );
     let srid = summary.geometry_srid;
-    let inputs = bake_inputs(
-        &contract.images,
-        srid,
-        &active.layer,
-        &prepared.0,
-        config.maxzoom_detail,
-    );
+    let inputs = bake_inputs(&contract.images, srid, &active.layer, &prepared.0, config);
     if config.rehearsal {
         return rehearse(
             config,

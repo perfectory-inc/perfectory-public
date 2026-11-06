@@ -694,4 +694,4 @@ pub fn gate_patch(
 
 #[cfg(test)]
 #[path = "lakehouse_tile_patch_tests.rs"]
-mod tests;
+pub(crate) mod tests;

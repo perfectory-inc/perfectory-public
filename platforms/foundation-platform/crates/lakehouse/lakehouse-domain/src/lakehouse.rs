@@ -437,6 +437,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_PLACE_ID_BRIDGE,
     GOLD_PLACE_ID_CHANGELOG,
     GOLD_LINEAGE_REVIEW_QUEUE,
+    GOLD_LAND_USE_ZONE_AREA_BY_TILE,
 ];
 
 /// Returns the industrial complex lakehouse `PoC` table contracts in publish order, then the Gold

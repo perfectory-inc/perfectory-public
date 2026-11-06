@@ -78,3 +78,63 @@ pub const SILVER_LAND_USE_ZONE_AREA: LakehouseTableContract = LakehouseTableCont
         object_suffix_separator: None,
     },
 };
+
+const GOLD_LAND_USE_ZONE_AREA_BY_TILE_COLUMNS: &[LakehouseColumn] = &[
+    // The z10 tile a zone's box touches, widened by the patch buffer plus one pixel:
+    // `x * 1024 + y` (root ADR-0375 §2). One row per tile and zone.
+    column("tile_key", "long", true),
+    // `<layer_code>:<zone_feature_id>`, the tile feature id (root ADR-0373).
+    column("zone_id", "string", true),
+    column("layer_code", "string", true),
+    column("layer_name", "string", false),
+    column("zone_code", "string", false),
+    column("zone_name", "string", false),
+    column("geometry_wkb", "binary", false),
+    column("geometry_srid", "int", false),
+    column("bbox_min_x", "double", false),
+    column("bbox_min_y", "double", false),
+    column("bbox_max_x", "double", false),
+    column("bbox_max_y", "double", false),
+    column("geometry_checksum_sha256", "string", false),
+    // SHA-256 over the four tile properties and the geometry checksum: what the tile shows.
+    column("content_sha256", "string", false),
+    // The Silver vintage of the zone's row, so an older vintage can never replace a newer one.
+    column("source_snapshot_id", "string", false),
+    // The `silver.land_use_zone_area` snapshot whose maintenance appended the row.
+    column("silver_iceberg_snapshot_id", "string", true),
+    column("ingested_at_utc", "timestamp", true),
+    // `removed` when the zone left the tile or the source; its other columns are then null.
+    column("row_state", "string", false),
+];
+
+/// The regulation zones filed under each z10 tile they touch (root ADR-0375 §2).
+///
+/// The zoning tile handoff reads only the tiles a change touches. Append-only, maintained from
+/// the Silver rows appended since the snapshot it last maintained.
+pub const GOLD_LAND_USE_ZONE_AREA_BY_TILE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.land_use_zone_area_by_tile",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::GeoParquet,
+    serving_role: LakehouseServingRole::SpatialLocator,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: &["tile_key", "zone_id"],
+        newest_first: &["ingested_at_utc"],
+        removal_column: Some("row_state"),
+        keep_ties: false,
+    }),
+    columns: GOLD_LAND_USE_ZONE_AREA_BY_TILE_COLUMNS,
+    // A handoff of N tiles reads only those N partitions.
+    partition_spec: &["tile_key"],
+    sort_order: &["tile_key", "zone_id"],
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(tile_key, zone_id, ingested_at_utc) unique",
+        "a live row carries geometry_wkb and content_sha256; a removal marker carries neither",
+    ],
+    // 한 번의 유지가 Silver 스냅숏 하나를 반영한다. 바뀐 것이 없어도 그 커밋이 반영을 적는다.
+    load: LakehouseLoadUnit::Run {
+        column: "silver_iceberg_snapshot_id",
+    },
+};
