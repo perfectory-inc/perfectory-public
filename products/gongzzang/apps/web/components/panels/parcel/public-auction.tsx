@@ -2,8 +2,13 @@
 "use client";
 import { partition } from "es-toolkit";
 import { useTranslations } from "next-intl";
-import type { ReactNode } from "react";
-import { onbidMediaSrc, type PublicAuctionRound } from "@/lib/api/public-auction";
+import { type ReactNode, useState } from "react";
+import {
+  onbidMediaSrc,
+  type PublicAuctionRound,
+  photoRenditionSrc,
+  photoRenditionSrcSet,
+} from "@/lib/api/public-auction";
 import { formatAreaM2, formatPriceKrw } from "@/lib/listings/format";
 import { RoundDetails, shown } from "./public-auction-details";
 
@@ -56,6 +61,10 @@ export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound
           </li>
         ))}
       </ul>
+      {/* KOGL type 1 (출처표시): the photos and the round data are 온비드's (root ADR-0427 §5). */}
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("attribution")}
+      </p>
     </div>
   );
 }
@@ -99,40 +108,57 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
   );
 }
 
-/** The provider's photo file is a 178x134 thumbnail (root ADR-0424). */
-const THUMBNAIL_WIDTH = 178;
-// shortcut: the original's pixel width is not in the document; any width past the tile's makes the
-// browser take the original on a dense screen or a wide tile. Upgrade if the document carries widths.
-const ORIGINAL_WIDTH = 1024;
+/** The tile is a third of the panel: 160px wide on a desktop panel, a third of a phone. */
+const TILE_SIZES = "(max-width: 640px) 33vw, 160px";
 
 /**
- * One photo: the full-size original when it has landed (root ADR-0424), with the thumbnail as the
- * placeholder behind it and the small candidate of its srcset; it links to the original file.
+ * One photo from our own rendition ladder (root ADR-0427): AVIF, else WebP, the browser
+ * taking the smallest width that fills the tile at its pixel density, loaded lazily. The ladder is
+ * made from the original when it has landed (root ADR-0424), else from the provider's thumbnail;
+ * the tile links to that file itself, so the original is fetched only when asked for. Until a
+ * ladder exists (a photo newer than its collector run's ladder budget) the file itself is shown.
  */
 function PhotoTile({ t, photo }: { t: Translate; photo: PublicAuctionRound["photos"][number] }) {
-  const thumbnail = onbidMediaSrc(photo);
-  const original = photo.original ? onbidMediaSrc(photo.original) : null;
-  const image = (
-    // biome-ignore lint/performance/noImgElement: immutable content-addressed CDN media (sha256); the Next optimizer adds a hop for no gain.
-    <img
-      src={original ?? thumbnail}
-      srcSet={
-        original ? `${thumbnail} ${THUMBNAIL_WIDTH}w, ${original} ${ORIGINAL_WIDTH}w` : undefined
-      }
-      sizes={original ? "(max-width: 640px) 33vw, 160px" : undefined}
-      alt={photo.title ?? t("photoAltFallback")}
-      loading="lazy"
-      decoding="async"
-      className="h-full w-full object-cover"
-      style={
-        original ? { backgroundImage: `url(${thumbnail})`, backgroundSize: "cover" } : undefined
-      }
-    />
-  );
-  if (!original) return image;
+  const [laddered, setLaddered] = useState(true);
+  const source = photo.original ?? photo;
+  const file = onbidMediaSrc(source);
+  const alt = photo.title ?? t("photoAltFallback");
   return (
-    <a href={original} target="_blank" rel="noopener noreferrer" className="block h-full w-full">
-      {image}
+    <a
+      href={file}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={t("viewOriginal")}
+      className="block h-full w-full"
+    >
+      {laddered ? (
+        <picture>
+          <source
+            type="image/avif"
+            srcSet={photoRenditionSrcSet(source, "avif")}
+            sizes={TILE_SIZES}
+          />
+          <img
+            src={photoRenditionSrc(source)}
+            srcSet={photoRenditionSrcSet(source, "webp")}
+            sizes={TILE_SIZES}
+            alt={alt}
+            loading="lazy"
+            decoding="async"
+            onError={() => setLaddered(false)}
+            className="h-full w-full object-cover"
+          />
+        </picture>
+      ) : (
+        // biome-ignore lint/performance/noImgElement: immutable content-addressed CDN media (sha256); the Next optimizer adds a hop for no gain.
+        <img
+          src={file}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+        />
+      )}
     </a>
   );
 }

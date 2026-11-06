@@ -119,10 +119,11 @@ pub(crate) fn owed_bid_infos(
 
 /// The media fields the collector mirrors (`media.fields`): 1 since root ADR-0340 §4 added the
 /// location map, cadastral map, 360-degree photo and video to the photos and appraisals; 2 since
-/// root ADR-0424 added the photos' full-size originals. An item completed under a lower number is
-/// fetched once more; that refetch is not a refresh, so the media it already stored are not
-/// downloaded again.
-pub(crate) const MEDIA_FIELDS: u32 = 2;
+/// root ADR-0424 added the photos' full-size originals; 3 since root ADR-0427 made each photo's
+/// rendition ladder part of its media. An item completed under a lower number is fetched once more;
+/// that refetch is not a refresh, so the media it already stored are not downloaded again (its
+/// ladder is made from the stored original).
+pub(crate) const MEDIA_FIELDS: u32 = 3;
 
 fn owed_items(
     marks: &mut BTreeMap<String, ItemMark>,
@@ -244,6 +245,11 @@ pub(crate) struct Coverage {
     pub(crate) open: usize,
     pub(crate) covered: usize,
     pub(crate) with_photos: usize,
+    /// This run's photo originals asked through the contract's rule, the ones it no longer reached
+    /// (root ADR-0427 §4), and the photo sources whose ladder waits for a later run.
+    pub(crate) originals_attempted: usize,
+    pub(crate) originals_rule_mismatched: usize,
+    pub(crate) ladders_deferred: usize,
 }
 
 impl Coverage {
@@ -292,11 +298,23 @@ impl Coverage {
              foundation_onbid_item_detail_coverage_ratio {ratio}\n\
              # HELP foundation_onbid_item_detail_written_timestamp_seconds When the collector last wrote these series.\n\
              # TYPE foundation_onbid_item_detail_written_timestamp_seconds gauge\n\
-             foundation_onbid_item_detail_written_timestamp_seconds {}\n",
+             foundation_onbid_item_detail_written_timestamp_seconds {}\n\
+             # HELP foundation_onbid_photo_original_attempted The last run's photo originals asked through media.fields.originals (root ADR-0424).\n\
+             # TYPE foundation_onbid_photo_original_attempted gauge\n\
+             foundation_onbid_photo_original_attempted {}\n\
+             # HELP foundation_onbid_photo_original_rule_mismatched Of those, the answers that were no original: HTML, or no larger than the thumbnail (root ADR-0427 §4).\n\
+             # TYPE foundation_onbid_photo_original_rule_mismatched gauge\n\
+             foundation_onbid_photo_original_rule_mismatched {}\n\
+             # HELP foundation_onbid_photo_ladders_deferred The last run's photo sources whose rendition ladder was left for a later run (root ADR-0427 §2).\n\
+             # TYPE foundation_onbid_photo_ladders_deferred gauge\n\
+             foundation_onbid_photo_ladders_deferred {}\n",
             self.open,
             self.covered,
             self.with_photos,
-            now.timestamp()
+            now.timestamp(),
+            self.originals_attempted,
+            self.originals_rule_mismatched,
+            self.ladders_deferred,
         )
     }
 }

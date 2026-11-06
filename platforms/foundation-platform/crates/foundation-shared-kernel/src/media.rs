@@ -30,6 +30,10 @@ pub enum MediaFormat {
     Gif,
     /// PDF document (`%PDF-`), e.g. an appraisal attachment.
     Pdf,
+    /// WebP image (`RIFF....WEBP`): a provider's or one of our display renditions (root ADR-0427).
+    Webp,
+    /// AVIF image (an ISO-BMFF `ftyp` box of brand `avif`/`avis`): our display renditions.
+    Avif,
 }
 
 impl MediaFormat {
@@ -41,6 +45,8 @@ impl MediaFormat {
             Self::Png => "png",
             Self::Gif => "gif",
             Self::Pdf => "pdf",
+            Self::Webp => "webp",
+            Self::Avif => "avif",
         }
     }
 
@@ -52,7 +58,30 @@ impl MediaFormat {
             Self::Png => "image/png",
             Self::Gif => "image/gif",
             Self::Pdf => "application/pdf",
+            Self::Webp => "image/webp",
+            Self::Avif => "image/avif",
         }
+    }
+
+    /// The format a canonical extension names (the inverse of [`Self::extension`]).
+    #[must_use]
+    pub fn from_extension(extension: &str) -> Option<Self> {
+        [
+            Self::Jpeg,
+            Self::Png,
+            Self::Gif,
+            Self::Pdf,
+            Self::Webp,
+            Self::Avif,
+        ]
+        .into_iter()
+        .find(|format| format.extension() == extension)
+    }
+
+    /// Whether it is a picture a display ladder can be made from (root ADR-0427): not a PDF.
+    #[must_use]
+    pub const fn is_image(self) -> bool {
+        !matches!(self, Self::Pdf)
     }
 
     /// Detects the format from the payload's leading bytes.
@@ -70,6 +99,12 @@ impl MediaFormat {
             Some(Self::Gif)
         } else if bytes.starts_with(b"%PDF-") {
             Some(Self::Pdf)
+        } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+            Some(Self::Webp)
+        } else if bytes.get(4..8) == Some(b"ftyp")
+            && matches!(bytes.get(8..12), Some(b"avif" | b"avis"))
+        {
+            Some(Self::Avif)
         } else {
             None
         }
@@ -101,6 +136,21 @@ impl Sha256Hex {
             return Err(Sha256HexError::NotLowercaseHex);
         }
         Ok(Self(raw.to_owned()))
+    }
+
+    /// The digest of `bytes`.
+    #[must_use]
+    pub fn of(bytes: &[u8]) -> Self {
+        use sha2::{Digest as _, Sha256};
+        use std::fmt::Write as _;
+        Self(
+            Sha256::digest(bytes)
+                .iter()
+                .fold(String::with_capacity(64), |mut hex, byte| {
+                    let _ = write!(hex, "{byte:02x}");
+                    hex
+                }),
+        )
     }
 
     /// The digest as a lowercase hex string.
@@ -140,6 +190,46 @@ pub fn content_addressed_key(
     ))
 }
 
+/// The key of one display rendition of a stored source (root ADR-0427).
+///
+/// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`: a rendition is named by its source
+/// and the ladder version, not by its own bytes, so a page can name it from the source's hash alone.
+///
+/// # Errors
+/// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
+pub fn rendition_key(
+    prefix: &ObjectKeyPrefix,
+    version: &str,
+    source: &Sha256Hex,
+    width: u32,
+    format: MediaFormat,
+) -> Result<ObjectKey, ObjectKeyError> {
+    let prefix = prefix.as_str().trim_end_matches('/');
+    ObjectKey::parse(&format!(
+        "{prefix}/renditions/{version}/{}/{width}.{}",
+        source.as_str(),
+        format.extension()
+    ))
+}
+
+/// The key of a source's ladder manifest, written after every rendition (root ADR-0427).
+///
+/// `<prefix>/renditions/<version>/<source sha256>.json`: its presence means the ladder is whole.
+///
+/// # Errors
+/// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
+pub fn rendition_manifest_key(
+    prefix: &ObjectKeyPrefix,
+    version: &str,
+    source: &Sha256Hex,
+) -> Result<ObjectKey, ObjectKeyError> {
+    let prefix = prefix.as_str().trim_end_matches('/');
+    ObjectKey::parse(&format!(
+        "{prefix}/renditions/{version}/{}.json",
+        source.as_str()
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{content_addressed_key, MediaFormat, Sha256Hex};
@@ -158,6 +248,43 @@ mod tests {
         assert_eq!(MediaFormat::sniff(b"GIF89a....."), Some(MediaFormat::Gif));
         assert_eq!(MediaFormat::sniff(b"GIF87a....."), Some(MediaFormat::Gif));
         assert_eq!(MediaFormat::sniff(b"%PDF-1.4 ..."), Some(MediaFormat::Pdf));
+        assert_eq!(
+            MediaFormat::sniff(b"RIFF\x10\0\0\0WEBPVP8 "),
+            Some(MediaFormat::Webp)
+        );
+        assert_eq!(
+            MediaFormat::sniff(b"\0\0\0\x1cftypavif\0\0\0\0"),
+            Some(MediaFormat::Avif)
+        );
+        assert_eq!(MediaFormat::sniff(b"RIFF\x10\0\0\0WAVEfmt "), None);
+    }
+
+    #[test]
+    fn names_a_rendition_by_its_source_and_version() -> Result<(), Box<dyn std::error::Error>> {
+        let prefix = ObjectKeyPrefix::parse("onbid/media")?;
+        let source = Sha256Hex::of(b"source");
+        assert_eq!(source, Sha256Hex::parse(source.as_str())?);
+        assert_eq!(
+            super::rendition_key(&prefix, "r1", &source, 400, MediaFormat::Avif)?.as_str(),
+            format!("onbid/media/renditions/r1/{}/400.avif", source.as_str())
+        );
+        assert_eq!(
+            super::rendition_manifest_key(&prefix, "r1", &source)?.as_str(),
+            format!("onbid/media/renditions/r1/{}.json", source.as_str())
+        );
+        for format in [
+            MediaFormat::Jpeg,
+            MediaFormat::Webp,
+            MediaFormat::Avif,
+            MediaFormat::Pdf,
+        ] {
+            assert_eq!(
+                MediaFormat::from_extension(format.extension()),
+                Some(format)
+            );
+        }
+        assert!(!MediaFormat::Pdf.is_image());
+        Ok(())
     }
 
     #[test]

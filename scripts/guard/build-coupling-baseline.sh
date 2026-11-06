@@ -317,7 +317,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # computes (infra/lakehouse/spark/tests/fixtures/tile_range_golden.json) from CARGO_MANIFEST_DIR, so
 # the two languages' tile math cannot drift apart (root ADR-0375 §2).
 # 159 -> 157: the retired spatial tile WAP probe read its own source and its evidence contract.
-COMPILE_TIME_READ_BASELINE="${3:-157}"
+# 157 -> 158: the photo rendition step embeds the connection contract's ladder once
+# (parcel_media.renditions, root ADR-0427), as the publisher crates embed its other blocks.
+COMPILE_TIME_READ_BASELINE="${3:-158}"
 
 cd "$repo_root"
 

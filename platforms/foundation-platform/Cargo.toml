@@ -21,6 +21,7 @@ members = [
     "crates/catalog/catalog-infrastructure",
     "crates/technical/outbound-http-infrastructure",
     "crates/technical/foundation-shapefile",
+    "crates/technical/foundation-media-renditions",
     "crates/technical/foundation-disposable-database",
     "crates/ops/foundation-jobs",
     "crates/foundation-outbox",
@@ -104,6 +105,11 @@ geo = { version = "0.33", default-features = false }
 proj4rs = { version = "0.1.10", default-features = false }
 proj4wkt = "0.1.1"
 shapefile = { version = "0.9.0", default-features = false, features = ["encoding_rs", "geo-types"] }
+# Photo rendition ladder (root ADR-0427): decode with EXIF orientation, Lanczos3 resize, JPEG and
+# AVIF (rav1e through ravif, no nasm) encode. WebP lossy is libwebp itself (the `image` WebP
+# encoder is lossless only). No hand-written codec.
+image = { version = "0.25.10", default-features = false, features = ["avif", "gif", "jpeg", "png", "rayon", "webp"] }
+webp = { version = "0.3.1", default-features = false }
 # 표 형식 provider 파일(xlsx) 판독기. SpreadsheetML을 직접 파싱하지 않는다.
 calamine = { version = "0.38.0", default-features = false, features = ["dates"] }
 # Handoff JSONL is written through this. Measured 2026-08-31 on a 625 MB national parcel
@@ -172,6 +178,7 @@ catalog-infrastructure           = { path = "crates/catalog/catalog-infrastructu
 outbound-http-infrastructure = { path = "crates/technical/outbound-http-infrastructure" }
 foundation-publisher-silver = { path = "crates/publisher/foundation-publisher-silver" }
 foundation-shapefile = { path = "crates/technical/foundation-shapefile" }
+foundation-media-renditions = { path = "crates/technical/foundation-media-renditions" }
 foundation-disposable-database = { path = "crates/technical/foundation-disposable-database" }
 foundation-outbox       = { path = "crates/foundation-outbox" }
 foundation-publisher-core   = { path = "crates/publisher/foundation-publisher-core" }
