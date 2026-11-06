@@ -142,11 +142,14 @@ impl Sha256Hex {
     #[must_use]
     pub fn of(bytes: &[u8]) -> Self {
         use sha2::{Digest as _, Sha256};
+        use std::fmt::Write as _;
         Self(
             Sha256::digest(bytes)
                 .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect(),
+                .fold(String::with_capacity(64), |mut hex, byte| {
+                    let _ = write!(hex, "{byte:02x}");
+                    hex
+                }),
         )
     }
 
@@ -187,8 +190,9 @@ pub fn content_addressed_key(
     ))
 }
 
-/// The key of one display rendition of the stored source `source` (root ADR-0427):
-/// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`. A rendition is named by its source
+/// The key of one display rendition of a stored source (root ADR-0427).
+///
+/// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`: a rendition is named by its source
 /// and the ladder version, not by its own bytes, so a page can name it from the source's hash alone.
 ///
 /// # Errors
@@ -208,8 +212,9 @@ pub fn rendition_key(
     ))
 }
 
-/// The key of a source's ladder manifest, written after every rendition (root ADR-0427):
-/// `<prefix>/renditions/<version>/<source sha256>.json`. Its presence means the ladder is whole.
+/// The key of a source's ladder manifest, written after every rendition (root ADR-0427).
+///
+/// `<prefix>/renditions/<version>/<source sha256>.json`: its presence means the ladder is whole.
 ///
 /// # Errors
 /// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
