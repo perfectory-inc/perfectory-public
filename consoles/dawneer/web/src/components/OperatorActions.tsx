@@ -14,6 +14,12 @@ import {
   operatorActionRequest,
   type OperatorAction,
 } from "../lib/operatorActions";
+import { fullBakeRequest, isByPnuBake } from "../lib/byPnuCutovers";
+
+/** A by-PNU bake job also takes a full bake of one lane (root ADR-0433 §5), never a hand-written drop-in. */
+const FULL_BAKE = "force_full";
+const FULL_BAKE_LABEL = "레인 전량 굽기 승인";
+const FULL_BAKE_NOTE = "다음 굽기 한 번이 이 레인을 전량으로 굽습니다(재기준). 7일 안에 쓰이지 않으면 만료됩니다.";
 
 export function operatorActionMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -25,7 +31,12 @@ export function operatorActionMessage(error: unknown): string {
 }
 
 export function recordedMessage(recorded: OperatorActionRecorded): string {
-  const label = OPERATOR_ACTION_LABEL[recorded.action as OperatorAction] ?? recorded.action;
+  const label =
+    recorded.action === FULL_BAKE
+      ? `${FULL_BAKE_LABEL} (${recorded.lanes})`
+      : recorded.action === "approve_cutover"
+        ? `cut-over 승인 (${recorded.lanes} · g${recorded.generation})`
+        : (OPERATOR_ACTION_LABEL[recorded.action as OperatorAction] ?? recorded.action);
   if (recorded.window_start && recorded.window_end) {
     const until = recorded.expires_at ? ` · ${new Date(recorded.expires_at).toLocaleString("ko-KR")}까지` : "";
     return `${label} 기록됨 (${recorded.id.slice(0, 8)}) · ${recorded.window_start}-${recorded.window_end} 한국 시각${until}`;
@@ -36,18 +47,23 @@ export function recordedMessage(recorded: OperatorActionRecorded): string {
 
 export function OperatorActions({ client, jobId }: { client: DawneerClient; jobId: string }) {
   const queryClient = useQueryClient();
-  const [action, setAction] = useState<OperatorAction>("run_now");
+  const [action, setAction] = useState<OperatorAction | typeof FULL_BAKE>("run_now");
+  const [lane, setLane] = useState("");
+  const bake = isByPnuBake(jobId);
   const [reason, setReason] = useState("");
   const [dropPending, setDropPending] = useState(false);
   const [windowStart, setWindowStart] = useState("09:00");
   const [windowEnd, setWindowEnd] = useState("18:00");
   const [windowHours, setWindowHours] = useState(3);
   const [notice, setNotice] = useState<string | null>(null);
-  const checked = operatorActionRequest(action, reason, dropPending, {
-    start: windowStart,
-    end: windowEnd,
-    hours: windowHours,
-  });
+  const checked =
+    action === FULL_BAKE
+      ? fullBakeRequest(lane, reason)
+      : operatorActionRequest(action, reason, dropPending, {
+          start: windowStart,
+          end: windowEnd,
+          hours: windowHours,
+        });
   const send = useMutation({
     mutationFn: () => {
       if ("problem" in checked) throw new Error(checked.problem);
@@ -73,7 +89,7 @@ export function OperatorActions({ client, jobId }: { client: DawneerClient; jobI
         className="rounded border border-slate-300 px-1 py-0.5"
         value={action}
         onChange={(event) => {
-          setAction(event.target.value as OperatorAction);
+          setAction(event.target.value as OperatorAction | typeof FULL_BAKE);
           setDropPending(false);
         }}
       >
@@ -82,8 +98,18 @@ export function OperatorActions({ client, jobId }: { client: DawneerClient; jobI
             {OPERATOR_ACTION_LABEL[name]}
           </option>
         ))}
+        {bake ? <option value={FULL_BAKE}>{FULL_BAKE_LABEL}</option> : null}
       </select>
-      <span className="text-slate-500">{OPERATOR_ACTION_NOTE[action]}</span>
+      <span className="text-slate-500">{action === FULL_BAKE ? FULL_BAKE_NOTE : OPERATOR_ACTION_NOTE[action]}</span>
+      {action === FULL_BAKE ? (
+        <input
+          aria-label={`${jobId} 전량 레인`}
+          className="rounded border border-slate-300 px-1 py-0.5"
+          placeholder="레인 (예: parcel-public-auction)"
+          value={lane}
+          onChange={(event) => setLane(event.target.value)}
+        />
+      ) : null}
       <input
         aria-label={`${jobId} 이유`}
         className="rounded border border-slate-300 px-1 py-0.5"
@@ -128,7 +154,7 @@ export function OperatorActions({ client, jobId }: { client: DawneerClient; jobI
         </label>
       ) : null}
       <button type="submit" disabled={send.isPending || "problem" in checked} className="rounded bg-slate-900 px-2 py-1 text-white disabled:opacity-40">
-        {OPERATOR_ACTION_LABEL[action]}
+        {action === FULL_BAKE ? FULL_BAKE_LABEL : OPERATOR_ACTION_LABEL[action]}
       </button>
       {notice ? <span role="status" className="text-slate-700">{notice}</span> : null}
     </form>

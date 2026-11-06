@@ -43,6 +43,8 @@ export type DataContractQuality = DataCatalogSchemas["DataContractQuality"];
 export type DataQualityResult = DataCatalogSchemas["DataQualityResult"];
 export type ServiceChecks = DataCatalogSchemas["ServiceChecks"];
 export type ParcelEditions = DataCatalogSchemas["ParcelEditions"];
+export type ByPnuCutovers = DataCatalogSchemas["ByPnuCutovers"];
+export type ByPnuCutoverApproval = DataCatalogSchemas["ByPnuCutoverApproval"];
 export type ParcelEditionReadiness = DataCatalogSchemas["ParcelEditionReadiness"];
 export type EdgeHostCheck = DataCatalogSchemas["EdgeHostCheck"];
 export type CiWeek = DataCatalogSchemas["CiWeek"];
@@ -264,6 +266,11 @@ export class DawneerClient {
   /** Every cadastral edition's readiness and the promotions ledger (root ADR-0379). */
   parcelEditions(): Promise<ParcelEditions> {
     return this.call("parcel-editions", {}, "data-catalog");
+  }
+
+  /** The by-PNU cut-overs operators approved and what the host did with each (root ADR-0433). */
+  byPnuCutovers(): Promise<ByPnuCutovers> {
+    return this.call("by-pnu-cutovers", {}, "data-catalog");
   }
 
   /** Every data contract with its checks' latest results (root ADR-0165). */
