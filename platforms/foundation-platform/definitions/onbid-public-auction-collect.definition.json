@@ -23,6 +23,27 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/item_bid_result/per_run_limit",
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/item_detail/per_run_limit",
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/item_bid_info/per_run_limit",
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/announcement_detail/per_run_limit",
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/media/per_run_limit"
+        ],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 183,
+          "p50": 381,
+          "p90": 1168,
+          "max": 1725,
+          "timeouts": 0,
+          "from": "2026-10-27T01:22:05Z",
+          "to": "2026-11-03T15:50:32Z",
+          "from_change": "#871 merged 2026-10-27T01:16:28Z, the last of the per-run caps after the 2026-10-26 timeouts (#862, #864)"
+        }
+      },
       "pool": "default_pool",
       "pipeline_graph_edges": [
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",

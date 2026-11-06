@@ -17,6 +17,13 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-05); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
@@ -47,6 +54,13 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-05); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,

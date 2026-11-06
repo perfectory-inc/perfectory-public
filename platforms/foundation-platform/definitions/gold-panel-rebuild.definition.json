@@ -20,6 +20,24 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 160,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 48,
+          "p50": 191,
+          "p90": 9610,
+          "max": 9630,
+          "timeouts": 10,
+          "from": "2026-10-16T08:56:59Z",
+          "to": "2026-11-03T15:50:32Z"
+        },
+        "open_exception": {
+          "why": "Ten runs reached the 160-minute limit since 2026-10-20, the last two 2026-11-03T08:07Z and 10:53Z: the copy-on-write MERGE rewrites every file holding a changed PNU (see full_reason).",
+          "tracked_by": "PR #951 (Gold MERGE writes only the changed rows), as its full_tracked_by"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 3,

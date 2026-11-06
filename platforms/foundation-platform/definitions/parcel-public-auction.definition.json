@@ -20,6 +20,20 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 65,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 15,
+          "p50": 264,
+          "p90": 541,
+          "max": 543,
+          "timeouts": 0,
+          "from": "2026-10-24T07:36:42Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
@@ -57,6 +71,20 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 42,
+          "p50": 42,
+          "p90": 60,
+          "max": 82,
+          "timeouts": 0,
+          "from": "2026-10-28T21:04:13Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 1,

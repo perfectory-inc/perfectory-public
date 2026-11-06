@@ -19,6 +19,20 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 160,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 19,
+          "p50": 847,
+          "p90": 2674,
+          "max": 4968,
+          "timeouts": 0,
+          "from": "2026-10-16T04:36:19Z",
+          "to": "2026-11-03T15:50:32Z"
+        }
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 1,
