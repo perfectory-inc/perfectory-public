@@ -180,6 +180,9 @@ class BatchStaysOutOfTheOperatorWindow(HostFixture):
     def setUp(self):
         super().setUp()
         listing = json.loads((self.root / "jobs.json").read_text())
+        # Every real job has a schedule; hourly ones are not the window's edges.
+        for job in listing["jobs"]:
+            job["schedule"] = "5 * * * *"
         # The window's edges as in production: lakehouse maintenance at 04:30, the public-auction Gold
         # at 21:35, so the scheduled window is 04:30-21:50 and the operator window 21:50-04:30.
         edge = {"pool": "spark", "pool_slots": 3, "enabled": True, "wait_limit_minutes": 0,
