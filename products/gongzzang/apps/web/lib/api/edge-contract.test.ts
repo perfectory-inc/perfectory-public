@@ -3,8 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
+import { PHOTO_RENDITIONS } from "@/lib/media/photo-ladder";
 import { EdgeBuildingProfileSchema } from "./building-edge";
-import { PHOTO_RENDITIONS, PublicAuctionDocumentSchema } from "./public-auction";
+import { PublicAuctionDocumentSchema } from "./public-auction";
 import { UnitPriceDocumentSchema } from "./unit-price-edge";
 
 // The web's copies of what the foundation publishes are checked against their sources: the
