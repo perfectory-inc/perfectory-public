@@ -307,6 +307,23 @@ groups:
         annotations:
           summary: 공매 물건상세 커버리지 지표가 3시간째 갱신되지 않아요 — onbid 수집이 멈췄거나 /var/lib/foundation-jobs/metrics 에 못 써요
           runbook: docs/runbooks/data-go-kr-onbid.md
+      # Root ADR-0426 §4. Until 2026-11-06 every stored 공매 photo was the provider's 178x134
+      # thumbnail and nothing said so (ADR-0424). The originals now come from a URL rule in the
+      # contract (media.fields.originals); when the provider changes it, the "original" comes back as
+      # an HTML page or a thumbnail-sized image. The collector then keeps the thumbnail and counts
+      # it; this says so when most of a run's originals missed.
+      - alert: FoundationOnbidPhotoOriginalRuleMismatch
+        expr: >-
+          foundation_onbid_photo_original_rule_mismatched
+          / foundation_onbid_photo_original_attempted > 0.5
+          and foundation_onbid_photo_original_attempted >= 10
+        for: 1h
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '공매 사진 원본 규칙이 맞지 않아요 — 지난 run 에 받은 원본의 {{ $value | humanizePercentage }} 가 HTML 이거나 썸네일 크기예요. 화면은 썸네일로 버텨요. data-go-kr-onbid.contract.json media.fields.originals 를 온비드 화면의 원본 URL 과 대조하세요'
+          runbook: docs/runbooks/data-go-kr-onbid.md
       # 실거래가 Silver (root ADR-0364). 2026-10-30: an export carried another export's rows and stopped
       # every hourly load. Now such an export is quarantined whole and the load goes on; this says so
       # once, for the run that quarantined it (the next run writes 0 and it clears).

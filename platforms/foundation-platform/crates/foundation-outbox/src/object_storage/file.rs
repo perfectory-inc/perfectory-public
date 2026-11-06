@@ -129,6 +129,10 @@ impl ObjectStorageService for FileObjectStorage {
             ))),
         }
     }
+
+    async fn read_object_bytes(&self, key: &str) -> Result<Vec<u8>, PublishError> {
+        self.get_object_bytes(key)
+    }
 }
 
 #[async_trait]

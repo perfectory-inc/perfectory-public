@@ -772,6 +772,7 @@ fn coverage_counts_the_conditions_whose_bid_has_not_ended() {
     let text = coverage.prometheus(now);
     assert!(text.contains("foundation_onbid_item_detail_coverage_ratio 0.6666"));
     assert!(text.contains("foundation_onbid_item_detail_open_conditions 3\n"));
+    assert!(text.contains("foundation_onbid_photo_original_rule_mismatched 0\n"));
     assert!(Coverage::default()
         .prometheus(now)
         .contains("coverage_ratio 1\n"));

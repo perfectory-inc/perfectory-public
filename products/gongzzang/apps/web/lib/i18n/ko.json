@@ -407,6 +407,8 @@
         "usage": "용도",
         "share": "지분 물건",
         "photoAltFallback": "공매 물건 사진",
+        "viewOriginal": "원본 보기",
+        "attribution": "출처: 온비드(한국자산관리공사)",
         "appraisalDocument": "감정평가서",
         "fields": {
           "round": {

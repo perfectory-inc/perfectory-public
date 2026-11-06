@@ -301,9 +301,30 @@
         "purpose": "content-addressed 미디어(경매·공매 공용, 내용해시 write-once)를 공개 서빙한다. 파일명이 곧 내용해시라 immutable·1년 캐시·egress 0 이고, 필지 엣지(parcel lane = catalog.perfectory.io)에서 해시 규칙 하나로 서빙한다(ADR-0296 §5 / ADR-0297 §5, 새 호스트·새 버킷 없음 — parcel_by_pnu_gateway 가 이미 바인딩한 lakehouse 버킷의 onbid/media 를 읽기만 한다). 원본 서빙 MVP: 표시 크기 사다리·엣지 변환은 디자인이 정해지면 가산적으로(ADR-0297 §4). SSOT: 미디어 키·형식 판정 = foundation-shared-kernel media.rs, 쓰기 접두어 = data-go-kr-onbid.contract.json media.object_prefix(onbid/media).",
         "lane": "parcel",
         "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
-        "path_pattern": "onbid/media/sha256/[0-9a-f]{64}\\.(?:jpg|png|gif|pdf)",
+        "path_pattern": "onbid/media/(?:sha256/[0-9a-f]{64}\\.(?:jpg|png|gif|pdf)|renditions/r[0-9]+/[0-9a-f]{64}/[0-9]{2,4}\\.(?:avif|webp))",
         "cache_control": "public, max-age=31536000, immutable",
-        "decision": "docs/adr/0297-parcel-media-captures-originals-first-and-pre-generates-display-sizes.md"
+        "decision": "docs/adr/0297-parcel-media-captures-originals-first-and-pre-generates-display-sizes.md",
+        "$renditions": "루트 ADR-0426(ADR-0297 §2·§3 의 이행). 화면 사진은 우리가 원본에서 만든 사다리다 — 제공자 썸네일은 화면 크기 단계가 아니라 Bronze 증거다. 사다리 = widths(긴 변 px, 원본보다 크게 늘리지 않는다) × formats(AVIF, 그다음 WebP; JPEG 대체는 두지 않는다 — caniuse 2026-11 WebP 지원 97.3%, iOS Safari 14+·Safari 16+)를 수집 때 한 번 만든다(공매 onbid_media.rs 와 경매 수집기가 같은 foundation-media-renditions 크레이트를 쓴다). 키 = <object_prefix>/renditions/<version>/<원본 sha256>/<width>.<확장자>; 다 쓴 뒤 마지막에 <object_prefix>/renditions/<version>/<원본 sha256>.json(만든 단계·픽셀 크기·바이트)을 쓴다 — 그 파일이 있으면 사다리가 다 있다(write-audit-publish 의 publish 표시). (원본 해시, version)이 같으면 내용도 같으므로 immutable 1년 캐시다. 아래 값을 하나라도 바꾸면 version 을 올린다: 새 version 의 사다리만 새로 만들고 옛 것은 지우지 않는다(append-only); 웹은 이 version 을 읽는다(edge-contract.test.ts 가 대조). EXIF 방향으로 바로 세운 뒤 줄이고, 파생본은 디코딩한 픽셀에서만 쓰므로 EXIF·GPS 가 남지 않는다. max_source_pixels 는 디코딩 전에 거부하는 상한(압축 폭탄; 실측 최대 원본 4000×3000 = 12 MP).",
+        "renditions": {
+          "version": "r1",
+          "widths": [
+            400,
+            960,
+            1920
+          ],
+          "formats": [
+            {
+              "format": "avif",
+              "quality": 60,
+              "speed": 8
+            },
+            {
+              "format": "webp",
+              "quality": 75
+            }
+          ],
+          "max_source_pixels": 50000000
+        }
       },
       "connections": {
         "lakehouse": {

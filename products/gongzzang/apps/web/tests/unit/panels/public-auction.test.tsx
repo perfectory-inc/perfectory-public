@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
 import { describe, expect, it } from "vitest";
@@ -72,8 +72,9 @@ describe("public auction gallery", () => {
     // and the untitled one falls back to the generic label.
     const images = screen.getAllByRole("img");
     expect(images.map((img) => img.getAttribute("alt"))).toEqual(["정면 사진", "공매 물건 사진"]);
+    // Root ADR-0426: the tile shows our ladder's smallest JPEG, not the stored file.
     expect(screen.getByRole("img", { name: "정면 사진" }).getAttribute("src")).toBe(
-      `https://catalog.perfectory.io/onbid/media/sha256/${sha("a")}.jpg`,
+      `https://catalog.perfectory.io/onbid/media/renditions/r1/${sha("a")}/400.webp`,
     );
 
     // Appraisals are links: titled one keeps its title, the untitled one uses the fallback label.
@@ -87,8 +88,8 @@ describe("public auction gallery", () => {
     );
   });
 
-  // Root ADR-0424: the provider's photo file is a 178x134 thumbnail; the original is shown over it.
-  it("shows a photo's original with its thumbnail as the small candidate and links to it", () => {
+  // Root ADR-0426: the ladder is made from the original (root ADR-0424) and only a click asks for it.
+  it("shows a photo from the original's ladder in AVIF and WebP and links to the original", () => {
     renderCard([
       {
         cltr_mng_no: "X-0001",
@@ -107,12 +108,56 @@ describe("public auction gallery", () => {
         ],
       },
     ]);
-    const thumbnail = `https://catalog.perfectory.io/onbid/media/sha256/${sha("a")}.jpg`;
-    const original = `https://catalog.perfectory.io/onbid/media/sha256/${sha("e")}.jpg`;
+    const ladder = `https://catalog.perfectory.io/onbid/media/renditions/r1/${sha("e")}`;
+    const set = (format: string) =>
+      [400, 960, 1920].map((width) => `${ladder}/${width}.${format} ${width}w`).join(", ");
     const image = screen.getByRole("img", { name: "정면 사진" });
-    expect(image.getAttribute("src")).toBe(original);
-    expect(image.getAttribute("srcset")).toBe(`${thumbnail} 178w, ${original} 1024w`);
-    expect(screen.getByRole("link", { name: "정면 사진" }).getAttribute("href")).toBe(original);
+    expect(image.getAttribute("src")).toBe(`${ladder}/400.webp`);
+    expect(image.getAttribute("srcset")).toBe(set("webp"));
+    expect(image.getAttribute("loading")).toBe("lazy");
+    const sources = Array.from(image.parentElement?.querySelectorAll("source") ?? []);
+    expect(
+      sources.map((source) => [source.getAttribute("type"), source.getAttribute("srcset")]),
+    ).toEqual([["image/avif", set("avif")]]);
+    expect(screen.getByRole("link", { name: "정면 사진" }).getAttribute("href")).toBe(
+      `https://catalog.perfectory.io/onbid/media/sha256/${sha("e")}.jpg`,
+    );
+  });
+
+  it("shows the stored file itself while the photo has no ladder yet", () => {
+    renderCard([
+      {
+        cltr_mng_no: "X-0001",
+        item_name: "테스트 물건",
+        bid_ends_at: "2099-01-01T00:00:00.000Z",
+        photos: [
+          {
+            sha256: sha("a"),
+            media_kind: "photo",
+            sequence: 0,
+            title: "정면 사진",
+            media_format: "jpg",
+            size_bytes: 10,
+          },
+        ],
+      },
+    ]);
+    fireEvent.error(screen.getByRole("img", { name: "정면 사진" }));
+    expect(screen.getByRole("img", { name: "정면 사진" }).getAttribute("src")).toBe(
+      `https://catalog.perfectory.io/onbid/media/sha256/${sha("a")}.jpg`,
+    );
+  });
+
+  it("names the source under the rounds (KOGL type 1)", () => {
+    renderCard([
+      {
+        cltr_mng_no: "X-0001",
+        item_name: "테스트 물건",
+        bid_ends_at: "2099-01-01T00:00:00.000Z",
+        photos: [],
+      },
+    ]);
+    expect(screen.getByText("출처: 온비드(한국자산관리공사)")).not.toBeNull();
   });
 
   it("renders no gallery when a round has no photos", () => {

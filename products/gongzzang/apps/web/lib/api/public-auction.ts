@@ -40,6 +40,35 @@ export function onbidMediaSrc(photo: { sha256: string; media_format: string }): 
   return `${base}/onbid/media/sha256/${photo.sha256}.${photo.media_format}`;
 }
 
+/**
+ * The display ladder the foundation makes once from each stored photo (root ADR-0426): every width
+ * (longest side, never larger than the source) in every format, under the source's own hash. A copy
+ * of `config/r2-connections.contract.json` `parcel_media.renditions`, held to it by
+ * edge-contract.test.ts.
+ */
+export const PHOTO_RENDITIONS = {
+  version: "r1",
+  widths: [400, 960, 1920],
+  formats: ["avif", "webp"],
+} as const;
+
+export type RenditionFormat = (typeof PHOTO_RENDITIONS.formats)[number];
+
+/** A photo source's ladder in one format as a `srcset` (`<url> <width>w, …`), smallest first. */
+export function photoRenditionSrcSet(source: { sha256: string }, format: RenditionFormat): string {
+  const base = env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL.replace(/\/$/, "");
+  const dir = `${base}/onbid/media/renditions/${PHOTO_RENDITIONS.version}/${source.sha256}`;
+  return PHOTO_RENDITIONS.widths.map((width) => `${dir}/${width}.${format} ${width}w`).join(", ");
+}
+
+/** The smallest WebP of a photo source's ladder: the `src` (WebP is read by 97% of browsers, root
+ * ADR-0426 §3; a browser that reads neither falls back to the stored file on error). */
+export function photoRenditionSrc(source: { sha256: string }): string {
+  const base = env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL.replace(/\/$/, "");
+  const [smallest] = PHOTO_RENDITIONS.widths;
+  return `${base}/onbid/media/renditions/${PHOTO_RENDITIONS.version}/${source.sha256}/${smallest}.webp`;
+}
+
 type PublicAuction = z.infer<typeof PublicAuctionDocumentSchema>["public_auction"];
 export type PublicAuctionItem = NonNullable<PublicAuction["items"]>[number];
 export type PublicAuctionAnnouncement = NonNullable<PublicAuction["announcements"]>[number];

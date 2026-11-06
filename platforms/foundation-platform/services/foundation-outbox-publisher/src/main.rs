@@ -81,6 +81,7 @@ use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_silver::land_use_silver_export;
 #[cfg(test)]
 mod main_tests;
+mod media_renditions;
 mod onbid_media;
 use foundation_publisher_by_pnu::building_by_pnu_serving_export;
 use foundation_publisher_by_pnu::by_pnu_serving_manifest_publish;

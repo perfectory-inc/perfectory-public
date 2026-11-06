@@ -28,7 +28,10 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest as _, Sha256};
 
-use crate::data_go_kr_onbid_collect::{LineOutcome, MediaFields, MediaRef, OriginalRule};
+use crate::data_go_kr_onbid_collect::{
+    LineOutcome, MediaFields, MediaRef, OriginalRule, RenditionBudget,
+};
+use crate::media_renditions::{self, Laddered};
 
 /// Media objects never change once stored (the key is their content hash), so they cache forever.
 const MEDIA_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
@@ -212,6 +215,20 @@ pub(crate) struct MediaReport {
     /// This run's own cap (`per_run_limit`) stopped it before every URL was tried, while the day's
     /// budget still had room — the rest are left for the day's next runs.
     pub(crate) per_run_reached: bool,
+    /// Originals downloaded through `media.fields.originals` (root ADR-0424), and of those the ones
+    /// the rule no longer reaches: an HTML page, or an image no larger than the provider's thumbnail
+    /// (root ADR-0426 §4). Those are not recorded as originals, so the screen keeps the thumbnail.
+    pub(crate) originals_attempted: usize,
+    pub(crate) originals_rule_mismatched: usize,
+    /// Photo sources (the original, else the thumbnail) whose rendition ladder was already there,
+    /// written now (and its bytes), not renderable (bytes that do not decode), failed in the store,
+    /// or left for a later run by the ladder budget (root ADR-0426 §2).
+    pub(crate) ladders_present: usize,
+    pub(crate) ladders_written: usize,
+    pub(crate) ladder_bytes_stored: u64,
+    pub(crate) ladders_unrenderable: usize,
+    pub(crate) ladders_errored: usize,
+    pub(crate) ladders_deferred: usize,
 }
 
 /// The content-addressed facts a stored (or already-present) media file yields for the Silver photo
@@ -221,6 +238,8 @@ pub(crate) struct StoredMedia {
     /// `MediaFormat::extension` of the stored file.
     pub(crate) media_format: String,
     pub(crate) size_bytes: u64,
+    /// The longest side its header declares, when downloaded this run and readable.
+    pub(crate) longest_px: Option<u32>,
 }
 
 impl StoredMedia {
@@ -240,6 +259,7 @@ impl From<&MediaRef> for StoredMedia {
             sha256: known.sha256.clone(),
             media_format: known.media_format.clone(),
             size_bytes: known.size_bytes,
+            longest_px: None,
         }
     }
 }
@@ -279,6 +299,8 @@ pub(crate) struct MirrorSettings<'a> {
     pub(crate) deadline: Instant,
     /// Which response fields are media (root ADR-0340 §4).
     pub(crate) fields: &'a MediaFields,
+    /// The photos' rendition ladder step (root ADR-0426); `None` leaves it out.
+    pub(crate) renditions: Option<&'a RenditionBudget>,
 }
 
 /// What one run's media step came to.
@@ -419,6 +441,22 @@ pub(crate) async fn mirror_detail_lines(
                 .collect::<Vec<_>>()
                 .await;
             for (url, stored) in results {
+                if let Pass::Original(_, rule) = pass {
+                    report.originals_attempted += 1;
+                    if !reaches_original(&stored, rule) {
+                        // Not memoized either: a later visit asks the rule again.
+                        report.originals_rule_mismatched += 1;
+                        match stored {
+                            Ok(Stored::New(media)) => {
+                                report.downloaded += 1;
+                                report.bytes_stored += media.size_bytes;
+                            }
+                            Ok(Stored::Deduplicated(_)) => report.deduplicated += 1,
+                            _ => report.skipped_unknown_format += 1,
+                        }
+                        continue;
+                    }
+                }
                 match stored {
                     Ok(Stored::New(media)) => {
                         report.downloaded += 1;
@@ -448,6 +486,18 @@ pub(crate) async fn mirror_detail_lines(
             }
         }
     }
+    if let Some(budget) = settings.renditions {
+        render_ladders(
+            &responses,
+            &resolved,
+            settings,
+            budget,
+            storage,
+            &mut report,
+            &mut landed,
+        )
+        .await;
+    }
     for (index, response) in responses.iter().enumerate() {
         let Some(response) = response else {
             continue;
@@ -469,6 +519,138 @@ pub(crate) async fn mirror_detail_lines(
         downloads_today: already_downloaded.saturating_add(attempts),
         lines: rewrite_detail_lines(detail_lines, &resolved, settings.fields),
         outcomes,
+    }
+}
+
+/// Whether an original download is one: not an HTML page, and not an image whose header says it is
+/// no larger than the provider's thumbnail (root ADR-0426 §4; the rule's `thumbnail_longest_px`). An
+/// image whose header does not read is let through: its size cannot be told.
+fn reaches_original(stored: &anyhow::Result<Stored>, rule: &OriginalRule) -> bool {
+    match stored {
+        Ok(Stored::New(media) | Stored::Deduplicated(media)) => media
+            .longest_px
+            .is_none_or(|longest| longest > rule.thumbnail_longest_px),
+        Ok(Stored::UnknownFormat) => false,
+        _ => true,
+    }
+}
+
+/// What the screen shows of one line's photos, in order and each once: the original where it
+/// landed, else the thumbnail (root ADR-0424 §6). These are the files a rendition ladder is made
+/// from.
+fn photo_sources(
+    response: &JsonValue,
+    resolved: &HashMap<String, StoredMedia>,
+    settings: &MirrorSettings<'_>,
+) -> Vec<(String, String)> {
+    let rule = settings.fields.originals.get(PHOTO_FIELD);
+    let mut sources: Vec<(String, String)> = Vec::new();
+    for url in field_urls(response, PHOTO_FIELD, settings.url_host) {
+        let shown = rule
+            .and_then(|rule| original_url(&url, rule))
+            .and_then(|original| resolved.get(&original))
+            .or_else(|| resolved.get(&url));
+        if let Some(media) = shown.filter(|media| media_renditions::is_source(&media.media_format))
+        {
+            if !sources.iter().any(|(sha, _)| *sha == media.sha256) {
+                sources.push((media.sha256.clone(), media.media_format.clone()));
+            }
+        }
+    }
+    sources
+}
+
+/// The rendition ladder of every line's photo sources (root ADR-0426 §2), line by line in the
+/// order the lines were asked, `budget.concurrency` sources at a time. A source whose ladder is
+/// already there costs one HEAD. No line starts once `budget.per_run_limit` sources were taken or
+/// `budget.run_time_budget_seconds` passed; such a line, and a line whose ladder the store refused,
+/// stays incomplete, so the item is fetched again by a later run (root ADR-0330 §1). A source that
+/// does not decode settles the line: the screen shows the file itself.
+async fn render_ladders(
+    responses: &[Option<JsonValue>],
+    resolved: &HashMap<String, StoredMedia>,
+    settings: &MirrorSettings<'_>,
+    budget: &RenditionBudget,
+    storage: &dyn ObjectStorageService,
+    report: &mut MediaReport,
+    landed: &mut [bool],
+) {
+    let spec = match media_renditions::spec() {
+        Ok(spec) => spec,
+        Err(error) => {
+            tracing::warn!(error = %error, "no rendition ladder this run");
+            return;
+        }
+    };
+    let deadline = Instant::now() + std::time::Duration::from_secs(budget.run_time_budget_seconds);
+    let mut settled: HashMap<String, bool> = HashMap::new();
+    let mut taken: u32 = 0;
+    let mut stopped = false;
+    for (index, response) in responses.iter().enumerate() {
+        let Some(response) = response else {
+            continue;
+        };
+        let mut wanted = Vec::new();
+        for (sha, format) in photo_sources(response, resolved, settings) {
+            match settled.get(&sha) {
+                Some(true) => {}
+                Some(false) => landed[index] = false,
+                None => wanted.push((sha, format)),
+            }
+        }
+        if wanted.is_empty() {
+            continue;
+        }
+        let count = u32::try_from(wanted.len()).unwrap_or(u32::MAX);
+        if stopped
+            || taken.saturating_add(count) > budget.per_run_limit
+            || Instant::now() >= deadline
+        {
+            stopped = true;
+            landed[index] = false;
+            report.ladders_deferred += wanted.len();
+            continue;
+        }
+        taken += count;
+        let results = futures_util::stream::iter(wanted)
+            .map(|(sha, format)| async move {
+                let outcome = media_renditions::ensure_ladder(
+                    settings.object_prefix,
+                    &sha,
+                    &format,
+                    spec,
+                    storage,
+                )
+                .await;
+                (sha, outcome)
+            })
+            .buffer_unordered(budget.concurrency.max(1))
+            .collect::<Vec<_>>()
+            .await;
+        for (sha, outcome) in results {
+            let ok = match outcome {
+                Ok(Laddered::Present) => {
+                    report.ladders_present += 1;
+                    true
+                }
+                Ok(Laddered::Written(bytes)) => {
+                    report.ladders_written += 1;
+                    report.ladder_bytes_stored += bytes;
+                    true
+                }
+                Ok(Laddered::Unrenderable) => {
+                    report.ladders_unrenderable += 1;
+                    true
+                }
+                Err(error) => {
+                    report.ladders_errored += 1;
+                    tracing::warn!(error = %error, "a rendition ladder failed; isolated from the run");
+                    false
+                }
+            };
+            landed[index] &= ok;
+            settled.insert(sha, ok);
+        }
     }
 }
 
@@ -675,6 +857,8 @@ async fn download_and_store(
         sha256: hash_hex.clone(),
         media_format: format.extension().to_owned(),
         size_bytes: bytes.len() as u64,
+        longest_px: foundation_media_renditions::dimensions(&bytes)
+            .map(|(width, height)| width.max(height)),
     };
     // The key is the content hash: if it exists, the stored bytes are identical, so skip the write.
     if storage
@@ -784,6 +968,7 @@ mod tests {
                 sha256: hash.clone(),
                 media_format: "jpg".to_owned(),
                 size_bytes: 5,
+                longest_px: None,
             },
         )]);
         let line = json!({"body": detail(item).to_string()}).to_string();
@@ -883,6 +1068,7 @@ mod tests {
             sha256: c.to_string().repeat(64),
             media_format: "jpg".to_owned(),
             size_bytes: size,
+            longest_px: None,
         };
         let resolved = HashMap::from([
             (THUMBNAIL.to_owned(), stored('a', 10)),
@@ -945,6 +1131,7 @@ mod tests {
                 sha256: a.clone(),
                 media_format: "jpg".to_owned(),
                 size_bytes: 10,
+                longest_px: None,
             },
         );
         resolved.insert(
@@ -953,6 +1140,7 @@ mod tests {
                 sha256: b.clone(),
                 media_format: "pdf".to_owned(),
                 size_bytes: 20,
+                longest_px: None,
             },
         );
 
@@ -1042,6 +1230,7 @@ mod tests {
             concurrency: 2,
             deadline: Instant::now() + Duration::from_secs(60),
             fields: &media_fields,
+            renditions: None,
         };
         let mut memo = BTreeMap::new();
         // A URL stored by an earlier run, for an item still open.
@@ -1158,6 +1347,7 @@ mod tests {
             concurrency: 2,
             deadline: Instant::now() + Duration::from_secs(60),
             fields: &media_fields,
+            renditions: None,
         };
         let mirrored = mirror_detail_lines(
             &lines,
@@ -1256,6 +1446,7 @@ mod tests {
             concurrency: 2,
             deadline: Instant::now() + Duration::from_secs(60),
             fields: &media_fields,
+            renditions: None,
         };
         let mut memo = BTreeMap::new();
         // Room for 2: both items' thumbnails, no original; the lines wait for a later run.
@@ -1297,6 +1488,104 @@ mod tests {
             item["potoUrlListOriginal"][0]["sha256"],
             item["potoUrlList"][0]["sha256"]
         );
+        Ok(())
+    }
+
+    /// A real JPEG of `width` x `height` (the monitor reads its header; the ladder decodes it).
+    fn jpeg(width: u32, height: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        let pixels = vec![120_u8; usize::try_from(width * height * 3).unwrap_or_default()];
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 80)
+            .encode(&pixels, width, height, image::ExtendedColorType::Rgb8)
+            .unwrap_or_default();
+        out
+    }
+
+    // Root ADR-0426 §4: the provider changed the original rule and answers with the thumbnail's size.
+    #[tokio::test]
+    async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_thumbnail(
+    ) -> anyhow::Result<()> {
+        use super::{mirror_detail_lines, MirrorSettings};
+        use crate::data_go_kr_onbid_collect::RenditionBudget;
+        use crate::media_renditions::{manifest_key, spec};
+        use std::collections::BTreeMap;
+        use std::time::{Duration, Instant};
+        use wiremock::matchers::{method, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let thumbnail_bytes = jpeg(178, 134);
+        Mock::given(method("GET"))
+            .and(query_param("thnImgDownloadFlag", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(thumbnail_bytes.clone()))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(query_param("thnImgDownloadFlag", "false"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(jpeg(160, 120)))
+            .mount(&server)
+            .await;
+        let base = server.uri();
+        let host = reqwest::Url::parse(&base)?
+            .host_str()
+            .unwrap_or_default()
+            .to_owned();
+        let url = THUMBNAIL.replace("https://www.onbid.co.kr", &base);
+        let body =
+            detail(json!({"cltrMngNo": "A", "pbctCdtnNo": 1, "potoUrlList": [{"urlAdr": url}]}));
+        let lines = [json!({"body": body.to_string()}).to_string()];
+        let root = std::env::temp_dir().join(format!("onbid-media-{}", uuid::Uuid::new_v4()));
+        let storage = foundation_outbox::FileObjectStorage::new(&root)?;
+        let media_fields = fields();
+        let budget = RenditionBudget {
+            per_run_limit: 10,
+            concurrency: 2,
+            run_time_budget_seconds: 60,
+        };
+        let settings = MirrorSettings {
+            object_prefix: "onbid/media",
+            url_host: &host,
+            max_file_bytes: 1 << 20,
+            daily_limit: 100,
+            per_run_limit: 10,
+            concurrency: 2,
+            deadline: Instant::now() + Duration::from_secs(60),
+            fields: &media_fields,
+            renditions: Some(&budget),
+        };
+        let mut memo = BTreeMap::new();
+        let mirrored = mirror_detail_lines(
+            &lines,
+            &[],
+            &mut memo,
+            &settings,
+            0,
+            &storage,
+            &reqwest::Client::new(),
+        )
+        .await;
+        let report = &mirrored.report;
+        assert_eq!(
+            (report.originals_attempted, report.originals_rule_mismatched),
+            (1, 1)
+        );
+        assert_eq!((report.ladders_written, report.ladders_deferred), (1, 0));
+        assert!(mirrored.outcomes[0].complete);
+        // Not recorded as the original, and not memoized: the screen keeps the thumbnail.
+        assert_eq!(memo.len(), 1);
+        let record: serde_json::Value = serde_json::from_str(&mirrored.lines[0])?;
+        let response: serde_json::Value =
+            serde_json::from_str(record["body"].as_str().unwrap_or_default())?;
+        assert!(response["body"]["items"]["item"]
+            .get("potoUrlListOriginal")
+            .is_none());
+        let thumbnail_sha = super::sha256_hex(&thumbnail_bytes);
+        let manifest = storage.get_object_bytes(&manifest_key(
+            "onbid/media",
+            &spec()?.version,
+            &thumbnail_sha,
+        ))?;
+        assert!(!manifest.is_empty());
         Ok(())
     }
 }

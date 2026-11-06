@@ -171,6 +171,17 @@ pub(crate) struct Media {
     pub(crate) run_time_budget_seconds: u64,
     /// Which response fields are media, and the `media_kind` each lands as (root ADR-0340 §4).
     pub(crate) fields: MediaFields,
+    /// The bound of the photos' rendition ladder step (root ADR-0426 §2).
+    pub(crate) renditions: RenditionBudget,
+}
+
+/// How much of a run the photos' rendition ladders may take (root ADR-0426 §2, ADR-0300 H): no line
+/// starts once `per_run_limit` photo sources were taken or `run_time_budget_seconds` passed.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct RenditionBudget {
+    pub(crate) per_run_limit: u32,
+    pub(crate) concurrency: usize,
+    pub(crate) run_time_budget_seconds: u64,
 }
 
 /// The media fields of the 물건상세 and 공고상세 responses, by shape (root ADR-0340 §4).
@@ -192,6 +203,9 @@ pub(crate) struct MediaFields {
 pub(crate) struct OriginalRule {
     pub(crate) path_suffix: String,
     pub(crate) query: BTreeMap<String, String>,
+    /// The provider's thumbnail's longest side: an "original" no larger than this means the rule
+    /// stopped reaching originals (root ADR-0426 §4).
+    pub(crate) thumbnail_longest_px: u32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -1338,6 +1352,7 @@ pub async fn run() -> anyhow::Result<()> {
             deadline: std::time::Instant::now()
                 + Duration::from_secs(contract.media.run_time_budget_seconds),
             fields: &contract.media.fields,
+            renditions: Some(&contract.media.renditions),
         };
         if let Some(detail_lines) = fetcher.lines.get(&Api::ItemDetail).cloned() {
             match &http {
@@ -1450,7 +1465,13 @@ pub async fn run() -> anyhow::Result<()> {
         state.save(&state_path)?;
         if let Some(dir) = &config.metrics_dir {
             // A metrics write never fails the run; a stale file pages on its own (the rule's age check).
-            if let Err(error) = write_metrics(dir, &Coverage::of(&state, now), now) {
+            let mut coverage = Coverage::of(&state, now);
+            if let Some(media) = &media_report {
+                coverage.originals_attempted = media.originals_attempted;
+                coverage.originals_rule_mismatched = media.originals_rule_mismatched;
+                coverage.ladders_deferred = media.ladders_deferred;
+            }
+            if let Err(error) = write_metrics(dir, &coverage, now) {
                 tracing::warn!(error = %error, "Onbid coverage metrics were not written");
             }
         }
