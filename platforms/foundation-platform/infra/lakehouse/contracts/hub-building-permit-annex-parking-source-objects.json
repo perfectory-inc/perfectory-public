@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md",
+  "source": "bronze/source=hubgokr__building_permit_annex_parking",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_kcy_11",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 1,089,341 바이트, 멤버 mart_kcy_11.txt 6,779,983 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 58,823 행, 모든 행 12칸. 칸 0(관리허가대장PK)은 모든 행이 채워져 있지만 서로 다른 값은 50,182 개다(허가 4,154 개가 행을 둘 이상 가진다; 한 허가 안에서 지번은 같고 관련지번·지목이 다르다). 서로 다른 행 53,336 개(같은 행 최대 141번 되풀이). PNU 를 지을 수 있는 행(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자, 대지구분 0·1) 57,537 행(97.81%); 대지구분은 0 56,625·1 912·2 898·빈칸 388 행이다. 2026-09 판(58,815 행)에 비해 한쪽에만 있는 행이 10월 121·9월 113 이다. 칸 뜻은 값이 스스로 말하는 칸만 붙였다: 지목코드·명(08 대 41,010 행 등 29종), 관련지번명(빈칸 아닌 31,845 행 중 26,415 행이 본번-부번 꼴).",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축인허가 부설주차장(data.go.kr 15044685)의 속성 목록(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리허가대장PK·행정동코드·지목코드·지목코드명·관련지번명·생성일자, 12개)과 2026-10 판 실측의 교차 확인. 대량 파일은 관리허가대장PK·대지위치가 앞(칸 0–1)으로 오고, 칸 2 시군구코드, 칸 3 은 끝 두 자리가 모두 00 인 다섯 자리 코드, 칸 4 법정동코드 순서다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치·칸 3·생성일자)은 raw_columns 의 원래 index 로만 보존한다. 칸 3 은 명세의 행정동코드 자리로 보이나 다섯 자리뿐이라 뜻을 확인하지 못했다: 화면 PR 이 확인하고 이름을 붙인다.",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_11.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 12,
+  "row_key": "sha256_of_row",
+  "columns": {
+    "sigungu_cd": {
+      "index": 2,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 4,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 5,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 6,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 7,
+      "meaning": "지 원문"
+    },
+    "permit_mgmt_key": {
+      "index": 0,
+      "meaning": "관리허가대장PK 원문(허가 하나에 부설주차장 행이 여럿일 수 있어 행을 가르지 않는다)"
+    },
+    "land_category_code": {
+      "index": 8,
+      "meaning": "지목코드 원문(08 대 등)"
+    },
+    "land_category_name": {
+      "index": 9,
+      "meaning": "지목코드명 원문(대·전·답·공장용지 등)"
+    },
+    "related_jibun_name": {
+      "index": 10,
+      "meaning": "관련지번명 원문(예: 본번-부번) 또는 빈칸"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_annex_parking",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-annex-parking.service 의 실행 값(root ADR-0169 §3, ADR-0402). 판은 장부가 정한다. 관리허가대장PK(칸 0)는 모든 행에 있지만 58,823 행에 50,182 개라 행을 가르지 못한다. 그래서 ADR-0397 처럼 mgmt_key 는 행 글자의 SHA-256 이고(row_key), 관리허가대장PK 는 permit_mgmt_key 로 남겨 허가 레인과 잇는다. compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 한 묶음으로 커밋하고(전국 6만 행이라 나누지 않는다), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 2026-09 → 2026-10 은 새 행 121·사라진 행 113 이다. run 당 상한은 판 하나다.",
+    "table": "silver.building_permit_annex_parking",
+    "roles": {
+      "source": "hubgokr__building_permit_annex_parking"
+    },
+    "export": "export-building-permit-annex-parking-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "permit_mgmt_key",
+        "land_category_code",
+        "land_category_name",
+        "related_jibun_name",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 0
+    }
+  }
+}

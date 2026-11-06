@@ -1,6 +1,8 @@
 //! Shared bounded HUB register handoff engine (root ADR-0092/0094).
 
 #[cfg(test)]
+mod annex_parking_tests;
+#[cfg(test)]
 mod apartment_price_tests;
 #[cfg(test)]
 mod demolition_loss_tests;

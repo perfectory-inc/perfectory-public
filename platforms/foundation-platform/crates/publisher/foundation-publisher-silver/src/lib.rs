@@ -36,6 +36,9 @@ pub mod building_permit_demolition_loss_silver_export;
 /// Headerless HUB 건축인허가 주차장 ZIP to partitioned Silver handoff (root ADR-0402).
 pub mod building_permit_parking_silver_export;
 
+/// Headerless HUB 건축인허가 부설주차장 ZIP to partitioned Silver handoff, keyed by row (root ADR-0402).
+pub mod building_permit_annex_parking_silver_export;
+
 /// Headerless HUB 총괄표제부 ZIP to partitioned Silver handoff (root ADR-0357).
 pub mod building_register_master_silver_export;
 
