@@ -604,10 +604,11 @@ pub fn building_register_unit_area_silver_row_to_jsonl(
         .map_err(|error| BuildingRegisterUnitSilverPlanError::InvalidInput(error.to_string()))
 }
 
-/// Serializes a Silver unit-area row of one handoff part, naming the part (`source_part_id`, the
-/// table's load identity since root ADR-0391's addendum). The part is where the row was loaded
-/// from, not what it says: the row checksum leaves it out, so a row moved to another part of an
-/// identical release is still the same row.
+/// Serializes a Silver unit-area row of one handoff part, naming the part.
+///
+/// The part (`source_part_id`) is the table's load identity since root ADR-0391's addendum. It is
+/// where the row was loaded from, not what it says: the row checksum leaves it out, so a row moved
+/// to another part of an identical release is still the same row.
 ///
 /// # Errors
 /// Returns `BuildingRegisterUnitSilverPlanError` when the part is empty or JSON serialization fails.
