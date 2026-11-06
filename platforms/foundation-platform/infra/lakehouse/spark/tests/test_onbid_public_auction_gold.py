@@ -424,7 +424,10 @@ class BlocksSparkTest(unittest.TestCase):
         photos = [{"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "a" * 64, "media_kind": "photo", "sequence": 0,
                    "media_format": "jpg", "size_bytes": 1, "source_snapshot_id": "s"},
                   {"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "b" * 64, "media_kind": "location_map", "sequence": 0,
-                   "media_format": "png", "size_bytes": 2, "source_snapshot_id": "s"}]
+                   "media_format": "png", "size_bytes": 2, "source_snapshot_id": "s"},
+                  # The photo's full-size original (root ADR-0424): its round photo's `original`, no item medium.
+                  {"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "c" * 64, "media_kind": "photo_original",
+                   "sequence": 0, "media_format": "jpg", "size_bytes": 3, "source_snapshot_id": "s"}]
         announcements = [{"onbid_pbanc_no": 7, "pbct_no": 70 + n, "pbanc_mng_no": "209901-00007-00", "org_nm": "합성 기관",
                           "source_snapshot_id": "s"} for n in (1, 2)]
         opening = [{"onbid_pbanc_no": 7, "pbct_no": 71, "exct_stat_cd": "0001", "exct_stat_nm": "개찰준비중",
