@@ -249,7 +249,8 @@
         "categories": {
           "parcel": "필지정보",
           "listings": "매물",
-          "publicAuction": "공매"
+          "publicAuction": "공매",
+          "realTransaction": "실거래"
         },
         "sections": {
           "land": "토지",
@@ -383,6 +384,49 @@
       "listings": {
         "title": "이 필지의 매물 ({count})",
         "none": "이 필지에 등록된 매물이 없어요"
+      },
+      "realTransaction": {
+        "ownSection": "이 필지의 실거래",
+        "comparablesSection": "같은 법정동 공장·창고 거래",
+        "ownTitle": "이 필지의 실거래 ({count})",
+        "none": "이 필지로 이어진 실거래가 없어요",
+        "comparablesTitle": "같은 법정동 공장/창고 등 매매",
+        "comparablesNote": "{from} 이후 해제되지 않은 거래, 새 순 20건. 지번은 원천의 표기 그대로예요",
+        "median": "법정동 대지 ㎡당 중앙값 {price} (최근 12개월 {count}건)",
+        "lot": "지번 {jibun}",
+        "cancelled": "해제 {date}",
+        "share": "지분",
+        "inferred": "추정",
+        "omitted": "오래된 거래 {count}건은 싣지 않았어요",
+        "source": "국토교통부 실거래가 공개시스템 · 거래금액은 만원 단위 원천값",
+        "fields": {
+          "dealDate": "계약일",
+          "dealAmount": "거래금액",
+          "deposit": "보증금",
+          "monthlyRent": "월세금",
+          "totalFloorArea": "연면적",
+          "exclusiveArea": "전용면적",
+          "contractArea": "계약면적",
+          "plottage": "대지면적",
+          "landRightArea": "대지권면적",
+          "floor": "층",
+          "buildYear": "건축년도",
+          "landUse": "용도지역"
+        },
+        "datasets": {
+          "real_transaction_industrial_trade": "공장/창고 등 매매",
+          "real_transaction_land_trade": "토지 매매",
+          "real_transaction_commercial_trade": "상업/업무용 매매",
+          "real_transaction_apartment_trade": "아파트 매매",
+          "real_transaction_apartment_rent": "아파트 전월세",
+          "real_transaction_apartment_presale": "아파트 분양/입주권",
+          "real_transaction_officetel_trade": "오피스텔 매매",
+          "real_transaction_officetel_rent": "오피스텔 전월세",
+          "real_transaction_row_house_trade": "연립/다세대 매매",
+          "real_transaction_row_house_rent": "연립/다세대 전월세",
+          "real_transaction_detached_house_trade": "단독/다가구 매매",
+          "real_transaction_detached_house_rent": "단독/다가구 전월세"
+        }
       },
       "publicAuction": {
         "title": "이 필지의 공매 ({count})",
