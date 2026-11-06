@@ -17,13 +17,6 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 65,
-      "per_run_cap": {
-        "unit": "run",
-        "limits": [],
-        "deadline": null,
-        "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (new with root ADR-0353, 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
-      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
@@ -33,7 +26,8 @@
         "reference-legal-dong-code-change-to-gold-parcel-court-auction",
         "silver-court-auction-item-photo-to-gold-parcel-court-auction"
       ],
-      "enabled": false
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:30:00Z"
     },
     {
       "id": "by_pnu_court_auction_bake",
@@ -54,13 +48,6 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
-      "per_run_cap": {
-        "unit": "run",
-        "limits": [],
-        "deadline": null,
-        "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (new with root ADR-0353, 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
-      },
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,
@@ -68,7 +55,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
       ],
-      "enabled": false
+      "enabled": true,
+      "enabled_since": "2026-10-30T13:30:00Z"
     }
   ],
   "assets": [
