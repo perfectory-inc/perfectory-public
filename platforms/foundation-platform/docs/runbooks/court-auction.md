@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-06
 ---
 
 # 법원경매정보 (courtauction.go.kr) — 정직한 수집·적재 런북
@@ -57,4 +57,5 @@ last_reviewed: 2026-10-30
 
 ## 출처 표시
 
-이 데이터를 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 표시한다(저작권 보호정책; ADR-0281 §6, ODCS 목적 칸).
+원천의 출처 표시 의무(대한민국법원 법원경매정보, 저작권 보호정책)는 ODCS 목적 칸과 Silver 행의 원천·Bronze 키에
+남는다(ADR-0281 §6). 공짱 화면은 출처를 보이지 않는다(루트 ADR-0428).

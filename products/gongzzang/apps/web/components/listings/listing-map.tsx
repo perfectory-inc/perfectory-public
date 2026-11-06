@@ -1,5 +1,4 @@
 "use client";
-import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { foundationVectorFillLayerId } from "@/lib/map/foundation-vector-fill-layers";
 import { type MapboxGLLike, setupMapboxRuntime } from "@/lib/map/listing-map-runtime";
@@ -126,6 +125,8 @@ export function ListingMap() {
         gl: true,
         zoomControl: false,
         mapTypeControl: false,
+        // No data-source attribution on screen (root ADR-0428).
+        mapDataControl: false,
         disableKineticPan: false,
       } as naver.maps.MapOptions);
       mapRef.current = map;
@@ -161,35 +162,13 @@ export function ListingMap() {
   }, []);
 
   return (
-    // `isolate`: the map's own stacking (the SDK's copyright at z-index 100) stays inside the map, so a
+    // `isolate`: the map's own stacking (the SDK's logo at z-index 100) stays inside the map, so a
     // panel laid over the page (z-50) is never under it.
     <div className="relative isolate h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {mapboxInstance?.getLayer?.(foundationVectorFillLayerId("zoning")) ? (
         <ZoningLayerToggle mapbox={mapboxInstance} />
       ) : null}
-      <MapAttribution />
     </div>
-  );
-}
-
-function MapAttribution() {
-  const t = useTranslations("map.attribution");
-  return (
-    <aside
-      className="pointer-events-auto absolute bottom-1 right-1 z-10 rounded bg-white/85 px-2 py-0.5 text-[10px] leading-tight text-gray-600 shadow-sm backdrop-blur-sm dark:bg-black/70 dark:text-gray-300"
-      aria-label={t("ariaDataSource")}
-    >
-      <span>{t("parcelSourceLabel")}: </span>
-      <a
-        href="https://www.vworld.kr/dtmk/dtmk_ntads_s002.do?dsId=30563"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline hover:text-gray-900 dark:hover:text-white"
-      >
-        {t("vWorldLink")}
-      </a>
-      <span className="ml-1">{t("license")}</span>
-    </aside>
   );
 }

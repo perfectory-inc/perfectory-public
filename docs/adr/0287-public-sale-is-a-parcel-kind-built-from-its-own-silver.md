@@ -55,3 +55,7 @@ ADR-0193 §9 의 종류 장치는 계약 한 줄(`config/r2-connections.contract
 ---
 
 2026-10-22 개정 각주 (결정 본문 불변): §7 과 본문 "이력이 없는 폐지 PNU 의 공매는 그 PNU 에 남고 `lineage_missing` 으로 표시된다. 공매는 버려지지 않는다" 에서 "그 PNU 에 남고" 는 서빙 Gold 가 아니라 Silver(`silver.onbid_real_estate_item`)를 뜻하도록 [ADR-0292](./0292-public-sale-servable-gold-carries-only-host-panel-pnus.md) 가 좁혔다 — 공매는 주인 패널 섹션이라, 필지 문서가 없는 PNU 의 공매는 서빙 Gold 에 쓰이지 않고 집계·보존만 된다.
+
+---
+
+개정 각주(2026-11-06): §6 의 "화면은 출처 한 줄을 보인다"는 [ADR-0428](./0428-gongzzang-screens-show-no-data-source-attribution-and-provenance-stays-in-the-data.md)로 대체됐다; 문서의 원천 값은 그대로다.

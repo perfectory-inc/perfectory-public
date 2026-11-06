@@ -158,7 +158,7 @@ describe("parcel panel sections", () => {
     renderPanel(parcel());
     await waitFor(() => expect(anchors()).toEqual(["토지", "규제"]));
     expect(screen.getByText("지도 규제 구역")).toBeTruthy();
-    expect(screen.getByText("용도지역지구 · 기준일 2026-10-09")).toBeTruthy();
+    expect(screen.getByText("기준일 2026-10-09")).toBeTruthy();
     expect(screen.getByRole("heading", { level: 4, name: "개발제한구역" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 4, name: "공장입지 규제" })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 4, name: "기타" })).toBeTruthy();
