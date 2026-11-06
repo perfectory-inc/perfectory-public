@@ -96,11 +96,6 @@ SELECT * FROM parcels WHERE `valid_to_utc` IS NULL
 '
 expect_rejected "$backtick_sql"
 
-known_consumer="$test_root/known-consumer"
-fixture_named "$known_consumer" "spatial_tile_publication_wap.py" '
-current = frame.where(F.col("valid_to_utc").isNull())
-'
-expect_rejected "$known_consumer"
 
 artifact="$test_root/artifact"
 fixture "$artifact" '

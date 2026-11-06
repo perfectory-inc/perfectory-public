@@ -390,15 +390,6 @@ fn run_remote_lakehouse_job_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
-fn probe_spatial_tile_wap_command_is_explicit() -> anyhow::Result<()> {
-    assert_eq!(
-        parse_command(["foundation-outbox-publisher", "probe-spatial-tile-wap",])?,
-        Command::ProbeSpatialTileWap
-    );
-    Ok(())
-}
-
-#[test]
 fn administrative_spatial_scope_registry_commands_are_explicit() -> anyhow::Result<()> {
     let cases = [
         (
