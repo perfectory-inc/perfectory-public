@@ -187,6 +187,7 @@ enum Command {
     ExportBuildingRegisterSubParcelSilverHandoff,
     ExportBuildingPermitParkingSilverHandoff,
     ExportBuildingPermitAnnexParkingSilverHandoff,
+    ExportBuildingPermitBuildingOutlineSilverHandoff,
     ExportBuildingRegisterUnitAreaSilverHandoff,
     ExportBuildingRegisterTitleSilverHandoff,
     ExportBuildingRegisterUnitSilverHandoff,
@@ -404,6 +405,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportBuildingPermitAnnexParkingSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_annex_parking_silver_export::run(),
+        ),
+        Command::ExportBuildingPermitBuildingOutlineSilverHandoff => Box::pin(
+            foundation_publisher_silver::building_permit_building_outline_silver_export::run(),
         ),
         Command::ExportBuildingRegisterApartmentPriceSilverHandoff => Box::pin(
             foundation_publisher_silver::building_register_apartment_price_silver_export::run(),
@@ -751,6 +755,9 @@ where
         }
         Some("export-building-permit-annex-parking-silver-handoff") => {
             Ok(Command::ExportBuildingPermitAnnexParkingSilverHandoff)
+        }
+        Some("export-building-permit-building-outline-silver-handoff") => {
+            Ok(Command::ExportBuildingPermitBuildingOutlineSilverHandoff)
         }
         Some("export-building-register-apartment-price-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterApartmentPriceSilverHandoff)

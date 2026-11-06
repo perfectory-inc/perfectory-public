@@ -5,6 +5,8 @@ mod annex_parking_tests;
 #[cfg(test)]
 mod apartment_price_tests;
 #[cfg(test)]
+mod building_outline_tests;
+#[cfg(test)]
 mod demolition_loss_tests;
 #[cfg(test)]
 mod energy_monthly_tests;

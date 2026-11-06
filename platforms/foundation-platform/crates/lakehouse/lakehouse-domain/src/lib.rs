@@ -13,6 +13,7 @@ mod building_energy_monthly;
 mod building_panel;
 mod building_permit_annex_parking;
 mod building_permit_basis_outline;
+mod building_permit_building_outline;
 mod building_permit_demolition_loss;
 mod building_permit_parking;
 mod building_register_apartment_price;
@@ -57,6 +58,7 @@ pub use building_energy_monthly::{
 };
 pub use building_permit_annex_parking::SILVER_BUILDING_PERMIT_ANNEX_PARKING;
 pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
+pub use building_permit_building_outline::SILVER_BUILDING_PERMIT_BUILDING_OUTLINE;
 pub use building_permit_demolition_loss::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS;
 pub use building_permit_parking::SILVER_BUILDING_PERMIT_PARKING;
 pub use building_register_apartment_price::{
