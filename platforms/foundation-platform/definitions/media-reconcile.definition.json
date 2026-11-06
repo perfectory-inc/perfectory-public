@@ -20,6 +20,20 @@
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 60,
       "time_limit_minutes": 10,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": {
+          "runs": 1,
+          "p50": 23,
+          "p90": 23,
+          "max": 23,
+          "timeouts": 0,
+          "from": "2026-11-06T09:58:06Z",
+          "to": "2026-11-06T10:05:00Z"
+        }
+      },
       "pool": "default_pool",
       "pipeline_graph_edges": [],
       "reads_data_contracts": true,

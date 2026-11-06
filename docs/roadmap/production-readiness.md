@@ -89,7 +89,7 @@ last_reviewed: 2026-10-31
 | 항목 | 상태 |
 | --- | --- |
 | 호스트 자원 경보 | 초안. ADR-0385: node-exporter 호스트 수집기(디스크·메모리·OOM·CPU) + cAdvisor, `foundation-host` 경보 6개 → Slack, promtool 규칙 시험 가드. 처음 잰 것: 10-28~11-03 OOM 100번(공매 Silver 2.5GiB 상한) |
-| 수집 run 당 상한 + 가드 | 가드 있음(ADR-0386): 작업 50개 모두 `per_run_cap` + 잰 run 시간, `test_per_run_cap.py`. 안 맞는 열린 예외 5개(고침은 초안, 배포 뒤 다시 재고 예외를 지운다): `onbid_public_auction_silver`(10-30 timeout 5회·OOM 67회 — #1008), `silver_refresh_building_register_unit_areas`(제한의 95% — #1017), `silver_refresh_building_register_apartment_price`(10-20 timeout — #1010), `silver_refresh_land_transfer_history`(10-21 timeout, 11-03 82% — #1010), `gold_panel_rebuild`(timeout 10회, 마지막 11-03 — #1009) |
+| 수집 run 당 상한 + 가드 | 가드 있음(ADR-0386): 작업 69개 모두 `per_run_cap` + 잰 run 시간, `test_per_run_cap.py`. 안 맞는 열린 예외 5개(고침은 초안, 배포 뒤 다시 재고 예외를 지운다): `onbid_public_auction_silver`(10-30 timeout 5회·OOM 67회 — #1008), `silver_refresh_building_register_unit_areas`(제한의 95% — #1017), `silver_refresh_building_register_apartment_price`(10-20 timeout — #1010), `silver_refresh_land_transfer_history`(10-21 timeout, 11-03 82% — #1010), `gold_panel_rebuild`(timeout 10회, 마지막 11-03 — #1009) |
 | postgres 복원드릴 타이머 + 백업 freshness | freshness 끝(#882, 타이머 있음). 주간 운영 복원 드릴 `foundation-postgres-restore-drill`(W6, 초안) — 병합·첫 일요일 실행 확인 남음 |
 | R2 객체 ↔ silver 색인 대조 | 초안: ADR-0387 — 공매 미디어 `onbid/media` ↔ `silver.onbid_real_estate_item_photo` 매일 대조(`media_reconcile`), 없음·고아 경보. 고아 정리(삭제)는 보고서 뒤 사람 결정 |
 | expand-contract 마이그레이션 가드 | 만들지 않기로 함 — #883 닫음(10-28): 막을 실제 사고가 없고 기존 두 장치가 막는다 |
