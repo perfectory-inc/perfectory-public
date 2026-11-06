@@ -41,10 +41,9 @@ last_reviewed: 2026-10-14
 
 `orchestration/jobs.v1.json` 의 `admin_boundary_release`(spark 3 자리, `started_by: inputs` — 매일 수집이 새 파일을 받은
 실행 뒤, 대체 09:30 UTC). 2026-10-14 감독 실행(40 초, `unchanged reason=already_loaded round=202609`) 뒤 켰다. 감독 실행은
-이렇게 했다(자동배포가 돌지 않을 때):
+그때는 운영자 스크립트의 `job start` 로 했다. 이제는 더니어 데이터 흐름 → 예약 작업 → 이 작업 줄의 운영 → "지금 한 번 돌리기", 이유를 적고 누른다(루트 ADR-0282; 꺼진 작업도 된다. 10분 안에 시작하고, 대기열·빌드는 예약 실행처럼 기다린다). 진행은:
 
 ```bash
-sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start admin_boundary_release --requested-at "$(date +%s)" --reason "<왜 지금 돌리는지>"
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job status admin_boundary_release
 ```
 
