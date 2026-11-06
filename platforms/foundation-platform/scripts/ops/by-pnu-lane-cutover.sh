@@ -12,6 +12,9 @@
 #
 # For each lane, in order, each step only after the one before passed:
 #
+#   history    the lane line's first_publish_waits_for_history (root ADR-0350 §6, ADR-0371 §5): every
+#              month of those 실거래 datasets is loaded (scripts/ops/serving_history_readiness.py,
+#              read with the operations map's reader token); a lane without it is `not-declared`
 #   preview    the lane's and its latency baseline lane's preview hostnames answer their
 #              capabilities path (gate (나) reads both)
 #   gold       the operator's `<lane> gold-rebuild`: gold-panel-rebuild.sh <the table's unit>, the
@@ -72,12 +75,13 @@ now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 # left before the window. Gold and bake are twice ADR-0193 §7's targets (Gold full ≤ 30 min for the
 # heaviest kind, bake generation ≤ 30 min); the gates are the publisher's, measured at the parcel and
 # building cut-overs well inside these.
-declare -A BUDGET=([preview]=1 [gold]=60 [parity]=0 [bake]=60 [equality]=30 [latency]=20 [publish]=30
+declare -A BUDGET=([history]=0 [preview]=1 [gold]=60 [parity]=0 [bake]=60 [equality]=30 [latency]=20 [publish]=30
   [monitor-sample]=1)
-STEPS=(preview gold parity bake equality latency publish monitor-sample)
+STEPS=(history preview gold parity bake equality latency publish monitor-sample)
 
 # One line per lane to cut over: lane, gold table, rebuild unit, parity argument or -, preview
-# hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file.
+# hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file,
+# the 실거래 datasets whose history it waits for (comma-separated) or -.
 # Then a last line: the window's start and end in minutes of the UTC day, and the spark-pool units.
 mapfile -t PLAN < <(python3 -I - "${PLATFORM_ROOT}" "${TARGET}" "${ETC}" <<'PY'
 import json, os, sys
@@ -135,7 +139,8 @@ for lane in chosen:
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"
     print(lane, entry["gold_table"], table["unit"], parity,
           own["section_packs"]["preview_worker"]["public_hostname"], capabilities,
-          base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor)
+          base["section_packs"]["preview_worker"]["public_hostname"], base_capabilities, monitor,
+          ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-")
 
 # The daily scheduled window (job_units.py). Hourly jobs (hour `*`) are not the window; the Spark
 # wait catches them.
@@ -180,7 +185,7 @@ if [[ -n "${DRY_RUN}" ]]; then
   running="$(spark_running)"
   [[ -z "${running}" ]] || log "dry run: Spark runs now ($(cut -d' ' -f1 <<<"${running}" | paste -sd' ')); gold and bake would wait"
   for entry in ${PLAN[@]+"${PLAN[@]}"}; do
-    read -r lane table unit parity preview path base base_path monitor <<<"${entry}"
+    read -r lane table unit parity preview path base base_path monitor history <<<"${entry}"
     for host_path in "${preview}${path}" "${base}${base_path}"; do
       code="$(preview_answers "${host_path%%/*}" "/${host_path#*/}")"
       log "dry run ${lane}: https://${host_path} answers ${code:-nothing}"
@@ -188,6 +193,7 @@ if [[ -n "${DRY_RUN}" ]]; then
     done
     for step in "${STEPS[@]}"; do
       case "${step}" in
+        history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: every month of ${history} is loaded" ;;
         preview) what="GET the two capabilities paths above" ;;
         gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table})" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
@@ -229,7 +235,7 @@ wait_for_spark() {  # lane step
 log "run ${RUN_ID}: generation ${GENERATION}, lanes: $(for e in ${PLAN[@]+"${PLAN[@]}"}; do printf '%s ' "${e%% *}"; done)"
 ((${#PLAN[@]})) || { log "every lane is cut over already; nothing to do"; exit 0; }
 for entry in "${PLAN[@]}"; do
-  read -r lane table unit parity preview path base base_path monitor <<<"${entry}"
+  read -r lane table unit parity preview path base base_path monitor history <<<"${entry}"
   lane_started="$(now)" gold_output=""
   for step in "${STEPS[@]}"; do
     [[ "${step}" == gold || "${step}" == bake ]] && wait_for_spark "${lane}" "${step}"
@@ -238,6 +244,15 @@ for entry in "${PLAN[@]}"; do
     started="$(now)" reason=""
     log "${lane} ${step}: starting"
     case "${step}" in
+      history)
+        if [[ "${history}" == - ]]; then
+          record "${lane}" "${step}" not-declared 0 "the lane line waits for no history"
+          log "${lane} history: not-declared"
+          continue
+        fi
+        reason="$( (set -a; [[ ! -r "${ETC}/operations-map.env" ]] || . "${ETC}/operations-map.env"; set +a
+                    python3 -I -B "${PLATFORM_ROOT}/scripts/ops/serving_history_readiness.py" "${lane}" 2>&1) )"           || fail "${lane}" "${step}" "$(($(now) - started))" "${reason:-serving_history_readiness.py ${lane} could not tell}"
+        ;;
       preview)
         for host_path in "${preview}${path}" "${base}${base_path}"; do
           code="$(preview_answers "${host_path%%/*}" "/${host_path#*/}")"

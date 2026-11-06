@@ -542,6 +542,8 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertEqual(specs["by_pnu_parcel_sub_parcels_bake"].producers, ("gold_parcel_sub_parcels_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_energy_bake"].producers, ("gold_parcel_energy_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_demolitions_bake"].producers, ("gold_parcel_demolitions_rebuild",))
+        self.assertEqual(specs["by_pnu_parcel_real_transaction_bake"].producers,
+                         ("gold_parcel_real_transaction_rebuild",))
         self.assertEqual(specs["by_pnu_public_auction_bake"].producers, ("gold_public_auction_rebuild",))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),

@@ -112,6 +112,10 @@ def kind_tables(template: dict[str, Any], kinds: dict[str, Any],
         # (root ADR-0312 §2); a kind that cannot says why under `overrides.<lane>.full_reason`.
         if "full_reason" in override:
             entry["full_reason"] = override["full_reason"]
+        elif "incremental" in override:
+            # A kind whose unit of change is wider than a PNU (the 실거래 kind's 법정동, root ADR-0371)
+            # states its own bounds: each parity PNU reads its whole unit.
+            entry["incremental"] = override["incremental"]
         elif "incremental" in template:
             entry["incremental"] = template["incremental"]
         if kind.follows_host_panel:
