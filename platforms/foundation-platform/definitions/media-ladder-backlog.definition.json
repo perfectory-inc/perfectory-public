@@ -20,7 +20,7 @@
       "wait_limit_minutes": 30,
       "time_limit_minutes": 40,
       "per_run_cap": {
-        "unit": "run",
+        "unit": "object",
         "limits": [
           "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/media/ladder_backlog/per_run_limit"
         ],
