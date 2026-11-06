@@ -48,6 +48,9 @@ pub mod building_permit_major_repair_silver_export;
 /// Headerless HUB 공작물관리대장 ZIP to partitioned Silver handoff, keyed by row (root ADR-0402).
 pub mod building_permit_structure_ledger_silver_export;
 
+/// Headerless HUB 건축인허가 층별개요 ZIP to partitioned Silver handoff (root ADR-0402).
+pub mod building_permit_floor_overview_silver_export;
+
 /// Headerless HUB 총괄표제부 ZIP to partitioned Silver handoff (root ADR-0357).
 pub mod building_register_master_silver_export;
 
