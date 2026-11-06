@@ -10,6 +10,10 @@
     job_units.py operator-window <jobs.v1.json> <job id> <epoch seconds>
                                                why a run of the job started then would reach into the
                                                by-PNU operator window, or nothing (root ADR-0425)
+    job_units.py operator-start <jobs.v1.json> <epoch seconds> <minutes>
+                                               the epoch second an approved cut-over whose first lane's
+                                               steps take <minutes> starts: then, if the operator window
+                                               has room for them, or when it next opens (root ADR-0433)
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -184,6 +188,24 @@ def operator_window(jobs_file, job_id, now) -> str:
             f"({hhmm(daily_minute(job['schedule']))} UTC) runs it")
 
 
+def operator_start(jobs, now, minutes) -> int:
+    """The first epoch second at or after `now` at which `minutes` of cut-over steps fit the operator
+    window the way by-pnu-lane-cutover.sh's window guard admits a step: not inside the scheduled
+    window and not into it. `now` when they fit already, else the next opening of the operator window
+    (the scheduled window's end). An approval outside the window waits for it, it is not refused
+    (root ADR-0433 §3; Spinnaker's restricted execution windows). ValueError when the steps are longer
+    than the whole operator window and never fit."""
+    start, end = scheduled_window(jobs)
+    if minutes < 0 or minutes > 1440 - (end - start):
+        raise ValueError(f"{minutes} minutes of cut-over steps never fit the {1440 - (end - start)}-minute "
+                         "operator window")
+    minute = (int(now) // 60) % 1440
+    if (minute >= end and minute + minutes <= 1440 + start) or minute + minutes <= start:
+        return int(now)
+    opening = int(now) - int(now) % 86400 + end * 60
+    return opening if opening > int(now) else opening + 86400
+
+
 def main(argv) -> int:
     if len(argv) == 2 and argv[0] == "services":
         print("\n".join(registered_services(argv[1])))
@@ -214,6 +236,15 @@ def main(argv) -> int:
             print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
             return 64
         return 0
+    if len(argv) == 4 and argv[0] == "operator-start":
+        try:
+            with open(argv[1], encoding="utf-8") as handle:
+                jobs = json.load(handle)["jobs"]
+            print(operator_start(jobs, int(argv[2]), int(argv[3])))
+        except (OSError, ValueError, KeyError) as error:
+            print(f"job_units: {error}", file=sys.stderr)
+            return 64
+        return 0
     if argv == ["deferred-dir"]:
         print(deferred_dir())
         return 0
@@ -221,7 +252,8 @@ def main(argv) -> int:
         print("\n".join(deferred()))
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
-          " | pool-full <jobs.v1.json> <job id|service> | operator-window <jobs.v1.json> <job id> <epoch>",
+          " | pool-full <jobs.v1.json> <job id|service> | operator-window <jobs.v1.json> <job id> <epoch>"
+          " | operator-start <jobs.v1.json> <epoch> <minutes>",
           file=sys.stderr)
     return 64
 

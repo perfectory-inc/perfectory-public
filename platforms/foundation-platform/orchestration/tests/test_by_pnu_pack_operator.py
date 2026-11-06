@@ -137,7 +137,7 @@ class OperatorHarness(unittest.TestCase):
         # The granted copy hands every action to the release's own copy of itself.
         for name in ("admitted-writer-runtime.sh", "by-pnu-pack-operator.sh", "by-pnu-pack-bake.sh",
                      "by-pnu-bake-shards.sh", "by-pnu-lane-cutover.sh", "held-lock.sh", "by-pnu-lane-index.sh",
-                     "serving_history_readiness.py", "iceberg_metadata.py"):
+                     "serving_history_readiness.py", "iceberg_metadata.py", "release-progress.py"):
             shutil.copy(PLATFORM / "scripts/ops" / name, release / "scripts/ops")
         health = release / "scripts/ops/by-pnu-gateway-health.sh"
         health.write_text(FAKE_HEALTH)

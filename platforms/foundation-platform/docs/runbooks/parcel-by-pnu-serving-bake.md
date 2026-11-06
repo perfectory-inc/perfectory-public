@@ -255,12 +255,12 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 
 | 경우 | 방법 |
 | --- | --- |
-| `FOUNDATION_BY_PNU_BAKE_FORCE_FULL=true` (+ 필수 `..._FORCE_FULL_REASON`, 요약에 남는다) | 전량 |
+| 더니어의 전량 굽기 승인 `force_full`(레인 하나·이유, 7일 만료, 한 번 쓰임; 루트 ADR-0433 §5). 시험·비상용 `FOUNDATION_BY_PNU_BAKE_FORCE_FULL=true` + `..._FORCE_FULL_REASON` 도 같다(요약에 이유가 남는다) | 전량 |
 | 익스포터의 문서 스키마 ≠ 기본 세대의 문서 스키마 | 전량 |
 | 기본 세대가 이미 `max_patches` 개 이상의 패치를 지님(한도를 낮춘 뒤 포함) | 전량(압축) |
 | 패치가 있고, 그 앞자리 길이가 계약의 `pnu_prefix_length` 와 다름 | 전량(압축) |
 | 변경 집합이 `max_delta_fraction` 초과, 기록이 설명함(바뀐 키 기록·코드 판 변경·문서 판 변경, 계약 `over_max_delta_fraction`) | 전량([루트 ADR-0346](../../../../docs/adr/0346-a-change-set-over-the-delta-bound-goes-full-when-a-record-explains-it.md)) |
-| 변경 집합이 `max_delta_fraction` 초과, 설명 없음 | **거부**, 발행 없음 — 로그·요약이 수와 확인한 기록을 말한다. Gold 를 확인한 뒤 `FORCE_FULL` |
+| 변경 집합이 `max_delta_fraction` 초과, 설명 없음 | **거부**, 발행 없음 — 로그·요약이 수와 확인한 기록을 말한다. Gold 를 확인한 뒤 더니어에서 그 레인의 전량 굽기 승인 |
 | 비교할 스냅숏이 없음(지정 안 됨·만료·지문 없음) | **거부**, 발행 없음 — "변경 없음"이 아니다 |
 | 변경 없음 | `reflected_gold_iceberg_snapshot_id` 만 옮기는 발행(객체 쓰기 없음) |
 | 누적 변경(기존 패치 + 이번) > `max_cumulative_change_ratio` × `base_object_count` | 전량(압축) |
@@ -269,6 +269,10 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - [ADR-0274](../../../../docs/adr/0274-the-by-pnu-bake-does-only-the-work-a-change-needs.md)(2026-10-18 승인)이 이 표를
   고친다: 같은 내용 Gold 의 비교 생략, 한 항목 레인의 비율 0.25, 되돌리기는 직전 묶음 세대. 각 구현 PR 이 이 절을 고친다.
 
+- 전량 굽기는 손으로 쓰는 drop-in·환경 파일 줄이 아니다(2026-11-06 00:24Z `90-force-full.conf` 를 sudo 로 쓰고 지운 일).
+  더니어 데이터 흐름 → 운영 → 그 레인을 굽는 작업(`by_pnu_<레인>_bake`)에서 `force_full` 을 승인하면 foundation-api 가
+  `switches/full.d/<id>` 를 쓰고, 그 레인의 다음 굽기가 가장 새 요청 하나를 읽어 전량으로 굽고
+  `<상태>/forced-full-used/<id>` 로 표시해 다시 쓰지 않는다. 덜 끝난 전량은 핀으로 이어 간다.
 - 변경 집합은 `by_pnu_panel_delta.py` 가 마지막 반영 스냅숏과 새 스냅숏의 `row_digest` 를 PNU 로 맞대 낸다. 거부는
   종료 코드로 구별한다(3 = 비교 스냅숏 없음, 4 = 설명 없는 델타 아님, 5 = 지문 없음; 6 = 설명된 큰 변경 → 전량).
   설명 없는 거부가 난 날은 운영자가 Gold 를 확인한 뒤 이유를 적어 전량을 강제한다.

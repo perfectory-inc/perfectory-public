@@ -99,6 +99,23 @@
           "written_by": "foundation-api, the run-now requests (root ADR-0282 §4); foundation-run-now.path watches it and the gate reads it"
         },
         {
+          "path": "/var/lib/foundation-jobs/switches/cutover.d",
+          "mode": "0755",
+          "owner": "foundation-api",
+          "written_by": "foundation-api, the by-PNU cut-overs an operator approved (root ADR-0433 §2); foundation-run-now.path watches it, the run-now dispatcher starts each once in the operator window and the operator script checks it"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/switches/full.d",
+          "mode": "0755",
+          "owner": "foundation-api",
+          "written_by": "foundation-api, the full bakes an operator approved (root ADR-0433 §5); the lane's by-PNU bake reads it and uses each once"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/releases",
+          "mode": "0755",
+          "written_by": "the run-now dispatcher, the operator script and the cut-over runner, one progress line at a time per approved cut-over (root ADR-0433 §6; scripts/ops/release-progress.py); foundation-api reads it, mounted read-only"
+        },
+        {
           "path": "/var/lib/foundation-platform/vworld-parcel-edition",
           "mode": "0755"
         },

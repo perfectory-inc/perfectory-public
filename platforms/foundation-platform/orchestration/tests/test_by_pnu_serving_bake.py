@@ -14,6 +14,7 @@ full bake can serve (root ADR-0141 §5). `PatchPath` drives the patch, reflect a
 the same choices, made against the packs, with the pack export and publish commands.
 """
 
+import datetime
 import hashlib
 import json
 import os
@@ -1195,6 +1196,44 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual([call for call in calls if call["command"] == "delta"], [])
         self.assertEqual(self.run_summary("full")["forced_full_reason"], "re-base after a fingerprint fix")
+
+    def test_a_full_bake_approved_in_the_console_re_bases_its_lane_once(self):
+        # Root ADR-0433 §5. 2026-11-06 00:24Z: after a failed sudo password the owner wrote a
+        # 90-force-full.conf drop-in by hand and removed it 13 minutes later. Now foundation-api
+        # writes switches/full.d/<id> for one lane, and the lane's next run uses it once.
+        switches = self.state_root.parent / "switches"
+        requests = switches / "full.d"
+        requests.mkdir(parents=True)
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        def ask(request, lane, hours_left=24, minutes_ago=1):
+            (requests / request).write_text(
+                f"request={request}\nactor=staff-owner\nrequested_at={(now - datetime.timedelta(minutes=minutes_ago)).isoformat()}\n"
+                f"reason=re-base before the cut-over\njob=by_pnu_serving_bake\n"
+                f"expires_at={(now + datetime.timedelta(hours=hours_left)).isoformat()}\nlanes={lane}\n")
+
+        mine, older = "aaaaaaaa-1111-4111-8111-111111111111", "bbbbbbbb-2222-4222-8222-222222222222"
+        ask("cccccccc-3333-4333-8333-333333333333", "building")
+        ask("dddddddd-4444-4444-8444-444444444444", "parcel", hours_left=-1)
+        ask(older, "parcel", minutes_ago=30)
+        ask(mine, "parcel")
+        (requests / f"{mine}.partial").write_text("lanes=parcel\n")
+        result, calls = self.patch_bake(FOUNDATION_JOB_SWITCHES_DIR=str(switches))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        self.assertEqual(self.run_summary("full")["forced_full_reason"],
+                         f"re-base before the cut-over (console request {mine} by staff-owner)")
+        self.assertTrue((self.state_root / "parcel/forced-full-used" / mine).exists())
+        # Only the newest was used. With it used (and the older one withdrawn), the next run is the
+        # change set's again; another lane's request and an expired one never make this lane full.
+        self.assertFalse((self.state_root / "parcel/forced-full-used" / older).exists())
+        (requests / older).unlink()
+        self.log.unlink()
+        for summary in (self.state_root / "parcel").glob("runs/202-*"):
+            shutil.rmtree(summary)
+        result, calls = self.patch_bake(FOUNDATION_JOB_SWITCHES_DIR=str(switches))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len([call for call in calls if call["command"] == "delta"]), 1, "a used request re-based twice")
 
     def test_a_half_written_patch_of_the_same_snapshot_is_resumed(self):
         changes = dict(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]), FAKE_NEWEST_PATCH="1", FAKE_PATCH_COUNT="1")
