@@ -59,9 +59,11 @@ class PlanTable(unittest.TestCase):
         self.assertEqual(plan["backfill"], ["row_digest"])
 
     def test_a_registered_optional_column_is_backfilled_and_an_unregistered_one_is_only_added(self) -> None:
-        plan = migrate.plan_table(
-            contract(("pnu", True), ("vintage", False)), ("pnu",), True, "silver.unit_official_price"
-        )
+        # The registration #818 deployed and ADR-0317 stage 3 retired with the table's writer.
+        with patch.dict(migrate.BACKFILLS, {("silver.unit_official_price", "vintage"): ("unit_official_price", "f")}):
+            plan = migrate.plan_table(
+                contract(("pnu", True), ("vintage", False)), ("pnu",), True, "silver.unit_official_price"
+            )
         self.assertEqual((plan["add"], plan["backfill"]), (["vintage"], ["vintage"]))
         plan = migrate.plan_table(contract(("a", True), ("b", False)), ("a",), True, "gold.t")
         self.assertEqual((plan["add"], plan["backfill"]), (["b"], []))

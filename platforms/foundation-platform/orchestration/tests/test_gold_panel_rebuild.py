@@ -577,8 +577,9 @@ class Registration(unittest.TestCase):
         golds = {node["id"] for node in graph["nodes"]
                  if node.get("table_name") in contract["tables"] and node["table_name"] != "gold.unit_price"}
         expected = {edge["id"] for edge in graph["edges"] if edge["to"] in golds and edge["status"] == "implemented"}
-        # And the unit price join it runs before the building panel (root ADR-0182).
-        expected |= {edge["id"] for edge in graph["edges"] if edge["to"] == "silver-unit-official-price"}
+        # And the unit price join it runs before the building panel (root ADR-0182, ADR-0317).
+        expected |= {edge["id"] for edge in graph["edges"]
+                     if edge["to"] == "silver-unit-official-price-versions" and edge["status"] == "implemented"}
         job = next(job for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]
                    if job["id"] == "gold_panel_rebuild")
         self.assertEqual(set(job["pipeline_graph_edges"]), expected)

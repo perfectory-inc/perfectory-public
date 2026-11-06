@@ -56,11 +56,11 @@ class Reconciler(unittest.TestCase):
         units = {"silver.building_register_titles": "11", "silver.building_register_units": "21"}
         self.catalog = {
             "gold.parcel_public_auction": table(snap("101", None, 0), snap("102", "101", 30)),
-            "gold.unit_price": table(snap("301", None, 0, operation="overwrite", pins={**units, "silver.unit_official_price": "41"})),
+            "gold.unit_price": table(snap("301", None, 0, operation="overwrite", pins={**units, "silver.unit_official_price_versions": "41"})),
             "gold.building_panel": table(snap("201", None, 0, operation="overwrite", pins=units)),
             "silver.building_register_titles": table(snap("11", None, 0)),
             "silver.building_register_units": table(snap("21", None, 0)),
-            "silver.unit_official_price": table(snap("41", None, 0)),
+            "silver.unit_official_price_versions": table(snap("41", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},
                       "unit-price": {"read_snapshot_id": "301", "outcome": "served"},
@@ -88,7 +88,7 @@ class Reconciler(unittest.TestCase):
         price = self.assets["gold_unit_price_rebuild"]
         self.assertEqual(price.uri, "iceberg://gold.unit_price")
         self.assertEqual(price.inputs, ("silver.building_register_titles", "silver.building_register_units",
-                                        "silver.unit_official_price"))
+                                        "silver.unit_official_price_versions"))
         self.assertEqual(price.pins_from["gold_table"], "gold.building_panel")
         lane = self.assets["by_pnu_unit_price_bake"]
         self.assertEqual((lane.lane, lane.lane_table, lane.follows), ("unit-price", "gold.unit_price", "building"))
@@ -154,9 +154,9 @@ class Reconciler(unittest.TestCase):
         self.assertTrue(any(line.startswith("foundation-asset-owed gold_unit_price_rebuild ") for line in owed))
         self.assertIn('foundation_asset_lag_seconds{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 600',
                       metrics)
-        # A new price vintage at the head of silver.unit_official_price is owed too.
+        # A new price vintage at the head of silver.unit_official_price_versions is owed too.
         self.catalog["gold.building_panel"]["head"] = "201"
-        self.catalog["silver.unit_official_price"] = table(snap("41", None, 0), snap("42", "41", 5))
+        self.catalog["silver.unit_official_price_versions"] = table(snap("41", None, 0), snap("42", "41", 5))
         owed, _, _, _ = self.tick()
         self.assertTrue(any(line.startswith("foundation-asset-owed gold_unit_price_rebuild ") for line in owed))
 
@@ -311,10 +311,10 @@ class FollowGate(unittest.TestCase):
             "gold.building_panel": table(snap("201", None, 0, operation="overwrite", pins=units),
                                          snap("202", "201", 10, operation="overwrite",
                                               pins={**units, "silver.building_register_titles": "12"})),
-            "gold.unit_price": table(snap("301", None, 0, operation="overwrite", pins={**units, "silver.unit_official_price": "41"}),
+            "gold.unit_price": table(snap("301", None, 0, operation="overwrite", pins={**units, "silver.unit_official_price_versions": "41"}),
                                      snap("302", "301", 20, operation="overwrite",
                                           pins={**units, "silver.building_register_titles": "12",
-                                                "silver.unit_official_price": "41"})),
+                                                "silver.unit_official_price_versions": "41"})),
         }
 
     def served(self, snapshot):

@@ -52,10 +52,10 @@ from silver_release_compare import commit_stamp, refuse_older_edition, release_c
 JOB_NAME = "vintage-versions"
 CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "vintage-versions-migration.contract.json"
 PARITY_PROPERTY = "foundation.parity."
-# What a price line is: everything the source file says about it. Not the vintage, the load's ids
-# and instant, nor where the line sat in the file (its part and line number move between vintages).
-APARTMENT_PRICE_CONTENT = ("sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon", "price_won", "notice_date",
-                           "pnu", "raw_columns")
+# What a price line is, as the price lane compares it: its contract's compare.content_columns.
+APARTMENT_PRICE_LANE = Path(__file__).resolve().parents[2] / "contracts" / "hub-building-register-apartment-price-source-objects.json"
+APARTMENT_PRICE_CONTENT = tuple(
+    json.loads(APARTMENT_PRICE_LANE.read_text(encoding="utf-8"))["silver_refresh"]["compare"]["content_columns"])
 # What a joined unit price is, besides its key: where it is served and its value.
 UNIT_PRICE_CONTENT = ("pnu", "dong_name", "ho_name", "price_won", "sido")
 

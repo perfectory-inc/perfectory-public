@@ -4,7 +4,7 @@
     'building_register_unit': {'predicate': none, 'key': ['mgm_bldrgst_pk'], 'newest_first': ['valid_from_utc', 'ingested_at_utc'], 'removal': 'row_state'},
     'building_register_unit_area': {'predicate': none, 'key': ['mgm_bldrgst_pk'], 'newest_first': ['valid_from_utc', 'ingested_at_utc'], 'removal': 'row_state'},
     'land_right_registration': {'predicate': none, 'key': ['pnu', 'right_serial_no'], 'newest_first': ['source_snapshot_id', 'ingested_at_utc'], 'removal': 'row_state'},
-    'unit_official_price': {'predicate': none, 'key': none, 'newest_first': ['vintage'], 'removal': none, 'edition': 'source_snapshot_id', 'per': []},
+    'unit_official_price_versions': {'predicate': none, 'key': ['mgm_bldrgst_pk', 'base_date'], 'newest_first': ['vintage', 'ingested_at_utc'], 'removal': 'row_state'},
 } -%}
 {%- set relation = source('foundation', name) -%}
 {%- set rule = rules[name] -%}

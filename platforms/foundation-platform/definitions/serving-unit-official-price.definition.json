@@ -22,7 +22,7 @@
   ],
   "dependencies": [
     {
-      "from": "silver-unit-official-price",
+      "from": "silver-unit-official-price-versions",
       "to": "serving-unit-official-price",
       "relation": "feeds",
       "status": "implemented",
