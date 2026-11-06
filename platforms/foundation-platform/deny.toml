@@ -64,6 +64,12 @@ allow = [
     "Unicode-DFS-2016",
     "Zlib",
 ]
+# libfuzzer-sys (NCSA, OSI approved) is a `cfg(fuzzing)` dependency of rav1e, the AVIF encoder of
+# the photo ladder (root ADR-0427): it is never compiled into any of our builds, but cargo-deny
+# reads every target. The exception names that one crate; NCSA is not allowed anywhere else.
+exceptions = [
+    { crate = "libfuzzer-sys", allow = ["NCSA"] },
+]
 
 [bans]
 multiple-versions = "warn"
