@@ -163,6 +163,8 @@ services:
       RUST_LOG: ${RUST_LOG:-info}
       # 운영자 스위치(루트 ADR-0282 §3): 러너와 시작 문이 읽는 호스트 파일. 아래 마운트와 같은 곳.
       FOUNDATION_PLATFORM_JOB_SWITCHES_DIR: /var/lib/foundation-jobs/switches
+      # 승인한 by-PNU cut-over 의 호스트 진행(루트 ADR-0433 §6): 아래 읽기 전용 마운트와 같은 곳.
+      FOUNDATION_PLATFORM_RELEASE_PROGRESS_DIR: /var/lib/foundation-jobs/releases
     # 관리자 폴리곤 편집 저장소(ADR-0112)의 주소와 쓰기 토큰. 토큰은 비밀이라 environment 에
     # 기본값으로 두지 않고, 커밋하지 않는 이 파일로만 나른다. 파일이 없으면 편집은 503 으로
     # 거부되고 저장되지 않는다.
@@ -175,6 +177,7 @@ services:
     # state_directories, foundation-api 10001), in `activate` before the container is recreated.
     volumes:
       - /var/lib/foundation-jobs/switches:/var/lib/foundation-jobs/switches
+      - /var/lib/foundation-jobs/releases:/var/lib/foundation-jobs/releases:ro
     depends_on:
       postgres:
         condition: service_healthy

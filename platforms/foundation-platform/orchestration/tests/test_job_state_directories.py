@@ -122,7 +122,8 @@ class TheReleaseMakesTheJobStateDirectories(unittest.TestCase):
         compose = (PLATFORM / "docker-compose.yml").read_text(encoding="utf-8")
         service = compose[compose.index("\n  foundation-api:"):compose.index("\n  foundation-api-smoke:")]
         sources = re.findall(r"^      - (/[^:\s]+):", service, re.M)
-        self.assertEqual(sources, ["/var/lib/foundation-jobs/switches"])
+        # The switches it writes, and the approved cut-overs' progress it only reads (root ADR-0433 §6).
+        self.assertEqual(sources, ["/var/lib/foundation-jobs/switches", "/var/lib/foundation-jobs/releases"])
         made = {entry["path"] for entry in json.loads(JOBS.read_text(encoding="utf-8"))["state_directories"]}
         self.assertEqual([source for source in sources if source not in made], [])
         self.assertIn("d /var/lib/foundation-jobs/switches 0755 foundation-api foundation-api -",
