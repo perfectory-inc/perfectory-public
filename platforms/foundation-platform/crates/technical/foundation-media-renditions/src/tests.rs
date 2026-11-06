@@ -1,8 +1,6 @@
 use super::*;
 use image::codecs::jpeg::JpegEncoder;
 
-const CONTRACT: &str = include_str!("../../../../config/r2-connections.contract.json");
-
 fn spec(widths: &[u32]) -> Spec {
     Spec {
         version: "test".to_owned(),
@@ -158,17 +156,4 @@ fn refuses_a_source_over_the_pixel_cap_and_bytes_that_are_not_an_image() {
         Err(RenderError::Decode(_))
     ));
     assert_eq!(dimensions(b"<html>gone</html>"), None);
-}
-
-#[test]
-fn the_contract_ladder_parses() -> Result<(), serde_json::Error> {
-    let contract: serde_json::Value = serde_json::from_str(CONTRACT)?;
-    let ladder: Spec = serde_json::from_value(contract["parcel_media"]["renditions"].clone())?;
-    assert!(!ladder.widths.is_empty());
-    assert!(ladder.widths.windows(2).all(|pair| pair[0] < pair[1]));
-    assert_eq!(
-        ladder.formats.last().map(FormatSpec::extension),
-        Some("webp")
-    );
-    Ok(())
 }

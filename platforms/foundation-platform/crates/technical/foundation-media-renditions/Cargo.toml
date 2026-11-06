@@ -16,6 +16,3 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 webp = { workspace = true }
 foundation-workspace-hack.workspace = true
-
-[dev-dependencies]
-serde_json = { workspace = true }

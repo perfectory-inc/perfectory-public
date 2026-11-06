@@ -6,7 +6,7 @@
   [ADR-0424](./0424-a-public-auction-photo-is-stored-at-its-original-size-beside-the-providers-thumbnail.md),
   [ADR-0298](./0298-content-addressed-media-is-a-write-once-store-not-a-per-object-bronze-ledger.md),
   [ADR-0330](./0330-a-public-auction-round-is-detailed-until-its-media-landed-open-rounds-first.md),
-  [ADR-0384](./0384-court-auction-photos-are-read-from-the-item-detail-within-the-night-and-stored-once-by-content.md)
+  ADR-0384(경매 사진, #1100 에서 열린 채)
 - Amends: ADR-0424 §6 — 화면은 원본 파일 자체가 아니라 원본에서 만든 사다리를 보인다.
 
 ## Context
