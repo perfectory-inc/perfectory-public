@@ -74,16 +74,7 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
               key={photo.sha256}
               className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-[var(--color-surface-cream-strong)]"
             >
-              {/* biome-ignore lint/performance/noImgElement: onbid media is immutable,
-                  content-addressed CDN output (sha256); the Next image optimizer would add a
-                  server hop with no gain, so a plain img is correct here. */}
-              <img
-                src={onbidMediaSrc(photo)}
-                alt={photo.title ?? t("photoAltFallback")}
-                loading="lazy"
-                decoding="async"
-                className="h-full w-full object-cover"
-              />
+              <PhotoTile t={t} photo={photo} />
             </li>
           ))}
         </ul>
@@ -105,6 +96,44 @@ function RoundMedia({ t, photos }: { t: Translate; photos: PublicAuctionRound["p
         </ul>
       )}
     </>
+  );
+}
+
+/** The provider's photo file is a 178x134 thumbnail (root ADR-0424). */
+const THUMBNAIL_WIDTH = 178;
+// shortcut: the original's pixel width is not in the document; any width past the tile's makes the
+// browser take the original on a dense screen or a wide tile. Upgrade if the document carries widths.
+const ORIGINAL_WIDTH = 1024;
+
+/**
+ * One photo: the full-size original when it has landed (root ADR-0424), with the thumbnail as the
+ * placeholder behind it and the small candidate of its srcset; it links to the original file.
+ */
+function PhotoTile({ t, photo }: { t: Translate; photo: PublicAuctionRound["photos"][number] }) {
+  const thumbnail = onbidMediaSrc(photo);
+  const original = photo.original ? onbidMediaSrc(photo.original) : null;
+  const image = (
+    // biome-ignore lint/performance/noImgElement: immutable content-addressed CDN media (sha256); the Next optimizer adds a hop for no gain.
+    <img
+      src={original ?? thumbnail}
+      srcSet={
+        original ? `${thumbnail} ${THUMBNAIL_WIDTH}w, ${original} ${ORIGINAL_WIDTH}w` : undefined
+      }
+      sizes={original ? "(max-width: 640px) 33vw, 160px" : undefined}
+      alt={photo.title ?? t("photoAltFallback")}
+      loading="lazy"
+      decoding="async"
+      className="h-full w-full object-cover"
+      style={
+        original ? { backgroundImage: `url(${thumbnail})`, backgroundSize: "cover" } : undefined
+      }
+    />
+  );
+  if (!original) return image;
+  return (
+    <a href={original} target="_blank" rel="noopener noreferrer" className="block h-full w-full">
+      {image}
+    </a>
   );
 }
 

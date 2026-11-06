@@ -187,7 +187,7 @@ ROUND_SCHEMA = ", ".join(
 
 
 def round_row(key, is_open, ends, pnu_value=CURRENT, usage="10000",
-              photos=(("a" * 64, "photo", 0, None, "jpg", 100),)):
+              photos=(("a" * 64, "photo", 0, None, "jpg", 100, None),)):
     return (key, 1, is_open, pnu_value, 1, 2, 3, "1", "synthetic item", "0007", "0001", "0001", "0001",
             usage, usage + "1", usage + "11", 100, 70, "70", 100, 0, datetime(2099, 1, 1), ends, 10.0, None, "N",
             list(photos))
@@ -263,14 +263,16 @@ class DocumentSparkTest(unittest.TestCase):
         import json
         from pyspark.sql import functions as F
 
-        media = [("a" * 64, "appraisal", 0, "감정서", "pdf", 300), ("b" * 64, "photo", 0, "front", "png", 100),
-                 ("c" * 64, "photo", 1, None, "jpg", 200)]
+        media = [("a" * 64, "appraisal", 0, "감정서", "pdf", 300, None),
+                 ("b" * 64, "photo", 0, "front", "png", 100, ("e" * 64, "jpg", 9000)),
+                 ("c" * 64, "photo", 1, None, "jpg", 200, None)]
         rows = job.with_usage_names(self.rounds([round_row("A", True, datetime(2099, 1, 5), photos=media)]), None)
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
         photos = json.loads(job.document_rows(placed).first().public_auction_json)["rounds"][0]["photos"]
         self.assertEqual([(p["media_kind"], p["sequence"], p["sha256"][0]) for p in photos],
                          [("appraisal", 0, "a"), ("photo", 0, "b"), ("photo", 1, "c")], "array order preserved")
         self.assertEqual((photos[1]["media_format"], photos[1]["title"], photos[2]["size_bytes"]), ("png", "front", 200))
+        self.assertEqual(photos[1]["original"], {"sha256": "e" * 64, "media_format": "jpg", "size_bytes": 9000})
 
     def test_a_round_without_media_carries_an_empty_array(self):
         import json
@@ -295,6 +297,21 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertEqual(filled[("Z", 1)], [], "a round with no media gets an empty array, never null")
         self.assertEqual([p.sha256[0] for p in filled[("A", 1)]], ["a", "b"])
         self.assertEqual(filled[("A", 2)], filled[("A", 1)])
+
+    def test_a_photo_carries_its_original_and_the_original_is_no_entry_of_its_own(self):
+        # 2026-11-06: the stored photos were 178x134 thumbnails; the original rides beside (root ADR-0424).
+        photo_schema = ("cltr_mng_no string, pbct_cdtn_no long, sha256 string, media_kind string, "
+                        "sequence int, title string, media_format string, size_bytes bigint")
+        photo_rows = self.spark.createDataFrame([
+            ("A", 1, "a" * 64, "photo", 0, None, "jpg", 10), ("A", 1, "b" * 64, "photo", 1, None, "jpg", 20),
+            ("A", 1, "c" * 64, "photo_original", 0, None, "jpg", 900),
+            ("A", 1, "d" * 64, "appraisal", 0, "g", "pdf", 30)], photo_schema)
+        [row] = job.photos_by_item(photo_rows).collect()
+        self.assertEqual([(p.media_kind, p.sequence, p.sha256[0]) for p in row.photos],
+                         [("appraisal", 0, "d"), ("photo", 0, "a"), ("photo", 1, "b")])
+        self.assertEqual((row.photos[1].original.sha256[0], row.photos[1].original.size_bytes), ("c", 900))
+        self.assertIsNone(row.photos[2].original, "a photo whose original has not landed carries none")
+        self.assertIsNone(row.photos[0].original)
 
     def test_the_document_of_an_item_the_photo_silver_holds_carries_its_photos(self):
         """The Silver-to-document path end to end: current photo rows, grouped by item, joined to the
@@ -407,7 +424,10 @@ class BlocksSparkTest(unittest.TestCase):
         photos = [{"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "a" * 64, "media_kind": "photo", "sequence": 0,
                    "media_format": "jpg", "size_bytes": 1, "source_snapshot_id": "s"},
                   {"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "b" * 64, "media_kind": "location_map", "sequence": 0,
-                   "media_format": "png", "size_bytes": 2, "source_snapshot_id": "s"}]
+                   "media_format": "png", "size_bytes": 2, "source_snapshot_id": "s"},
+                  # The photo's full-size original (root ADR-0424): its round photo's `original`, no item medium.
+                  {"cltr_mng_no": "K", "pbct_cdtn_no": 1, "sha256": "c" * 64, "media_kind": "photo_original",
+                   "sequence": 0, "media_format": "jpg", "size_bytes": 3, "source_snapshot_id": "s"}]
         announcements = [{"onbid_pbanc_no": 7, "pbct_no": 70 + n, "pbanc_mng_no": "209901-00007-00", "org_nm": "합성 기관",
                           "source_snapshot_id": "s"} for n in (1, 2)]
         opening = [{"onbid_pbanc_no": 7, "pbct_no": 71, "exct_stat_cd": "0001", "exct_stat_nm": "개찰준비중",

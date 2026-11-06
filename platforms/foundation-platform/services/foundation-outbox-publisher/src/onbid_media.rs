@@ -10,6 +10,10 @@
 //! 실물 확인(2026-10-26 운영 서비스키 호출): 사진은 `potoUrlList[].urlAdr`, 감정평가서는
 //! `apslEvlClgList[].urlAdr`, 둘 다 호스트 `www.onbid.co.kr`. 만료 링크는 HTML 오류 페이지를 주므로
 //! 매직바이트 판정이 걸러낸다.
+//!
+//! 실측(2026-11-06, 공개 GET): `potoUrlList[].urlAdr` 는 썸네일(178×134)이다. 같은 첨부의 원본은
+//! 계약의 `media.fields.originals` 규칙으로 URL 을 바꿔 썸네일 다음에 받고, `<필드>Original` 로 썸네일
+//! 옆에 적는다 — 둘 다 남긴다 (root ADR-0424).
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -24,12 +28,15 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 use sha2::{Digest as _, Sha256};
 
-use crate::data_go_kr_onbid_collect::{LineOutcome, MediaFields, MediaRef};
+use crate::data_go_kr_onbid_collect::{LineOutcome, MediaFields, MediaRef, OriginalRule};
 
 /// Media objects never change once stored (the key is their content hash), so they cache forever.
 const MEDIA_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 const PHOTO_FIELD: &str = "potoUrlList";
+/// The key beside a list field (`<field>Original`) naming the originals of its thumbnails (root
+/// ADR-0424).
+const ORIGINAL_SUFFIX: &str = "Original";
 #[cfg(test)]
 const APPRAISAL_FIELD: &str = "apslEvlClgList";
 
@@ -91,19 +98,77 @@ fn urls_of(value: &JsonValue) -> Vec<String> {
     }
 }
 
-/// Every media field of `fields` in the order a run downloads them: photos first (what the screen
-/// shows), then the other lists and the maps (root ADR-0339 footnote, ADR-0340 §4).
-fn fields_in_order(fields: &MediaFields) -> Vec<&str> {
-    std::iter::once(PHOTO_FIELD)
+/// One pass of a run's media step: a field's own URLs, or the originals of a field's thumbnails.
+#[derive(Clone, Copy, Debug)]
+enum Pass<'a> {
+    Field(&'a str),
+    Original(&'a str, &'a OriginalRule),
+}
+
+impl Pass<'_> {
+    /// The URLs this pass downloads from one 물건상세 response, each once.
+    fn urls(&self, detail: &JsonValue, host: &str) -> Vec<String> {
+        match *self {
+            Pass::Field(field) => candidate_urls(detail, field, host),
+            Pass::Original(field, rule) => {
+                let mut urls: Vec<String> = Vec::new();
+                for url in candidate_urls(detail, field, host)
+                    .iter()
+                    .filter_map(|url| original_url(url, rule))
+                {
+                    if !urls.contains(&url) {
+                        urls.push(url);
+                    }
+                }
+                urls
+            }
+        }
+    }
+}
+
+/// Every media pass of `fields` in the order a run downloads them: photos first (what the screen
+/// shows), then the photos' originals (root ADR-0424), then the other lists and the maps (root
+/// ADR-0339 footnote, ADR-0340 §4).
+fn fields_in_order(fields: &MediaFields) -> Vec<Pass<'_>> {
+    std::iter::once(Pass::Field(PHOTO_FIELD))
+        .chain(
+            fields
+                .originals
+                .iter()
+                .map(|(field, rule)| Pass::Original(field.as_str(), rule)),
+        )
         .chain(
             fields
                 .list
                 .keys()
                 .map(String::as_str)
-                .filter(|field| *field != PHOTO_FIELD),
+                .filter(|field| *field != PHOTO_FIELD)
+                .map(Pass::Field),
         )
-        .chain(fields.pipe.keys().map(String::as_str))
+        .chain(fields.pipe.keys().map(String::as_str).map(Pass::Field))
         .collect()
+}
+
+/// The full-size original of a thumbnail `url` (root ADR-0424): on a URL whose path ends with the
+/// rule's `path_suffix`, each of its `query` keys set to its value, the other parameters kept.
+/// `None` when the rule does not apply or changes nothing.
+pub(crate) fn original_url(url: &str, rule: &OriginalRule) -> Option<String> {
+    let mut parsed = reqwest::Url::parse(url).ok()?;
+    if rule.path_suffix.is_empty() || !parsed.path().ends_with(&rule.path_suffix) {
+        return None;
+    }
+    let kept = parsed
+        .query_pairs()
+        .filter(|(key, _)| !rule.query.contains_key(key.as_ref()))
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+    parsed
+        .query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .extend_pairs(&rule.query);
+    let original = parsed.to_string();
+    (original != url).then_some(original)
 }
 
 fn host_is(url: &str, host: &str) -> bool {
@@ -296,7 +361,7 @@ pub(crate) async fn mirror_detail_lines(
         .collect::<Vec<_>>();
     // Per line: every URL of the kinds passed so far landed or was skipped for good.
     let mut landed = vec![true; detail_lines.len()];
-    for field in fields_in_order(settings.fields) {
+    for pass in fields_in_order(settings.fields) {
         for (index, response) in responses.iter().enumerate() {
             let Some(response) = response else {
                 continue;
@@ -314,7 +379,7 @@ pub(crate) async fn mirror_detail_lines(
                 .to_owned();
             let fresh = revalidate.get(index).copied().unwrap_or(false);
             let mut wanted = Vec::new();
-            for url in candidate_urls(response, field, settings.url_host) {
+            for url in pass.urls(response, settings.url_host) {
                 if resolved.contains_key(&url) {
                     continue;
                 }
@@ -377,7 +442,7 @@ pub(crate) async fn mirror_detail_lines(
                 }
             }
         }
-        if field == PHOTO_FIELD {
+        if matches!(pass, Pass::Field(PHOTO_FIELD)) {
             for (outcome, landed) in outcomes.iter_mut().zip(&landed) {
                 outcome.photos_complete = *landed;
             }
@@ -490,6 +555,40 @@ fn rewrite_item(
             .collect::<Vec<_>>();
         if let (false, Some(object)) = (stored.is_empty(), item.as_object_mut()) {
             object.insert(format!("{field}Media"), JsonValue::Array(stored));
+            changed = true;
+        }
+    }
+    for (field, rule) in &fields.originals {
+        let originals = item[field.as_str()]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .enumerate()
+                    .filter_map(|(sequence, entry)| {
+                        let url = entry["urlAdr"].as_str()?.trim();
+                        let original = resolved.get(&original_url(url, rule)?)?;
+                        // The same bytes as the thumbnail: that file already is the original.
+                        if resolved
+                            .get(url)
+                            .is_some_and(|thumbnail| thumbnail.sha256 == original.sha256)
+                        {
+                            return None;
+                        }
+                        Some(serde_json::json!({
+                            "sequence": sequence,
+                            "sha256": original.sha256,
+                            "media_format": original.media_format,
+                            "size_bytes": original.size_bytes,
+                        }))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if let (false, Some(object)) = (originals.is_empty(), item.as_object_mut()) {
+            object.insert(
+                format!("{field}{ORIGINAL_SUFFIX}"),
+                JsonValue::Array(originals),
+            );
             changed = true;
         }
     }
@@ -658,10 +757,17 @@ mod tests {
         });
         let media_fields = fields();
         let order = fields_in_order(&media_fields);
-        assert_eq!(order.first(), Some(&"potoUrlList"), "photos first");
+        assert!(
+            matches!(order.first(), Some(super::Pass::Field("potoUrlList"))),
+            "photos first"
+        );
+        assert!(
+            matches!(order.get(1), Some(super::Pass::Original("potoUrlList", _))),
+            "then the photos' originals"
+        );
         let urls = order
             .iter()
-            .flat_map(|field| candidate_urls(&detail(item.clone()), field, "www.onbid.co.kr"))
+            .flat_map(|pass| pass.urls(&detail(item.clone()), "www.onbid.co.kr"))
             .collect::<Vec<_>>();
         assert_eq!(
             urls,
@@ -744,6 +850,63 @@ mod tests {
             .is_empty());
             assert!(candidate_urls(&json!({"body": {}}), field, "www.onbid.co.kr").is_empty());
         }
+    }
+
+    /// A provider attachment URL of the shape the 물건상세 photo list carries (synthetic numbers).
+    const THUMBNAIL: &str = "https://www.onbid.co.kr/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldImgFile.do?atchFileLstNo=99999&atchSn=2&thnImgDownloadFlag=true&downloadImageKind=ELGM_FILE_NM";
+
+    #[test]
+    fn a_thumbnail_url_becomes_its_original_and_any_other_url_has_none() {
+        // 2026-11-06: the stored photos were the provider's 178x134 thumbnails (root ADR-0424).
+        let media_fields = fields();
+        let rule = &media_fields.originals[PHOTO_FIELD];
+        assert_eq!(
+            super::original_url(THUMBNAIL, rule).as_deref(),
+            Some("https://www.onbid.co.kr/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldImgFile.do?atchFileLstNo=99999&atchSn=2&downloadImageKind=CLG_FILE_NM&thnImgDownloadFlag=false")
+        );
+        assert_eq!(
+            super::original_url("https://www.onbid.co.kr/op/a.jpg", rule),
+            None
+        );
+        assert_eq!(super::original_url("not a url", rule), None);
+    }
+
+    #[test]
+    fn an_original_lands_beside_its_thumbnail_unless_it_is_the_same_file() {
+        use super::{original_url, rewrite_detail_lines, StoredMedia};
+        use std::collections::HashMap;
+
+        let media_fields = fields();
+        let rule = &media_fields.originals[PHOTO_FIELD];
+        let second = THUMBNAIL.replace("atchSn=2", "atchSn=3");
+        let stored = |c: char, size| StoredMedia {
+            sha256: c.to_string().repeat(64),
+            media_format: "jpg".to_owned(),
+            size_bytes: size,
+        };
+        let resolved = HashMap::from([
+            (THUMBNAIL.to_owned(), stored('a', 10)),
+            (original_url(THUMBNAIL, rule).unwrap(), stored('b', 1000)),
+            (second.clone(), stored('c', 20)),
+            // The provider made no thumbnail of this one: the same bytes either way.
+            (original_url(&second, rule).unwrap(), stored('c', 20)),
+        ]);
+        let body = detail(json!({"cltrMngNo": "A-1", "pbctCdtnNo": 1, "potoUrlList": [
+            {"urlAdr": THUMBNAIL}, {"urlAdr": second}
+        ]}));
+        let line = json!({"body": body.to_string()}).to_string();
+        let out = rewrite_detail_lines(&[line], &resolved, &media_fields);
+        let record: serde_json::Value = serde_json::from_str(&out[0]).unwrap();
+        let response: serde_json::Value =
+            serde_json::from_str(record["body"].as_str().unwrap()).unwrap();
+        let item = &response["body"]["items"]["item"];
+        assert_eq!(
+            item["potoUrlListOriginal"],
+            json!([{"sequence": 0, "sha256": "b".repeat(64), "media_format": "jpg", "size_bytes": 1000}])
+        );
+        // The thumbnails keep their own entries, both kept (append-only, root ADR-0298).
+        assert_eq!(item["potoUrlList"][0]["sha256"], json!("a".repeat(64)));
+        assert_eq!(item["potoUrlList"][1]["sha256"], json!("c".repeat(64)));
     }
 
     #[test]
@@ -1033,6 +1196,107 @@ mod tests {
             .as_array()
             .is_some_and(|photos| photos.iter().all(|photo| photo["sha256"].is_string())));
         assert!(item["apslEvlClgList"][0].get("sha256").is_none());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn every_lines_thumbnails_land_before_any_original_and_an_original_completes_its_line(
+    ) -> anyhow::Result<()> {
+        use super::{mirror_detail_lines, MirrorSettings};
+        use std::collections::BTreeMap;
+        use std::time::{Duration, Instant};
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+        // The provider's endpoint: a thumbnail when thnImgDownloadFlag=true, else the original.
+        struct Attachment;
+        impl Respond for Attachment {
+            fn respond(&self, request: &Request) -> ResponseTemplate {
+                let query = request.url.query().unwrap_or_default();
+                let size = if query.contains("thnImgDownloadFlag=true") {
+                    1
+                } else {
+                    9
+                };
+                ResponseTemplate::new(200).set_body_bytes(
+                    [&[0xFF, 0xD8, 0xFF][..], query.as_bytes(), &vec![0; size]].concat(),
+                )
+            }
+        }
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(Attachment)
+            .mount(&server)
+            .await;
+        let base = server.uri();
+        let host = reqwest::Url::parse(&base)?
+            .host_str()
+            .unwrap_or_default()
+            .to_owned();
+        let thumbnail = THUMBNAIL.replace("https://www.onbid.co.kr", &base);
+        let lines = [("A", "atchSn=2"), ("B", "atchSn=3")]
+            .iter()
+            .map(|(cltr, attachment)| {
+                let url = thumbnail.replace("atchSn=2", attachment);
+                let body = detail(
+                    json!({"cltrMngNo": cltr, "pbctCdtnNo": 1, "potoUrlList": [{"urlAdr": url}]}),
+                );
+                json!({"body": body.to_string()}).to_string()
+            })
+            .collect::<Vec<_>>();
+        let root = std::env::temp_dir().join(format!("onbid-media-{}", uuid::Uuid::new_v4()));
+        let storage = foundation_outbox::FileObjectStorage::new(root)?;
+        let media_fields = fields();
+        let settings = |per_run_limit| MirrorSettings {
+            object_prefix: "onbid/media",
+            url_host: &host,
+            max_file_bytes: 1024,
+            daily_limit: 100,
+            per_run_limit,
+            concurrency: 2,
+            deadline: Instant::now() + Duration::from_secs(60),
+            fields: &media_fields,
+        };
+        let mut memo = BTreeMap::new();
+        // Room for 2: both items' thumbnails, no original; the lines wait for a later run.
+        let first = mirror_detail_lines(
+            &lines,
+            &[],
+            &mut memo,
+            &settings(2),
+            0,
+            &storage,
+            &reqwest::Client::new(),
+        )
+        .await;
+        let outcomes = first
+            .outcomes
+            .iter()
+            .map(|outcome| (outcome.photos_complete, outcome.complete))
+            .collect::<Vec<_>>();
+        assert_eq!(outcomes, [(true, false), (true, false)]);
+        // The next run reuses the thumbnails and fetches only the originals.
+        let next = mirror_detail_lines(
+            &lines,
+            &[],
+            &mut memo,
+            &settings(10),
+            0,
+            &storage,
+            &reqwest::Client::new(),
+        )
+        .await;
+        assert_eq!((next.report.reused, next.report.downloaded), (2, 2));
+        assert!(next.outcomes.iter().all(|outcome| outcome.complete));
+        let record: serde_json::Value = serde_json::from_str(&next.lines[1])?;
+        let response: serde_json::Value =
+            serde_json::from_str(record["body"].as_str().unwrap_or_default())?;
+        let item = &response["body"]["items"]["item"];
+        assert_eq!(item["potoUrlListOriginal"][0]["sequence"], json!(0));
+        assert_ne!(
+            item["potoUrlListOriginal"][0]["sha256"],
+            item["potoUrlList"][0]["sha256"]
+        );
         Ok(())
     }
 }

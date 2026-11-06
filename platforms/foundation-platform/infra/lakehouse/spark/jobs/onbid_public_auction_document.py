@@ -64,6 +64,14 @@ def _media_lists() -> frozenset[str]:
     return frozenset(json.loads(SOURCE_PATH.read_text(encoding="utf-8"))["media"]["fields"]["list"])
 
 
+@lru_cache(maxsize=1)
+def original_kinds() -> dict[str, str]:
+    """The Silver media kind of each thumbnail list's full-size originals → the kind of the
+    thumbnails they belong to (`media.fields.originals`, root ADR-0424): `photo_original` → `photo`."""
+    fields = json.loads(SOURCE_PATH.read_text(encoding="utf-8"))["media"]["fields"]
+    return {rule["media_kind"]: fields["list"][field] for field, rule in fields.get("originals", {}).items()}
+
+
 def _columns(source: str) -> list[tuple[str, str]]:
     from platform_contracts import load_lakehouse_contract  # noqa: PLC0415
 
@@ -217,7 +225,8 @@ def item_blocks(frames: dict[str, Any], items: Any) -> Any:
         F.col("opened_at").alias("_at"), F.col("pbct_cdtn_no").alias("_k"),
         F.struct(*HISTORY_COLUMNS).alias("_round")))).alias("_sorted")).select(
         ITEM, F.col("_sorted._round").alias("history"))
-    photos = _current(frames, PHOTO_SOURCE).where(~F.col("media_kind").isin(*ROUND_MEDIA_KINDS))
+    # An original is its round photo's `original`, not an item medium of its own (root ADR-0424).
+    photos = _current(frames, PHOTO_SOURCE).where(~F.col("media_kind").isin(*ROUND_MEDIA_KINDS, *original_kinds()))
     media = photos.groupBy(ITEM).agg(F.array_sort(F.collect_list(F.struct(
         F.col("media_kind").alias("_kind"), F.col("sequence").alias("_seq"),
         F.struct(*MEDIA_COLUMNS).alias("_media")))).alias("_sorted")).select(

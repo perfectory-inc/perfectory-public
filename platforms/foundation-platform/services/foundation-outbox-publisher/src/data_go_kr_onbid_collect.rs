@@ -180,6 +180,18 @@ pub(crate) struct MediaFields {
     pub(crate) list: BTreeMap<String, String>,
     /// `|`-joined URL strings: field → media_kind.
     pub(crate) pipe: BTreeMap<String, String>,
+    /// `list` fields whose URL is a thumbnail: field → how its full-size original is asked for
+    /// (root ADR-0424).
+    #[serde(default)]
+    pub(crate) originals: BTreeMap<String, OriginalRule>,
+}
+
+/// How a thumbnail URL becomes its original's: on a URL whose path ends with `path_suffix`, each
+/// `query` key is set to its value (root ADR-0424). Its `media_kind` is the Silver loader's.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub(crate) struct OriginalRule {
+    pub(crate) path_suffix: String,
+    pub(crate) query: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

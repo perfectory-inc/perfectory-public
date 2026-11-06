@@ -87,6 +87,34 @@ describe("public auction gallery", () => {
     );
   });
 
+  // Root ADR-0424: the provider's photo file is a 178x134 thumbnail; the original is shown over it.
+  it("shows a photo's original with its thumbnail as the small candidate and links to it", () => {
+    renderCard([
+      {
+        cltr_mng_no: "X-0001",
+        item_name: "테스트 물건",
+        bid_ends_at: "2099-01-01T00:00:00.000Z",
+        photos: [
+          {
+            sha256: sha("a"),
+            media_kind: "photo",
+            sequence: 0,
+            title: "정면 사진",
+            media_format: "jpg",
+            size_bytes: 10,
+            original: { sha256: sha("e"), media_format: "jpg" },
+          },
+        ],
+      },
+    ]);
+    const thumbnail = `https://catalog.perfectory.io/onbid/media/sha256/${sha("a")}.jpg`;
+    const original = `https://catalog.perfectory.io/onbid/media/sha256/${sha("e")}.jpg`;
+    const image = screen.getByRole("img", { name: "정면 사진" });
+    expect(image.getAttribute("src")).toBe(original);
+    expect(image.getAttribute("srcset")).toBe(`${thumbnail} 178w, ${original} 1024w`);
+    expect(screen.getByRole("link", { name: "정면 사진" }).getAttribute("href")).toBe(original);
+  });
+
   it("renders no gallery when a round has no photos", () => {
     renderCard([
       {
