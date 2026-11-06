@@ -234,6 +234,14 @@ sync_dagster() {
     printf 'airflow-runtime: WARN dagster: its Airflow account could not be made; Dagster is not observing\n' >&2
     return 0
   fi
+  # The dual run reads when each DAG was paused from Airflow's audit log (root ADR-0431), which Viewer
+  # cannot read (production 2026-11-07: Viewer has no `can_read` on Audit Logs). One role of its own
+  # adds that read and nothing else.
+  if ! { airflow_cli roles create foundation-dagster-observe &&
+    airflow_cli roles add-perms foundation-dagster-observe -a can_read -r "Audit Logs" &&
+    airflow_cli users add-role --username foundation-dagster-observe --role foundation-dagster-observe; } </dev/null >/dev/null; then
+    printf 'airflow-runtime: WARN dagster: its account cannot read the audit log; the dual run checks will fail\n' >&2
+  fi
   # A restart loads the release's code location (it is read when the process starts).
   compose up -d "${dagster_services[@]}" >/dev/null && compose restart "${dagster_services[@]}" >/dev/null
   for _ in $(seq 1 30); do
