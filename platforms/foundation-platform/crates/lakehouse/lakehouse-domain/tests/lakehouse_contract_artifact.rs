@@ -40,6 +40,36 @@ fn spark_contract_artifact_matches_rust_lakehouse_contracts() -> TestResult {
     Ok(())
 }
 
+/// The re-run guard reads each table's load column to compare the identities a batch carries with
+/// the ones the table records (root ADR-0069). Measured 2026-09-01, five of six live tables recorded
+/// no identity it could use, and re-running their loads would have appended 133,583,046 rows a
+/// second time. `LakehouseLoadUnit` makes the declaration itself required; this keeps the column it
+/// names real and required: a missing column fails the load hours into a national run, and an
+/// optional one is added empty by the loader, so the guard silently has nothing to count.
+#[test]
+fn every_load_identity_column_is_a_required_column_of_its_table() {
+    for contract in industrial_complex_lakehouse_contracts() {
+        let column = match &contract.load {
+            LakehouseLoadUnit::Object { column, .. } | LakehouseLoadUnit::Run { column } => column,
+            LakehouseLoadUnit::Derived => continue,
+        };
+        let declared = contract
+            .columns
+            .iter()
+            .find(|candidate| candidate.name == *column);
+        assert!(
+            declared.is_some(),
+            "{}: the load reads {column:?}, which the table does not have",
+            contract.table_name
+        );
+        assert!(
+            declared.is_some_and(|candidate| candidate.required),
+            "{}: the load reads {column:?}, which the contract marks optional",
+            contract.table_name
+        );
+    }
+}
+
 #[test]
 fn spark_artifact_exports_the_bronze_jsonl_transport_contract() -> TestResult {
     let raw = std::fs::read_to_string(contract_artifact_path()?)?;
