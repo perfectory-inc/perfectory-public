@@ -18,9 +18,10 @@
     }
   },
   "maxzoom_detail": {
-    "parcels": 14
+    "parcels": 14,
+    "zoning": 16
   },
-  "maxzoom_detail_reason": "Root ADR-0262. tippecanoe's --full-detail for a unit, the maxzoom tile extent being 2^detail. At the default 12 (extent 4096, about 10 cm per unit at z16 in Korea) the national 202609 bake lost 542 parcels tippecanoe's polygon cleaning collapsed, slivers up to 16 px wide at render_max_zoom 22 among them. At 14 (extent 16384) one unit is one pixel at zoom 22, and every parcel still lost in the measurement is sub-pixel there, which the maxzoom id gate allows by id. A unit not listed keeps 12.",
+  "maxzoom_detail_reason": "Root ADR-0262. tippecanoe's --full-detail for a unit, the maxzoom tile extent being 2^detail. At the default 12 (extent 4096, about 10 cm per unit at z16 in Korea) the national 202609 bake lost 542 parcels tippecanoe's polygon cleaning collapsed, slivers up to 16 px wide at render_max_zoom 22 among them. At 14 (extent 16384) one unit is one pixel at zoom 22, and every parcel still lost in the measurement is sub-pixel there, which the maxzoom id gate allows by id. zoning bakes its maxzoom at z14, so the default 12 makes one unit 16 px at render_max_zoom 22: from 2026-11-03 every zoning bake was refused, its z14 tiles missing 642 zones that are not sub-pixel (1.3 to 12 px wide at z22). Re-baking the 11,706 zones under 32 px wide of the 2026-11-07 handoff with the pinned tippecanoe lost 689 such zones at 12, 279 at 13, 52 at 14, 1 at 15 and none at 16, where one unit is again one pixel at zoom 22; that sample archive grew 17% (2.25 to 2.64 MB), and only the z14 tiles change, --full-detail being the maxzoom detail. A unit not listed keeps 12.",
   "partition_by_feature_id_prefix": {
     "parcels": 2,
     "zoning": 4
