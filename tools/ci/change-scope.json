@@ -368,19 +368,6 @@
         "budget_seconds": 60
       },
       {
-        "name": "hand-rolled-error-boundary-self-test",
-        "paths": []
-      },
-      {
-        "name": "hand-rolled-error-boundary",
-        "paths": [
-          "**/*.js",
-          "**/*.ts",
-          "**/*.tsx",
-          "**/*.mjs"
-        ]
-      },
-      {
         "name": "foundation-parcel-current-selector-self-test",
         "paths": []
       },
