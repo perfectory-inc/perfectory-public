@@ -18,10 +18,13 @@ const { prefix } = JSON.parse(
 ).by_pnu_lanes["unit-price"].request_path;
 const pnu = "9999900000100000000";
 const unitId = "00000000-0000-8000-8000-000000000002";
+const building = "00000000-0000-8000-8000-000000000003";
+const noBuilding = "00000000-0000-0000-0000-000000000000";
 const document = () => ({
   schema_version: "foundation-platform.unit_price_by_pnu.v1",
   pnu,
   source: { table: "gold.unit_price", iceberg_snapshot_id: "999990000000000001" },
+  building_id: building,
   units: [
     {
       id: unitId,
@@ -36,16 +39,28 @@ const document = () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("unit price edge", () => {
-  it("requests the lane directly and keys each history by unit id", async () => {
+  it("requests one building of one PNU and keys each history by unit id (root ADR-0204)", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json(document()));
     vi.stubGlobal("fetch", fetcher);
     const signal = new AbortController().signal;
-    const prices = await fetchUnitPrices(pnu, signal);
+    const prices = await fetchUnitPrices(pnu, building, signal);
     expect(prices.get(unitId)).toEqual(document().units[0]?.official_price_history);
-    expect(fetcher).toHaveBeenCalledWith(`https://unit-prices.example.test${prefix}${pnu}`, {
-      signal,
-      headers: { accept: "application/json" },
-    });
+    expect(fetcher).toHaveBeenCalledWith(
+      `https://unit-prices.example.test${prefix}${pnu}/${building}`,
+      { signal, headers: { accept: "application/json" } },
+    );
+  });
+
+  it("asks the units no building holds under the nil UUID", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(Response.json({ ...document(), building_id: noBuilding }));
+    vi.stubGlobal("fetch", fetcher);
+    expect((await fetchUnitPrices(pnu, noBuilding)).size).toBe(1);
+    expect(fetcher).toHaveBeenCalledWith(
+      `https://unit-prices.example.test${prefix}${pnu}/${noBuilding}`,
+      expect.anything(),
+    );
   });
 
   it("reads 404 as no prices and propagates outages", async () => {
@@ -54,11 +69,11 @@ describe("unit price edge", () => {
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
       .mockResolvedValueOnce(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetcher);
-    expect((await fetchUnitPrices(pnu)).size).toBe(0);
-    await expect(fetchUnitPrices(pnu)).rejects.toThrow("503");
+    expect((await fetchUnitPrices(pnu, building)).size).toBe(0);
+    await expect(fetchUnitPrices(pnu, building)).rejects.toThrow("503");
   });
 
-  it("refuses annual or malformed dates, negative prices, another parcel and a noncanonical PNU", async () => {
+  it("refuses annual or malformed dates, negative prices, another parcel or building and a noncanonical key", async () => {
     for (const price of [
       { base_year: 2010, price_won: 36000000 },
       { base_date: "2010-01-01", price_won: 36000000 },
@@ -71,8 +86,11 @@ describe("unit price edge", () => {
       .fn()
       .mockResolvedValue(Response.json({ ...document(), pnu: "9999900000200000000" }));
     vi.stubGlobal("fetch", fetcher);
-    await expect(fetchUnitPrices("../manifest.json")).rejects.toThrow();
+    await expect(fetchUnitPrices("../manifest.json", building)).rejects.toThrow();
+    await expect(fetchUnitPrices(pnu, "../manifest.json")).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
-    await expect(fetchUnitPrices(pnu)).rejects.toThrow("PNU");
+    await expect(fetchUnitPrices(pnu, building)).rejects.toThrow("PNU");
+    fetcher.mockResolvedValue(Response.json({ ...document(), building_id: noBuilding }));
+    await expect(fetchUnitPrices(pnu, building)).rejects.toThrow("building");
   });
 });
