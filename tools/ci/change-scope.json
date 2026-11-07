@@ -368,19 +368,6 @@
         "budget_seconds": 60
       },
       {
-        "name": "hand-rolled-error-boundary-self-test",
-        "paths": []
-      },
-      {
-        "name": "hand-rolled-error-boundary",
-        "paths": [
-          "**/*.js",
-          "**/*.ts",
-          "**/*.tsx",
-          "**/*.mjs"
-        ]
-      },
-      {
         "name": "parcel-edition-promotion-is-readiness-gated-self-test",
         "paths": [
           "platforms/foundation-platform/infra/lakehouse/spark/jobs/**",

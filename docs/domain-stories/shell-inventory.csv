@@ -165,8 +165,6 @@ scripts/guard/foundation-r2-lakehouse-live-self-test.sh,151,true,test-fixture,xt
 scripts/guard/frontend-test-isolation-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/github-policy-json-self-test.sh,463,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/gitleaks-policy-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/hand-rolled-error-boundary-self-test.sh,184,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/hand-rolled-error-boundary.sh,347,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/hook-isolation-self-test.sh,248,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract-self-test.sh,118,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
