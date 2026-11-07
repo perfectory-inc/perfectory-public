@@ -162,14 +162,19 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
     def test_every_class_is_declared_and_the_backfill_and_the_publishers_name_theirs(self):
         listing = json.loads(JOBS.read_text(encoding="utf-8"))
         classes = listing["priority_classes"]
-        self.assertGreater(classes["publish"]["value"], classes["default"]["value"])
+        self.assertGreater(classes["publish"]["value"], classes["first_publish"]["value"])
+        self.assertGreater(classes["first_publish"]["value"], classes["default"]["value"])
         self.assertGreater(classes["default"]["value"], classes["backfill"]["value"])
         by_id = {job["id"]: job for job in listing["jobs"]}
         self.assertEqual(by_id["unit_price_versions_migration"]["priority_class"], "backfill")
         for job_id, job in by_id.items():
             if re.fullmatch(r"by_pnu_.*_bake", job_id):
                 self.assertEqual(job.get("priority_class"), "publish", job_id)
-        self.assertEqual(listing["capacity_claimants"]["by_pnu_lane_cutover"]["priority_class"], "publish")
+        # Root ADR-0439: a lane's first publish ranks below refreshing what users read now, and the
+        # panel Gold rebuild takes the class of the bake that waits on it.
+        self.assertEqual(listing["capacity_claimants"]["by_pnu_lane_cutover"]["priority_class"], "first_publish")
+        self.assertEqual((by_id["gold_panel_rebuild"]["priority_class"], by_id["gold_panel_rebuild"]["priority_class_from"]),
+                         ("publish", "by_pnu_serving_bake"))
 
     def test_the_eleven_o_six_backfill_yields_to_the_waiting_cut_over_and_nothing_lower_starts(self):
         claimed = self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER)
@@ -178,15 +183,26 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         running = [self.MIGRATION, self.CUTOVER]
         yielded = self.job_units("preempted", str(JOBS), "unit_price_versions_migration", units=running)
         self.assertEqual(yielded.returncode, 0, yielded.stderr)
-        self.assertIn("yielded the spark pool to by_pnu_lane_cutover (publish)", yielded.stdout)
-        # After the migration ended at its step boundary, no default or backfill start, and no later
-        # publish start, takes the pool the cut-over waits for.
-        for job in ("unit_price_versions_migration", "gold_panel_rebuild", "by_pnu_unit_price_bake"):
+        self.assertIn("yielded the spark pool to by_pnu_lane_cutover (first_publish)", yielded.stdout)
+        # After the migration ended at its step boundary, no default or backfill start takes the pool
+        # the cut-over waits for.
+        for job in ("unit_price_versions_migration", "building_register_floor"):
             with self.subTest(job=job):
                 held = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
                 self.assertEqual(held.returncode, 0, held.stderr)
                 self.assertIn("kept for claims queued before", held.stdout)
                 self.assertIn("by_pnu_lane_cutover", held.stdout)
+
+    def test_a_served_lanes_refresh_is_not_held_for_a_first_publish(self):
+        # Root ADR-0439: 2026-11-07 07:42Z..09:00Z and from 09:12Z two lane cut-overs held the spark pool
+        # while the parcel lane served a 193-hour-old manifest; the panel Gold rebuild and the bakes that
+        # refresh served lanes now outrank a first publish.
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        for job in ("gold_panel_rebuild", "by_pnu_unit_price_bake", "by_pnu_serving_bake"):
+            with self.subTest(job=job):
+                free = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
+                self.assertEqual(free.returncode, 0, free.stderr)
+                self.assertNotIn("kept for claims queued before", free.stdout)
 
     def test_a_claim_whose_unit_stopped_holds_nothing_and_a_release_removes_it(self):
         self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)

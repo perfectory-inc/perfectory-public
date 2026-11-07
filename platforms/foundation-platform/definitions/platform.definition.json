@@ -17,7 +17,11 @@
       "priority_classes": {
         "publish": {
           "value": 1000,
-          "description": "What users read next: a by-PNU lane's publish, its first one (the lane cut-over runner) and its scheduled bakes. A waiting claim of this class holds back every start of a lower class that would leave it no room, and makes a running backfill yield at its next step boundary."
+          "description": "What users read now and is going stale: a served by-PNU lane's bakes, and the Gold rebuilds those bakes wait on, which take this class from them (`priority_class_from`, root ADR-0439). A waiting claim of this class holds back every start of a lower class that would leave it no room, and makes a running backfill yield at its next step boundary."
+        },
+        "first_publish": {
+          "value": 500,
+          "description": "A by-PNU lane's first publish (the lane cut-over runner): what users will read next, below refreshing what they read now (root ADR-0439; 2026-11-07 07:42Z..09:00Z and from 09:12Z two cut-overs held the spark pool while the parcel lane served a 193-hour-old manifest, and the panel Gold rebuild that would refresh it could not start). It holds back every start of a lower class, as `publish` does."
         },
         "default": {
           "value": 100,
@@ -34,7 +38,7 @@
         "by_pnu_lane_cutover": {
           "pool": "spark",
           "pool_slots": 3,
-          "priority_class": "publish",
+          "priority_class": "first_publish",
           "unit": "foundation-by-pnu-lane-cutover-g*.service",
           "description": "The by-PNU lane cut-over runner (scripts/ops/by-pnu-lane-cutover.sh, root ADR-0190, ADR-0435): its Gold and bake steps want the whole pool, and it is not an Airflow task, so it claims the pool for the whole run and waits for capacity instead of for a clock."
         }

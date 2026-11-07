@@ -54,7 +54,7 @@
 # gone: 2026-11-06 03:46Z one refused the parcel-ownership cut-over). The guard around them is
 #   - one Spark job at a time, by capacity (root ADR-0435): the run claims the whole spark pool in
 #     the host's capacity queue for as long as its unit runs (jobs.v1.json capacity_claimants
-#     by_pnu_lane_cutover, class `publish`), so no start of a lower class, and no later start of its
+#     by_pnu_lane_cutover, class `first_publish`, root ADR-0439), so no start of a lower class, and no later start of its
 #     own, takes the pool while it waits, and a running backfill yields at its next step boundary.
 #     Before `gold` and `bake` the run waits until no unit of a spark-pool job, Gold rebuild or pack
 #     bake runs. Nothing new can start under the claim, so the wait is bounded by the longest run
