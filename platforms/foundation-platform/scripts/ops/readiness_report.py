@@ -36,6 +36,9 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True
 PLATFORM = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PLATFORM / "scripts" / "deploy"))
+
+import job_units  # noqa: E402
 JOBS = PLATFORM / "orchestration" / "jobs.v1.json"
 LANES = PLATFORM / "config" / "by-pnu-lane-index.v1.json"
 METRICS_DIR = Path(os.environ.get("FOUNDATION_READINESS_METRICS_DIR", "/var/lib/foundation-jobs/metrics"))
@@ -272,12 +275,11 @@ def main(argv: list[str]) -> int:
     rows += source_rows(api, now)
     failed = run(["systemctl", "--failed", "--plain", "--no-legend", "--no-pager"]).split()
     failed_units = sorted({word for word in failed if word.endswith((".service", ".timer", ".path"))})
-    never_fired = [timer for timer in run(["systemctl", "list-units", "--type=timer", "--all", "--plain", "--no-legend",
-                                           "--no-pager", "foundation-*"]).split() if timer.endswith(".timer")
+    never_fired = [timer for timer in run(["systemctl", "list-timers", "--all", "--plain", "--no-legend", "--no-pager",
+                                           "foundation-*"]).split() if timer.endswith(".timer")
                    and run(["systemctl", "show", "-p", "LastTriggerUSec", "--value", timer]).strip() in ("", "n/a", "0")]
     memory = []
-    for unit in run(["systemctl", "list-units", "--type=service", "--state=running", "--plain", "--no-legend", "--no-pager",
-                     "foundation-*"]).split():
+    for unit in job_units.running(["foundation-*"]):
         if unit.endswith(".service"):
             shown = dict(line.split("=", 1) for line in run(["systemctl", "show", "-p", "MemoryPeak", "-p", "MemoryMax", unit]).splitlines() if "=" in line)
             peak, cap = shown.get("MemoryPeak", ""), shown.get("MemoryMax", "")
