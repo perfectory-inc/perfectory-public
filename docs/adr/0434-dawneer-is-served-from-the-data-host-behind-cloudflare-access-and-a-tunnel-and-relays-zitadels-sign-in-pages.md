@@ -60,6 +60,8 @@ ADR-0433(#1112–#1115, 병합)으로 by-PNU cut-over 와 전량 굽기는 더�
    - 중계는 Zitadel 의 문서화된 프록시 계약을 따른다: `Host` 는 인스턴스(issuer)의 것, `x-zitadel-public-host` 는 더니어의 주소,
      `x-forwarded-proto` 는 그 scheme. 인스턴스는 그 주소를 trusted domain 으로 갖는다 — `configure-zitadel.sh` 가
      `staff-console-applications.v1.json` 의 https redirect URI 의 호스트를 모두 trusted domain 으로 맞춘다(목록은 그 파일 하나).
+   - Zitadel 이 보내는 쿠키는 `Domain` 속성을 떼어 더니어 주소의 host-only 로 돌려준다. v2.65.1 은 user-agent 쿠키에
+     `Domain=127.0.0.1`(인스턴스 도메인)을 붙이는데, 휴대폰 브라우저는 `console.perfectory.io` 에서 그 쿠키를 거부한다(2026-11-07 실측).
    - 더니어의 세션 쿠키는 Zitadel 에 넘기지 않는다. Zitadel 화면의 보안 머리글은 그 화면의 것을 그대로 둔다(더니어의 CSP 를 덮으면
      로그인 스크립트가 막힌다).
    - **토큰은 중계로 나오지 않는다.** 코드 교환·갱신·userinfo 는 더니어 서버가 issuer 루프백에 직접 한다. 그래서 토큰의 `iss` 는
@@ -117,6 +119,10 @@ PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보�
   하나라서, Access 를 거치지 않은 요청은 호스트 안에서만 온다. 원점 확인(Cloudflare 권고)은 후속이다.
 - `force_mfa` 는 조직 정책이라 DataHub·Airflow 로그인에도 2차 인증이 걸린다(같은 직원, 같은 조직).
 - 노트북 실행(ADR-0116 §5)은 은퇴한다. 개발은 로컬 Zitadel 과 `bff.rs` 의 가짜 issuer 로 한다.
+- 실측(2026-11-07, 노트북의 Zitadel v2.65.1 `@sha256:013d…`, 서버와 같은 이미지·`ExternalDomain=127.0.0.1`·`ExternalSecure=false`):
+  trusted domain 추가·조회(admin API)가 `configure-zitadel.sh` 의 호출 그대로 된다. 중계 머리글을 단 authorize → `/ui/login`(아이디·
+  비밀번호·2차 인증 안내) → `/oauth/v2/authorize/callback` → `https://<공개 주소>/auth/callback?code=…` 까지 **모든 리디렉트와 폼
+  주소가 공개 https 주소**였고, 그 code 를 루프백에서 바꾼 id·access 토큰의 `iss` 는 `http://127.0.0.1:<루프백 포트>` 였다.
 - 남는 부채: 엣지 설정 코드화(§7, ADR-0423 의 기계), Access JWT 원점 확인, 세션 저장소의 영속화.
 - 출처: [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/),
   [Access self-hosted applications](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/),
