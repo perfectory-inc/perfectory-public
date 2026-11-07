@@ -87,8 +87,8 @@ class Reconciler(unittest.TestCase):
                                     lambda job: "full" if job in self.full else "", state or {})
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
-        self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
-                                            "gold_court_auction_rebuild", "by_pnu_court_auction_bake"})
+        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
+        self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake"})
         # Every lane the panel bake serves is an asset of its own, fed from its one Gold table; inside
         # the one unit the kinds follow the parcel lane by run order, so none follows across jobs.
         self.assertEqual({lane: (asset.lane_table, asset.follows, asset.uri) for lane, asset in self.lanes.items()},
@@ -109,12 +109,6 @@ class Reconciler(unittest.TestCase):
         auction = self.assets["by_pnu_public_auction_bake"]
         self.assertEqual((auction.lane, auction.lane_table, auction.follows),
                          ("parcel-public-auction", "gold.parcel_public_auction", None))
-        court = self.assets["by_pnu_court_auction_bake"]
-        self.assertEqual((court.lane, court.lane_table, court.follows),
-                         ("parcel-court-auction", "gold.parcel_court_auction", None))
-        self.assertEqual(self.assets["gold_court_auction_rebuild"].inputs,
-                         ("reference.legal_dong_code_change", "silver.court_auction_item",
-                          "silver.court_auction_item_photo"))
 
     def test_event_3912_replayed_the_bake_is_owed_and_unscheduled_from_the_commit(self):
         owed, metrics, state, errors = self.tick()
@@ -253,7 +247,7 @@ class Reconciler(unittest.TestCase):
         owed, _, _, _ = self.tick()
         self.assertTrue(any(line.startswith("foundation-asset-owed by_pnu_unit_price_bake ") for line in owed))
 
-    def test_a_gold_not_built_yet_is_owed_its_first_build_and_its_lane_nothing(self):
+    def test_a_gold_not_built_yet_reads_as_an_empty_table(self):
         # 2026-10-30: the court auction Gold does not exist until its first build; the catalog answers 404.
         import urllib.error
 
@@ -268,11 +262,6 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(self.catalog["gold.parcel_court_auction"], {"head": None, "snapshots": []})
         with self.assertRaises(urllib.error.HTTPError):
             asset_reconcile.absent_is_empty(read, "boom")
-        del self.reads["parcel-court-auction"]
-        owed, _, _, errors = self.tick()
-        self.assertEqual(errors, [])
-        self.assertTrue(any(line.startswith("foundation-asset-owed gold_court_auction_rebuild ") for line in owed))
-        self.assertFalse(any("by_pnu_court_auction_bake" in line for line in owed))
 
     def test_an_asset_that_cannot_be_read_does_not_stop_the_others(self):
         del self.catalog["gold.unit_price"]
