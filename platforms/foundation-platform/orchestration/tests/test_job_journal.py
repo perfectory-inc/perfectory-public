@@ -102,6 +102,16 @@ class TheHelper(unittest.TestCase):
         self.assertIn("x FAILED", result.stderr)
         self.assertIn("  | publisher: refused", result.stderr)
 
+    def test_a_trap_inside_a_redirected_step_still_reaches_the_units_stderr(self):
+        # rt-molit-silver-load.sh 2026-11-07 15:55Z: Spark failed inside `lakehouse_spark_run ... >> run.log
+        # 2>&1`, the trap fired inside that redirect, and the unit's journal said only "exit 1" (W21).
+        result = run('set -E; trap \'job_journal "$J" "x FAILED" >&2; job_run_log_tail "$L"\' ERR; '
+                     'step() { echo "spark: refused"; true && false; }; step >> "$L" 2>&1',
+                     J=str(self.journal), L=str(self.run_log))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("  | spark: refused", result.stderr)
+        self.assertIn("  | x FAILED", result.stderr)
+
 
 # A job's journal file written any other way than job_journal is a line no operator sees.
 DIRECT_WRITE = re.compile(r'>>\s*"\$\{journal\}"')

@@ -20,6 +20,13 @@
 #                                   cannot read (2026-10-10: `failed=3` and nothing else).
 #
 # Neither function fails: both run inside ERR traps, where a second failure would hide the first.
+#
+# The failure relays write to the unit's own stderr, kept when this file is sourced: an ERR trap
+# fires inside the failing command's redirect (set -E), so a step run as `f >> run.log 2>&1` sent
+# the tail meant for the journal into run.log itself (rt.molit Silver load, 2026-11-07 15:55Z: the
+# unit's journal said only "exit 1"; incident W21). The FAILED line the trap writes first lands in
+# run.log in that case, and comes back as the tail's last line.
+exec {_JOB_JOURNAL_STDERR}>&2
 
 # The one masking table both relays use, as Python.
 _JOB_JOURNAL_MASK='
@@ -45,15 +52,15 @@ job_journal() {
 job_run_log_tail() {
   local file="$1" lines="${2:-40}"
   if [[ ! -s "${file}" ]]; then
-    printf 'run log %s is empty or missing\n' "${file}" >&2 || true
+    printf 'run log %s is empty or missing\n' "${file}" >&"${_JOB_JOURNAL_STDERR}" || true
     return 0
   fi
-  printf 'last %s lines of %s:\n' "${lines}" "${file}" >&2 || true
+  printf 'last %s lines of %s:\n' "${lines}" "${file}" >&"${_JOB_JOURNAL_STDERR}" || true
   tail -n "${lines}" -- "${file}" 2>/dev/null | python3 -I -c "${_JOB_JOURNAL_MASK}"'
 for raw in sys.stdin.buffer:
     line = raw.decode("utf-8", "replace").rstrip("\r\n").split("\r")[-1]
     print("  | " + mask(line, 400))
-' >&2 || true
+' >&"${_JOB_JOURNAL_STDERR}" || true
   return 0
 }
 
@@ -63,6 +70,6 @@ for raw in sys.stdin.buffer:
     ident, _, reason = raw.decode("utf-8", "replace").rstrip("\r\n").partition("\t")
     if ident:
         print("failed " + " ".join(ident.split()) + " " + mask(" ".join(reason.split()), 200))
-' >&2 || true
+' >&"${_JOB_JOURNAL_STDERR}" || true
   return 0
 }
