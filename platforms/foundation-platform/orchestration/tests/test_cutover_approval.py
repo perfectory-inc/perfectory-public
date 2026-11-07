@@ -146,8 +146,8 @@ class ApprovedCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         panel_limit = next(job["time_limit_minutes"] for job in JOBS if job["id"] == "gold_panel_rebuild")
         # history 0, preview 1, parity 0, bake 60, equality 30, latency 20, publish 30, monitor-sample 1,
-        # and gold: 60, or the panel rebuild's limit for a lane whose Gold never ran timed.
-        self.assertIn(int(result.stdout), (142 + 60, 142 + panel_limit))
+        # verify 10, and gold: 60, or the panel rebuild's limit for a lane whose Gold never ran timed.
+        self.assertIn(int(result.stdout), (152 + 60, 152 + panel_limit))
         self.assertEqual(calls, [])
         self.assertFalse((self.bake / "cutover").exists(), "a plan wrote evidence")
 
