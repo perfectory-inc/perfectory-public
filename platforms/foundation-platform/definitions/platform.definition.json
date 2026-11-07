@@ -14,6 +14,36 @@
         }
       },
       "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Silver refresh lanes, the lanes above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
+      "priority_classes": {
+        "publish": {
+          "value": 1000,
+          "description": "What users read now and is going stale: a served by-PNU lane's bakes, and the Gold rebuilds those bakes wait on, which take this class from them (`priority_class_from`, root ADR-0439). A waiting claim of this class holds back every start of a lower class that would leave it no room, and makes a running backfill yield at its next step boundary."
+        },
+        "first_publish": {
+          "value": 500,
+          "description": "A by-PNU lane's first publish (the lane cut-over runner): what users will read next, below refreshing what they read now (root ADR-0439; 2026-11-07 07:42Z..09:00Z and from 09:12Z two cut-overs held the spark pool while the parcel lane served a 193-hour-old manifest, and the panel Gold rebuild that would refresh it could not start). It holds back every start of a lower class, as `publish` does."
+        },
+        "default": {
+          "value": 100,
+          "description": "Every job that names no class: the collectors, Silver loads, Gold rebuilds, folds and checks. It waits for capacity like any other; it is neither held for nor yielded to by its own class."
+        },
+        "backfill": {
+          "value": 10,
+          "yields_at_step_boundary": true,
+          "description": "Long, resumable background work whose each step is committed as it goes: it starts only on capacity no higher claim waits for, and while it runs it ends at its next step boundary as soon as a higher claim waits for its slots (`foundation-job-outcome waiting yielded ...`); its next start resumes at the step after the last one committed."
+        }
+      },
+      "priority_classes_means": "Who gets the spark pool first when work waits for it (root ADR-0435; Kubernetes PriorityClass, Slurm QOS, Dagster run-queue priority): a job's priority_class, `default` when absent, or a capacity claimant's. Capacity, not the clock, decides when work starts: there is no time of day that refuses a start. A claim is a file in the host's capacity queue (/var/lib/foundation-run-now/capacity, root's) naming the claimant and the systemd unit it runs in; it counts only while that unit runs, so a crash leaves no reservation behind. scripts/deploy/job_units.py pool-full holds back a start (whoever started it) that would leave a live claim of a higher class no room in its pool, and job_units.py preempted tells a running job of a class that yields at a step boundary that a higher claim waits for its slots. A job's priority_weight still orders Airflow's own queue among the tasks waiting for the same pool; the class orders the host's. 2026-11-06 00:37Z: the parcel-ownership cut-over waited 45 minutes for the unit-price backfill and failed, then at 03:46Z a clock window refused it.",
+      "capacity_claimants": {
+        "by_pnu_lane_cutover": {
+          "pool": "spark",
+          "pool_slots": 3,
+          "priority_class": "first_publish",
+          "unit": "foundation-by-pnu-lane-cutover-g*.service",
+          "description": "The by-PNU lane cut-over runner (scripts/ops/by-pnu-lane-cutover.sh, root ADR-0190, ADR-0435): its Gold and bake steps want the whole pool, and it is not an Airflow task, so it claims the pool for the whole run and waits for capacity instead of for a clock."
+        }
+      },
+      "capacity_claimants_means": "Work outside the job list that takes pool slots and claims them through the capacity queue (root ADR-0435): its pool, its slots, its priority class and the unit pattern a live claim's unit must match. job_units.py claim refuses a claimant not named here.",
       "time_limit_minutes_means": "How long one run may run, in minutes: the one number for it (root ADR-0270 §1). The crate foundation-jobs renders it into the TimeoutStartSec= line of the job's systemd unit (`cargo run -p foundation-jobs -- generate`) and its test refuses a unit that says anything else, and jobs that share a unit with different limits. The scheduler's limit for one start is time_limit_minutes + stop_grace_minutes (see stop_grace_minutes_means).",
       "per_run_cap_means": "Root ADR-0386 (ADR-0299 H-cap, ADR-0300 P1): what bounds one run of the job, in one vocabulary for every job, and the measured run times that show the bound fits time_limit_minutes. unit: what one run does a bounded number of (request, download, object), or run when the job has no item loop and its whole run is the bound. limits: where each per-run count lives, as <file under platforms/foundation-platform>#<JSON pointer> into the source contract that the job reads (per_run_limit, max_objects, max_requests_per_run, max_downloads_per_run: the contracts keep their own names, this list says which are the per-run caps); empty for run. deadline: the pointer to the seconds after which the run starts no new item (run_time_budget_seconds), or null. measured_run_seconds: systemd's own journal of the unit, start to end, every run counted (failed ones too), from scripts/ops/job-run-times.py; from is the first run counted (the journal's start, or the merge named in from_change), to is when it was measured. A job fits when no measured run timed out and the longest took at most 90% of time_limit_minutes (the share #988 left rt-molit's Silver load: 1,800 s budget + 206 s object + 120 s of 2,400 s), and, when the deadline's contract section measures its items (measured_object_seconds, run_start_seconds), run_start_seconds + max_objects x p90 <= deadline and deadline + max + 120 < time_limit_minutes x 60. A job that does not fit says so in open_exception (why, tracked_by) and shows on the roadmap; a job that fits must not carry one. A job never run states measured_run_seconds null with unmeasured_reason and must not be enabled. orchestration/tests/test_per_run_cap.py refuses anything else: the onbid collector timed out for four days and committed nothing (2026-10-22..26), and the rt-molit Silver load was killed at 40 minutes every hour (2026-10-30, #988).",
       "stop_grace_minutes_means": "How much longer than time_limit_minutes the scheduler gives one start, in minutes: for the unit to stop and clean up (its TimeoutStopSec) and for the outcome to come back. One start's limit is time_limit_minutes + stop_grace_minutes, and every reader adds the two: the DAG's execution_timeout and SSH timeout and the starvation bound (orchestration/dags/job_specs.py scheduler_timeout_minutes), the deploy's wait for a started-once job (scripts/deploy/foundation-deploy.sh), and when the operations map calls a job late (foundation-api data_catalog/operations.rs). The crate foundation-jobs refuses a grace not longer than the unit's TimeoutStopSec (root ADR-0270 §1). It replaced timeout_minutes, which stated the sum by hand.",
@@ -22,7 +52,6 @@
       "state_directories_means": "Every directory the host makes for the jobs, with its mode and owner (account and group of that name; foundation-platform when not stated) (root ADR-0270 §1). The crate foundation-jobs renders them into infra/tmpfiles/foundation-job-state.conf (not infra/host/tmpfiles.d, the retention rules the release cleans with), and the release applies it (systemd-tmpfiles --create) as soon as current switches, before migrate mounts anything, and again in timers: a path a unit or container uses exists with its owner before its first use (the 2026-10-15 class, #625). Each job state path is one of these or is named in state_paths_not_created_here; each of these is a job state path or lies under one. The lakehouse workspaces are 0777: the Spark container (uid 185) writes them. silver-refresh is 2770 so its lanes share the group. No job writes /var/lib/foundation-platform/lakehouse-ivy: every Spark run mounts its release's frozen jars read-only as its Ivy cache (root ADR-0134), so that path is no state path and the release no longer makes it (2026-10-18; the folder is left on the host).",
       "commits_means": "When a run commits what it writes (root ADR-0301, ADR-0308). at_end: one commit when the run finishes, so a run stopped midway loses all its work (the onbid collector, 2026-10-26: a timed-out run committed nothing); such a job is never interruptible. as_it_goes: it commits file by file, table by table or pack by pack, or writes nothing a stop could lose, so a stopped run loses at most the unit in progress and its next run continues. Every job states it, so a new collector cannot reach production without saying which; orchestration/tests/test_job_specs.py refuses a job that does not, and an at_end job that is interruptible.",
       "scope_means": "What one run of the job processes when it has work (root ADR-0314): `changed-keys` only the keys whose content changed since the run before; `new-objects` only the source objects no earlier run recorded; `skip-if-unchanged` one indivisible input (a file, a release, a round, a table snapshot), and nothing when it is unchanged; `full` everything on every run, an exception that states full_reason (why), full_cost (what it measurably costs, dated) and full_tracked_by (the change that makes it partial, or why full is the right unit). scripts/guard/every-job-declares-its-scope.sh refuses a job without a scope, a full job without those three, and a full job tools/ci/full-scope-jobs.baseline.json does not list; that list only shrinks.",
-      "operator_window_means": "The by-PNU operator window, the cut-overs' (root ADR-0425): the UTC day outside the scheduled window, which runs from the first daily start of a spark-pool job here to the last one plus 15 minutes (04:30-21:50 on 2026-11-06, so the operator window is 21:50-04:30). Nothing declares either edge twice: scripts/deploy/job_units.py scheduled_window computes them from the schedules here, and by-pnu-lane-cutover.sh starts no step in or into the scheduled window. A spark-pool job only its clock starts (started_by schedule) whose daily run, time_limit_minutes plus stop_grace_minutes from its schedule, ends inside the scheduled window is kept out of the operator window: scripts/ops/start-scheduled-job.sh starts no run of it, clock or triggered, that would reach into the operator window, says `foundation-job-outcome waiting` and leaves it to its next scheduled start (Slurm starts no job whose time limit reaches into a reservation). An operator's run-now is not held. 2026-11-05 23:46Z: the deploy that switched unit_price_versions_migration on unpaused its DAG, Airflow 3 ran the missed 18:45 tick at once (catchup=False still runs the latest one), and the owner's parcel-ownership cut-over at 00:37Z waited 45 minutes for it and failed. Jobs an input event starts, and a job whose own schedule already runs past 21:50 (the public-auction Gold at 21:35), are not held; the cut-over's Spark wait still waits for them.",
       "interruptible_means": "Whether a deploy may stop this job mid-run instead of waiting for it to finish (root ADR-0301). true: the job is append-only/resumable and a partial run is safe (a bake, rebuild, silver load, map-edit fold, boundary release, lakehouse maintenance, lineage, or a per-file-commit source sweep), so a deploy whose release holds it stops it at step 0, records it as owed a run and starts it when it gives the schedule back (root ADR-0308). false: stopping loses a run or leaves a half-written canonical result, so the deploy waits for it; every job whose `commits` is at_end is one (the collectors that commit at the end; they are short), and a few others. Every job states it; orchestration/tests/test_job_specs.py refuses a job that does not.",
       "state_directories": [
         {
@@ -55,6 +84,14 @@
         },
         {
           "path": "/var/lib/foundation-platform/registered-factory/lakehouse",
+          "mode": "0777"
+        },
+        {
+          "path": "/var/lib/foundation-platform/data-go-kr-file-data",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/data-go-kr-file-data/lakehouse",
           "mode": "0777"
         },
         {
@@ -93,6 +130,23 @@
           "mode": "0755",
           "owner": "foundation-api",
           "written_by": "foundation-api, the run-now requests (root ADR-0282 §4); foundation-run-now.path watches it and the gate reads it"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/switches/cutover.d",
+          "mode": "0755",
+          "owner": "foundation-api",
+          "written_by": "foundation-api, the by-PNU cut-overs an operator approved (root ADR-0433 §2); foundation-run-now.path watches it, the run-now dispatcher starts each once, at once (root ADR-0435), and the operator script checks it"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/switches/full.d",
+          "mode": "0755",
+          "owner": "foundation-api",
+          "written_by": "foundation-api, the full bakes an operator approved (root ADR-0433 §5); the lane's by-PNU bake reads it and uses each once"
+        },
+        {
+          "path": "/var/lib/foundation-jobs/releases",
+          "mode": "0755",
+          "written_by": "the run-now dispatcher, the operator script and the cut-over runner, one progress line at a time per approved cut-over (root ADR-0433 §6; scripts/ops/release-progress.py); foundation-api reads it, mounted read-only"
         },
         {
           "path": "/var/lib/foundation-platform/vworld-parcel-edition",
@@ -150,7 +204,16 @@
       "capabilities_means": "What a job's release can do that another command checks before relying on it. by_pnu_serving_bake's building_section_pack_patches and parcel_section_pack_patches say the bake patches a lane's section packs once its manifest names them (root ADR-0147, ADR-0160); publish-building-by-pnu-section-packs refuses the first pack publish unless the installed release's job declares it, the capability the building gateway contract names (config/r2-connections.contract.json, building_by_pnu_gateway.section_packs.scheduled_bake).",
       "disabled_reason_means": "A job may be listed before Airflow runs it: enabled false, no systemd timer, and disabled_reason says why it is off and what turns it on. The host refuses to start a job that is not enabled (scripts/ops/start-scheduled-job.sh), so a listed but disabled job runs nowhere until a deploy switches it on.",
       "serving_surfaces_without_a_job_means": "Every pipeline-graph serving surface whose surface_kind is r2_baked_documents or tiles is produced by a job in this list (a job edge ends at it), or is named here with the reason it has none yet. orchestration/tests/test_job_specs.py refuses a baked surface with neither, and an entry here that is stale (the surface has a job, or is not a baked surface).",
-      "serving_surfaces_without_a_job": []
+      "serving_surfaces_without_a_job": [],
+      "observers_means": "Schedulers that watch these jobs and run none of them (root ADR-0333 stage 0). `dagster`: Dagster with dagster-airlift in its \"observe\" step. Its assets and their mapping to each job's publish_outputs task are generated from this list and the pipeline graph (orchestration/dagster/observe_assets.py), so it materializes exactly what Airflow records events for (orchestration/tests/test_dagster_observe.py replays a recorded production day). When `enabled` is true, scripts/deploy/airflow-runtime.sh, which the deploy runs, turns on compose.orchestration.yml's `dagster-observe` profile, makes the instance's own database and role in airflow-db and its Airflow Viewer account, and restarts it on each release; when false, it stops and removes those two containers and leaves the database. Moving a job's execution to Dagster is a later, per-lane change, not this switch.",
+      "observers": {
+        "dagster": {
+          "enabled": true,
+          "decision": "docs/adr/0333-gold-tables-and-serving-lanes-are-partitioned-assets-materialized-by-upstream-partition-changes.md",
+          "ui": "http://127.0.0.1:19085"
+        }
+      },
+      "dagster_stage_means": "Which orchestrator decides when a job runs and which runs it (root ADR-0431), absent meaning `airflow`. `airflow`: Airflow decides and runs, as it always has. `shadow`: Airflow still decides and runs; Dagster, observing those runs (observers.dagster), decides beside it by its own rules (the job's schedule, the materializations of its inputs) and its `dual_run_matches_airflow` check on the job's DAG asset compares the two decisions after every Airflow run (orchestration/dagster/dual_run.py). `proxied`: Airflow decides, Dagster runs the job's systemd unit (orchestration/dagster/systemd_pipes.py). `dagster`: Dagster decides and runs, Airflow builds no DAG for the job. orchestration/dags/job_specs.py refuses a stage nothing implements yet, a switched-off job past `airflow`, and a `dagster` job feeding an inputs-started job that is not `dagster` (downstream families move first)."
     },
     "platforms/foundation-platform/docs/catalog/pipeline-graph.v1.json": {
       "schema_version": 2,
@@ -865,10 +928,12 @@
             "platforms/foundation-platform/compose.recovery.yml",
             "platforms/foundation-platform/compose.identity-bridge.yml",
             "platforms/foundation-platform/compose.metadata-bridge.yml",
-            "platforms/foundation-platform/compose.orchestration-bridge.yml"
+            "platforms/foundation-platform/compose.orchestration-bridge.yml",
+            "platforms/foundation-platform/compose.console.yml"
           ],
           "profiles": [
-            "recovery"
+            "recovery",
+            "console"
           ]
         },
         {
@@ -895,7 +960,10 @@
           "files": [
             "platforms/foundation-platform/compose.orchestration.yml"
           ],
-          "profiles": []
+          "profiles": [
+            "dagster-observe"
+          ],
+          "profiles_why": "dagster-observe (root ADR-0333 stage 0) is off until orchestration/jobs.v1.json observers.dagster.enabled turns it on; it is counted as on, so switching it on needs no budget decision of its own."
         },
         {
           "name": "identity-platform-runtime",
@@ -961,6 +1029,10 @@
         {
           "path_prefix": "products/gongzzang/",
           "why": "Gongzzang's production runs on AWS and is not changed from here; its local compose files belong to that product's own decision."
+        },
+        {
+          "path_prefix": "consoles/",
+          "why": "A staff console's own compose file only builds its image, in CI, into the signed release (root ADR-0434); what a console runs on the host is a service of a host project above (compose.console.yml), counted there."
         }
       ]
     },
@@ -1073,7 +1145,6 @@
       "silver-onbid-real-estate-item-detail",
       "silver-onbid-item-bid-info",
       "source-juso-electronic-map-bulk",
-      "source-other-bulk",
       "source-rt-molit-bulk",
       "silver-real-transaction-rejected",
       "silver-real-transaction",

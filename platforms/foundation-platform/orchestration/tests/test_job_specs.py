@@ -473,8 +473,10 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
 
 def switch_off(entry, **fields):
-    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239)."""
+    """A planted switch-off: off, and so without the time it was switched on (root ADR-0239) and back
+    with Airflow (a switched-off job runs nowhere, root ADR-0431)."""
     entry.pop("enabled_since", None)
+    entry.pop("dagster_stage", None)
     entry.update(enabled=False, **fields)
 
 
@@ -502,12 +504,21 @@ LAND_LANES = [
     "silver_refresh_land_use_zone_code",
 ]
 # The hub lanes root ADR-0355 adds after the five above: the same shape, one source each.
-HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline", "silver_refresh_building_register_master",
+HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline",
+                   "silver_refresh_building_register_master",
                    "silver_refresh_building_permit_demolition_loss",
                    "silver_refresh_building_energy_monthly_electricity",
                    "silver_refresh_building_energy_monthly_gas",
                    "silver_refresh_building_register_sub_parcel",
-                   "silver_refresh_building_permit_parking"]
+                   "silver_refresh_building_permit_parking",
+                   "silver_refresh_building_permit_annex_parking",
+                   "silver_refresh_building_permit_building_outline",
+                   "silver_refresh_building_permit_major_repair",
+                   "silver_refresh_building_permit_structure_ledger",
+                   "silver_refresh_building_permit_floor_overview",
+                   "silver_refresh_building_permit_temporary_building",
+                   "silver_refresh_building_permit_site_location",
+                   "silver_refresh_building_maintenance_regular_inspection_history"]
 ALL_LANES = LANES + LAND_LANES + HUB_ADDED_LANES
 
 
@@ -618,6 +629,8 @@ class JobsStartedByTheirInputs(unittest.TestCase):
             job(jobs, "building_register_floor")["started_by"] = "inputs"
             job(jobs, "gold_panel_rebuild")["pipeline_graph_edges"].append(
                 "daily-source-sweep-to-source-building-hub-bulk")
+            # A job that writes a source is no Gold-only job the reconciler can compare (root ADR-0333 §7, stage 2).
+            job(jobs, "asset_reconcile")["reconciles"].remove("gold_panel_rebuild")
         self.refused(circle, "jobs start each other in a circle: building_register_floor -> gold_panel_rebuild "
                              "-> building_register_floor")
 
@@ -1260,3 +1273,40 @@ class EveryJobWritesInsideItsSandbox(unittest.TestCase):
         problems = self.problems(files={"legal-dong-code-collect.sh": planted})
         self.assertTrue(any("legal_dong_code_changes" in p and "/var/lib/foundation-platform/elsewhere" in p
                             for p in problems), problems)
+
+
+class TheDagsterStage(unittest.TestCase):
+    """Root ADR-0431: which orchestrator decides and runs a job, and the order the families move in."""
+
+    def refused(self, mutate, expected):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        mutate(jobs)
+        with self.assertRaises(job_specs.JobListError) as raised:
+            job_specs.load_specs(jobs, graph)
+        self.assertIn(expected, str(raised.exception))
+
+    def test_the_unit_price_family_is_in_the_dual_run_and_no_job_is_past_it(self):
+        # Which jobs are in the dual run is each job's own definition (a family moves by its PR), not a
+        # list here; no job is past `shadow` until the move gate (ADR-0431 §4) says so.
+        stages = {spec.job_id: spec.dagster_stage for spec in job_specs.load_specs()}
+        self.assertEqual({stages["gold_unit_price_rebuild"], stages["by_pnu_unit_price_bake"]}, {"shadow"})
+        self.assertEqual(set(stages.values()), {"airflow", "shadow"})
+
+    def test_an_unknown_or_unimplemented_stage(self):
+        self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="both"), "must be one of")
+        self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="proxied"), "no implementation yet")
+
+    def test_a_switched_off_job_stays_with_airflow(self):
+        self.refused(lambda jobs: switch_off(bake(jobs), dagster_stage="shadow", disabled_reason="off"),
+                     "stays at dagster_stage airflow")
+
+    def test_a_dagster_job_feeds_only_dagster_jobs(self):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        feeders = job_specs.producers(jobs, graph)
+        by_id = {job["id"]: job for job in jobs["jobs"]}
+        consumer = next(job_id for job_id, found in feeders.items()
+                        if found and job_specs.started_by(by_id[job_id]) == "inputs")
+        by_id[feeders[consumer][0]]["dagster_stage"] = "dagster"
+        self.assertTrue(any(problem.startswith(consumer) for problem in job_specs.dagster_order(jobs, feeders)))
+        by_id[consumer]["dagster_stage"] = "dagster"
+        self.assertFalse(any(problem.startswith(consumer) for problem in job_specs.dagster_order(jobs, feeders)))

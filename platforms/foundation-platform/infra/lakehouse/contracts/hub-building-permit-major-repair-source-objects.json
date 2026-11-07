@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md",
+  "source": "bronze/source=hubgokr__building_permit_major_repair",
+  "measured_at_utc": "2026-11-04",
+  "dataset_series": "mart_kcy_05",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 2,870,992 바이트, 멤버 mart_kcy_05.txt 17,523,572 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 113,817 행, 모든 행 16칸. 칸 0(관리허가대장PK)은 모든 행이 채워졌지만 서로 다른 값이 79,523 개뿐이다(한 허가에 여러 행). 서로 다른 행 110,064 개(같은 행 최대 22번 되풀이). PNU 입력(시군구 5·법정동 5·번 1–4·지 1–4 자리 숫자) 113,763 행(99.95%), 표준 PNU 로 조합되는 행(대지구분 0·1) 113,113 행(99.38%). 표본 2,000 행(조합된 PNU, 대응표 없는 단순 조합)의 1,955 행(97.8%)이 silver.parcel_boundaries 현재 행에 있다. 2026-09 판(113,196 행)과 비교해 이 판에만 있는 행 876 개, 앞 판에만 있는 행 286 개. 대수선구분: 내력벽 14,670·기둥 14,187·방화구획 13,767·보 11,701·지붕틀 9,025, 빈칸 20,182. 변경구분: 변경 31,210·증설 26,330·해체 20,164·수선 12,199, 빈칸 23,914.",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축인허가 대수선(data.go.kr 15044692)의 속성 목록(대지위치·시군구코드·법정동코드·대지구분코드·번·지·관리허가대장PK·건물명·특수지명·블록·로트·대수선구분코드·명·대수선변경구분코드·명·생성일자, 16개)과 2026-10 판 실측의 교차 확인. 대량 파일은 같은 목록에서 관리허가대장PK·대지위치·건물명이 앞으로 와 칸 0–2 이고, 칸 3 부터 시군구코드 순서다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대지위치 1·건물명 2·특수지명 8·블록 9·로트 10·생성일자 15)은 raw_columns 의 원래 index 로만 보존한다. 칸 2(건물명)는 화면에 내보내지 않는다(ADR-0356 §4).",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_kcy_05.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 16,
+  "row_key": "sha256_of_row",
+  "columns": {
+    "permit_mgmt_key": {
+      "index": 0,
+      "meaning": "관리허가대장PK 원문: 건축인허가 기본개요(silver.building_permit_basis_outline)의 mgmt_key 와 같은 허가 키. 한 허가에 여러 행이 있어 행을 가르지 못한다"
+    },
+    "sigungu_cd": {
+      "index": 3,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 4,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 5,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 6,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 7,
+      "meaning": "지 원문"
+    },
+    "major_repair_kind_code": {
+      "index": 11,
+      "meaning": "대수선구분코드 원문(01 지붕틀·02 기둥·03 보·04 내력벽·06 방화구획 등 13종)"
+    },
+    "major_repair_kind_name": {
+      "index": 12,
+      "meaning": "대수선구분코드명 원문(내력벽·기둥·방화구획 등)"
+    },
+    "major_repair_change_code": {
+      "index": 13,
+      "meaning": "대수선변경구분코드 원문(1 증설·2 해체·3 수선·4 변경)"
+    },
+    "major_repair_change_name": {
+      "index": 14,
+      "meaning": "대수선변경구분코드명 원문(증설·해체·수선·변경)"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_permit_major_repair",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-permit-major-repair.service 의 실행 값(root ADR-0169 §3, ADR-0402). 판은 장부가 정한다. 칸 0(관리허가대장PK)은 모든 행에 있지만 113,817 행에 79,523 값이라 행을 가르지 못해 mgmt_key 는 행 글자의 SHA-256 이다(row_key, ADR-0397). 허가 키는 permit_mgmt_key 로 남긴다. compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 한 묶음으로 커밋하고(전국 11만 행이라 나누지 않는다), 다 되면 main 으로 한 번에 발행한다(ADR-0318). 2026-09 → 2026-10 은 새 행 876·사라진 행 286 이다.",
+    "table": "silver.building_permit_major_repair",
+    "roles": {
+      "source": "hubgokr__building_permit_major_repair"
+    },
+    "export": "export-building-permit-major-repair-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "permit_mgmt_key",
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "major_repair_kind_code",
+        "major_repair_kind_name",
+        "major_repair_change_code",
+        "major_repair_change_name",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 0
+    }
+  }
+}

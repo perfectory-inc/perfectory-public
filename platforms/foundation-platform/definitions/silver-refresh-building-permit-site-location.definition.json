@@ -1,0 +1,91 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-permit-site-location",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_permit_site_location",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 건축인허가 대지위치 lane `building-permit-site-location` (root ADR-0169 ②, ADR-0402): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_permit_site_location already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows key bucket by key bucket and append to main only the changed site rows and a removal marker per vanished one (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-permit-site-location.service",
+      "check_service": "foundation-silver-refresh-plan@building-permit-site-location.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-permit-site-location"
+      ],
+      "enabled": false,
+      "disabled_reason": "New lane, never run as its unit: off until its first supervised run (runbooks/silver-refresh.md §3) has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-permit-site-location",
+      "type": "silver_table",
+      "title": "건축인허가 대지위치",
+      "description": "허가나 동이 선 필지마다 한 행: 대표 대지 여부, 지번, 지목, 주·부속 동 구분. 허가 하나가 여러 필지에 걸친 것을 말한다(기본개요는 대표 지번 하나뿐이다). 관리허가대장관리번호·관리동별개요관리번호로 기본개요·동별개요에 붙는다. 원문 20칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0402).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-permit-site-location-source-objects.json",
+        "docs/adr/0402-the-remaining-building-hub-files-worth-collecting-are-connected-now-one-lane-each.md"
+      ],
+      "table_name": "silver.building_permit_site_location",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_permit_site_location"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-permit-site-location",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-permit-site-location-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_permit_site_location"
+      ],
+      "description": "건축인허가 대지위치(mart_kcy_16) 20칸을 관리대지위치관리번호 마다 바뀐 대지 행만 append-only Silver 로 쌓는다(루트 ADR-0402).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145) from 시군구 column 5 and 법정동 column 9, not the 행정동 column 8; HUB 대지구분 empty or 2 (블록) composes none (FP-ADR-0023); a permit's site often names a parcel since merged or split, which the consumer carries to the current pnu through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0402)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_permit_site_location": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

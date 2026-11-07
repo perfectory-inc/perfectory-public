@@ -42,7 +42,8 @@
         "silver-industrial-complexes-to-silver-industrial-complex-boundaries"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-20T02:15:00Z"
+      "enabled_since": "2026-10-20T02:15:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

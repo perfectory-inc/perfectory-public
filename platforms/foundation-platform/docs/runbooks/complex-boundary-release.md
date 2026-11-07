@@ -43,10 +43,9 @@ foundation-job-outcome changed|unchanged
 
 ## 켜기 — 감독 실행 (한 번)
 
-작업은 꺼진 채 등록됐다. 자동배포가 돌지 않을 때:
+작업은 꺼진 채 등록됐다. 감독 실행: 더니어 데이터 흐름 → 예약 작업 → 이 작업 줄의 운영 → "지금 한 번 돌리기", 이유를 적고 누른다(루트 ADR-0282; 꺼진 작업도 된다. 10분 안에 시작하고, 대기열·빌드는 예약 실행처럼 기다린다). 진행은:
 
 ```bash
-sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start complex_boundary_release --requested-at "$(date +%s)" --reason "<왜 지금 돌리는지>"
 sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job status complex_boundary_release
 ```
 

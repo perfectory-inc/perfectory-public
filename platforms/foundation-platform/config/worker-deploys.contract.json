@@ -86,6 +86,10 @@
     "wrangler": {
       "memory_limit": "2g",
       "memory_reason": "pnpm install of one gateway and an esbuild bundle by Wrangler; not measured on the host yet. A Worker deploy is one container at a time"
+    },
+    "edge_settings": {
+      "memory_limit": "512m",
+      "memory_reason": "OpenTofu and the Cloudflare provider applying seven resources (root ADR-0436); not measured on the host yet. scripts/deploy/edge_settings.py runs one at a time, ordered after the Worker deploy (foundation-edge-settings.service After=), so never beside a Wrangler container"
     }
   }
 }

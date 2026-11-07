@@ -233,6 +233,45 @@ source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
 ENV_PREFIX="$(by_pnu_lane_env_prefix "${UNIT}")"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${UNIT}"
+# A full bake an operator approved in the console (`force_full`, root ADR-0433 §5) instead of a line
+# in the environment file: switches/full.d/<id> (foundation-api's, read here) names this lane. The
+# newest one that has not expired and that no run of this lane used makes this run full, with its
+# reason and who asked; the run that bakes full for it marks it used, so it re-bases once. 2026-11-06
+# 00:24Z: a hand-written 90-force-full.conf drop-in, written and removed with sudo, did this.
+FULL_REQUESTS="${FOUNDATION_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/full.d"
+FULL_USED="${STATE_ROOT}/forced-full-used"
+FORCE_FULL_REQUEST=""
+if [[ "${FORCE_FULL}" == false && "${REBASE}" == false && -d "${FULL_REQUESTS}" ]]; then
+  console="$(python3 -I - "${FULL_REQUESTS}" "${FULL_USED}" "${UNIT}" "$(date +%s)" <<'PY'
+import datetime, os, re, sys
+requests, used, lane, now = sys.argv[1:]
+newest = None
+for name in os.listdir(requests):
+    if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", name):
+        continue  # a partial write
+    if os.path.exists(os.path.join(used, name)):
+        continue
+    try:
+        with open(os.path.join(requests, name), encoding="utf-8") as handle:
+            fields = dict(line.split("=", 1) for line in handle.read().splitlines() if "=" in line)
+        expires = datetime.datetime.fromisoformat(fields["expires_at"]).timestamp()
+        asked = datetime.datetime.fromisoformat(fields["requested_at"]).timestamp()
+    except (OSError, KeyError, ValueError):
+        continue
+    if fields.get("lanes") != lane or int(now) >= expires or not fields.get("reason", "").strip():
+        continue
+    if newest is None or asked > newest[0]:
+        newest = (asked, name, fields)
+if newest:
+    _, name, fields = newest
+    print(name, f"{fields['reason']} (console request {name} by {fields.get('actor', 'unknown')})")
+PY
+)" || console=""
+  if [[ -n "${console}" ]]; then
+    FORCE_FULL=true FORCE_FULL_REQUEST="${console%% *}" FORCE_FULL_REASON="${console#* }"
+    log "an operator approved a full bake of this lane in the console: ${FORCE_FULL_REASON}"
+  fi
+fi
 MAX_CONCURRENCY="${FOUNDATION_BY_PNU_BAKE_MAX_CONCURRENCY:-128}"
 ATTEMPTS="${FOUNDATION_BY_PNU_BAKE_ATTEMPTS:-6}"
 RETRY_SECONDS="${FOUNDATION_BY_PNU_BAKE_RETRY_SECONDS:-45}"
@@ -575,6 +614,9 @@ if [[ -n "${pinned}" ]]; then
   mode=full reason="finishing the full bake pinned to Gold snapshot ${pinned} (Gold is now at ${gold_now}); the next run patches it forward (root ADR-0310)"
 elif [[ "${FORCE_FULL}" == true ]]; then
   mode=full reason="forced by the operator: ${FORCE_FULL_REASON}"
+  # The console's request re-bases once: this full bake is it, and a resumed one keeps its pin (root
+  # ADR-0310), so no later run needs it again.
+  [[ -z "${FORCE_FULL_REQUEST}" ]] || { mkdir -p "${FULL_USED}" && : >"${FULL_USED}/${FORCE_FULL_REQUEST}"; }
 elif [[ "${schemas}" == breaks ]]; then
   mode=full reason="the export bakes ${schema_now} documents, the base holds ${served_schema}"
 elif ((patch_count >= max_patches)); then

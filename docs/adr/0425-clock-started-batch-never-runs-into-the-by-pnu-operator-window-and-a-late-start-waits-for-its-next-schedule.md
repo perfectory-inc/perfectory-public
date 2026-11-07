@@ -1,6 +1,6 @@
 # ADR 0425: 시계로만 시작하는 배치는 by-PNU 운영자 창으로 넘어가지 않는다 — 늦은 시작은 아무것도 돌리지 않고 다음 스케줄을 기다린다
 
-- Status: Accepted
+- Status: Superseded by [ADR-0435](./0435-a-by-pnu-lane-publishes-itself-through-automated-analysis-and-capacity-and-priority-not-the-clock-decide-when-work-starts.md)(2026-11-07: 시계 창 대신 용량·우선순위)
 - Date: 2026-11-06
 - Builds on: [ADR-0122](./0122-airflow-starts-each-jobs-systemd-unit-and-waits-systemd-runs-it.md)(Airflow 는 작업의 systemd 유닛을 시작),
   [ADR-0184](./0184-one-answer-for-running-jobs-and-a-release-the-kernel-keeps-immutable.md)(어떤 작업이 도는가의 답은 `job_units.py` 하나),

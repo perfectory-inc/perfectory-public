@@ -523,6 +523,9 @@ fn the_contract_bakes_parcels_at_maxzoom_detail_14_and_refuses_another_range() -
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     assert_eq!(contract.maxzoom_detail.get("parcels"), Some(&14));
     assert_eq!(contract.maxzoom_detail.get("complex"), None);
+    // 2026-11-03 to 11-07: zoning at z14 and the default 12 lost 642 zones wider than a pixel at
+    // zoom 22, and the gate refused every bake; at 16 one unit is one pixel there, as for parcels.
+    assert_eq!(contract.maxzoom_detail.get("zoning"), Some(&16));
     let args: Vec<String> =
         tippecanoe_args(&parcel_layer(14, 16), &["pnu".to_owned()], Some(14), None)
             .into_iter()

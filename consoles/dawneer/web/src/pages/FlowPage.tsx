@@ -21,6 +21,7 @@ import {
 } from "../components/OperationsTables";
 import { RunTimeline } from "../components/RunTimeline";
 import { ParcelEditions } from "../components/ParcelEditions";
+import { ByPnuCutovers } from "../components/ByPnuCutovers";
 import { ServiceChecks } from "../components/ServiceChecks";
 import {
   catalogUrnOf,
@@ -189,6 +190,8 @@ export function FlowPage({ client, tab, focus }: { client: DawneerClient; tab: F
           <ServiceChecks client={client} />
         ) : tab === "editions" ? (
           <ParcelEditions client={client} />
+        ) : tab === "cutovers" ? (
+          <ByPnuCutovers client={client} />
         ) : (
           <CatalogSearch client={client} />
         )}

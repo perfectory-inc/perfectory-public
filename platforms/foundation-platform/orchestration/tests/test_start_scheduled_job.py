@@ -173,77 +173,28 @@ def epoch(text):
     return str(int(datetime.datetime.fromisoformat(text).timestamp()))
 
 
-class BatchStaysOutOfTheOperatorWindow(HostFixture):
-    """Root ADR-0425: a clock-started spark job its schedule places inside the daily scheduled window
-    does not run into the by-PNU operator window when it starts late (2026-11-05 23:46Z)."""
+class NoStartIsHeldByTheClock(HostFixture):
+    """Root ADR-0435: capacity and priority decide when a start runs, never the time of day. The
+    clock window of ADR-0425 is gone: on 2026-11-06 it refused the parcel-ownership cut-over at
+    03:46Z. The 23:46Z catch-up of 2026-11-05 now starts, and yields at its next step boundary when a
+    publish claims the pool (orchestration/tests/test_job_units.py CapacityGoesByPriorityNotByClock)."""
 
     def setUp(self):
         super().setUp()
         listing = json.loads((self.root / "jobs.json").read_text())
-        # Every real job has a schedule; hourly ones are not the window's edges.
-        for job in listing["jobs"]:
-            job["schedule"] = "5 * * * *"
-        # The window's edges as in production: lakehouse maintenance at 04:30, the public-auction Gold
-        # at 21:35, so the scheduled window is 04:30-21:50 and the operator window 21:50-04:30.
-        edge = {"pool": "spark", "pool_slots": 3, "enabled": True, "wait_limit_minutes": 0,
-                "time_limit_minutes": 65, "stop_grace_minutes": 5}
-        listing["jobs"] += [
-            {**edge, "id": "maintenance", "systemd_service": "foundation-maintenance.service",
-             "schedule": "30 4 * * *", "started_by": "schedule"},
-            {**edge, "id": "auction_gold", "systemd_service": "foundation-auction-gold.service",
-             "schedule": "35 21 * * *", "started_by": "schedule"},
-            {**edge, "id": "migration", "systemd_service": "foundation-migration.service",
-             "schedule": "45 18 * * *", "started_by": "schedule", "time_limit_minutes": 160},
-            {**edge, "id": "rebuild", "systemd_service": "foundation-rebuild.service",
-             "schedule": "45 8 * * *", "started_by": "inputs", "time_limit_minutes": 160},
-        ]
+        listing["jobs"].append({"id": "migration", "pool": "spark", "pool_slots": 3, "enabled": True,
+                                "systemd_service": "foundation-migration.service", "wait_limit_minutes": 0,
+                                "schedule": "45 18 * * *", "started_by": "schedule", "time_limit_minutes": 160,
+                                "stop_grace_minutes": 5})
         (self.root / "jobs.json").write_text(json.dumps(listing))
 
-    def test_the_unpause_catch_up_at_23_46_starts_nothing(self):
-        # The deploy unpaused the DAG at 23:46:32Z; Airflow ran the missed 18:45 tick at once, as a
-        # clock start, and a deploy's owed run would come as a triggered one.
-        for request in ("migration", "migration triggered"):
-            with self.subTest(request=request):
-                result, asked = self.start(request, FOUNDATION_SCHEDULED_NOW=epoch("2026-11-05T23:46:36+00:00"))
-                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                self.assertEqual(asked, "", "the migration started inside the operator window")
-                last = result.stdout.splitlines()[-1]
-                self.assertTrue(last.startswith("foundation-job-outcome waiting started at 23:46 UTC"), last)
-                self.assertIn("operator window 21:50-04:30 UTC", last)
-                self.assertFalse((self.starts / "migration").exists(), "a start that did not happen was recorded")
-
-    def test_a_start_whose_run_would_reach_the_window_starts_nothing(self):
-        # 19:30 + 160 + 5 minutes ends at 22:15, past 21:50; 04:00 is still the operator's.
-        for when in ("2026-11-05T19:30:00+00:00", "2026-11-06T04:00:00+00:00"):
-            with self.subTest(when=when):
-                result, asked = self.start("migration", FOUNDATION_SCHEDULED_NOW=epoch(when))
-                self.assertEqual((result.returncode, asked), (0, ""), result.stderr + result.stdout)
-                self.assertIn("foundation-job-outcome waiting", result.stdout)
-
-    def test_its_own_schedule_and_the_operators_run_now_start_it(self):
-        result, asked = self.start("migration", FOUNDATION_SCHEDULED_NOW=epoch("2026-11-05T18:45:00+00:00"))
-        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("systemctl start --no-block foundation-migration.service", asked)
-        request = "55555555-5555-4555-8555-555555555555"
-        when = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=9)
-        (self.root / "switches/run-now.d" / request).write_text(
-            f"request={request}\nactor=staff\nreason=a supervised run\njob=migration\nexpires_at={when.isoformat()}\n")
-        result, asked = self.start(f"migration requested {request}",
-                                   FOUNDATION_SCHEDULED_NOW=epoch("2026-11-05T23:46:36+00:00"))
-        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertIn("systemctl start --no-block foundation-migration.service", asked)
-
-    def test_jobs_the_window_does_not_hold_start_at_any_hour(self):
-        # The window's own edge (its run already ends past 21:50), an inputs job its producers start
-        # at night (the public-auction bake after the 21:35 Gold) and a job with no schedule here.
-        night = epoch("2026-11-05T23:46:36+00:00")
-        for job, service in (("auction_gold", "foundation-auction-gold.service"),
-                             ("rebuild triggered", "foundation-rebuild.service"),
-                             ("fold", "foundation-fold.service")):
-            with self.subTest(job=job):
-                result, asked = self.start(job, FOUNDATION_SCHEDULED_NOW=night)
-                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-                self.assertIn(f"systemctl start --no-block {service}", asked)
+    def test_a_late_start_at_any_hour_starts(self):
+        for when in ("2026-11-05T23:46:36+00:00", "2026-11-05T19:30:00+00:00", "2026-11-06T04:00:00+00:00"):
+            for request in ("migration", "migration triggered"):
+                with self.subTest(when=when, request=request):
+                    result, asked = self.start(request, FOUNDATION_SCHEDULED_NOW=epoch(when))
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertIn("systemctl start --no-block foundation-migration.service", asked)
 
 
 class TheOperatorsSwitches(HostFixture):

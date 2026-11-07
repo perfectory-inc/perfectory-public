@@ -35,7 +35,7 @@
         },
         "open_exception": {
           "why": "Its one long run, 2026-10-20T13:02Z, took 8,573 s of the 9,000 s limit (95%); a refresh of more changed keys would not fit.",
-          "tracked_by": "root ADR-0386 §5: the refresh lanes take a per-run bucket cap and a deadline (root ADR-0318 compares bucket by bucket and resumes, #914)"
+          "tracked_by": "root ADR-0391 addendum (2026-11-04): the lane loads its release part by part, 20 parts a step under run_budget.step_seconds_max 2,805 s, and resumes after its deadline; dropped once the first part release (the November hub release) is measured. Root ADR-0386 §5 for the per-run vocabulary"
         }
       },
       "pool": "spark",
@@ -46,7 +46,8 @@
         "source-building-hub-bulk-to-silver-building-register-unit-areas"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-10T22:13:25Z"
+      "enabled_since": "2026-10-10T22:13:25Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
@@ -78,7 +79,8 @@
       "via": [
         "export-building-register-unit-area-silver-handoff",
         "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_register_unit_areas_silver.py"
       ],
       "source_slugs": [
         "hubgokr__building_register_exclusive_common_area"

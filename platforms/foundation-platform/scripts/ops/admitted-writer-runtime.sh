@@ -33,9 +33,14 @@ RELEASE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)" ||
   admitted_writer_refuse "not inside an installed release: ${RELEASE_ROOT}"
 admitted_writer_base="${BASH_REMATCH[1]}"
 RELEASE_ID="${BASH_REMATCH[2]}"
+# A run keeps the release it started with (root ADR-0441): an operator's run (a lane cut-over and
+# the units it starts) names that release in FOUNDATION_RUN_RELEASE, and a step of it is admitted on
+# it after a deploy moved `current` on. The name only admits the release this file physically is in;
+# it never points the job anywhere else, and the build output below is verified the same way.
 if [[ "${admitted_writer_require_current}" == yes &&
-      "$(readlink -e "${admitted_writer_base}/current" 2>/dev/null)" != "${RELEASE_ROOT}" ]]; then
-  admitted_writer_refuse 'writer must execute the admitted current release'
+      "$(readlink -e "${admitted_writer_base}/current" 2>/dev/null)" != "${RELEASE_ROOT}" &&
+      "${FOUNDATION_RUN_RELEASE:-}" != "${RELEASE_ID}" ]]; then
+  admitted_writer_refuse 'writer must execute the admitted current release, or the release its run started with'
 fi
 ARTIFACT_ROOT="${admitted_writer_base}/artifacts/${RELEASE_ID}"
 PUBLISHER_BIN="${ARTIFACT_ROOT}/foundation-outbox-publisher"

@@ -22,7 +22,7 @@
       "per_run_cap": {
         "unit": "object",
         "limits": [
-          "infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json#/silver_load/max_objects"
+          "infra/lakehouse/contracts/data-go-kr-file-data.contract.json#/files/registered_factory/silver_load/max_objects"
         ],
         "deadline": null,
         "measured_run_seconds": {
@@ -43,7 +43,8 @@
         "source-data-go-kr-file-data-to-silver-registered-factory"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-19T14:49:09Z"
+      "enabled_since": "2026-10-19T14:49:09Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
@@ -56,7 +57,7 @@
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
-        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json"
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
       ],
       "table_name": "silver.registered_factory",
       "runtime_bindings": [
@@ -74,7 +75,7 @@
       "relation": "feeds",
       "status": "partial",
       "via": [
-        "collect-data-go-kr-registered-factory",
+        "collect-data-go-kr-file-data",
         "platforms/foundation-platform/scripts/ops/registered-factory-cycle.sh",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"

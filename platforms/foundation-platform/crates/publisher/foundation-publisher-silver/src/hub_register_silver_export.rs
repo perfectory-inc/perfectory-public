@@ -1,18 +1,34 @@
 //! Shared bounded HUB register handoff engine (root ADR-0092/0094).
 
 #[cfg(test)]
+mod annex_parking_tests;
+#[cfg(test)]
 mod apartment_price_tests;
+#[cfg(test)]
+mod building_outline_tests;
 #[cfg(test)]
 mod demolition_loss_tests;
 #[cfg(test)]
 mod energy_monthly_tests;
 #[cfg(test)]
 mod exclusive_unit_tests;
+#[cfg(test)]
+mod floor_overview_tests;
 mod layout;
+#[cfg(test)]
+mod maintenance_regular_inspection_tests;
+#[cfg(test)]
+mod major_repair_tests;
 #[cfg(test)]
 mod permit_parking_tests;
 #[cfg(test)]
+mod site_location_tests;
+#[cfg(test)]
+mod structure_ledger_tests;
+#[cfg(test)]
 mod sub_parcel_tests;
+#[cfg(test)]
+mod temporary_building_tests;
 #[cfg(test)]
 mod test_support;
 mod workers;
@@ -587,7 +603,12 @@ fn make_row<'l>(
     part_key: &str,
     ingested_at: &str,
 ) -> anyhow::Result<(Value, bool, Vec<&'l str>)> {
-    let pnu = compose_pnu(layout, sigungu_crosswalk, fields, PRIMARY_PNU)?;
+    // A linked layout composes no PNU (root ADR-0404): every row counts as `pnu_bad`, so the
+    // manifest's row accounting holds unchanged.
+    let pnu = match layout.parcel_link {
+        Some(_) => None,
+        None => compose_pnu(layout, sigungu_crosswalk, fields, PRIMARY_PNU)?,
+    };
     let pnu_ok = pnu.is_some();
     let mut row = serde_json::Map::new();
     for name in layout.columns.keys() {
@@ -631,6 +652,9 @@ fn make_row<'l>(
         json!(config.source_snapshot_id),
         json!(ingested_at),
     ]));
+    if layout.parcel_link.is_some() {
+        row.remove("pnu");
+    }
     Ok((Value::Object(row), pnu_ok, extra_ok))
 }
 

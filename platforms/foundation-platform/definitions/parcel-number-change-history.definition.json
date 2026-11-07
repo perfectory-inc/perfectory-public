@@ -38,7 +38,8 @@
         "source-vworld-dataset-to-silver-parcel-number-change-history"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-06T17:08:23Z"
+      "enabled_since": "2026-10-06T17:08:23Z",
+      "dagster_stage": "shadow"
     }
   ]
 }

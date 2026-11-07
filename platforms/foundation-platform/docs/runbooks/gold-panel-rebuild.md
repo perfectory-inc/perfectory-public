@@ -70,7 +70,9 @@ Silver 적재(FLOOR·계보·Silver 레인·수동 적재·백필)  행을 바�
    거부한다(root ADR-0272). 행 수가 그대로여도 한 시도의 섹션이 비면 여기서 멈춘다.
 3. **커밋** — 통과하면 새 스냅숏 하나(`overwrite`)를 커밋하고 요약에 판을 적는다. 이전 스냅숏은 역사에 남는다.
    실행 요약·계보 이벤트는 같은 run 폴더의 `summary.json`·`lineage.json`. 커밋 뒤 입력마다 고정한 Silver 스냅숏에
-   태그 `foundation-gold-input-gold-<표>` 를 옮겨 단다(다음 증분 실행의 비교 기준, 만료되지 않게).
+   태그 `foundation-gold-input-gold-<표>` 를 옮겨 단다(다음 증분 실행의 비교 기준, 만료되지 않게). Gold 표에는 판을
+   적은 커밋에 태그 `foundation-gold-build` 를 옮겨 단다. 계획이 머리에서 그 커밋까지 걸으므로, 만료는 그 커밋과 그 뒤
+   커밋을 지킨다. 이 태그가 아직 없는 Gold 표는 만료되지 않고 기다린다(루트 ADR-0338).
 
 **증분 실행([루트 ADR-0180](../../../../docs/adr/0180-panel-gold-recomputes-only-the-pnus-whose-inputs-changed.md)).**
 계획의 `mode` 가 `incremental` 이면 로그에 `incremental: ...` 이 찍히고, 생산자는 `previous-pins.json`(현재 Gold 의 판)과
@@ -109,8 +111,9 @@ Airflow 는 풀 3슬롯을 풀어 다음 작업을 시작하고 호스트 예산
 
 굽기와의 상호작용: 굽기가 여러 실행에 걸치는 동안 Gold 가 새 스냅숏을 커밋해도 굽기는 시작할 때 고정한(pin)
 스냅숏을 끝까지 읽어 그 세대를 끝내고, 발행 뒤 다음 실행이 고정 스냅숏→현재 스냅숏 변경분을 패치로 올린다(루트
-ADR-0310). Gold 작업을 멈춰 굽기를 기다릴 필요는 없다. 고정 스냅숏이 만료(30일, `lakehouse-maintenance.contract.json`)로
-사라졌을 때만 그 세대를 버리고 현재 스냅숏으로 새로 굽는다.
+ADR-0310). Gold 작업을 멈춰 굽기를 기다릴 필요는 없다. 각 샤드가 읽기 전에 고정 스냅숏에 태그
+`baking-<레인>-<스냅숏>` 을 걸고 레인의 다음 발행이 푼다(루트 ADR-0338). 그래서 고정 스냅숏은 만료되지 않는다. 태그가
+생기기 전에 시작한 굽기의 고정 스냅숏도 정비 작업이 `in-progress*.json` 을 읽어 만료를 거부한다.
 
 ## 4. 켜는 순서 (Turning it on)
 

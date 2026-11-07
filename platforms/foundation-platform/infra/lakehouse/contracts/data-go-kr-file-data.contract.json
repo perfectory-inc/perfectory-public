@@ -1,0 +1,451 @@
+{
+  "$comment": "Root ADR-0280 §4, ADR-0401 §1. The data.go.kr file data the platform collects: where each file is asked for, what it must look like, how its rows are keyed and how they reach a parcel or a 법정동. The collector (`collect-data-go-kr-file-data` in services/foundation-outbox-publisher) iterates `files` (keyed by dataset_slug, the catalog's), the Silver loads and their tests read this file; nothing else restates these values. One run asks each selected file's metadata once and fetches a file only when its atchFileId is new. The per-run cap is the files themselves: measured 2026-11-04, the eight files beside the registered factory are about 15.5 MB together plus the 349 MB 상가(상권) zip (59 s), so a run that finds every one new lands about 365 MB in about 3 minutes with the spacing. The three 표준데이터 (school location, university, subway station) are not portal files: they come through the public-data OpenAPI (`openapi` below, read with the Onbid collector's answer reader), every page of one pass in one gzip JSON-lines object, landed only when the pass's rows differ from the last landed pass (ADR-0401).",
+  "version": 3,
+  "base_url": "https://www.data.go.kr",
+  "user_agent": "foundation-platform-data-go-kr-file-collector/2 (+root ADR-0280, ADR-0401; one check per file per day)",
+  "request_spacing_seconds": 5,
+  "request_timeout_seconds": 120,
+  "metadata": {
+    "$comment": "The portal's own two steps: the metadata answer names the current file (atchFileId), then the file is fetched by that id. A new atchFileId is a new edition; the same one is never fetched twice.",
+    "path": "/tcs/dss/selectFileDataDownload.do"
+  },
+  "download": {
+    "path": "/cmm/cmm/fileDownload.do",
+    "query": {
+      "fileDetailSn": "1",
+      "insertDataPrcus": "N"
+    }
+  },
+  "openapi": {
+    "$comment": "The 표준데이터 OpenAPI (api.data.go.kr/openapi/tn_pubr_*, ADR-0401). Every page of a file is asked in one pass with the platform's DATA_GO_KR_SERVICE_KEY (config/runtime-secrets.contract.json data-go-kr; never written here, into Bronze or a log: a page line records its request without the key). The answer is read like the Onbid collector's (header.resultCode 00 rows, 03 nothing, any other code refuses), under the standard data's `response` wrapper. A pass whose rows are the last landed pass's (the SHA-256 of its sorted rows) lands nothing. 2026-11-04: the gateway answers each of the three operations SERVICE_KEY_IS_NOT_REGISTERED_ERROR (HTTP 403) for our key: the owner's 활용신청 (자동승인) on each dataset page comes first; until then the three fail their collection and the other files still land.",
+    "base_url": "https://api.data.go.kr/openapi",
+    "query": {
+      "type": "json"
+    },
+    "result_codes": {
+      "ok": "00",
+      "no_data": "03"
+    }
+  },
+  "files": {
+    "registered_factory": {
+      "operation": "fileData15105482",
+      "name_ko": "한국산업단지공단 전국등록공장현황",
+      "institution_ko": "한국산업단지공단",
+      "published": "yearly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15105482",
+        "publicDataDetailPk": "uddi:608a48b9-22d2-40fc-b68e-a83ab17c4497",
+        "fileDetailSn": "1"
+      },
+      "format": "zip",
+      "member": {
+        "$comment": "The data member of the zip: the CSV whose name ends with _<기준일 YYYYMMDD>.csv. The dictionary members beside it are not data.",
+        "name_pattern": "^(?:.*/)?[^/]*_(\\d{8})\\.csv$",
+        "encoding": "cp949",
+        "header": ["순번", "회사명", "단지명", "생산품", "공장주소"],
+        "bounds": {
+          "$comment": "A refused file loads nothing. min_rows is the first edition's floor (220,705 measured, minus about 10%); max_shrink_share refuses an edition smaller than the last loaded one by more than this share.",
+          "min_rows": 200000,
+          "max_shrink_share": 0.15
+        }
+      },
+      "silver_load": {
+        "$comment": "What one Silver load may take (plan-silver-load-objects): zips of this source that no commit of silver.registered_factory records, landed within window_days, oldest first, one per run (each is a whole edition). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",
+        "window_days": 7,
+        "max_objects": 1
+      },
+      "pnu_resolution": {
+        "$comment": "ADR-0280 §4. The provider gives no PNU. A row's address is read as a jibun address or a road address; each step names itself in pnu_basis, and a row no step resolves keeps pnu null with pnu_unresolved_reason. Never by geometry. jibun_address: 시도·시군구·읍면동(·리) names match reference.legal_dong_code_snapshot's current full_name, plus 산 and 본번-부번, and the PNU must be a current row of silver.parcel_boundaries. road_address: 시도·시군구·도로명·건물번호 match silver.building_register_titles.road_address_raw read the same way, and every matching title must carry the same pnu. A sample of 2,829 road addresses on 2026-10-19 resolved 82.9% to one PNU, 4.7% to several, 12.4% to none.",
+        "bases": ["jibun_address", "road_address"],
+        "unresolved_reasons": ["no_address", "unparsed", "no_legal_dong", "parcel_absent", "road_not_found", "road_ambiguous"],
+        "sido_prefixes_from": "address_pnu.sido_prefixes: the 법정동 code table (reference.legal_dong_code_snapshot, every status) and the recorded 시도 pairs (legal_dong_code_change_views.region_pairs), read each load; no 시도 code is written here (root ADR-0403, ADR-0103 §2)"
+      },
+      "measured": "2026-10-19: one zip (about 6 MB) holding one CP949 CSV of 220,705 rows and five columns, plus a data dictionary; about 93% of addresses are road addresses. The provider publishes about once a year (기준일 in the member name). 2026-11-04: the same file id, byte-identical to the Bronze object."
+    },
+    "highway_access_point": {
+      "operation": "fileData15116370",
+      "name_ko": "한국도로공사_출입시설 준공년도",
+      "institution_ko": "한국도로공사",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15116370",
+        "publicDataDetailPk": "uddi:c2b60264-06ad-48e3-9629-e881b4724969",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["노선번호", "노선명", "도", "시군구", "읍면동", "출입시설", "준공년도"],
+      "bounds": {
+        "min_rows": 760,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "sha256_of_row",
+        "$comment": "No provider key: (노선번호, 출입시설) repeats on 6 rows of 844."
+      },
+      "place_link": {
+        "kind": "legal_dong_by_names",
+        "names": ["도", "시군구", "읍면동"],
+        "$comment": "Names only, no lot: the 법정동 code, no PNU (ADR-0401 §4)."
+      },
+      "measured": "2026-11-04 (2026-08 판): 49,092 bytes, 844 rows, 7 columns on every row, every row distinct.",
+      "silver_load": {
+        "$comment": "What one load of silver.highway_access_point may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "household_count": {
+      "operation": "fileData15097974",
+      "name_ko": "행정안전부_지역별(행정동) 세대원수별 주민등록 세대수",
+      "institution_ko": "행정안전부",
+      "published": "monthly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15097974",
+        "publicDataDetailPk": "uddi:e67694b3-7be6-4e0f-a44b-98f636cfa9f7",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["행정기관코드", "기준연월", "시도명", "시군구명", "읍면동명", "전체세대수", "1인세대", "2인세대", "3인세대", "4인세대", "5인세대", "6인세대", "7인세대", "8인세대", "9인세대", "10인이상세대"],
+      "bounds": {
+        "min_rows": 3250,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["행정기관코드", "기준연월"],
+        "period_column": "기준연월",
+        "$comment": "An edition is one 기준연월. Only the keys of the periods it holds are compared, so last month's rows stay current and the months pile up (ADR-0401 §3); a code that leaves within a month gets its removal marker."
+      },
+      "place_link": {
+        "kind": "adm_dong_via_linkage",
+        "code_column": "행정기관코드",
+        "$comment": "A 행정동 code. The row keeps it in administrative_dong_code; a reader reaches the 법정동 through the current rows of silver.adm_dong_code_linkage (ADR-0401 §4), so a quarterly linkage edition moves every row at once and nothing here is re-resolved. Measured 2026-11-04: 3,547 of 3,620 codes are in the 2026-10-01 linkage (the rest are 출장소 rows and codes the linkage has not caught up with)."
+      },
+      "measured": "2026-11-04 (2026-10 판): 315,551 bytes, 3,620 rows, 16 columns on every row; (행정기관코드, 기준연월) distinct on every row; one 기준연월 per edition.",
+      "silver_load": {
+        "$comment": "What one load of silver.household_count may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "dong_population": {
+      "operation": "fileData15097972",
+      "name_ko": "행정안전부_지역별(행정동) 성별 연령별 주민등록 인구수",
+      "institution_ko": "행정안전부",
+      "published": "monthly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15097972",
+        "publicDataDetailPk": "uddi:9301bbc2-e817-4db8-ac2d-dc4b5148dc07",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["행정기관코드", "기준연월", "시도명", "시군구명", "읍면동명", "계", "남자", "여자", "0세남자", "1세남자", "2세남자", "3세남자", "4세남자", "5세남자", "6세남자", "7세남자", "8세남자", "9세남자", "10세남자", "11세남자", "12세남자", "13세남자", "14세남자", "15세남자", "16세남자", "17세남자", "18세남자", "19세남자", "20세남자", "21세남자", "22세남자", "23세남자", "24세남자", "25세남자", "26세남자", "27세남자", "28세남자", "29세남자", "30세남자", "31세남자", "32세남자", "33세남자", "34세남자", "35세남자", "36세남자", "37세남자", "38세남자", "39세남자", "40세남자", "41세남자", "42세남자", "43세남자", "44세남자", "45세남자", "46세남자", "47세남자", "48세남자", "49세남자", "50세남자", "51세남자", "52세남자", "53세남자", "54세남자", "55세남자", "56세남자", "57세남자", "58세남자", "59세남자", "60세남자", "61세남자", "62세남자", "63세남자", "64세남자", "65세남자", "66세남자", "67세남자", "68세남자", "69세남자", "70세남자", "71세남자", "72세남자", "73세남자", "74세남자", "75세남자", "76세남자", "77세남자", "78세남자", "79세남자", "80세남자", "81세남자", "82세남자", "83세남자", "84세남자", "85세남자", "86세남자", "87세남자", "88세남자", "89세남자", "90세남자", "91세남자", "92세남자", "93세남자", "94세남자", "95세남자", "96세남자", "97세남자", "98세남자", "99세남자", "100세남자", "101세남자", "102세남자", "103세남자", "104세남자", "105세남자", "106세남자", "107세남자", "108세남자", "109세남자", "110세이상 남자", "0세여자", "1세여자", "2세여자", "3세여자", "4세여자", "5세여자", "6세여자", "7세여자", "8세여자", "9세여자", "10세여자", "11세여자", "12세여자", "13세여자", "14세여자", "15세여자", "16세여자", "17세여자", "18세여자", "19세여자", "20세여자", "21세여자", "22세여자", "23세여자", "24세여자", "25세여자", "26세여자", "27세여자", "28세여자", "29세여자", "30세여자", "31세여자", "32세여자", "33세여자", "34세여자", "35세여자", "36세여자", "37세여자", "38세여자", "39세여자", "40세여자", "41세여자", "42세여자", "43세여자", "44세여자", "45세여자", "46세여자", "47세여자", "48세여자", "49세여자", "50세여자", "51세여자", "52세여자", "53세여자", "54세여자", "55세여자", "56세여자", "57세여자", "58세여자", "59세여자", "60세여자", "61세여자", "62세여자", "63세여자", "64세여자", "65세여자", "66세여자", "67세여자", "68세여자", "69세여자", "70세여자", "71세여자", "72세여자", "73세여자", "74세여자", "75세여자", "76세여자", "77세여자", "78세여자", "79세여자", "80세여자", "81세여자", "82세여자", "83세여자", "84세여자", "85세여자", "86세여자", "87세여자", "88세여자", "89세여자", "90세여자", "91세여자", "92세여자", "93세여자", "94세여자", "95세여자", "96세여자", "97세여자", "98세여자", "99세여자", "100세여자", "101세여자", "102세여자", "103세여자", "104세여자", "105세여자", "106세여자", "107세여자", "108세여자", "109세여자", "110세이상 여자"],
+      "bounds": {
+        "min_rows": 3250,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["행정기관코드", "기준연월"],
+        "period_column": "기준연월",
+        "$comment": "An edition is one 기준연월. Only the keys of the periods it holds are compared, so last month's rows stay current and the months pile up (ADR-0401 §3); a code that leaves within a month gets its removal marker."
+      },
+      "place_link": {
+        "kind": "adm_dong_via_linkage",
+        "code_column": "행정기관코드",
+        "$comment": "A 행정동 code. The row keeps it in administrative_dong_code; a reader reaches the 법정동 through the current rows of silver.adm_dong_code_linkage (ADR-0401 §4), so a quarterly linkage edition moves every row at once and nothing here is re-resolved. Measured 2026-11-04: 3,547 of 3,620 codes are in the 2026-10-01 linkage (the rest are 출장소 rows and codes the linkage has not caught up with)."
+      },
+      "measured": "2026-11-04 (2026-10 판): 2,568,629 bytes, 3,620 rows, 230 columns on every row; (행정기관코드, 기준연월) distinct on every row.",
+      "silver_load": {
+        "$comment": "What one load of silver.dong_population may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "railway_station": {
+      "operation": "fileData15067652",
+      "name_ko": "국가철도공단_철도역 정보",
+      "institution_ko": "국가철도공단",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15067652",
+        "publicDataDetailPk": "uddi:29222bc3-1bc1-44bd-9ad6-9210ddb9a6ca",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["주소", "위도좌표", "역등급", "관련노선", "열차정차횟수", "역이름", "소속지사", "역연혁", "경도좌표", "역이름_중국어", "취급업무", "역이름_영어", "역소개", "입력일"],
+      "bounds": {
+        "min_rows": 190,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["역이름"]
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_column": "주소"
+      },
+      "measured": "2026-11-04 (2025-11 판): 292,919 bytes, 215 rows, 14 columns on every row; 역이름 distinct. The catalog's railway_station_line endpoint is this file's 관련노선 column, not a second file.",
+      "silver_load": {
+        "$comment": "What one load of silver.railway_station may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "port": {
+      "operation": "fileData15088273",
+      "name_ko": "해양수산부_항만정보",
+      "institution_ko": "해양수산부",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15088273",
+        "publicDataDetailPk": "uddi:f7771baa-5318-4b30-a97a-ef01849d00cc",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["국가관리구분", "항구분", "항만명", "관리청", "항만위치", "항구역", "수(물)면적", "부지면적", "설계파고", "설계파향", "최고조위", "평균해면", "해저지질", "방파제길이", "안벽길이", "물양장(소형선부두)길이", "잔교수(기)", "상옥수(동)", "야적장면적", "접안능력수(선석)", "하역능력수", "기타시설물현황", "주요취급화물"],
+      "bounds": {
+        "min_rows": 64,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["항만명"]
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_column": "항만위치",
+        "$comment": "Measured 2026-11-04: 항만위치 names only 시도·시군구 (often two), so address_pnu reads none of the 72 as a lot or road; the rows keep pnu null with the reason (unparsed), never a guess."
+      },
+      "measured": "2026-11-04 (2025-06 판): 39,677 bytes, 72 rows, 23 columns on every row; 항만명 distinct.",
+      "silver_load": {
+        "$comment": "What one load of silver.port may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "airport": {
+      "operation": "fileData15002851",
+      "name_ko": "한국공항공사_공항 위치정보",
+      "institution_ko": "한국공항공사",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15002851",
+        "publicDataDetailPk": "uddi:9b9f21d9-ea7c-4e7f-b65d-f55d5e5934ee",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["공항명", "행정구역", "위도(WGS84좌표)", "경도(WGS84좌표)", "데이터 기준일"],
+      "bounds": {
+        "min_rows": 12,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["공항명"]
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_column": "행정구역"
+      },
+      "measured": "2026-11-04 (2026-10 판): 1,053 bytes, 14 rows, 5 columns on every row; 공항명 distinct.",
+      "silver_load": {
+        "$comment": "What one load of silver.airport may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "commercial_district": {
+      "operation": "fileData15083033",
+      "name_ko": "소상공인시장진흥공단_상가(상권)정보",
+      "institution_ko": "소상공인시장진흥공단",
+      "published": "quarterly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15083033",
+        "publicDataDetailPk": "uddi:86f46f63-829a-46c1-abdd-d8e66846b6da",
+        "fileDetailSn": "1"
+      },
+      "format": "zip",
+      "request_timeout_seconds": 900,
+      "member": {
+        "$comment": "Every member whose name matches is data, one per 시도 (16 in the 2026-09 판); the readme beside them is not.",
+        "name_pattern": "^(?:.*/)?소상공인시장진흥공단_상가\\(상권\\)정보_([^_/]+)_(\\d{6})\\.csv$",
+        "every_match": true,
+        "encoding": "utf-8-sig",
+        "header": ["상가업소번호", "상호명", "지점명", "상권업종대분류코드", "상권업종대분류명", "상권업종중분류코드", "상권업종중분류명", "상권업종소분류코드", "상권업종소분류명", "표준산업분류코드", "표준산업분류명", "시도코드", "시도명", "시군구코드", "시군구명", "행정동코드", "행정동명", "법정동코드", "법정동명", "지번코드", "대지구분코드", "대지구분명", "지번본번지", "지번부번지", "지번주소", "도로명코드", "도로명", "건물본번지", "건물부번지", "건물관리번호", "건물명", "도로명주소", "구우편번호", "신우편번호", "동정보", "층정보", "호정보", "경도", "위도"],
+        "bounds": {
+          "min_rows": 2480000,
+          "max_shrink_share": 0.15
+        }
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["상가업소번호"]
+      },
+      "place_link": {
+        "kind": "place_identity",
+        "provider_pnu_column": "지번코드",
+        "$comment": "The provider's 19-digit lot code is resolved by the place-identity resolver (ADR-0288), never copied (ADR-0401 §4)."
+      },
+      "measured": "2026-11-04 (2026-09 판): 349,070,686 bytes, downloaded in 59 s; 16 UTF-8 CSV members, 39 columns on every row, 2,753,778 rows, 상가업소번호 filled and distinct on every row; 지번코드 valid on 99.93%.",
+      "silver_load": {
+        "$comment": "What one load of silver.commercial_district may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "adm_dong_code_linkage": {
+      "operation": "fileData15136368",
+      "name_ko": "국가데이터처_법정동 연계정보",
+      "institution_ko": "국가데이터처",
+      "published": "quarterly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15136368",
+        "publicDataDetailPk": "uddi:f1346a5c-db34-4edd-9018-f9d16c8d8287",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "utf-8-sig",
+      "header": ["시도명", "시군구명", "행정동명", "법정동명", "행정구역코드", "행정동코드", "법정동코드", "개정일자", "연결번호"],
+      "bounds": {
+        "min_rows": 117000,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["행정동코드", "법정동코드", "개정일자"]
+      },
+      "place_link": {
+        "kind": "is_the_bridge",
+        "$comment": "The 행정동 ↔ 법정동 bridge the 행정동 sources read."
+      },
+      "measured": "2026-11-04 (2026-10 판): 12,270,065 bytes, 130,193 rows, 9 columns on every row; six 개정일자 (2025-10-01 to 2026-10-01) in one file; (행정동코드, 법정동코드, 개정일자) distinct on every row.",
+      "silver_load": {
+        "$comment": "What one load of silver.adm_dong_code_linkage may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "school_location": {
+      "operation": "tn_pubr_public_elesch_mskul_lc_api",
+      "name_ko": "전국초중등학교위치표준데이터",
+      "institution_ko": "한국교육시설안전원",
+      "published": "monthly",
+      "format": "openapi_pages",
+      "openapi": {
+        "$comment": "data.go.kr 15021148 (표준데이터). numOfRows 1,000 is the documented maximum; max_pages is the per-run cap: a pass that needs more refuses rather than run on.",
+        "path": "/tn_pubr_public_elesch_mskul_lc_api",
+        "page_size": 1000,
+        "max_pages": 18
+      },
+      "header": ["schoolId", "schoolNm", "schoolSe", "fondDate", "fondType", "bnhhSe", "operSttus", "lnmadr", "rdnmadr", "cddcCode", "cddcNm", "edcSport", "edcSportNm", "creatDate", "changeDate", "latitude", "longitude", "referenceDate", "instt_code", "instt_nm"],
+      "$comment": "The answer's field names as the dataset's OpenAPI page documents them (schoolId to referenceDate, instt_code), plus instt_nm, which the portal's own download of the same table (tn_pubr_public_elesch_mskul_lc_svc) carries on every row. Not yet seen on an OpenAPI answer: a field the answer has and this list does not refuses the edition, so the first answer either matches or names what to add.",
+      "bounds": {
+        "min_rows": 10800,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["schoolId"],
+        "$comment": "학교ID: filled and distinct on all 12,004 rows of the 2026-10 판."
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_columns": ["lnmadr", "rdnmadr"],
+        "$comment": "소재지지번주소 first, then 소재지도로명주소 (ADR-0401 §4). Sample of 2,000 rows of the 2026-10 판 (2026-11-04): 1,794 by 지번 and 145 by 도로명 are current rows of silver.parcel_boundaries, 97.0%; 8 road addresses match titles of several PNUs."
+      },
+      "measured": "2026-11-04 (2026-10 판, referenceDate 2026-10-01 on every row), read through the portal's own download of the same table because the OpenAPI refuses our key (above): 12,004 rows, 20 fields on every row, every row distinct, 학교ID distinct; 소재지지번주소 filled on 12,003, 소재지도로명주소 on 12,004; about 660 bytes of JSON per row, so a pass is 13 pages of 1,000 (max_pages 18 leaves about half again), about 8 MB of JSON, 0.85 MB gzipped, and with the 5 s spacing about 70 s. Unmeasured on the OpenAPI itself: its bytes and seconds per page.",
+      "silver_load": {
+        "$comment": "What one load of silver.school_location may take (plan-silver-load-objects): passes of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "university": {
+      "operation": "tn_pubr_public_univ_info_api",
+      "name_ko": "전국대학및전문대학정보표준데이터",
+      "institution_ko": "한국대학교육협의회",
+      "published": "yearly",
+      "format": "openapi_pages",
+      "openapi": {
+        "$comment": "data.go.kr 15107736 (표준데이터). numOfRows 1,000 is the documented maximum; max_pages is the per-run cap: a pass that needs more refuses rather than run on.",
+        "path": "/tn_pubr_public_univ_info_api",
+        "page_size": 1000,
+        "max_pages": 3
+      },
+      "header": ["SCHL_NM", "SCHL_ENG_NM", "MAINBRANCH_NM", "UNIV_SE_NM", "SCHL_SE_NM", "FNDN_FORM_SE_NM", "CTPV_CD", "CTPV_NM", "LCTN_ROAD_NM_ADDR", "LCTN_LOTNO_ADDR", "STR_NM_ZIP", "LCTN_ZIP", "HMPG_ADDR", "RPRS_TEL_NO", "RPRS_FXNO", "FNDN_YMD", "CRTR_YR", "CRTR_YMD", "instt_code", "instt_nm"],
+      "$comment": "The answer's field names as the dataset's OpenAPI page documents them, the portal download's columns. Not yet seen on an OpenAPI answer: a field the answer has and this list does not refuses the edition.",
+      "bounds": {
+        "min_rows": 1790,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["SCHL_NM", "MAINBRANCH_NM"],
+        "$comment": "No provider id. 학교명 repeats (1,953 distinct of 1,995: a school per campus); (학교명, 본분교구분명) is distinct on every row of the 2026-03 판."
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_columns": ["LCTN_LOTNO_ADDR", "LCTN_ROAD_NM_ADDR"],
+        "$comment": "소재지지번주소 first, then 소재지도로명주소 (ADR-0401 §4). The 2026-03 판 fills no 지번 address and the road address on every row. All 1,995 rows (2026-11-04): 1,356 resolve by 도로명 to a current parcel, 68.0%; 599 road addresses match titles of several PNUs (a campus is many buildings) and stay unresolved (road_ambiguous), never a guess."
+      },
+      "measured": "2026-11-04 (2026-03 판, CRTR_YR 2025 on every row), read through the portal's own download because the OpenAPI refuses our key: 1,995 rows, 20 fields on every row, every row distinct; about 640 bytes per row, so a pass is 2 pages of 1,000, about 1.3 MB of JSON, 0.1 MB gzipped, about 10 s with the spacing. Unmeasured on the OpenAPI itself.",
+      "silver_load": {
+        "$comment": "What one load of silver.university may take (plan-silver-load-objects): passes of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "subway_station": {
+      "operation": "tn_pubr_public_ctyrlroad_statn_api",
+      "name_ko": "전국도시철도역사정보표준데이터",
+      "institution_ko": "국가철도공단",
+      "published": "yearly",
+      "format": "openapi_pages",
+      "openapi": {
+        "$comment": "data.go.kr 15013205 (표준데이터). numOfRows 1,000 is the documented maximum; max_pages is the per-run cap: a pass that needs more refuses rather than run on.",
+        "path": "/tn_pubr_public_ctyrlroad_statn_api",
+        "page_size": 1000,
+        "max_pages": 2
+      },
+      "header": ["statnNo", "statnNm", "routeNo", "routeNm", "statnEnm", "statnChcrt", "trnsitlcSe", "trnsitlcRouteNm", "trnsitlcRouteNo", "latitude", "longitude", "institutionNm", "rdnmadr", "phoneNumber", "referenceDate", "instt_code", "instt_nm"],
+      "$comment": "The dataset page shows no OpenAPI tab (its file links out to 레일포털); the gateway knows the operation (it answers SERVICE_KEY_IS_NOT_REGISTERED, not NO_OPENAPI_SERVICE). These names are the portal download's columns (tn_pubr_public_ctyrlroad_statn_svc) in the camel case the school operation documents for the same kind of columns: inferred, not seen. A field the answer has and this list does not refuses the edition, so the first answer either matches or names what to fix.",
+      "bounds": {
+        "min_rows": 800,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "sha256_of_row",
+        "$comment": "No provider key: 역번호 repeats (547 distinct of 898), (역번호, 노선번호) too (846); every row is distinct."
+      },
+      "place_link": {
+        "kind": "address_pnu",
+        "address_columns": ["rdnmadr"],
+        "$comment": "역사도로명주소 only (ADR-0401 §4). All 898 rows (2026-11-04): 37 read as 지번 and 168 as 도로명 resolve to a current parcel, 22.8%; 511 are underground building numbers (`... 로 지하 23`) that neither reading takes, so they stay unparsed, never a guess by coordinates."
+      },
+      "measured": "2026-11-04 (the agencies' 2019-05 to 2021-06 판), read through the portal's own download because the OpenAPI refuses our key: 898 rows, 17 fields on every row, every row distinct; about 530 bytes per row, one page of 1,000, 0.5 MB of JSON, 0.05 MB gzipped. Unmeasured on the OpenAPI itself.",
+      "silver_load": {
+        "$comment": "What one load of silver.subway_station may take (plan-silver-load-objects): passes of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    }
+  }
+}

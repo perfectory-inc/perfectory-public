@@ -8,8 +8,7 @@ import { ParcelCourtAuctionByPnuSchema as Generated } from "./court-auction.gene
 // mirroring the 공매 lane. The panel shows the source's own words (root ADR-0070/0078). The
 // document's shape is the foundation's schema registry's (root ADR-0336): the generated schema is
 // its current revision narrowed to what this panel reads, accepting every revision of the major, so
-// this file only extends it. The court data is a 공공저작물 that must be attributed (저작권법
-// 제24조의2, root ADR-0281 §6): `source_attribution` comes from the document and is shown as given.
+// this file only extends it. `source_attribution` stays in the document but is not shown (root ADR-0428).
 export const CourtAuctionDocumentSchema = Generated.extend({ pnu: PnuSchema });
 
 export type CourtAuction = z.infer<typeof CourtAuctionDocumentSchema>["court_auction"];

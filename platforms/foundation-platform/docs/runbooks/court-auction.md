@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-06
 ---
 
 # 법원경매정보 (courtauction.go.kr) — 정직한 수집·적재 런북
@@ -35,8 +35,8 @@ last_reviewed: 2026-10-30
 
 ## 처음 켜기
 
-1. 새벽(01:00–06:00 KST)에 운영자 경로로 한 번 시작해 지켜본다(작업이 꺼져 있을 때만 받는다):
-   `ssh -tt ai-server 'sudo -n /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/by-pnu-pack-operator.sh job start court_auction_collect --requested-at "$(date +%s)" --reason "<왜>"'`.
+1. 새벽(01:00–06:00 KST)에 한 번 시작해 지켜본다: 더니어 데이터 흐름 → 예약 작업 → 이 작업 줄의 운영 → "지금 한 번 돌리기",
+   이유를 적고 누른다(루트 ADR-0282; 꺼진 작업도 된다). 그때(2026-10-19)는 운영자 스크립트의 `job start` 로 했고, 그 명령은 은퇴했다.
    요청 수·소요 시간·거절 없음을 확인한다. 2026-10-20 01:02 KST(2026-10-19 16:02 UTC) 첫 밤: 1,377요청(물건 1,125 · 매각결과 251 · robots 1),
    1시간 18분, 거절 없음, Bronze 13.6MB. 적재: 물건 43,821행 중 PNU 86.5%, 매각결과 10,120행 중 97.0%.
    User-Agent 는 `perfectory-foundation-court-auction/<버전>` 이다. 연락처는 선택이다(ADR-0283):
@@ -80,4 +80,5 @@ last_reviewed: 2026-10-30
 
 ## 출처 표시
 
-이 데이터를 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 표시한다(저작권 보호정책; ADR-0281 §6, ODCS 목적 칸).
+원천의 출처 표시 의무(대한민국법원 법원경매정보, 저작권 보호정책)는 ODCS 목적 칸과 Silver 행의 원천·Bronze 키에
+남는다(ADR-0281 §6). 공짱 화면은 출처를 보이지 않는다(루트 ADR-0428).

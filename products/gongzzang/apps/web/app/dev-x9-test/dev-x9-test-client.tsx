@@ -104,6 +104,7 @@ async function initializeDevX9Map(
     gl: true,
     zoomControl: true,
     mapTypeControl: false,
+    mapDataControl: false,
   } as naver.maps.MapOptions);
 
   setStatus("Waiting for mapbox-gl bridge...");

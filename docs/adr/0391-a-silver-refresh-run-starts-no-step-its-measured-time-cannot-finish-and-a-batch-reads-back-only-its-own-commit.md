@@ -83,3 +83,53 @@ ref 전체를 (source_snapshot_id, ingested_at_utc) 쌍으로 걸러 읽었다. 
   계속 자라고, 다음 판에서 다시 닿는다.
 - **되읽기를 끈다(`--defer-iceberg-readback-validation`).** 기각했다. 쓴 행 수와 품질을 확인하지 않는다.
 - **마감을 레인 공통으로 더 일찍 당긴다.** 기각했다. 빠른 레인까지 판 하나를 여러 run 에 나누게 된다. 잰 값은 레인마다 다르다.
+
+## 덧붙임 (2026-11-04): 전유공용면적은 부분으로 적재한다
+
+결정 6항이 남긴 레인이다. 이 레인을 [ADR-0357](./0357-the-building-register-master-lands-in-silver-as-the-site-total.md)의 부분 레인과 같은 방식으로 바꾼다. 새 장치는 없다:
+- R2 부분 + manifest(`HubManifest`, `validate_manifest`);
+- `refresh_parts` 의 묶음 쌓기와 이어하기;
+- 부분 하나 = 적재 한 단위(`load.unit = object`, 열 `source_part_id`).
+
+1. **내보내기.** 전유공용면적 내보내기의 정규화는 그대로 둔다: 두 번 읽기, 자연 키 순위(ADR-0331), PNU 조립. 출력 방식에
+   `r2-parts` 를 더한다. 행 100만 개(`export_chunk_rows`)마다 gzip JSONL 부분 하나를
+   `silver-handoff/hubgokr__building_register_exclusive_common_area/<ZIP 이름>/attempt=<id>/part-NNNN.jsonl.gz` 에 쓴다.
+   마지막 부분 뒤에 manifest 를 쓴다. 각 행은 자기 부분의 키를 `source_part_id` 로 갖는다. 이 키는 행 체크섬에 들어가지
+   않는다: 같은 판이면 다른 부분에 실려도 같은 행이다. 원천 줄 하나가 행 하나이고, manifest 의 행 수가 그것을 맞춘다.
+2. **표.** `silver.building_register_unit_areas` 에 `source_part_id` 를 더한다. 적재 열은 모두 필수다
+   (ADR-0069, 가드 `every-table-declares-its-load`). 통째로 적재한 판은 부분 하나이고, 그 이름은 실행 이름
+   `source_snapshot_id` 다. 그 표가 그 적재를 기록한 이름과 같다. 두 쓰기가 같은 값을 쓴다:
+   - 배포의 `migrate`(ADR-0124)가 2026-10 까지의 행을 그 값으로 채운다. 등록된 backfill
+     `building_register_unit_areas_silver.whole_run_part_column` 이다.
+   - 통째로 쓰는 내보내기(JSONL·Parquet)도 같은 값을 쓴다.
+
+   이 backfill 은 표 전체(114,461,830 행, 8.4 GB)를 **한 번** 다시 쓴다. 선언된 예외다: 필수 열은 비워 둘 수 없다.
+   비용은 계산으로 약 1–1.5시간이다. 10-20 같은 표 overwrite 쓰기가 83분이었다. 그 동안 배포의 `migrate` 단계가
+   그 시간만큼 길어진다. 적재 단위는 run 에서 object(`source_part_id`)로 바뀐다. 이미 실린 판은 실행 이름(`silver-refresh-building-register-unit-areas-<월>-…`)으로 기록돼 있다. 그래서 부분
+   레인의 판정 앞에 실행 이름의 월을 먼저 본다. 같은 월이나 더 새 월이 있으면 `unchanged` 다. 202610 판을 다시
+   내보내지 않는다.
+3. **적재와 비교.**
+   - 부분 20개(2,000만 행)씩 load branch 에 append 한다. 마감(결정 2·3항) 뒤에는 새 묶음을 시작하지 않고, 다음 run 이 잇는다.
+   - 비교 묶음은 PK 앞 세 자리다. 두 자리면 `"10"` 묶음 하나가 69,314,636 행이다. 세 자리면 28묶음이고 가장 큰
+     `"100"` 이 16,553,022 행이다(2026-11-04 읽기 전용 Trino).
+4. **잰 값.** `run_budget.step_seconds_max = 2805`. 가장 느린 단계는 비교 묶음이다. 같은 크기에서 잰 가장 가까운 비교는
+   `silver.land_transfer_history` 묶음 `"41"` 이다(17,746,890 행, 11-03, 2,805 s). load 묶음 하나는 계산으로 약 1,640 s 다:
+   10-20 한 run 적재의 Spark 6,843 s 를 2,000만 행 몫으로 자르고, 묶음마다 다시 하는 PNU null 비율 검사 386 s 와 시작 1분을 더했다.
+   시험 `the_unit_areas_load_part_by_part_and_each_step_fits_the_unit` 이 이 계산이 예산 안이고, 예산이 유닛의 90% 안인지 본다.
+   합성 실패 시험은 세 계약을 parse 가 거부하는지 본다:
+   - 2026-10 모양(overwrite, 입력 묶음 0);
+   - 부분 크기가 없는 계약;
+   - prefix 가 없는 계약.
+
+| | 전 (측정) | 후 |
+|---|---|---|
+| 한 단계 | Spark 한 번 7,246 s(10-20) | load 묶음 약 1,640 s(계산), 비교 묶음 ≤ 2,805 s(같은 크기 비교 측정) |
+| 한 run | 8,574 s = 유닛의 95%. kill 되면 아무것도 남지 않음 | 마감 5,295 s 뒤 새 단계 없음. 최악 8,100 s = 90%(계산). 끊겨도 쌓인 부분·묶음은 남는다 |
+| 한 판 | 1 run | 3–4 run(계산): 내보내기 약 25–40분 + 부분 115개(6묶음, 약 2.7시간) + 비교 28묶음(약 2.2시간). 다음 run 은 실패·인입 뒤 또는 매일 07:00 |
+
+**남은 위험.**
+- 한 판이 main 에 닿기까지 며칠이 걸릴 수 있다. 매일 1 run 이면 3–4일이다(판은 한 달에 하나).
+- R2 부분은 판마다 약 115개, 몇 GB 다. 보관은 다른 hub 부분 레인과 같다.
+- 비교 묶음 값은 이 표에서 잰 값이 아니다. 첫 판이 들어오면 다시 잰다.
+- 병합 뒤 첫 배포의 `migrate` 가 위 backfill 로 1–1.5시간(계산) 길어진다. 그 배포는 굽기가 쉬는 창에 하는 것이 좋다.
+

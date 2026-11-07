@@ -10,16 +10,25 @@ pub mod industrial_complex_gold_pointer;
 pub mod industrial_complex_jsonl_transport;
 
 mod building_energy_monthly;
+mod building_maintenance_regular_inspection_history;
 mod building_panel;
+mod building_permit_annex_parking;
 mod building_permit_basis_outline;
+mod building_permit_building_outline;
 mod building_permit_demolition_loss;
+mod building_permit_floor_overview;
+mod building_permit_major_repair;
 mod building_permit_parking;
+mod building_permit_site_location;
+mod building_permit_structure_ledger;
+mod building_permit_temporary_building;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod building_register_master;
 mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
+mod data_go_kr_file_data;
 mod land_characteristic;
 mod land_forest_ledger;
 mod land_ownership;
@@ -54,9 +63,17 @@ pub mod lakehouse_run_summary;
 pub use building_energy_monthly::{
     SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY, SILVER_BUILDING_ENERGY_MONTHLY_GAS,
 };
+pub use building_maintenance_regular_inspection_history::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY;
+pub use building_permit_annex_parking::SILVER_BUILDING_PERMIT_ANNEX_PARKING;
 pub use building_permit_basis_outline::SILVER_BUILDING_PERMIT_BASIS_OUTLINE;
+pub use building_permit_building_outline::SILVER_BUILDING_PERMIT_BUILDING_OUTLINE;
 pub use building_permit_demolition_loss::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS;
+pub use building_permit_floor_overview::SILVER_BUILDING_PERMIT_FLOOR_OVERVIEW;
+pub use building_permit_major_repair::SILVER_BUILDING_PERMIT_MAJOR_REPAIR;
 pub use building_permit_parking::SILVER_BUILDING_PERMIT_PARKING;
+pub use building_permit_site_location::SILVER_BUILDING_PERMIT_SITE_LOCATION;
+pub use building_permit_structure_ledger::SILVER_BUILDING_PERMIT_STRUCTURE_LEDGER;
+pub use building_permit_temporary_building::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING;
 pub use building_register_apartment_price::{
     SILVER_BUILDING_REGISTER_APARTMENT_PRICE, SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS,
 };
@@ -64,6 +81,12 @@ pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNI
 pub use building_register_master::SILVER_BUILDING_REGISTER_MASTER;
 pub use building_register_sub_parcel::SILVER_BUILDING_REGISTER_SUB_PARCEL;
 pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
+pub use data_go_kr_file_data::{
+    DATA_GO_KR_FILE_DATA_TABLES, SILVER_ADM_DONG_CODE_LINKAGE, SILVER_AIRPORT,
+    SILVER_COMMERCIAL_DISTRICT, SILVER_DONG_POPULATION, SILVER_HIGHWAY_ACCESS_POINT,
+    SILVER_HOUSEHOLD_COUNT, SILVER_PORT, SILVER_RAILWAY_STATION, SILVER_SCHOOL_LOCATION,
+    SILVER_SUBWAY_STATION, SILVER_UNIVERSITY,
+};
 pub use errors::LakehouseError;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,

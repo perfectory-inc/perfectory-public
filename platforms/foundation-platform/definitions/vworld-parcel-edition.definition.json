@@ -39,7 +39,8 @@
         "source-vworld-dataset-to-silver-parcel-boundaries"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-16T01:00:00Z"
+      "enabled_since": "2026-10-16T01:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

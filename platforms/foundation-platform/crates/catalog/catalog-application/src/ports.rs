@@ -1110,6 +1110,11 @@ pub struct OperatorActionRecord {
     pub window_end: Option<String>,
     /// A `promote_edition`'s edition, `YYYYMM` (root ADR-0381).
     pub edition: Option<String>,
+    /// An `approve_cutover`'s lanes (`lanes`, a lane or lane,lane,...) or a `force_full`'s one
+    /// lane (root ADR-0433).
+    pub lanes: Option<String>,
+    /// An `approve_cutover`'s pack generation (root ADR-0433).
+    pub generation: Option<i32>,
 }
 
 /// Why the operator action ledger did not record a request.

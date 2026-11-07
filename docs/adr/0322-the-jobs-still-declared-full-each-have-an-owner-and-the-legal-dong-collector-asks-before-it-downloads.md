@@ -80,3 +80,24 @@ ADR-0314 는 38개 작업 모두에 `scope` 를 적게 했고 24개가 `full` �
 - 배포 후 첫 실행은 `accepted.json` 에 고정된 창이 없어 전체 표를 한 번 받고 창을 고정한다.
 - 사이트가 변경기간 결과를 흔들면(같은 표인데 다른 행) 매번 전체를 받는다 — 빠짐은 없고 아낌만 없다. journal 의 `reason` 이 그것을 보여 준다(runbook).
 - 남은 `full` 23개는 위 표의 주인 PR 이 줄인다.
+
+## 진행 기록
+
+- 2026-11-06: 추적 PR #952(§3)·#953(§4, 둘 다 빈 커밋 초안)을 닫고 계획을 여기 접는다. 작업 정의의
+  `full_tracked_by` 는 이제 "root ADR-0322 §3"·"§4" 를 가리킨다. 구현 PR 이 그 절을 가져가 `full` 을 빼고
+  `tools/ci/full-scope-jobs.baseline.json` 을 줄인다.
+- §3 `building_register_floor` — 2026-10-29 운영 측정(Trino `silver.building_register_floors$snapshots`, 읽기 전용):
+  10-20 FLOOR 릴리스가 한 커밋에 21,189,570행·1.065 GB(표 2.138 GB 의 절반)를 덧붙였고, 릴리스 사이 매일 실행은
+  `outcome=unchanged`(10-29 `persisted_row_count=0`)다. 그 뒤 정해진 것:
+  - 층 행 id 는 파일 줄이 아니라 자연 키다(#932, ADR-0331). 같은 층은 릴리스가 바뀌어도 같은 id 다.
+  - 키의 버전 순서는 비교로 쌓는 모든 표의 규칙인 ADR-0328 §1 을 따른다: `newest_first` 는
+    `[edition, ingested_at_utc]`(판 다음 커밋 시각)다. 위 §3 의 `[ingested_at_utc, source_snapshot_id]` 는 그보다 앞선
+    적음이고, 이 표에도 ADR-0328 이 적용된다.
+  - 비교 적재는 ADR-0318 의 hub 레인 장치를 그대로 쓴다: load 브랜치 스테이징, 키 앞자리 묶음(`bucket_prefix_length`),
+    바뀐·사라진 층만 changes 브랜치로 덧붙이고 fast-forward 발행. 표는 덧붙이기만이라
+    `building_register_floor_history.verify_append_descendant`(append 커밋만 걷는다)도 그대로 성립한다.
+  - 건물 패널은 `newest_floor_batch`(#830) 대신 `current_rows(frame, contract)` 로 읽는다.
+- §4 `parcel_served_gold` — 뒷 절반 `parcel_tile_bake` 는 이미 바뀐 필지가 닿는 타일만 고친다(#897·#918, ADR-0323).
+  관문·서빙 Gold 의 시도별 지문은 아직이다. 마지막 감독 리허설(`foundation-parcel-tile-bake@rehearsal-gold`,
+  2026-10-16)은 관문 단계에서 실패해 아무것도 재지 못했다. 시도 범위 MERGE 는 ADR-0344(merge-on-read)가 건드리지 않은
+  파일을 다시 쓰지 않게 한다. 행정구역 개편이 든 판(ADR-0251)은 이유를 적은 전량 재생성으로 남는다(ADR-0323 §8 처럼).

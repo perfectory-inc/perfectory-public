@@ -31,6 +31,9 @@ DEPENDENCIES_SCHEMA = "foundation-platform.orchestration_job_dependencies.v1"
 # until this task gets its slot. Rendered into the dependencies so the data catalog screen tells
 # the run's waiting from its running without a second copy of the name.
 RUN_TASK_ID = "run"
+# The task that records a job's output asset events when its run changed them (foundation_jobs.py).
+# Its success is the job's materialization, which is what Dagster observes (root ADR-0333 stage 0).
+PUBLISH_TASK_ID = "publish_outputs"
 SYSTEMD = PLATFORM_ROOT / "infra" / "systemd"
 CONTRACTS = PLATFORM_ROOT / "contracts" / "data"
 # Where a unit's ExecStart finds the release on the host.
@@ -53,6 +56,12 @@ ENABLED_SINCE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 # schedule. An `inputs` job starts when a run of another job reports that it changed one of the
 # job's inputs, and at its schedule as well (the fallback that catches what no event announces).
 STARTED_BY = ("schedule", "inputs")
+# Which orchestrator runs a job (jobs.v1.json `dagster_stage`, root ADR-0431), in the order a job moves:
+# `airflow` (absent) Airflow decides and runs; `shadow` Airflow decides and runs while Dagster decides
+# beside it and compares; `proxied` Airflow decides, Dagster runs; `dagster` Dagster decides and runs.
+DAGSTER_STAGES = ("airflow", "shadow", "proxied", "dagster")
+# The stages something implements today; a later stage is refused until its slice lands (ADR-0431 §5).
+IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow")
 # The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0260):
 # `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
 # output events; a run that does not say counts as changed, and the jobs it starts find nothing to
@@ -96,6 +105,7 @@ class JobSpec:
     check_service: str | None = None  # decides, without a pool slot, whether the run has work
     enabled_since: str | None = None  # jobs.v1.json `enabled_since` (root ADR-0239)
     reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
+    dagster_stage: str = "airflow"  # DAGSTER_STAGES
 
     @property
     def starting_inputs(self):
@@ -399,6 +409,60 @@ def priority_weight(job):
     return value
 
 
+def priority_class(jobs, entry, name):
+    """The host's priority class of a job or a capacity claimant (`priority_class`, `default` when
+    absent, root ADR-0435): one of the list's priority_classes. A class that yields at a step boundary
+    is only for a spark-pool job whose run commits as it goes, so yielding loses no committed step."""
+    classes = jobs.get("priority_classes") or {}
+    value = entry.get("priority_class", "default")
+    if value not in classes or not isinstance(classes[value].get("value"), int):
+        raise JobListError(f"{name}: priority_class {value!r} is not one of {sorted(classes)}")
+    if classes[value].get("yields_at_step_boundary") and (
+            entry.get("pool") != "spark" or entry.get("commits", "as_it_goes") != "as_it_goes"
+            or entry.get("interruptible") is False):
+        raise JobListError(f"{name}: priority_class {value} yields at a step boundary; only a spark-pool job"
+                           " that commits as it goes and is interruptible can")
+    return value
+
+
+def inherited_class(job, by_id, found):
+    """A job that names `priority_class_from` takes its class from a job that waits on what it makes
+    (root ADR-0439, priority inheritance): the named job reads one of its outputs, and the two classes
+    are the same, so the class cannot drift from the bake it serves. 2026-11-07 the panel Gold rebuild
+    ran in `default` while two lane cut-overs of class `publish` held the spark pool; the parcel lane
+    it refreshes served a 193-hour-old manifest."""
+    source = job.get("priority_class_from")
+    if source is None:
+        return
+    other = by_id.get(source)
+    if other is None:
+        raise JobListError(f"{job['id']}: priority_class_from names {source!r}, which is not a job")
+    if not set(found[job["id"]][1]) & set(found[source][0]):
+        raise JobListError(f"{job['id']}: priority_class_from names {source}, which reads nothing {job['id']} makes")
+    if job.get("priority_class", "default") != other.get("priority_class", "default"):
+        raise JobListError(f"{job['id']}: priority_class {job.get('priority_class', 'default')!r} is not "
+                           f"{other.get('priority_class', 'default')!r}, the class of {source} it takes it from")
+
+
+def capacity_claimants(jobs, pools):
+    """The work outside the job list that claims pool slots (root ADR-0435), each checked."""
+    claimants = jobs.get("capacity_claimants") or {}
+    for name, claimant in claimants.items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or any(job["id"] == name for job in jobs["jobs"]):
+            raise JobListError(f"capacity claimant {name!r} is not a lower_snake name apart from every job id")
+        if claimant.get("pool") not in pools or claimant["pool"] == DEFAULT_POOL:
+            raise JobListError(f"capacity claimant {name}: pool {claimant.get('pool')!r} is not a declared pool")
+        slots = jobs["pools"][claimant["pool"]]["slots"]
+        if type(claimant.get("pool_slots")) is not int or not 1 <= claimant["pool_slots"] <= slots:
+            raise JobListError(f"capacity claimant {name}: pool_slots must be 1 to {slots}")
+        if not re.fullmatch(r"[a-z0-9@*-]+\.service", claimant.get("unit") or ""):
+            raise JobListError(f"capacity claimant {name}: unit must be a systemd service name or pattern")
+        if (jobs["priority_classes"].get(claimant.get("priority_class")) or {}).get("yields_at_step_boundary"):
+            raise JobListError(f"capacity claimant {name}: a claimant does not yield; name another class")
+        priority_class(jobs, claimant, f"capacity claimant {name}")
+    return claimants
+
+
 def run_limit_minutes(job):
     """One run's limit: its time_limit_minutes plus its stop_grace_minutes (root ADR-0270 §1).
 
@@ -465,6 +529,29 @@ def longest_wait_minutes(starved, others, slots):
                         combined, combined_ids = hold_minutes(job), [member["id"] for member in group]
                     break
     return total + combined, [job["id"] for job in ahead] + combined_ids
+
+
+def dagster_stage(job):
+    """Which orchestrator decides and runs a job (jobs.v1.json `dagster_stage`, root ADR-0431)."""
+    value = job.get("dagster_stage", "airflow")
+    if value not in DAGSTER_STAGES:
+        raise JobListError(f"{job['id']}: dagster_stage must be one of {list(DAGSTER_STAGES)}")
+    if value not in IMPLEMENTED_DAGSTER_STAGES:
+        raise JobListError(f"{job['id']}: dagster_stage {value} has no implementation yet (root ADR-0431 §5)")
+    if value != "airflow" and not job["enabled"]:
+        raise JobListError(f"{job['id']}: a switched-off job runs nowhere; it stays at dagster_stage airflow")
+    return value
+
+
+def dagster_order(jobs, feeders):
+    """Problems of the move order (root ADR-0431 §3): a job Dagster decides (`dagster`) feeds only jobs
+    Dagster decides, since an Airflow job started by its inputs waits for an Airflow asset event that
+    a Dagster run never records. Downstream families move first."""
+    stages = {job["id"]: job.get("dagster_stage", "airflow") for job in jobs["jobs"]}
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    return [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
+            for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
+            for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
 
 
 def started_by(job):
@@ -743,6 +830,7 @@ def load_specs(jobs=None, graph=None):
         raise JobListError("jobs.v1.json dag_id_prefix must be a lower_snake name ending in '_'")
 
     pools = {DEFAULT_POOL, *declared_pools(jobs)}
+    capacity_claimants(jobs, pools)
     found = datasets(jobs, graph)
     feeders = producers(jobs, graph)
     by_id = {job["id"]: job for job in jobs["jobs"]}
@@ -759,6 +847,8 @@ def load_specs(jobs=None, graph=None):
             raise JobListError(f"{job_id}: takes_turns must be true or false")
         retries(job)
         priority_weight(job)
+        priority_class(jobs, job, job_id)
+        inherited_class(job, by_id, found)
         if not isinstance(job.get("enabled"), bool):
             raise JobListError(f"{job_id}: enabled must be true or false")
         reason = job.get("disabled_reason")
@@ -813,9 +903,13 @@ def load_specs(jobs=None, graph=None):
             other = by_id[name]
             if started_by(other) != "inputs" or not other["enabled"] and job["enabled"]:
                 raise JobListError(f"{job_id}: reconciles {name}, which is not an enabled `inputs` job")
-            # A by-PNU bake serving several lanes is the exception: each lane records its own reads.
+            # A by-PNU bake serving several lanes is the exception: each lane records its own reads. So
+            # is a job making several Gold tables (the panel rebuild, root ADR-0333 §7 stage 2): each records its own
+            # pins; a table it makes and reads itself (the unit price join) is a step of its run.
             made = found[name][1]
-            if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made):
+            golds = [node for dataset in made if dataset not in found[name][0] for node in dataset[1:]]
+            if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made) \
+                    and not (golds and all(node.startswith("gold.") for node in golds)):
                 raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
         if reconciles and (start != "schedule" or job["pool"] != DEFAULT_POOL):
             raise JobListError(f"{job_id}: a reconciler runs on its own schedule in {DEFAULT_POOL}, never on an event")
@@ -840,11 +934,12 @@ def load_specs(jobs=None, graph=None):
                 check_service=check,
                 enabled_since=since,
                 reconciles=reconciles,
+                dagster_stage=dagster_stage(job),
             )
         )
-    starvation = pool_starvation(jobs, graph)
-    if starvation:
-        raise JobListError("; ".join(starvation))
+    problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders)
+    if problems:
+        raise JobListError("; ".join(problems))
     return specs
 
 

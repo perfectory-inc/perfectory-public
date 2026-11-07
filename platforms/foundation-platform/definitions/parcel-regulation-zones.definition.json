@@ -65,6 +65,7 @@
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-parcel-regulation-zones-to-parcel-regulation-zones-by-pnu-section-packs"

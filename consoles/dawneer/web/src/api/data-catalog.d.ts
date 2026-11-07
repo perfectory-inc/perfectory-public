@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/data-catalog/v1/by-pnu-cutovers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The newest approved by-PNU cut-overs, their state and every event the host recorded. */
+        get: operations["readByPnuCutovers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data-catalog/v1/dataset-snapshots": {
         parameters: {
             query?: never;
@@ -147,6 +164,70 @@ export interface components {
         ApiErrorResponse: {
             /** @description Safe client-facing diagnostic. */
             error: string;
+        };
+        /** @description A by-PNU cut-over an operator approved and what the host did with it (root ADR-0433). */
+        ByPnuCutoverApproval: {
+            /** @description The staff member who approved. */
+            actor: string;
+            /** @description Oldest first. */
+            events: components["schemas"]["ByPnuCutoverEvent"][];
+            /** @description When it stops being startable. */
+            expires_at: string;
+            /**
+             * Format: int32
+             * @description The pack generation.
+             */
+            generation: number;
+            /** @description The approval's id: the ledger row's. */
+            id: string;
+            /** @description `lanes`, a lane or `lane,lane,...`. */
+            lanes: string;
+            /** @description Why. */
+            reason: string;
+            /** @description When it was approved. */
+            requested_at: string;
+            /**
+             * @description Its state now: `pending` (the host has not answered yet), or its last event's state, with a
+             *     `finished` one told apart as `passed` or `failed`.
+             */
+            state: string;
+        };
+        /**
+         * @description One event of an approved by-PNU cut-over, as the host appended it to the approval's progress
+         *     (`scripts/ops/release-progress.py`, root ADR-0433 §6).
+         */
+        ByPnuCutoverEvent: {
+            /** @description When the host wrote it, UTC. */
+            at: string;
+            /** @description A `step`'s lane. */
+            lane?: string | null;
+            /** @description A `step`'s or a `finished`'s outcome: `passed`, `failed` or `not-declared`. */
+            outcome?: string | null;
+            /** @description Why, as the host said it. */
+            reason?: string | null;
+            /**
+             * Format: int64
+             * @description A `step`'s duration in seconds.
+             */
+            seconds?: number | null;
+            /** @description A `scheduled`'s start, when the operator window opens, UTC. */
+            start_at?: string | null;
+            /** @description `scheduled`, `refused`, `cancelled`, `started`, `step` or `finished`. */
+            state: string;
+            /**
+             * @description A `step`'s name: history, preview, gold, parity, bake, equality, latency, publish or
+             *     monitor-sample.
+             */
+            step?: string | null;
+            /** @description A `started`'s systemd unit. */
+            unit?: string | null;
+        };
+        /** @description The newest approved by-PNU cut-overs, newest first, as the host's files say (root ADR-0433 §6). */
+        ByPnuCutovers: {
+            /** @description Newest first, at most twenty. */
+            approvals: components["schemas"]["ByPnuCutoverApproval"][];
+            /** @description Why they could not be read, when they could not. */
+            error?: string | null;
         };
         /** @description The weekly pull request CI wall-time trend against its one budget. */
         CiTimeTrend: {
@@ -447,10 +528,17 @@ export interface components {
              * @description When a `run_now` stops being consumable or a `set_window` ends; absent for the other actions.
              */
             expires_at?: string | null;
+            /**
+             * Format: int32
+             * @description An `approve_cutover`'s pack generation.
+             */
+            generation?: number | null;
             /** @description The request's id; a `run_now` is consumed by it. */
             id: string;
             /** @description The job's id. */
             job_id: string;
+            /** @description An `approve_cutover`'s lanes or a `force_full`'s lane. */
+            lanes?: string | null;
             /**
              * Format: date-time
              * @description When it was asked.
@@ -475,6 +563,17 @@ export interface components {
              *     `YYYYMM` (root ADR-0381). The readiness check grants it only for a ready edition.
              */
             edition?: string | null;
+            /**
+             * Format: int32
+             * @description An `approve_cutover` only: the pack generation, 1 to 9999.
+             */
+            generation?: number | null;
+            /**
+             * @description An `approve_cutover` of `by_pnu_lane_cutover`: the lanes to cut over (`lanes` for every lane
+             *     not cut over yet, one lane, or `lane,lane,...` in order); a `force_full` of a by-PNU bake
+             *     job: the one lane its next run re-bases with a full bake (root ADR-0433).
+             */
+            lanes?: string | null;
             /** @description Why, in one line of 1 to 300 characters; kept in the append-only ledger. */
             reason: string;
             /**
@@ -823,6 +922,39 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    readByPnuCutovers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ByPnuCutovers"];
+                };
+            };
+            /** @description No staff identity */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Principal may not read the data catalog */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listDatasetSnapshots: {
         parameters: {
             query: {
@@ -1044,7 +1176,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The job's id in orchestration/jobs.v1.json */
+                /** @description The job's id in orchestration/jobs.v1.json, or by_pnu_lane_cutover for a cut-over approval (root ADR-0433) */
                 job_id: string;
             };
             cookie?: never;
@@ -1087,7 +1219,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
-            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, or an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness */
+            /** @description Unknown action, a reason that is not one line of 1 to 300 characters, drop_pending on anything but a pause, a window that is not two HH:MM times lasting 1 to 168 hours on a set_window, an edition that is not YYYYMM on a promote_edition of parcel_edition_readiness, or an approve_cutover (of by_pnu_lane_cutover: lanes and a generation 1 to 9999) or force_full (of a by-PNU bake job: one lane) that breaks its rules */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -26,15 +26,23 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | --- | --- | --- | --- |
 | `building-register-titles` | `silver.building_register_titles` | 표제부 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`, ADR-0318) |
 | `building-register-units` | `silver.building_register_units` | 전유부 + 같은 날 표제부·기본개요 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
-| `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
+| `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | R2 에 100만 행 부분 + manifest, 부분 20개씩 load branch 에 append, 바뀐 대장만 main 에 (`compare`, 묶음 = PK 앞 세 자리, 루트 ADR-0391 덧붙임) |
 | `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
 | `building-register-master` | `silver.building_register_master` | 총괄표제부 `mart_djy_02` (루트 ADR-0357) | 부분을 load branch 에 쌓고 바뀐 대지만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `building-permit-parking` | `silver.building_permit_parking` | 건축인허가 주차장 `mart_kcy_10` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
+| `building-permit-annex-parking` | `silver.building_permit_annex_parking` | 건축인허가 부설주차장 `mart_kcy_11` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-demolition-loss` | `silver.building_permit_demolition_loss` | 철거멸실관리대장 `mart_kcy_07` (루트 ADR-0397) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-energy-monthly-electricity` | `silver.building_energy_monthly_electricity` | 월별 전기 `eais_elcty_YYYYMM` (루트 ADR-0396) | 객체 하나가 사용 월 하나: 오래된 것부터 run 마다 하나, 그 달 묶음만 비교해 바뀐 지번만 main 에 (`release_unit` object, `bucket_scope` release) |
 | `building-energy-monthly-gas` | `silver.building_energy_monthly_gas` | 월별 가스 `eais_gas_YYYYMM` (루트 ADR-0396) | 전기와 같다 |
 | `building-register-sub-parcel` | `silver.building_register_sub_parcel` | 부속지번 `mart_djy_05` (루트 ADR-0395) | 부분을 load branch 에 쌓고 부속지번 묶음이 바뀐 대장만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
+| `building-permit-building-outline` | `silver.building_permit_building_outline` | 건축인허가 동별개요 `mart_kcy_02` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 동만 main 에 (`compare`, 묶음 = 관리동별개요PK 앞 두 자리) |
+| `building-permit-major-repair` | `silver.building_permit_major_repair` | 대수선 `mart_kcy_05` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
+| `building-permit-structure-ledger` | `silver.building_permit_structure_ledger` | 공작물관리대장 `mart_kcy_06` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
+| `building-permit-floor-overview` | `silver.building_permit_floor_overview` | 건축인허가 층별개요 `mart_kcy_03` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 층만 main 에 (`compare`, 묶음 = 관리층별개요PK 앞 두 자리) |
+| `building-permit-temporary-building` | `silver.building_permit_temporary_building` | 가설건축물 `mart_kcy_08` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
+| `building-permit-site-location` | `silver.building_permit_site_location` | 건축인허가 대지위치 `mart_kcy_16` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 대지 행만 main 에 (`compare`, 묶음 = 관리대지위치관리번호 앞 두 자리) |
+| `building-maintenance-regular-inspection-history` | `silver.building_maintenance_regular_inspection_history` | 건축물 정기점검이력 `mart_ll_02` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음; pnu 없음 — 표제부로 잇는다, 루트 ADR-0404) |
 | `building-permit-basis-outline` | `silver.building_permit_basis_outline` | 건축인허가 기본개요 `mart_kcy_01` (루트 ADR-0356) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275, ADR-0311) |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |

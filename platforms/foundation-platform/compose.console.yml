@@ -1,0 +1,58 @@
+# The Dawneer staff console and its Cloudflare Tunnel on the data host (root ADR-0434).
+# Both borrow foundation-api's network namespace, like the identity bridge's sidecars: the issuer is
+# on that loopback exactly where ZITADEL_ISSUER_URL points (so tokens keep the `iss` Foundation
+# expects), Foundation answers on its container port there, and the tunnel reaches the console on
+# 127.0.0.1:3120. Nothing here publishes a port; the tunnel only dials out.
+# Profile `console`: foundation-release.sh starts these only once the console's Zitadel credentials
+# and the tunnel token exist on the host, so a host without them never runs a crash-looping tunnel.
+# Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
+# guard every-container-has-a-memory-cap).
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  dawneer:
+    logging: *log-cap
+    # Built by consoles/dawneer/compose.yml into the signed release and tagged by the admission;
+    # never built on the host.
+    image: dawneer-console:local
+    profiles: ["console"]
+    # A Rust BFF with sessions in memory (root ADR-0116 §7); about 10 MiB.
+    mem_limit: 32m
+    restart: unless-stopped
+    network_mode: "service:foundation-api"
+    environment:
+      DAWNEER_BIND: 127.0.0.1:3120
+      DAWNEER_PUBLIC_BASE_URL: https://console.perfectory.io
+      DAWNEER_ZITADEL_ISSUER_URL: ${ZITADEL_ISSUER_URL:-https://identity.example.test}
+      DAWNEER_ZITADEL_PROJECT_ID: ${FOUNDATION_PLATFORM_ZITADEL_AUDIENCE:-foundation-api}
+      DAWNEER_FOUNDATION_API_BASE_URL: http://127.0.0.1:8080
+      RUST_LOG: ${RUST_LOG:-info}
+    # OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, as identity-platform's configure-zitadel.sh wrote them.
+    env_file:
+      - path: /etc/identity-platform/secrets/dawneer-oidc-client.env
+        required: false
+    depends_on:
+      foundation-api:
+        condition: service_started
+
+  console-tunnel:
+    logging: *log-cap
+    image: cloudflare/cloudflared:2026.10.7@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+    profiles: ["console"]
+    # cloudflared holds four connections to the edge; about 30 MiB.
+    mem_limit: 64m
+    restart: unless-stopped
+    network_mode: "service:foundation-api"
+    # The tunnel's routes live at the edge (a remotely managed tunnel): console.perfectory.io to
+    # http://127.0.0.1:3120 and nothing else. TUNNEL_TOKEN comes from the console-tunnel file.
+    command: ["tunnel", "--no-autoupdate", "run"]
+    env_file:
+      - path: /etc/foundation-platform/console-tunnel.env
+        required: false
+    depends_on:
+      dawneer:
+        condition: service_started

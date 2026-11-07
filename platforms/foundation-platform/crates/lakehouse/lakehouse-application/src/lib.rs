@@ -80,6 +80,7 @@ pub use building_register_title::{
     parse_building_title_floor_counts_from_hub_bulk_text_line, BuildingLink, BuildingTitleKeyIndex,
 };
 pub use building_register_unit_area_silver_plan::{
+    building_register_unit_area_silver_part_row_to_jsonl,
     building_register_unit_area_silver_row_to_jsonl,
     normalize_building_register_unit_area_silver_rows,
     parse_building_register_unit_area_source_row_from_hub_bulk_text_line,

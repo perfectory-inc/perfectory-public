@@ -81,7 +81,12 @@ write_metrics() {
 # failures reach Slack through its own OnFailure and never change this deploy's outcome. A host
 # whose release does not carry the unit yet just does not start it.
 worker_unit=foundation-worker-autodeploy.service
-start_worker_deploy() { systemctl start --no-block "${worker_unit}" >/dev/null 2>&1 || true; }
+# The console's edge settings (root ADR-0436) follow main the same way, with the same token file.
+edge_unit=foundation-edge-settings.service
+start_worker_deploy() {
+  systemctl start --no-block "${worker_unit}" >/dev/null 2>&1 || true
+  systemctl start --no-block "${edge_unit}" >/dev/null 2>&1 || true
+}
 
 mkdir -p "${state}"
 exec 9>"${state}/lock"
@@ -247,24 +252,15 @@ running_units() {
   python3 -I -B "${platform}/scripts/deploy/job_units.py" running "$@" \
     || { log "systemd cannot tell which units run; asking again next time" >&2; exit 1; }
 }
+# No wait for an operator's unit here (root ADR-0441): a run keeps the release it started with. The
+# deploy itself waits for one only when its release holds jobs (foundation-deploy.sh, exit 75).
 reason=systemd_unreadable # until it answers
-running="$(running_units 'foundation-*')"
-operator_units=()
-while read -r unit _; do
-  if [[ -n "${unit}" && "$(systemctl show -p Transient --value "${unit}")" == yes ]]; then
-    operator_units+=("${unit}")
-  fi
-done <<<"${running}"
-if ((${#operator_units[@]} > 0)); then
-  reason=operator_unit
-  log "${target}: waiting for the operator's ${operator_units[*]}"
-  exit 0
-fi
-# A Worker deploy reads the control checkout and the release this deploy is about to replace.
-running="$(running_units "${worker_unit}")"
+# A Worker deploy and an edge apply read the control checkout and the release this deploy is about to
+# replace.
+running="$(running_units "${worker_unit}" "${edge_unit}")"
 if [[ -n "${running}" ]]; then
   reason=worker_deploy
-  log "${target}: waiting for the Worker deploy (${worker_unit})"
+  log "${target}: waiting for the Worker deploy and the edge settings (${worker_unit} ${edge_unit})"
   exit 0
 fi
 
@@ -274,6 +270,12 @@ log "deploying ${target} over ${current} (${checks#* })"
 mkdir -p "${state}/failed" "${state}/deployed"
 status=0
 /bin/bash "${platform}/scripts/deploy/foundation-deploy.sh" "${target}" || status=$?
+if [[ "${status}" == 75 ]]; then
+  # The release holds jobs and an operator's unit runs (root ADR-0441): not a failure; asked again.
+  reason=operator_unit
+  log "${target}: the release holds jobs; waiting for the operator's units, asking again next time"
+  exit 0
+fi
 if [[ "${status}" == 0 ]]; then
   date -u +%FT%TZ >"${state}/deployed/${target}"
   reason="" host_commit="${target}"

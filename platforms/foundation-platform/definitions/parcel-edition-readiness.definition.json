@@ -40,6 +40,7 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-04T00:00:00Z",
+      "dagster_stage": "shadow",
       "started_once_after_deploy": true
     }
   ],

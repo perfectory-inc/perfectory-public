@@ -39,12 +39,14 @@
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-unit-price-panel-to-unit-price-by-pnu-section-packs"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-29T12:00:00Z"
+      "enabled_since": "2026-10-29T12:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
@@ -191,5 +193,15 @@
         "service": "spark-small"
       }
     ]
-  }
+  },
+  "asset_checks": [
+    {
+      "asset": "unit-price-by-pnu-section-packs",
+      "check": "serves_the_newest_gold",
+      "blocking": false,
+      "reads": [
+        "gold-unit-price-panel"
+      ]
+    }
+  ]
 }

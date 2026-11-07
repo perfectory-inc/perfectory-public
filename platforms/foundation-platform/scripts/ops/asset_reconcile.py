@@ -106,6 +106,26 @@ class Verdict:
     note: str = ""
 
 
+def panel_assets(job_id: str, job: dict, service: str, golds: list, nodes: dict, edges: dict,
+                 contract: dict) -> list[Asset]:
+    """Each Gold table a job that makes several builds (gold_panel_rebuild: the parcel and the building
+    panel), its own asset (root ADR-0333 §7, stage 2): its inputs are the tables the job's edges feed it from, less
+    what the job makes itself (the unit price join it builds the building panel with) and the inputs
+    the contract holds back from a real rebuild (`unmeasured_inputs`), so the asset is owed exactly when
+    an input its planner pins moved."""
+    made = {nodes[edges[edge]["to"]].get("table_name") for edge in job["pipeline_graph_edges"]}
+    found = []
+    for name in golds:
+        node = nodes[name]
+        gold = node["table_name"]
+        held_back = set(contract["tables"][gold].get("unmeasured_inputs", {}))
+        tables = {nodes[edges[edge]["from"]].get("table_name") for edge in job["pipeline_graph_edges"]
+                  if edges[edge]["to"] == name} - {None} - made - held_back
+        uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
+        found.append(Asset(job_id, uri, service, gold=gold, inputs=tuple(sorted(tables))))
+    return found
+
+
 def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
     """The assets of every job the reconciler reconciles, from the job list, the graph and the contracts:
     a Gold job's one table, or each lane a by-PNU bake serves (by_pnu_serving_bake serves several, one
@@ -127,6 +147,10 @@ def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
             pinning = pins_from["gold_table"] if pins_from else None
             found.append(Asset(job_id, uri, service, gold=node["table_name"],
                                inputs=tuple(sorted(t for t in tables if t != pinning)), pins_from=pins_from))
+            continue
+        golds = [name for name in outputs if nodes[name].get("table_name") in contract["tables"]]
+        if golds:
+            found.extend(panel_assets(job_id, listing[job_id], service, golds, nodes, edges, contract))
             continue
         # The Gold tables each lane is fed from; a lane's object serving node and its packs are one lane.
         feeds: dict[str, set] = {}
@@ -227,6 +251,30 @@ def failure_backoff(failures: int) -> float:
     return min(FAILURE_BACKOFF_BASE * 2 ** (failures - 1), FAILURE_BACKOFF_CAP)
 
 
+def gold_attempt(asset: Asset, verdict: Verdict, busy: bool, kept: dict, now: float) -> dict:
+    """The versions a Gold asset's start is keyed by: its owed versions, and once a start of them has
+    ended without catching the Gold up, the attempt it is (root ADR-0333 §7, as a lane's failure is).
+
+    A start is keyed by the versions it owes, so it runs once per set of them. A run that ended
+    without a commit (the rebuild lock held by a cut-over, `waiting`; a timeout) left the same
+    versions owed under a key already used, and nothing started it again until an input moved
+    (2026-11-07 08:45Z the panel rebuild ended `waiting` behind a lane cut-over's rebuild). The asset
+    still owed and not running is started again after the lanes' backoff (ten minutes doubling to
+    four hours, `failure_backoff`), counted from when its job last ran, under a new key."""
+    if not asset.gold or not verdict.owed:
+        for name in ("attempt", "attempt_of", "attempt_at"):
+            kept.pop(name, None)
+        return verdict.versions
+    owed = versions_key({asset.uri: verdict.versions})
+    if kept.get("attempt_of") != owed:
+        kept.update(attempt_of=owed, attempt=0, attempt_at=now)
+    elif busy:
+        kept["attempt_at"] = now
+    elif now - kept["attempt_at"] >= failure_backoff(kept["attempt"] + 1):
+        kept.update(attempt=kept["attempt"] + 1, attempt_at=now)
+    return {**verdict.versions, "attempt": kept["attempt"]} if kept["attempt"] else verdict.versions
+
+
 def lane_verdict(asset: Asset, table, reads, now: float) -> Verdict:
     """Owed when the lane's Gold moved past the snapshot its last run left served.
 
@@ -296,8 +344,9 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
         metrics.append(f"foundation_asset_owed{{{labels}}} {int(verdict.owed)}")
         if busy or full:
             kept["busy_at"] = now
+        versions = gold_attempt(asset, verdict, busy, kept, now)
         if verdict.owed and not busy and not verdict.waiting:
-            owed_by_job.setdefault(asset.job, {})[asset.uri] = verdict.versions
+            owed_by_job.setdefault(asset.job, {})[asset.uri] = versions
         if verdict.owed and not busy and not full and not verdict.waiting:
             since = kept.get("unscheduled_since") or max(verdict.owed_since or now, kept.get("busy_at", 0.0))
             kept["unscheduled_since"] = min(since, now)

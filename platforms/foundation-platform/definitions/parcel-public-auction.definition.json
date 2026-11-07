@@ -50,7 +50,8 @@
         "reference-legal-dong-code-change-to-gold-parcel-public-auction"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-20T16:12:59Z"
+      "enabled_since": "2026-10-20T16:12:59Z",
+      "dagster_stage": "shadow"
     },
     {
       "id": "by_pnu_public_auction_bake",
@@ -88,12 +89,14 @@
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-28T00:00:00Z"
+      "enabled_since": "2026-10-28T00:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
@@ -1378,6 +1381,16 @@
             }
           ]
         }
+      ]
+    }
+  ],
+  "asset_checks": [
+    {
+      "asset": "gold-parcel-public-auction",
+      "check": "rounds_carry_their_media",
+      "blocking": true,
+      "reads": [
+        "silver-onbid-real-estate-item-photo"
       ]
     }
   ]

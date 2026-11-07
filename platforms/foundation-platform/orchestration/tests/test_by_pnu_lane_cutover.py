@@ -2,7 +2,7 @@
 
 It runs each lane's Gold, the parity with the bundle, bake, equality, latency, publish and
 monitor-sample through the granted operator script, waits for each, stops at the first failure,
-records every step, never starts beside Spark and never in the daily scheduled window. The fake
+records every step and never starts beside Spark; no time of day refuses a step (root ADR-0435). The fake
 systemd-run of the operator's harness records each unit and fails the ones FAKE_FAIL names.
 """
 
@@ -28,14 +28,46 @@ def at(hour, minute=0):
     return str(int(datetime.datetime(2026, 10, 13, hour, minute, tzinfo=datetime.timezone.utc).timestamp()))
 
 
-# Clear of every daily scheduled Spark start with the longest step budget to spare.
-NIGHT = at(2)
+# Any hour: no step waits for a time of day (root ADR-0435).
+NIGHT = at(22)
+
+
+def untimed_lanes():
+    """The lanes whose own Gold job never ran as its unit: their gold step is bounded by the unit's limit."""
+    unmeasured = {job["systemd_service"] for job in JOBS
+                  if (job.get("per_run_cap") or {}).get("measured_run_seconds", 0) is None}
+    return [lane for lane in CONTRACT["by_pnu_lanes"]
+            if f"foundation-gold-lane-rebuild@{lane}.service" in unmeasured and "host" in CONTRACT["by_pnu_lanes"][lane]
+            and not CONTRACT["by_pnu_lanes"][lane].get("first_publish_waits_for_history")]
+
+
+# The verify step's edge probe (root ADR-0435): the runner calls it with a clean environment, so the
+# stand-in records into a path written into it. FAIL in the stand-in's directory makes it fail.
+FAKE_PROBE = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+samples = {name: value for name, value in os.environ.items() if name.endswith("_MONITOR_SAMPLE_PATH")}
+with open(here / "probe.jsonl", "a", encoding="utf-8") as log:
+    log.write(json.dumps({"args": sys.argv[1:], "samples": samples}) + "\n")
+if (here / "FAIL").exists():
+    sys.exit("by-pnu-edge-probe: 1 failures (root ADR-0327): GET answered 404")
+print("by-pnu-edge-probe: every lane served")
+'''
 
 
 class LaneCutover(OperatorHarness):
     def setUp(self):
         super().setUp()
         self.env["FOUNDATION_CUTOVER_POLL_SECONDS"] = "0"
+        self.probe = self.root / "probe"
+        self.probe.mkdir()
+        (self.probe / "by-pnu-edge-probe.py").write_text(FAKE_PROBE)
+        self.env["FOUNDATION_CUTOVER_EDGE_PROBE"] = str(self.probe / "by-pnu-edge-probe.py")
+        self.env["FOUNDATION_CUTOVER_VERIFY_PAUSE_SECONDS"] = "0"
+
+    def probes(self):
+        path = self.probe / "probe.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
     def runner(self, *args, now=NIGHT, **env):
         """The release's runner, as the cut-over unit runs it (root, no sudo)."""
@@ -97,7 +129,7 @@ class LaneCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         args, _, _ = self.unit(calls)
         # Only the lane's table, only when an input moved: no `all`, no --unconditional.
-        self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
+        self.assertEqual(args[-2:], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), unit])
         self.assertIn("--no-block", args)
         self.log.unlink()
         result, calls = self.run_operator(LANE, "gold-rebuild", FOUNDATION_OPERATOR_WAIT="1")
@@ -134,7 +166,13 @@ class LaneCutover(OperatorHarness):
         steps = self.evidence()
         self.assertEqual([step["step"] for step in steps],
                          ["history", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
-                          "monitor-sample"])
+                          "monitor-sample", "verify"])
+        # The publish is checked the way a user reads it: the lane's Worker at its production hostname,
+        # given only this lane's sample (root ADR-0435).
+        (probe,) = self.probes()
+        hostname = CONTRACT["by_pnu_lanes"][LANE]["public_hostname"]
+        self.assertEqual(probe["args"], ["--base-url", f"https://{hostname}", LANE])
+        self.assertEqual(list(probe["samples"].values()), [str(work / "equality.json")])
         self.assertTrue(all(isinstance(step["seconds"], int) and step["generation"] == 1 for step in steps))
         # A table with no declared parity is never reported as a passed parity.
         parity = next(step for step in steps if step["step"] == "parity")
@@ -214,13 +252,13 @@ class LaneCutover(OperatorHarness):
         result, calls = self.run_operator("gold", "rebuild", unit)
         self.assertEqual(result.returncode, 0, result.stderr)
         args, _, _ = self.unit(calls)
-        self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
+        self.assertEqual(args[-2:], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), unit])
         self.log.unlink()
         # The measured run of an input listed under unmeasured_inputs: the same unit, nothing committed.
         result, calls = self.run_operator("gold", "rebuild", unit, "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         args, _, _ = self.unit(calls)
-        self.assertEqual(args[-3:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit, "--dry-run"])
+        self.assertEqual(args[-3:], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), unit, "--dry-run"])
         self.log.unlink()
         for args in (("gold", "rebuild"), ("gold", "rebuild", "all"), ("gold", "rebuild", unit, "x"),
                      ("gold", "rebuild", unit, "--dry-run", "x"), ("gold", "rebuild", "--dry-run"),
@@ -266,26 +304,82 @@ class LaneCutover(OperatorHarness):
                 self.assertEqual(last["step"], "gold")
                 self.assertIn(unit, last["reason"])
 
-    def test_no_step_starts_in_or_runs_into_the_scheduled_window(self):
-        # Every daily start of a spark-pool job is inside the window the runner keeps out of.
-        daily = sorted({(int(job["schedule"].split()[1]), int(job["schedule"].split()[0])) for job in JOBS
-                        if job.get("pool") == "spark" and job["schedule"].split()[1].isdigit()})
-        self.assertTrue(daily)
-        for hour, minute in daily:
-            with self.subTest(start=f"{hour:02d}:{minute:02d}"):
-                result, calls = self.runner(LANE, "1", "--dry-run", now=at(hour, minute))
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("inside the scheduled window", result.stderr)
-        # Twenty minutes before the first one, a Gold of its budget would run into it: nothing starts.
-        first_hour, first_minute = daily[0]
-        early = at(first_hour, first_minute)
-        early = str(int(early) - 20 * 60)
-        if self.log.exists():
-            self.log.unlink()
-        result, calls = self.runner(LANE, "1", now=early)
+    def test_a_publish_the_edge_does_not_serve_fails_the_run_after_asking_again(self):
+        # Root ADR-0435: the post-publish check is part of the analysis; a lane its first publish left
+        # unserved has no earlier manifest to go back to, so the run fails (its unit pages).
+        self.gates_ready()
+        (self.probe / "FAIL").write_text("")
+        result, _ = self.runner(LANE, "1", FOUNDATION_CUTOVER_VERIFY_ATTEMPTS="3")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(len(self.probes()), 3)
+        last = self.evidence()[-1]
+        self.assertEqual((last["step"], last["outcome"]), ("verify", "failed"))
+        self.assertIn("no earlier manifest to go back to", last["reason"])
+
+    def test_the_pending_lanes_are_those_not_cut_over_in_contract_order(self):
+        result, _ = self.runner("lanes", "--pending")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), list(CONTRACT["by_pnu_lanes"]))
+        self.mark_cut_over(LANE, "parcel-zoning")
+        result, calls = self.runner("lanes", "--pending")
+        self.assertEqual(result.stdout.split(), [lane for lane in CONTRACT["by_pnu_lanes"]
+                                                 if lane not in (LANE, "parcel-zoning")])
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
+
+    def test_the_automatic_cut_over_is_root_without_sudo_one_pending_lane_and_pages_on_failure(self):
+        # Root ADR-0435: the auto-promotion's start needs no terminal and no request time.
+        result, calls = self.run_operator(LANE, "cutover", "1", "--auto", attended=False, flags=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, props = self.unit(calls)
+        self.assertIn("--unit=foundation-by-pnu-lane-cutover-g1", args)
+        self.assertIn("OnFailure=foundation-unit-failed@foundation-by-pnu-lane-cutover-g1.service", props)
+        self.assertIn("SuccessExitStatus=75", props)
+        self.assertEqual(args[-2:], [LANE, "1"])
+        refused = [((LANE, "cutover", "1", "--auto"), {"SUDO_USER": "operator-a"}, 77),
+                   (("lanes", "cutover", "1", "--auto"), {}, 64),
+                   ((f"{LANE},parcel-zoning", "cutover", "1", "--auto"), {}, 64)]
+        for args, env, code in refused:
+            with self.subTest(args=args, env=env):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, attended=False, flags=False, **env)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
+        # Only a first publish: a lane cut over already is not started again on its own.
+        self.mark_cut_over(LANE)
+        self.log.unlink(missing_ok=True)
+        result, calls = self.run_operator(LANE, "cutover", "1", "--auto", attended=False, flags=False)
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
+
+    def test_the_run_claims_the_spark_pool_while_it_waits_and_leaves_no_claim_behind(self):
+        # Root ADR-0435, the 2026-11-06 00:37Z replay: the cut-over waits for the running backfill with
+        # its claim queued (the backfill yields to it, nothing lower starts), and takes it off at the end.
+        migration = "foundation-unit-price-versions-migrate.service"
+        claims = self.root / "capacity"
+        result, calls = self.runner(LANE, "1", FAKE_ACTIVATING=migration, FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES="0")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
-        self.assertIn("would run into the scheduled window", self.evidence()[-1]["reason"])
+        last = self.evidence()[-1]
+        self.assertEqual(last["step"], "gold")
+        self.assertIn("with the pool claimed", last["reason"])
+        self.assertIn(migration, last["reason"])
+        self.assertEqual(sorted(claims.iterdir()) if claims.exists() else [], [], "the claim is taken off at the end")
+
+    def test_a_step_starts_at_any_hour_even_inside_the_old_scheduled_window(self):
+        # 2026-11-06 03:46:38Z: "would run into the scheduled window 04:30-21:50 UTC (budget 60 min)"
+        # refused the parcel-ownership gold step. Every daily Spark start's minute, and that one, now
+        # runs every step; the spark pool's claim, not the clock, keeps it apart from the batch.
+        daily = sorted({(int(job["schedule"].split()[1]), int(job["schedule"].split()[0])) for job in JOBS
+                        if job.get("pool") == "spark" and job["schedule"].split()[1].isdigit()})
+        for hour, minute in [(3, 46), *daily]:
+            with self.subTest(start=f"{hour:02d}:{minute:02d}"):
+                result, calls = self.runner(LANE, "1", "--dry-run", now=at(hour, minute))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("would not start now", result.stderr)
+        self.gates_ready()
+        result, calls = self.runner(LANE, "1", now=at(3, 46))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.evidence()[-1]["step"], "verify")
 
     def test_a_lane_waiting_for_history_starts_nothing_until_the_history_is_whole(self):
         # Root ADR-0350 §6, ADR-0371 §5: a half-filled 실거래 history reads as "no deal" on the screen,
@@ -300,10 +394,50 @@ class LaneCutover(OperatorHarness):
         self.assertEqual((step["step"], step["outcome"]), ("history", "failed"))
         self.assertIn("cannot tell", step["reason"])
 
+    def test_the_operator_takes_lanes_listed_in_the_order_to_cut_them_over(self):
+        # 2026-11-06: five lanes waited for their first publish, and contract order put the untimed
+        # regulation-zones Gold second; the operator orders them so the light Gold builds go first.
+        listed = f"{LANE},parcel-demolitions"
+        result, calls = self.run_operator(listed, "cutover", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, _ = self.unit(calls)
+        self.assertEqual(args[-2:], [listed, "1"])
+        for args in ((f"{LANE},nope", "cutover", "1"), (f"{LANE},", "cutover", "1"), (f"{LANE},lanes", "cutover", "1"),
+                     (listed, "bake", "1"), (f"{LANE};id,parcel-demolitions", "cutover", "1")):
+            with self.subTest(args=args):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args)
+                self.assertEqual(result.returncode, 64, result.stderr)
+                self.assertEqual(calls, [])
+        # The runner keeps the order given, leaves out a lane cut over already, and refuses a repeat.
+        result, _ = self.run_operator(f"parcel-demolitions,{LANE}", "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLess(result.stderr.index("dry run parcel-demolitions gold:"), result.stderr.index(f"dry run {LANE} gold:"))
+        self.mark_cut_over(LANE)
+        result, _ = self.run_operator(f"parcel-demolitions,{LANE}", "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn(f"dry run {LANE} gold:", result.stderr)
+        result, _ = self.runner(f"{LANE},{LANE}", "1", "--dry-run")
+        self.assertEqual(result.returncode, 65, result.stderr)
+
+    def test_an_untimed_gold_is_shown_bounded_by_its_unit_limit(self):
+        # A first full build never timed is bounded only by the unit it starts (the panel rebuild's
+        # 160 minutes, which it reached ten times after 2026-10-20). A timed lane shows 60.
+        lanes = untimed_lanes()
+        if not lanes:
+            self.skipTest("every lane's Gold job is timed")
+        limit = next(job["time_limit_minutes"] for job in JOBS if job["id"] == "gold_panel_rebuild")
+        result, _ = self.runner(f"{LANE},{lanes[0]}", "1", "--dry-run", now=at(2))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = result.stderr.splitlines()
+        gold = {lane: next(line for line in lines if f"dry run {lane} gold:" in line) for lane in (LANE, lanes[0])}
+        self.assertIn(f"bounded by {limit} min", gold[lanes[0]])
+
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for step in ("history", "preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample"):
+        for step in ("history", "preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample",
+                     "verify"):
             self.assertIn(f"dry run {LANE} {step}:", result.stderr)
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "systemctl")])
         self.assertFalse((self.bake / "cutover").exists())

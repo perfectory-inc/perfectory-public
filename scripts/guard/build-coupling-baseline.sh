@@ -319,7 +319,23 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 159 -> 157: the retired spatial tile WAP probe read its own source and its evidence contract.
 # 157 -> 158: the photo rendition step embeds the connection contract's ladder once
 # (parcel_media.renditions, root ADR-0427), as the publisher crates embed its other blocks.
-COMPILE_TIME_READ_BASELINE="${3:-158}"
+# 158 -> 159: the 건축인허가 부설주차장 lane embeds its source contract once, as every hub part lane
+# does (root ADR-0402).
+# 159 -> 160: the 건축인허가 동별개요 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+# 160 -> 161: the 대수선 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+# 161 -> 162: the 공작물관리대장 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+# 162 -> 163: the 건축인허가 층별개요 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+# 163 -> 164: the 가설건축물 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+# 164 -> 165: the 건축인허가 대지위치 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+# 165 -> 166: the 건축물 정기점검이력 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0402).
+COMPILE_TIME_READ_BASELINE="${3:-166}"
 
 cd "$repo_root"
 

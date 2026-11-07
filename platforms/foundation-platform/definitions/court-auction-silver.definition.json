@@ -46,7 +46,8 @@
         "source-courtauction-go-kr-to-silver-court-auction-item-photo"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z"
+      "enabled_since": "2026-10-30T13:30:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "host_memory": {

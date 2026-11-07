@@ -45,7 +45,8 @@
         "silver-administrative-boundaries-to-gold-place-id-changelog"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-14T11:40:00Z"
+      "enabled_since": "2026-10-14T11:40:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

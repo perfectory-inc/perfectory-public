@@ -8,7 +8,7 @@
       "scope": "full",
       "full_reason": "It computes only the PNUs whose inputs changed (root ADR-0180, ADR-0193), but the copy-on-write MERGE rewrites every data file holding one, and a national vintage's changes reach every file even in PNU range order (#896; computed).",
       "full_cost": "measured 2026-10-29 (journal and read-only Trino $snapshots): 2026-10-26 parcel_forest_ledger incremental, 48,477 PNUs changed, 892 s, wrote 1.855 GB (100%); 2026-10-23 parcel_transfer_history incremental, 52,780 PNUs, 6,249 s, wrote 3.256 GB (100%); 9.76 GB across the six kinds at 100% of bytes on each last commit. The shape-ledger check of 2026-10-29 12:36 still reports 100% bytes on every kind's last commit, and two kinds not ordered by PNU.",
-      "full_tracked_by": "PR #951 (plan: Gold MERGE writes merge-on-read deletes, compaction folds them)",
+      "full_tracked_by": "root ADR-0344 §6 (the merge-on-read MERGE and the delete fold are in, #959 and #960; the job becomes changed-keys once production measures a commit's bytes near the changed-key share)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Rebuild the Gold table of every by-PNU data kind line of config/r2-connections.contract.json (root ADR-0193 §9), one after the other, after the panel Gold rebuild: each kind is its host panel's section, built from the panel's own Silver pins and checked against the committed panel on every PNU before it writes (infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py). Started when the panel rebuild committed a panel, and at 09:15 as the fallback; a table it does not finish in its time is taken at its next run. A committed kind starts the by-PNU bake.",
@@ -47,7 +47,8 @@
         "gold-parcel-panel-to-gold-parcel-land-rights"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-12T22:17:38Z"
+      "enabled_since": "2026-10-12T22:17:38Z",
+      "dagster_stage": "shadow"
     },
     {
       "id": "by_pnu_serving_bake",
@@ -87,6 +88,7 @@
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "takes_turns": true,
       "pipeline_graph_edges": [
@@ -102,7 +104,8 @@
         "gold-parcel-land-rights-to-parcel-land-rights-by-pnu-section-packs"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-07T19:55:24Z"
+      "enabled_since": "2026-10-07T19:55:24Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

@@ -157,16 +157,144 @@ class AnOperatorsStop(RunNowDispatch):
         self.assertIn("is not running", out)
 
 
+class AnApprovedCutOver(RunNowDispatch):
+    """Root ADR-0433 §2, ADR-0435: an approved by-PNU cut-over starts once, at once, at any hour; it waits
+    for the spark pool by its claim, never for a clock (2026-11-06 03:46Z the operator window refused one).
+
+    The clock is FIXTURE_NOW (a fake `date +%s`).
+    """
+
+    APPROVAL = "44444444-4444-4444-8444-444444444444"
+    STOP_ID = "55555555-5555-4555-8555-555555555555"
+    BUSY = "operator-cutover-*.service"
+
+    def setUp(self):
+        super().setUp()
+        root = self.root
+        ops = root / "opt/current/scripts/ops"
+        ops.mkdir(parents=True)
+        (ops / "release-progress.py").write_bytes((PLATFORM / "scripts/ops/release-progress.py").read_bytes())
+        bin_dir = root / "bin"
+        real_date = subprocess.run(["bash", "-c", "command -v date"], capture_output=True, text=True,
+                                   check=True).stdout.strip()
+        (bin_dir / "date").write_text(
+            '#!/usr/bin/env bash\n'
+            f'if [[ "$*" == "+%s" && -n "${{FIXTURE_NOW:-}}" ]]; then echo "$FIXTURE_NOW"; else exec {real_date} "$@"; fi\n')
+        (bin_dir / "date").chmod(0o755)
+        # systemctl: list-units shows a running cut-over when its last pattern is FIXTURE_RUNNING; stops
+        # are recorded.
+        (bin_dir / "systemctl").write_text(
+            '#!/usr/bin/env bash\n'
+            'case "$1" in\n'
+            '  list-units) for last; do :; done\n'
+            '    [[ "${last}" != "${FIXTURE_RUNNING:-}" ]] || echo "foundation-by-pnu-lane-cutover-g1.service loaded activating x fixture" ;;\n'
+            '  show) echo inv-1 ;;\n'
+            '  stop) printf "%s\\n" "$*" >> "$FIXTURE_ROOT/stopped.log" ;;\n'
+            'esac\n')
+        self.progress_dir = root / "releases"
+        self.env["FOUNDATION_RELEASE_PROGRESS_DIR"] = str(self.progress_dir)
+
+    @staticmethod
+    def epoch(hour, minute, second=0, day=6):
+        return int(datetime.datetime(2026, 11, day, hour, minute, second, tzinfo=datetime.timezone.utc).timestamp())
+
+    def approve(self, asked, expires_hours=48, lanes="parcel-ownership", generation="1"):
+        requests = self.root / "switches/cutover.d"
+        requests.mkdir(parents=True, exist_ok=True)
+        iso = lambda epoch: datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).isoformat()  # noqa: E731
+        (requests / self.APPROVAL).write_text(
+            f"request={self.APPROVAL}\nactor=staff-owner\nrequested_at={iso(asked)}\nreason=g2 of the lane\n"
+            f"job=by_pnu_lane_cutover\nexpires_at={iso(asked + expires_hours * 3600)}\nlanes={lanes}\n"
+            f"generation={generation}\n")
+
+    def started(self):
+        log = self.root / "systemd-run.log"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def progress(self):
+        path = self.progress_dir / f"{self.APPROVAL}.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def at(self, now, **env):
+        out, _ = self.dispatch(FIXTURE_NOW=str(now), **env)
+        return out
+
+    def forget(self):
+        for path in (self.marks / "cutover").glob("*") if (self.marks / "cutover").exists() else ():
+            path.unlink()
+        (self.progress_dir / f"{self.APPROVAL}.jsonl").unlink(missing_ok=True)
+        (self.root / "systemd-run.log").unlink(missing_ok=True)
+
+    def test_an_approval_starts_at_once_at_any_hour_and_only_once(self):
+        # 00:37:35Z and 03:46:38Z of 2026-11-06 (the second was refused by the window), and noon.
+        for now in (self.epoch(0, 37, 35), self.epoch(3, 46, 38), self.epoch(12, 0)):
+            with self.subTest(now=now):
+                self.forget()
+                self.approve(now)
+                out = self.at(now)
+                (start,) = self.started()
+                self.assertNotIn("--on-calendar", start, out)
+                self.assertTrue(start.startswith(f"--quiet --collect --unit operator-cutover-{self.APPROVAL} "), start)
+                self.assertTrue(start.endswith(
+                    f"/opt/current/scripts/ops/by-pnu-pack-operator.sh parcel-ownership cutover 1 --approved {self.APPROVAL}"),
+                    start)
+                self.at(now + 60)
+                self.assertEqual(len(self.started()), 1, "an approval was started twice")
+
+    def test_while_a_cut_over_runs_an_approval_waits_for_the_next_change_and_is_not_used_up(self):
+        now = self.epoch(12, 0)
+        self.approve(now)
+        out = self.at(now, FIXTURE_RUNNING=self.BUSY)
+        self.assertEqual(self.started(), [], out)
+        self.assertIn("a cut-over runs", out)
+        self.at(now + 600)
+        self.assertEqual(len(self.started()), 1)
+
+    def test_an_expired_or_malformed_approval_is_refused_with_why(self):
+        noon = self.epoch(12, 0)
+        self.approve(noon - 7200, expires_hours=1)
+        self.at(noon)
+        self.assertEqual(self.started(), [])
+        (refused,) = self.progress()
+        self.assertEqual(refused["state"], "refused", refused)
+        for lanes, generation in (("parcel ownership", "1"), ("parcel-ownership", "0"), ("parcel-ownership", "1;id")):
+            with self.subTest(lanes=lanes, generation=generation):
+                self.forget()
+                self.approve(noon, lanes=lanes, generation=generation)
+                self.at(noon)
+                self.assertEqual(self.started(), [])
+
+    def test_a_stop_of_the_runner_cancels_waiting_approvals_and_ends_a_run(self):
+        now = self.epoch(3, 46, 38)
+        self.approve(now)
+        self.at(now, FIXTURE_RUNNING=self.BUSY)
+        asked = datetime.datetime.fromtimestamp(now + 60, datetime.timezone.utc).isoformat()
+        (self.root / "switches/by_pnu_lane_cutover.stop").write_text(
+            f"request={self.STOP_ID}\nactor=staff-owner\nrequested_at={asked}\nreason=baked from the wrong Gold\n")
+        running = "foundation-by-pnu-lane-cutover-g*.service"
+        out = self.at(now + 120, FIXTURE_RUNNING=running)
+        stopped = (self.root / "stopped.log").read_text().splitlines()
+        self.assertEqual(stopped, ["stop --no-block foundation-by-pnu-lane-cutover-g1.service"], out)
+        cancelled = self.progress()[-1]
+        self.assertEqual(cancelled["state"], "cancelled")
+        self.assertIn("baked from the wrong Gold", cancelled["reason"])
+        self.at(now + 180, FIXTURE_RUNNING=running)
+        self.assertEqual(len((self.root / "stopped.log").read_text().splitlines()), 1, "a stop was acted on twice")
+        self.assertEqual(self.started(), [], "a cancelled approval was started")
+
+
 class TheReleaseWatchesTheRequests(unittest.TestCase):
     def test_the_path_unit_is_installed_and_enabled_and_watches_a_directory_the_host_makes(self):
         release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
         self.assertIn('"${release_root}"/current/infra/systemd/*.path; do', release)
         self.assertIn("systemctl enable --now foundation-run-now.path", release)
         unit = (PLATFORM / "infra/systemd/foundation-run-now.path").read_text(encoding="utf-8")
-        watched = next(line.split("=", 1)[1] for line in unit.splitlines() if line.startswith("PathChanged="))
+        watched = [line.split("=", 1)[1] for line in unit.splitlines() if line.startswith("PathChanged=")]
         made = {entry["path"] for entry in json.loads(
             (PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))["state_directories"]}
-        self.assertIn(watched, made)
+        self.assertLessEqual(set(watched), made)
+        # An approved cut-over is a request too (root ADR-0433 §3).
+        self.assertIn("/var/lib/foundation-jobs/switches/cutover.d", watched)
 
 
 if __name__ == "__main__":

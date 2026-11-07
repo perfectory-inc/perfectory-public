@@ -6,14 +6,18 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use url::Url;
 
-/// Server settings. Every value comes from the environment; the client secret from a file.
+/// Server settings. Every value comes from the environment.
+///
+/// The client credentials come under the names `configure-zitadel.sh` writes into the app's credentials file, which the host hands to the
+/// container as an env file (root ADR-0434 §1), so the secret is never copied anywhere else.
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Where the server listens.
     pub bind: SocketAddr,
     /// The origin staff open in the browser; the OIDC redirect URI hangs off it.
     pub public_base: Url,
-    /// The Zitadel issuer (root ADR-0116 §5: the production issuer through a tunnel).
+    /// The Zitadel issuer on the loopback; the server's own calls go here, the browser never does
+    /// (root ADR-0434 §2).
     pub issuer: Url,
     /// The Zitadel project id; tokens must carry it as audience for Foundation to accept them.
     pub project_id: String,
@@ -39,8 +43,6 @@ impl Config {
         let url = |name: &str, value: String| {
             Url::parse(&value).with_context(|| format!("{name} is not a URL"))
         };
-        let client_file = var("DAWNEER_OIDC_CLIENT_FILE")?;
-        let (client_id, client_secret) = read_client_file(&client_file)?;
         let config = Self {
             bind: or("DAWNEER_BIND", "127.0.0.1:3120")
                 .parse()
@@ -54,8 +56,8 @@ impl Config {
                 var("DAWNEER_ZITADEL_ISSUER_URL")?,
             )?,
             project_id: var("DAWNEER_ZITADEL_PROJECT_ID")?,
-            client_id,
-            client_secret,
+            client_id: var("OIDC_CLIENT_ID")?,
+            client_secret: var("OIDC_CLIENT_SECRET")?,
             foundation_base: url(
                 "DAWNEER_FOUNDATION_API_BASE_URL",
                 or("DAWNEER_FOUNDATION_API_BASE_URL", "http://127.0.0.1:18080"),
@@ -83,20 +85,4 @@ impl Config {
     pub fn secure_cookies(&self) -> bool {
         self.public_base.scheme() == "https"
     }
-}
-
-/// Reads `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` from the file `configure-zitadel.sh` wrote.
-fn read_client_file(path: &str) -> anyhow::Result<(String, String)> {
-    let text = std::fs::read_to_string(path).with_context(|| format!("cannot read {path}"))?;
-    let value = |key: &str| {
-        text.lines()
-            .find_map(|line| {
-                line.strip_prefix(key)
-                    .and_then(|rest| rest.strip_prefix('='))
-            })
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-            .with_context(|| format!("{path} has no {key}"))
-    };
-    Ok((value("OIDC_CLIENT_ID")?, value("OIDC_CLIENT_SECRET")?))
 }

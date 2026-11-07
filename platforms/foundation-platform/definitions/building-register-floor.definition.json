@@ -8,7 +8,7 @@
       "scope": "full",
       "full_reason": "A new FLOOR release is appended whole, not only the floors whose content changed; a run with no new release writes nothing (2026-10-29: persisted_row_count=0). The hub lanes compare since root ADR-0318; this lane does not yet.",
       "full_cost": "measured 2026-10-29 from silver.building_register_floors$snapshots (read-only Trino): the 2026-10-20 release appended 21,189,570 rows, 1.065 GB in one commit, half of the table's 2.138 GB; one release a month.",
-      "full_tracked_by": "PR #952 (plan: root ADR-0322 §3, the FLOOR lane compares like the hub lanes; natural row ids are done in #932)",
+      "full_tracked_by": "root ADR-0322 §3 and its progress notes (the FLOOR lane compares like the hub lanes, ordered by ADR-0328; natural row ids are done in #932); its tracking PR #952 was folded there",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "최신 complete Bronze FLOOR/title pair를 매일 재확인하고 FLOOR Silver 적재를 재시도한다. source_sweep의 신규 수집 건수와 독립적이다.",
@@ -41,7 +41,8 @@
         "source-building-hub-bulk-to-silver-building-register-floors"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-02T06:42:17Z"
+      "enabled_since": "2026-10-02T06:42:17Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

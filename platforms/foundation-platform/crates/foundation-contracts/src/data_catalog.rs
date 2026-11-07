@@ -505,6 +505,14 @@ pub struct OperatorActionRequest {
     /// `YYYYMM` (root ADR-0381). The readiness check grants it only for a ready edition.
     #[serde(default)]
     pub edition: Option<String>,
+    /// An `approve_cutover` of `by_pnu_lane_cutover`: the lanes to cut over (`lanes` for every lane
+    /// not cut over yet, one lane, or `lane,lane,...` in order); a `force_full` of a by-PNU bake
+    /// job: the one lane its next run re-bases with a full bake (root ADR-0433).
+    #[serde(default)]
+    pub lanes: Option<String>,
+    /// An `approve_cutover` only: the pack generation, 1 to 9999.
+    #[serde(default)]
+    pub generation: Option<i32>,
 }
 
 /// The ledger's record of an operator request.
@@ -530,6 +538,10 @@ pub struct OperatorActionRecorded {
     pub window_end: Option<String>,
     /// A `promote_edition`'s edition, `YYYYMM`.
     pub edition: Option<String>,
+    /// An `approve_cutover`'s lanes or a `force_full`'s lane.
+    pub lanes: Option<String>,
+    /// An `approve_cutover`'s pack generation.
+    pub generation: Option<i32>,
 }
 
 /// One readiness stage of a cadastral edition (root ADR-0291 §2, ADR-0379).
@@ -630,5 +642,70 @@ pub struct ParcelEditions {
     #[serde(default)]
     pub promotion_requests: Vec<ParcelEditionPromotionRequest>,
     /// Why the report could not be read, when it could not.
+    pub error: Option<String>,
+}
+
+/// One event of an approved by-PNU cut-over, as the host appended it to the approval's progress
+/// (`scripts/ops/release-progress.py`, root ADR-0433 §6).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ByPnuCutoverEvent {
+    /// When the host wrote it, UTC.
+    pub at: String,
+    /// `scheduled`, `refused`, `cancelled`, `started`, `step` or `finished`.
+    pub state: String,
+    /// A `step`'s lane.
+    #[serde(default)]
+    pub lane: Option<String>,
+    /// A `step`'s name: history, preview, gold, parity, bake, equality, latency, publish or
+    /// monitor-sample.
+    #[serde(default)]
+    pub step: Option<String>,
+    /// A `step`'s or a `finished`'s outcome: `passed`, `failed` or `not-declared`.
+    #[serde(default)]
+    pub outcome: Option<String>,
+    /// A `step`'s duration in seconds.
+    #[serde(default)]
+    pub seconds: Option<i64>,
+    /// Why, as the host said it.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// A `scheduled`'s start, when the operator window opens, UTC.
+    #[serde(default)]
+    pub start_at: Option<String>,
+    /// A `started`'s systemd unit.
+    #[serde(default)]
+    pub unit: Option<String>,
+}
+
+/// A by-PNU cut-over an operator approved and what the host did with it (root ADR-0433).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ByPnuCutoverApproval {
+    /// The approval's id: the ledger row's.
+    pub id: String,
+    /// The staff member who approved.
+    pub actor: String,
+    /// Why.
+    pub reason: String,
+    /// `lanes`, a lane or `lane,lane,...`.
+    pub lanes: String,
+    /// The pack generation.
+    pub generation: i32,
+    /// When it was approved.
+    pub requested_at: String,
+    /// When it stops being startable.
+    pub expires_at: String,
+    /// Its state now: `pending` (the host has not answered yet), or its last event's state, with a
+    /// `finished` one told apart as `passed` or `failed`.
+    pub state: String,
+    /// Oldest first.
+    pub events: Vec<ByPnuCutoverEvent>,
+}
+
+/// The newest approved by-PNU cut-overs, newest first, as the host's files say (root ADR-0433 §6).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub struct ByPnuCutovers {
+    /// Newest first, at most twenty.
+    pub approvals: Vec<ByPnuCutoverApproval>,
+    /// Why they could not be read, when they could not.
     pub error: Option<String>,
 }

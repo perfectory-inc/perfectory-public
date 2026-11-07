@@ -264,6 +264,102 @@ fn permit_parking_streaming_export_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn permit_annex_parking_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-annex-parking-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitAnnexParkingSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn permit_building_outline_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-building-outline-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitBuildingOutlineSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn permit_major_repair_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-major-repair-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitMajorRepairSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn permit_structure_ledger_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-structure-ledger-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitStructureLedgerSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn permit_floor_overview_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-floor-overview-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitFloorOverviewSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn permit_temporary_building_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-temporary-building-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitTemporaryBuildingSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn permit_site_location_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-permit-site-location-silver-handoff"
+        ])?,
+        Command::ExportBuildingPermitSiteLocationSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
+fn maintenance_regular_inspection_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-maintenance-regular-inspection-history-silver-handoff"
+        ])?,
+        Command::ExportBuildingMaintenanceRegularInspectionSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
@@ -840,15 +936,15 @@ fn rt_molit_real_transaction_collect_command_is_explicit() -> anyhow::Result<()>
     Ok(())
 }
 
-/// The registered-factory file collector (root ADR-0280).
+/// The data.go.kr file-data collector (root ADR-0280, ADR-0401).
 #[test]
-fn data_go_kr_registered_factory_collect_command_is_explicit() -> anyhow::Result<()> {
+fn data_go_kr_file_data_collect_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
-            "collect-data-go-kr-registered-factory"
+            "collect-data-go-kr-file-data"
         ])?,
-        Command::CollectDataGoKrRegisteredFactory
+        Command::CollectDataGoKrFileData
     );
     Ok(())
 }

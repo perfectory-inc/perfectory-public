@@ -69,4 +69,7 @@ ADR-0270 §2 는 작업마다 `pause`·`pause --drop-pending`·`resume`·`run-no
   그 시간 동안 대신하고 `clear_window` 가 일찍 끝낸다. 원장에 같은 방식으로 남고(`window_start`·`window_end`, 끝은 `expires_at`), 스위치
   파일 `<job>.window` 를 수집기가 실행 중에 읽는다. 기본값은 계약 값 그대로다. 시작 문은 실행 창을 강제하지 않으므로(수집기가 매 요청 전에
   본다) 읽지 않는다.
+- 단계 f: 운영자 스크립트의 `job start`·`silver start` 를 지웠다. 작업과 Silver 레인은 더니어의 운영 단추로만 시작한다(꺼진 작업도). 두
+  명령은 그 길을 알려 주며 거부한다. `job status`·`silver plan|status` 는 읽기라 남는다. 법원경매의 `job start-outside-quiet-hours`(루트 ADR-0281, 사장
+  결정 2026-10-19)는 이 단계에서 남긴다: 같은 일을 더니어의 실행 창 바꾸기와 지금 한 번 돌리기가 하게 된 뒤 따로 은퇴시킨다.
 

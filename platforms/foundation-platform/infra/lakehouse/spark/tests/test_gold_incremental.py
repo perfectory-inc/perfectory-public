@@ -170,6 +170,16 @@ class ProducerDecisions(unittest.TestCase):
         self.assertFalse(incremental.appended_span(chain, 10, 13), "the pin expired")
         self.assertFalse(incremental.appended_span({1: (2, "append"), 2: (1, "append")}, 3, 1), "a cycle")
 
+    def test_the_build_tag_names_the_commit_that_records_the_pins(self):
+        """Root ADR-0338: a compaction may land on top of the producer's commit before it is tagged;
+        the tag still goes on the commit the planner plans from."""
+        pins = {rebuild.SOURCE_SNAPSHOTS_PROPERTY: "{}"}
+        chain = {1: (None, pins), 2: (1, pins), 3: (2, {}), 9: (1, {})}
+        self.assertEqual(incremental.build_snapshot(chain, 3), 2)
+        self.assertEqual(incremental.build_snapshot(chain, 2), 2)
+        with self.assertRaises(ValueError):
+            incremental.build_snapshot({1: (None, {})}, 1)
+
     def test_stages_remove_a_dead_runs_directories_and_nothing_else(self):
         with tempfile.TemporaryDirectory() as local:
             dead = Path(local) / f"{incremental.STAGES_PREFIX}dead"
@@ -182,6 +192,56 @@ class ProducerDecisions(unittest.TestCase):
             self.assertFalse(dead.exists())
             self.assertTrue(other.exists())
             self.assertEqual(stages.root.parent, Path(local))
+
+    def test_a_plan_killed_by_its_timeout_resumes_from_the_stages_it_finished(self):
+        """Root ADR-0438: 2026-11-05..06 the parcel panel's merge spent 4,541 s finding its PNUs and
+        2,409 s restricting its inputs before its 160 min unit timed out; every run of the same pins
+        began again from nothing."""
+        written = []
+
+        class Frame:
+            def __init__(self, name):
+                self.write = SimpleNamespace(mode=lambda mode: SimpleNamespace(
+                    parquet=lambda path: (written.append((name, mode)),
+                                          Path(path.removeprefix("file://")).mkdir(parents=True, exist_ok=True))))
+
+        with tempfile.TemporaryDirectory() as local:
+            spark = SimpleNamespace(conf=SimpleNamespace(get=lambda key, default: local, set=lambda key, value: None),
+                                    read=SimpleNamespace(parquet=lambda path: path))
+            key = incremental.plan_key("gold.t", {"silver.a": "12"}, {"silver.a": "11"}, "code-1", 0.3, 10)
+            self.assertEqual(key, incremental.plan_key("gold.t", {"silver.a": "12"}, {"silver.a": "11"}, "code-1",
+                                                       0.3, 10))
+            self.assertNotEqual(key, incremental.plan_key("gold.t", {"silver.a": "13"}, {"silver.a": "11"},
+                                                          "code-1", 0.3, 10), "new pins are a new plan")
+            self.assertNotEqual(key, incremental.plan_key("gold.t", {"silver.a": "12"}, {"silver.a": "11"},
+                                                          "code-2", 0.3, 10), "new code is a new plan")
+            self.assertTrue(key.startswith("t."), key)
+            other = Path(local) / f"{incremental.RESUMABLE_PREFIX}t.other"
+            other.mkdir()
+            # Root ADR-0440: the hourly panel job and the kinds job run between two runs of a killed table.
+            other_table = Path(local) / f"{incremental.RESUMABLE_PREFIX}u.killed"
+            other_table.mkdir()
+            first = incremental.Stages(spark, key)
+            self.assertFalse(other.exists(), "another plan of the table is a dead run's")
+            self.assertTrue(other_table.exists(), "another table's plan waits for that table's next run")
+            first.materialize("affected", Frame("affected"))
+            (first.root / "affected" / "_SUCCESS").touch()
+            first.materialize("input-0", Frame("input-0"))  # killed before Spark committed it
+            # The next run of the same plan: the finished stage is read back, the unfinished one written again.
+            again = incremental.Stages(spark, key)
+            self.assertEqual(again.root, first.root)
+            again.materialize("affected", Frame("affected"))
+            again.materialize("input-0", Frame("input-0"))
+            self.assertEqual(written, [("affected", "overwrite"), ("input-0", "overwrite"), ("input-0", "overwrite")])
+            # A refused plan keeps only its reason: its next run falls back to the full rebuild at once.
+            self.assertIsNone(again.refusal())
+            again.refuse("parity sample: 1 of 20258 PNUs")
+            self.assertEqual(sorted(p.name for p in again.root.iterdir()), [incremental.REFUSED_MARKER])
+            self.assertEqual(incremental.Stages(spark, key).refusal(), "parity sample: 1 of 20258 PNUs")
+            # An ordinary run's stages never resume and leave a plan's stages alone.
+            incremental.Stages(spark)
+            self.assertTrue(again.root.exists())
+            self.assertIsNone(incremental.Stages(spark).refusal())
 
     def test_incremental_arguments_are_refused_where_a_merge_cannot_follow(self):
         path = Path(self.id().replace(".", "_") + ".json")

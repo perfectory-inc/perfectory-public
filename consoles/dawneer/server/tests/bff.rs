@@ -95,6 +95,38 @@ async fn userinfo(headers: HeaderMap) -> (StatusCode, Json<Value>) {
     }
 }
 
+/// A sign-in page: echoes what reached the issuer and answers with its own headers.
+async fn login_page(uri: axum::http::Uri, headers: HeaderMap) -> axum::response::Response {
+    use axum::response::IntoResponse as _;
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(ToOwned::to_owned)
+    };
+    (
+        [
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "script-src 'nonce-zitadel'",
+            ),
+            (
+                header::SET_COOKIE,
+                "zitadel.useragent=ua-2; Path=/; Domain=127.0.0.1; HttpOnly",
+            ),
+        ],
+        Json(json!({
+            "path": uri.path(),
+            "query": uri.query(),
+            "public_host": header("x-zitadel-public-host"),
+            "proto": header("x-forwarded-proto"),
+            "cookie": header("cookie"),
+            "authorization": header("authorization"),
+        })),
+    )
+        .into_response()
+}
+
 /// Echoes what reached Foundation.
 async fn foundation(method: Method, Path(path): Path<String>, headers: HeaderMap) -> Json<Value> {
     let header = |name: &str| {
@@ -132,6 +164,7 @@ async fn harness() -> Result<Harness, Box<dyn std::error::Error + Send + Sync>> 
             .route("/.well-known/openid-configuration", get(discovery))
             .route("/oauth/v2/token", post(token))
             .route("/oidc/v1/userinfo", get(userinfo))
+            .route("/ui/login/{*rest}", any(login_page))
             .with_state(issuer.clone()),
     )
     .await?;
@@ -187,6 +220,12 @@ async fn sign_in(
             .ok_or("no redirect")?
             .to_str()?,
     )?;
+    assert_eq!(
+        location.origin().ascii_serialization(),
+        "http://127.0.0.1:3120",
+        "the browser signs in on the console's origin, never the issuer's (root ADR-0434)"
+    );
+    assert_eq!(location.path(), "/oauth/v2/authorize");
     let query: std::collections::HashMap<_, _> = location.query_pairs().into_owned().collect();
     assert_eq!(
         query.get("code_challenge_method").map(String::as_str),
@@ -359,7 +398,7 @@ async fn signing_out_ends_the_session() -> TestResult {
     let end = body_json(out).await?;
     assert!(end["end_session_url"]
         .as_str()
-        .is_some_and(|u| u.contains("/oidc/v1/end_session")));
+        .is_some_and(|u| u.starts_with("http://127.0.0.1:3120/oidc/v1/end_session")));
     let after = h
         .app
         .clone()
@@ -391,6 +430,61 @@ async fn every_response_carries_the_security_headers() -> TestResult {
             .get(header::X_CONTENT_TYPE_OPTIONS)
             .and_then(|v| v.to_str().ok()),
         Some("nosniff")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn sign_in_pages_are_relayed_on_the_console_origin_without_the_console_session() -> TestResult
+{
+    let h = harness().await?;
+    let page = h
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/ui/login/login?authRequestID=999990001")
+                .header(
+                    header::COOKIE,
+                    format!("{SESSION_COOKIE}=console-secret; zitadel.useragent=ua-1"),
+                )
+                .header(header::AUTHORIZATION, "Bearer not-for-the-issuer")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(
+        page.headers()
+            .get(header::CONTENT_SECURITY_POLICY)
+            .and_then(|v| v.to_str().ok()),
+        Some("script-src 'nonce-zitadel'"),
+        "Zitadel's pages keep their own security headers"
+    );
+    assert!(
+        page.headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v == "zitadel.useragent=ua-2; Path=/; HttpOnly"),
+        "the issuer's cookie becomes host-only on the console origin"
+    );
+    let seen = body_json(page).await?;
+    assert_eq!(seen["path"], "/ui/login/login");
+    assert_eq!(seen["query"], "authRequestID=999990001");
+    assert_eq!(seen["public_host"], "127.0.0.1:3120");
+    assert_eq!(seen["proto"], "http");
+    assert_eq!(
+        seen["cookie"], "zitadel.useragent=ua-1",
+        "the console's session cookie never reaches the issuer"
+    );
+    assert_eq!(seen["authorization"], Value::Null);
+    let console = h
+        .app
+        .clone()
+        .oneshot(Request::get("/ui/console").body(Body::empty())?)
+        .await?;
+    let body = to_bytes(console.into_body(), usize::MAX).await?;
+    assert!(
+        body.starts_with(b"<!doctype html><title>Dawneer"),
+        "Zitadel's own console is not relayed; the path falls to the screens"
     );
     Ok(())
 }

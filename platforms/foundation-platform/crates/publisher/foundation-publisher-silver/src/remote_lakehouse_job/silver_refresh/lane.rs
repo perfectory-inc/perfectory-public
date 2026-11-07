@@ -29,6 +29,14 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     EnergyGas,
     RegisterSubParcel,
     PermitParking,
+    PermitAnnexParking,
+    PermitBuildingOutline,
+    PermitMajorRepair,
+    PermitStructureLedger,
+    PermitFloorOverview,
+    PermitTemporaryBuilding,
+    PermitSiteLocation,
+    MaintenanceRegularInspection,
     LandCharacteristic,
     LandForestLedger,
     LandIndividualPrice,
@@ -41,7 +49,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 21] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 29] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -54,6 +62,14 @@ impl Lane {
         Self::EnergyGas,
         Self::RegisterSubParcel,
         Self::PermitParking,
+        Self::PermitAnnexParking,
+        Self::PermitBuildingOutline,
+        Self::PermitMajorRepair,
+        Self::PermitStructureLedger,
+        Self::PermitFloorOverview,
+        Self::PermitTemporaryBuilding,
+        Self::PermitSiteLocation,
+        Self::MaintenanceRegularInspection,
         Self::LandCharacteristic,
         Self::LandForestLedger,
         Self::LandIndividualPrice,
@@ -81,6 +97,14 @@ impl Lane {
             Self::EnergyGas => "building-energy-monthly-gas",
             Self::RegisterSubParcel => "building-register-sub-parcel",
             Self::PermitParking => "building-permit-parking",
+            Self::PermitAnnexParking => "building-permit-annex-parking",
+            Self::PermitBuildingOutline => "building-permit-building-outline",
+            Self::PermitMajorRepair => "building-permit-major-repair",
+            Self::PermitStructureLedger => "building-permit-structure-ledger",
+            Self::PermitFloorOverview => "building-permit-floor-overview",
+            Self::PermitTemporaryBuilding => "building-permit-temporary-building",
+            Self::PermitSiteLocation => "building-permit-site-location",
+            Self::MaintenanceRegularInspection => "building-maintenance-regular-inspection-history",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
             Self::LandIndividualPrice => "land-individual-price",
@@ -162,6 +186,38 @@ impl Lane {
                 "hub-building-permit-parking-source-objects.json",
                 crate::building_permit_parking_silver_export::CONTRACT_JSON,
             ),
+            Self::PermitAnnexParking => (
+                "hub-building-permit-annex-parking-source-objects.json",
+                crate::building_permit_annex_parking_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitBuildingOutline => (
+                "hub-building-permit-building-outline-source-objects.json",
+                crate::building_permit_building_outline_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitMajorRepair => (
+                "hub-building-permit-major-repair-source-objects.json",
+                crate::building_permit_major_repair_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitStructureLedger => (
+                "hub-building-permit-structure-ledger-source-objects.json",
+                crate::building_permit_structure_ledger_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitFloorOverview => (
+                "hub-building-permit-floor-overview-source-objects.json",
+                crate::building_permit_floor_overview_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitTemporaryBuilding => (
+                "hub-building-permit-temporary-building-source-objects.json",
+                crate::building_permit_temporary_building_silver_export::CONTRACT_JSON,
+            ),
+            Self::PermitSiteLocation => (
+                "hub-building-permit-site-location-source-objects.json",
+                crate::building_permit_site_location_silver_export::CONTRACT_JSON,
+            ),
+            Self::MaintenanceRegularInspection => (
+                "hub-building-maintenance-regular-inspection-history-source-objects.json",
+                crate::building_maintenance_regular_inspection_history_silver_export::CONTRACT_JSON,
+            ),
             Self::LandCharacteristic => (
                 "vworld-land-characteristic-source-objects.json",
                 include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-characteristic-source-objects.json"),
@@ -216,7 +272,8 @@ pub(in crate::remote_lakehouse_job) enum ExportKind {
     Title,
     /// 전유부: local Parquet parts from the unit, title and basis ZIPs of one export day.
     Unit,
-    /// 전유공용면적: local Parquet parts from one staged ZIP.
+    /// 전유공용면적: gzip JSONL parts under an R2 manifest from one staged ZIP, loaded part by part
+    /// like the hub part lanes (root ADR-0391 addendum).
     UnitArea,
     /// A national hub ZIP streamed from R2 into gzip JSONL parts under an R2 manifest.
     HubParts { env_prefix: &'static str },
@@ -258,6 +315,32 @@ impl ExportKind {
             "export-building-permit-parking-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_PARKING",
             },
+            "export-building-permit-annex-parking-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_ANNEX_PARKING",
+            },
+            "export-building-permit-building-outline-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_BUILDING_OUTLINE",
+            },
+            "export-building-permit-major-repair-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_MAJOR_REPAIR",
+            },
+            "export-building-permit-structure-ledger-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_STRUCTURE_LEDGER",
+            },
+            "export-building-permit-floor-overview-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_FLOOR_OVERVIEW",
+            },
+            "export-building-permit-temporary-building-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_TEMPORARY_BUILDING",
+            },
+            "export-building-permit-site-location-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_PERMIT_SITE_LOCATION",
+            },
+            "export-building-maintenance-regular-inspection-history-silver-handoff" => {
+                Self::HubParts {
+                    env_prefix: "FOUNDATION_PLATFORM_MAINTENANCE_REGULAR_INSPECTION",
+                }
+            }
             other => match crate::land_use_silver_export::export_command(other) {
                 Some(export) => Self::Land {
                     env_prefix: export.env_prefix,
@@ -281,7 +364,7 @@ impl ExportKind {
 
     /// Whether one load is one `source_snapshot_id` (a run) rather than one handoff part.
     pub(in crate::remote_lakehouse_job) const fn loads_as_one_run(self) -> bool {
-        matches!(self, Self::Title | Self::Unit | Self::UnitArea)
+        matches!(self, Self::Title | Self::Unit)
     }
 }
 
@@ -713,11 +796,14 @@ impl LaneContract {
             );
             None
         } else {
+            // The unit-area export cuts its own parts (`export_chunk_rows` rows each); a hub part
+            // lane's engine reads its part size from the layout.
             ensure!(
                 spark.input_file_batch_size > 0
                     && spark.iceberg_write_mode == WriteMode::Append
-                    && block.export_chunk_rows.is_none(),
-                "a part lane appends its parts in batches of input_file_batch_size and has no chunk size"
+                    && block.export_chunk_rows.is_some() == (kind == ExportKind::UnitArea),
+                "a part lane appends its parts in batches of input_file_batch_size; only the \
+                 unit-area export names its part size (export_chunk_rows)"
             );
             Some(checked_prefix(document.handoff_prefix)?)
         };

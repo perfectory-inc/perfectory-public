@@ -23,9 +23,9 @@ last_reviewed: 2026-07-30
 ## 현재 카탈로그 규모
 
 - 엔드포인트 정의: **158개**
-- 고유 dataset slug: **127개**
-- 고유 Bronze source slug: **158개**
-- 국가 수집 허용 endpoint: **109개**
+- 고유 dataset slug: **136개**
+- 고유 Bronze source slug: **157개**
+- 국가 수집 허용 endpoint: **121개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -34,12 +34,10 @@ last_reviewed: 2026-07-30
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 3 | 3 | 0 | 전용 커맨드 3 |
-| data.go.kr | 31 | 8 | 0 | API 예정 8, 전용 커맨드 1, 중복 API 비활성 22 |
+| data.go.kr | 43 | 20 | 0 | API 예정 11, 전용 커맨드 10, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 3 | 2 | 0 | 전용 커맨드 3 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
-| mixed_public_source | 10 | 0 | 0 | 수동 승인 10 |
-| mois.go.kr | 2 | 0 | 0 | 수동 승인 2 |
 | rt.molit.go.kr | 12 | 12 | 0 | 전용 커맨드 12 |
 | vworld.kr | 26 | 26 | 25 | API 예정 1, 기본 실행 25 |
 
@@ -58,12 +56,11 @@ last_reviewed: 2026-07-30
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
 | `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
 | `court_auction` | 3 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
-| `data_go_kr_file_data` | 1 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
+| `data_go_kr_file_data` | 13 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 3 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `onbid_open_api` | 7 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
-| `other_bulk` | 12 | 학교·공장·인구·교통 등 추가 벌크 (수동 승인) |
 | `real_transaction_bulk` | 12 | rt.molit.go.kr 실거래가 조건별 자료제공 전국 월 CSV (root ADR-0348) |
 | `real_transaction_open_api` | 12 | data.go.kr 실거래 API 보조·검증 경로 |
 | `vworld_dataset` | 25 | vworld.kr 제공기관 데이터 파일 |
@@ -110,6 +107,18 @@ last_reviewed: 2026-07-30
 | data.go.kr | 건축물대장 API | 건축물대장 표제부 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 건축물대장 API | 건축물대장 오수정화시설 | 중복 API | false | 중복 API 비활성 |
 | data.go.kr | 등록공장 | 한국산업단지공단 전국등록공장현황 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 행정동 법정동 연계 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 공항 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 상권 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 동 인구 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 고속도로 접근점 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 세대수 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 항만 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 철도역 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 철도역 노선 매핑 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 학교 위치 | 공개 API | true | API 예정 |
+| data.go.kr | 등록공장 | 도시철도역 | 공개 API | true | API 예정 |
+| data.go.kr | 등록공장 | 대학교 | 공개 API | true | API 예정 |
 | data.go.kr | mois_standard_code_open_api | 행정표준코드 법정동코드 목록 | 공개 API | false | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 물건상세 입찰정보 | 공개 API | true | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 물건 입찰결과상세 | 공개 API | true | API 예정 |
@@ -203,18 +212,6 @@ last_reviewed: 2026-07-30
 | juso.go.kr | 주소정보 전자지도 | JUSO 법정구역 시군구 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 도로구간 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 실폭도로 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 행정동 법정동 연계 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 공항 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 상권 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 고속도로 접근점 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 항만 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 철도역 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 철도역 노선 매핑 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 학교 위치 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 도시철도역 | 벌크(수동 승인) | false | 수동 승인 |
-| mixed_public_source | 기타 공공데이터 | 대학교 | 벌크(수동 승인) | false | 수동 승인 |
-| mois.go.kr | 기타 공공데이터 | 동 인구 | 벌크(수동 승인) | false | 수동 승인 |
-| mois.go.kr | 기타 공공데이터 | 세대수 | 벌크(수동 승인) | false | 수동 승인 |
 | rt.molit.go.kr | 부동산 실거래(벌크) | 아파트 매매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | rt.molit.go.kr | 부동산 실거래(벌크) | 아파트 전월세 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | rt.molit.go.kr | 부동산 실거래(벌크) | 연립다세대 매매 실거래가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |

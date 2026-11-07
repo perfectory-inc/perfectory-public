@@ -1,0 +1,13 @@
+[Unit]
+Description=Write the readiness report once a day (root ADR-0442)
+
+[Timer]
+# A host check, not a data job: like the service checks it stays a systemd timer (root ADR-0118 §1).
+# 22:10 UTC is 07:10 in Seoul, before the working day.
+OnCalendar=*-*-* 22:10:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=foundation-readiness-report.service
+
+[Install]
+WantedBy=timers.target

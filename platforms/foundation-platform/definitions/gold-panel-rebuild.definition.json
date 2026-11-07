@@ -8,7 +8,7 @@
       "scope": "full",
       "full_reason": "It computes only the changed PNUs (root ADR-0180, ADR-0312), but writes whole: the copy-on-write MERGE rewrites every data file holding a changed PNU, and a national vintage's changes reach every file even in PNU range order (#896; about 1,400 changed PNUs a file, computed). Its unit price join appends a whole vintage whenever a hub price snapshot moves, and while that join and the hub registers were rewritten whole, root ADR-0326 sent the building panel to a full rebuild.",
       "full_cost": "measured 2026-10-29 (journal and read-only Trino $snapshots): gold.parcel_panel 2026-10-26 incremental, 48,477 PNUs changed (0.12%), 3,096 s, wrote 4.266 GB of 4.266 GB (100%); gold.building_panel 2026-10-28 full, 6,667 s, 5,945,309 rows, 1.967 GB (100%); silver.unit_official_price appended 188,745,290 rows, 0.503 GB per join, five joins 2026-10-12..21. The shape-ledger check of 2026-10-29 12:36 still reports 100% bytes on the last commit of both panels.",
-      "full_tracked_by": "PR #951 (plan: Gold MERGE writes merge-on-read deletes, compaction folds them) and PR #919 (root ADR-0317: the unit price join appends only changed keys)",
+      "full_tracked_by": "root ADR-0344 §6 (the merge-on-read MERGE and the delete fold are in, #959 and #960; the job becomes changed-keys once production measures a commit's bytes near the changed-key share) and PR #919 (root ADR-0317: the unit price join appends only changed keys)",
       "interruptible": true,
       "commits": "as_it_goes",
       "description": "Rebuild gold.parcel_panel, then gold.building_panel, with their Spark producers when a Silver input changed rows since the snapshots the current Gold was built from; otherwise nothing (root ADR-0139). Before the building panel it joins silver.unit_official_price for the newest vintage both hub price tables hold, unless that vintage is already held (root ADR-0182). Each rebuild pins its inputs, refuses before writing a Gold that fails its checks or loses more rows than infra/lakehouse/contracts/gold-panel-rebuild.contract.json allows, and commits one new snapshot recording its pins. Started when a run of a job that writes one of those Silver inputs changed it, and at 08:45 as the fallback for hand loads (root ADR-0171); a committed rebuild starts the by-PNU bake, which bakes a Gold snapshot it does not serve yet, and the unit price rebuild (gold_unit_price_rebuild), which is its own job since root ADR-0333: on 2026-10-28 two runs of this job timed out under one 160-minute limit and cut gold.unit_price off both times.",
@@ -35,12 +35,14 @@
         },
         "open_exception": {
           "why": "Ten runs reached the 160-minute limit since 2026-10-20, the last two 2026-11-03T08:07Z and 10:53Z: the copy-on-write MERGE rewrites every file holding a changed PNU (see full_reason).",
-          "tracked_by": "PR #951 (Gold MERGE writes only the changed rows), as its full_tracked_by"
+          "tracked_by": "root ADR-0344 §6 (Gold MERGE writes only the changed rows), as its full_tracked_by"
         }
       },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 3,
+      "priority_class": "publish",
+      "priority_class_from": "by_pnu_serving_bake",
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-building-register-titles-to-gold-building-panel",
@@ -63,7 +65,8 @@
         "silver-parcel-lineage-to-gold-parcel-panel"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-07T19:55:24Z"
+      "enabled_since": "2026-10-07T19:55:24Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

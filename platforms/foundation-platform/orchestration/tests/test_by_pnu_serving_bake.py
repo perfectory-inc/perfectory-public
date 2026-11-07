@@ -14,6 +14,7 @@ full bake can serve (root ADR-0141 §5). `PatchPath` drives the patch, reflect a
 the same choices, made against the packs, with the pack export and publish commands.
 """
 
+import datetime
 import hashlib
 import json
 import os
@@ -1195,6 +1196,29 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertEqual([call for call in calls if call["command"] == "delta"], [])
         self.assertEqual(self.run_summary("full")["forced_full_reason"], "re-base after a fingerprint fix")
+
+    def test_a_full_bake_approved_in_the_console_re_bases_its_lane_once(self):
+        # Root ADR-0433 §5. 2026-11-06 00:24Z: after a failed sudo password a 90-force-full.conf drop-in
+        # was written by hand. Now foundation-api writes switches/full.d/<id>; the lane uses it once.
+        switches, now = self.state_root.parent / "switches", datetime.datetime.now(datetime.timezone.utc)
+        (switches / "full.d").mkdir(parents=True)
+        for request, lane, hours in (("cccccccc-3333-4333-8333-333333333333", "building", 24),
+                                     ("dddddddd-4444-4444-8444-444444444444", "parcel", -1),
+                                     ("aaaaaaaa-1111-4111-8111-111111111111", "parcel", 24)):
+            (switches / "full.d" / request).write_text(
+                f"request={request}\nactor=staff-owner\nrequested_at={now.isoformat()}\nreason=re-base first\n"
+                f"expires_at={(now + datetime.timedelta(hours=hours)).isoformat()}\nlanes={lane}\n")
+        result, calls = self.patch_bake(FOUNDATION_JOB_SWITCHES_DIR=str(switches))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call for call in calls if call["command"] == "delta"], [])
+        self.assertEqual(self.run_summary("full")["forced_full_reason"],
+                         "re-base first (console request aaaaaaaa-1111-4111-8111-111111111111 by staff-owner)")
+        # Used once; another lane's request and an expired one never make this lane full.
+        self.log.unlink()
+        for run in (self.state_root / "parcel").glob("runs/202-*"):
+            shutil.rmtree(run)
+        result, calls = self.patch_bake(FOUNDATION_JOB_SWITCHES_DIR=str(switches))
+        self.assertEqual((result.returncode, len([call for call in calls if call["command"] == "delta"])), (0, 1), result.stdout)
 
     def test_a_half_written_patch_of_the_same_snapshot_is_resumed(self):
         changes = dict(FAKE_DELTA_UPSERTS=json.dumps(PNUS[:2]), FAKE_NEWEST_PATCH="1", FAKE_PATCH_COUNT="1")

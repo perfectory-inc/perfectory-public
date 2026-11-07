@@ -1,6 +1,6 @@
 """Load 한국산업단지공단 전국등록공장현황 from Bronze into `silver.registered_factory` (root ADR-0280 §4).
 
-The collector (`collect-data-go-kr-registered-factory`) lands each new edition's zip in Bronze. What
+The collector (`collect-data-go-kr-file-data`, root ADR-0401) lands each new edition's zip in Bronze. What
 a load owes is decided from R2 alone (`plan-silver-load-objects`): the zips no commit of the table
 records yet, fetched into a plan directory of the load's own run. For each, oldest first, this job
 reads the data member (the contract's name pattern, CP949, the exact header), refuses an edition
@@ -30,13 +30,16 @@ import address_pnu
 
 JOB_NAME = "data_go_kr_registered_factory"
 TABLE = "silver.registered_factory"
-CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "data-go-kr-registered-factory.contract.json"
+CONTRACT_PATH = Path(__file__).resolve().parents[2] / "contracts" / "data-go-kr-file-data.contract.json"
+DATASET_SLUG = "registered_factory"
 PLAN_SCHEMA = "foundation-platform.silver_load_objects.v1"
 IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    """This file's entry of the data.go.kr file-data contract."""
+
+    return {"dataset_slug": DATASET_SLUG, **json.loads(path.read_text(encoding="utf-8"))["files"][DATASET_SLUG]}
 
 
 def read_member(raw: bytes, contract: Mapping[str, Any]) -> tuple[str, list[list[str]]]:

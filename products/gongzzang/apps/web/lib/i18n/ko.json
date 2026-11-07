@@ -45,12 +45,6 @@
     }
   },
   "map": {
-    "attribution": {
-      "parcelSourceLabel": "필지 polygon",
-      "vWorldLink": "V-World",
-      "license": "(공공누리 제1유형: 출처표시)",
-      "ariaDataSource": "데이터 출처"
-    },
     "zoning": {
       "legend": "규제 구역 지도 층",
       "families": {
@@ -241,8 +235,7 @@
       "unitCount": "호실 {count}개",
       "buildingCount": " · {count}개 동"
     },
-    "footnote": "데이터 출처: 표제부·전유부·전유공용면적 (hub.go.kr, 2026-06 스냅샷) · 서빙",
-    "footnoteDetail": "· 지상/지하는 표제부, 옥탑 유무·면적·용도는 전유공용면적 옥탑 행(층구분 30)에서 정합. 데모 8필지 중 5필지 수록."
+    "footnote": "지상/지하는 표제부, 옥탑 유무·면적·용도는 전유공용면적 옥탑 행(층구분 30)에서 정합. 데모 8필지 중 5필지 수록."
   },
   "panels": {
     "parcel": {
@@ -257,7 +250,8 @@
           "parcel": "필지정보",
           "listings": "매물",
           "publicAuction": "공매",
-          "courtAuction": "경매"
+          "courtAuction": "경매",
+          "realTransaction": "실거래"
         },
         "sections": {
           "land": "토지",
@@ -344,15 +338,13 @@
           "included": "포함",
           "conflicting": "저촉",
           "mapZones": "지도 규제 구역",
-          "mapZonesSource": "용도지역지구",
-          "mapZonesSourceAsOf": "용도지역지구 · 기준일 {date}",
+          "mapZonesAsOf": "기준일 {date}",
           "mapZonesMore": "외 {count}개 구역",
           "otherFamily": "기타",
           "pendingNote": "일부 구역 수집 대기: {layers}"
         },
         "copy": "복사",
         "copied": "복사됨",
-        "sources": "출처: 국토교통부 토지특성·개별공시지가·토지이용계획·토지이동이력·토지(임야)대장·건축물대장",
         "notice": "법적 효력이 없는 참고 정보예요"
       },
       "buildings": {
@@ -394,6 +386,53 @@
         "title": "이 필지의 매물 ({count})",
         "none": "이 필지에 등록된 매물이 없어요"
       },
+      "realTransaction": {
+        "ownSection": "이 필지의 실거래",
+        "comparablesSection": "같은 법정동 공장·창고 거래",
+        "ownTitle": "이 필지의 실거래 ({count})",
+        "none": "이 필지로 이어진 실거래가 없어요",
+        "comparablesTitle": "같은 법정동 공장/창고 등 매매",
+        "comparablesNote": "{from} 이후 해제되지 않은 거래, 새 순 20건. 지번은 원천의 표기 그대로예요",
+        "median": "법정동 대지 ㎡당 중앙값 {price} (최근 12개월 {count}건)",
+        "lot": "지번 {jibun}",
+        "cancelled": "해제 {date}",
+        "share": "지분",
+        "inferred": "추정",
+        "inferredSameMainLot": "추정 · 같은 본번",
+        "mainLotGroupOthers": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 같은 본번의 다른 필지: {lots}",
+        "mainLotGroupAlone": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 지금 이 본번의 필지는 이 필지뿐이에요",
+        "mainLotGroupSize": "같은 본번 {count}필지",
+        "omitted": "오래된 거래 {count}건은 싣지 않았어요",
+        "source": "국토교통부 실거래가 공개시스템 · 거래금액은 만원 단위 원천값",
+        "fields": {
+          "dealDate": "계약일",
+          "dealAmount": "거래금액",
+          "deposit": "보증금",
+          "monthlyRent": "월세금",
+          "totalFloorArea": "연면적",
+          "exclusiveArea": "전용면적",
+          "contractArea": "계약면적",
+          "plottage": "대지면적",
+          "landRightArea": "대지권면적",
+          "floor": "층",
+          "buildYear": "건축년도",
+          "landUse": "용도지역"
+        },
+        "datasets": {
+          "real_transaction_industrial_trade": "공장/창고 등 매매",
+          "real_transaction_land_trade": "토지 매매",
+          "real_transaction_commercial_trade": "상업/업무용 매매",
+          "real_transaction_apartment_trade": "아파트 매매",
+          "real_transaction_apartment_rent": "아파트 전월세",
+          "real_transaction_apartment_presale": "아파트 분양/입주권",
+          "real_transaction_officetel_trade": "오피스텔 매매",
+          "real_transaction_officetel_rent": "오피스텔 전월세",
+          "real_transaction_row_house_trade": "연립/다세대 매매",
+          "real_transaction_row_house_rent": "연립/다세대 전월세",
+          "real_transaction_detached_house_trade": "단독/다가구 매매",
+          "real_transaction_detached_house_rent": "단독/다가구 전월세"
+        }
+      },
       "publicAuction": {
         "title": "이 필지의 공매 ({count})",
         "none": "이 필지에 진행 중인 공매가 없어요",
@@ -409,7 +448,6 @@
         "share": "지분 물건",
         "photoAltFallback": "공매 물건 사진",
         "viewOriginal": "원본 보기",
-        "attribution": "출처: 온비드(한국자산관리공사)",
         "appraisalDocument": "감정평가서",
         "fields": {
           "round": {
@@ -678,8 +716,7 @@
         "failedBids": "유찰",
         "failedBidsCount": "{count}회",
         "photoAltFallback": "경매 물건 사진",
-        "viewOriginal": "원본 보기",
-        "source": "출처: {attribution}"
+        "viewOriginal": "원본 보기"
       }
     },
     "complex": {

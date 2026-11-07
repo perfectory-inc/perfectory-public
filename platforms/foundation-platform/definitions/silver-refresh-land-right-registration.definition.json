@@ -42,7 +42,8 @@
         "source-vworld-dataset-to-silver-land-right-registration"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-10T22:13:25Z"
+      "enabled_since": "2026-10-10T22:13:25Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

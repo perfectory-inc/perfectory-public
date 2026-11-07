@@ -221,9 +221,12 @@ def _digest(nodes: list[ast.AST]) -> str:
 
 
 def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[str], jobs: Path = JOBS,
-          contract_dirs: tuple[Path, ...] = CONTRACT_DIRS, root: Path = PLATFORM) -> dict[str, str]:
+          contract_dirs: tuple[Path, ...] = CONTRACT_DIRS, root: Path = PLATFORM,
+          start: str | None = None) -> dict[str, str]:
     """{part: sha256} of the code `producer` builds `table` from `inputs` with: each reached symbol as
-    `<path relative to the platform>::<symbol>`, each contract as its path."""
+    `<path relative to the platform>::<symbol>`, each contract as its path. With `start`, the code
+    one function of `producer` reaches instead of what its script runs (a migration backfill,
+    release_changes.py, root ADR-0437)."""
     plumbing, scoped = config["plumbing"], config["scoped"]
     left_out = set(config.get("plumbing_symbols", {}))
     modules: dict[str, Module | None] = {}
@@ -237,7 +240,7 @@ def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[st
 
     found: dict[str, str] = {}
     contracts: set[str] = set()
-    queue: list[tuple[str, str]] = [(producer, MODULE_STATEMENTS)]
+    queue: list[tuple[str, str]] = [(producer, start or MODULE_STATEMENTS)]
     seen: set[tuple[str, str]] = set()
     while queue:
         name, symbol = queue.pop()
@@ -253,7 +256,7 @@ def parts(producer: str, config: dict[str, Any], table: str, inputs: Iterable[st
             queue.append((name, MODULE_STATEMENTS))
             continue
         if symbol == MODULE_STATEMENTS:
-            nodes = source.statements + (source.main_block if name == producer else [])
+            nodes = source.statements + (source.main_block if name == producer and start is None else [])
         elif symbol.startswith("import:"):
             alias = symbol.split(":", 1)[1]
             found[f"{where}::{symbol}"] = hashlib.sha256(repr(source.bindings[alias]).encode()).hexdigest()

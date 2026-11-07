@@ -394,6 +394,9 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.unit_official_price_versions": "세대 공시가격 판 버전 — 위와 같은 열쇠 기반 증인(같은 행의 버전 저장)",
             "silver.industrial_complexes": "단지 표시명 — 식별은 코드(두 id 체계), 이름은 표시용",
             "silver.building_register_floors": "층구분명 원문 — 어휘 칸, 층 규칙이 정규화(식별자 아님)",
+            "silver.building_permit_floor_overview": (
+                "허가 층의 층구분명 원문(지하·지상·옥탑) — 어휘 칸(식별은 관리층별개요PK, root ADR-0402)"
+            ),
             "silver.building_register_titles": "표제부 동명 — canonical_dong_join_key 로 호↔건물 연결에 사용",
             "silver.building_register_units": "정규화된 전유부 — 본 교차확증의 대상(unit_designation 이 충돌-프리 키)",
             "silver.building_register_unit_areas": "전유공용면적 — 동·호명은 전유부와 같은 계보, 면적 증거 공급원",
@@ -401,6 +404,9 @@ class FoundationDbtModelContractTest(unittest.TestCase):
             "silver.court_auction_item": "경매 물건의 건물명 원문 — 표시용(식별은 법원·사건·물건번호와 PNU, root ADR-0280)",
             "silver.court_auction_sale_result": "매각결과의 건물명 원문 — 표시용(식별은 법원·사건·물건번호와 PNU, root ADR-0280)",
             "silver.real_transaction": "실거래의 단지명·건물명 원문 — 표시용(식별은 내용 이름과 주소로 찾은 PNU, root ADR-0349)",
+            "silver.building_maintenance_regular_inspection_history": (
+                "정기점검 건물의 동명 원문 — 표시용(식별은 관리건축물대장PK 로 잇는 표제부, root ADR-0404)"
+            ),
         }
         contracts = json.loads(
             (DBT_ROOT.parent / "contracts" / "industrial_complex_lakehouse_contracts.json")

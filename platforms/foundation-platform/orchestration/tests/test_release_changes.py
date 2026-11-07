@@ -178,5 +178,79 @@ class ReleaseChanges(unittest.TestCase):
         self.assertEqual(result.returncode, 64)
 
 
+ANALYZER = PLATFORM / "infra/lakehouse/spark/jobs/gold_code_version.py"
+PROGRAM = """import shared
+
+
+BACKFILLS = {("silver.a", "k"): ("builds", "k_column")}
+
+
+def main():
+    return shared.plan()
+
+
+if __name__ == "__main__":
+    main()
+"""
+SHARED = '''DRIFT = "known-drift.json"
+
+
+def plan():
+    return DRIFT
+'''
+BUILDS = """def k_column():
+    return 1
+
+
+def unrelated():
+    return 2
+"""
+
+
+class ReleaseChangesByClosure(unittest.TestCase):
+    """Root ADR-0437: a file of the migration's directories holds the writers only of what the
+    migration's own code reaches. 2026-11-06 nine of fourteen deploys held every job for a new source
+    contract or another job's script, and each stopped the parcel Gold rebuild two hours in."""
+
+    write = staticmethod(ReleaseChanges.write)
+    run_script = ReleaseChanges.run_script
+
+    def setUp(self):
+        ReleaseChanges.setUp(self)
+        steps = json.loads(json.dumps(STEPS))
+        steps["steps"]["lakehouse-migrate"]["closure"] = {
+            "program": "migrate", "directories": ["infra/lakehouse/spark/jobs", "infra/lakehouse/contracts"],
+            "backfills": "BACKFILLS"}
+        for root in (self.running, self.new):
+            self.write(root, "config/deploy-steps.contract.json", steps)
+            jobs = root / "infra/lakehouse/spark/jobs"
+            for name, text in (("migrate", PROGRAM), ("shared", SHARED), ("builds", BUILDS), ("other_job", "X = 1")):
+                (jobs / f"{name}.py").write_text(text, encoding="utf-8")
+            shutil.copy(ANALYZER, jobs / ANALYZER.name)
+            self.write(root, "infra/lakehouse/contracts/known-drift.json", {"tables": {}})
+
+    def test_another_jobs_script_or_a_contract_the_migration_never_names_holds_nothing(self):
+        (self.new / "infra/lakehouse/spark/jobs/other_job.py").write_text("X = 2", encoding="utf-8")
+        self.write(self.new, "infra/lakehouse/contracts/new-source-objects.json", {"source": "new"})
+        (self.new / "infra/lakehouse/spark/jobs/builds.py").write_text(BUILDS.replace("return 2", "return 3"),
+                                                                       encoding="utf-8")
+        self.assertEqual(self.run_script()[0], "lakehouse tables this release changes: none")
+
+    def test_the_programs_code_or_a_contract_it_names_holds_every_table(self):
+        (self.new / "infra/lakehouse/spark/jobs/shared.py").write_text(SHARED.replace("return DRIFT", "return 0"),
+                                                                       encoding="utf-8")
+        line = self.run_script()[0]
+        self.assertTrue(line.startswith("lakehouse tables this release changes: every table (2): "), line)
+        self.assertIn("infra/lakehouse/spark/jobs/shared.py::plan", line)
+        (self.new / "infra/lakehouse/spark/jobs/shared.py").write_text(SHARED, encoding="utf-8")
+        self.write(self.new, "infra/lakehouse/contracts/known-drift.json", {"tables": {"silver.a": {}}})
+        self.assertIn("every table", self.run_script()[0])
+
+    def test_a_backfills_function_holds_the_writers_of_its_table(self):
+        (self.new / "infra/lakehouse/spark/jobs/builds.py").write_text(BUILDS.replace("return 1", "return 4"),
+                                                                       encoding="utf-8")
+        self.assertEqual(self.run_script()[-1], "jobs the deploy holds until the release is live: maintenance, write_a")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -302,6 +302,7 @@ def read_inputs(spark: Any, args: argparse.Namespace, at: dict[str, str]) -> tup
 
 def main(argv=None) -> int:
     from pyspark.sql import SparkSession  # noqa: PLC0415
+    from pyspark.storagelevel import StorageLevel  # noqa: PLC0415
 
     import by_pnu_kinds  # noqa: PLC0415
     import gold_incremental as incremental  # noqa: PLC0415
@@ -336,7 +337,10 @@ def main(argv=None) -> int:
     spark.sparkContext.addPyFile(__file__)
     try:
         frames, changes = read_inputs(spark, args, pins)
-        frames = {name: frame.cache() for name, frame in frames.items()}
+        # On disk only: the served parcels' polygons kept deserialized in the memory store (7.6 GB of
+        # the 16g driver, 2026-11-07 07:42Z, the table's first build) stalled the JVM past the
+        # 120 s heartbeat at 76 min and Spark stopped itself; as gold_incremental.Stages says.
+        frames = {name: frame.persist(StorageLevel.DISK_ONLY) for name, frame in frames.items()}
         older: list[Any] = []
 
         def previous_inputs() -> tuple[dict[str, Any], Any]:
@@ -377,7 +381,10 @@ def main(argv=None) -> int:
                                                                frames[PARCEL_SOURCE], ("pnu",)),
                 code_change=code_change),
             validate=validate_gold, content_columns=("pnu", *kind.columns, "attached_via"), gold_columns=columns,
-            whole_table_inputs=whole, append_inputs={ZONE_SOURCE: zone_table})
+            whole_table_inputs=whole, append_inputs={ZONE_SOURCE: zone_table},
+            # The first national build ran past its 160 min unit (2026-11-07): one 시도 at a time,
+            # each staged, so a killed run resumes (root ADR-0440).
+            full_shard_keys=lambda inputs: inputs[PARCEL_SOURCE])
         # Root ADR-0272: a 시도 that loses its documents refuses the build.
         coverage = section_coverage.guard_from_arguments(spark, args, table, {SECTION: kind.columns[0]}, changes,
                                                          shares=False)

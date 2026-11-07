@@ -224,3 +224,153 @@ async fn a_window_override_names_its_window_and_lasts_at_most_a_week() -> Result
     );
     tx.rollback().await
 }
+
+/// Release approvals the ledger takes or refuses (root ADR-0433): job, action, expiry, lanes,
+/// generation, and whether it is accepted.
+const RELEASE_APPROVALS: [(&str, &str, &str, &str, &str, bool); 13] = [
+    (
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        DAY,
+        "'parcel-energy,parcel-ownership'",
+        "1",
+        true,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        DAY,
+        "'lanes'",
+        "NULL",
+        false,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        "NULL",
+        "'lanes'",
+        "1",
+        false,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        "now() + interval '3 days'",
+        "'lanes'",
+        "1",
+        false,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        DAY,
+        "'lanes'",
+        "0",
+        false,
+    ),
+    (
+        "shape_ledger_check",
+        "approve_cutover",
+        DAY,
+        "'lanes'",
+        "1",
+        false,
+    ),
+    (
+        "by_pnu_lane_cutover",
+        "pause",
+        "NULL",
+        "NULL",
+        "NULL",
+        false,
+    ),
+    ("by_pnu_lane_cutover", "stop", "NULL", "NULL", "NULL", true),
+    (
+        "by_pnu_public_auction_bake",
+        "force_full",
+        DAY,
+        "'parcel-public-auction'",
+        "NULL",
+        true,
+    ),
+    (
+        "by_pnu_serving_bake",
+        "force_full",
+        DAY,
+        "'parcel,building'",
+        "NULL",
+        false,
+    ),
+    (
+        "shape_ledger_check",
+        "force_full",
+        DAY,
+        "'parcel'",
+        "NULL",
+        false,
+    ),
+    (
+        "by_pnu_serving_bake",
+        "force_full",
+        "now() + interval '8 days'",
+        "'parcel'",
+        "NULL",
+        false,
+    ),
+    (
+        "shape_ledger_check",
+        "pause",
+        "NULL",
+        "'parcel'",
+        "NULL",
+        false,
+    ),
+];
+const DAY: &str = "now() + interval '1 day'";
+
+fn release_approval(
+    job: &str,
+    action: &str,
+    expires: &str,
+    lanes: &str,
+    generation: &str,
+) -> String {
+    format!(
+        "INSERT INTO catalog.operator_action (id, job_id, action, actor, reason, expires_at, lanes, generation)
+         VALUES ($1, '{job}', '{action}', 'staff:owner', 'the first publish of the lanes', {expires}, {lanes}, {generation})"
+    )
+}
+
+#[tokio::test]
+#[ignore = "requires disposable Postgres with Foundation migrations"]
+async fn a_cut_over_approval_and_a_full_bake_name_their_lanes_and_keep_them(
+) -> Result<(), sqlx::Error> {
+    // Root ADR-0433: the 2026-11-06 cut-over (lanes and a generation) and a lane's full bake are
+    // approvals in the ledger, with who and why, never rewritten.
+    let pool = pool().await?;
+    let mut tx = pool.begin().await?;
+    for (job, action, expires, lanes, generation, accepted) in RELEASE_APPROVALS {
+        let sql = release_approval(job, action, expires, lanes, generation);
+        assert_eq!(
+            !refused(&mut tx, &sql, Some(Uuid::new_v4())).await?,
+            accepted,
+            "{sql}"
+        );
+    }
+    let id = Uuid::new_v4();
+    let approval = release_approval(
+        "by_pnu_lane_cutover",
+        "approve_cutover",
+        DAY,
+        "'parcel-ownership'",
+        "1",
+    );
+    sqlx::query(&approval).bind(id).execute(&mut *tx).await?;
+    for sql in [
+        "UPDATE catalog.operator_action SET lanes = 'lanes' WHERE id = $1",
+        "UPDATE catalog.operator_action SET generation = 2 WHERE id = $1",
+    ] {
+        assert!(refused(&mut tx, sql, Some(id)).await?, "rewritten: {sql}");
+    }
+    tx.rollback().await
+}

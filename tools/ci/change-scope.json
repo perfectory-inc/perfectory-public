@@ -123,10 +123,12 @@
       "paths": [
         "platforms/foundation-platform/**",
         "products/gongzzang/apps/web/lib/map/zoning-families.ts",
+        "platforms/identity-platform/config/staff-console-applications.v1.json",
         "scripts/deploy/**",
         "scripts/tiles/**",
         "scripts/verify/integration.sh",
         "scripts/verify/foundation-spark-runtime.sh",
+        "scripts/verify/foundation-dagster-observe.sh",
         "scripts/verify/foundation-spark-runtime-files.sh",
         "scripts/ci/test_foundation_spark_runtime_files.py",
         "scripts/ci/foundation_spark_shards.py",
@@ -166,6 +168,7 @@
       "paths": [
         "platforms/foundation-platform/**",
         "products/gongzzang/apps/web/lib/map/zoning-families.ts",
+        "platforms/identity-platform/config/staff-console-applications.v1.json",
         "scripts/deploy/**",
         "scripts/github/**",
         "scripts/ci/fetch_pinned.py",

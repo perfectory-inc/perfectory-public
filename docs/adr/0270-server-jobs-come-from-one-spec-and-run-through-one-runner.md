@@ -363,3 +363,9 @@ CI 가드는 **새** 셸 파일이 100줄을 넘거나 대상이 `runner`·`xtas
 - #688 바로잡기: `lakehouse-ivy` 는 어떤 작업도 쓴 적이 없다(모든 Spark 실행이 릴리스의 jar 를 읽기 전용 ivy 캐시로 마운트). #708 이 작업 7개의 상태 경로와 `state_directories` 에서 뺐다.
 
 - 2026-11-05 개정 각주: §2 의 러너(`foundation-outbox-publisher job-run`, `foundation_jobs::{job_run,runner}`)는 어느 작업에도 배선되지 않은 채(`jobs.v1.json` 에 `command` 0, `FOUNDATION_JOB_RUN_JOB` 을 쓰는 곳 0) 지워졌다. 시간 상한·정지는 `foundation-jobs generate` 가 렌더하는 systemd 지시어가, 결과 판정은 각 작업의 결과 한 줄(ADR-0260)이 맡고, 목표 구조는 ADR-0410(#1051) §2(Dagster 자산 + `dagster-pipes` 로 systemd 실행)다.
+
+개정 각주(2026-11-07): §2b 의 즉시·한정 규칙은 사람이 시작하는 동작에 그대로 남는다. 다만 by-PNU 레인의 첫 발행은 더 이상
+운영자가 시작하는 동작이 아니다 —
+[ADR-0435](./0435-a-by-pnu-lane-publishes-itself-through-automated-analysis-and-capacity-and-priority-not-the-clock-decide-when-work-starts.md)
+의 자동 승격(root 타이머, `cutover --auto`)이 시작하고, 실패한 레인을 지수 백오프로 다시 돌리는 것은 대기 루프가 아니라 수준
+기반 조정이다.

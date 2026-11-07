@@ -604,6 +604,31 @@ pub fn building_register_unit_area_silver_row_to_jsonl(
         .map_err(|error| BuildingRegisterUnitSilverPlanError::InvalidInput(error.to_string()))
 }
 
+/// Serializes a Silver unit-area row of one handoff part, naming the part.
+///
+/// The part (`source_part_id`) is the table's load identity since root ADR-0391's addendum. It is
+/// where the row was loaded from, not what it says: the row checksum leaves it out, so a row moved
+/// to another part of an identical release is still the same row.
+///
+/// # Errors
+/// Returns `BuildingRegisterUnitSilverPlanError` when the part is empty or JSON serialization fails.
+pub fn building_register_unit_area_silver_part_row_to_jsonl(
+    row: &BuildingRegisterUnitAreaSilverRow,
+    source_part_id: &str,
+) -> Result<String, BuildingRegisterUnitSilverPlanError> {
+    if source_part_id.trim().is_empty() {
+        return Err(BuildingRegisterUnitSilverPlanError::InvalidInput(
+            "source_part_id must not be empty".to_owned(),
+        ));
+    }
+    let mut payload = row_to_json_value(row);
+    if let JsonValue::Object(record) = &mut payload {
+        insert_string(record, "source_part_id", source_part_id);
+    }
+    serde_json::to_string(&payload)
+        .map_err(|error| BuildingRegisterUnitSilverPlanError::InvalidInput(error.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -903,8 +928,9 @@ mod tests {
             .columns
             .iter()
             .map(|column| column.name)
-            // the removal column is the release compare's, never a source row's (root ADR-0318)
-            .filter(|name| *name != "row_state")
+            // the removal column is the release compare's, never a source row's (root ADR-0318);
+            // the part is the writer's, never the row's (root ADR-0391 addendum)
+            .filter(|name| !matches!(*name, "row_state" | "source_part_id"))
             .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
             record

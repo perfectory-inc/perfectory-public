@@ -36,39 +36,47 @@ for unit, state in units.items():
 '''
 
 
-class TheOperatorWindowIsTheCutOvers(unittest.TestCase):
-    """Root ADR-0425: the scheduled window comes from the job list, and the clock-started batch it
-    places inside it is kept out of the rest of the day (2026-11-05 23:46Z)."""
+class NoStartIsRefusedForTheTimeOfDay(unittest.TestCase):
+    """Root ADR-0435: the clock windows of ADR-0425 and ADR-0433 §3 are gone. 2026-11-06 03:46Z the
+    scheduled window refused the parcel-ownership cut-over; capacity and priority decide instead."""
 
-    def setUp(self):
-        sys.path.insert(0, str(JOB_UNITS.parent))
-        self.addCleanup(sys.path.remove, str(JOB_UNITS.parent))
-        import job_units
-        self.units = job_units
-        self.jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
+    def test_the_window_answers_are_gone_from_the_one_place_that_gave_them(self):
+        for command in (["operator-window", str(JOBS), "unit_price_versions_migration", "1793922360"],
+                        ["operator-start", str(JOBS), "1793936798", "202"]):
+            with self.subTest(command=command[0]):
+                result = subprocess.run([sys.executable, "-I", "-B", str(JOB_UNITS), *command],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 64, result.stdout)
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        self.assertNotIn("operator_window_means", listing)
 
-    def at(self, hour, minute):
-        return 1793836800 + hour * 3600 + minute * 60  # 2026-11-05T00:00:00Z
 
-    def test_the_unit_price_migration_is_held_out_of_the_night_and_its_schedule_fits(self):
-        window = self.units.scheduled_window(self.jobs)
-        (migration,) = [job for job in self.jobs if job["id"] == "unit_price_versions_migration"]
-        self.assertTrue(self.units.kept_out_of_operator_window(migration, window),
-                        "its 18:45 schedule is meant to end before the operator window")
-        self.assertEqual(self.units.operator_window(JOBS, migration["id"], self.at(18, 45)), "")
-        # The deploy's unpause at 23:46Z ran the missed 18:45 tick; the cut-over at 00:37Z lost to it.
-        for hour, minute in ((23, 46), (0, 37), (20, 0)):
-            with self.subTest(at=f"{hour:02d}:{minute:02d}"):
-                self.assertIn("operator window",
-                              self.units.operator_window(JOBS, migration["id"], self.at(hour, minute)))
+class AnApprovalsProgressIsAppendedLineByLine(unittest.TestCase):
+    """Root ADR-0433 §6: scripts/ops/release-progress.py appends one JSON line per event."""
 
-    def test_jobs_an_input_starts_or_whose_schedule_runs_past_the_window_are_not_held(self):
-        window = self.units.scheduled_window(self.jobs)
-        for job in self.jobs:
-            if job["started_by"] != "schedule" or job["pool"] != "spark":
-                with self.subTest(job=job["id"]):
-                    self.assertFalse(self.units.kept_out_of_operator_window(job, window))
-                    self.assertEqual(self.units.operator_window(JOBS, job["id"], self.at(23, 46)), "")
+    SCRIPT = PLATFORM / "scripts/ops/release-progress.py"
+    APPROVAL = "44444444-4444-4444-8444-444444444444"
+
+    def run_progress(self, directory, *args):
+        return subprocess.run([sys.executable, str(self.SCRIPT), *args], capture_output=True, text=True,
+                              env={**os.environ, "FOUNDATION_RELEASE_PROGRESS_DIR": str(directory)})
+
+    def test_each_call_appends_a_line_and_nothing_else_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for args in ((self.APPROVAL, "scheduled", "start_at=2026-11-06T21:50:00Z", "budget_minutes=202"),
+                         (self.APPROVAL, "step", "lane=parcel-ownership", "step=gold", "outcome=passed", "seconds=1602",
+                          "reason=a=b")):
+                self.assertEqual(self.run_progress(directory, *args).returncode, 0)
+            lines = [json.loads(line) for line in
+                     (pathlib.Path(directory) / f"{self.APPROVAL}.jsonl").read_text().splitlines()]
+            self.assertEqual([(line["state"], line.get("budget_minutes"), line.get("seconds")) for line in lines],
+                             [("scheduled", 202, None), ("step", None, 1602)])
+            self.assertEqual(lines[1]["reason"], "a=b")
+            for args in (("../etc/passwd", "scheduled"), (self.APPROVAL, "done"), (self.APPROVAL, "step", "nokey"),
+                         (self.APPROVAL, "step", "state=x"), (self.APPROVAL,)):
+                with self.subTest(args=args):
+                    self.assertEqual(self.run_progress(directory, *args).returncode, 64)
+            self.assertEqual(sorted(path.name for path in pathlib.Path(directory).iterdir()), [f"{self.APPROVAL}.jsonl"])
 
 
 class EveryStartTakesThePoolsSlots(unittest.TestCase):
@@ -123,6 +131,97 @@ class EveryStartTakesThePoolsSlots(unittest.TestCase):
     def test_no_answer_from_systemd_and_an_unknown_job_are_refusals(self):
         self.assertEqual(self.pool_full("building_register_floor", FAKE_DOWN="1").returncode, 2)
         self.assertEqual(self.pool_full("no_such_job").returncode, 64)
+
+
+class CapacityGoesByPriorityNotByClock(unittest.TestCase):
+    """Root ADR-0435: the spark pool is the resource; a waiting publish claim holds back every lower
+    start and a later one of its class, and a running backfill yields at its next step boundary.
+
+    The 2026-11-06 replay: unit_price_versions_migration (a backfill) started at 23:46Z from a missed
+    tick; at 00:37Z the parcel-ownership cut-over waited 45 minutes for it and failed."""
+
+    CUTOVER = "foundation-by-pnu-lane-cutover-g1.service"
+    MIGRATION = "foundation-unit-price-versions-migrate.service"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="job-units-capacity-")
+        self.addCleanup(temp.cleanup)
+        self.root = pathlib.Path(temp.name)
+        (self.root / "systemctl").write_text(FAKE_SYSTEMCTL)
+        (self.root / "systemctl").chmod(0o755)
+        self.claims = self.root / "capacity"
+
+    def job_units(self, *args, units=None):
+        return subprocess.run(
+            [sys.executable, "-I", "-B", str(JOB_UNITS), *args],
+            env={**os.environ, "PATH": f"{self.root}{os.pathsep}{os.environ['PATH']}",
+                 "FAKE_LOG": str(self.root / "systemctl.log"), "FOUNDATION_CAPACITY_CLAIMS_DIR": str(self.claims),
+                 "FAKE_UNITS": ",".join(f"{unit}=activating" for unit in units or ())},
+            capture_output=True, text=True, timeout=30)
+
+    def test_every_class_is_declared_and_the_backfill_and_the_publishers_name_theirs(self):
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        classes = listing["priority_classes"]
+        self.assertGreater(classes["publish"]["value"], classes["first_publish"]["value"])
+        self.assertGreater(classes["first_publish"]["value"], classes["default"]["value"])
+        self.assertGreater(classes["default"]["value"], classes["backfill"]["value"])
+        by_id = {job["id"]: job for job in listing["jobs"]}
+        self.assertEqual(by_id["unit_price_versions_migration"]["priority_class"], "backfill")
+        for job_id, job in by_id.items():
+            if re.fullmatch(r"by_pnu_.*_bake", job_id):
+                self.assertEqual(job.get("priority_class"), "publish", job_id)
+        # Root ADR-0439: a lane's first publish ranks below refreshing what users read now, and the
+        # panel Gold rebuild takes the class of the bake that waits on it.
+        self.assertEqual(listing["capacity_claimants"]["by_pnu_lane_cutover"]["priority_class"], "first_publish")
+        self.assertEqual((by_id["gold_panel_rebuild"]["priority_class"], by_id["gold_panel_rebuild"]["priority_class_from"]),
+                         ("publish", "by_pnu_serving_bake"))
+
+    def test_the_eleven_o_six_backfill_yields_to_the_waiting_cut_over_and_nothing_lower_starts(self):
+        claimed = self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER)
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        # 00:37Z: the migration runs and the cut-over's unit waits with its claim.
+        running = [self.MIGRATION, self.CUTOVER]
+        yielded = self.job_units("preempted", str(JOBS), "unit_price_versions_migration", units=running)
+        self.assertEqual(yielded.returncode, 0, yielded.stderr)
+        self.assertIn("yielded the spark pool to by_pnu_lane_cutover (first_publish)", yielded.stdout)
+        # After the migration ended at its step boundary, no default or backfill start takes the pool
+        # the cut-over waits for.
+        for job in ("unit_price_versions_migration", "building_register_floor"):
+            with self.subTest(job=job):
+                held = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
+                self.assertEqual(held.returncode, 0, held.stderr)
+                self.assertIn("kept for claims queued before", held.stdout)
+                self.assertIn("by_pnu_lane_cutover", held.stdout)
+
+    def test_a_served_lanes_refresh_is_not_held_for_a_first_publish(self):
+        # Root ADR-0439: 2026-11-07 07:42Z..09:00Z and from 09:12Z two lane cut-overs held the spark pool
+        # while the parcel lane served a 193-hour-old manifest; the panel Gold rebuild and the bakes that
+        # refresh served lanes now outrank a first publish.
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        for job in ("gold_panel_rebuild", "by_pnu_unit_price_bake", "by_pnu_serving_bake"):
+            with self.subTest(job=job):
+                free = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
+                self.assertEqual(free.returncode, 0, free.stderr)
+                self.assertNotIn("kept for claims queued before", free.stdout)
+
+    def test_a_claim_whose_unit_stopped_holds_nothing_and_a_release_removes_it(self):
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        # The cut-over's unit is gone (it ended, or crashed before it took the claim off).
+        for job in ("unit_price_versions_migration", "gold_panel_rebuild"):
+            self.assertEqual(self.job_units("pool-full", str(JOBS), job).stdout.strip(), "")
+        self.assertEqual(self.job_units("preempted", str(JOBS), "unit_price_versions_migration",
+                                        units=[self.MIGRATION]).stdout.strip(), "")
+        self.assertEqual(self.job_units("release", "by_pnu_lane_cutover").returncode, 0)
+        self.assertEqual(sorted(self.claims.iterdir()), [])
+
+    def test_only_a_yielding_class_is_preempted_and_only_a_declared_claimant_claims(self):
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        floor = self.job_units("preempted", str(JOBS), "building_register_floor",
+                               units=["foundation-building-register-floor.service", self.CUTOVER])
+        self.assertEqual(floor.stdout.strip(), "", "a default job runs to its end; the claim waits for it")
+        for args in (("someone_else", self.CUTOVER), ("by_pnu_lane_cutover", "foundation-gold-panel-rebuild.service")):
+            with self.subTest(args=args):
+                self.assertEqual(self.job_units("claim", str(JOBS), *args).returncode, 64)
 
 
 class TheOneDefinition(unittest.TestCase):

@@ -57,10 +57,6 @@ export function ParcelPublicAuctionCard({ rounds }: { rounds: PublicAuctionRound
           </li>
         ))}
       </ul>
-      {/* KOGL type 1 (출처표시): the photos and the round data are 온비드's (root ADR-0427 §5). */}
-      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
-        {t("attribution")}
-      </p>
     </div>
   );
 }

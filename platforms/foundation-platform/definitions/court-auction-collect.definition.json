@@ -49,7 +49,8 @@
         "silver-court-auction-item-detail-to-source-courtauction-go-kr"
       ],
       "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z"
+      "enabled_since": "2026-10-30T13:30:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

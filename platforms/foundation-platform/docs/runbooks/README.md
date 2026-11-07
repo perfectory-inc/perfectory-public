@@ -22,7 +22,7 @@ last_reviewed: 2026-07-29
 - [지도 편집 접기 — 설치·운영·확인](./map-edit-fold.md)
 - [산업단지 경계 새 판 — 예약 작업](./complex-boundary-release.md)
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)
-- [전국등록공장현황 (data.go.kr) — 수집·주소로 PNU 찾기·적재](./data-go-kr-registered-factory.md)
+- [data.go.kr 파일 데이터 — 등록공장 수집·PNU·적재, 기타 공공 일괄 파일 수집](./data-go-kr-registered-factory.md)
 - [법원경매정보 (courtauction.go.kr) — 정직한 수집·멈춤·적재](./court-auction.md)
 - [온비드 공매 (data.go.kr) — 수집·적재](./data-go-kr-onbid.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
@@ -33,6 +33,7 @@ last_reviewed: 2026-07-29
 - [ai-server 메모리 예산 — 컨테이너 상한과 실측](./host-memory-budget.md)
 - [호스트 디스크 배치 — OS 는 시스템 디스크, Docker·containerd 는 데이터 디스크](./host-layout.md)
 - [Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인](./worker-autodeploy.md)
+- [더니어 엣지 설정 — Access·Tunnel·DNS 를 호스트가 코드로 맞춘다](./edge-settings.md)
 - [배포 경보 — 드레인·배포·DAG 멈춤이 길 때](./deploy-alerts.md)
 - [호스트 자원 경보 — 디스크·메모리·OOM·상한](./host-resources.md)
 

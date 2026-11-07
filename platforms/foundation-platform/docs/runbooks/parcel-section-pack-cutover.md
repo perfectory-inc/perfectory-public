@@ -78,14 +78,28 @@ sudo -n $op parcel monitor-sample 1 --requested-at "$(date +%s)" --reason "<왜>
 # 단계 배포: CANARY_HEALTH_COMMAND='ssh <host> sudo -n '$op' parcel health @NEW@ @OLD@'
 ```
 
-묶음 전용 레인(`by_pnu_lanes`, 루트 ADR-0190·ADR-0193 §6)의 첫 전환은 위 단계를 한 번에 감독 실행한다. 단계·
-멈춤 조건·예약 창·Spark 대기의 정본은 `scripts/ops/by-pnu-lane-cutover.sh` 머리말이다.
+묶음 전용 레인(`by_pnu_lanes`, 루트 ADR-0190·ADR-0193 §6)의 첫 전환은 위 단계를 한 번에 실행한다. 단계·
+멈춤 조건·Spark 대기의 정본은 `scripts/ops/by-pnu-lane-cutover.sh` 머리말이다.
+
+**첫 발행은 사람이 시작하지 않는다(루트 ADR-0435).** `foundation-by-pnu-auto-promote.timer`(15분)가 cut-over 안 된
+레인을 하나씩 `cutover <세대> --auto` 로 시작한다. 러너의 단계가 자동 분석이고(마지막 `verify` 는 운영 호스트를 GET
+두 번), 실패하면 발행 전에 멈추고 유닛이 알린다. 발행 못 한 레인은 1·2·4…24시간 뒤 다시. 시각 창은 없다: run 이
+spark 풀을 claim 하고 용량을 기다린다(backfill 은 걸음 경계에서 양보). 시도 기록은
+`/var/lib/foundation-run-now/auto-promote/<레인>.jsonl`.
+
+**더니어 승인은 예외 동작에만(루트 ADR-0433·0435).** 이미 cut-over 된 레인을 새 세대로 다시 전환할 때 데이터 흐름 →
+운영 → by-PNU cut-over 에서 레인·세대·이유를 적고 승인한다(원장 동작 `approve_cutover`). 호스트의 `run-now-dispatch.sh`
+가 바로 한 번 시작한다(다른 cut-over 가 돌면 다음 변경 때). 진행은 같은 화면과
+`/var/lib/foundation-jobs/releases/<승인 id>.jsonl`. 취소·중지는 같은 대상의 `stop`. 승인은 48시간 뒤 만료된다.
 
 ```bash
-sudo -n $op lanes cutover 1 --dry-run --requested-at "$(date +%s)" --reason "<왜>"  # 아직 전환 안 된 레인 전부: 단계·미리보기 응답·예약 창 판정, 아무것도 시작하지 않는다
-sudo -n $op unit-price cutover 1 --requested-at "$(date +%s)" --reason "<왜>"  # 한 레인: Gold → 대등성 → 굽기 → (가) → (나) → 발행 → 감시 표본, 첫 실패에서 멈춘다
+# 읽기만 하는 미리보기는 여전히 셸에서도 된다: 단계·미리보기 응답, 아무것도 시작하지 않는다
+sudo -n $op lanes cutover 1 --dry-run --requested-at "$(date +%s)" --reason "<왜>"
 # 진행: <굽기 뿌리>/cutover/logs/cutover-g1.log, 단계별 시간·결과: <굽기 뿌리>/cutover/<실행 id>.jsonl
 ```
+
+셸의 `sudo -n $op <lanes> cutover <세대> --requested-at ... --reason ...` 도 남아 있지만(사람이 터미널에서 10분 안),
+정상 경로는 자동 승격이다. 2026-11-06 의 비밀번호 실패·45분 Spark 대기·창 거부가 그 이유다.
 
 굽기(`bake`)가 하는 일은 `scripts/ops/by-pnu-pack-bake.sh` 머리말이 정본이다.
 

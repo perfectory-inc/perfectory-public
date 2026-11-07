@@ -72,6 +72,7 @@
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-parcel-real-transaction-to-parcel-real-transaction-by-pnu-section-packs"
@@ -309,6 +310,173 @@
         }
       ],
       "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/real-transaction.generated.ts",
+          "reason": "the parcel panel's 실거래 category (root ADR-0350 §5, ADR-0371): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "real_transaction",
+              "required": true
+            },
+            {
+              "path": "real_transaction.as_of_month",
+              "required": true
+            },
+            {
+              "path": "real_transaction.transactions",
+              "required": true
+            },
+            {
+              "path": "real_transaction.transactions[].dataset_slug",
+              "required": true
+            },
+            {
+              "path": "real_transaction.transactions[].deal_date",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].deal_amount_10k_krw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].deposit_10k_krw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].monthly_rent_10k_krw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].building_area_m2",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].land_area_m2",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].floor",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].build_year",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].land_use",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].jibun_raw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].share_dealing_type",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].cancelled",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].cancel_date",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions[].place_identity_grade",
+              "required": false
+            },
+            {
+              "path": "real_transaction.transactions_omitted",
+              "required": true
+            },
+            {
+              "path": "real_transaction.main_lot_group_pnus",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables",
+              "required": true
+            },
+            {
+              "path": "real_transaction.comparables[].deal_date",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].deal_amount_10k_krw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].land_area_m2",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].building_area_m2",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].land_use",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].jibun_raw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].pnu",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].place_identity_grade",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables[].main_lot_group_size",
+              "required": false
+            },
+            {
+              "path": "real_transaction.comparables_from",
+              "required": true
+            },
+            {
+              "path": "real_transaction.region",
+              "required": true
+            },
+            {
+              "path": "real_transaction.region.datasets",
+              "required": true
+            },
+            {
+              "path": "real_transaction.region.datasets[].dataset_slug",
+              "required": true
+            },
+            {
+              "path": "real_transaction.region.datasets[].deal_count",
+              "required": true
+            },
+            {
+              "path": "real_transaction.region.datasets[].land_price_per_m2_10k_krw",
+              "required": false
+            },
+            {
+              "path": "real_transaction.region.datasets[].land_price_per_m2_10k_krw.median",
+              "required": false
+            },
+            {
+              "path": "transaction_total",
+              "required": false
+            }
+          ]
+        },
         {
           "name": "pack-lane-document",
           "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",

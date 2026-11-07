@@ -100,6 +100,10 @@ pub fn scopes(project_id: &str) -> String {
 
 /// Fetches and checks the issuer's discovery document.
 ///
+/// The two endpoints the browser opens point at the console's own origin: the browser never reaches
+/// the issuer, the console relays its sign-in pages (root ADR-0434 §2). The server's own calls
+/// (token, userinfo) stay on the issuer.
+///
 /// # Errors
 /// Returns [`OidcError`] when it cannot be read or names another issuer.
 pub async fn discover(http: &reqwest::Client, config: &Config) -> Result<Discovery, OidcError> {
@@ -117,7 +121,20 @@ pub async fn discover(http: &reqwest::Client, config: &Config) -> Result<Discove
     if discovery.issuer.trim_end_matches('/') != config.issuer.as_str().trim_end_matches('/') {
         return Err(OidcError::IssuerMismatch(discovery.issuer));
     }
+    let mut discovery = discovery;
+    on_public_origin(&mut discovery.authorization_endpoint, &config.public_base);
+    if let Some(end_session) = discovery.end_session_endpoint.as_mut() {
+        on_public_origin(end_session, &config.public_base);
+    }
     Ok(discovery)
+}
+
+/// The same path and query on the console's origin.
+fn on_public_origin(url: &mut Url, public_base: &Url) {
+    let mut moved = public_base.clone();
+    moved.set_path(url.path());
+    moved.set_query(url.query());
+    *url = moved;
 }
 
 /// Where to send the browser to sign in.

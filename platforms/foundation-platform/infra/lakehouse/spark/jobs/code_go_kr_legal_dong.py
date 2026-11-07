@@ -216,6 +216,9 @@ def parse_full_table_html(text: str, contract: Mapping[str, Any]) -> list[dict[s
         raise ValueError("the contract's full_table.headers must name one column per FULL_TABLE_FIELDS entry")
     status_words = spec["status_words"]
     table = _headed_table(text, headers, "full table")
+    # A query that matches no code (a changed-since window with no change) lists the site's one-cell notice.
+    if [[cell for cell, _ in r] for r in table.rows] == [[spec["empty_result"]["text"]]]:
+        return []
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
     for line, cells in enumerate(table.rows, start=1):

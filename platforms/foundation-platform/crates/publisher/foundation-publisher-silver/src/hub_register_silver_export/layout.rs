@@ -48,6 +48,17 @@ impl PnuInputs {
     }
 }
 
+/// How a file without the PNU inputs reaches its parcel: by a building-register key the named
+/// register also carries beside its `pnu`. The export stores the key verbatim and composes no PNU;
+/// the consumer joins the register's current rows at read, so a re-composed or code-changed title
+/// PNU is followed instead of frozen at load (root ADR-0404).
+#[derive(Clone, Deserialize)]
+pub(super) struct ParcelLink {
+    pub(super) column: String,
+    register: String,
+    register_column: String,
+}
+
 /// The file layout of one hub national register (root ADR-0092). Which ZIP to read is not here:
 /// the Silver refresh picks it from the Bronze ledger and passes it in (root ADR-0169 §2).
 #[derive(Clone, Deserialize)]
@@ -68,6 +79,11 @@ pub struct Layout {
     /// composed like `pnu`, from its own consumed columns.
     #[serde(default)]
     pub(super) extra_pnus: BTreeMap<String, PnuInputs>,
+    #[serde(default)]
+    pub(super) parcel_link: Option<ParcelLink>,
+    /// Whether the Silver table has a `pnu` column: a linked layout's table must not (root ADR-0404).
+    #[serde(skip)]
+    table_has_pnu: bool,
     pub(super) handoff_suffix: String,
     pub(super) rows_per_part: u64,
     pub(super) max_row_bytes: u64,
@@ -97,6 +113,7 @@ impl Layout {
             })
             .map(|column| column.name.to_owned())
             .collect();
+        layout.table_has_pnu = table.columns.iter().any(|column| column.name == "pnu");
         layout.validate()?;
         Ok(layout)
     }
@@ -127,14 +144,17 @@ impl Layout {
             "consumed column names differ from the Silver table contract"
         );
         ensure!(
-            ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon"]
-                .iter()
-                .all(|name| self.columns.contains_key(*name))
-                && self
-                    .columns
-                    .keys()
-                    .all(|name| !super::GENERATED_COLUMNS.contains(&name.as_str())),
-            "HUB columns must contain the PNU inputs and must not shadow generated columns"
+            self.columns
+                .keys()
+                .all(|name| !super::GENERATED_COLUMNS.contains(&name.as_str())),
+            "HUB columns must not shadow generated columns"
+        );
+        let pnu_inputs = ["sigungu_cd", "bjdong_cd", "san_gubun", "bonbeon", "bubeon"]
+            .iter()
+            .all(|name| self.columns.contains_key(*name));
+        ensure!(
+            pnu_inputs != self.parcel_link.is_some() && self.table_has_pnu == pnu_inputs,
+            "a HUB layout reaches its parcel by the PNU inputs into a `pnu` column or by a              parcel_link into a table without one, exactly one of them"
         );
         if let Some(RowKey::JoinedColumns(names)) = &self.row_key {
             ensure!(
@@ -146,6 +166,19 @@ impl Layout {
             self.inner_file.matches(MONTH_SLOT).count() <= 1,
             "inner_file holds at most one {MONTH_SLOT}"
         );
+        if let Some(link) = &self.parcel_link {
+            let register = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(
+                &link.register,
+            )
+            .context("parcel_link names an unknown register table")?;
+            ensure!(
+                self.columns.contains_key(&link.column)
+                    && [link.register_column.as_str(), "pnu"]
+                        .iter()
+                        .all(|name| register.columns.iter().any(|c| c.name == *name)),
+                "parcel_link must name a consumed key column and a register carrying that key and a pnu"
+            );
+        }
         ensure!(
             self.columns.contains_key("mgmt_key") != self.row_key.is_some(),
             "a HUB layout reads its mgmt_key from a column or makes it from the row, not both"

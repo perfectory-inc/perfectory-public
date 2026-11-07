@@ -178,6 +178,8 @@ fn build_schema() -> Schema {
             false,
         ),
         Field::new("row_checksum_sha256", DataType::Utf8, false),
+        // A release written whole is one part, named by its run (root ADR-0391 addendum).
+        Field::new("source_part_id", DataType::Utf8, false),
     ])
 }
 
@@ -212,6 +214,7 @@ fn rows_to_batch(
     let mut normalization_reason = StringBuilder::new();
     let mut source_record_id = StringBuilder::new();
     let mut source_snapshot_id = StringBuilder::new();
+    let mut source_part_id = StringBuilder::new();
     let mut bronze_object_key = StringBuilder::new();
     let mut source_line_number = Int64Builder::new();
     let mut valid_from_utc = TimestampMillisecondBuilder::new();
@@ -246,6 +249,7 @@ fn rows_to_batch(
         normalization_reason.append_value(&row.normalization_reason);
         source_record_id.append_value(&row.source_record_id);
         source_snapshot_id.append_value(&row.source_snapshot_id);
+        source_part_id.append_value(&row.source_snapshot_id);
         bronze_object_key.append_value(&row.bronze_object_key);
         append_optional_i64(
             &mut source_line_number,
@@ -292,6 +296,7 @@ fn rows_to_batch(
             Arc::new(valid_from_utc.finish()),
             Arc::new(ingested_at_utc.finish()),
             Arc::new(row_checksum_sha256.finish()),
+            Arc::new(source_part_id.finish()),
         ],
     )
     .context("failed to build building-register unit-area Parquet batch")

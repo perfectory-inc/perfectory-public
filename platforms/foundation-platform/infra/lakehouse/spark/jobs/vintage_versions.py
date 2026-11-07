@@ -116,6 +116,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iceberg-catalog-name", default="r2")
     parser.add_argument("--iceberg-packages", default=iceberg_packages())
     parser.add_argument("--summary-output")
+    parser.add_argument("--yield-file", type=Path,
+                        help="Start no further step once this file exists (root ADR-0435: a higher priority class waits)")
     return parser.parse_args(argv)
 
 
@@ -224,12 +226,21 @@ class Budget:
     """The run's time budget: a step starts only if its cost still fits (root ADR-0300 H).
 
     A step's cost is the contract's measured one until a step of the same kind ran in this run; then
-    it is the longest such step of the run, so a run measures what it plans with."""
+    it is the longest such step of the run, so a run measures what it plans with.
+
+    A backfill yields at a step boundary (root ADR-0435): once `yield_file` exists (the host writes it
+    when a higher priority class waits for the spark pool), no further step starts, and `yielded` says
+    why. The steps already taken are committed, so the next run resumes after them."""
     seconds: float
     started: float
     costs: dict[str, float]
+    yield_file: Path | None = None
+    yielded: str | None = None
 
     def allows(self, kind: str) -> bool:
+        if self.yield_file is not None and self.yield_file.exists():
+            self.yielded = self.yield_file.read_text(encoding="utf-8").strip() or "yielded the spark pool"
+            return False
         return time.monotonic() - self.started + self.costs[kind] <= self.seconds
 
     def took(self, kind: str, seconds: float, measured: set[str]) -> None:
@@ -364,27 +375,35 @@ def run(spark: Any, args: argparse.Namespace, contract: dict[str, Any]) -> dict[
             continue
         shards = target["write_shards"]
         costs = {"write": target["write_seconds"] / shards, "parity": target["parity_seconds"]}
-        budget = Budget(float(contract["run_time_budget_seconds"]), started, costs)
+        budget = Budget(float(contract["run_time_budget_seconds"]), started, costs,
+                        getattr(args, "yield_file", None))
         one = argparse.Namespace(**{**vars(args), "target": target["table"]})
         report = migrate(spark, one, budget, shards, int(contract["parity_buckets"]))
         summary["targets"][target["table"]] = report
         summary["parity"] = summary["parity"] and report["parity"]
         summary["complete"] = summary["complete"] and report["complete"]
+        if budget.yielded is not None and not report["complete"]:
+            summary["yielded"] = budget.yielded
+            break
         if not report["complete"]:
             break  # root ADR-0317 §5.2: the unit prices only after every apartment vintage matched
     return summary
 
 
 def run_state(summary: dict[str, Any]) -> tuple[str, bool]:
-    """What a run did, from its summary: (`complete` | `progress` | `stalled`, whether it took a step).
+    """What a run did, from its summary: (`complete` | `progress` | `yielded` | `stalled`, whether it
+    took a step).
 
     The job runs daily until it is done (unit-price-versions-migration.definition.json): a complete run
     takes no step and is a no-op. Every step fits an empty run (load_contract), so a run that is not
-    complete and took none is stuck, and fails rather than say `unchanged` day after day."""
+    complete and took none is stuck, and fails rather than say `unchanged` day after day, unless it
+    yielded the pool to a higher priority class (root ADR-0435): that run waits, it is not stuck."""
     took = any("appended_seconds" in entry or "parity_seconds" in entry
                for report in summary["targets"].values() for entry in report["vintages"].values())
     if summary["complete"]:
         return "complete", took
+    if summary.get("yielded"):
+        return "yielded", took
     return ("progress" if took else "stalled"), took
 
 

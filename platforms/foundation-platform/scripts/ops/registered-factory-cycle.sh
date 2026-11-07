@@ -2,8 +2,9 @@
 # 한국산업단지공단 전국등록공장현황 (data.go.kr 15105482) — 수집과 Silver 적재 (root ADR-0280 §4). 등록된 작업
 # registered_factory(spark 3칸, 가중치 1)가 하루 한 번 돌린다. 공급자는 해마다 한 번쯤 새 판을 올린다.
 #
-#   1. 수집 — collect-data-go-kr-registered-factory 가 포털의 메타데이터를 한 번 묻고, 마지막으로 받은 것과 다른
-#             파일일 때만 zip 을 받아 Bronze 에 남긴다(data-go-kr-registered-factory.contract.json).
+#   1. 수집 — collect-data-go-kr-file-data 가 계약의 registered_factory 파일 하나만 맡아 포털의 메타데이터를 한 번
+#             묻고, 마지막으로 받은 것과 다른 파일일 때만 zip 을 받아 Bronze 에 남긴다(data-go-kr-file-data.contract.json,
+#             루트 ADR-0401: 다른 파일은 작업 data_go_kr_file_data 가 받는다).
 #   2. 계획 — plan-silver-load-objects 가 R2 만 보고 쌓을 판을 정한다: 이 원천의 Bronze zip 가운데
 #             silver.registered_factory 의 커밋 요약이 아직 기록하지 않은 것, 계약의 범위(silver_load) 안에서
 #             오래된 것부터 하나. 이 실행의 폴더로 받는다. 없으면 unchanged 로 끝난다(Spark 를 띄우지 않는다).
@@ -40,7 +41,7 @@ fi
 
 STATE_ROOT="${FOUNDATION_REGISTERED_FACTORY_STATE_ROOT:-/var/lib/foundation-platform/registered-factory}"
 LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
-COLLECT="FOUNDATION_PLATFORM_DATA_GO_KR_REGISTERED_FACTORY"
+COLLECT="FOUNDATION_PLATFORM_DATA_GO_KR_FILE_DATA"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
@@ -50,16 +51,20 @@ run_log="${work}/run.log"
 trap 'job_journal "${journal}" "registered-factory FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 trap 'rm -rf "${work}/collect" "${LAKEHOUSE_STATE_ROOT}/runs/${run_id}"' EXIT
 
-# 1. 수집
+# 1. 수집. ADR-0401 이 수집기의 상태를 파일마다의 디렉터리로 옮겼다: 그 전의 상태를 한 번 옮겨, 받은 판을 다시 받지 않는다.
+if [ -f "${STATE_ROOT}/collector/accepted.json" ]; then
+  mkdir -p "${STATE_ROOT}/collector/registered_factory"
+  mv -n "${STATE_ROOT}/collector/accepted.json" "${STATE_ROOT}/collector/registered_factory/accepted.json"
+fi
 env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
-  "${PUBLISHER_BIN}" collect-data-go-kr-registered-factory >> "${run_log}" 2>&1
+  "${COLLECT}_DATASETS=registered_factory" "${PUBLISHER_BIN}" collect-data-go-kr-file-data >> "${run_log}" 2>&1
 
 # 2. 계획: R2 의 Bronze 와 표의 커밋 기록만 본다.
 read -r window_days max_objects slug < <(python3 -I -c '
 import json, sys
-c = json.load(open(sys.argv[1], encoding="utf-8"))
-print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"], "datagokr__" + c["dataset_slug"])
-' "${RELEASE_ROOT}/infra/lakehouse/contracts/data-go-kr-registered-factory.contract.json")
+c = json.load(open(sys.argv[1], encoding="utf-8"))["files"]["registered_factory"]
+print(c["silver_load"]["window_days"], c["silver_load"]["max_objects"], "datagokr__registered_factory")
+' "${RELEASE_ROOT}/infra/lakehouse/contracts/data-go-kr-file-data.contract.json")
 env FOUNDATION_PLATFORM_SILVER_LOAD_TABLE=silver.registered_factory FOUNDATION_PLATFORM_SILVER_LOAD_SOURCE_SLUGS="${slug}" \
   FOUNDATION_PLATFORM_SILVER_LOAD_WINDOW_DAYS="${window_days}" FOUNDATION_PLATFORM_SILVER_LOAD_MAX_OBJECTS="${max_objects}" \
   FOUNDATION_PLATFORM_SILVER_LOAD_OUTPUT_DIR="${plan_dir}" \

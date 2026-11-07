@@ -1,0 +1,27 @@
+[Unit]
+Description=Foundation Platform data.go.kr file data, the other public bulk files: land each new edition in Bronze, append its changed rows to its Silver table and follow legal-dong code changes (root ADR-0401)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/data-go-kr.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/data-go-kr-file-data-cycle.sh
+TimeoutStartSec=90m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/data-go-kr-file-data
+
+[Install]
+WantedBy=multi-user.target

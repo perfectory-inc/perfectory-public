@@ -287,7 +287,8 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
     def test_it_covers_every_by_pnu_bake_and_the_unit_price_assets(self):
         self.assertEqual(set(self.spec.reconciles),
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
-                          "gold_court_auction_rebuild", "by_pnu_court_auction_bake", "by_pnu_serving_bake"})
+                          "gold_court_auction_rebuild", "by_pnu_court_auction_bake", "by_pnu_serving_bake",
+                          "gold_panel_rebuild"})
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).
@@ -306,7 +307,7 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         run = self.tasks["run"]
         run.output = (b"asset iceberg://gold.unit_price: owed\n"
                       b"foundation-asset-owed gold_unit_price_rebuild 0123456789abcdef\n"
-                      b"foundation-asset-owed gold_panel_rebuild 0123456789abcdef\n"
+                      b"foundation-asset-owed building_register_floor 0123456789abcdef\n"
                       b"foundation-asset-owed by_pnu_public_auction_bake fedcba9876543210\n"
                       b"foundation-job-outcome unchanged\n")
         ti = mock.Mock()
