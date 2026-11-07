@@ -92,3 +92,5 @@
 - 각 채택 규칙의 가드 구현·임계값은 그 규칙의 PR 에서 확정(예: 디스크 여유 경보 임계, 커버리지 바닥, 상한 어휘의 정확한 스키마).
 - 상한 통일 어휘(H-cap)의 스키마 — 지금 3 종 키를 하나로 모을 형태 — 는 그 가드 PR 에서 "새 메커니즘 전에 증명"([AGENTS.md 해결 접근 순서](../../AGENTS.md)) 뒤 결정.
 - CodeQL(I-SAST)은 공개 저장소 무료라 다음 라운드에서 보류→채택으로 옮길 유력 후보.
+
+2026-11-08: O-env 행이 말하는 Rust 쪽 `no-env-access` 가드(`scripts/guard/no-env-access-in-domain-layers.sh`, find+sed+grep)와 자기 시험 → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/domain-layers-read-no-environment.yml`(고정 Opengrep 엔진의 Rust 파서, `**/*-domain/src/**`·`**/*-application/src/**`, 가드 `scripts/guard/semgrep-rules.sh`)이 한다. 결정은 그대로다.

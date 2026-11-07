@@ -1003,17 +1003,6 @@
         ]
       },
       {
-        "name": "no-env-access-in-domain-layers-self-test",
-        "paths": []
-      },
-      {
-        "name": "no-env-access-in-domain-layers",
-        "paths": [
-          "platforms/**",
-          "products/**"
-        ]
-      },
-      {
         "name": "area-ci-input-coverage-self-test",
         "paths": []
       },
