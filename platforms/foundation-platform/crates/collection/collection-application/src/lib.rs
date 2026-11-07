@@ -12,6 +12,8 @@ pub mod bronze_committer;
 pub mod building_hub_bulk_collection_plan;
 /// Planning helpers for building-register Bronze ingestion pages.
 pub mod building_register_bronze_plan;
+/// Asking 법원경매정보 through a pool of browser sessions until it answers (root ADR-0289).
+pub mod court_auction_asking;
 /// Planning helpers for ILIS industrial-complex Bronze ingestion pages.
 pub mod ilis_industrial_complex_bronze_plan;
 /// Outbound ports implemented by Collection infrastructure.
@@ -60,6 +62,10 @@ pub use building_register_bronze_plan::{
     BuildingRegisterBronzePagePlan, BuildingRegisterBronzePagePlanInput,
     BuildingRegisterBronzePlanError, BuildingRegisterPageRequest,
     BuildingRegisterSchemaObservation,
+};
+pub use court_auction_asking::{
+    ask, AskCounts, AskRules, AskTally, Asked, CourtAuctionSessions, PaceGate, PacePermit,
+    SessionRecord, SessionTicket, SiteMethod, SiteReply, SiteRequest, TransportError,
 };
 pub use ilis_industrial_complex_bronze_plan::{
     plan_ilis_industrial_complex_bronze_page, IlisIndustrialComplexBronzePagePlan,
