@@ -77,4 +77,5 @@ export const STEP_LABEL: Record<string, string> = {
   latency: "관문 (나) 지연",
   publish: "발행",
   "monitor-sample": "감시 표본",
+  verify: "엣지 확인",
 };
