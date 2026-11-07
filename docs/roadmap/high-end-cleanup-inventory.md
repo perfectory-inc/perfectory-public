@@ -33,7 +33,7 @@ last_reviewed: 2026-11-04
 | E 땜질 가드 | 10 (PATCH) | 0 | 구현 2,520 · 자기 시험 1,118 | 줄기만 하는 기준선 6개, 가드를 지키는 가드 |
 | (참고) 남기는 가드 | 24 (KEEP-DOMAIN) | 24 | 구현 5,922 · 자기 시험 3,816 | 도메인 불변식 |
 
-A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 11 · 절반 3 · 남음 24. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
+A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 12 · 절반 3 · 남음 23. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
 
 가드 100개(구현 24,439 · 자기 시험 12,039) 중 사고를 날짜·번호로 적은 것은 44개다(ADR-0001 요구).
 11-04 표본 조사의 "가드 76개 중 약 40개 교체 가능"은 전수로 보면 R-OSS 38 + E-SSOT 24 = 62개다.
@@ -232,7 +232,7 @@ LOC는 테스트 파일(`*_tests.rs`, `tests.rs`, `/tests/`, `test_*`)을 제외
 | G089 **끝남(이 PR: Semgrep `gongzzang-catalog-boundary.yml`)** | gz foundation-ownership-boundary<br>products/gongzzang/scripts/lefthook/foundation-ownership-boundary.sh | 200 (0) | gongzzang 카탈로그 라우트가 get/head만이고 카탈로그 writer가 없는지 검사 | 아니오 (ADR 0048) | 카탈로그 모듈 내 `.route(.., post(..))`를 잡는 Semgrep rust 규칙 | 예 | M |
 | G090 **끝남(#1153, Semgrep `gongzzang-panel.yml`)** | gz panel guards x3<br>products/gongzzang/scripts/lefthook/panel-no-direct-codec.sh (+2 files) | 81 (68) | codec 밖에서 `split(">")` 없음, lib/panel이 components/panels를 import하지 않음, zustand에 panelStack 없음 검사 | 예 2026-10-05 가드가 한 번도 매치 안 됨 | ESLint `no-restricted-imports` zones / dependency-cruiser + `no-restricted-syntax` | 예 | S |
 | G092 | T package_boundary.rs x3<br>platforms/foundation-platform/crates/collection/collection-domain/tests/package_boundary.rs (+2 files) | 1146 (0) | 매니페스트/소스를 파싱해 crate 소유권 경계 검사 | 아니오 | cargo-deny `[bans] deny=[{name, wrappers=[..]}]` + clippy disallowed-types | 예 | L |
-| G094 | T no_direct_put_in_bronze_lanes.rs<br>platforms/foundation-platform/crates/publisher/foundation-publisher-collection/tests/no_direct_put_in_bronze_lanes.rs | 292 (0) | Bronze에 대해 `put_object`를 `BronzeCommitter`만 호출하는지 검사 | 아니오 (ADR 0016) | `put_object` 위 clippy `disallowed-methods` + 두 어댑터에 `#[allow]` | 예 | M |
+| G094 **끝남(이 PR: Semgrep `bronze-lane-writes.yml`)** | T no_direct_put_in_bronze_lanes.rs<br>platforms/foundation-platform/crates/publisher/foundation-publisher-collection/tests/no_direct_put_in_bronze_lanes.rs | 292 (0) | Bronze에 대해 `put_object`를 `BronzeCommitter`만 호출하는지 검사 | 아니오 (ADR 0016) | `put_object` 위 clippy `disallowed-methods` + 두 어댑터에 `#[allow]` | 예 | M |
 | G096 | T test_invoked_scripts_are_executable.py<br>platforms/foundation-platform/orchestration/tests/test_invoked_scripts_are_executable.py | 112 (0) | 경로로 실행되는 스크립트가 git에서 `+x`인지 검사 | 아니오 | pre-commit `check-shebang-scripts-are-executable` | 예 | M |
 | G098 | T deploy_contract.rs (foundation+identity)<br>platforms/foundation-platform/services/foundation-api/tests/deploy_contract.rs (+2 files) | 1895 (0) | 워크플로/compose/Dockerfile 텍스트를 Rust 테스트로 단언 검사 | 아니오 | Conftest rego on compose/workflow YAML + hadolint | 예 | L |
 
