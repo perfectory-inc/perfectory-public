@@ -33,8 +33,6 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 
-from lakehouse_ingest import Deadline  # noqa: F401  (the shared per-run deadline, root ADR-0300 H)
-
 JOB_NAME = "rt_molit_real_transaction"
 TABLE = "silver.real_transaction"
 # Root ADR-0364: the lines an export carried that are not loaded, each with its Bronze reference.
@@ -513,7 +511,7 @@ def _load(argv: Sequence[str]) -> int:
 
     import place_identity_resolver  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
-    from lakehouse_ingest import append_source_object  # noqa: PLC0415
+    from lakehouse_ingest import Deadline, append_source_object  # noqa: PLC0415
     from platform_contracts import REMOVED, current_rows  # noqa: PLC0415
     from pyspark.sql import SparkSession, functions as F  # noqa: PLC0415
     from silver_release_compare import release_changes  # noqa: PLC0415
