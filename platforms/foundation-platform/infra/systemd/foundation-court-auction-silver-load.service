@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform 법원경매정보, the Silver half: give each row a PNU by address and load silver.court_auction_item and silver.court_auction_sale_result (root ADR-0280)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/court-auction.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

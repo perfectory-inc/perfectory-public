@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform unit price Gold rebuild: gold.unit_price, its own job and asset after the building panel it pins to (root ADR-0190, ADR-0333)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/gold-panel-rebuild.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform by-PNU auto-promotion: start the first publish of a lane whose Gold is ready, through the cut-over's automated analysis, with no person (root ADR-0435)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/parcel-section-pack-cutover.md
+X-Foundation-Owner=serving
 OnFailure=foundation-unit-failed@%n.service
 
 [Service]

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform legal-dong code changes from code.go.kr, the collection half: land the responses in Bronze, validate them, stage a pending-load handoff when they changed (ADR-0143)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/legal-dong-code-changes.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

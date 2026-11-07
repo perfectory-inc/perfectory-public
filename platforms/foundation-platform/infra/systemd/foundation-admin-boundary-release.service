@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform administrative boundary release: load the newest 읍면동 boundary round into Silver, publish its place ids and fold it into the tiles (ADR-0236)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/complex-boundary-release.md
+X-Foundation-Owner=tiles
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

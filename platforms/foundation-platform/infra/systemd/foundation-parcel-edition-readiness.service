@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform cadastral edition readiness: judge each edition the source contract holds, only those whose inputs moved, and write the report the operator console shows (ADR-0379, ADR-0380)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/vworld-parcel-editions.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform data kind Gold rebuild: rebuild each by-PNU data kind table after its host panel committed (root ADR-0193)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/gold-panel-rebuild.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

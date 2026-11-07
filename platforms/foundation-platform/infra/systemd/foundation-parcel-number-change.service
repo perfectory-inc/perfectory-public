@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform VWorld 필지고유번호변동연혁 (MK/30527), the collection half: land the 시도 files whose provider update date changed in Bronze, check them, stage a pending-load handoff (ADR-0144)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/legal-dong-code-changes.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

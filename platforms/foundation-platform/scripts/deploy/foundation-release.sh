@@ -1272,6 +1272,14 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The daily readiness report's table (root ADR-0442). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/readiness
     systemctl daemon-reload
+    # A failed state means a declared unit is broken now (root ADR-0444): systemd keeps the failure of
+    # a unit whose file the lines above removed, and of an operator's one-off instance, until told.
+    # No answer from systemd clears nothing.
+    while read -r leftover; do
+      [[ -n "${leftover}" ]] || continue
+      systemctl reset-failed "${leftover}" || true
+      printf 'foundation-release: cleared the failed state of %s, which no declared unit runs again\n' "${leftover}"
+    done < <(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" leftover-failed "${jobs_file}" || true)
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
     # The database backup is host infrastructure, not a data job: it stays a systemd timer

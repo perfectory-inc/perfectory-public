@@ -94,6 +94,13 @@ class NotifyUnitFailure(unittest.TestCase):
         calls = self.run_script(UNIT, STUB_OnSuccess=f"foundation-unit-recovered@{UNIT}.service", STUB_AM_FAIL="1")
         self.assertEqual([call[-1] for call in calls][-1], "https://slack.com/api/chat.postMessage")
 
+    def test_the_notice_names_the_units_owner(self):
+        # Root ADR-0444: 2026-11-01..07 nine failures were posted with nobody named, and sat for days.
+        fragment = self.dir / "foundation-identity-restore-drill.service"
+        fragment.write_text("[Unit]\nX-Foundation-Owner=platform\n", encoding="utf-8")
+        [call] = self.run_script("foundation-identity-restore-drill.service", STUB_FragmentPath=str(fragment))
+        self.assertIn("주인: platform", json.loads(call[call.index("-d") + 1])["text"])
+
     def test_a_unit_without_onsuccess_posts_to_slack_as_before(self):
         calls = self.run_script("foundation-database-backup.service")
         [call] = calls

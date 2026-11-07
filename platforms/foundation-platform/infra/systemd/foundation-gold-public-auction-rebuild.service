@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform 공매 kind Gold rebuild: build gold.parcel_public_auction from the Onbid Silver once a day (root ADR-0287)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/gold-panel-rebuild.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform 차세대 온비드 public sale from data.go.kr, the collection half: land each due API's responses in Bronze within its daily limit; the Silver load finds them in R2 (root ADR-0280)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/data-go-kr-onbid.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

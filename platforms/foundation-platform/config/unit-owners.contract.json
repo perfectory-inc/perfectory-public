@@ -1,0 +1,11 @@
+{
+  "$comment": "Root ADR-0444. Who acts when a host unit fails. Every infra/systemd unit that reports its failure (OnFailure=foundation-unit-failed@) names one of these owners in its [Unit] line X-Foundation-Owner= and its runbook in Documentation= (systemd ignores X- lines). The asset reconciler copies both into each failed unit's series (foundation-units.prom), and the FoundationUnitFailedLong rule calls the owner by name once a unit has stayed failed for six hours. orchestration/tests/test_unit_owners.py refuses a unit without an owner listed here or without a runbook that exists.",
+  "schema_version": 1,
+  "owners": {
+    "collection": "수집: 원천에서 Bronze 까지(공급자 호출, 원천 파일, 법정동 코드)",
+    "lakehouse": "적재: Bronze 에서 Silver·Gold 까지와 lakehouse 관리(정리, 계보, 품질)",
+    "serving": "서빙: Gold 에서 by-PNU 문서·Worker·라이브 호스트까지",
+    "tiles": "지도 타일: 필지·용도지역·경계 타일 굽기와 편집 반영",
+    "platform": "호스트와 배포: 배포·백업·복원 드릴·디스크·경보·운영 표"
+  }
+}

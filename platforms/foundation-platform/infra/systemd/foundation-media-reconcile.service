@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform media reconciler: the onbid media in R2 against the Silver index that names it (root ADR-0387)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/media-reconcile.md
+X-Foundation-Owner=serving
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

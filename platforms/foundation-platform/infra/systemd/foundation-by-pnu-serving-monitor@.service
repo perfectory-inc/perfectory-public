@@ -1,5 +1,6 @@
 [Unit]
 Description=Foundation Platform %i serving monitor: read the live %i hostname and hold it to the lane's documents, and its manifest to the freshness budget (root ADR-0151, ADR-0160, ADR-0306)
+X-Foundation-Owner=serving
 # What a failure means and the first checks; notify-unit-failure.sh puts it in the Slack notice.
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/parcel-by-pnu-serving-bake.md
 After=network-online.target

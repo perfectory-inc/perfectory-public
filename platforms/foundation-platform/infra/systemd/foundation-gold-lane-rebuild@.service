@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform kind Gold rebuild of %i: the lane's Gold from its own Silver, only the changed parcels (root ADR-0287, ADR-0418 §8b)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/gold-panel-rebuild.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
