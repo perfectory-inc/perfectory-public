@@ -116,6 +116,24 @@ class FullTableTest(unittest.TestCase):
         with self.assertRaisesRegex(cg.SourceFormatError, "appears twice"):
             as_rows(table_html([row("9811010100", "합성도 가구 갑동")] * 2))
 
+    def test_a_query_that_matches_no_code_is_zero_rows(self):
+        # The incident (2026-11-04~07): a changed-since window with no change returned the site's one-cell
+        # notice, and the parser refused it as a changed shape, so legal_dong_code_changes failed every day.
+        # The page below copies the measured response's result table (2026-11-07, stdate 2026-10-07).
+        head = "".join(f'<td class="table_header_center01_blue01">{escape(h)}</td>' for h in CONTRACT["full_table"]["headers"])
+        empty = (
+            "<table><tr><td colspan=\"2\"><table class=\"table\" width=\"770\"><thead><tr>"
+            f"{head}</tr></thead>\n <tr> \n"
+            '<td class="table_left" colspan="10" align="center" ><div align="center">'
+            f'{CONTRACT["full_table"]["empty_result"]["text"]}</div></td>\n</tr>\n</table></td></tr>'
+            '<tr><td width="100" align="right">총 <strong><font color="FF9900">0</font></strong>건</td></tr></table>'
+        )
+        self.assertEqual(as_rows(empty), [])
+        with self.assertRaisesRegex(cg.SourceFormatError, "1 cells"):
+            as_rows(empty.replace(CONTRACT["full_table"]["empty_result"]["text"], "점검 중입니다."))
+        with self.assertRaises(cg.TableShrunk):
+            cg.check_table_size(len(as_rows(empty)), None, CONTRACT)  # an empty full table is still refused
+
     def test_a_table_thirty_percent_smaller_is_refused(self):
         bounds = CONTRACT["full_table"]["bounds"]
         previous = bounds["min_rows"] * 2

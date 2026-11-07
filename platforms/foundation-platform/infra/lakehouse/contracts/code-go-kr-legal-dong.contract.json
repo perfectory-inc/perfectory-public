@@ -42,6 +42,10 @@
       "법정동코드(주민)",
       "법정동코드(지적)"
     ],
+    "empty_result": {
+      "$comment": "What the site writes in place of rows when a query matches no code: one row, one cell, this text, with 총 0건 below the table. Measured 2026-11-07 from ai-server: the probe for stdate 2026-10-07 (no code created or abolished since) returned exactly that, and the parser refused it as a changed shape ('row 1: 1 cells, expected 11'), so every run failed from 2026-11-04, the first day the 31-day window held no change. It reads as zero rows; the full table still needs bounds.min_rows.",
+      "text": "조회된 자료가 없습니다."
+    },
     "status_words": {
       "현존": "존재",
       "폐지": "폐지"
