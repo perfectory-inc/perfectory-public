@@ -162,7 +162,7 @@ def tofu(host: Host, tree: pathlib.Path, env: dict[str, str], *args: str) -> str
         "containers"]["edge_settings"]["memory_limit"]
     command = ["docker", "run", "--rm", "--init", "--memory", memory, "--memory-swap", memory, "--pids-limit", "512",
                "--read-only", "--tmpfs", "/tmp", "-v", f"{tree}:/src:ro", "-v", f"{host.state / 'work'}:/work",
-               "-w", f"/src/{PLATFORM}/{MODULE}", "-e", "TF_DATA_DIR=/work/data", "-e", "TF_IN_AUTOMATION=1",
+               "-w", f"/src/{PLATFORM}/{MODULE}", "-e", "HOME=/tmp", "-e", "TF_DATA_DIR=/work/data", "-e", "TF_IN_AUTOMATION=1",
                "-e", "TF_INPUT=0", *[item for name in names for item in ("-e", name)], image(tree), *args]
     result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
     if result.returncode != 0:
