@@ -394,6 +394,16 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
     )
     .await?;
     assert!(report.passed, "{report:?}");
+    // The monitor's PNUs are the first of the sample the lane still serves (root ADR-0437): a key
+    // its packs hold no document for is passed over, not held to a 404 or counted short.
+    let absent = (0..10)
+        .map(|digit| format!("{}{digit}", &keys[0][..keys[0].len() - 1]))
+        .find(|key| !keys.contains(key))
+        .context("a key the packs do not hold")?;
+    let sample = [vec![absent], keys.to_vec()].concat();
+    let chosen =
+        super::monitor::served_sample(&store, sample, 2, &super::monitor::Target::Served).await?;
+    assert_eq!(chosen, keys[..2].to_vec());
     // And a live answer that is not the packs' document is a breach.
     let drifted = MockServer::start().await;
     Mock::given(method("GET"))
