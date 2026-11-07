@@ -8,8 +8,12 @@ Both are a Foundation Platform tree (the running one is /opt/foundation-platform
 - the lakehouse tables the deploy's lakehouse migration may change, decided from that step's own
   inputs in config/deploy-steps.contract.json (root ADR-0308, one list for both): where only an
   input it reads table by table (`per_table`) changed, the tables whose entry differs (added,
-  removed or changed); where any other input changed (its program, a backfill, compose, the
-  engine pin), every lakehouse table;
+  removed or changed); where a file of a directory its `closure` names changed, what the
+  migration's own code reaches decides (root ADR-0437): the program's call graph and the contracts
+  it names (gold_code_version.parts, the analysis a Gold commit's code version is) changed, every
+  table; a backfill's function changed, its table; neither (another job's script, a source
+  contract the migration never reads), nothing; where any other input changed (compose, the
+  runner, its unit), every lakehouse table;
 - the Postgres migrations the new release has and the running one does not;
 - the jobs that write those tables, by each job's `pipeline_graph_edges` and the graph's
   `table_name` of where an edge goes (orchestration/jobs.v1.json, docs/catalog/pipeline-graph.v1.json
@@ -34,6 +38,8 @@ import json
 import os
 import sys
 from pathlib import Path
+
+import ast
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import deploy_steps  # noqa: E402
@@ -62,6 +68,58 @@ def keyed(path: Path, key: str) -> dict:
         return {}
 
 
+def under(path: str, directories: list[str]) -> bool:
+    return any(path == directory or path.startswith(directory + "/") for directory in directories)
+
+
+def backfills(tree: Path, closure: dict) -> dict[str, tuple[str, str]]:
+    """{table: (module, function)} of the program's backfill registry, read from its syntax tree: a
+    registry `{(table, column): (module, function)}` (lakehouse_schema_migrate.BACKFILLS)."""
+    path = tree / closure["directories"][0] / f"{closure['program']}.py"
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        targets = [node.target] if isinstance(node, ast.AnnAssign) else getattr(node, "targets", [])
+        if any(isinstance(t, ast.Name) and t.id == closure["backfills"] for t in targets) and node.value:
+            return {table: tuple(function) for (table, _), function in ast.literal_eval(node.value).items()}
+    raise ValueError(f"{path} has no {closure['backfills']} registry")
+
+
+def analyzer(tree: Path, closure: dict):
+    """The new release's gold_code_version: one analysis reads both trees, so a change to the analysis
+    itself is not mistaken for a change to the code it reads."""
+    import importlib.util  # noqa: PLC0415
+
+    path = tree / closure["directories"][0] / "gold_code_version.py"
+    spec = importlib.util.spec_from_file_location("release_changes_gold_code_version", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def code_parts(analysis, tree: Path, closure: dict, module: str, start: str | None, skip: set[str]) -> dict[str, str]:
+    """What `module` (its script, or its `start` function) reaches in `tree`, less the `skip` files,
+    which the hold reads table by table."""
+    found = analysis.parts(module, {"plumbing": {}, "plumbing_symbols": {}, "scoped": {}}, "", (),
+                           jobs=tree / closure["directories"][0], contract_dirs=(tree / closure["directories"][1],),
+                           root=tree, start=start)
+    return {part: digest for part, digest in found.items() if part.split("::")[0] not in skip}
+
+
+def closure_change(running: Path, new: Path, closure: dict, per_table: dict) -> tuple[bool, list[str], set[str]]:
+    """(whether the program's code changed, the parts that did, the tables whose backfill changed)."""
+    analysis, skip = analyzer(new, closure), set(per_table)
+    before = code_parts(analysis, running, closure, closure["program"], None, skip)
+    after = code_parts(analysis, new, closure, closure["program"], None, skip)
+    moved = sorted(part for part in before.keys() | after.keys() if before.get(part) != after.get(part))
+    if moved:
+        return True, moved, set()
+    old, now = backfills(running, closure), backfills(new, closure)
+    tables = {table for table in old.keys() | now.keys()
+              if old.get(table) != now.get(table)
+              or code_parts(analysis, running, closure, *old[table], skip)
+              != code_parts(analysis, new, closure, *now[table], skip)}
+    return False, [], tables
+
+
 def changed_tables(running: Path, new: Path, host: Path | None) -> tuple[list[str], str]:
     """(the tables the migration may change, why every table when it is every table)."""
     entry = deploy_steps.step_of(new, STEP)
@@ -76,11 +134,18 @@ def changed_tables(running: Path, new: Path, host: Path | None) -> tuple[list[st
     before, after = input_files(running, entry["inputs"]), input_files(new, entry["inputs"])
     differ = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
     per_table = entry.get("per_table", {})
-    other = [path for path in differ if path not in per_table]
+    closure = entry.get("closure")
+    other = [path for path in differ if path not in per_table
+             and not (closure and under(path, closure["directories"]))]
     if other:
         return every, f"{', '.join(other[:3])}{', ...' if len(other) > 3 else ''} changed, which the migration runs"
     tables: set[str] = set()
-    for path in differ:
+    if closure and any(path not in per_table for path in differ):
+        whole, moved, backfilled = closure_change(running, new, closure, per_table)
+        if whole:
+            return every, f"{', '.join(moved[:3])}{', ...' if len(moved) > 3 else ''} changed, which the migration runs"
+        tables |= backfilled
+    for path in [path for path in differ if path in per_table]:
         old, now = keyed(running / path, per_table[path]), keyed(new / path, per_table[path])
         tables |= {name for name in old.keys() | now.keys() if old.get(name) != now.get(name)}
     return sorted(tables), ""
