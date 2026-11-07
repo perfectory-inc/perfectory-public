@@ -23,9 +23,16 @@ export "${PREFIX}_OUTPUT_STORAGE_DRIVER=r2"
 # reminds every four hours. A failed unit alone said only "serving-monitor 실패": 2026-10-28..11-05
 # the 공매 lane served a pre-photo manifest for 191 hours among some thirty open notices.
 METRICS_DIR="${FOUNDATION_BY_PNU_SERVING_MONITOR_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
-report="$(mktemp)"
-trap 'rm -f "${report}"' EXIT
-export "${PREFIX}_MONITOR_REPORT_PATH=${report}"
+# A caller's report path is kept: the Worker deploy and the rollback rehearsal read the report it
+# names, and replacing it with a temporary file made every Worker deploy fail on "wrote no report"
+# from #1101 on (2026-11-06..07, incident W21).
+report_var="${PREFIX}_MONITOR_REPORT_PATH"
+report="${!report_var:-}"
+if [[ -z "${report}" ]]; then
+  report="$(mktemp)"
+  trap 'rm -f "${report}"' EXIT
+  export "${report_var}=${report}"
+fi
 rc=0
 "${PUBLISHER_BIN}" "monitor-${LANE}-by-pnu-serving" || rc=$?
 python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/serving_freshness_metrics.py" "${report}" "${LANE}" "${METRICS_DIR}" \
