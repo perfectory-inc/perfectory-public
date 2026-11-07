@@ -25,6 +25,7 @@ consoles/dawneer/
 | `GET /auth/login` → `GET /auth/callback` | Zitadel 로그인(인가 코드 + PKCE, 기밀 클라이언트). 토큰은 서버에만, 브라우저엔 `HttpOnly` 세션 쿠키 |
 | `POST /auth/logout` | 세션을 끝내고 Zitadel 로그아웃 주소를 돌려준다 |
 | `GET /api/session` | 누가 로그인했는지 + CSRF 값(토큰은 주지 않는다) |
+| `/oauth/v2/authorize`, `/ui/login/…`, `/oidc/v1/end_session` | Zitadel 의 로그인 화면을 이 주소에서 중계한다([ADR-0434](../../docs/adr/0434-dawneer-is-served-from-the-data-host-behind-cloudflare-access-and-a-tunnel-and-relays-zitadels-sign-in-pages.md) §2). 브라우저는 issuer 에 직접 가지 않고, 토큰 교환은 서버가 issuer 루프백에 한다 |
 | `/api/foundation/<경로>` | 허용 목록(`server/src/relay.rs`)에 있는 Foundation 경로만 세션의 토큰을 실어 넘긴다. 쓰기는 `x-dawneer-csrf` 필수 |
 | 그 밖 | 화면(`web/dist`) |
 

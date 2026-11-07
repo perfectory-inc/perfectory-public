@@ -8,6 +8,6 @@
   "allow_external_idp_reason": "No external identity provider is configured; the switch stays off until one is decided.",
   "ignore_unknown_usernames": true,
   "ignore_unknown_usernames_reason": "The login screen does not reveal whether an account exists.",
-  "force_mfa": false,
-  "force_mfa_reason": "Second factors are offered (OTP, security key); requiring them is a separate decision taken with staff enrollment."
+  "force_mfa": true,
+  "force_mfa_reason": "The staff consoles are reachable from the internet behind Cloudflare Access (root ADR-0434 §3); a password alone must not open the approve button. A staff member without a second factor is asked to enrol one (OTP app or security key) at the next sign-in."
 }

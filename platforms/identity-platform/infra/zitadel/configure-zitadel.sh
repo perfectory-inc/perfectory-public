@@ -246,6 +246,32 @@ print(f\"OIDC_CLIENT_SECRET={json.load(sys.stdin)['clientSecret']}\")
   fi
 done <<<"${console_rows}"
 
+# --- trusted domains -----------------------------------------------------
+# A console served at an https origin relays Zitadel's sign-in pages there and names that origin in
+# x-zitadel-public-host (root ADR-0434 §2). Zitadel only uses a public host the instance trusts, so
+# the host of every https redirect URI in staff-console-applications.v1.json is one; nothing else is.
+trusted="$(api -X POST "${base_url}/admin/v1/trusted_domains/_search" \
+  -H 'Content-Type: application/json' -d '{}' | python3 -c "
+import json, sys
+print(' '.join(sorted(row['domain'] for row in json.load(sys.stdin).get('result') or [])))")"
+public_hosts="$(python3 -c "
+import json, sys
+from urllib.parse import urlsplit
+apps = json.load(open(sys.argv[1]))['applications']
+hosts = {urlsplit(u).hostname for app in apps for u in app['redirect_uris'] if urlsplit(u).scheme == 'https'}
+print(chr(10).join(sorted(hosts)))
+" "${consoles}")"
+while IFS= read -r host; do
+  [[ -n "${host}" ]] || continue
+  if [[ " ${trusted} " == *" ${host} "* ]]; then
+    printf 'exists  trusted domain %s\n' "${host}"
+  else
+    api -X POST "${base_url}/admin/v1/trusted_domains" -H 'Content-Type: application/json' \
+      -d "{\"domain\":\"${host}\"}" >/dev/null
+    printf 'created trusted domain %s\n' "${host}"
+  fi
+done <<<"${public_hosts}"
+
 # --- organization login policy -----------------------------------------
 # The organization uses its own login policy, converged to staff-login-policy.v1.json: the
 # instance default allows public sign-up. Fields the file does not name keep Zitadel's values,
