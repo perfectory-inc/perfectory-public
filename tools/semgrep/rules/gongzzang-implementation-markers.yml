@@ -1,0 +1,37 @@
+# Gongzzang source carries no unfinished-work markers, no borrowed brand names and no broken encoding
+# (products/gongzzang/AGENTS.md).
+#
+# Prevents: `TEMP_`/`임시` names and `HACK:` comments that ship as permanent code, a design spec copied
+# from another company's site (`Claude.com spec mapping`), and comments re-encoded through the wrong
+# code page (`Server ?꾩슜:`) that no reviewer can read back. Text markers sit in comments, strings
+# and identifiers alike and in seven languages, so this is one regex rule over the source tree.
+rules:
+  - id: gongzzang-source-has-no-implementation-markers
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      An unfinished-work marker, a borrowed brand name or mojibake in Gongzzang source. Finish the
+      work, name the thing for what it is, or restore the UTF-8 text.
+    # Every source file under the four source roots; prose, manifests and binary assets are not
+    # source (the engine has no AND of directory and extension, so the non-source kinds are listed).
+    paths:
+      include:
+        - "/products/gongzzang/apps/**"
+        - "/products/gongzzang/services/**"
+        - "/products/gongzzang/crates/**"
+        - "/products/gongzzang/packages/**"
+      exclude:
+        - "*.md"
+        - "*.toml"
+        - "*.json"
+        - "*.lock"
+        - "*.txt"
+        - "*.example"
+        - "*.sha256"
+        - "*.woff2"
+        - "*.png"
+        - "*.svg"
+    pattern-either:
+      # `_` is a boundary on purpose: `TEMP_COOKIE_NAME` is the marker. GitHub's `RUNNER_TEMP` is not.
+      - pattern-regex: (?<![A-Za-z0-9])(?<!RUNNER_)(?:TODO|HACK|XXX|TEMP|ALLOWED_FOR_FRONTEND_TEMP|임시|(?i:claude\.com|anthropic\.com))(?![A-Za-z0-9])
+      - pattern-regex: '[\x{FFFD}\x{6028}\x{F9CD}\x{936E}\x{BA2F}\x{AFA9}\x{C493}\x{6FE1}\x{8E30}\x{907A}\x{ACD7}\x{B6AE}\x{BEA3}\x{5A9B}\x{5AC4}\x{C208}\x{BA84}\x{D00E}\x{BE37}\x{BD23}\x{BD38}]'

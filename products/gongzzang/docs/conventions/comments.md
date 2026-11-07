@@ -35,7 +35,7 @@ listing.activate_after_external_verification();
 
 `.github`·`apps`·`services`·`crates`·`packages` 아래에서 `TODO`·`HACK`·`XXX`·`TEMP`·
 `ALLOWED_FOR_FRONTEND_TEMP`·`임시` 마커는 금지다. 정본 목록과 검사는
-`scripts/lefthook/check-forbidden-implementation-markers.sh`(pre-push + CI)이다.
+루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml`(CI `semgrep-rules`)이다.
 
 | ❌ | ✅ 대신 |
 |---|--------|
@@ -111,7 +111,7 @@ export function ListingCard({ listing }: Props) { ... }
 
 - Rust: `missing_docs` (warn)
 - Rust: clippy lint `clippy::todo`, `clippy::unimplemented` deny
-- 금지 마커: `scripts/lefthook/check-forbidden-implementation-markers.sh` (pre-push + CI)
+- 금지 마커: 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml` (CI `semgrep-rules`)
 
 ## 11. 좋은 주석 vs 나쁜 주석 비교
 

@@ -113,7 +113,7 @@ use crate::domain::Listing;
 - ❌ `dbg!()`, `println!()`, `eprintln!()` (대신 `tracing::*`)
 - ❌ `unsafe` 블록 (`forbid` 정책)
 - ❌ 글로벌 mutable state (`std::sync::LazyLock` 불변 값은 OK, `static mut`는 금지)
-- ❌ TODO/HACK/XXX 코멘트 (`scripts/lefthook/check-forbidden-implementation-markers.sh`가 차단 — [comments.md](./comments.md))
+- ❌ TODO/HACK/XXX 코멘트 (루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml`가 차단 — [comments.md](./comments.md))
 
 ## 8. 의존성 방향 (Cargo workspace)
 
