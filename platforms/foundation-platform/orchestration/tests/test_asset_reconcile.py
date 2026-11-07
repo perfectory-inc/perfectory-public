@@ -313,6 +313,45 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(len(forward), 1)
         self.assertNotEqual(forward, owed)
 
+    def behind(self, metrics, lane):
+        found = [line for line in metrics if line.startswith(f'foundation_by_pnu_lane_behind_seconds{{lane="{lane}"}} ')]
+        return float(found[0].split()[-1]) if found else None
+
+    def test_2026_11_07_a_lane_serving_its_newest_inputs_is_not_behind_however_old_its_manifest(self):
+        # Root ADR-0444: zoning served 10-17's packs, which reflect its Gold, built from the newest Silver
+        # there was; the parcel lane's Gold was built before a transfer history load it never served.
+        self.panel_caught_up()
+        self.catalog["silver.land_use_plan"] = table(snap("61", None, 0), snap("62", "61", 5, operation="replace", added=9))
+        self.catalog["gold.parcel_zoning"] = table(snap("71", None, 0, operation="overwrite",
+                                                        pins={"silver.land_use_plan": "61"}))
+        self.reads["parcel-zoning"] = {"read_snapshot_id": "71", "outcome": "served"}
+        self.catalog["silver.land_transfer_history"] = table(snap("81", None, 0), snap("82", "81", 10), snap("83", "82", 20))
+        self.catalog["gold.parcel_panel"] = table(snap("91", None, 0, operation="overwrite",
+                                                       pins={"silver.land_transfer_history": "81"}))
+        self.reads["parcel"] = {"read_snapshot_id": "91", "outcome": "served"}
+        _, metrics, _, errors = self.tick(100, panel=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.behind(metrics, "parcel-zoning"), 0, "a compaction changes no row")
+        self.assertEqual(self.behind(metrics, "parcel"), 90 * 60, "since the first load it does not serve")
+        # A Gold built from that load and not yet baked: still behind since the load, not the Gold.
+        self.catalog["gold.parcel_panel"] = table(*self.catalog["gold.parcel_panel"]["snapshots"],
+                                                  snap("92", "91", 60, operation="overwrite",
+                                                       pins={"silver.land_transfer_history": "83"}))
+        _, metrics, _, _ = self.tick(100, panel=True)
+        self.assertEqual(self.behind(metrics, "parcel"), 90 * 60)
+        self.reads["parcel"] = {"read_snapshot_id": "92", "outcome": "served"}
+        _, metrics, _, _ = self.tick(100, panel=True)
+        self.assertEqual(self.behind(metrics, "parcel"), 0)
+
+    def test_a_lane_whose_data_time_cannot_be_told_has_no_series(self):
+        # No read yet, or a Gold that records no pins: the alert falls back to the manifest's age.
+        self.panel_caught_up()
+        self.reads["parcel-forest-ledger"] = None
+        _, metrics, _, _ = self.tick(panel=True)
+        self.assertIsNone(self.behind(metrics, "parcel-forest-ledger"))
+        self.assertIsNone(self.behind(metrics, "parcel-zoning"), "its synthetic Gold records no pins")
+        self.assertEqual(self.behind(metrics, "building"), 0)
+
     def test_the_lane_reads_count_the_failures_in_a_row(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:

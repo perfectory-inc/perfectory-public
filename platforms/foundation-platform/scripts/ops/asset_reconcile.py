@@ -322,6 +322,41 @@ def lane_verdict(asset: Asset, table, reads, now: float) -> Verdict:
     return verdict
 
 
+def lane_behind_since(asset: Asset, table, reads) -> float | None:
+    """When the oldest input change the lane does not serve yet was committed, the lane's data time
+    (root ADR-0444): its Gold's row changes after the snapshot it serves, and each Silver or reference
+    table's row changes after the pin of the Gold it serves (the Gold head's pins when that snapshot
+    is no longer kept). 0.0 when the lane serves every change there is; None when it cannot be told (no
+    read yet, no pins, a change without a kept commit time), and the alert then holds the served
+    manifest's age instead.
+
+    2026-10-17..11-07 the zoning, price, characteristics and land-rights lanes served packs that
+    reflected their Gold, built from the newest Silver there was, and their monitors failed hourly on
+    a 498-hour-old manifest; the parcel lane at 202 hours looked the same and was really behind."""
+    gold = table(asset.lane_table)
+    read = (reads(asset.lane) or {}).get("read_snapshot_id")
+    if gold["head"] is None or read is None:
+        return None
+    changes = []
+    went, _, oldest = moved(gold, gold["head"], read)
+    if went:
+        changes.append(oldest)
+    served = read if any(s["snapshot_id"] == read for s in gold["snapshots"]) else gold["head"]
+    pins = gold_rebuild.recorded_pins(gold["snapshots"], served)
+    if pins is None:
+        return None
+    for name, pin in sorted(pins.items()):
+        source = table(name)
+        if source["head"] is None:
+            continue
+        went, _, oldest = moved(source, source["head"], pin)
+        if went:
+            changes.append(oldest)
+    if None in changes:
+        return None
+    return min(changes, default=0.0)
+
+
 def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict):
     """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables."""
     owed_by_job, metrics, errors, next_state = {}, [], [], {}
@@ -342,6 +377,16 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
         metrics.append(f"foundation_asset_reconcile_error{{{labels}}} 0")
         metrics.append(f"foundation_asset_lag_seconds{{{labels}}} {max(verdict.lag, 0.0):.0f}")
         metrics.append(f"foundation_asset_owed{{{labels}}} {int(verdict.owed)}")
+        if asset.lane:
+            try:
+                since = lane_behind_since(asset, table, reads)
+            except Exception as error:  # noqa: BLE001 -- unknown data time; the owed verdict above stands
+                print(f"asset_reconcile: could not date the {asset.lane} lane's inputs: {type(error).__name__}: {error}",
+                      file=sys.stderr)
+                since = None
+            if since is not None:
+                behind = max(now - since, 0.0) if since else 0.0
+                metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}"}} {behind:.0f}')
         if busy or full:
             kept["busy_at"] = now
         versions = gold_attempt(asset, verdict, busy, kept, now)
@@ -378,6 +423,8 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_asset_unscheduled_since_timestamp_seconds gauge
 # HELP foundation_asset_reconcile_error Whether the reconciler could not read the asset this tick.
 # TYPE foundation_asset_reconcile_error gauge
+# HELP foundation_by_pnu_lane_behind_seconds How long the lane has served data behind its inputs: since the oldest Gold, Silver or reference change it does not serve (root ADR-0444); 0 when it serves every change.
+# TYPE foundation_by_pnu_lane_behind_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
 """

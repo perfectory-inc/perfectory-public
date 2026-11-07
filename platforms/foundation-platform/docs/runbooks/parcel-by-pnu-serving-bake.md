@@ -479,18 +479,21 @@ foundation-by-pnu-serving-bake.service` 로 다시 재고, 14G 의 1.3배 여유
 
 ## 9. 서빙 신선도 경보
 
-[루트 ADR-0306](../../../../docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md).
-레인마다 매시 도는 `foundation-by-pnu-serving-monitor@<레인>` 이 서빙 manifest 의 `published_at_utc` 를 읽어,
-계약 `by_pnu_section_packs.freshness_budget_hours`(값은 그 파일) 보다 오래됐으면 실패하고 Slack 에
-`FIRING FoundationUnitFailed` — `foundation-by-pnu-serving-monitor@<레인>.service 실패` 가 온다. 레인마다
-Alertmanager 알림 하나라, 계속 실패하면 매시가 아니라 하루 한 번 다시 오고 다음 성공 실행에 `RESOLVED` 가 온다
-(`scripts/ops/notify-unit-failure.sh`, 유닛의 `OnSuccess=foundation-unit-recovered@%n.service`). 지금 무엇이
-열려 있는지: `curl -s '127.0.0.1:19093/api/v2/alerts?filter=service%3D%22unit-failure%22'`. 일지 마지막 줄은
-`the <레인> lane serves a manifest published <시각> (<N> h ago), past its freshness budget` 이다.
+[루트 ADR-0306](../../../../docs/adr/0306-a-by-pnu-lane-alerts-when-what-it-serves-is-older-than-its-freshness-budget.md),
+[루트 ADR-0444](../../../../docs/adr/0444-a-by-pnu-lane-is-stale-when-it-is-behind-its-inputs-not-when-its-manifest-is-old.md).
+Slack 에 `FoundationByPnuServingStale` — `<레인> 레인 화면이 입력보다 <N> 뒤처진 데이터를 보여 주고 있어요` 가 온다.
+자산 조정기(`asset_reconcile`, 5분마다)가 레인마다 `foundation_by_pnu_lane_behind_seconds` 를 쓴다: 레인이 서빙하는
+Gold 판 뒤의 Gold 커밋, 그 판이 고정한 Silver·reference 판 뒤의 커밋 중 행을 바꾼 가장 오래된 것부터 지금까지.
+그것이 계약 `by_pnu_section_packs.freshness_budget_hours`(값은 그 파일)를 넘으면 울린다. 조정기가 날짜를 대지 못한
+레인은 서빙 manifest 의 `published_at_utc` 나이로 판정한다. 지금 값:
+`grep -E '^foundation_by_pnu_(lane_behind|served_manifest_age)' /var/lib/foundation-jobs/metrics/*.prom`.
 
-**뜻**: 사용자가 받는 문서가 그 시간 동안 한 번도 새로 발행되지 않았다. 작업이 성공·`unchanged` 라고 말해도
-같다 — 2026-10-16~28 에 모든 레인이 10~12일 묵은 manifest 를 서빙하는 동안 작업 상태와 이 모니터의 서빙 검사가
-모두 초록이었다. 같은 일지에 `breached the monitor` 가 함께 있으면 그쪽(5xx·문서 불일치·p95)이 먼저다.
+**뜻**: 사용자가 받는 문서가, 이미 들어온 입력 변경을 그 시간 동안 반영하지 못했다. 작업이 성공·`unchanged` 라고
+말해도 같다 — 2026-10-16~28 에 모든 레인이 10~12일 묵은 manifest 를 서빙하는 동안 작업 상태와 서빙 검사가 모두
+초록이었다. 반대로 원천이 새 판을 내지 않은 레인(연간·월간 원천)은 manifest 가 아무리 오래돼도 울리지 않는다
+(2026-11-07 용도지역·공시지가·토지특성·토지권리 레인이 498시간 manifest 로 매시 실패했었다). 매시 모니터
+`foundation-by-pnu-serving-monitor@<레인>` 은 주소가 서빙 상태에 충실한지만 판정한다: 그 일지에 `breached the
+monitor` 가 있으면 그쪽(5xx·문서 불일치·p95)이 먼저다.
 
 처음 세 가지:
 
@@ -507,4 +510,4 @@ Alertmanager 알림 하나라, 계속 실패하면 매시가 아니라 하루 �
    굽기 일지의 `result=signal` 을 대조한다. 배포가 날마다 굽기를 멈추면 굽기는 영영 발행에 닿지 못한다.
 
 전량 굽기(새 세대)는 13시간 넘게 걸릴 수 있고 그동안 서빙은 이전 발행 그대로다. 그 사이 경보는 사실이다 — 굽기가
-`published` 로 끝나면 다음 시각 모니터가 초록으로 돌아온다.
+`published` 로 끝나면 다음 조정기 차례(5분)에 뒤처짐이 0 이 되고 경보가 풀린다.
