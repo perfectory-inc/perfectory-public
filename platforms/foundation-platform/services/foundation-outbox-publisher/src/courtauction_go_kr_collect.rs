@@ -1,21 +1,23 @@
-//! 법원경매정보 (courtauction.go.kr) list searches, Bronze collection (root ADR-0280, ADR-0281).
+//! 법원경매정보 (courtauction.go.kr) list searches, Bronze collection (root ADR-0280, ADR-0289).
 //!
-//! The collection manners are the contract's (`courtauction-go-kr.contract.json`), and this module
-//! only carries them out:
+//! The collector asks as a browser and does not give up (root ADR-0289); every value it uses is
+//! the contract's (`courtauction-go-kr.contract.json`), and this module only carries them out:
 //!
-//! - one plain HTTP client, no proxy (environment proxies are switched off), one request at a time,
-//!   at least the contract's spacing apart, identified by a fixed User-Agent naming our product (a
-//!   contact only when one is set, root ADR-0283);
-//! - only inside the quiet hours (KST), and never more than the per-run request bound. An operator
-//!   may override the hours for a bounded time (root ADR-0282): `switches/<job>.window`, read before
-//!   every request, so a cleared or expired override takes effect at once;
-//! - robots.txt first, every run: a disallowed search path is not asked;
-//! - any refusal signal (403, 429, 503, a Retry-After header, an HTML page where JSON belongs, the
-//!   site's `ipcheck=false`) ends the run at once, lands what was collected, and writes `refused.json`
-//!   in the state directory; while that file exists no run starts. A person removes it.
+//! - a pool of browser sessions (`collection_infrastructure::BrowserSessionPool`, no proxy) and
+//!   each endpoint group's adaptive width (`collection.pace`);
+//! - a block (`collection.block_signals`: the site's `ipcheck=false`, a redirect, HTML where JSON
+//!   belongs) is not a refusal: `collection_application::ask` waits the contract's next step,
+//!   renews the blocked session and asks again, with no bound on how many times. A failure that is
+//!   not a block is asked again the contract's number of times, then its page is recorded as
+//!   failed in the manifest and the pass is incomplete; nothing is dropped silently;
+//! - no hours of its own: an operator may narrow the hours for a bounded time (root ADR-0282,
+//!   `switches/<job>.window`, read before every page);
+//! - the run's time budget (`collection.session.run_time_budget_seconds`) is the only thing that
+//!   ends the asking early; the pages it left are asked again by the next run. A run that got no
+//!   answer at all fails, which is what the readiness report and the unit's failure alert read.
 //!
-//! Each search's responses of one run land as one gzip JSON Lines Bronze object, one line per page
-//! request: the request body, the HTTP status and the response body as received. The Silver load
+//! Each search's answers of one run land as one gzip JSON Lines Bronze object, one line per page:
+//! the request body, the HTTP status and the response body as received. The Silver load
 //! (`infra/lakehouse/spark/jobs/courtauction_go_kr.py`) parses them.
 
 use std::{
@@ -29,27 +31,31 @@ use anyhow::{bail, ensure, Context};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use collection_application::ports::{BronzeIngestUnitOfWork, CompleteIngestionRunCommand};
 use collection_application::{
-    plan_public_data_bulk_file, BronzeCommitter, BronzePayload, PlannedBronzeObject,
-    PublicDataBulkFileIdentity, PublicDataBulkFilePlan, PublicDataBulkFilePlanInput,
+    ask, plan_public_data_bulk_file, AskCounts, AskRules, AskTally, Asked, BronzeCommitter,
+    BronzePayload, CourtAuctionSessions, PaceGate, PlannedBronzeObject, PublicDataBulkFileIdentity,
+    PublicDataBulkFilePlan, PublicDataBulkFilePlanInput, SessionRecord, SiteMethod, SiteRequest,
 };
+use collection_domain::court_auction::{BlockSignals, Pace, PaceRule};
 use collection_domain::{
     source_slug, BronzeObject, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
     SourceCatalogEntry, SourcePayloadFormat,
 };
-use collection_infrastructure::PgBronzeIngestUnitOfWork;
+use collection_infrastructure::{
+    BrowserSessionConfig, BrowserSessionPool, PgBronzeIngestUnitOfWork,
+};
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
-use reqwest::header::{ACCEPT, CONTENT_TYPE, RETRY_AFTER};
+use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_target_preflight,
     BronzeObjectStorageWriter,
 };
-use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
 /// `infra/lakehouse/contracts/courtauction-go-kr.contract.json`, as compiled in.
@@ -57,13 +63,7 @@ pub(crate) const CONTRACT_JSON: &str =
     include_str!("../../../infra/lakehouse/contracts/courtauction-go-kr.contract.json");
 const PROVIDER: &str = "courtauction.go.kr";
 const PREFIX: &str = "FOUNDATION_PLATFORM_COURT_AUCTION";
-const MANIFEST_SCHEMA: &str = "foundation-platform.courtauction_go_kr_collect.v1";
-const REFUSED_FILE: &str = "refused.json";
-/// The one-run waiver of the quiet hours an operator writes (`by-pnu-pack-operator.sh job
-/// start-outside-quiet-hours`), read and removed before the first request.
-pub(crate) const QUIET_HOURS_WAIVER_FILE: &str = "attended-outside-quiet-hours.json";
-/// A waiver older than this is refused: it must come from the start it was written for.
-const QUIET_HOURS_WAIVER_MAX_AGE_SECONDS: i64 = 900;
+const MANIFEST_SCHEMA: &str = "foundation-platform.courtauction_go_kr_collect.v2";
 const BRONZE_CACHE_CONTROL: &str = "no-store, max-age=0";
 const BRONZE_COMMITTER: BronzeCommitter = BronzeCommitter::new();
 const KST_HOURS: i64 = 9;
@@ -73,25 +73,11 @@ const JOB_ID: &str = "court_auction_collect";
 const SWITCHES_DIR_ENV: &str = "FOUNDATION_JOB_SWITCHES_DIR";
 const SWITCHES_DIR: &str = "/var/lib/foundation-jobs/switches";
 
+/// Hours an operator narrowed the asking to (KST, root ADR-0282).
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct QuietHours {
+pub(crate) struct Window {
     pub(crate) start: String,
     pub(crate) end: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Manners {
-    pub(crate) request_spacing_seconds: u64,
-    pub(crate) request_timeout_seconds: u64,
-    pub(crate) max_requests_per_run: u32,
-    pub(crate) network_retries: u32,
-    pub(crate) quiet_hours_kst: QuietHours,
-    pub(crate) robots_path: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Refusal {
-    pub(crate) http_statuses: Vec<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -100,6 +86,10 @@ pub(crate) struct Search {
     pub(crate) operation: String,
     pub(crate) path: String,
     pub(crate) page_size: u32,
+    /// The `collection.pace` group this search's requests are paced in.
+    pub(crate) pace_group: String,
+    /// The headers the site's own screen sends to this endpoint.
+    pub(crate) headers: BTreeMap<String, String>,
     pub(crate) conditions: Vec<BTreeMap<String, String>>,
     /// The bid-date range every request of the search carries (root ADR-0290 §1-§2).
     #[serde(default)]
@@ -135,24 +125,50 @@ pub(crate) fn asked_condition(
     asked
 }
 
-/// Read by the test that holds the collector's own source to ADR-0281 §4.
-#[cfg(test)]
+/// How sessions are opened, renewed and given time (`collection.session`, root ADR-0289 §2-§3).
 #[derive(Clone, Debug, Deserialize)]
-pub(crate) struct Forbidden {
-    pub(crate) names: Vec<String>,
+pub(crate) struct SessionContract {
+    pub(crate) browser_profile: String,
+    pub(crate) pool_size: usize,
+    pub(crate) opening_path: String,
+    pub(crate) request_timeout_seconds: u64,
+    pub(crate) block_waits_seconds: Vec<u64>,
+    pub(crate) failure_retries: u32,
+    pub(crate) failure_wait_seconds: u64,
+    pub(crate) run_time_budget_seconds: u64,
+    pub(crate) headers: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct Collection {
+    pub(crate) block_signals: BlockSignals,
+    #[serde(deserialize_with = "pace_groups")]
+    pub(crate) pace: BTreeMap<String, PaceRule>,
+    pub(crate) session: SessionContract,
+}
+
+/// `collection.pace`: every key but its `$comment` is an endpoint group.
+fn pace_groups<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, PaceRule>, D::Error> {
+    let mut groups = BTreeMap::<String, JsonValue>::deserialize(deserializer)?;
+    groups.remove("$comment");
+    groups
+        .into_iter()
+        .map(|(group, rule)| {
+            serde_json::from_value(rule)
+                .map(|rule| (group, rule))
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SourceContract {
     pub(crate) base_url: String,
-    pub(crate) user_agent_product: String,
-    pub(crate) contact_env: String,
-    pub(crate) manners: Manners,
-    pub(crate) refusal: Refusal,
-    #[cfg(test)]
-    pub(crate) forbidden_in_collector: Forbidden,
     pub(crate) item_search: Search,
     pub(crate) sale_result_search: Search,
+    pub(crate) collection: Collection,
 }
 
 pub(crate) fn source_contract() -> anyhow::Result<SourceContract> {
@@ -167,22 +183,36 @@ pub(crate) fn searches(contract: &SourceContract) -> [(&'static str, &Search); 2
     ]
 }
 
-/// The one User-Agent every request carries: our product, and a contact only when one is set
-/// (root ADR-0283). An empty or missing contact does not block the run.
-pub(crate) fn user_agent(
+/// The contract's waits and retries, as the asking reads them.
+pub(crate) fn ask_rules(contract: &SourceContract) -> AskRules {
+    let session = &contract.collection.session;
+    AskRules {
+        signals: contract.collection.block_signals.clone(),
+        block_waits: session
+            .block_waits_seconds
+            .iter()
+            .copied()
+            .map(Duration::from_secs)
+            .collect(),
+        failure_retries: session.failure_retries,
+        failure_wait: Duration::from_secs(session.failure_wait_seconds),
+    }
+}
+
+/// The pool the contract describes, against `base_url` (the contract's, or a test server).
+pub(crate) fn session_pool(
     contract: &SourceContract,
-    contact: Option<&str>,
-) -> anyhow::Result<String> {
-    let contact = contact.map(str::trim).filter(|contact| !contact.is_empty());
-    let Some(contact) = contact else {
-        return Ok(contract.user_agent_product.clone());
-    };
-    ensure!(
-        contact.is_ascii() && !contact.contains(['(', ')', '\r', '\n']),
-        "{} must be a plain e-mail address or URL",
-        contract.contact_env
-    );
-    Ok(format!("{} (+{contact})", contract.user_agent_product))
+    base_url: &str,
+) -> anyhow::Result<BrowserSessionPool> {
+    let session = &contract.collection.session;
+    BrowserSessionPool::new(BrowserSessionConfig {
+        base_url: base_url.to_owned(),
+        browser_profile: session.browser_profile.clone(),
+        pool_size: session.pool_size,
+        opening_path: session.opening_path.clone(),
+        request_timeout: Duration::from_secs(session.request_timeout_seconds),
+    })
+    .map_err(|error| anyhow::anyhow!("courtauction.go.kr session pool: {error}"))
 }
 
 fn clock(text: &str) -> anyhow::Result<NaiveTime> {
@@ -190,8 +220,8 @@ fn clock(text: &str) -> anyhow::Result<NaiveTime> {
 }
 
 /// Whether `at` falls inside `window` (KST, start inclusive, end exclusive; across midnight when the
-/// end comes first; the whole day when the two are equal, which only an operator's override says).
-pub(crate) fn in_quiet_hours(window: &QuietHours, at: DateTime<Utc>) -> anyhow::Result<bool> {
+/// end comes first; the whole day when the two are equal).
+pub(crate) fn in_window(window: &Window, at: DateTime<Utc>) -> anyhow::Result<bool> {
     let local = (at + chrono::Duration::hours(KST_HOURS)).time();
     let (start, end) = (clock(&window.start)?, clock(&window.end)?);
     Ok(if start == end {
@@ -203,115 +233,54 @@ pub(crate) fn in_quiet_hours(window: &QuietHours, at: DateTime<Utc>) -> anyhow::
     })
 }
 
-/// The window this run may ask in at `at`: an operator's override (`<switches>/<job>.window`, root
-/// ADR-0282) while its `until` lies ahead, else the contract's quiet hours. An override that cannot
-/// be read is not one: the contract's window stays.
-pub(crate) fn run_window(
-    contract: &QuietHours,
-    switches: &Path,
-    at: DateTime<Utc>,
-) -> (QuietHours, Option<String>) {
-    let Ok(text) = std::fs::read_to_string(switches.join(format!("{JOB_ID}.window"))) else {
-        return (contract.clone(), None);
-    };
+/// The hours an operator narrowed this job to at `at` (`<switches>/<job>.window`, root ADR-0282),
+/// while its `until` lies ahead, with who set it and why. A switch that cannot be read is not one:
+/// the job asks at any hour.
+pub(crate) fn operator_window(switches: &Path, at: DateTime<Utc>) -> Option<(Window, String)> {
+    let text = std::fs::read_to_string(switches.join(format!("{JOB_ID}.window"))).ok()?;
     let field = |name: &str| {
         text.lines()
             .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
             .map(str::to_owned)
     };
-    let (Some(start), Some(end), Some(until)) = (field("start"), field("end"), field("until"))
-    else {
-        return (contract.clone(), None);
-    };
+    let (start, end, until) = (field("start")?, field("end")?, field("until")?);
     let ahead = DateTime::parse_from_rfc3339(&until).is_ok_and(|until| until > at);
     // HH:MM exactly, as the ledger keeps it: chrono's %H alone also reads `9:00`.
     let strict = |text: &str| text.len() == 5 && clock(text).is_ok();
-    if ahead && strict(&start) && strict(&end) {
+    (ahead && strict(&start) && strict(&end)).then(|| {
         let who = field("actor").unwrap_or_default();
         let why = field("reason").unwrap_or_default();
         (
-            QuietHours { start, end },
-            Some(format!("until {until}, set by {who}: {why}")),
+            Window { start, end },
+            format!("until {until}, set by {who}: {why}"),
         )
-    } else {
-        (contract.clone(), None)
-    }
+    })
+}
+
+/// Whether the job may ask at `at`: always, unless an operator's window is set and `at` is outside it.
+pub(crate) fn may_ask(switches: &Path, at: DateTime<Utc>) -> anyhow::Result<bool> {
+    operator_window(switches, at).map_or(Ok(true), |(window, _)| in_window(&window, at))
 }
 
 fn switches_dir() -> PathBuf {
     std::env::var_os(SWITCHES_DIR_ENV).map_or_else(|| PathBuf::from(SWITCHES_DIR), PathBuf::from)
 }
 
-/// What robots.txt asks of us: the disallowed path prefixes and a crawl delay, from the groups
-/// naming our product token or `*`. No file (404) asks nothing.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct Robots {
-    pub(crate) disallow: Vec<String>,
-    pub(crate) crawl_delay_seconds: Option<u64>,
-}
-
-pub(crate) fn read_robots(text: &str, product: &str) -> Robots {
-    let token = product
-        .split('/')
-        .next()
-        .unwrap_or(product)
-        .to_ascii_lowercase();
-    let mut robots = Robots::default();
-    let mut applies = false;
-    let mut in_agents = false;
-    for raw in text.lines() {
-        let line = raw.split('#').next().unwrap_or("").trim();
-        let Some((field, value)) = line.split_once(':') else {
-            continue;
-        };
-        let (field, value) = (field.trim().to_ascii_lowercase(), value.trim());
-        if field == "user-agent" {
-            let agent = value.to_ascii_lowercase();
-            let names_us = agent == "*" || token.starts_with(&agent) || agent.starts_with(&token);
-            applies = if in_agents {
-                applies || names_us
-            } else {
-                names_us
-            };
-            in_agents = true;
-            continue;
-        }
-        in_agents = false;
-        if !applies {
-            continue;
-        }
-        if field == "disallow" && !value.is_empty() {
-            robots.disallow.push(value.to_owned());
-        } else if field == "crawl-delay" {
-            robots.crawl_delay_seconds = value.parse::<f64>().ok().map(|seconds| {
-                // shortcut: whole seconds; a fractional delay rounds up, never down.
-                seconds.max(0.0).ceil() as u64
-            });
-        }
-    }
-    robots
-}
-
-impl Robots {
-    pub(crate) fn allows(&self, path: &str) -> bool {
-        !self
-            .disallow
-            .iter()
-            .any(|prefix| path.starts_with(prefix.as_str()))
-    }
-}
-
-/// Why a run stopped early, if it did.
+/// Why a run ended before every page was read, if it did.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) enum Stop {
-    /// The site refused us: the run ends and no later run starts until a person clears it.
-    Refused(String),
-    /// The night's request bound was reached.
-    RequestBound,
-    /// The quiet hours ended.
-    QuietHoursEnded,
-    /// robots.txt disallows the path.
-    RobotsDisallow(String),
+    /// The run's time budget ran out; the next run asks again.
+    TimeBudget,
+    /// An operator's window ended (root ADR-0282).
+    WindowEnded,
+}
+
+/// A page that failed past its retries, kept so nothing is dropped silently (root ADR-0289 §3).
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct FailedPage {
+    pub(crate) condition: BTreeMap<String, String>,
+    pub(crate) page_no: u64,
+    pub(crate) reason: String,
 }
 
 /// One search's lines and whether every condition was read to its last page.
@@ -320,237 +289,215 @@ pub(crate) struct SearchResult {
     pub(crate) lines: Vec<String>,
     pub(crate) complete: bool,
     pub(crate) rows: u64,
+    pub(crate) failed: Vec<FailedPage>,
 }
 
-/// Sends the run's requests, honoring every manner of the contract.
-pub(crate) struct Collector<'a> {
-    contract: &'a SourceContract,
-    http: reqwest::Client,
-    base_uri: String,
-    spacing: ProviderRequestSpacing,
-    pub(crate) sent: u32,
-    /// Set only by an attended waiver for this one run: the quiet hours are not asked.
-    pub(crate) quiet_hours_waived: Option<String>,
+/// What one run's asking needs: the pool, one gate per pace group, the rules and the deadline.
+pub(crate) struct Asking<'a> {
+    pub(crate) sessions: &'a dyn CourtAuctionSessions,
+    pub(crate) gates: BTreeMap<String, PaceGate>,
+    pub(crate) rules: AskRules,
+    pub(crate) tally: AskTally,
+    pub(crate) deadline: Instant,
+    pub(crate) switches: PathBuf,
 }
 
-/// What a response came to.
-pub(crate) enum Page {
-    Rows { rows: Vec<JsonValue>, total: u64 },
-    Refused(String),
-}
-
-impl<'a> Collector<'a> {
+impl<'a> Asking<'a> {
     pub(crate) fn new(
-        contract: &'a SourceContract,
-        base_uri: &str,
-        user_agent: &str,
-        spacing: ProviderRequestSpacing,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
-            contract,
-            http: reqwest::Client::builder()
-                .user_agent(user_agent)
-                .no_proxy()
-                .timeout(Duration::from_secs(
-                    contract.manners.request_timeout_seconds,
-                ))
-                .pool_max_idle_per_host(1)
-                .build()
-                .context("failed to build the courtauction.go.kr HTTP client")?,
-            base_uri: base_uri.trim_end_matches('/').to_owned(),
-            spacing,
-            sent: 0,
-            quiet_hours_waived: None,
-        })
-    }
-
-    /// GETs robots.txt. A refusal here is a refusal.
-    pub(crate) async fn robots(&mut self) -> anyhow::Result<Result<Robots, String>> {
-        let path = self.contract.manners.robots_path.clone();
-        let response = self.send(|http, url| http.get(url), &path).await?;
-        let status = response.status().as_u16();
-        if self.contract.refusal.http_statuses.contains(&status) {
-            return Ok(Err(format!("robots.txt answered HTTP {status}")));
-        }
-        if status == 404 || !(200..300).contains(&status) {
-            return Ok(Ok(Robots::default()));
-        }
-        let text = response.text().await.unwrap_or_default();
-        Ok(Ok(read_robots(&text, &self.contract.user_agent_product)))
-    }
-
-    async fn send(
-        &mut self,
-        build: impl Fn(&reqwest::Client, String) -> reqwest::RequestBuilder,
-        path: &str,
-    ) -> anyhow::Result<reqwest::Response> {
-        let url = format!("{}{path}", self.base_uri);
-        let mut attempt = 0;
-        loop {
-            self.spacing.wait_before_request(self.sent as usize).await;
-            self.sent += 1;
-            match build(&self.http, url.clone()).send().await {
-                Ok(response) => return Ok(response),
-                // Network errors only; never a refusal.
-                Err(error) if attempt < self.contract.manners.network_retries => {
-                    attempt += 1;
-                    tracing::warn!(attempt, error = %error, "courtauction.go.kr request failed; retrying");
-                    tokio::time::sleep(Duration::from_secs(5 * 2_u64.pow(attempt))).await;
-                }
-                Err(error) => return Err(error).with_context(|| format!("POST {path} failed")),
-            }
+        contract: &SourceContract,
+        sessions: &'a dyn CourtAuctionSessions,
+        deadline: Instant,
+        switches: PathBuf,
+    ) -> Self {
+        Self {
+            sessions,
+            gates: contract
+                .collection
+                .pace
+                .iter()
+                .map(|(group, rule)| (group.clone(), PaceGate::new(Pace::new(rule.clone()))))
+                .collect(),
+            rules: ask_rules(contract),
+            tally: AskTally::default(),
+            deadline,
+            switches,
         }
     }
+}
 
-    /// POSTs one page of one condition and reads it.
-    pub(crate) async fn page(
-        &mut self,
-        search: &Search,
-        condition: &BTreeMap<String, String>,
-        page_no: u64,
-        at: DateTime<Utc>,
-        lines: &mut Vec<String>,
-    ) -> anyhow::Result<Page> {
-        let body = json!({
-            "dma_pageInfo": {"pageNo": page_no, "pageSize": search.page_size, "totalYn": "Y"},
-            "dma_srchGdsDtlSrchInfo": condition,
-        });
-        let response = self
-            .send(
-                |http, url| {
-                    http.post(url)
-                        .header(CONTENT_TYPE, "application/json;charset=UTF-8")
-                        .header(ACCEPT, "application/json")
-                        .json(&body)
-                },
-                &search.path,
-            )
-            .await?;
-        let status = response.status().as_u16();
-        let retry_after = response.headers().contains_key(RETRY_AFTER);
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let text = response.text().await.unwrap_or_default();
-        lines.push(serde_json::to_string(&json!({
+/// What one page came to.
+enum Paged {
+    Rows {
+        line: String,
+        rows: u64,
+        total: u64,
+    },
+    Failed {
+        line: Option<String>,
+        reason: String,
+    },
+    Stopped(Stop),
+}
+
+/// Asks one page of one condition. The page's line holds the request and the answer as received.
+async fn page(
+    asking: &Asking<'_>,
+    contract: &SourceContract,
+    search: &Search,
+    condition: &BTreeMap<String, String>,
+    page_no: u64,
+    now: &(dyn Fn() -> DateTime<Utc> + Sync),
+) -> anyhow::Result<Paged> {
+    let at = now();
+    if !may_ask(&asking.switches, at)? {
+        return Ok(Paged::Stopped(Stop::WindowEnded));
+    }
+    let gate = asking
+        .gates
+        .get(&search.pace_group)
+        .with_context(|| format!("no collection.pace group {:?}", search.pace_group))?;
+    let body = json!({
+        "dma_pageInfo": {"pageNo": page_no, "pageSize": search.page_size, "totalYn": "Y"},
+        "dma_srchGdsDtlSrchInfo": condition,
+    });
+    let request = SiteRequest {
+        method: SiteMethod::Post,
+        path: search.path.clone(),
+        headers: contract
+            .collection
+            .session
+            .headers
+            .iter()
+            .chain(&search.headers)
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect(),
+        body: Some(body.clone()),
+    };
+    let line = |status: u16, text: &str| {
+        serde_json::to_string(&json!({
             "operation": search.operation,
             "request": body,
             "requested_at_utc": at.to_rfc3339(),
             "http_status": status,
             "body": text,
-        }))?);
-        Ok(read_page(
-            self.contract,
-            status,
-            retry_after,
-            &content_type,
-            &text,
-        ))
-    }
+        }))
+    };
+    Ok(
+        match ask(
+            asking.sessions,
+            gate,
+            &asking.rules,
+            &asking.tally,
+            &request,
+            asking.deadline,
+        )
+        .await
+        {
+            Asked::Data { data, reply } => {
+                let total = match &data["dma_pageInfo"]["totalCnt"] {
+                    JsonValue::String(text) => text.trim().parse().ok(),
+                    JsonValue::Number(number) => number.as_u64(),
+                    _ => None,
+                };
+                let line = line(reply.status, &reply.body)?;
+                match total {
+                    Some(total) => Paged::Rows {
+                        line,
+                        rows: data["dlt_srchResult"].as_array().map_or(0, Vec::len) as u64,
+                        total,
+                    },
+                    None => Paged::Failed {
+                        line: Some(line),
+                        reason: "an answer without data.dma_pageInfo.totalCnt".to_owned(),
+                    },
+                }
+            }
+            Asked::Failed { reason, reply } => Paged::Failed {
+                line: reply
+                    .map(|reply| line(reply.status, &reply.body))
+                    .transpose()?,
+                reason,
+            },
+            Asked::Unfinished => Paged::Stopped(Stop::TimeBudget),
+        },
+    )
 }
 
-/// Reads one search response: rows and the total, or the refusal it is.
-pub(crate) fn read_page(
-    contract: &SourceContract,
-    status: u16,
-    retry_after: bool,
-    content_type: &str,
-    text: &str,
-) -> Page {
-    if contract.refusal.http_statuses.contains(&status) {
-        return Page::Refused(format!("HTTP {status}"));
-    }
-    if retry_after {
-        return Page::Refused("Retry-After".to_owned());
-    }
-    if !(200..300).contains(&status) {
-        return Page::Refused(format!("HTTP {status}"));
-    }
-    if !content_type.contains("json") {
-        return Page::Refused(format!("a {content_type:?} page where JSON belongs"));
-    }
-    let Ok(value) = serde_json::from_str::<JsonValue>(text) else {
-        return Page::Refused("a body that is not JSON".to_owned());
-    };
-    let data = &value["data"];
-    if data["ipcheck"] == JsonValue::Bool(false) {
-        return Page::Refused("ipcheck=false".to_owned());
-    }
-    let total = match &data["dma_pageInfo"]["totalCnt"] {
-        JsonValue::String(text) => text.trim().parse().ok(),
-        JsonValue::Number(number) => number.as_u64(),
-        _ => None,
-    };
-    let Some(total) = total else {
-        return Page::Refused("a JSON body without data.dma_pageInfo.totalCnt".to_owned());
-    };
-    let rows = data["dlt_srchResult"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    Page::Rows { rows, total }
-}
-
-/// Runs the night: robots, then both searches, stopping at the first refusal, the request bound
-/// or the end of the window. `now` and `allowed` (whether that time is inside the window) are asked
-/// before every request.
+/// Runs both searches: for each condition its first page, which tells how many there are, then
+/// every other page at once, as many in flight as the search's pace group allows. `now` is asked
+/// before every page.
 pub(crate) async fn collect(
     contract: &SourceContract,
-    collector: &mut Collector<'_>,
-    now: impl Fn() -> DateTime<Utc>,
-    allowed: impl Fn(DateTime<Utc>) -> anyhow::Result<bool>,
+    asking: &Asking<'_>,
+    now: impl Fn() -> DateTime<Utc> + Sync,
 ) -> anyhow::Result<(BTreeMap<&'static str, SearchResult>, Option<Stop>)> {
     let mut results: BTreeMap<&'static str, SearchResult> = BTreeMap::new();
-    let robots = match collector.robots().await? {
-        Ok(robots) => robots,
-        Err(reason) => return Ok((results, Some(Stop::Refused(reason)))),
-    };
-    if let Some(delay) = robots.crawl_delay_seconds {
-        if u128::from(delay) * 1000 > collector.spacing.interval_millis() {
-            collector.spacing = ProviderRequestSpacing::try_new(Duration::from_secs(delay))?;
-        }
-    }
-    // The run's KST date, taken from its first request time, fixes the date range of every page.
-    let mut day: Option<NaiveDate> = None;
+    let mut stop = None;
+    // The run's KST date, taken from its start, fixes the date range of every page.
+    let day = (now() + chrono::Duration::hours(KST_HOURS)).date_naive();
     for (role, search) in searches(contract) {
         let result = results.entry(role).or_default();
-        if !robots.allows(&search.path) {
-            return Ok((results, Some(Stop::RobotsDisallow(search.path.clone()))));
-        }
+        let mut complete = true;
         for condition in &search.conditions {
-            let mut read = 0_u64;
-            for page_no in 1_u64.. {
-                if collector.sent >= contract.manners.max_requests_per_run {
-                    return Ok((results, Some(Stop::RequestBound)));
+            let asked = asked_condition(search, condition, day);
+            let failed = |page_no: u64, reason: String| FailedPage {
+                condition: asked.clone(),
+                page_no,
+                reason,
+            };
+            let (first_rows, total) = match page(asking, contract, search, &asked, 1, &now).await? {
+                Paged::Rows { line, rows, total } => {
+                    result.lines.push(line);
+                    (rows, total)
                 }
-                let at = now();
-                if collector.quiet_hours_waived.is_none() && !allowed(at)? {
-                    return Ok((results, Some(Stop::QuietHoursEnded)));
+                Paged::Failed { line, reason } => {
+                    result.lines.extend(line);
+                    result.failed.push(failed(1, reason));
+                    complete = false;
+                    continue;
                 }
-                let day = *day
-                    .get_or_insert_with(|| (at + chrono::Duration::hours(KST_HOURS)).date_naive());
-                let asked = asked_condition(search, condition, day);
-                match collector
-                    .page(search, &asked, page_no, at, &mut result.lines)
-                    .await?
-                {
-                    Page::Refused(reason) => return Ok((results, Some(Stop::Refused(reason)))),
-                    Page::Rows { rows, total } => {
-                        read += rows.len() as u64;
-                        if rows.is_empty() || read >= total {
-                            break;
-                        }
+                Paged::Stopped(why) => {
+                    stop.get_or_insert(why);
+                    complete = false;
+                    break;
+                }
+            };
+            result.rows += first_rows;
+            if first_rows == 0 || first_rows >= total {
+                continue;
+            }
+            let pages = total.div_ceil(u64::from(search.page_size.max(1)));
+            let rest = join_all(
+                (2..=pages).map(|page_no| page(asking, contract, search, &asked, page_no, &now)),
+            )
+            .await;
+            for (page_no, paged) in (2..=pages).zip(rest) {
+                match paged? {
+                    Paged::Rows { line, rows, .. } => {
+                        result.lines.push(line);
+                        result.rows += rows;
+                    }
+                    Paged::Failed { line, reason } => {
+                        result.lines.extend(line);
+                        result.failed.push(failed(page_no, reason));
+                        complete = false;
+                    }
+                    Paged::Stopped(why) => {
+                        stop.get_or_insert(why);
+                        complete = false;
                     }
                 }
             }
-            result.rows += read;
+            if stop.is_some() {
+                break;
+            }
         }
-        result.complete = true;
+        result.complete = complete;
+        if stop.is_some() {
+            break;
+        }
     }
-    Ok((results, None))
+    Ok((results, stop))
 }
 
 pub(crate) fn gzip_lines(lines: &[String]) -> anyhow::Result<Vec<u8>> {
@@ -614,12 +561,21 @@ fn write_local_copy(output_dir: &Path, plan: &PublicDataBulkFilePlan) -> anyhow:
     Ok(relative)
 }
 
-/// What the whole night did, recorded with every object it landed: the ledger answers how many
-/// requests were sent and whether the site refused, so nobody estimates them from a clock.
-pub(crate) fn night_summary(sent: u32, stop: Option<&Stop>) -> JsonValue {
+/// What the whole run did, recorded with every object it landed: requests, blocks and renewals
+/// (root ADR-0289 §2-§3), every session the pool opened, and every page that failed past its
+/// retries. Bronze's ledger rows are append-only, so this is the run's failure ledger too (root
+/// ADR-0352 §2); nobody estimates any of it from a clock.
+pub(crate) fn night_summary(
+    counts: AskCounts,
+    sessions: &[SessionRecord],
+    failed: &BTreeMap<&str, &[FailedPage]>,
+    stop: Option<&Stop>,
+) -> JsonValue {
     json!({
-        "requests_sent": sent,
-        "refused": matches!(stop, Some(Stop::Refused(_))),
+        "requests_sent": counts.requests,
+        "asking": counts,
+        "sessions": sessions,
+        "failed_pages": failed,
         "stopped": stop,
     })
 }
@@ -730,7 +686,9 @@ fn source_catalog_entry(search: &Search, now: DateTime<Utc>) -> anyhow::Result<S
         license_name: None,
         license_url: None,
         terms_url: None,
-        collection_frequency: Some("nightly, quiet hours only".to_owned()),
+        collection_frequency: Some(
+            "on the court_auction_collect schedule (orchestration/jobs.v1.json)".to_owned(),
+        ),
         is_active: true,
         created_at: now,
         updated_at: now,
@@ -777,30 +735,15 @@ fn ingestion_run(
 
 struct Config {
     base_uri: String,
-    user_agent: String,
-    spacing: ProviderRequestSpacing,
     live_write: bool,
     output_dir: PathBuf,
-    state_dir: PathBuf,
 }
 
 impl Config {
     fn from_env(contract: &SourceContract) -> anyhow::Result<Self> {
-        let floor = Duration::from_secs(contract.manners.request_spacing_seconds);
-        let configured = optional_env_value(&format!("{PREFIX}_REQUEST_SPACING_MS"))?
-            .map(|value| value.trim().parse::<u64>())
-            .transpose()
-            .with_context(|| format!("{PREFIX}_REQUEST_SPACING_MS must be a whole number"))?
-            .map_or(floor, Duration::from_millis);
         Ok(Self {
             base_uri: optional_env_value(&format!("{PREFIX}_BASE_URI"))?
                 .unwrap_or_else(|| contract.base_url.clone()),
-            user_agent: user_agent(
-                contract,
-                optional_env_value(&contract.contact_env)?.as_deref(),
-            )?,
-            // A setting may make the run slower, never faster than the contract.
-            spacing: ProviderRequestSpacing::try_new(configured.max(floor))?,
             live_write: matches!(
                 optional_env_value(&format!("{PREFIX}_LIVE_WRITE"))?
                     .map(|value| value.trim().to_ascii_lowercase())
@@ -808,107 +751,45 @@ impl Config {
                 Some("1" | "true" | "yes")
             ),
             output_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?),
-            state_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_STATE_DIR"))?),
         })
     }
 }
 
-/// Takes the attended waiver of the quiet hours, if an operator wrote one for this start.
-///
-/// The file is removed before anything else, so it serves one run at most. A waiver without a
-/// reason or written more than 15 minutes ago is refused: the run stops without a request.
-pub(crate) fn take_quiet_hours_waiver(
-    state_dir: &Path,
-    now: DateTime<Utc>,
-) -> anyhow::Result<Option<String>> {
-    let path = state_dir.join(QUIET_HOURS_WAIVER_FILE);
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to read {}", path.display()))
-        }
-    };
-    std::fs::remove_file(&path).with_context(|| format!("failed to remove {}", path.display()))?;
-    let value: JsonValue = serde_json::from_slice(&bytes)
-        .with_context(|| format!("{} is not JSON", path.display()))?;
-    let reason = value["reason"].as_str().map(str::trim).unwrap_or_default();
-    ensure!(!reason.is_empty(), "the quiet-hours waiver names no reason");
-    let requested_at = value["requested_at"]
-        .as_i64()
-        .context("the quiet-hours waiver has no requested_at epoch second")?;
-    let age = now.timestamp() - requested_at;
-    ensure!(
-        (-60..=QUIET_HOURS_WAIVER_MAX_AGE_SECONDS).contains(&age),
-        "the quiet-hours waiver was written {age} seconds ago; it serves only the start it was written for"
-    );
-    Ok(Some(format!(
-        "{reason} (who={}, requested_at={requested_at})",
-        value["who"].as_str().unwrap_or("unknown")
-    )))
-}
-
-/// Refuses to start while a refusal is on record.
-pub(crate) fn refusal_on_record(state_dir: &Path) -> anyhow::Result<Option<String>> {
-    let path = state_dir.join(REFUSED_FILE);
-    if !path.exists() {
-        return Ok(None);
-    }
-    let value: JsonValue =
-        serde_json::from_slice(&std::fs::read(&path)?).unwrap_or(JsonValue::Null);
-    Ok(Some(
-        value["reason"].as_str().unwrap_or("unreadable").to_owned(),
-    ))
-}
-
-/// Collects one night into Bronze.
+/// Collects one run into Bronze.
 ///
 /// # Errors
-/// Returns an error when the configuration is invalid, a refusal is on record or happens now, a
-/// Bronze commit fails, or the manifest cannot be written.
+/// Returns an error when the configuration is invalid, a Bronze commit fails, the manifest cannot
+/// be written, or the run got no answer at all (no progress: the unit's failure is the alert).
 pub async fn run() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let config = Config::from_env(&contract)?;
     std::fs::create_dir_all(&config.output_dir)?;
-    std::fs::create_dir_all(&config.state_dir)?;
-    if let Some(reason) = refusal_on_record(&config.state_dir)? {
-        bail!(
-            "courtauction.go.kr refused an earlier run ({reason}); no run starts until a person checks it and removes {}",
-            config.state_dir.join(REFUSED_FILE).display()
-        );
-    }
     let started = Utc::now();
-    let waiver = take_quiet_hours_waiver(&config.state_dir, started)?;
-    if let Some(reason) = &waiver {
-        tracing::warn!(%reason, "courtauction.go.kr: quiet hours waived for this one attended run");
-    }
     let switches = switches_dir();
-    let contract_window = contract.manners.quiet_hours_kst.clone();
-    let (window, overridden) = run_window(&contract_window, &switches, started);
-    match &overridden {
-        Some(by) => println!(
-            "courtauction.go.kr: the operator's window {}-{} KST ({by}) instead of the contract's {}-{}",
-            window.start, window.end, contract_window.start, contract_window.end
+    match operator_window(&switches, started) {
+        Some((window, by)) => println!(
+            "courtauction.go.kr: the operator's window {}-{} KST ({by})",
+            window.start, window.end
         ),
-        None => println!("courtauction.go.kr: the contract's window {}-{} KST", window.start, window.end),
+        None => println!("courtauction.go.kr: no operator window; asking at any hour"),
     }
-    if waiver.is_none() && !in_quiet_hours(&window, started)? {
-        println!("courtauction.go.kr: outside the window; nothing asked");
+    if !may_ask(&switches, started)? {
+        println!("courtauction.go.kr: outside the operator's window; nothing asked");
         println!("foundation-job-outcome unchanged");
         return Ok(());
     }
-    let mut collector = Collector::new(
-        &contract,
-        &config.base_uri,
-        &config.user_agent,
-        config.spacing,
-    )?;
-    collector.quiet_hours_waived.clone_from(&waiver);
-    let (results, stop) = collect(&contract, &mut collector, Utc::now, |at| {
-        in_quiet_hours(&run_window(&contract_window, &switches, at).0, at)
-    })
-    .await?;
-    let night = night_summary(collector.sent, stop.as_ref());
+    let pool = session_pool(&contract, &config.base_uri)?;
+    let deadline =
+        Instant::now() + Duration::from_secs(contract.collection.session.run_time_budget_seconds);
+    let asking = Asking::new(&contract, &pool, deadline, switches);
+    let (results, stop) = collect(&contract, &asking, Utc::now).await?;
+    let counts = asking.tally.counts();
+    let sessions = pool.sessions();
+    let failed = results
+        .iter()
+        .map(|(role, result)| (*role, result.failed.as_slice()))
+        .collect();
+    let night = night_summary(counts, &sessions, &failed, stop.as_ref());
 
     let mut objects = Vec::new();
     let uow;
@@ -946,24 +827,25 @@ pub async fn run() -> anyhow::Result<()> {
             "schema_version": MANIFEST_SCHEMA,
             "source_snapshot_id": run_id(started),
             "collected_at_utc": started.to_rfc3339(),
-            "requests": collector.sent,
-            "quiet_hours_waived": waiver,
-            "stopped": stop,
+            "night": night,
             "objects": objects,
         }),
     )?;
-    if let Some(Stop::Refused(reason)) = &stop {
-        write_json_file(
-            &config.state_dir.join(REFUSED_FILE),
-            &json!({"reason": reason, "at_utc": Utc::now().to_rfc3339(), "requests": collector.sent}),
-        )?;
-        bail!("courtauction.go.kr refused the run ({reason}); stopped after {} requests and recorded it", collector.sent);
-    }
     tracing::info!(
-        requests = collector.sent,
+        ?counts,
+        sessions = sessions.len(),
         ?stop,
         "courtauction.go.kr collection ended"
     );
+    println!("courtauction.go.kr: {night}");
+    if counts.answered == 0 {
+        bail!(
+            "courtauction.go.kr answered nothing in this run ({} requests, {} blocks, {} renewals): no progress",
+            counts.requests,
+            counts.blocks,
+            counts.renewals
+        );
+    }
     println!(
         "foundation-job-outcome {}",
         if objects

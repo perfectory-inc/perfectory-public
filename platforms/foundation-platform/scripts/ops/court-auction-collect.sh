@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# 법원경매정보 목록을 courtauction.go.kr 에서 받는다 — 수집 절반 (root ADR-0280, ADR-0281). 등록된 작업
-# court_auction_collect(default_pool)가 매일 01:05 KST 에 돌린다. Spark 는 쓰지 않는다.
+# 법원경매정보 목록을 courtauction.go.kr 에서 받는다 — 수집 절반 (root ADR-0280, ADR-0289). 등록된 작업
+# court_auction_collect(default_pool)가 작업 등록부의 일정에 돌린다. Spark 는 쓰지 않는다.
 #
-# collect-courtauction-go-kr 이 계약(courtauction-go-kr.contract.json)의 예의를 지킨다: 우리 이름을 밝힌 User-Agent
-# (연락처는 선택, ADR-0283), 요청 사이 최소 3초, 연결 하나, 새벽(01–06 KST)에만, 실행당 요청
-# 상한, robots.txt 먼저. 403·429·503·Retry-After·HTML 안내 화면·ipcheck=false 중 하나라도 보면 그 자리에서 멈추고,
-# 받은 것까지 Bronze 에 남기고, collector/refused.json 을 쓰고 실패로 끝난다. 그 파일이 있는 동안 다음 실행은 시작하지
-# 않는다: 사람이 원인을 확인하고 지운다(런북 court-auction.md). 우회하는 코드는 없다.
+# collect-courtauction-go-kr 은 브라우저 세션 풀로, 계약(courtauction-go-kr.contract.json collection)의 속도 조절로
+# 묻는다. 막힘(ipcheck=false·리다이렉트·HTML)은 거절이 아니다: 막힌 세션을 계약의 대기 뒤 새로 열고 다시 묻는다.
+# 상한도, 다음 실행을 막는 파일도, 사람이 지울 것도 없다. 실행의 끝은 계약의 시간 예산뿐이고, 남은 쪽은 다음 실행이
+# 다시 묻는다. 답을 하나도 못 받은 실행만 실패로 끝난다(진행 없음 알림, 준비도 보고가 읽는다).
 #
 # 적재로 넘기는 것은 없다. 적재(court_auction_silver, court-auction-silver-load.sh)는 R2 의 Bronze 와 Silver 표의
 # 커밋 기록만 보고 쌓을 객체를 정한다(plan-silver-load-objects). 받은 사본은 Bronze 에 있으니 실행이 끝나면 지운다.
@@ -39,15 +38,15 @@ COLLECT="FOUNDATION_PLATFORM_COURT_AUCTION"
 journal="${STATE_ROOT}/journal.log"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
-mkdir -p "${work}/collect" "${STATE_ROOT}/collector"
+mkdir -p "${work}/collect"
 run_log="${work}/run.log"
 trap 'job_journal "${journal}" "court-auction collect FAILED at line ${LINENO} run=${run_id}" >&2; tail -5 "${run_log}" >> "${journal}" 2>/dev/null || true; job_run_log_tail "${run_log}"' ERR
 
 trap 'rm -rf "${work}/collect"' EXIT
 
-if ! env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_STATE_DIR=${STATE_ROOT}/collector" "${COLLECT}_LIVE_WRITE=1" \
+if ! env "${COLLECT}_OUTPUT_DIR=${work}/collect" "${COLLECT}_LIVE_WRITE=1" \
   "${PUBLISHER_BIN}" collect-courtauction-go-kr >> "${run_log}" 2>&1; then
-  # A refusal still landed what was collected before it in Bronze; the load finds it there.
+  # Only a run that got no answer at all fails; what any run got is in Bronze, the load finds it there.
   job_journal "${journal}" "court-auction collect STOPPED run=${run_id}: $(tail -1 "${run_log}")" >&2
   job_run_log_tail "${run_log}"
   exit 1

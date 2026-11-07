@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform 법원경매정보 list searches, the collection half: ask openly and politely in the quiet hours, stop when refused, land the responses in Bronze (root ADR-0280, ADR-0281)
+Description=Foundation Platform 법원경매정보 list searches, the collection half: ask as a browser on a pool of sessions, renew a blocked session and ask again, land the responses in Bronze (root ADR-0280, ADR-0289)
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
