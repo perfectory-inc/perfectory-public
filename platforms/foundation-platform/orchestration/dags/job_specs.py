@@ -425,6 +425,25 @@ def priority_class(jobs, entry, name):
     return value
 
 
+def inherited_class(job, by_id, found):
+    """A job that names `priority_class_from` takes its class from a job that waits on what it makes
+    (root ADR-0439, priority inheritance): the named job reads one of its outputs, and the two classes
+    are the same, so the class cannot drift from the bake it serves. 2026-11-07 the panel Gold rebuild
+    ran in `default` while two lane cut-overs of class `publish` held the spark pool; the parcel lane
+    it refreshes served a 193-hour-old manifest."""
+    source = job.get("priority_class_from")
+    if source is None:
+        return
+    other = by_id.get(source)
+    if other is None:
+        raise JobListError(f"{job['id']}: priority_class_from names {source!r}, which is not a job")
+    if not set(found[job["id"]][1]) & set(found[source][0]):
+        raise JobListError(f"{job['id']}: priority_class_from names {source}, which reads nothing {job['id']} makes")
+    if job.get("priority_class", "default") != other.get("priority_class", "default"):
+        raise JobListError(f"{job['id']}: priority_class {job.get('priority_class', 'default')!r} is not "
+                           f"{other.get('priority_class', 'default')!r}, the class of {source} it takes it from")
+
+
 def capacity_claimants(jobs, pools):
     """The work outside the job list that claims pool slots (root ADR-0435), each checked."""
     claimants = jobs.get("capacity_claimants") or {}
@@ -829,6 +848,7 @@ def load_specs(jobs=None, graph=None):
         retries(job)
         priority_weight(job)
         priority_class(jobs, job, job_id)
+        inherited_class(job, by_id, found)
         if not isinstance(job.get("enabled"), bool):
             raise JobListError(f"{job_id}: enabled must be true or false")
         reason = job.get("disabled_reason")
