@@ -474,6 +474,60 @@ def container_names(run) -> str:
     return CONTAINERS_HELP + "".join(sorted(lines))
 
 
+UNITS_METRICS_NAME = "foundation-units.prom"
+# Since when each failing unit has failed, kept across ticks beside the reconciler's own state.
+UNITS_STATE_FILE = "failing-units.json"
+UNITS_HELP = """# HELP foundation_unit_failed_since_seconds When a failed host unit entered its failed state, with the owner and runbook its unit file names (root ADR-0445).
+# TYPE foundation_unit_failed_since_seconds gauge
+# HELP foundation_units_failed How many host units are failed now.
+# TYPE foundation_units_failed gauge
+"""
+RELEASE_PREFIX = "file:///opt/foundation-platform/current/"
+
+
+def label(value: str) -> str:
+    """A Prometheus label value: systemd escapes instance names with backslashes (`\\x2d`)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def failed_units(failed, show, tracked: dict, read_text=lambda path: Path(path).read_text(encoding="utf-8")):
+    """The textfile of every failed foundation unit, since when it has been failing, and who owns it,
+    with the failing-since table to keep for the next tick (root ADR-0445).
+
+    2026-11-01..07: the identity restore drill, the court auction collector and seven others stayed
+    failed for days. Each had posted one Slack notice when it failed and nothing after, and a weekly
+    or retired unit never runs again to post another. This is the state, not the event: the
+    FoundationUnitFailedLong rule calls the owner while a unit keeps failing. A unit is failing from
+    the first tick that saw it failed until one sees it neither failed nor running, so an hourly
+    unit that fails every run stays one failure, not a new one each hour. The owner and runbook are
+    the unit file's X-Foundation-Owner= and Documentation=; a unit whose file is gone (retired by a
+    release) has neither, and FoundationUnitFailedUnowned says so. `failed` and `show` are
+    job_units.failed and job_units.show, the host's one way to ask systemd."""
+    names = sorted(entry["unit"] for entry in failed())
+    shown = show(sorted(set(names) | set(tracked)))
+    failing = {}
+    for name, first in tracked.items():
+        # Still failed, or running again (a failing unit between two runs); only a success (or a
+        # reset) ends it.
+        if job_units.failed_or_running(shown.get(name, {})):
+            failing[name] = first
+    lines = []
+    for name in names:
+        unit = shown.get(name, {})
+        failing[name] = min(failing.get(name, job_units.since(unit)), job_units.since(unit))
+        owner = ""
+        if unit.get("FragmentPath"):
+            try:
+                owner = next((line.split("=", 1)[1].strip() for line in read_text(unit["FragmentPath"]).splitlines()
+                              if line.startswith("X-Foundation-Owner=")), "")
+            except OSError:
+                pass
+        runbook = (unit.get("Documentation") or "").split(" ")[0].removeprefix(RELEASE_PREFIX)
+        lines.append(f'foundation_unit_failed_since_seconds{{unit="{label(name)}",owner="{label(owner)}",'
+                     f'runbook="{label(runbook)}"}} {failing[name]}\n')
+    return UNITS_HELP + "".join(lines) + f"foundation_units_failed {len(names)}\n", failing
+
+
 def write_replacing(path: Path, text: str) -> None:
     """Replaced whole by a rename, so a scrape or the next tick never reads half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -538,17 +592,27 @@ def main() -> int:
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
     # The pools every job's Compose project draws from; a probe that fails stops nothing, and the
     # FoundationDockerNetworksUnread rule says the series went stale.
-    def docker(command):
+    def run(command):
         return subprocess.run(command, check=True, capture_output=True, text=True, timeout=30).stdout
 
     try:
-        write_replacing(metrics_file.with_name(NETWORKS_METRICS_NAME), bridge_networks(docker))
+        write_replacing(metrics_file.with_name(NETWORKS_METRICS_NAME), bridge_networks(run))
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not count the Docker bridge networks: {error}", file=sys.stderr)
     try:
-        write_replacing(metrics_file.with_name(CONTAINERS_METRICS_NAME), container_names(docker))
+        write_replacing(metrics_file.with_name(CONTAINERS_METRICS_NAME), container_names(run))
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         print(f"asset_reconcile: could not list the running containers: {error}", file=sys.stderr)
+    try:
+        try:
+            tracked = json.loads((state_dir / UNITS_STATE_FILE).read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            tracked = {}
+        text, tracked = failed_units(job_units.failed, job_units.show, tracked)
+        write_replacing(metrics_file.with_name(UNITS_METRICS_NAME), text)
+        write_replacing(state_dir / UNITS_STATE_FILE, json.dumps(tracked, sort_keys=True) + "\n")
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+        print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
     for line in owed:
         print(line)
     for error in errors:

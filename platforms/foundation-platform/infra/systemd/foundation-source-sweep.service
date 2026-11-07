@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform daily source sweep (ADR-0077)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/provider-outage-and-quota.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform data.go.kr file data, the other public bulk files: land each new edition in Bronze, append its changed rows to its Silver table and follow legal-dong code changes (root ADR-0401)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/data-go-kr-registered-factory.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

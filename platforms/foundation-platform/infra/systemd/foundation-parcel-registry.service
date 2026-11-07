@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform parcel id registry: register the served cadastral edition's regions the registry holds nothing for, one region at a time within the time limit (ADR-0243)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/parcel-registry.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

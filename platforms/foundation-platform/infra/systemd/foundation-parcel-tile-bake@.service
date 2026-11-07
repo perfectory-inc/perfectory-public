@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform parcel tile bake, %i half: the matching gate and served Gold (gold), or bake, gate and promote it (bake); rehearsal-gold and rehearsal-bake do the same for the newest edition and serve nothing (ADR-0133, ADR-0194, ADR-0253)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/parcel-tile-bake.md
+X-Foundation-Owner=tiles
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform 법원경매정보 list searches, the collection half: ask openly and politely in the quiet hours, stop when refused, land the responses in Bronze (root ADR-0280, ADR-0281)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/court-auction.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

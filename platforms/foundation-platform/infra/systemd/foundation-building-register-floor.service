@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation latest committed building register FLOOR cycle
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/remote-lakehouse-job-runner.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

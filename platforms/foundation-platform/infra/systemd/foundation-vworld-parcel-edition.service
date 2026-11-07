@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform VWorld cadastral parcel editions: check the provider's edition daily, collect a new one into Bronze and propose its source-contract entry; exit 3 means an edition awaits the contract (ADR-0148)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/vworld-parcel-editions.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

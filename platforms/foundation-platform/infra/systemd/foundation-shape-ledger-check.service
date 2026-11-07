@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform shape ledger check: the committed production-shape ledgers still describe production (ADR-0259)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/shape-ledger-bucket.md
+X-Foundation-Owner=platform
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

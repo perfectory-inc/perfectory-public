@@ -1,0 +1,88 @@
+# promtool unit tests for the foundation-units rules (root ADR-0445): a unit that stays failed calls
+# its owner after six hours, a failed unit with no owner is named, and a reconciler that stops
+# writing the list is reported. Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # The identity restore drill failed at 0 and stayed failed (2026-11-01: six days, one notice); a
+  # serving monitor failed ten minutes ago. Only the drill escalates, at six hours, never before.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_unit_failed_since_seconds{unit="foundation-identity-restore-drill.service",owner="platform",runbook="docs/runbooks/foundation-platform-low-cost-production-hardening.md"}'
+        values: '0x420'
+      - series: 'foundation_unit_failed_since_seconds{unit="foundation-by-pnu-serving-monitor@parcel.service",owner="serving",runbook="docs/runbooks/parcel-by-pnu-serving-bake.md"}'
+        values: '24600x420'
+      - series: 'foundation_units_failed'
+        values: '2x420'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/foundation-units.prom"}'
+        values: '0+60x420'
+    alert_rule_test:
+      - eval_time: 5h59m
+        alertname: FoundationUnitFailedLong
+        exp_alerts: []
+      - eval_time: 7h
+        alertname: FoundationUnitFailedLong
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: unit-state
+              unit: foundation-identity-restore-drill.service
+              owner: platform
+              runbook: docs/runbooks/foundation-platform-low-cost-production-hardening.md
+            exp_annotations:
+              summary: '<!channel> foundation-identity-restore-drill.service 가 7h 0m 0s 째 실패한 채예요 — 주인 platform 가 고칠 차례예요. journalctl -u foundation-identity-restore-drill.service 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
+              runbook: docs/runbooks/foundation-platform-low-cost-production-hardening.md
+      - eval_time: 7h
+        alertname: FoundationUnitsUnread
+        exp_alerts: []
+      - eval_time: 7h
+        alertname: FoundationUnitFailedUnowned
+        exp_alerts: []
+
+  # The 공매 bake's unit file was removed on 11-05 and its failed state stayed (not-found, no owner).
+  - interval: 1m
+    input_series:
+      - series: 'foundation_unit_failed_since_seconds{unit="foundation-by-pnu-public-auction-bake.service",owner="",runbook=""}'
+        values: '0x180'
+      - series: 'foundation_units_failed'
+        values: '1x180'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/foundation-units.prom"}'
+        values: '0+60x180'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: FoundationUnitFailedUnowned
+        exp_alerts: []
+      - eval_time: 2h30m
+        alertname: FoundationUnitFailedUnowned
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: unit-state
+              unit: foundation-by-pnu-public-auction-bake.service
+            exp_annotations:
+              summary: '<!channel> foundation-by-pnu-public-auction-bake.service 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
+              runbook: docs/runbooks/deploy-alerts.md
+      - eval_time: 2h30m
+        alertname: FoundationUnitFailedLong
+        exp_alerts: []
+
+  # The reconciler stopped: its file is an hour old.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_units_failed'
+        values: '0x120'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/foundation-units.prom"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: FoundationUnitsUnread
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+              file: /textfile-jobs/foundation-units.prom
+            exp_annotations:
+              summary: 실패한 유닛 목록을 30분 넘게 못 읽었어요 — 오래 실패한 유닛을 부를 수 없어요. journalctl -u foundation-asset-reconcile.service 를 보세요
+              runbook: docs/runbooks/asset-reconcile.md

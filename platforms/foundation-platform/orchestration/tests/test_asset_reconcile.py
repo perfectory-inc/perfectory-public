@@ -388,6 +388,48 @@ class Reconciler(unittest.TestCase):
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
         self.assertIn('foundation_docker_container_info{id=%q}', rules)
 
+    def test_a_failed_unit_is_failing_from_its_first_failure_until_a_clean_run(self):
+        # Root ADR-0445: 2026-11-01..07 nine units stayed failed for days after one notice each; the
+        # hourly serving monitors failed every run, so "failed since" must span their runs.
+        units = {
+            "foundation-x-drill.service": {"Id": "foundation-x-drill.service", "ActiveState": "failed",
+                                           "StateChangeTimestamp": "@1000", "FragmentPath": "/units/foundation-x-drill.service",
+                                           "Documentation": "file:///opt/foundation-platform/current/docs/runbooks/x.md"},
+            "foundation-x-retired.service": {"Id": "foundation-x-retired.service", "ActiveState": "failed",
+                                             "StateChangeTimestamp": "@2000", "FragmentPath": "", "Documentation": ""},
+        }
+        listed = [{"unit": name} for name in units]
+        files = {"/units/foundation-x-drill.service": "[Unit]\nX-Foundation-Owner=platform\n"}
+
+        def tick(tracked):
+            return asset_reconcile.failed_units(lambda: [entry for entry in listed if units[entry["unit"]]["ActiveState"] == "failed"],
+                                                lambda names: {name: units[name] for name in names if name in units},
+                                                tracked, read_text=files.__getitem__)
+
+        text, tracked = tick({})
+        self.assertIn('foundation_unit_failed_since_seconds{unit="foundation-x-drill.service",owner="platform",'
+                      'runbook="docs/runbooks/x.md"} 1000\n', text)
+        self.assertIn('{unit="foundation-x-retired.service",owner="",runbook=""} 2000\n', text, "no file, no owner")
+        self.assertIn("foundation_units_failed 2\n", text)
+        # The drill runs again (activating) and fails again later: still failing since 1000.
+        units["foundation-x-drill.service"].update(ActiveState="activating", StateChangeTimestamp="@5000")
+        _, tracked = tick(tracked)
+        self.assertEqual(tracked["foundation-x-drill.service"], 1000)
+        units["foundation-x-drill.service"].update(ActiveState="failed", StateChangeTimestamp="@6000")
+        text, tracked = tick(tracked)
+        self.assertIn('runbook="docs/runbooks/x.md"} 1000\n', text)
+        # A clean run ends it; the next failure starts over.
+        units["foundation-x-drill.service"].update(ActiveState="inactive", StateChangeTimestamp="@7000")
+        text, tracked = tick(tracked)
+        self.assertNotIn("foundation-x-drill.service", tracked)
+        self.assertIn("foundation_units_failed 1\n", text)
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn('node_textfile_mtime_seconds{file=~".*/foundation-units.prom"}', rules)
+        self.assertEqual(asset_reconcile.UNITS_METRICS_NAME, "foundation-units.prom")
+
+    def test_a_label_value_keeps_systemds_escapes(self):
+        self.assertEqual(asset_reconcile.label(r'foundation-x@a\x2db.service'), r'foundation-x@a\\x2db.service')
+
     def test_the_unscheduled_alert_waits_three_reconcile_periods(self):
         # Root ADR-0333 §7: the alert fires past three times the reconciler's period.
         reconciler = next(job for job in self.jobs["jobs"] if job["id"] == asset_reconcile.RECONCILER)

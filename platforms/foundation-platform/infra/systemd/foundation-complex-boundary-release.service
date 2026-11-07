@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform industrial-complex boundary release: load the newest boundary file into Silver and fold it into the complex tiles (ADR-0240)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/complex-boundary-release.md
+X-Foundation-Owner=tiles
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

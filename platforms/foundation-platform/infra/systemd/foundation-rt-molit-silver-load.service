@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform 국토교통부 실거래가, the Silver half: load the Bronze exports no Silver commit records into silver.real_transaction (root ADR-0348, ADR-0349)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/lakehouse-incident-response.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

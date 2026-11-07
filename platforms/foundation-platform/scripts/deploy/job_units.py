@@ -14,6 +14,9 @@
     job_units.py preempted <jobs.v1.json> <job id>
                                                why a running job of a class that yields at a step boundary
                                                must yield its slots now, or nothing (root ADR-0435)
+    job_units.py leftover-failed <jobs.v1.json>
+                                               each failed unit no declaration runs again, whose failed
+                                               state the deploy clears (root ADR-0445)
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -99,6 +102,62 @@ def running(patterns, systemctl: str = "systemctl", env=None) -> dict[str, str]:
 def template(service: str) -> str | None:
     """`foundation-x@` for an instance `foundation-x@<name>.service`, else None."""
     return service[:service.index("@") + 1] if "@" in service else None
+
+
+def failed(systemctl: str = "systemctl") -> list[dict]:
+    """The failed foundation units as systemd lists them: {"unit", "load", "active", ...}."""
+    return json.loads(subprocess.run([systemctl, "list-units", "--all", "--state=failed", "--output=json",
+                                      "--no-pager", "foundation-*.service"],
+                                     check=True, capture_output=True, text=True).stdout or "[]")
+
+
+def show(units, systemctl: str = "systemctl") -> dict[str, dict]:
+    """{unit: {property: value}} of what a failed unit's report needs; timestamps as `@<epoch>`."""
+    if not units:
+        return {}
+    output = subprocess.run([systemctl, "show", "--timestamp=unix", "-p", "Id", "-p", "ActiveState",
+                             "-p", "StateChangeTimestamp", "-p", "FragmentPath", "-p", "Documentation",
+                             "--", *units], check=True, capture_output=True, text=True).stdout
+    shown = {}
+    for block in output.strip().split("\n\n"):
+        unit = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
+        if unit.get("Id"):
+            shown[unit["Id"]] = unit
+    return shown
+
+
+def failed_or_running(unit: dict) -> bool:
+    """Whether a unit `show` reported is failed or at work; a unit it did not report is neither."""
+    state = unit.get("ActiveState", "inactive")
+    return state == "failed" or is_running(state)
+
+
+def since(unit: dict) -> int:
+    """When the unit entered its state, epoch seconds (0 when systemd has no time for it)."""
+    return int((unit.get("StateChangeTimestamp") or "").removeprefix("@") or 0)
+
+
+# How long an operator's own instance of a job's template (a rehearsal) keeps its failed state.
+LEFTOVER_AFTER_SECONDS = 24 * 3600
+
+
+def leftover_failed(jobs_file, systemctl: str = "systemctl", now=None) -> list[str]:
+    """The failed foundation units that nothing declared runs again (root ADR-0445): a unit whose
+    file a release removed (systemd keeps its failed state after the file is gone; the 공매 bake
+    retired 11-05 sat failed and not-found), and an instance of a job's template that no job names,
+    a day after it failed (the parcel tile bake's operator rehearsals, failed 10-15/16 and still
+    failed three weeks later). A failed state is then always a declared unit that is broken now."""
+    with open(jobs_file, encoding="utf-8") as handle:
+        services = {job["systemd_service"] for job in json.load(handle)["jobs"]}
+    templates = {template(service) for service in services} - {None}
+    listed = failed(systemctl)
+    gone = {entry["unit"] for entry in listed if entry.get("load") == "not-found"}
+    instances = {entry["unit"] for entry in listed
+                 if entry["unit"] not in gone and template(entry["unit"]) in templates and entry["unit"] not in services}
+    now = time.time() if now is None else now
+    shown = show(sorted(instances), systemctl)
+    old = {unit for unit in instances if now - since(shown.get(unit, {})) >= LEFTOVER_AFTER_SECONDS}
+    return sorted(gone | old)
 
 
 def claims_dir() -> str:
@@ -302,6 +361,13 @@ def main(argv) -> int:
             print(f"job_units: {error.args[0]}", file=sys.stderr)
             return 64
         return 0
+    if len(argv) == 2 and argv[0] == "leftover-failed":
+        try:
+            print("\n".join(leftover_failed(argv[1])))
+        except (OSError, subprocess.CalledProcessError, ValueError) as error:
+            print(f"job_units: systemd cannot report the failed units: {error}", file=sys.stderr)
+            return 2
+        return 0
     if argv == ["deferred-dir"]:
         print(deferred_dir())
         return 0
@@ -310,7 +376,7 @@ def main(argv) -> int:
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
           " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
-          " | release <claimant> | preempted <jobs.v1.json> <job id>",
+          " | release <claimant> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>",
           file=sys.stderr)
     return 64
 

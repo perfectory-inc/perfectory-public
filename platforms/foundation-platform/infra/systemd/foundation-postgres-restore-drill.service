@@ -1,5 +1,7 @@
 [Unit]
 Description=Restore the newest PostgreSQL backup and its WAL into throwaway volumes and compare it with the live database
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/foundation-platform-low-cost-production-hardening.md
+X-Foundation-Owner=platform
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform: start each operator run-now request once, before it expires, and stop what an operator stopped (root ADR-0282 §4, §5)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/asset-reconcile.md
+X-Foundation-Owner=platform
 Requires=docker.service
 After=docker.service
 OnFailure=foundation-unit-failed@%n.service

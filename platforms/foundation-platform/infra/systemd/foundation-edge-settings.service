@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform: apply the console's Cloudflare edge settings (Access, tunnel, DNS) from the commit the host runs (root ADR-0436)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/edge-settings.md
+X-Foundation-Owner=platform
 Requires=docker.service
 # Never beside the Worker deploy: the host's memory budget counts one deploy container at a time.
 After=docker.service network-online.target foundation-worker-autodeploy.service

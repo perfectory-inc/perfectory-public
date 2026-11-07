@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform service checks: the live hostnames' edge path from Korea and the pull request CI time trend (root ADR-0209)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/security-advisories.md
+X-Foundation-Owner=platform
 After=network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service

@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform regulation-zone tiles: hand the current silver.land_use_zone_area rows to the tile bake and patch only the tiles changed zones touch (ADR-0373, ADR-0374, ADR-0323)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/tiles-object-storage-first-slice.md
+X-Foundation-Owner=tiles
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

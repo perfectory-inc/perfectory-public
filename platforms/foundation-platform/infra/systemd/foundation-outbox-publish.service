@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform outbox publish tick (ADR-0079)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/outbox-webhook-fanout.md
+X-Foundation-Owner=platform
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

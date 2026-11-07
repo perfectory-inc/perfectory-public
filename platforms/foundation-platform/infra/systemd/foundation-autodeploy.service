@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform: deploy main's newest commit whose checks passed (root ADR-0159)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/deploy-alerts.md
+X-Foundation-Owner=platform
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

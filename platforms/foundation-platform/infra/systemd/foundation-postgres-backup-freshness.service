@@ -1,5 +1,7 @@
 [Unit]
 Description=Fail when the PostgreSQL backup is older than a day
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/foundation-platform-low-cost-production-hardening.md
+X-Foundation-Owner=platform
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
