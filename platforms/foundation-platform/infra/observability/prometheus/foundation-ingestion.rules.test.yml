@@ -1,0 +1,105 @@
+# promtool unit tests for the foundation-ingestion rules (root ADR-0443): each source is held to the
+# bounds foundation-api renders from the endpoint catalog's expected_cadence. The incident: the rules
+# read no series at all (the query named a column the schema lacks), and with series one 24-hour
+# line would have paged about 85 of 105 healthy sources (2026-11-07 readiness sweep).
+# Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # Finished at time 0. synthetic__monthly's bound is 10 minutes, so it is stale from minute 10;
+  # synthetic__daily's two hours is not reached; synthetic__irregular has no age bound at all.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_api_up'
+        values: '1x40'
+      - series: 'foundation_platform_ingestion_run_last_finished_at_seconds{source="synthetic__monthly",status="succeeded"}'
+        values: '0x40'
+      - series: 'foundation_platform_ingestion_run_last_finished_at_seconds{source="synthetic__daily",status="succeeded"}'
+        values: '0x40'
+      - series: 'foundation_platform_ingestion_run_last_finished_at_seconds{source="synthetic__irregular",status="succeeded"}'
+        values: '0x40'
+      - series: 'foundation_platform_ingestion_source_expected_max_age_seconds{source="synthetic__monthly"}'
+        values: '600x40'
+      - series: 'foundation_platform_ingestion_source_expected_max_age_seconds{source="synthetic__daily"}'
+        values: '7200x40'
+      # synthetic__daily ran 5000 s under a 300-minute bound; synthetic__monthly ran 5000 s under the default hour.
+      - series: 'foundation_platform_ingestion_run_last_duration_seconds{source="synthetic__daily",status="succeeded"}'
+        values: '5000x40'
+      - series: 'foundation_platform_ingestion_run_last_duration_seconds{source="synthetic__monthly",status="succeeded"}'
+        values: '5000x40'
+      - series: 'foundation_platform_ingestion_source_max_run_seconds{source="synthetic__daily"}'
+        values: '18000x40'
+      - series: 'foundation_platform_ingestion_source_max_run_seconds{source="synthetic__monthly"}'
+        values: '3600x40'
+      - series: 'foundation_platform_ingestion_source_max_run_seconds{source="synthetic__irregular"}'
+        values: '3600x40'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: FoundationPlatformIngestionRunStale
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: FoundationPlatformIngestionRunStale
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: foundation-api
+              source: synthetic__monthly
+            exp_annotations:
+              summary: 'synthetic__monthly 의 마지막 Bronze 수집이 공급자 공개 주기보다 오래됐어요'
+              description: The latest finished Bronze ingestion run of synthetic__monthly is older than the bound its provider's release schedule declares (expected_cadence in docs/catalog/public-source-endpoint-catalog.v1.json).
+              runbook: docs/runbooks/slo-alert-policy.md
+      - eval_time: 30m
+        alertname: FoundationPlatformIngestionRunSlow
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: foundation-api
+              source: synthetic__monthly
+            exp_annotations:
+              summary: 'synthetic__monthly 의 마지막 Bronze 수집이 선언한 실행 시간보다 오래 걸렸어요'
+              description: The latest finished Bronze ingestion run of synthetic__monthly took longer than its declared bound (expected_cadence.max_run_minutes, 60 by default).
+              runbook: docs/runbooks/slo-alert-policy.md
+      - eval_time: 30m
+        alertname: FoundationPlatformIngestionRunFailed
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: FoundationPlatformIngestionCadenceUnreadable
+        exp_alerts: []
+
+  # A source whose latest run failed; and foundation-api up without the bounds for 30 minutes.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_api_up'
+        values: '1x40'
+      - series: 'foundation_platform_ingestion_run_last_finished_at_seconds{source="synthetic__daily",status="failed"}'
+        values: '60x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: FoundationPlatformIngestionRunFailed
+        exp_alerts: []
+      - eval_time: 11m
+        alertname: FoundationPlatformIngestionRunFailed
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: foundation-api
+              source: synthetic__daily
+              status: failed
+            exp_annotations:
+              summary: 'synthetic__daily 의 마지막 Bronze 수집이 실패했어요'
+              description: The latest finished Bronze ingestion run has failed status for synthetic__daily.
+              runbook: docs/runbooks/slo-alert-policy.md
+      - eval_time: 20m
+        alertname: FoundationPlatformIngestionCadenceUnreadable
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: FoundationPlatformIngestionCadenceUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: foundation-api
+            exp_annotations:
+              summary: foundation-api 가 원천별 기대 주기를 못 읽어요 — 수집이 멈춰도 알림이 안 와요
+              runbook: docs/runbooks/slo-alert-policy.md

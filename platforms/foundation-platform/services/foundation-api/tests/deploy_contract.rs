@@ -176,6 +176,10 @@ fn api_image_carries_the_repository_files_it_reads_at_run_time() -> TestResult {
             "orchestration/jobs.v1.json",
             "FOUNDATION_PLATFORM_SCHEDULED_JOBS_PATH",
         ),
+        (
+            "docs/catalog/public-source-endpoint-catalog.v1.json",
+            "FOUNDATION_PLATFORM_SOURCE_ENDPOINT_CATALOG_PATH",
+        ),
     ] {
         let copy = runtime
             .lines()

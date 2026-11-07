@@ -95,36 +95,6 @@ groups:
           summary: Foundation Platform lakehouse batch is stale
           description: Latest successful lakehouse batch audit record is older than 24 hours for at least one contract.
           runbook: docs/runbooks/slo-alert-policy.md
-      - alert: FoundationPlatformIngestionRunStale
-        expr: time() - foundation_platform_ingestion_run_last_finished_at_seconds > 86400
-        for: 15m
-        labels:
-          severity: ticket
-          service: foundation-api
-        annotations:
-          summary: Foundation Platform ingestion source is stale
-          description: Latest finished Bronze ingestion run is older than 24 hours for at least one source.
-          runbook: docs/runbooks/slo-alert-policy.md
-      - alert: FoundationPlatformIngestionRunFailed
-        expr: foundation_platform_ingestion_run_last_finished_at_seconds{status="failed"} > 0
-        for: 10m
-        labels:
-          severity: ticket
-          service: foundation-api
-        annotations:
-          summary: Foundation Platform latest ingestion run failed
-          description: The latest finished Bronze ingestion run has failed status for at least one source.
-          runbook: docs/runbooks/slo-alert-policy.md
-      - alert: FoundationPlatformIngestionRunSlow
-        expr: foundation_platform_ingestion_run_last_duration_seconds > 3600
-        for: 10m
-        labels:
-          severity: ticket
-          service: foundation-api
-        annotations:
-          summary: Foundation Platform latest ingestion run is slow
-          description: Latest finished Bronze ingestion run duration exceeded 3600 seconds for at least one source.
-          runbook: docs/runbooks/slo-alert-policy.md
       - alert: FoundationPlatformOutboxOldestPendingStale
         expr: foundation_platform_outbox_oldest_pending_age_seconds > 600
         for: 10m
@@ -344,6 +314,60 @@ groups:
         annotations:
           summary: 'Dependabot 알림을 읽는 GitHub 토큰이 {{ $value }}일 뒤 만료돼요 — 런북대로 새 토큰을 넣어 주세요'
           runbook: docs/runbooks/security-advisories.md
+  # Bronze ingestion (root ADR-0443). Each source is held to its own bounds, which foundation-api
+  # renders from the endpoint catalog's expected_cadence (its provider's release schedule): one
+  # 24-hour line for all would page about 85 of 105 sources that are healthy, because most
+  # providers publish monthly or yearly and Bronze is written only when a new release lands. A
+  # source whose provider has no fixed schedule has no age bound; its job's schedule watches it.
+  - name: foundation-ingestion
+    rules:
+      - alert: FoundationPlatformIngestionRunStale
+        expr: >-
+          time() - max by (source) (foundation_platform_ingestion_run_last_finished_at_seconds)
+          > on (source) foundation_platform_ingestion_source_expected_max_age_seconds
+        for: 15m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: '{{ $labels.source }} 의 마지막 Bronze 수집이 공급자 공개 주기보다 오래됐어요'
+          description: The latest finished Bronze ingestion run of {{ $labels.source }} is older than the bound its provider's release schedule declares (expected_cadence in docs/catalog/public-source-endpoint-catalog.v1.json).
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionRunFailed
+        expr: foundation_platform_ingestion_run_last_finished_at_seconds{status="failed"} > 0
+        for: 10m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: '{{ $labels.source }} 의 마지막 Bronze 수집이 실패했어요'
+          description: The latest finished Bronze ingestion run has failed status for {{ $labels.source }}.
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionRunSlow
+        expr: >-
+          max by (source) (foundation_platform_ingestion_run_last_duration_seconds)
+          > on (source) foundation_platform_ingestion_source_max_run_seconds
+        for: 10m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: '{{ $labels.source }} 의 마지막 Bronze 수집이 선언한 실행 시간보다 오래 걸렸어요'
+          description: The latest finished Bronze ingestion run of {{ $labels.source }} took longer than its declared bound (expected_cadence.max_run_minutes, 60 by default).
+          runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionCadenceUnreadable
+        # Without the bounds the stale and slow rules above match nothing, which is the silence of
+        # the incident this group replaces.
+        expr: >-
+          absent(foundation_platform_ingestion_source_max_run_seconds)
+          and on () (foundation_api_up == 1)
+        for: 30m
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: foundation-api 가 원천별 기대 주기를 못 읽어요 — 수집이 멈춰도 알림이 안 와요
+          runbook: docs/runbooks/slo-alert-policy.md
   # Each asset's lag and how long it has gone unscheduled (root ADR-0333 §7). 2026-10-28 21:38 the
   # 공매 Gold rebuild committed and recorded asset event 3912, which reached a bake a deploy held
   # paused; nothing queued it and no series said so: the screen would have waited 13 hours for the

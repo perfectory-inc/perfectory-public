@@ -23,7 +23,7 @@ mod identity_authorization_tests;
 pub use routes::catalog_openapi_document;
 pub use routes::data_catalog_openapi_document;
 pub use routes::lineage_review_openapi_document;
-pub use state::{probe_schema, SchemaReadiness};
+pub use state::{probe_schema, SchemaReadiness, METRICS_QUERIES};
 
 /// Every migration this binary was built with, embedded at compile time.
 ///
