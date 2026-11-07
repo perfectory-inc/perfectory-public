@@ -17,6 +17,13 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 65,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-08); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
@@ -25,8 +32,8 @@
         "silver-court-auction-item-to-gold-parcel-court-auction",
         "reference-legal-dong-code-change-to-gold-parcel-court-auction"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z"
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0353). Off until its first build has run attended and been timed within the unit's 65-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-court-auction, root ADR-0193 §7) and per_run_cap carries that measured run (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4) that also lists both court jobs again in asset_reconcile's reconciles."
     },
     {
       "id": "by_pnu_court_auction_bake",
@@ -47,6 +54,13 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-08); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,
@@ -54,8 +68,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z"
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0353). Off with gold_court_auction_rebuild, which feeds it: nothing to bake until that job's first build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-court-auction cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
     }
   ],
   "assets": [
