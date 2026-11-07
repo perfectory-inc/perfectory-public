@@ -1,0 +1,46 @@
+# Bronze collection lanes write raw objects only through BronzeCommitter and take no catalog fact
+# from the object key (FP-ADR-0016, FP-ADR-0019).
+#
+# Prevents: a lane calling ObjectStorageService::put_object / put_streaming_object itself, which
+# skips the committer's checksum, append-only key and catalog row, so an object lands in R2 that the
+# Bronze catalog never recorded; and a lane reading source, period or run identity back out of the
+# human-readable key, which turns a physical location label into catalog truth. The only Bronze
+# write points are the committer's adapters (services/foundation-outbox-publisher/src/
+# bronze_object_storage.rs, bulk_streaming_bronze.rs), which these paths leave out. The lanes' unit
+# tests live in their sibling tests.rs, outside these paths; an inline test module in a lane file
+# would be held to the rule too (the engine cannot exclude a `#[cfg(test)] mod`), so tests stay there.
+rules:
+  - id: bronze-lanes-write-through-the-committer
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A Bronze lane calls object-storage put directly; every Bronze raw write goes through
+      BronzeCommitter and its write adapters (FP-ADR-0016).
+    paths:
+      include:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/building_hub_bulk_ingest.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_dataset_file_ingest.rs
+    patterns:
+      - pattern-either:
+          - pattern: $STORAGE.put_object(...)
+          - pattern: $STORAGE.put_streaming_object(...)
+
+  - id: bronze-lanes-take-no-catalog-fact-from-the-object-key
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A Bronze lane parses object_key; the key is a location label only (FP-ADR-0019). Carry source,
+      period, checksum and lineage through the plan, the committer and the catalog record.
+    paths:
+      include:
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/building_hub_bulk_ingest.rs
+        - /platforms/foundation-platform/crates/publisher/foundation-publisher-collection/src/vworld_dataset_file_ingest.rs
+    patterns:
+      - pattern-either:
+          - pattern: object_key.$READ(...)
+          - pattern: $OBJECT.object_key.$READ(...)
+          - pattern: object_key.as_str().$READ(...)
+          - pattern: $OBJECT.object_key.as_str().$READ(...)
+      - metavariable-regex:
+          metavariable: $READ
+          regex: ^(strip_prefix|strip_suffix|split|split_once|rsplit|rsplit_once|find|rfind|starts_with|contains)$

@@ -335,7 +335,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (root ADR-0402).
 # 165 -> 166: the 건축물 정기점검이력 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0402).
-COMPILE_TIME_READ_BASELINE="${3:-166}"
+# 166 -> 165: the Bronze-lane write guard leaves its Rust test (which embedded the two lane sources)
+# for the Semgrep rule tools/semgrep/rules/bronze-lane-writes.yml (root ADR-0422).
+COMPILE_TIME_READ_BASELINE="${3:-165}"
 
 cd "$repo_root"
 
