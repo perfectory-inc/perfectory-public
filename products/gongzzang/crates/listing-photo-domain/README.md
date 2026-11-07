@@ -14,7 +14,8 @@ last_reviewed: 2026-11-05
 - `listing_photo` 테이블(`migrations/20260719000102_core_tables.sql`)에 대응하는 `ListingPhoto`
   Aggregate 정의해요.
 - 메타데이터(크기, content-type, 캡션, 순서)는 RDS, 실제 바이너리는
-  R2 객체로 분리 — `r2_key`/`thumbnail_r2_key`로 참조해요.
+  R2 객체로 분리 — `r2_key` 로 참조해요. 새 사진은 내용주소 키(`media/listing-photo/sha256/<hex>.<ext>`)와
+  `content_sha256`, 표시 사다리는 그 해시 옆(root ADR-0427). 형식은 `shared_kernel::media::MediaFormat`.
 - `try_new` 생성자에서 `r2_key` 비어있음, `display_order` 음수,
   `caption` 200자 초과를 차단해요.
 - `soft_delete`(idempotent), `reorder`, `confirm_upload`(저장소 확인 후 크기 기록), `is_active`,
@@ -32,6 +33,6 @@ last_reviewed: 2026-11-05
 ## 예시
 
 ```rust,ignore
-use listing_photo_domain::entity::{ListingPhoto, PhotoContentType};
+use listing_photo_domain::entity::ListingPhoto;
 let photo = ListingPhoto::try_new(/* … */)?;
 ```

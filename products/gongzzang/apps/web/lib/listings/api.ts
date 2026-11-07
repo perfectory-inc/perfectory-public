@@ -60,7 +60,13 @@ export async function fetchListings(
 export const ListingPhotoSchema = z.object({
   photo_id: z.string(),
   r2_key: z.string(),
-  thumbnail_r2_key: z.string().nullish(),
+  // The stored bytes' sha256 and extension: the photo's display ladder (root ADR-0427). Null for an
+  // id-key photo the backfill has not mapped yet; that one is shown from its file.
+  content_sha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullish(),
+  media_format: z.string().nullish(),
   caption: z.string().nullish(),
   display_order: z.number().int(),
   content_type: z.string(),

@@ -70,9 +70,11 @@ pub struct PhotoResponse {
     pub photo_id: String,
     /// R2 객체 키.
     pub r2_key: String,
-    /// 썸네일 키 (선택).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail_r2_key: Option<String>,
+    /// 저장된 바이트의 sha256 — 있으면 표시 사다리가 그 해시 옆에 있어요 (root ADR-0427). 옛 id 키
+    /// 사진은 백필 전까지 `null`.
+    pub content_sha256: Option<String>,
+    /// 저장된 파일의 확장자 (`jpg`/`png`/`webp`).
+    pub media_format: Option<&'static str>,
     /// 캡션 (선택).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
@@ -182,7 +184,9 @@ fn detail_to_response(detail: listing_domain::repository::ListingDetail) -> List
             .map(|p| PhotoResponse {
                 photo_id: p.photo_id,
                 r2_key: p.r2_key,
-                thumbnail_r2_key: p.thumbnail_r2_key,
+                media_format: shared_kernel::media::MediaFormat::from_content_type(&p.content_type)
+                    .map(shared_kernel::media::MediaFormat::extension),
+                content_sha256: p.content_sha256,
                 caption: p.caption,
                 display_order: p.display_order,
                 content_type: p.content_type,

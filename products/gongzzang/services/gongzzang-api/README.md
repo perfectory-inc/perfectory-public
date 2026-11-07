@@ -21,7 +21,9 @@ last_reviewed: 2026-11-05
   foundation_parcel_lookup, complex_reader, backend_authorization, backend_rate_limit,
   traffic_auth_policy, listing_marker_policy, listing_marker_serving
 - `bin/` — `generate-traffic-auth-policy`(정책 산출물 6종 재생성; CI가 drift 검사),
-  `export-gongzzang-openapi`(`openapi.json` 생성), `foundation_anchor_import`
+  `export-gongzzang-openapi`(`openapi.json` 생성), `foundation_anchor_import`,
+  `listing_photo_content_address_backfill`(옛 id 키 매물 사진을 내용주소 저장소로 복사하고 대응을 쌓음,
+  지우지 않음; 공짱 운영자가 손으로 돌린다 — 루트 ADR-0427 배포 순서 ③)
 
 ## 로컬 실행
 

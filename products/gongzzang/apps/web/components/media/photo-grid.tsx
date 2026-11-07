@@ -63,11 +63,14 @@ export function PhotoTile({
   photo,
   alt,
   viewOriginal,
+  sizes = TILE_SIZES,
 }: {
   store: MediaStore;
   photo: StoredFile;
   alt: string;
   viewOriginal: string;
+  /** The `sizes` of the slot the photo fills; a grid tile by default. */
+  sizes?: string;
 }) {
   const [laddered, setLaddered] = useState(true);
   const file = mediaFileSrc(store, photo);
@@ -81,15 +84,11 @@ export function PhotoTile({
     >
       {laddered ? (
         <picture>
-          <source
-            type="image/avif"
-            srcSet={renditionSrcSet(store, photo, "avif")}
-            sizes={TILE_SIZES}
-          />
+          <source type="image/avif" srcSet={renditionSrcSet(store, photo, "avif")} sizes={sizes} />
           <img
             src={renditionSrc(store, photo)}
             srcSet={renditionSrcSet(store, photo, "webp")}
-            sizes={TILE_SIZES}
+            sizes={sizes}
             alt={alt}
             loading="lazy"
             decoding="async"

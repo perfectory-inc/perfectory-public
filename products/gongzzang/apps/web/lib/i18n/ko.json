@@ -737,6 +737,7 @@
         "area": "면적",
         "price": "가격",
         "photoUnavailable": "사진을 불러오지 못했어요",
+        "viewOriginal": "원본 보기",
         "type": {
           "factory": "공장",
           "warehouse": "창고",

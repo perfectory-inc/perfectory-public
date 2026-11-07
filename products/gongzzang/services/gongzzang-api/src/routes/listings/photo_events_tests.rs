@@ -1,10 +1,11 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 use chrono::{TimeZone, Utc};
-use listing_photo_domain::entity::{ListingPhoto, PhotoContentType};
+use listing_photo_domain::entity::ListingPhoto;
 use listing_photo_domain::events::LISTING_PHOTO_UPLOAD_CONFIRMED_EVENT_TYPE;
 use serde_json::json;
 use shared_kernel::id::{Id, ListingMarker, ListingPhotoMarker};
+use shared_kernel::media::MediaFormat;
 
 use super::upload_confirmed_event_for_photo;
 
@@ -23,7 +24,7 @@ fn upload_confirmed_event_for_photo_maps_confirmed_photo_to_outbox_domain_event(
         None,
         None,
         None,
-        PhotoContentType::Png,
+        MediaFormat::Png,
         confirmed_at,
     )
     .unwrap();

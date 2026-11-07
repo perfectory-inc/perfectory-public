@@ -4,8 +4,17 @@
 // (`<prefix>/renditions/<version>/<hex>/<width>.<format>`). A store is where it is served from and its
 // key prefix; the screens differ only in which store they read.
 
-/** Where a media store is served from: the public base URL and the key prefix inside it. */
-export type MediaStore = { readonly base: string; readonly prefix: string };
+/**
+ * Where a media store is served from: a public base URL and the key prefix inside it, or — for a
+ * private store whose objects are reached through an authorized route (매물 사진) — the URL of the
+ * stored file and of one rung of its ladder.
+ */
+export type MediaStore =
+  | { readonly base: string; readonly prefix: string }
+  | {
+      readonly file: (file: StoredFile) => string;
+      readonly rung: (source: { sha256: string }, width: number, format: RenditionFormat) => string;
+    };
 
 /** A stored file: its content hash and the extension it was stored under. */
 export type StoredFile = { readonly sha256: string; readonly media_format: string };
@@ -24,17 +33,24 @@ export const PHOTO_RENDITIONS = {
 
 export type RenditionFormat = (typeof PHOTO_RENDITIONS.formats)[number];
 
-function root(store: MediaStore): string {
+function root(store: { base: string; prefix: string }): string {
   return `${store.base.replace(/\/$/, "")}/${store.prefix.replace(/^\/|\/$/g, "")}`;
 }
 
-/** The public URL of a stored file itself (a photo's original, a map, a PDF). */
+/** The URL of a stored file itself (a photo's original, a map, a PDF). */
 export function mediaFileSrc(store: MediaStore, file: StoredFile): string {
+  if ("file" in store) return store.file(file);
   return `${root(store)}/sha256/${file.sha256}.${file.media_format}`;
 }
 
-function ladderDir(store: MediaStore, source: { sha256: string }): string {
-  return `${root(store)}/renditions/${PHOTO_RENDITIONS.version}/${source.sha256}`;
+function rungSrc(
+  store: MediaStore,
+  source: { sha256: string },
+  width: number,
+  format: RenditionFormat,
+): string {
+  if ("rung" in store) return store.rung(source, width, format);
+  return `${root(store)}/renditions/${PHOTO_RENDITIONS.version}/${source.sha256}/${width}.${format}`;
 }
 
 /** A photo source's ladder in one format as a `srcset` (`<url> <width>w, …`), smallest first. */
@@ -43,13 +59,14 @@ export function renditionSrcSet(
   source: { sha256: string },
   format: RenditionFormat,
 ): string {
-  const dir = ladderDir(store, source);
-  return PHOTO_RENDITIONS.widths.map((width) => `${dir}/${width}.${format} ${width}w`).join(", ");
+  return PHOTO_RENDITIONS.widths
+    .map((width) => `${rungSrc(store, source, width, format)} ${width}w`)
+    .join(", ");
 }
 
 /** The smallest WebP of a photo source's ladder: the `src` (WebP is read by 97% of browsers, root
  * ADR-0427 §3; a browser that reads neither falls back to the stored file on error). */
 export function renditionSrc(store: MediaStore, source: { sha256: string }): string {
   const [smallest] = PHOTO_RENDITIONS.widths;
-  return `${ladderDir(store, source)}/${smallest}.webp`;
+  return rungSrc(store, source, smallest, "webp");
 }

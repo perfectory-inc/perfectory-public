@@ -1,64 +1,28 @@
 //! `ListingPhoto` Aggregate (spec § 5.1, 12 필드).
 
-// `ListingPhoto`/`PhotoContentType` 처럼 모듈명 반복은 의도된 공개 API 형태.
+// `ListingPhoto` 처럼 모듈명 반복은 의도된 공개 API 형태.
 #![allow(clippy::module_name_repetitions)]
-
-use std::fmt;
-use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shared_kernel::id::{Id, ListingMarker, ListingPhotoMarker};
+use shared_kernel::media::{MediaFormat, Sha256Hex};
 
 use crate::errors::ListingPhotoError;
 
-/// 사진 `MIME` content-type (3값).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PhotoContentType {
-    /// `image/jpeg`.
-    Jpeg,
-    /// `image/png`.
-    Png,
-    /// `image/webp`.
-    Webp,
-}
+/// 매물 사진으로 받는 형식 (업로드 `content_type` 이 이 중 하나여야 해요).
+pub const UPLOAD_FORMATS: [MediaFormat; 3] =
+    [MediaFormat::Jpeg, MediaFormat::Png, MediaFormat::Webp];
 
-impl PhotoContentType {
-    /// `MIME` 문자열 반환 (`DB varchar(50)` 매핑).
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Jpeg => "image/jpeg",
-            Self::Png => "image/png",
-            Self::Webp => "image/webp",
-        }
-    }
-}
-
-/// `PhotoContentType` 파싱 에러.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum PhotoContentTypeError {
-    /// 미지원 `MIME`.
-    #[error("unsupported photo content_type: '{0}' (expected: image/jpeg, image/png, image/webp)")]
-    Unsupported(String),
-}
-
-impl fmt::Display for PhotoContentType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for PhotoContentType {
-    type Err = PhotoContentTypeError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "image/jpeg" => Ok(Self::Jpeg),
-            "image/png" => Ok(Self::Png),
-            "image/webp" => Ok(Self::Webp),
-            other => Err(PhotoContentTypeError::Unsupported(other.to_owned())),
-        }
-    }
+/// 업로드 `content_type`(MIME) 을 받는 형식으로 읽어요.
+///
+/// # Errors
+///
+/// [`UPLOAD_FORMATS`] 밖이면 [`ListingPhotoError::UnsupportedContentType`].
+pub fn upload_format(content_type: &str) -> Result<MediaFormat, ListingPhotoError> {
+    MediaFormat::from_content_type(content_type)
+        .filter(|format| UPLOAD_FORMATS.contains(format))
+        .ok_or_else(|| ListingPhotoError::UnsupportedContentType(content_type.to_owned()))
 }
 
 /// `ListingPhoto` Aggregate.
@@ -74,8 +38,9 @@ pub struct ListingPhoto {
     pub listing_id: Id<ListingMarker>,
     /// `R2` 객체 키 (예: `'media/listing-photo/listings/lst_01HXY/photos/p1.jpg'`).
     pub r2_key: String,
-    /// 썸네일 `R2` 키 (선택).
-    pub thumbnail_r2_key: Option<String>,
+    /// 원본 바이트의 sha256 — 있으면 `r2_key` 는 내용주소 키이고 표시 사다리가 그 해시 옆에 있어요
+    /// (root ADR-0427). 옛 id 키 사진은 백필이 대응을 적기 전까지 `None`.
+    pub content_sha256: Option<Sha256Hex>,
     /// 캡션 (≤200자, 선택).
     pub caption: Option<String>,
     /// 표시 순서 (≥0).
@@ -86,8 +51,8 @@ pub struct ListingPhoto {
     pub height_px: Option<i32>,
     /// 파일 크기 bytes (선택).
     pub file_size_bytes: Option<i64>,
-    /// `MIME` content-type.
-    pub content_type: PhotoContentType,
+    /// 형식 (`DB` 에는 `MIME` 으로 저장).
+    pub content_type: MediaFormat,
     /// 업로드 시각.
     pub uploaded_at: DateTime<Utc>,
     /// Soft-delete 시각. `None`이면 활성.
@@ -108,18 +73,23 @@ impl ListingPhoto {
         id: Id<ListingPhotoMarker>,
         listing_id: Id<ListingMarker>,
         r2_key: &str,
-        thumbnail_r2_key: Option<&str>,
+        content_sha256: Option<Sha256Hex>,
         caption: Option<&str>,
         display_order: i32,
         width_px: Option<i32>,
         height_px: Option<i32>,
         file_size_bytes: Option<i64>,
-        content_type: PhotoContentType,
+        content_type: MediaFormat,
         now: DateTime<Utc>,
     ) -> Result<Self, ListingPhotoError> {
         let r2_key_trimmed = r2_key.trim();
         if r2_key_trimmed.is_empty() {
             return Err(ListingPhotoError::EmptyR2Key);
+        }
+        if !UPLOAD_FORMATS.contains(&content_type) {
+            return Err(ListingPhotoError::UnsupportedContentType(
+                content_type.content_type().to_owned(),
+            ));
         }
         if display_order < 0 {
             return Err(ListingPhotoError::NegativeDisplayOrder {
@@ -137,7 +107,7 @@ impl ListingPhoto {
             id,
             listing_id,
             r2_key: r2_key_trimmed.to_owned(),
-            thumbnail_r2_key: thumbnail_r2_key.map(str::to_owned),
+            content_sha256,
             caption: caption.map(str::to_owned),
             display_order,
             width_px,

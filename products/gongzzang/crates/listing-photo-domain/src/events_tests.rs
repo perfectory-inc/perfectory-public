@@ -5,11 +5,11 @@ use serde_json::json;
 use shared_kernel::domain_event::DomainEvent;
 use shared_kernel::id::{Id, ListingMarker, ListingPhotoMarker};
 
-use crate::entity::PhotoContentType;
 use crate::events::{
     ListingPhotoUploadConfirmed, ListingPhotoUploadConfirmedFacts,
     LISTING_PHOTO_UPLOAD_CONFIRMED_EVENT_TYPE,
 };
+use shared_kernel::media::MediaFormat;
 
 #[test]
 fn listing_photo_upload_confirmed_event_shape_preserves_domain_and_storage_metadata() {
@@ -24,7 +24,7 @@ fn listing_photo_upload_confirmed_event_shape_preserves_domain_and_storage_metad
         photo_id: photo_id.clone(),
         listing_id: listing_id.clone(),
         r2_key: "media/listing-photo/listings/lst_test/photos/lph_test.webp".to_owned(),
-        content_type: PhotoContentType::Webp,
+        content_type: MediaFormat::Webp,
         file_size_bytes: 123_456,
         occurred_at,
     });
@@ -53,7 +53,7 @@ fn listing_photo_upload_confirmed_event_does_not_embed_foundation_platform_regis
         photo_id: Id::<ListingPhotoMarker>::new(),
         listing_id: Id::<ListingMarker>::new(),
         r2_key: "media/listing-photo/listings/lst_test/photos/lph_test.jpg".to_owned(),
-        content_type: PhotoContentType::Jpeg,
+        content_type: MediaFormat::Jpeg,
         file_size_bytes: 10,
         occurred_at: Utc::now(),
     });

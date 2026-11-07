@@ -24,6 +24,7 @@ EXPECTED_TABLES=(
   "user"
   listing
   listing_photo
+  listing_photo_content_address
   listing_view_event
   bookmark_listing
   bookmark_external

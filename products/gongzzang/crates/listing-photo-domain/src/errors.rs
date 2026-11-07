@@ -8,6 +8,9 @@ pub enum ListingPhotoError {
     /// `r2_key` 빈 문자열.
     #[error("r2_key cannot be empty")]
     EmptyR2Key,
+    /// 매물 사진으로 받지 않는 형식 (jpeg/png/webp 만).
+    #[error("unsupported photo content_type: '{0}' (expected: image/jpeg, image/png, image/webp)")]
+    UnsupportedContentType(String),
     /// `display_order` 음수.
     #[error("display_order must be >= 0 (got {actual})")]
     NegativeDisplayOrder {
