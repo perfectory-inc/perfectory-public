@@ -938,18 +938,15 @@
         ]
       },
       {
-        "name": "the-deploy-does-not-restate-the-compose-chain-self-test",
-        "paths": [
-          "platforms/foundation-platform/scripts/deploy/**",
-          "platforms/foundation-platform/docker-compose.yml"
-        ]
-      },
-      {
         "name": "the-deploy-does-not-restate-the-compose-chain",
         "paths": [
           "platforms/foundation-platform/scripts/deploy/**",
           "platforms/foundation-platform/docker-compose.yml",
-          "platforms/foundation-platform/compose*.yml"
+          "platforms/foundation-platform/compose*.yml",
+          "tools/conftest/compose/chain.rego",
+          "scripts/ci/compose_model.py",
+          "tools/conftest.env",
+          "tools/docker-compose.env"
         ]
       },
       {
