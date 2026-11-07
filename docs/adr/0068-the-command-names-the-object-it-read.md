@@ -119,3 +119,5 @@ under their bare names — but a rollback must not be assumed to have undone a r
 
 Nothing here makes the load safe to re-run until (5) and (6) are done. Until then the parcel load
 must not be run: the guard would recognise 32 objects and not the other 223.
+
+2026-11-08: `scripts/guard/lineage-is-derived-not-passed.sh`(`git ls-files` + grep 두 번)와 자기 시험 → 지움. 같은 성질(입력을 여는 명령이 그 이름까지 받지 않는다)은 Semgrep 규칙 `tools/semgrep/rules/lineage-is-derived.yml`(고정 Opengrep 엔진, 한 파일 안의 두 이름을 잇는 정규식 규칙 둘, 가드 `scripts/guard/semgrep-rules.sh`)이 지킨다. 결정은 그대로다.

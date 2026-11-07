@@ -1,0 +1,36 @@
+# A command that opens an input names that input itself (root ADR-0068).
+#
+# Prevents: on 2026-08-31 the same archive was recorded under two names — one caller passed the
+# bucket key, an earlier one passed only the file name — and the re-run guard, which compares those
+# names as text, read them as two archives and appended 1,164,467 rows that were already in
+# `silver.parcel_boundaries`. Removing the input is the fix; this keeps it removed, because the next
+# caller to add it back would look entirely reasonable. Bare names are also wrong the other way: one
+# file name was found under twelve datasets, so it could mark eleven unloaded datasets as loaded.
+#
+# The rule is a property, not a banned spelling: three publication commands take a variable with
+# the same ending whose value is a `catalog.publication_revision` row id, and they open nothing. Only
+# a command that is given an input to open (`*INPUT_OBJECT_KEY` / `*INPUT_PATH`) must not also be
+# told what it is called — those two can disagree, and that is the incident. The two names sit
+# anywhere in one file, which no single syntax pattern spans, so these are whole-file regex rules.
+rules:
+  - id: a-script-does-not-name-the-input-it-hands-over
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This script hands a command an input and also tells it the input's record name. The command
+      already knows what it opened; derive the value there — root ADR-0068.
+    paths:
+      include:
+        - "*.sh"
+    pattern-regex: (?s)[A-Z0-9_]*(?:INPUT_OBJECT_KEY|INPUT_PATH)=.*?[A-Z0-9_]*SOURCE_RECORD_ID\s*=|[A-Z0-9_]*SOURCE_RECORD_ID\s*=.*?[A-Z0-9_]*(?:INPUT_OBJECT_KEY|INPUT_PATH)=
+
+  - id: a-command-does-not-read-the-name-of-the-input-it-opens
+    languages: [regex]
+    severity: ERROR
+    message: >-
+      This command opens an input and takes its record name from the environment, so the two can
+      disagree. Derive the value from what it opened — root ADR-0068.
+    paths:
+      include:
+        - "*.rs"
+    pattern-regex: (?s)"[A-Z0-9_]*(?:INPUT_OBJECT_KEY|INPUT_PATH)".*?(?:required_env|optional_env)\(\s*"[A-Z0-9_]*SOURCE_RECORD_ID"|(?:required_env|optional_env)\(\s*"[A-Z0-9_]*SOURCE_RECORD_ID".*?"[A-Z0-9_]*(?:INPUT_OBJECT_KEY|INPUT_PATH)"
