@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -16,7 +17,7 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
     asked_condition, collect, in_window, may_ask, night_summary, operator_window, session_pool,
-    source_contract, with_night, Asking, SourceContract, Stop, Window,
+    source_contract, with_night, Asking, FailedPage, SourceContract, Stop, Window,
 };
 
 // Synthetic only: made-up case numbers and court codes (public repository).
@@ -376,7 +377,21 @@ fn every_object_records_the_runs_requests_blocks_renewals_and_sessions() {
         renewals: 12,
         ..AskCounts::default()
     };
-    let summary = night_summary(counts, &[], Some(&Stop::TimeBudget));
+    let failed_page = FailedPage {
+        condition: BTreeMap::new(),
+        page_no: 7,
+        reason: "Status(500)".to_owned(),
+    };
+    let summary = night_summary(
+        counts,
+        &[],
+        &BTreeMap::from([("item_search", std::slice::from_ref(&failed_page))]),
+        Some(&Stop::TimeBudget),
+    );
+    assert_eq!(
+        summary["failed_pages"]["item_search"][0]["page_no"].as_u64(),
+        Some(7)
+    );
     assert_eq!(summary["requests_sent"].as_u64(), Some(1_540));
     assert_eq!(summary["asking"]["blocks"].as_u64(), Some(12));
     assert_eq!(summary["asking"]["renewals"].as_u64(), Some(12));
