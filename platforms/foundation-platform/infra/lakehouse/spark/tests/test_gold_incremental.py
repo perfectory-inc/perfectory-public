@@ -215,10 +215,15 @@ class ProducerDecisions(unittest.TestCase):
                                                           "code-1", 0.3, 10), "new pins are a new plan")
             self.assertNotEqual(key, incremental.plan_key("gold.t", {"silver.a": "12"}, {"silver.a": "11"},
                                                           "code-2", 0.3, 10), "new code is a new plan")
-            other = Path(local) / f"{incremental.RESUMABLE_PREFIX}other"
+            self.assertTrue(key.startswith("t."), key)
+            other = Path(local) / f"{incremental.RESUMABLE_PREFIX}t.other"
             other.mkdir()
+            # Root ADR-0440: the hourly panel job and the kinds job run between two runs of a killed table.
+            other_table = Path(local) / f"{incremental.RESUMABLE_PREFIX}u.killed"
+            other_table.mkdir()
             first = incremental.Stages(spark, key)
-            self.assertFalse(other.exists(), "another plan's stages are a dead run's")
+            self.assertFalse(other.exists(), "another plan of the table is a dead run's")
+            self.assertTrue(other_table.exists(), "another table's plan waits for that table's next run")
             first.materialize("affected", Frame("affected"))
             (first.root / "affected" / "_SUCCESS").touch()
             first.materialize("input-0", Frame("input-0"))  # killed before Spark committed it

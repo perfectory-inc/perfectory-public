@@ -234,6 +234,43 @@ class DocumentSparkTest(unittest.TestCase):
         again = job.gold_rows(self.frames(zones), "snap-2", "2026-11-05T00:00:00Z", GOLD_COLUMNS).first()
         self.assertEqual(first.row_digest, again.row_digest)
 
+    def test_the_whole_build_in_shards_equals_the_whole_build_and_resumes_from_the_shards_it_finished(self):
+        # Root ADR-0440: 2026-11-07 the table's first national build ran past its 160 min unit; built
+        # one shard at a time, a killed run resumes from the shards it staged.
+        import contextlib
+        import io
+
+        import gold_incremental as incremental
+
+        zones = [self.zone("D999", "99999-0001", square(0, 0, 0.0020)),
+                 self.zone("D998", "99999-0002", square(0.0008, 0.0031, 0.0010), code="UQS110", name="도로")]
+        frames = self.frames(zones)
+
+        def build(inputs):
+            return job.gold_rows(inputs, "snap-1", "2026-11-04T00:00:00Z", GOLD_COLUMNS)
+
+        lane = incremental.Lane(build=build, restrict=job.restrict_inputs, affected=None, validate=None,
+                                content_columns=(), gold_columns=GOLD_COLUMNS,
+                                full_shard_keys=lambda inputs: inputs[job.PARCEL_SOURCE])
+        whole = sorted(map(tuple, build(frames).collect()))
+        self.assertTrue(whole)
+        stages = incremental.Stages(self.spark, "shards-fixture")
+        self.addCleanup(stages.remove)
+        # Every synthetic PNU shares its first digits: one shard per PNU here.
+        sharded = incremental.build_in_shards(stages, lane, frames, digits=19)
+        self.assertEqual(sorted(map(tuple, sharded.collect())), whole)
+        # A run killed while it wrote one shard: that shard is built again, the others are read back.
+        shard = sorted(stages.root.glob("full-9*"))[0]
+        (shard / "_SUCCESS").unlink()
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            again = incremental.build_in_shards(incremental.Stages(self.spark, "shards-fixture"), lane, frames, digits=19)
+            self.assertEqual(sorted(map(tuple, again.collect())), whole)
+        resumed = {line.split()[1] for line in printed.getvalue().splitlines() if line.startswith("gold-incremental-resumed")}
+        self.assertIn("full-keys", resumed)
+        self.assertNotIn(shard.name, resumed)
+        self.assertEqual(len(resumed), len(list(stages.root.glob("full-9*"))), resumed)
+
     def test_the_restriction_keeps_the_zones_whose_box_meets_an_affected_parcel(self):
         near = self.zone("D999", "99999-0001", square(0, 0, 0.0020))
         far = self.zone("D998", "99999-0002", square(0.05, 0.05, 0.0010))

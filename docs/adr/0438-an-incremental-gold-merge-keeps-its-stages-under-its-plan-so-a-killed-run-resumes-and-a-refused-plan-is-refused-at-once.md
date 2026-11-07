@@ -59,3 +59,11 @@
 - **parity 불일치를 별도 파일(호스트 상태)에 기억한다.** 계획의 단계와 같은 곳·같은 이름에 두면 지우는 규칙이 하나다.
   계획이 바뀌면 기억도 함께 사라진다.
 - **Spark `checkpoint`/`localCheckpoint`.** SparkContext 와 함께 사라지는 run 범위다. 다음 run 이 읽을 수 없다.
+
+---
+
+개정(2026-11-07, ADR-0440): Consequences 의 "전량 빌드는 이어 쓰지 않는다" 항목에 적은 이유는 틀렸다. 모든 Gold 열은
+계약에서 NOT NULL 없이 만들어지므로(`platform_contracts.create_table_columns_sql`), Parquet 으로 되읽은 단계를 써도
+Iceberg 가 거부하지 않는다. 전량 빌드도 이제 같은 계획 디렉터리에서 샤드마다 이어 쓴다(ADR-0440).
+결정 4 의 "다른 계획의 디렉터리를 지운다" 는 같은 표의 다른 계획으로 좁혔다(ADR-0440 §5): 다른 표의 run 이 죽은 표의
+단계를 지우면 이어 쓸 것이 남지 않는다.
