@@ -64,4 +64,4 @@ FLOOR 설정 → 활성화·마이그레이션·타이머 → Airflow → 작업
 
 ---
 
-개정 2026-11-07: "운영자의 유닛이 돌면 배포 틱은 기다린다"는 [ADR-0440](./0440-a-deploy-never-waits-for-a-running-job-or-an-operators-run-each-keeps-the-release-it-started-with.md) 이 대체한다 — 운영자의 실행은 시작한 릴리스를 지키고, 배포는 릴리스가 작업을 잡을 때만 그것을 기다린다.
+개정 2026-11-07: "운영자의 유닛이 돌면 배포 틱은 기다린다"는 [ADR-0441](./0441-a-deploy-never-waits-for-a-running-job-or-an-operators-run-each-keeps-the-release-it-started-with.md) 이 대체한다 — 운영자의 실행은 시작한 릴리스를 지키고, 배포는 릴리스가 작업을 잡을 때만 그것을 기다린다.

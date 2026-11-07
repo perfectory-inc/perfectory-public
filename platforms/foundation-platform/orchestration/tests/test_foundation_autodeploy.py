@@ -498,7 +498,7 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertTrue((self.state / "deployed" / HEAD).exists())
 
     def test_an_operators_unit_does_not_hold_the_tick(self):
-        # Root ADR-0440: a run keeps the release it started with. 2026-11-07 07:46Z..10:05Z the tick
+        # Root ADR-0441: a run keeps the release it started with. 2026-11-07 07:46Z..10:05Z the tick
         # waited for two lane cut-overs (70 times by 08:55Z) and the SEV1 fix (#1130) could not deploy.
         for state in ("activating", "deactivating", "reloading", "active"):
             with self.subTest(state=state):
@@ -902,7 +902,7 @@ class TheWholeDeploy(unittest.TestCase):
         scripts.mkdir()
         (scripts / "foundation-deploy.sh").write_text(text)
         (scripts / START_ONCE.name).write_bytes(START_ONCE.read_bytes())
-        # The deploy asks which operator units run with its own copy (root ADR-0440), as on the host.
+        # The deploy asks which operator units run with its own copy (root ADR-0441), as on the host.
         (scripts / JOB_UNITS.name).write_bytes(JOB_UNITS.read_bytes())
         self.script = scripts / "foundation-deploy.sh"
         self.bin = root / "bin"
@@ -920,7 +920,7 @@ class TheWholeDeploy(unittest.TestCase):
                           'service="${!#}"; failing=" ${FIXTURE_FAILING:-} "\n'
                           'case "$*" in\n'
                           '  start*) [[ "${failing}" != *" ${service} "* ]] ;;\n'
-                          # An operator's transient unit runs when the test names one (root ADR-0440).
+                          # An operator's transient unit runs when the test names one (root ADR-0441).
                           '  list-units*) if [[ -n "${FIXTURE_OPERATOR_UNIT:-}" ]]; then\n'
                           '      printf "%s loaded active running operator\\n" "${FIXTURE_OPERATOR_UNIT}"; fi ;;\n'
                           '  *Transient*) if [[ "${service}" == "${FIXTURE_OPERATOR_UNIT:-}" ]]; then echo yes; else echo no; fi ;;\n'
@@ -1062,13 +1062,13 @@ class TheWholeDeploy(unittest.TestCase):
                                        "outbox_publish": "pause", "vworld_parcel_edition": "pause"})
 
     def test_an_operators_unit_waits_the_deploy_only_when_the_release_holds_jobs(self):
-        # Root ADR-0440: a run keeps the release it started with, so a release that holds nothing deploys
+        # Root ADR-0441: a run keeps the release it started with, so a release that holds nothing deploys
         # beside an operator's cut-over (2026-11-07 07:46Z..10:05Z the host waited for two and the SEV1
         # fix did not deploy); one that holds jobs (a migration) waits for it and is asked again.
         self.commit_tells_what_it_changes("silver.building_register_floors")
         held = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR)
         self.assertEqual(held.returncode, 75, held.stdout + held.stderr)
-        self.assertIn(f"waiting for the operator's {self.OPERATOR} (root ADR-0440)", held.stderr)
+        self.assertIn(f"waiting for the operator's {self.OPERATOR} (root ADR-0441)", held.stderr)
         self.assertEqual(self.dags(), {}, "nothing was paused")
 
     OPERATOR = "foundation-by-pnu-lane-cutover-g1.service"

@@ -1,5 +1,5 @@
 """scripts/ops/admitted-writer-runtime.sh --current: a writer runs the admitted current release, or the
-release its run started with (root ADR-0440).
+release its run started with (root ADR-0441).
 
 2026-11-07 07:46Z..10:05Z the host deployed nothing while two lane cut-overs ran: a step of a run started
 after a deploy would have been refused on the release the run had pinned. The run's release is

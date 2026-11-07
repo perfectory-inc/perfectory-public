@@ -182,7 +182,7 @@ for id in "${drain[@]}"; do drained["${id}"]=1; done
 drains_all=no
 [[ -z "${drained["*"]-}" ]] || drains_all=yes
 
-# Root ADR-0440: a run keeps the release it started with (a job its physical release, an operator's
+# Root ADR-0441: a run keeps the release it started with (a job its physical release, an operator's
 # run the one it pinned, FOUNDATION_RUN_RELEASE), so the deploy waits for no running job or operator
 # unit, except when the release holds jobs: a held store is one a migration changes, and an
 # operator's unit writes outside the job list, so which held store it writes cannot be told. Then the
@@ -198,7 +198,7 @@ if ((${#drain[@]} > 0)); then
     fi
   done <<<"${units_running}"
   if ((${#operator_units[@]} > 0)); then
-    echo "foundation-deploy: ${sha} holds ${drain[*]}; waiting for the operator's ${operator_units[*]} (root ADR-0440)" >&2
+    echo "foundation-deploy: ${sha} holds ${drain[*]}; waiting for the operator's ${operator_units[*]} (root ADR-0441)" >&2
     exit 75
   fi
 fi

@@ -213,7 +213,7 @@ class OperatorHarness(unittest.TestCase):
         (call,) = [call for call in calls if call["tool"] == "systemd-run"]
         args = call["args"]
         env = dict(args[index + 1].split("=", 1) for index, arg in enumerate(args) if arg == "-E")
-        # Root ADR-0440: every unit the operator starts runs the release this run pinned.
+        # Root ADR-0441: every unit the operator starts runs the release this run pinned.
         self.assertEqual(env.pop("FOUNDATION_RUN_RELEASE", None), RELEASE_ID, args)
         props = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
         return args, env, props
@@ -680,7 +680,7 @@ class PackOperator(OperatorHarness):
         self.assertIn("--no-block", args)
         self.assertEqual(env, {})
         # The scheduled unit's command, both tables, with the one reason naming its decision.
-        # The scheduled unit's script, from the release this run pinned (root ADR-0440).
+        # The scheduled unit's script, from the release this run pinned (root ADR-0441).
         self.assertEqual(args[-4:-1], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), "all",
                                        "--unconditional"])
         self.assertIn("ADR-0166", args[-1])

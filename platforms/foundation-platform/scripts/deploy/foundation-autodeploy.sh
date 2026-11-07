@@ -252,7 +252,7 @@ running_units() {
   python3 -I -B "${platform}/scripts/deploy/job_units.py" running "$@" \
     || { log "systemd cannot tell which units run; asking again next time" >&2; exit 1; }
 }
-# No wait for an operator's unit here (root ADR-0440): a run keeps the release it started with. The
+# No wait for an operator's unit here (root ADR-0441): a run keeps the release it started with. The
 # deploy itself waits for one only when its release holds jobs (foundation-deploy.sh, exit 75).
 reason=systemd_unreadable # until it answers
 # A Worker deploy and an edge apply read the control checkout and the release this deploy is about to
@@ -271,7 +271,7 @@ mkdir -p "${state}/failed" "${state}/deployed"
 status=0
 /bin/bash "${platform}/scripts/deploy/foundation-deploy.sh" "${target}" || status=$?
 if [[ "${status}" == 75 ]]; then
-  # The release holds jobs and an operator's unit runs (root ADR-0440): not a failure; asked again.
+  # The release holds jobs and an operator's unit runs (root ADR-0441): not a failure; asked again.
   reason=operator_unit
   log "${target}: the release holds jobs; waiting for the operator's units, asking again next time"
   exit 0

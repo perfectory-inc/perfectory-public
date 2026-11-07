@@ -170,7 +170,7 @@ PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The release the host serves, not this checkout: the publisher and its scripts are the admitted
 # release's (the control checkout only names this script to sudo).
 RELEASE="${FOUNDATION_OPERATOR_RELEASE_ROOT:-/opt/foundation-platform/current}"
-# Root ADR-0440: a run keeps the release it started with, so a deploy never waits for it. A step of
+# Root ADR-0441: a run keeps the release it started with, so a deploy never waits for it. A step of
 # a run (the cut-over's, whose unit carries FOUNDATION_RUN_RELEASE) runs that release; a new run pins
 # the one `current` names now, once, and hands it to every unit it starts.
 if [[ "${FOUNDATION_RUN_RELEASE:-}" =~ ^[0-9a-f]{40}$ ]]; then
