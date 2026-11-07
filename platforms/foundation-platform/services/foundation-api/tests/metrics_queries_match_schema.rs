@@ -16,9 +16,9 @@ async fn every_metrics_query_runs_on_the_migrated_schema() -> TestResult {
     run_in_disposable_database("metrics_queries_schema", |pool| async move {
         MIGRATOR.run(&pool).await?;
         for (name, sql) in METRICS_QUERIES {
-            if let Err(error) = sqlx::query(sql).fetch_all(&pool).await {
-                panic!("the {name} metrics query does not run on the migrated schema: {error}");
-            }
+            sqlx::query(sql).fetch_all(&pool).await.map_err(|error| {
+                format!("the {name} metrics query does not run on the migrated schema: {error}")
+            })?;
         }
         Ok(())
     })
