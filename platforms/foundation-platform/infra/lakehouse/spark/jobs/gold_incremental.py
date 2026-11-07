@@ -54,6 +54,7 @@ PySpark is imported inside the functions: the CI runner has no PySpark and tests
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import shutil
@@ -63,6 +64,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+import gold_code_version
 from changelog import CHANGES_SUFFIX, FROM_SNAPSHOT, TO_SNAPSHOT, chain
 from lakehouse_ingest import SNAPSHOT_PROPERTY_PREFIX
 from platform_contracts import admit_write
@@ -74,6 +76,10 @@ INPUT_TAG_PREFIX = "foundation-gold-input-"
 # The Gold table's own reader pin (root ADR-0338): the commit that records the Silver pins.
 BUILD_TAG = "foundation-gold-build"
 STAGES_PREFIX = "gold-incremental-"
+# A merge plan's stages, kept across runs of the same plan (root ADR-0438): a run its unit's timeout
+# or a deploy kills resumes from the stages it finished, and a plan refused once is refused at once.
+RESUMABLE_PREFIX = "gold-resumable-"
+REFUSED_MARKER = "refused.txt"
 # Iceberg's table properties for row-level commands, all set to the Gold rebuild contract's
 # `merge.mode` (root ADR-0344): a MERGE that updates or deletes writes by the first.
 ROW_LEVEL_MODE_PROPERTIES = ("write.merge.mode", "write.update.mode", "write.delete.mode")
@@ -614,7 +620,10 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
             plan = plan_merge(spark, build=lane.build, restrict=lane.restrict, new=frames, affected=affected,
                               current_gold=current, gold_rows=gold_rows, content_columns=lane.content_columns,
                               max_fraction=args.max_changed_key_fraction, sample_keys=args.parity_sample_keys,
-                              seed=pins_seed(pins), started=started, row_key=lane.row_key)
+                              seed=pins_seed(pins), started=started, row_key=lane.row_key,
+                              resume_key=plan_key(target_table, pins, previous,
+                                                  gold_code_version.of_running_producer(target_table, pins),
+                                                  args.max_changed_key_fraction, args.parity_sample_keys))
             try:
                 _, metrics = lane.validate(plan["recomputed"])
                 if args.expected_count is not None and plan["row_count"] != args.expected_count:
@@ -663,14 +672,27 @@ class Stages:
     A run killed outright (SIGKILL, the OOM killer, a timeout) never reaches `remove`. Gold runs
     are serialized by the rebuild lock (scripts/ops/gold-panel-rebuild.sh), so a sibling stage
     directory found here can only be a dead run's, and it is deleted before this run writes.
+
+    `resume_key` (root ADR-0438, `plan_key`) names the plan instead: the directory is the plan's, and
+    a stage Spark finished writing (its `_SUCCESS`) is read back rather than recomputed, as the
+    unit-price migration skips the vintages it recorded (root ADR-0317 §5.2). 2026-11-05..06 the
+    parcel panel's merge spent 4,541 s finding its PNUs and 2,409 s restricting its inputs before its
+    160 min unit timed out, and each run of the same pins began again from nothing. Another plan's
+    directory is a dead run's of other pins or code, and is deleted.
     """
 
-    def __init__(self, spark: Any) -> None:
+    def __init__(self, spark: Any, resume_key: str | None = None) -> None:
         local = Path((spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0])
         for dead in local.glob(STAGES_PREFIX + "*"):
             shutil.rmtree(dead, ignore_errors=True)
+        if resume_key is not None:
+            for dead in local.glob(RESUMABLE_PREFIX + "*"):
+                if dead.name != RESUMABLE_PREFIX + resume_key:
+                    shutil.rmtree(dead, ignore_errors=True)
         self.spark = spark
-        self.root = local / f"{STAGES_PREFIX}{uuid.uuid4().hex}"
+        self.resumable = resume_key is not None
+        self.root = local / (f"{RESUMABLE_PREFIX}{resume_key}" if self.resumable
+                             else f"{STAGES_PREFIX}{uuid.uuid4().hex}")
         # Stages are read back row-wise: a vectorized batch of building panel rows asked for one
         # contiguous 568 MiB buffer and died of heap on 2026-10-12, the read ADR-0185 already makes
         # row-wise for the Gold table itself. The setting covers Spark's own Parquet reads only;
@@ -678,19 +700,45 @@ class Stages:
         spark.conf.set("spark.sql.parquet.enableVectorizedReader", "false")
 
     def materialize(self, name: str, frame: Any) -> Any:
-        path = (self.root / name).as_posix()
-        frame.write.mode("errorifexists").parquet("file://" + path)
-        return self.spark.read.parquet("file://" + path)
+        path = self.root / name
+        if self.resumable and (path / "_SUCCESS").exists():
+            print(f"gold-incremental-resumed {name}", flush=True)
+        else:
+            # A resumable stage without `_SUCCESS` is a killed write's: it is written again whole.
+            frame.write.mode("overwrite" if self.resumable else "errorifexists").parquet("file://" + path.as_posix())
+        return self.spark.read.parquet("file://" + path.as_posix())
+
+    def refusal(self) -> str | None:
+        """Why an earlier run of this plan was refused, or None."""
+        marker = self.root / REFUSED_MARKER
+        return marker.read_text(encoding="utf-8") if self.resumable and marker.exists() else None
+
+    def refuse(self, reason: str) -> None:
+        """Keep only the refusal: the same pins and code are refused the same way (root ADR-0438)."""
+        self.remove()
+        if self.resumable:
+            self.root.mkdir(parents=True, exist_ok=True)
+            (self.root / REFUSED_MARKER).write_text(reason, encoding="utf-8")
 
     def remove(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+def plan_key(table: str, pins: dict[str, str], previous: dict[str, str], code: str | None,
+             max_fraction: float, sample_keys: int) -> str:
+    """The merge plan's name (root ADR-0438): everything that decides the stages `plan_merge` writes.
+    The same table, pins, previous pins, producer code version and sample bounds make the same stages."""
+    plan = {"table": table, "pins": pins, "previous": previous, "code": code,
+            "max_fraction": max_fraction, "sample_keys": sample_keys}
+    return hashlib.sha256(json.dumps(plan, sort_keys=True).encode("utf-8")).hexdigest()[:32]
 
 
 def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
                restrict: Callable[[dict[str, Any], Any], dict[str, Any]], new: dict[str, Any],
                affected: Any, current_gold: Any, gold_rows: int, content_columns: tuple[str, ...],
                max_fraction: float, sample_keys: int, seed: str,
-               started: float | None = None, row_key: tuple[str, ...] = (KEY,)) -> dict[str, Any]:
+               started: float | None = None, row_key: tuple[str, ...] = (KEY,),
+               resume_key: str | None = None) -> dict[str, Any]:
     """Recompute the affected PNUs and a parity sample; return the merge source and its counts.
 
     Raises IncrementalRefusal when the change set is too large or the parity sample disagrees.
@@ -701,18 +749,29 @@ def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
     several times over, and an input restricted by key frames that are themselves joins of two
     snapshots would make one plan of every copy — on a 41-row fixture that plan alone took a 4g
     driver heap. The stages also fix the merge source before the MERGE reads the target.
+
+    With `resume_key` the stages are the plan's (`Stages`): a killed run's finished stages are read
+    back, and a refusal is kept, so a rerun of a refused plan falls back to the full rebuild at once.
     """
     from pyspark.sql import functions as F
 
-    stages = Stages(spark)
+    stages = Stages(spark, resume_key)
+    refused = stages.refusal()
+    if refused is not None:
+        raise IncrementalRefusal(f"a run of this same plan was refused: {refused}")
     try:
         return plan_merge_in(stages, build=build, restrict=restrict, new=new, affected=affected,
                              current_gold=current_gold, gold_rows=gold_rows,
                              content_columns=content_columns, max_fraction=max_fraction,
                              sample_keys=sample_keys, seed=seed, F=F,
                              started=time.monotonic() if started is None else started, row_key=row_key)
+    except IncrementalRefusal as refusal:
+        stages.refuse(str(refusal))
+        raise
     except BaseException:
-        stages.remove()
+        # A resumable plan keeps what it finished: the next run of it starts there.
+        if not stages.resumable:
+            stages.remove()
         raise
 
 
