@@ -167,6 +167,42 @@ class Reconciler(unittest.TestCase):
         self.assertTrue(owed[0].startswith("foundation-asset-owed gold_panel_rebuild "), owed)
         self.assertEqual(owed, tick()[0], "the same versions are one key: started once")
 
+    def test_a_gold_start_that_did_not_catch_up_is_started_again_after_a_backoff(self):
+        # 2026-11-07 08:45Z the panel rebuild ended `waiting` behind a cut-over's rebuild lock, its key
+        # was used, and the same owed versions would never have been started again.
+        parcel = self.panels["gold.parcel_panel"]
+        pins = {name: "5" for name in parcel.inputs}
+        self.catalog["gold.parcel_panel"] = table(snap("601", None, 0, operation="overwrite", pins=pins))
+        for name in parcel.inputs:
+            self.catalog[name] = table(snap("5", None, 0))
+        self.catalog["silver.land_transfer_history"] = table(snap("5", None, 0), snap("6", "5", 10))
+        state, keys = {}, []
+
+        def tick(minutes, busy=False):
+            nonlocal state
+            owed, _, state, _ = asset_reconcile.tick(T0 + 60 * minutes, [parcel], self.catalog.__getitem__,
+                                                     self.reads.get, lambda service: busy, lambda job: "", state)
+            keys.append(owed[0].split()[-1] if owed else None)
+
+        tick(20)
+        tick(25)
+        self.assertEqual(keys[0], keys[1], "inside the backoff: the same key, started once")
+        tick(31)
+        self.assertNotEqual(keys[2], keys[0], "ten minutes on and still owed: a new start")
+        for minutes in (35, 60, 160):
+            tick(minutes, busy=True)
+        self.assertEqual(keys[-1], None, "a running job is owed nothing")
+        tick(170)
+        self.assertEqual(keys[-1], keys[2], "the backoff counts from when the job last ran: twenty minutes")
+        tick(181)
+        self.assertNotIn(keys[-1], (keys[0], keys[2]))
+        self.catalog["gold.parcel_panel"] = table(snap("601", None, 0, operation="overwrite", pins=pins),
+                                                  snap("603", "601", 190, operation="overwrite",
+                                                       pins={**pins, "silver.land_transfer_history": "6"}))
+        tick(191)
+        self.assertEqual((keys[-1], state["iceberg://gold.parcel_panel"].get("attempt")), (None, None),
+                         "caught up: nothing owed and the attempts forgotten")
+
     def test_the_unit_price_gold_is_owed_when_the_building_gold_moved_its_registers(self):
         owed, _, _, _ = self.tick()
         self.assertFalse(any("gold_unit_price_rebuild" in line for line in owed))
