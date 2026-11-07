@@ -177,6 +177,8 @@ class OperatorHarness(unittest.TestCase):
             "FOUNDATION_OPERATOR_SERVICE_OWNER": owner,
             "FOUNDATION_OPERATOR_ROOT_OWNER": owner,
             "FOUNDATION_OPERATOR_SERVICE_GROUP": group,
+            # The host's capacity queue the cut-over runner claims the spark pool in (root ADR-0435).
+            "FOUNDATION_CAPACITY_CLAIMS_DIR": str(self.root / "capacity"),
         }
 
     def work(self, lane="parcel", generation=1):

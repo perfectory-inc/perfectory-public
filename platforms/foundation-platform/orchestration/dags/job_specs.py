@@ -409,6 +409,41 @@ def priority_weight(job):
     return value
 
 
+def priority_class(jobs, entry, name):
+    """The host's priority class of a job or a capacity claimant (`priority_class`, `default` when
+    absent, root ADR-0435): one of the list's priority_classes. A class that yields at a step boundary
+    is only for a spark-pool job whose run commits as it goes, so yielding loses no committed step."""
+    classes = jobs.get("priority_classes") or {}
+    value = entry.get("priority_class", "default")
+    if value not in classes or not isinstance(classes[value].get("value"), int):
+        raise JobListError(f"{name}: priority_class {value!r} is not one of {sorted(classes)}")
+    if classes[value].get("yields_at_step_boundary") and (
+            entry.get("pool") != "spark" or entry.get("commits", "as_it_goes") != "as_it_goes"
+            or entry.get("interruptible") is False):
+        raise JobListError(f"{name}: priority_class {value} yields at a step boundary; only a spark-pool job"
+                           " that commits as it goes and is interruptible can")
+    return value
+
+
+def capacity_claimants(jobs, pools):
+    """The work outside the job list that claims pool slots (root ADR-0435), each checked."""
+    claimants = jobs.get("capacity_claimants") or {}
+    for name, claimant in claimants.items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", name) or any(job["id"] == name for job in jobs["jobs"]):
+            raise JobListError(f"capacity claimant {name!r} is not a lower_snake name apart from every job id")
+        if claimant.get("pool") not in pools or claimant["pool"] == DEFAULT_POOL:
+            raise JobListError(f"capacity claimant {name}: pool {claimant.get('pool')!r} is not a declared pool")
+        slots = jobs["pools"][claimant["pool"]]["slots"]
+        if type(claimant.get("pool_slots")) is not int or not 1 <= claimant["pool_slots"] <= slots:
+            raise JobListError(f"capacity claimant {name}: pool_slots must be 1 to {slots}")
+        if not re.fullmatch(r"[a-z0-9@*-]+\.service", claimant.get("unit") or ""):
+            raise JobListError(f"capacity claimant {name}: unit must be a systemd service name or pattern")
+        if (jobs["priority_classes"].get(claimant.get("priority_class")) or {}).get("yields_at_step_boundary"):
+            raise JobListError(f"capacity claimant {name}: a claimant does not yield; name another class")
+        priority_class(jobs, claimant, f"capacity claimant {name}")
+    return claimants
+
+
 def run_limit_minutes(job):
     """One run's limit: its time_limit_minutes plus its stop_grace_minutes (root ADR-0270 §1).
 
@@ -776,6 +811,7 @@ def load_specs(jobs=None, graph=None):
         raise JobListError("jobs.v1.json dag_id_prefix must be a lower_snake name ending in '_'")
 
     pools = {DEFAULT_POOL, *declared_pools(jobs)}
+    capacity_claimants(jobs, pools)
     found = datasets(jobs, graph)
     feeders = producers(jobs, graph)
     by_id = {job["id"]: job for job in jobs["jobs"]}
@@ -792,6 +828,7 @@ def load_specs(jobs=None, graph=None):
             raise JobListError(f"{job_id}: takes_turns must be true or false")
         retries(job)
         priority_weight(job)
+        priority_class(jobs, job, job_id)
         if not isinstance(job.get("enabled"), bool):
             raise JobListError(f"{job_id}: enabled must be true or false")
         reason = job.get("disabled_reason")

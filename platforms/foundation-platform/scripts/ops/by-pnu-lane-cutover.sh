@@ -52,9 +52,15 @@
 #     started plus the tail. The window is job_units.py's (scheduled_window), computed from that
 #     file; the scheduler's runner keeps the clock-started batch it places inside it out of the rest
 #     of the day, the operator window (start-scheduled-job.sh, root ADR-0425).
-#   - one Spark job at a time: before `gold` and `bake` the run waits (up to SPARK_WAIT_MINUTES)
-#     until no unit of a spark-pool job, Gold rebuild or pack bake runs. The operator refuses again
-#     on its own when one does (exit 75).
+#   - one Spark job at a time, by capacity (root ADR-0435): the run claims the whole spark pool in
+#     the host's capacity queue for as long as its unit runs (jobs.v1.json capacity_claimants
+#     by_pnu_lane_cutover, class `publish`), so no start of a lower class, and no later start of its
+#     own, takes the pool while it waits, and a running backfill yields at its next step boundary.
+#     Before `gold` and `bake` the run waits until no unit of a spark-pool job, Gold rebuild or pack
+#     bake runs. Nothing new can start under the claim, so the wait is bounded by the longest run
+#     limit (time_limit_minutes + stop_grace_minutes) of the jobs that ran when it began; a wait
+#     past it means the host is wedged, and the run fails and pages. The operator refuses again on
+#     its own when one does (exit 75).
 #
 # --dry-run prints the lanes, their steps, each step's command and window verdict and the preview
 # answers; it starts, writes and waits for nothing. It exits 1 when a step could not start now.
@@ -88,7 +94,8 @@ GOLD_LOG="${BAKE_ROOT}/gold-rebuild/logs/gold-rebuild.log"
 GOLD_STATE_ROOT="${FOUNDATION_GOLD_REBUILD_STATE_ROOT:-/var/lib/foundation-gold-panel-rebuild}"
 # The FOUNDATION_CUTOVER_* overrides exist for the tests; the operator's sudo grant resets them.
 POLL_SECONDS="${FOUNDATION_CUTOVER_POLL_SECONDS:-60}"
-SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-45}"
+# A test's bound on the Spark wait; on the host the wait is bounded by what runs (above).
+SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-}"
 now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 
 # Each step's time budget in minutes: the window guard starts a step only if this much time is
@@ -171,6 +178,11 @@ for lane in chosen:
 # The daily scheduled window (job_units.py). Hourly jobs (hour `*`) are not the window; the Spark
 # wait catches them.
 units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"})
+# Each spark-pool unit's run limit, for the Spark wait's bound; the operator's own Gold and pack bake
+# units are bounded like the longest job.
+limits = {job["systemd_service"]: job["time_limit_minutes"] + job["stop_grace_minutes"]
+          for job in jobs if job.get("pool") == "spark"}
+print("limits", max(limits.values()), " ".join(f"{unit}={minutes}" for unit, minutes in sorted(limits.items())))
 try:
     start, end = job_units.scheduled_window(jobs)
 except ValueError as error:
@@ -180,6 +192,8 @@ PY
 ) || refuse "cannot read the lanes to cut over from the contracts" 65
 ((${#PLAN[@]} > 0)) || refuse "cannot read the lanes to cut over from the contracts" 65
 read -r _ WINDOW_START WINDOW_END SPARK_UNITS <<<"${PLAN[-1]}"
+unset 'PLAN[-1]'
+read -r _ LONGEST_LIMIT UNIT_LIMITS <<<"${PLAN[-1]}"
 unset 'PLAN[-1]'
 # Units that run Spark: every spark-pool job, the operator's Gold rebuild and the pack bakes.
 read -ra SPARK_UNITS <<<"${SPARK_UNITS} foundation-gold-panel-rebuild-unconditional.service foundation-*-pack-bake-g*.service"
@@ -257,6 +271,14 @@ fi
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 EVIDENCE="${BAKE_ROOT}/cutover/${RUN_ID}.jsonl"
 mkdir -p "${EVIDENCE%/*}"
+# The run's claim on the spark pool (root ADR-0435), for as long as its unit runs; taken off when it
+# ends. A claim that cannot be queued stops the run: without it a backfill keeps the pool.
+JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
+JOBS_FILE="${PLATFORM_ROOT}/orchestration/jobs.v1.json"
+CLAIM_UNIT="foundation-by-pnu-lane-cutover-g${GENERATION}.service"
+python3 -I -B "${JOB_UNITS}" claim "${JOBS_FILE}" by_pnu_lane_cutover "${CLAIM_UNIT}" \
+  || refuse "cannot queue the run's claim on the spark pool" 70
+trap 'python3 -I -B "${JOB_UNITS}" release by_pnu_lane_cutover || true' EXIT
 # An operator's stop (systemctl stop of this unit, root ADR-0433 §1) ends the run between steps: the
 # step in progress runs on in its own unit, nothing after it starts.
 trap 'progress finished outcome=failed "reason=stopped by an operator: the step in progress finishes in its own unit, nothing after it starts" "run=${RUN_ID}"; exit 143' TERM
@@ -271,12 +293,24 @@ fail() {  # lane step seconds reason
   progress finished outcome=failed "reason=${1} ${2}: ${4}" "run=${RUN_ID}"
   exit 1
 }
+# The longest run limit of the units that run now: nothing starts under the claim, so they end by then.
+wait_bound() {  # running lines "<unit> <state>"
+  local unit _ longest=0 limit
+  while read -r unit _; do
+    [[ -n "${unit}" ]] || continue
+    limit="${LONGEST_LIMIT}"
+    for entry in ${UNIT_LIMITS}; do [[ "${entry%=*}" == "${unit}" ]] && limit="${entry#*=}"; done
+    ((limit > longest)) && longest="${limit}"
+  done <<<"$1"
+  echo "${longest}"
+}
 wait_for_spark() {  # lane step
-  local waited=0 running
+  local waited=0 running bound=""
   while :; do
     running="$(spark_running)"
     [[ -n "${running}" ]] || return 0
-    ((waited < SPARK_WAIT_MINUTES * 60)) || fail "$1" "$2" 0 "Spark still runs after ${SPARK_WAIT_MINUTES} min: $(cut -d' ' -f1 <<<"${running}" | paste -sd' ')"
+    [[ -n "${bound}" ]] || bound="${SPARK_WAIT_MINUTES:-$(wait_bound "${running}")}"
+    ((waited < bound * 60)) || fail "$1" "$2" 0 "Spark still runs after ${bound} min, the longest run limit of what ran when the wait began, with the pool claimed: $(cut -d' ' -f1 <<<"${running}" | paste -sd' ')"
     log "${1} ${2}: waiting for $(cut -d' ' -f1 <<<"${running}" | paste -sd' ')"
     sleep "${POLL_SECONDS}"
     waited=$((waited + POLL_SECONDS))

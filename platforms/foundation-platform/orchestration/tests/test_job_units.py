@@ -198,6 +198,81 @@ class EveryStartTakesThePoolsSlots(unittest.TestCase):
         self.assertEqual(self.pool_full("no_such_job").returncode, 64)
 
 
+class CapacityGoesByPriorityNotByClock(unittest.TestCase):
+    """Root ADR-0435: the spark pool is the resource; a waiting publish claim holds back every lower
+    start and a later one of its class, and a running backfill yields at its next step boundary.
+
+    The 2026-11-06 replay: unit_price_versions_migration (a backfill) started at 23:46Z from a missed
+    tick; at 00:37Z the parcel-ownership cut-over waited 45 minutes for it and failed."""
+
+    CUTOVER = "foundation-by-pnu-lane-cutover-g1.service"
+    MIGRATION = "foundation-unit-price-versions-migrate.service"
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="job-units-capacity-")
+        self.addCleanup(temp.cleanup)
+        self.root = pathlib.Path(temp.name)
+        (self.root / "systemctl").write_text(FAKE_SYSTEMCTL)
+        (self.root / "systemctl").chmod(0o755)
+        self.claims = self.root / "capacity"
+
+    def job_units(self, *args, units=None):
+        return subprocess.run(
+            [sys.executable, "-I", "-B", str(JOB_UNITS), *args],
+            env={**os.environ, "PATH": f"{self.root}{os.pathsep}{os.environ['PATH']}",
+                 "FAKE_LOG": str(self.root / "systemctl.log"), "FOUNDATION_CAPACITY_CLAIMS_DIR": str(self.claims),
+                 "FAKE_UNITS": ",".join(f"{unit}=activating" for unit in units or ())},
+            capture_output=True, text=True, timeout=30)
+
+    def test_every_class_is_declared_and_the_backfill_and_the_publishers_name_theirs(self):
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        classes = listing["priority_classes"]
+        self.assertGreater(classes["publish"]["value"], classes["default"]["value"])
+        self.assertGreater(classes["default"]["value"], classes["backfill"]["value"])
+        by_id = {job["id"]: job for job in listing["jobs"]}
+        self.assertEqual(by_id["unit_price_versions_migration"]["priority_class"], "backfill")
+        for job_id, job in by_id.items():
+            if re.fullmatch(r"by_pnu_.*_bake", job_id):
+                self.assertEqual(job.get("priority_class"), "publish", job_id)
+        self.assertEqual(listing["capacity_claimants"]["by_pnu_lane_cutover"]["priority_class"], "publish")
+
+    def test_the_eleven_o_six_backfill_yields_to_the_waiting_cut_over_and_nothing_lower_starts(self):
+        claimed = self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER)
+        self.assertEqual(claimed.returncode, 0, claimed.stderr)
+        # 00:37Z: the migration runs and the cut-over's unit waits with its claim.
+        running = [self.MIGRATION, self.CUTOVER]
+        yielded = self.job_units("preempted", str(JOBS), "unit_price_versions_migration", units=running)
+        self.assertEqual(yielded.returncode, 0, yielded.stderr)
+        self.assertIn("yielded the spark pool to by_pnu_lane_cutover (publish)", yielded.stdout)
+        # After the migration ended at its step boundary, no default or backfill start, and no later
+        # publish start, takes the pool the cut-over waits for.
+        for job in ("unit_price_versions_migration", "gold_panel_rebuild", "by_pnu_unit_price_bake"):
+            with self.subTest(job=job):
+                held = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER])
+                self.assertEqual(held.returncode, 0, held.stderr)
+                self.assertIn("kept for claims queued before", held.stdout)
+                self.assertIn("by_pnu_lane_cutover", held.stdout)
+
+    def test_a_claim_whose_unit_stopped_holds_nothing_and_a_release_removes_it(self):
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        # The cut-over's unit is gone (it ended, or crashed before it took the claim off).
+        for job in ("unit_price_versions_migration", "gold_panel_rebuild"):
+            self.assertEqual(self.job_units("pool-full", str(JOBS), job).stdout.strip(), "")
+        self.assertEqual(self.job_units("preempted", str(JOBS), "unit_price_versions_migration",
+                                        units=[self.MIGRATION]).stdout.strip(), "")
+        self.assertEqual(self.job_units("release", "by_pnu_lane_cutover").returncode, 0)
+        self.assertEqual(sorted(self.claims.iterdir()), [])
+
+    def test_only_a_yielding_class_is_preempted_and_only_a_declared_claimant_claims(self):
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        floor = self.job_units("preempted", str(JOBS), "building_register_floor",
+                               units=["foundation-building-register-floor.service", self.CUTOVER])
+        self.assertEqual(floor.stdout.strip(), "", "a default job runs to its end; the claim waits for it")
+        for args in (("someone_else", self.CUTOVER), ("by_pnu_lane_cutover", "foundation-gold-panel-rebuild.service")):
+            with self.subTest(args=args):
+                self.assertEqual(self.job_units("claim", str(JOBS), *args).returncode, 64)
+
+
 class TheOneDefinition(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="job-units-")

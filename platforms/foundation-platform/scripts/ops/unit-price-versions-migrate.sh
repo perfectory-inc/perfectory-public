@@ -58,6 +58,21 @@ run_id="$(date -u +%Y%m%dT%H%M%SZ)"
 work="${STATE_ROOT}/runs/${run_id}"
 mkdir -p "${work}"
 chmod 0777 "${work}" # the Spark container writes as uid 185
+# A backfill yields at a step boundary (root ADR-0435): while the run lasts, the host's capacity queue
+# is asked every poll whether a higher priority class (a by-PNU publish) waits for the spark pool;
+# then the run's yield file is written, which the job reads before each step, and no further step
+# starts. Every step taken is committed, so the next start resumes after it. 2026-11-06 00:37Z: the
+# parcel-ownership cut-over waited 45 minutes for this run and failed.
+yield_file="${work}/yield"
+(
+  while sleep "${FOUNDATION_UNIT_PRICE_VERSIONS_YIELD_POLL_SECONDS:-30}"; do
+    reason="$(python3 -I -B "${RELEASE_ROOT}/scripts/deploy/job_units.py" preempted \
+      "${RELEASE_ROOT}/orchestration/jobs.v1.json" unit_price_versions_migration 2>/dev/null)" || continue
+    [[ -z "${reason}" ]] || { printf '%s\n' "${reason}" >"${yield_file}"; exit 0; }
+  done
+) &
+yield_watch=$!
+trap 'kill "${yield_watch}" 2>/dev/null || true' EXIT
 # Each step's line reaches the journal as it is printed; the Spark log stays in the run directory.
 set +e
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${work}" \
@@ -68,7 +83,7 @@ lakehouse_spark_run "foundation-unit-price-versions-${INVOCATION_ID}" -v "${SCRA
   spark spark-submit --master "${master}" --driver-memory "${driver_memory}" \
   --conf spark.local.dir=/scratch --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/vintage_versions.py \
-  --summary-output /workspace/target/lakehouse/summary.json 2>&1 \
+  --summary-output /workspace/target/lakehouse/summary.json --yield-file /workspace/target/lakehouse/yield 2>&1 \
   | tee "${work}/run.log" | grep -a --line-buffered '^vintage-versions '
 status="${PIPESTATUS[0]}"
 set -e
@@ -95,6 +110,14 @@ case "${state:-}" in
 ' "${run_id}" ;;
   progress) printf 'unit-price-versions progress=incomplete run=%s (the next run continues)
 ' "${run_id}" ;;
+  yielded)
+    printf 'unit-price-versions yielded run=%s: %s (the next run continues)
+' "${run_id}" "$(cat "${yield_file}" 2>/dev/null)"
+    if [[ "${written}" != yes ]]; then
+      printf 'foundation-job-outcome waiting %s
+' "$(cat "${yield_file}" 2>/dev/null || echo 'yielded the spark pool to a higher priority class')"
+      exit 0
+    fi ;;
   stalled)
     printf 'unit-price-versions FAILED stalled: not complete and no step fit the run budget run=%s log=%s
 ' "${run_id}" "${work}/run.log"

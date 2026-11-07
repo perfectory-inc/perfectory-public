@@ -276,6 +276,20 @@ class LaneCutover(OperatorHarness):
                 self.assertEqual(last["step"], "gold")
                 self.assertIn(unit, last["reason"])
 
+    def test_the_run_claims_the_spark_pool_while_it_waits_and_leaves_no_claim_behind(self):
+        # Root ADR-0435, the 2026-11-06 00:37Z replay: the cut-over waits for the running backfill with
+        # its claim queued (the backfill yields to it, nothing lower starts), and takes it off at the end.
+        migration = "foundation-unit-price-versions-migrate.service"
+        claims = self.root / "capacity"
+        result, calls = self.runner(LANE, "1", FAKE_ACTIVATING=migration, FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES="0")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
+        last = self.evidence()[-1]
+        self.assertEqual(last["step"], "gold")
+        self.assertIn("with the pool claimed", last["reason"])
+        self.assertIn(migration, last["reason"])
+        self.assertEqual(sorted(claims.iterdir()) if claims.exists() else [], [], "the claim is taken off at the end")
+
     def test_no_step_starts_in_or_runs_into_the_scheduled_window(self):
         # Every daily start of a spark-pool job is inside the window the runner keeps out of.
         daily = sorted({(int(job["schedule"].split()[1]), int(job["schedule"].split()[0])) for job in JOBS

@@ -89,6 +89,7 @@
       "pool": "spark",
       "pool_slots": 1,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-parcel-public-auction-to-parcel-public-auction-by-pnu-section-packs"

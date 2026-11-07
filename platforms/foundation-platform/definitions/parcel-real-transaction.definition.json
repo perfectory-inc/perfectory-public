@@ -72,6 +72,7 @@
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-parcel-real-transaction-to-parcel-real-transaction-by-pnu-section-packs"
