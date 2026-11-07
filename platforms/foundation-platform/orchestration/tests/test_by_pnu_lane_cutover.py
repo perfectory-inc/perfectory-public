@@ -129,7 +129,7 @@ class LaneCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         args, _, _ = self.unit(calls)
         # Only the lane's table, only when an input moved: no `all`, no --unconditional.
-        self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
+        self.assertEqual(args[-2:], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), unit])
         self.assertIn("--no-block", args)
         self.log.unlink()
         result, calls = self.run_operator(LANE, "gold-rebuild", FOUNDATION_OPERATOR_WAIT="1")
@@ -252,13 +252,13 @@ class LaneCutover(OperatorHarness):
         result, calls = self.run_operator("gold", "rebuild", unit)
         self.assertEqual(result.returncode, 0, result.stderr)
         args, _, _ = self.unit(calls)
-        self.assertEqual(args[-2:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit])
+        self.assertEqual(args[-2:], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), unit])
         self.log.unlink()
         # The measured run of an input listed under unmeasured_inputs: the same unit, nothing committed.
         result, calls = self.run_operator("gold", "rebuild", unit, "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         args, _, _ = self.unit(calls)
-        self.assertEqual(args[-3:], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", unit, "--dry-run"])
+        self.assertEqual(args[-3:], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), unit, "--dry-run"])
         self.log.unlink()
         for args in (("gold", "rebuild"), ("gold", "rebuild", "all"), ("gold", "rebuild", unit, "x"),
                      ("gold", "rebuild", unit, "--dry-run", "x"), ("gold", "rebuild", "--dry-run"),

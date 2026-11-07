@@ -182,6 +182,27 @@ for id in "${drain[@]}"; do drained["${id}"]=1; done
 drains_all=no
 [[ -z "${drained["*"]-}" ]] || drains_all=yes
 
+# Root ADR-0440: a run keeps the release it started with (a job its physical release, an operator's
+# run the one it pinned, FOUNDATION_RUN_RELEASE), so the deploy waits for no running job or operator
+# unit, except when the release holds jobs: a held store is one a migration changes, and an
+# operator's unit writes outside the job list, so which held store it writes cannot be told. Then the
+# deploy waits for it (exit 75, the next tick asks again), as for a held job that cannot be stopped.
+if ((${#drain[@]} > 0)); then
+  operator_units=()
+  # Assigned before it is read: a systemd that cannot answer is not "nothing runs" (ADR-0012 rule 2).
+  units_running="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/job_units.py" running 'foundation-*')" \
+    || { echo "foundation-deploy: systemd cannot tell which units run; ${sha} holds ${drain[*]}" >&2; exit 75; }
+  while read -r unit _; do
+    if [[ -n "${unit}" && "$(systemctl show -p Transient --value "${unit}")" == yes ]]; then
+      operator_units+=("${unit}")
+    fi
+  done <<<"${units_running}"
+  if ((${#operator_units[@]} > 0)); then
+    echo "foundation-deploy: ${sha} holds ${drain[*]}; waiting for the operator's ${operator_units[*]} (root ADR-0440)" >&2
+    exit 75
+  fi
+fi
+
 log "0. pause and drain what ${sha} holds (root ADR-0308): ${drain[*]:-nothing}"
 # From here until step 7 the drained DAGs are paused; every other job keeps its schedule and its run.
 # A deploy that stops before the release switch gives the running release its schedule back; one that

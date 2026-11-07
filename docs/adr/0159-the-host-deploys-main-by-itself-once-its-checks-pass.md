@@ -61,3 +61,7 @@ FLOOR 설정 → 활성화·마이그레이션·타이머 → Airflow → 작업
 2026-10-10: Consequences 의 "Cloudflare Worker 배포 … 의 자동화는 이 다음이다"는 [ADR-0175](./0175-workers-deploy-themselves-after-the-host-deploys-main.md) 가 했다. 서버가 main 을 배포한 뒤 소스가 바뀐 Worker 를 미리보기 → 운영 순서로 배포하고, 스모크가 실패하면 옛 버전으로 되돌린다. 단계 배포 판정의 자동화는 여전히 다음이다.
 
 2026-10-12: §2 의 "10분마다"는 [ADR-0187](./0187-the-host-looks-for-main-every-minute-and-asks-the-checks-sparingly.md) 이 1분으로 바꿨다. 판정이 없는 커밋의 검사 결과는 5분에 한 번만 묻고, 통과 판정은 저장한다.
+
+---
+
+개정 2026-11-07: "운영자의 유닛이 돌면 배포 틱은 기다린다"는 [ADR-0440](./0440-a-deploy-never-waits-for-a-running-job-or-an-operators-run-each-keeps-the-release-it-started-with.md) 이 대체한다 — 운영자의 실행은 시작한 릴리스를 지키고, 배포는 릴리스가 작업을 잡을 때만 그것을 기다린다.

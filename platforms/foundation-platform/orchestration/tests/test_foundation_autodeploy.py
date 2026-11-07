@@ -497,24 +497,25 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.deployed(), [HEAD])
         self.assertTrue((self.state / "deployed" / HEAD).exists())
 
-    def test_an_operators_unit_holds_the_deploy_until_it_ends(self):
-        result = self.tick(FIXTURE_UNITS="foundation-gold-panel-rebuild-unconditional.service:yes")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("waiting for the operator's foundation-gold-panel-rebuild-unconditional", result.stdout)
-        self.assertEqual(self.deployed(), [])
-        self.assertEqual(self.tick().returncode, 0)
+    def test_an_operators_unit_does_not_hold_the_tick(self):
+        # Root ADR-0440: a run keeps the release it started with. 2026-11-07 07:46Z..10:05Z the tick
+        # waited for two lane cut-overs (70 times by 08:55Z) and the SEV1 fix (#1130) could not deploy.
+        for state in ("activating", "deactivating", "reloading", "active"):
+            with self.subTest(state=state):
+                result = self.tick(FIXTURE_UNITS=f"foundation-by-pnu-lane-cutover-g1.service:yes:{state}")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("waiting for the operator's", result.stdout)
         self.assertEqual(self.deployed(), [HEAD])
 
-    def test_an_operators_oneshot_or_stopping_unit_holds_the_deploy_and_a_failed_one_does_not(self):
-        # A oneshot is `activating` for its whole run (root ADR-0184): job_units.py's definition.
-        for state in ("activating", "deactivating", "reloading"):
-            with self.subTest(state=state):
-                result = self.tick(FIXTURE_UNITS=f"foundation-raon-large-files-operator.service:yes:{state}")
-                self.assertIn("waiting for the operator's foundation-raon-large-files-operator", result.stdout)
-                self.assertEqual(self.deployed(), [])
-        result = self.tick(FIXTURE_UNITS="foundation-raon-large-files-operator.service:yes:failed")
+    def test_a_deploy_that_waits_for_an_operator_is_asked_again_not_failed(self):
+        # foundation-deploy.sh exits 75 when its release holds jobs and an operator's unit runs.
+        result = self.tick(FIXTURE_DEPLOY_EXIT="75")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.deployed(), [HEAD])
+        self.assertIn("waiting for the operator's units", result.stdout)
+        self.assertFalse((self.state / "failed" / HEAD).exists())
+        self.assertFalse((self.state / "deployed" / HEAD).exists())
+        self.assertEqual(self.tick().returncode, 0)
+        self.assertTrue((self.state / "deployed" / HEAD).exists())
 
     def test_a_systemd_that_cannot_answer_holds_the_deploy_and_says_so(self):
         result = self.tick(FIXTURE_SYSTEMD_DOWN="1")
@@ -638,12 +639,11 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.deployed(), [newer])
 
     def test_a_passed_verdict_is_kept_while_the_deploy_waits(self):
-        unit = "foundation-gold-panel-rebuild-unconditional.service:yes"
         for _ in range(3):
-            self.assertIn("waiting for the operator's", self.tick(FIXTURE_UNITS=unit).stdout)
-        # The operator's unit ended: deployed on the next tick, not an interval later, with one ask.
+            self.assertIn("waiting for the operator's units", self.tick(FIXTURE_DEPLOY_EXIT="75").stdout)
+        # The deploy no longer waits: deployed on the next tick, not an interval later, with one ask.
         self.assertEqual(self.tick(checks="refuse never asked again").returncode, 0)
-        self.assertEqual(self.deployed(), [HEAD])
+        self.assertTrue((self.state / "deployed" / HEAD).exists())
         self.assertEqual(self.asked(), [HEAD])
 
     def test_the_asking_fits_the_anonymous_api_budget(self):
@@ -902,6 +902,8 @@ class TheWholeDeploy(unittest.TestCase):
         scripts.mkdir()
         (scripts / "foundation-deploy.sh").write_text(text)
         (scripts / START_ONCE.name).write_bytes(START_ONCE.read_bytes())
+        # The deploy asks which operator units run with its own copy (root ADR-0440), as on the host.
+        (scripts / JOB_UNITS.name).write_bytes(JOB_UNITS.read_bytes())
         self.script = scripts / "foundation-deploy.sh"
         self.bin = root / "bin"
         self.bin.mkdir()
@@ -918,6 +920,10 @@ class TheWholeDeploy(unittest.TestCase):
                           'service="${!#}"; failing=" ${FIXTURE_FAILING:-} "\n'
                           'case "$*" in\n'
                           '  start*) [[ "${failing}" != *" ${service} "* ]] ;;\n'
+                          # An operator's transient unit runs when the test names one (root ADR-0440).
+                          '  list-units*) if [[ -n "${FIXTURE_OPERATOR_UNIT:-}" ]]; then\n'
+                          '      printf "%s loaded active running operator\\n" "${FIXTURE_OPERATOR_UNIT}"; fi ;;\n'
+                          '  *Transient*) if [[ "${service}" == "${FIXTURE_OPERATOR_UNIT:-}" ]]; then echo yes; else echo no; fi ;;\n'
                           '  *ActiveState*) echo inactive ;;\n'
                           '  *Result*) if [[ "${failing}" == *" ${service} "* ]]; then echo exit-code; else echo success; fi ;;\n'
                           'esac\n'),
@@ -1054,6 +1060,25 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "source_sweep": "pause",
                                        "outbox_publish": "pause", "vworld_parcel_edition": "pause"})
+
+    def test_an_operators_unit_waits_the_deploy_only_when_the_release_holds_jobs(self):
+        # Root ADR-0440: a run keeps the release it started with, so a release that holds nothing deploys
+        # beside an operator's cut-over (2026-11-07 07:46Z..10:05Z the host waited for two and the SEV1
+        # fix did not deploy); one that holds jobs (a migration) waits for it and is asked again.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        held = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR)
+        self.assertEqual(held.returncode, 75, held.stdout + held.stderr)
+        self.assertIn(f"waiting for the operator's {self.OPERATOR} (root ADR-0440)", held.stderr)
+        self.assertEqual(self.dags(), {}, "nothing was paused")
+
+    OPERATOR = "foundation-by-pnu-lane-cutover-g1.service"
+
+    def test_a_release_that_holds_nothing_deploys_beside_an_operators_unit(self):
+        # Pulled from the registry, as on the host: a release the host builds holds every job.
+        self.commit_tells_what_it_changes(artifacts_from="registry")
+        free = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR)
+        self.assertEqual(free.returncode, 0, free.stdout + free.stderr)
+        self.assertNotIn("waiting for the operator's", free.stderr)
 
     def test_the_held_jobs_get_their_schedule_back_once_the_release_is_live(self):
         self.commit_tells_what_it_changes("silver.building_register_floors")

@@ -170,6 +170,15 @@ PLATFORM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 # The release the host serves, not this checkout: the publisher and its scripts are the admitted
 # release's (the control checkout only names this script to sudo).
 RELEASE="${FOUNDATION_OPERATOR_RELEASE_ROOT:-/opt/foundation-platform/current}"
+# Root ADR-0440: a run keeps the release it started with, so a deploy never waits for it. A step of
+# a run (the cut-over's, whose unit carries FOUNDATION_RUN_RELEASE) runs that release; a new run pins
+# the one `current` names now, once, and hands it to every unit it starts.
+if [[ "${FOUNDATION_RUN_RELEASE:-}" =~ ^[0-9a-f]{40}$ ]]; then
+  RELEASE="$(dirname "$(readlink -e "${RELEASE}")")/${FOUNDATION_RUN_RELEASE}"
+fi
+RELEASE="$(readlink -e "${RELEASE}")" || refuse "no current release at ${RELEASE}" 65
+PIN=()
+[[ "${RELEASE##*/}" =~ ^[0-9a-f]{40}$ ]] && PIN=(-E "FOUNDATION_RUN_RELEASE=${RELEASE##*/}")
 SYSTEMD_RUN="${FOUNDATION_OPERATOR_SYSTEMD_RUN:-systemd-run}"
 BAKE_ROOT="${FOUNDATION_OPERATOR_BAKE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 ETC="${FOUNDATION_OPERATOR_ETC:-/etc/foundation-platform}"
@@ -378,7 +387,7 @@ if [[ "${LANE}" == raon ]]; then
       args=("${ACTION}")
       [[ "${ACTION}" == plan ]] && args+=("${RAON_EVIDENCE}")
       log "raon ${ACTION} (waits; nothing is collected)"
-      exec "${SYSTEMD_RUN}" --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
+      exec "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
         "${props[@]}" "${RELEASE}/scripts/ops/raon-large-files.sh" "${args[@]}"
       ;;
     run)
@@ -390,7 +399,7 @@ if [[ "${LANE}" == raon ]]; then
       limits=(-E "FOUNDATION_RAON_LARGE_FILES_NEW_BYTES_BUDGET=$2")
       [[ "$1" == all ]] || limits+=(-E "FOUNDATION_RAON_LARGE_FILES_MAX_FILES=$1")
       log "starting ${RAON_UNIT} (max files $1, budget $2 bytes); follow it with: raon status"
-      exec "${SYSTEMD_RUN}" --unit="${RAON_UNIT%.service}" --collect --quiet -p User="${SERVICE_OWNER}" \
+      exec "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --unit="${RAON_UNIT%.service}" --collect --quiet -p User="${SERVICE_OWNER}" \
         -p Group="${SERVICE_GROUP}" "${props[@]}" "${limits[@]}" \
         "${RELEASE}/scripts/ops/raon-large-files.sh" run "${RAON_EVIDENCE}"
       ;;
@@ -423,7 +432,7 @@ PY
       mapfile -t plan_props < <(python3 -I "${RELEASE}/scripts/deploy/runtime_secrets.py" properties silver-refresh-plan | tr ' ' '\n' | grep -v '^$')
       ((${#plan_props[@]} > 0)) || refuse "the runtime-secrets contract names no environment for silver-refresh-plan" 65
       log "planning ${SILVER_LANE} (writes nothing)"
-      exec "${SYSTEMD_RUN}" --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
+      exec "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --wait --pipe --collect --quiet -p User="${SERVICE_OWNER}" -p Group="${SERVICE_GROUP}" \
         "${plan_props[@]}" "${RELEASE}/scripts/ops/silver-refresh.sh" "${SILVER_LANE}" --plan
       ;;
     status)
@@ -535,7 +544,7 @@ if [[ "${ACTION}" == kind-sizes ]]; then
   read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${BAKE_ROOT}/kind-sizes"
   log "starting foundation-${LANE}-kind-sizes (read-only); its summary path is the last line of ${BAKE_ROOT}/kind-sizes/${LANE}.log"
-  exec "${SYSTEMD_RUN}" --no-block --collect --unit="foundation-${LANE}-kind-sizes" -p User="${SERVICE_OWNER}" \
+  exec "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --no-block --collect --unit="foundation-${LANE}-kind-sizes" -p User="${SERVICE_OWNER}" \
     -p Group="${SERVICE_GROUP}" "${props[@]}" -p StandardOutput=append:"${BAKE_ROOT}/kind-sizes/${LANE}.log" \
     -p StandardError=append:"${BAKE_ROOT}/kind-sizes/${LANE}.log" "${RELEASE}/scripts/ops/by-pnu-kind-sizes.sh" "${LANE}"
 fi
@@ -561,7 +570,7 @@ if [[ "${ACTION}" == cutover ]]; then
   fi
   # Root, like this script: each step it calls starts its own unit as the service user. A failed run
   # pages like every job (root ADR-0435: a person hears only of a failure); `waiting` (75) does not.
-  exec "${SYSTEMD_RUN}" --collect --unit="${CUTOVER_UNIT}" ${approval[@]+"${approval[@]}"} \
+  exec "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --collect --unit="${CUTOVER_UNIT}" ${approval[@]+"${approval[@]}"} \
     -p OnFailure="foundation-unit-failed@${CUTOVER_UNIT}.service" -p SuccessExitStatus=75 \
     --description="Foundation Platform pack-only lane cut-over, generation $1 (root ADR-0190, ADR-0193)" \
     -p StandardOutput=append:"${log}" -p StandardError=append:"${log}" \
@@ -625,6 +634,8 @@ print("\n".join(properties))
 PY
   )
   ((${#unit[@]} > 1)) || refuse "cannot read ${RELEASE}/infra/systemd/${GOLD_SCHEDULED}" 65
+  # The unit names the script under `current`; the copy runs it from the release this run pinned.
+  unit[0]="${RELEASE}/scripts/ops/${unit[0]##*/}"
   props=()
   for property in "${unit[@]:1}"; do props+=(-p "${property}"); done
   install -d -o "${SERVICE_OWNER}" -g "${SERVICE_GROUP}" "${GOLD_LOG%/logs/*}" "${GOLD_LOG%/*}"
@@ -643,7 +654,7 @@ PY
   # A oneshot unit: --no-block returns once it is queued, not when the rebuild ends; --wait (the
   # cut-over runner) returns with its result.
   ((${#WAIT[@]})) || WAIT=(--no-block)
-  exec "${SYSTEMD_RUN}" "${WAIT[@]}" --collect --unit="${GOLD_UNIT}" \
+  exec "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} "${WAIT[@]}" --collect --unit="${GOLD_UNIT}" \
     --description="Foundation Platform panel Gold rebuild, unconditional, for a section pack generation (root ADR-0166)" \
     "${props[@]}" -p StandardOutput=append:"${GOLD_LOG}" -p StandardError=append:"${GOLD_LOG}" \
     "${command[@]}"
@@ -671,7 +682,7 @@ if [[ "${ACTION}" == rollback-rehearsal ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
   read -ra props <<<"$(cd "${RELEASE}" && python3 scripts/deploy/runtime_secrets.py properties section-pack-operator)"
   : >"${WORK}/logs/check.log"
-  "${SYSTEMD_RUN}" --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-check" -p User=foundation-platform \
+  "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-check" -p User=foundation-platform \
     -p MemoryMax=2G -p WorkingDirectory="${RELEASE}" "${props[@]}" -E "${P}_OUTPUT_STORAGE_DRIVER=r2" \
     -E "${P}_CONFIRM_PUBLISH=true" -E "${P}_ROLLBACK_TO_PREVIOUS_PACK_STATE=true" -E "${P}_ROLLBACK_DRY_RUN=true" \
     -p StandardOutput=append:"${WORK}/logs/check.log" -p StandardError=append:"${WORK}/logs/check.log" \
@@ -702,7 +713,7 @@ PY
   preview="https://$(contract "${GATEWAY_BLOCK}.section_packs.preview_worker.public_hostname")"
   rm -f -- "${WORK}/rehearsal.json"
   : >"${WORK}/logs/preview.log"
-  "${SYSTEMD_RUN}" --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-preview" -p User=foundation-platform \
+  "${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} --wait --collect --unit="foundation-${LANE}-rollback-rehearsal-preview" -p User=foundation-platform \
     -p MemoryMax=512M -p WorkingDirectory="${RELEASE}" "${monitor_props[@]}" -E "${P}_MONITOR_BASE_URL=${preview}" \
     -E "${P}_MONITOR_HISTORY_STATE=${state}" -E "${P}_MONITOR_REPORT_PATH=${WORK}/rehearsal.json" \
     -p StandardOutput=append:"${WORK}/logs/preview.log" -p StandardError=append:"${WORK}/logs/preview.log" \
@@ -822,7 +833,7 @@ esac
 setenv=()
 for value in ${env[@]+"${env[@]}"}; do setenv+=(-E "${value}"); done
 log "starting ${UNIT}: ${command} (release ${release_id}); output ${WORK}/logs/${ACTION}.log"
-"${SYSTEMD_RUN}" ${WAIT[@]+"${WAIT[@]}"} --collect --unit="${UNIT}" -p User=foundation-platform -p MemoryMax="${memory}" \
+"${SYSTEMD_RUN}" ${PIN[@]+"${PIN[@]}"} ${WAIT[@]+"${WAIT[@]}"} --collect --unit="${UNIT}" -p User=foundation-platform -p MemoryMax="${memory}" \
   -p WorkingDirectory="${RELEASE}" "${props[@]}" ${setenv[@]+"${setenv[@]}"} \
   -p StandardOutput=append:"${WORK}/logs/${ACTION}.log" -p StandardError=append:"${WORK}/logs/${ACTION}.log" \
   "${run[@]}"
