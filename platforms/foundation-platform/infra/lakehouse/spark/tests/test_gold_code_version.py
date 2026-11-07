@@ -263,10 +263,24 @@ class Plan(unittest.TestCase):
         flag = decision["producer_arguments"].index("--publish-changed-keys")
         self.assertEqual(decision["producer_arguments"][flag + 1], "1.0")
 
-    def test_a_gold_built_before_the_record_adopts_the_current_code(self):
+    def test_a_gold_built_before_the_record_is_left_alone_while_its_inputs_do_not_move(self):
         decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(None), silver("11"), code_version=lambda inputs: self.V2)
         self.assertEqual(decision["action"], "nothing_to_do", decision["reasons"])
         self.assertFalse(decision["code_version_recorded"])
+
+    def test_a_gold_built_before_the_record_is_rebuilt_whole_and_published_by_key_once_its_inputs_move(self):
+        # Root ADR-0437: 2026-11-03..06 gold.parcel_panel recorded no code version, the incremental
+        # parity sample found 1 of 20,258 unchanged PNUs built differently on every run, and the full
+        # fallback after the incremental phases outran the 160-minute limit: nothing committed.
+        decision = rebuild.plan("gold.x", ENTRY, INPUTS, gold(None), silver("11", "12"),
+                                code_version=lambda inputs: self.V2)
+        self.assertEqual((decision["action"], decision["mode"], decision["publish"]),
+                         ("rebuild", "full", "changed_keys"), decision)
+        self.assertFalse(decision["code_version_recorded"])
+        self.assertIsNone(decision["code_changed_parts"])
+        self.assertIn("records no code version", decision["mode_reasons"][0])
+        self.assertIsNone(decision["previous_source_snapshots"])
+        self.assertIn("--publish-changed-keys", decision["producer_arguments"])
 
 
 class Commit(unittest.TestCase):

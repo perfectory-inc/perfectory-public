@@ -164,3 +164,7 @@ foundation-api 하나).
   배포 자신이 아는 사실을 다른 서비스가 추측하게 된다. 배포가 쓴다.
 - **systemd 타이머 검사 + `OnFailure` Slack**(#882·#893 방식): 멈춘 동안 매 실행마다 알림이 쌓이거나 한 번만 온다.
   Alertmanager 는 시작·해소 한 번씩과 묶음·억제를 이미 한다.
+
+---
+
+개정 2026-11-07: §4 의 "기록이 없는 머리는 지금 코드로 만든 것으로 받아들인다"는 입력이 움직이지 않는 동안만이다 — 입력이 재생성을 요구하면 코드 변경과 같이 전량을 키로 게시한다([ADR-0437](./0437-a-gold-without-a-recorded-code-version-rebuilds-whole-by-key-and-a-monitor-holds-a-404-to-what-the-lane-serves.md), 2026-11-03..06 parcel Gold 라이브락).

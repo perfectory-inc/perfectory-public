@@ -4,7 +4,8 @@
 //! Reads the first `monitor.pnus` PNUs of the gate sample (the equality evidence on the host; the
 //! real PNUs never enter the repository) from the live hostname and holds each answer to:
 //!
-//! - 200, within the read timeout;
+//! - 200, within the read timeout, or a 404 for a PNU the lane serves as a tombstone or not at all
+//!   (root ADR-0437: a lane whose keys come and go, 공매, retires sampled PNUs as their notices end);
 //! - the document the lane serves, resolved by the publisher's own reader from R2 (the packs when
 //!   the manifest names them, else the objects);
 //! - a p95 within `monitor.latency_p95_max_ms`.
@@ -54,6 +55,9 @@ pub struct MonitorReport {
     pub failures: Vec<String>,
     /// Answers that differ from what the lane serves (packs or objects).
     pub drifted_from_served: Vec<String>,
+    /// PNUs that answered 404 because the lane serves no document for them (a tombstone, or absent
+    /// from its packs): a faithful answer (root ADR-0437).
+    pub absent_as_served: Vec<String>,
     pub latency_ms: Timings,
     pub latency_p95_max_ms: f64,
     pub passed: bool,
@@ -158,6 +162,11 @@ pub fn age_hours(published_at_utc: &str, now: DateTime<Utc>) -> anyhow::Result<f
 /// Returns an error naming the breach.
 pub fn verdict(report: &MonitorReport, noun: &str) -> anyhow::Result<()> {
     ensure!(
+        report.answered > 0 || report.absent_as_served.is_empty(),
+        "the live {noun} hostname answered no sampled PNU with a document: the lane serves none of          the {} PNUs of its gate sample any more, so the monitor holds it to nothing; take a new          sample (root ADR-0437)",
+        report.pnus
+    );
+    ensure!(
         report.passed,
         "the live {noun} hostname breached the monitor: {} failures, {} drifted from what the \
          lane serves, p95 {:.0} ms (bound {:.0} ms)",
@@ -243,6 +252,7 @@ pub async fn check_at(
         answered: 0,
         failures: Vec::new(),
         drifted_from_served: Vec::new(),
+        absent_as_served: Vec::new(),
         latency_ms: Timings::default(),
         latency_p95_max_ms,
         passed: false,
@@ -252,6 +262,7 @@ pub async fn check_at(
         freshness_budget_hours: None,
         stale: false,
     };
+    let packs = !matches!(target, Target::Served) || served.section_packs.is_some();
     let mut latency = Vec::new();
     for pnu in pnus {
         let url = format!(
@@ -262,6 +273,14 @@ pub async fn check_at(
         let answer = match timed_get(lane, &client, &url, Accept::Gzip).await {
             Ok(answer) => answer,
             Err(failure) => {
+                // A 404 is the answer the lane serves for a PNU its packs hold no document for.
+                if failure.class == "http-404" && packs {
+                    let inspected = inspect_target(store, pnu, target).await?;
+                    if matches!(inspected["answer"].as_str(), Some("tombstone" | "absent")) {
+                        report.absent_as_served.push(pnu.clone());
+                        continue;
+                    }
+                }
                 report.failures.push(format!("{pnu}: {}", failure.class));
                 continue;
             }
@@ -269,14 +288,8 @@ pub async fn check_at(
         report.answered += 1;
         latency.push(answer.ms);
         let live = answer.content()?;
-        let served_bytes = if !matches!(target, Target::Served) || served.section_packs.is_some() {
-            let inspected = match target {
-                Target::Recorded(_, state) => inspect::inspect_state(store, pnu, state).await?,
-                Target::Generation(generation) => {
-                    inspect::inspect(store, pnu, Some(*generation)).await?
-                }
-                Target::Served => inspect::inspect(store, pnu, None).await?,
-            };
+        let served_bytes = if packs {
+            let inspected = inspect_target(store, pnu, target).await?;
             ensure!(
                 inspected["answer"] == "document",
                 "the packs do not serve {pnu} as a document: {}",
@@ -291,11 +304,31 @@ pub async fn check_at(
         }
     }
     report.latency_ms = timings(&mut latency);
-    report.passed = report.answered == pnus.len()
+    judge_serving(&mut report);
+    Ok(report)
+}
+
+/// Whether every sampled PNU got the answer the lane serves, in time: a document for at least one
+/// of them, and a 404 only for the PNUs it serves no document for.
+pub fn judge_serving(report: &mut MonitorReport) {
+    report.passed = report.answered > 0
+        && report.answered + report.absent_as_served.len() == report.pnus
         && report.failures.is_empty()
         && report.drifted_from_served.is_empty()
-        && report.latency_ms.p95 <= latency_p95_max_ms;
-    Ok(report)
+        && report.latency_ms.p95 <= report.latency_p95_max_ms;
+}
+
+/// The report of `pnu` as `target` serves it.
+async fn inspect_target(
+    store: &ByPnuServingStore,
+    pnu: &str,
+    target: &Target,
+) -> anyhow::Result<serde_json::Value> {
+    match target {
+        Target::Recorded(_, state) => inspect::inspect_state(store, pnu, state).await,
+        Target::Generation(generation) => inspect::inspect(store, pnu, Some(*generation)).await,
+        Target::Served => inspect::inspect(store, pnu, None).await,
+    }
 }
 
 /// The object document of `pnu` in the manifest's base generation, or `None` when an object patch
@@ -325,7 +358,7 @@ async fn object_document(
 
 #[cfg(test)]
 mod tests {
-    use super::{age_hours, judge_freshness, verdict, MonitorReport, Timings};
+    use super::{age_hours, judge_freshness, judge_serving, verdict, MonitorReport, Timings};
     use chrono::{DateTime, Utc};
 
     const BUDGET_HOURS: f64 = 48.0;
@@ -340,6 +373,7 @@ mod tests {
             answered: 20,
             failures: Vec::new(),
             drifted_from_served: Vec::new(),
+            absent_as_served: Vec::new(),
             latency_ms: Timings::default(),
             latency_p95_max_ms: 3_000.0,
             passed: true,
@@ -390,6 +424,40 @@ mod tests {
         let report = faithful("2026-10-16T12:10:35Z")?;
         assert_eq!(report.freshness_budget_hours, None);
         verdict(&report, "building")
+    }
+
+    /// 2026-11-07: the 공매 lane's 10-24 gate sample held 4 PNUs whose notices had ended; the live
+    /// hostname answered them 404, as the lane serves them, and every hourly run failed.
+    #[test]
+    fn a_404_for_a_pnu_the_lane_serves_no_document_for_passes() -> anyhow::Result<()> {
+        let mut report = faithful("2026-11-06T21:54:00Z")?;
+        report.answered = 16;
+        report.absent_as_served = (0..4).map(|n| format!("9999{n}")).collect();
+        judge_serving(&mut report);
+        assert!(report.passed, "{report:?}");
+        report.failures.push("99995: http-404".to_owned());
+        report.absent_as_served.pop();
+        judge_serving(&mut report);
+        assert!(
+            !report.passed,
+            "a 404 the lane does not serve still fails: {report:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_sample_the_lane_serves_none_of_fails() -> anyhow::Result<()> {
+        let mut report = faithful("2026-11-06T21:54:00Z")?;
+        report.answered = 0;
+        report.absent_as_served = (0..20).map(|n| format!("9999{n:02}")).collect();
+        judge_serving(&mut report);
+        assert!(!report.passed, "{report:?}");
+        let refused = verdict(&report, "parcel public auction").map_err(|error| error.to_string());
+        assert!(
+            matches!(&refused, Err(message) if message.contains("take a new sample")),
+            "{refused:?}"
+        );
+        Ok(())
     }
 
     #[test]
