@@ -49,7 +49,9 @@ class Reconciler(unittest.TestCase):
         found = asset_reconcile.assets(jobs, graph, asset_reconcile.gold_rebuild.load_contract())
         # The panel bake serves several lanes, each its own asset; the other jobs make one each.
         cls.lanes = {asset.lane: asset for asset in found if asset.job == "by_pnu_serving_bake"}
-        cls.assets = {asset.job: asset for asset in found if asset.job != "by_pnu_serving_bake"}
+        # The panel Gold rebuild makes two panels, each its own asset (root ADR-0333 §7, stage 2).
+        cls.panels = {asset.gold: asset for asset in found if asset.job == "gold_panel_rebuild"}
+        cls.assets = {asset.job: asset for asset in found if asset.job not in ("by_pnu_serving_bake", "gold_panel_rebuild")}
         cls.jobs = jobs
 
     def setUp(self):
@@ -138,6 +140,32 @@ class Reconciler(unittest.TestCase):
         self.full = set()
         _, _, state, _ = self.tick(55, state)
         self.assertEqual(state["perfectory://parcel-public-auction-by-pnu-section-packs"]["unscheduled_since"], T0 + 50 * 60)
+
+    def test_each_panel_is_owed_when_an_input_its_planner_pins_moved_and_the_job_starts_once(self):
+        # Root ADR-0333 §7 stage 2: 2026-11-07 the 08:45 panel rebuild found the rebuild lock held by a lane
+        # cut-over and ended `waiting`; only the next day's clock would have started it again.
+        parcel, building = self.panels["gold.parcel_panel"], self.panels["gold.building_panel"]
+        self.assertEqual((parcel.uri, building.uri), ("iceberg://gold.parcel_panel", "iceberg://gold.building_panel"))
+        self.assertIn("silver.land_transfer_history", parcel.inputs)
+        self.assertNotIn("silver.parcel_lineage", parcel.inputs, "held back from a real rebuild (unmeasured_inputs)")
+        # The unit price join is the job's own output: neither it nor its hub registers are an input the
+        # building panel's pins record, so they would leave the asset owed for ever.
+        self.assertEqual(building.inputs, ("silver.building_register_floors", "silver.building_register_titles",
+                                           "silver.building_register_unit_areas", "silver.building_register_units"))
+        pins = {name: "5" for name in parcel.inputs}
+        self.catalog["gold.parcel_panel"] = table(snap("601", None, 0, operation="overwrite", pins=pins),
+                                                  snap("602", "601", 5, operation="replace"))
+        for name in parcel.inputs:
+            self.catalog[name] = table(snap("5", None, 0))
+        found = [parcel]
+        tick = lambda: asset_reconcile.tick(T0 + 2400, found, self.catalog.__getitem__, self.reads.get,
+                                            lambda service: False, lambda job: "", {})
+        self.assertEqual(tick()[0], [], "a compaction after the build moves nothing")
+        self.catalog["silver.land_transfer_history"] = table(snap("5", None, 0), snap("6", "5", 10))
+        owed, _, _, _ = tick()
+        self.assertEqual(len(owed), 1)
+        self.assertTrue(owed[0].startswith("foundation-asset-owed gold_panel_rebuild "), owed)
+        self.assertEqual(owed, tick()[0], "the same versions are one key: started once")
 
     def test_the_unit_price_gold_is_owed_when_the_building_gold_moved_its_registers(self):
         owed, _, _, _ = self.tick()

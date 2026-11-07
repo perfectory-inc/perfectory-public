@@ -628,6 +628,8 @@ class JobsStartedByTheirInputs(unittest.TestCase):
             job(jobs, "building_register_floor")["started_by"] = "inputs"
             job(jobs, "gold_panel_rebuild")["pipeline_graph_edges"].append(
                 "daily-source-sweep-to-source-building-hub-bulk")
+            # A job that writes a source is no Gold-only job the reconciler can compare (root ADR-0333 §7, stage 2).
+            job(jobs, "asset_reconcile")["reconciles"].remove("gold_panel_rebuild")
         self.refused(circle, "jobs start each other in a circle: building_register_floor -> gold_panel_rebuild "
                              "-> building_register_floor")
 
