@@ -167,42 +167,45 @@ export function ByPnuCutovers({ client }: { client: DawneerClient }) {
       ) : (
         <>
           {query.data.error ? <p className="text-sm text-amber-700">{query.data.error}</p> : null}
-          <table className="w-full border-collapse rounded border border-slate-200 bg-white">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className={TH}>승인</th>
-                <th className={TH}>레인 · 세대</th>
-                <th className={TH}>상태</th>
-                <th className={TH}>진행</th>
-              </tr>
-            </thead>
-            <tbody>
-              {query.data.approvals.map((approval) => (
-                <tr key={approval.id} className="border-t border-slate-100">
-                  <td className={TD}>
-                    <div>{new Date(approval.requested_at).toLocaleString("ko-KR")}</div>
-                    <div className="text-xs text-slate-500">
-                      {approval.actor.slice(0, 8)} · {approval.reason}
-                    </div>
-                  </td>
-                  <td className={TD}>
-                    {approval.lanes} · g{approval.generation}
-                  </td>
-                  <td className={TD}>{CUTOVER_STATE_LABEL[approval.state] ?? approval.state}</td>
-                  <td className={TD}>
-                    <Events approval={approval} />
-                  </td>
-                </tr>
-              ))}
-              {query.data.approvals.length === 0 ? (
+          {/* A phone is narrower than the four columns (root ADR-0434 §6): the table scrolls, the page does not. */}
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse rounded border border-slate-200 bg-white">
+              <thead className="bg-slate-50">
                 <tr>
-                  <td className={TD} colSpan={4}>
-                    아직 승인한 cut-over 가 없습니다.
-                  </td>
+                  <th className={TH}>승인</th>
+                  <th className={TH}>레인 · 세대</th>
+                  <th className={TH}>상태</th>
+                  <th className={TH}>진행</th>
                 </tr>
-              ) : null}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {query.data.approvals.map((approval) => (
+                  <tr key={approval.id} className="border-t border-slate-100">
+                    <td className={TD}>
+                      <div>{new Date(approval.requested_at).toLocaleString("ko-KR")}</div>
+                      <div className="text-xs text-slate-500">
+                        {approval.actor.slice(0, 8)} · {approval.reason}
+                      </div>
+                    </td>
+                    <td className={TD}>
+                      {approval.lanes} · g{approval.generation}
+                    </td>
+                    <td className={TD}>{CUTOVER_STATE_LABEL[approval.state] ?? approval.state}</td>
+                    <td className={TD}>
+                      <Events approval={approval} />
+                    </td>
+                  </tr>
+                ))}
+                {query.data.approvals.length === 0 ? (
+                  <tr>
+                    <td className={TD} colSpan={4}>
+                      아직 승인한 cut-over 가 없습니다.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>

@@ -110,7 +110,7 @@ PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보�
 ## Consequences
 
 - 사장은 휴대폰 브라우저로 승인 단추를 누른다. SSH·터널·노트북 비밀이 필요 없다.
-- 비용: Zero Trust Free(≤50명) 0원, Tunnel 0원, DNS 0원. 호스트: 더니어 컨테이너 하나와 `cloudflared` 하나(각 메모리 상한 256 MiB).
+- 비용: Zero Trust Free(≤50명) 0원, Tunnel 0원, DNS 0원. 호스트: 더니어 컨테이너(상한 32 MiB, 실측 기대 약 10 MiB)와 `cloudflared`(상한 64 MiB). 호스트 메모리 예산(62 GiB)이 꽉 차 있어 신원 다리의 socat 두 개 상한을 64→32 MiB(실측 약 1 MiB)로 줄여 자리를 냈다 — 예산 62.00 / 62.00 GiB.
 - 세션 저장소는 아직 메모리다(ADR-0116 §7). 한 호스트·한 프로세스라 맞지만, 더니어 컨테이너가 바뀌는 배포마다 더니어 세션이 끝난다.
   Access(24h)와 Zitadel 의 SSO 쿠키는 남으므로 다시 들어오는 데는 탭 하나(필요하면 2차 인증)다. 여러 벌로 뜨면 Postgres 로 옮긴다.
 - 더니어 서버는 Access 의 JWT(`Cf-Access-Jwt-Assertion`)를 아직 직접 확인하지 않는다. 원점(origin)은 루프백에만 있고 공개 통로는 Tunnel

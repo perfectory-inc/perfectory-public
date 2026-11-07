@@ -40,7 +40,8 @@ PLATFORM = ROOT / "platforms" / "foundation-platform"
 SCHEMA = "foundation-platform.release_manifest.v1"
 # Compose files whose `build:` entries are images the runtime starts; an image two files build from
 # one Dockerfile (the publisher) is built once.
-COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml")
+COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml",
+                 "compose.console.yml")
 FILE_MODES = {"foundation-outbox-publisher": "0555"}
 JAR_MODE = "0444"
 
@@ -84,7 +85,8 @@ def compose_builds() -> list[tuple[str, str, str]]:
                 continue
             if isinstance(build, str):
                 build = {"context": build}
-            context = (PLATFORM / build.get("context", ".")).resolve().relative_to(PLATFORM.resolve()).as_posix()
+            # A context may sit outside the platform (the Dawneer console, root ADR-0434); the build runs in it.
+            context = Path(os.path.relpath((PLATFORM / build.get("context", ".")).resolve(), PLATFORM.resolve())).as_posix()
             dockerfile = (Path(context) / build.get("dockerfile", "Dockerfile")).as_posix()
             name = service["image"].split(":")[0].split("/")[-1]
             found.append((name, dockerfile, context))

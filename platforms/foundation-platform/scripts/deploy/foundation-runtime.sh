@@ -63,6 +63,7 @@ compose=(
   -f "${root_dir}/compose.identity-bridge.yml"
   -f "${root_dir}/compose.metadata-bridge.yml"
   -f "${root_dir}/compose.orchestration-bridge.yml"
+  -f "${root_dir}/compose.console.yml"
   --project-name "${FOUNDATION_PLATFORM_COMPOSE_PROJECT}"
   --env-file "${FOUNDATION_PLATFORM_ENV_FILE}"
 )
