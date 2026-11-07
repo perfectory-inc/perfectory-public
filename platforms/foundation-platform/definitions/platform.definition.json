@@ -990,18 +990,16 @@
             "scripts/tiles/compose.yaml"
           ],
           "why": "The tile slice proof stack runs on a developer machine or CI runner only. It still states caps: Docker Desktop's VM is the whole budget there."
-        },
-        {
-          "files": [
-            "consoles/dawneer/compose.yml"
-          ],
-          "why": "The console image's build, read by the release build in CI (root ADR-0434); the host runs that image from compose.console.yml, counted there."
         }
       ],
       "outside_scope": [
         {
           "path_prefix": "products/gongzzang/",
           "why": "Gongzzang's production runs on AWS and is not changed from here; its local compose files belong to that product's own decision."
+        },
+        {
+          "path_prefix": "consoles/",
+          "why": "A staff console's own compose file only builds its image, in CI, into the signed release (root ADR-0434); what a console runs on the host is a service of a host project above (compose.console.yml), counted there."
         }
       ]
     },
