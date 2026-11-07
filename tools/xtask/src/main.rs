@@ -445,9 +445,11 @@ const AREAS: &[Area] = &[
         // The complete workspace/all-features build includes aws-lc-sys and
         // vendored librdkafka. Keep the native headers here (rather than relying
         // on a developer image) so CI and the Docker verification harness share
-        // the same reproducible prerequisite contract.
+        // the same reproducible prerequisite contract. libclang-dev: the court auction browser
+        // sessions (wreq, root ADR-0289 §1) generate BoringSSL bindings with bindgen.
         apt_deps: &[
             "cmake",
+            "libclang-dev",
             "python3",
             "python3-pytest",
             "libssl-dev",

@@ -165,12 +165,14 @@ impl PaceGate {
             let freed = self.freed.notified();
             tokio::pin!(freed);
             freed.as_mut().enable();
-            {
+            let taken = {
                 let mut state = self.lock();
-                if state.1 < state.0.width() {
-                    state.1 += 1;
-                    return PacePermit { gate: self };
-                }
+                let free = state.1 < state.0.width();
+                state.1 += u32::from(free);
+                free
+            };
+            if taken {
+                return PacePermit { gate: self };
             }
             freed.await;
         }
@@ -302,7 +304,7 @@ pub async fn ask(
                         let wait = rules
                             .block_waits
                             .get(blocks)
-                            .or(rules.block_waits.last())
+                            .or_else(|| rules.block_waits.last())
                             .copied()
                             .unwrap_or_default();
                         blocks += 1;
@@ -335,6 +337,7 @@ pub async fn ask(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::collections::VecDeque;
 
@@ -444,7 +447,7 @@ mod tests {
     }
 
     fn far() -> Instant {
-        Instant::now() + Duration::from_secs(86_400)
+        Instant::now() + Duration::from_hours(24)
     }
 
     #[tokio::test]

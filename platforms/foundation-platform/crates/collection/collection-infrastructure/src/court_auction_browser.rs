@@ -21,7 +21,7 @@ use collection_application::{
     TransportError,
 };
 use tokio::sync::Mutex;
-use wreq_util::Emulation;
+use wreq_util::emulate::Profile;
 
 /// What the pool needs from the contract.
 #[derive(Clone, Debug)]
@@ -46,7 +46,7 @@ struct Slot {
 /// The `wreq` pool behind [`CourtAuctionSessions`].
 pub struct BrowserSessionPool {
     config: BrowserSessionConfig,
-    emulation: Emulation,
+    profile: Profile,
     slots: Vec<Mutex<Slot>>,
     next: AtomicUsize,
     records: StdMutex<Vec<SessionRecord>>,
@@ -62,7 +62,7 @@ impl BrowserSessionPool {
     /// # Errors
     /// Returns an error when the profile is not one `wreq-util` knows or the pool size is 0.
     pub fn new(config: BrowserSessionConfig) -> Result<Self, TransportError> {
-        let emulation: Emulation =
+        let profile: Profile =
             serde_json::from_value(serde_json::Value::String(config.browser_profile.clone()))
                 .map_err(|error| {
                     transport(format!(
@@ -83,7 +83,7 @@ impl BrowserSessionPool {
             .collect();
         Ok(Self {
             config,
-            emulation,
+            profile,
             slots,
             next: AtomicUsize::new(0),
             records: StdMutex::new(Vec::new()),
@@ -104,7 +104,7 @@ impl BrowserSessionPool {
         generation: u64,
     ) -> Result<(wreq::Client, usize), TransportError> {
         let client = wreq::Client::builder()
-            .emulation(self.emulation)
+            .emulation(self.profile)
             .cookie_store(true)
             .redirect(wreq::redirect::Policy::none())
             .no_proxy()
@@ -119,16 +119,19 @@ impl BrowserSessionPool {
             .bytes()
             .await
             .map_err(transport)?;
-        let mut records = self.records();
-        records.push(SessionRecord {
-            slot,
-            generation,
-            opened_at: Utc::now(),
-            requests: 0,
-            blocked_at: None,
-        });
+        let record = {
+            let mut records = self.records();
+            records.push(SessionRecord {
+                slot,
+                generation,
+                opened_at: Utc::now(),
+                requests: 0,
+                blocked_at: None,
+            });
+            records.len() - 1
+        };
         tracing::info!(slot, generation, "courtauction.go.kr: opened a session");
-        Ok((client, records.len() - 1))
+        Ok((client, record))
     }
 }
 
@@ -141,11 +144,15 @@ impl CourtAuctionSessions for BrowserSessionPool {
         let slot = self.next.fetch_add(1, Ordering::Relaxed) % self.slots.len();
         let (client, record, generation) = {
             let mut held = self.slots[slot].lock().await;
-            if held.client.is_none() {
-                held.client = Some(self.open(slot, held.generation).await?);
-            }
-            let (client, record) = held.client.clone().expect("opened above");
-            (client, record, held.generation)
+            let open = match held.client.clone() {
+                Some(open) => open,
+                None => {
+                    let open = self.open(slot, held.generation).await?;
+                    held.client = Some(open.clone());
+                    open
+                }
+            };
+            (open.0, open.1, held.generation)
         };
         let url = self.url(&request.path);
         let mut builder = match request.method {
@@ -188,6 +195,7 @@ impl CourtAuctionSessions for BrowserSessionPool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use wiremock::{
         matchers::{header, method, path},
