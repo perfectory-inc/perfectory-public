@@ -63,8 +63,16 @@ class Reconciler(unittest.TestCase):
             "silver.building_register_titles": table(snap("11", None, 0)),
             "silver.building_register_units": table(snap("21", None, 0)),
             "silver.unit_official_price": table(snap("41", None, 0)),
+            # The court auction Gold and its lane, caught up (root ADR-0353).
+            "gold.parcel_court_auction": table(snap("401", None, 0, operation="overwrite",
+                                                    pins={"silver.court_auction_item": "51",
+                                                          "reference.legal_dong_code_change": "61"})),
+            "silver.court_auction_item": table(snap("51", None, 0)),
+            # The court auction Gold follows code changes too (root ADR-0382).
+            "reference.legal_dong_code_change": table(snap("61", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},
+                      "parcel-court-auction": {"read_snapshot_id": "401", "outcome": "served"},
                       "unit-price": {"read_snapshot_id": "301", "outcome": "served"},
                       "building": {"read_snapshot_id": "201", "outcome": "served"}}
         self.running, self.full = set(), set()
@@ -234,6 +242,28 @@ class Reconciler(unittest.TestCase):
         self.reads["building"] = {"read_snapshot_id": "202", "outcome": "served"}
         owed, _, _, _ = self.tick()
         self.assertTrue(any(line.startswith("foundation-asset-owed by_pnu_unit_price_bake ") for line in owed))
+
+    def test_a_gold_not_built_yet_is_owed_its_first_build_and_its_lane_nothing(self):
+        # 2026-10-30: a new kind's Gold (the court auction's, root ADR-0353) does not exist until its first
+        # build, and the catalog answers 404; the unit price Gold stands in while that kind is off.
+        import urllib.error
+
+        def read(name):
+            if name == "gold.unit_price":
+                raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+            if name == "boom":
+                raise urllib.error.HTTPError("u", 500, "Server Error", {}, None)
+            return self.catalog[name]
+
+        self.catalog["gold.unit_price"] = asset_reconcile.absent_is_empty(read, "gold.unit_price")
+        self.assertEqual(self.catalog["gold.unit_price"], {"head": None, "snapshots": []})
+        with self.assertRaises(urllib.error.HTTPError):
+            asset_reconcile.absent_is_empty(read, "boom")
+        del self.reads["unit-price"]
+        owed, _, _, errors = self.tick()
+        self.assertEqual(errors, [])
+        self.assertTrue(any(line.startswith("foundation-asset-owed gold_unit_price_rebuild ") for line in owed))
+        self.assertFalse(any("by_pnu_unit_price_bake" in line for line in owed))
 
     def test_an_asset_that_cannot_be_read_does_not_stop_the_others(self):
         del self.catalog["gold.unit_price"]

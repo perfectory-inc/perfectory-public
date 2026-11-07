@@ -14,6 +14,7 @@ const reads = vi.hoisted(() => ({
   subParcels: null as unknown,
   energy: null as unknown,
   demolitions: null as unknown,
+  courtAuction: null as { rounds: unknown[]; source_attribution: string } | null,
   realTransaction: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
@@ -49,6 +50,10 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelDemolitionsQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "demolitions", pnu],
     queryFn: async () => reads.demolitions,
+  }),
+  parcelCourtAuctionQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "court-auction", pnu],
+    queryFn: async () => reads.courtAuction,
   }),
   parcelRealTransactionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "real-transaction", pnu],
@@ -397,6 +402,25 @@ describe("parcel panel categories", () => {
       ).toEqual(["필지정보", "공매 2"]);
     } finally {
       reads.publicAuction = [];
+    }
+  });
+
+  it("adds 경매 with its count when the parcel has court auctions", async () => {
+    // Synthetic only (public-repo fixture-safety): made-up items, no real court data or place names.
+    reads.courtAuction = {
+      rounds: [{ building_name: "테스트 물건" }, { building_name: "테스트 물건" }],
+      source_attribution: "대한민국법원 법원경매정보",
+    };
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      expect(
+        within(bar)
+          .getAllByRole("button")
+          .map((b) => b.textContent),
+      ).toEqual(["필지정보", "경매 2"]);
+    } finally {
+      reads.courtAuction = null;
     }
   });
 
