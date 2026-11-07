@@ -874,8 +874,58 @@ impl AppState {
     }
 
     pub async fn latest_lakehouse_batch_run_metrics(&self) -> Vec<LakehouseBatchRunMetric> {
-        let query = sqlx::query_as::<_, LakehouseBatchRunMetricRow>(
-            "SELECT DISTINCT ON (contract)
+        let query =
+            sqlx::query_as::<_, LakehouseBatchRunMetricRow>(LAKEHOUSE_BATCH_RUN_METRICS_SQL)
+                .fetch_all(&self.database_pool);
+
+        match tokio::time::timeout(Duration::from_millis(500), query).await {
+            Ok(Ok(rows)) => rows
+                .into_iter()
+                .map(LakehouseBatchRunMetric::from)
+                .collect(),
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "metric query failed: lakehouse batch runs");
+                Vec::new()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    pub async fn latest_ingestion_run_metrics(&self) -> Vec<IngestionRunMetric> {
+        let query = sqlx::query_as::<_, IngestionRunMetricRow>(INGESTION_RUN_METRICS_SQL)
+            .fetch_all(&self.database_pool);
+
+        match tokio::time::timeout(Duration::from_millis(500), query).await {
+            Ok(Ok(rows)) => rows.into_iter().map(IngestionRunMetric::from).collect(),
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "metric query failed: ingestion runs");
+                Vec::new()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+
+    pub async fn outbox_queue_metrics(&self) -> Vec<OutboxQueueMetric> {
+        let query = sqlx::query_as::<_, OutboxQueueMetricRow>(OUTBOX_QUEUE_METRICS_SQL)
+            .fetch_all(&self.database_pool);
+
+        match tokio::time::timeout(Duration::from_millis(500), query).await {
+            Ok(Ok(rows)) => rows.into_iter().map(OutboxQueueMetric::from).collect(),
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "metric query failed: outbox queues");
+                Vec::new()
+            }
+            Err(_) => Vec::new(),
+        }
+    }
+}
+
+/// The metric queries `/metrics` runs, public so the schema test proves each one against the
+/// migrated database (`tests/metrics_queries_match_schema.rs`, root ADR-0443). A query that names a
+/// column the schema lacks fails there, not silently at run time: the ingestion query read
+/// `bronze_object.payload_size_bytes` (the column is `size_bytes`) from its first day, every
+/// scrape returned no rows, and the three ingestion alerts could never fire (2026-11-07 readiness sweep).
+pub const LAKEHOUSE_BATCH_RUN_METRICS_SQL: &str = "SELECT DISTINCT ON (contract)
                     contract,
                     EXTRACT(EPOCH FROM created_at)::BIGINT AS created_at_unix_seconds,
                     EXTRACT(EPOCH FROM recorded_at)::BIGINT AS recorded_at_unix_seconds,
@@ -884,22 +934,9 @@ impl AppState {
              WHERE source_snapshot_truncated = false
                AND persisted_row_count = row_count
                AND write_disposition <> 'validate_only'
-             ORDER BY contract ASC, created_at DESC, recorded_at DESC, id DESC",
-        )
-        .fetch_all(&self.database_pool);
+             ORDER BY contract ASC, created_at DESC, recorded_at DESC, id DESC";
 
-        match tokio::time::timeout(Duration::from_millis(500), query).await {
-            Ok(Ok(rows)) => rows
-                .into_iter()
-                .map(LakehouseBatchRunMetric::from)
-                .collect(),
-            Ok(Err(_)) | Err(_) => Vec::new(),
-        }
-    }
-
-    pub async fn latest_ingestion_run_metrics(&self) -> Vec<IngestionRunMetric> {
-        let query = sqlx::query_as::<_, IngestionRunMetricRow>(
-            "SELECT DISTINCT ON (source.slug)
+pub const INGESTION_RUN_METRICS_SQL: &str = "SELECT DISTINCT ON (source.slug)
                     source.slug AS source_slug,
                     run.status,
                     EXTRACT(EPOCH FROM run.finished_at)::BIGINT AS finished_at_unix_seconds,
@@ -912,25 +949,15 @@ impl AppState {
                ON source.id = run.source_catalog_id
              LEFT JOIN (
                  SELECT ingestion_run_id,
-                        COALESCE(SUM(payload_size_bytes), 0)::BIGINT AS raw_response_size_bytes
+                        COALESCE(SUM(size_bytes), 0)::BIGINT AS raw_response_size_bytes
                  FROM catalog.bronze_object
                  GROUP BY ingestion_run_id
              ) object_stats
                ON object_stats.ingestion_run_id = run.id
              WHERE run.finished_at IS NOT NULL
-             ORDER BY source.slug ASC, run.finished_at DESC, run.started_at DESC, run.id DESC",
-        )
-        .fetch_all(&self.database_pool);
+             ORDER BY source.slug ASC, run.finished_at DESC, run.started_at DESC, run.id DESC";
 
-        match tokio::time::timeout(Duration::from_millis(500), query).await {
-            Ok(Ok(rows)) => rows.into_iter().map(IngestionRunMetric::from).collect(),
-            Ok(Err(_)) | Err(_) => Vec::new(),
-        }
-    }
-
-    pub async fn outbox_queue_metrics(&self) -> Vec<OutboxQueueMetric> {
-        let query = sqlx::query_as::<_, OutboxQueueMetricRow>(
-            "SELECT scope,
+pub const OUTBOX_QUEUE_METRICS_SQL: &str = "SELECT scope,
                     COUNT(*) FILTER (WHERE published_at IS NULL)::BIGINT AS pending_event_count,
                     COUNT(*) FILTER (
                         WHERE published_at IS NULL
@@ -947,16 +974,14 @@ impl AppState {
                  FROM catalog.outbox_event
              ) outbox
              GROUP BY scope
-             ORDER BY scope ASC",
-        )
-        .fetch_all(&self.database_pool);
+             ORDER BY scope ASC";
 
-        match tokio::time::timeout(Duration::from_millis(500), query).await {
-            Ok(Ok(rows)) => rows.into_iter().map(OutboxQueueMetric::from).collect(),
-            Ok(Err(_)) | Err(_) => Vec::new(),
-        }
-    }
-}
+/// Every metric query by name, for the schema test.
+pub const METRICS_QUERIES: [(&str, &str); 3] = [
+    ("lakehouse batch runs", LAKEHOUSE_BATCH_RUN_METRICS_SQL),
+    ("ingestion runs", INGESTION_RUN_METRICS_SQL),
+    ("outbox queues", OUTBOX_QUEUE_METRICS_SQL),
+];
 
 #[cfg(test)]
 fn test_database_url() -> String {
