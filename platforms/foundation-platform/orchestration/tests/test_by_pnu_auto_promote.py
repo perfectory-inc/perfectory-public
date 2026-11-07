@@ -113,8 +113,20 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual(self.run_controller(NIGHT + 3600 + 3600 + 1800)[1], [])
         self.assertEqual(self.run_controller(NIGHT + 3600 + 7200)[1], ["parcel-ownership cutover 1 --auto"])
 
+    def test_a_lane_never_tried_goes_before_one_that_failed(self):
+        # 2026-11-07 08:58Z: parcel-regulation-zones' Gold crashed after 76 minutes; its retry was next,
+        # ahead of three lanes never tried, one cut-over at a time.
+        self.pending("parcel-ownership", "parcel-regulation-zones", "parcel-sub-parcels")
+        self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 1 --auto"])
+        self.assertEqual(self.run_controller(NIGHT + 900)[1], ["parcel-regulation-zones cutover 1 --auto"])
+        self.assertEqual(self.run_controller(NIGHT + 7200)[1], ["parcel-sub-parcels cutover 1 --auto"],
+                         "both failed lanes are past their backoff, the untried one goes first")
+        self.assertEqual(self.run_controller(NIGHT + 7200 + 900)[1], ["parcel-ownership cutover 1 --auto"],
+                         "then contract order among lanes tried as often")
+
     def test_the_lanes_newest_bake_is_resumed_and_a_failed_bake_moves_to_the_next_generation(self):
         # 11-05: generation 1 baked and passed equality; latency failed. It is resumed, not baked anew.
+        self.pending("parcel-ownership")
         (self.bake / "parcel-ownership-pack-g1/summaries").mkdir(parents=True)
         steps = [{"lane": "parcel-ownership", "step": step, "outcome": outcome, "seconds": 0, "reason": "",
                   "generation": 1}
