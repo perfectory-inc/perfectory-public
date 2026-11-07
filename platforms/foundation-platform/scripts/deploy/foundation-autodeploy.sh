@@ -81,7 +81,12 @@ write_metrics() {
 # failures reach Slack through its own OnFailure and never change this deploy's outcome. A host
 # whose release does not carry the unit yet just does not start it.
 worker_unit=foundation-worker-autodeploy.service
-start_worker_deploy() { systemctl start --no-block "${worker_unit}" >/dev/null 2>&1 || true; }
+# The console's edge settings (root ADR-0436) follow main the same way, with the same token file.
+edge_unit=foundation-edge-settings.service
+start_worker_deploy() {
+  systemctl start --no-block "${worker_unit}" >/dev/null 2>&1 || true
+  systemctl start --no-block "${edge_unit}" >/dev/null 2>&1 || true
+}
 
 mkdir -p "${state}"
 exec 9>"${state}/lock"
@@ -260,11 +265,12 @@ if ((${#operator_units[@]} > 0)); then
   log "${target}: waiting for the operator's ${operator_units[*]}"
   exit 0
 fi
-# A Worker deploy reads the control checkout and the release this deploy is about to replace.
-running="$(running_units "${worker_unit}")"
+# A Worker deploy and an edge apply read the control checkout and the release this deploy is about to
+# replace.
+running="$(running_units "${worker_unit}" "${edge_unit}")"
 if [[ -n "${running}" ]]; then
   reason=worker_deploy
-  log "${target}: waiting for the Worker deploy (${worker_unit})"
+  log "${target}: waiting for the Worker deploy and the edge settings (${worker_unit} ${edge_unit})"
   exit 0
 fi
 

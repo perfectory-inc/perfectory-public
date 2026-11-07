@@ -133,3 +133,7 @@ API 로 터널을 만들고 토큰을 호스트가 직접 받는 단계가 후�
   [Zitadel — Login app OIDC proxy·Trusted Domains](https://zitadel.com/docs/guides/integrate/login-ui/login-app),
   Zitadel v2.65.1 `internal/api/http/middleware/origin_interceptor.go`(공개 호스트·scheme 을 읽는 순서), Google BeyondCorp(“BeyondCorp: A New
   Approach to Enterprise Security”, 2014).
+
+---
+
+2026-11-07 개정 각주: "소유자가 한 번 하는 일" 1–4 와 §3 의 이메일 목록, §7 의 첫 판 손 설정은 [ADR-0436](./0436-the-consoles-cloudflare-edge-is-opentofu-applied-by-the-host-with-the-existing-account-token-and-the-allowlist-is-the-identity-staff-list.md) 이 코드(호스트가 적용하는 OpenTofu)로 대신한다.
