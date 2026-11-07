@@ -7,14 +7,17 @@
 #
 # Each run, level-triggered like the asset reconciler (root ADR-0333 §7):
 #   - nothing, while a lane cut-over runs (one at a time; it holds the spark pool's claim);
-#   - else the first lane not cut over yet (by-pnu-lane-cutover.sh lanes --pending, contract order)
-#     whose backoff has passed is started: by-pnu-pack-operator.sh <lane> cutover <generation> --auto.
+#   - else the first lane not cut over yet (by-pnu-lane-cutover.sh lanes --pending) whose backoff has
+#     passed is started, the lanes with the fewest attempts first, then in contract order: by-pnu-pack-operator.sh <lane> cutover <generation> --auto.
 #     The runner's steps are the automated analysis: history, preview, gold, parity, bake, equality,
 #     latency, publish, monitor-sample, verify (the lane at its production hostname, GET twice). The
 #     first that fails stops the run before anything after it, and its unit pages.
 #   - a lane still pending after an attempt is started again after a backoff that doubles from one hour
 #     (2, 4, ... at most 24): a transient answer (2026-11-05 02:42Z: R2 `service error` in the latency
-#     gate) is retried without anyone, a broken lane is not restarted every quarter hour.
+#     gate) is retried without anyone, a broken lane is not restarted every quarter hour. A lane never
+#     tried goes before it: one at a time, a lane that keeps failing would hold back every lane behind
+#     it in the contract (2026-11-07 08:58Z: parcel-regulation-zones' Gold crashed after 76 minutes, and
+#     its retry was next ahead of three lanes never tried).
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
 #     next one when the last attempt of that generation failed in its bake or its equality gate: a
 #     bake pinned to a Gold snapshot that has moved since cannot match the Gold it is compared with
@@ -75,7 +78,7 @@ def evidence(lane, generation):
             return mine
     return []
 
-for lane in lanes:
+for lane in sorted(lanes, key=lambda lane: len(attempts(lane))):  # stable: contract order among equals
     tried = attempts(lane)
     if tried:
         wait = min(CAP, HOUR * 2 ** (len(tried) - 1))
