@@ -545,16 +545,20 @@ fn write_local_copy(output_dir: &Path, plan: &PublicDataBulkFilePlan) -> anyhow:
 }
 
 /// What the whole run did, recorded with every object it landed: requests, blocks and renewals
-/// (root ADR-0289 §2-§3) and every session the pool opened, so nobody estimates them from a clock.
+/// (root ADR-0289 §2-§3), every session the pool opened, and every page that failed past its
+/// retries. Bronze's ledger rows are append-only, so this is the run's failure ledger too (root
+/// ADR-0352 §2); nobody estimates any of it from a clock.
 pub(crate) fn night_summary(
     counts: AskCounts,
     sessions: &[SessionRecord],
+    failed: &BTreeMap<&str, &[FailedPage]>,
     stop: Option<&Stop>,
 ) -> JsonValue {
     json!({
         "requests_sent": counts.requests,
         "asking": counts,
         "sessions": sessions,
+        "failed_pages": failed,
         "stopped": stop,
     })
 }
@@ -764,7 +768,11 @@ pub async fn run() -> anyhow::Result<()> {
     let (results, stop) = collect(&contract, &asking, Utc::now).await?;
     let counts = asking.tally.counts();
     let sessions = pool.sessions();
-    let night = night_summary(counts, &sessions, stop.as_ref());
+    let failed = results
+        .iter()
+        .map(|(role, result)| (*role, result.failed.as_slice()))
+        .collect();
+    let night = night_summary(counts, &sessions, &failed, stop.as_ref());
 
     let mut objects = Vec::new();
     let uow;
@@ -794,7 +802,6 @@ pub async fn run() -> anyhow::Result<()> {
         entry["role"] = json!(role);
         entry["complete"] = json!(result.complete);
         entry["rows"] = json!(result.rows);
-        entry["failed_pages"] = json!(result.failed);
         objects.push(entry);
     }
     write_json_file(

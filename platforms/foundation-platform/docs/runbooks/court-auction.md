@@ -28,7 +28,7 @@ last_reviewed: 2026-11-08
 요청 폭이 줄어든다(AIMD). 프록시·IP 돌리기·CAPTCHA 풀기는 하지 않는다(ADR-0289 §6).
 
 - 실행의 끝은 계약의 시간 예산(`run_time_budget_seconds`)뿐이다. 다 못 읽은 검색은 불완전 전수로 남고(삭제 표지 없음), 다음 실행이 처음부터 다시 읽는다.
-- 막힘이 아닌 실패(네트워크·5xx·JSON 깨짐)는 계약 횟수만큼 다시 묻고, 그래도 안 되면 그 쪽을 `manifest.json` 의 `failed_pages` 에 남긴다. 조용히 버리지 않는다.
+- 막힘이 아닌 실패(네트워크·5xx·JSON 깨짐)는 계약 횟수만큼 다시 묻고, 그래도 안 되면 그 쪽을 Bronze 행의 `request_params.night.failed_pages` 에 남긴다(append-only 실패 장부, 루트 ADR-0352 §2). 조용히 버리지 않는다.
 - **진행 없음 알림:** 한 실행이 답을 하나도 못 받으면(시간 예산 내내 막힘) 그 실행만 실패로 끝난다. 그 실패가 단위 실패 알림과 준비도 보고(ADR-0442)에 뜬다. 알림은 알리기만 한다. 다음 실행은 일정대로 다시 묻는다.
 - 실행마다 무엇이 있었는지는 `manifest.json` 과 Bronze 행의 `request_params.night` 에 있다: `asking`(요청·답·막힘·세션 갱신·재시도·실패·미완 수)과 `sessions`(세션마다 연 시각·요청 수·막힌 시각).
 - 운영자가 시간대를 좁히고 싶으면 더니어의 작업 창 스위치(루트 ADR-0282, `switches/court_auction_collect.window`)를 쓴다. 기본은 하루 어느 때나다.
