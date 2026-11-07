@@ -14,13 +14,6 @@
     job_units.py preempted <jobs.v1.json> <job id>
                                                why a running job of a class that yields at a step boundary
                                                must yield its slots now, or nothing (root ADR-0435)
-    job_units.py operator-window <jobs.v1.json> <job id> <epoch seconds>
-                                               why a run of the job started then would reach into the
-                                               by-PNU operator window, or nothing (root ADR-0425)
-    job_units.py operator-start <jobs.v1.json> <epoch seconds> <minutes>
-                                               the epoch second an approved cut-over whose first lane's
-                                               steps take <minutes> starts: then, if the operator window
-                                               has room for them, or when it next opens (root ADR-0433)
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -56,9 +49,6 @@ JOB_ID = re.compile(r"[a-z][a-z0-9_]*")
 # `capacity_claimants`, written by root (the claimants run as root) and read by every start.
 CLAIMS_DIR = "/var/lib/foundation-run-now/capacity"
 CLAIMANT = re.compile(r"[a-z][a-z0-9_]*")
-# The scheduled window is the first daily start of a spark-pool job to the last one plus this; the
-# rest of the UTC day is the by-PNU operator window (by-pnu-lane-cutover.sh, root ADR-0425).
-WINDOW_TAIL_MINUTES = 15
 
 
 def deferred_dir() -> str:
@@ -265,75 +255,6 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
     return f"yielded the {job['pool']} pool to {names}, which waits for its slots"
 
 
-def daily_minute(schedule: str) -> int | None:
-    """The minute of the UTC day a `M H * * *` schedule starts at; None for any other schedule."""
-    minute, hour, *rest = schedule.split()
-    return int(hour) * 60 + int(minute) if minute.isdigit() and hour.isdigit() and rest == ["*", "*", "*"] else None
-
-
-def scheduled_window(jobs) -> tuple[int, int]:
-    """(start, end) in minutes of the UTC day: from the first daily start of a spark-pool job to the
-    last one plus WINDOW_TAIL_MINUTES. Hourly jobs are not the window. The rest of the day, which
-    wraps midnight, is the by-PNU operator window, the cut-overs' (root ADR-0425)."""
-    daily = [minute for job in jobs if job.get("pool") == "spark"
-             and (minute := daily_minute(job["schedule"])) is not None]
-    if not daily:
-        raise ValueError("the job list has no daily spark-pool job to place the scheduled window at")
-    return min(daily), max(daily) + WINDOW_TAIL_MINUTES
-
-
-def kept_out_of_operator_window(job, window) -> bool:
-    """A spark-pool job only its clock starts, whose daily run (time limit and stop grace) its
-    schedule places inside the scheduled window: a later start of it (an unpause's catch-up of a
-    missed tick, a deploy's owed run) must not reach into the operator window (root ADR-0425)."""
-    if job.get("pool") != "spark" or job.get("started_by") != "schedule":
-        return False
-    start = daily_minute(job["schedule"])
-    return (start is not None and window[0] <= start
-            and start + job["time_limit_minutes"] + job["stop_grace_minutes"] <= window[1])
-
-
-def operator_window(jobs_file, job_id, now) -> str:
-    """Why a run of `job_id` started at `now` (epoch seconds) would reach into the operator window,
-    or "". Only a job kept out of it is asked; any other job may start at any hour."""
-    with open(jobs_file, encoding="utf-8") as handle:
-        jobs = json.load(handle)["jobs"]
-    job = next((job for job in jobs if job["id"] == job_id), None)
-    if job is None:
-        raise KeyError(f"{job_id} is not a job in {jobs_file}")
-    if job.get("pool") != "spark" or job.get("started_by") != "schedule":
-        return ""  # the window is computed only for a job it could hold
-    window = scheduled_window(jobs)
-    if not kept_out_of_operator_window(job, window):
-        return ""
-    minute = (int(now) // 60) % 1440
-    run = job["time_limit_minutes"] + job["stop_grace_minutes"]
-    if window[0] <= minute and minute + run <= window[1]:
-        return ""
-    hhmm = lambda minutes: f"{minutes // 60 % 24:02d}:{minutes % 60:02d}"  # noqa: E731
-    return (f"started at {hhmm(minute)} UTC, {job_id}'s run of up to {run} minutes would reach into the by-PNU "
-            f"operator window {hhmm(window[1])}-{hhmm(window[0])} UTC; its next scheduled start "
-            f"({hhmm(daily_minute(job['schedule']))} UTC) runs it")
-
-
-def operator_start(jobs, now, minutes) -> int:
-    """The first epoch second at or after `now` at which `minutes` of cut-over steps fit the operator
-    window the way by-pnu-lane-cutover.sh's window guard admits a step: not inside the scheduled
-    window and not into it. `now` when they fit already, else the next opening of the operator window
-    (the scheduled window's end). An approval outside the window waits for it, it is not refused
-    (root ADR-0433 §3; Spinnaker's restricted execution windows). ValueError when the steps are longer
-    than the whole operator window and never fit."""
-    start, end = scheduled_window(jobs)
-    if minutes < 0 or minutes > 1440 - (end - start):
-        raise ValueError(f"{minutes} minutes of cut-over steps never fit the {1440 - (end - start)}-minute "
-                         "operator window")
-    minute = (int(now) // 60) % 1440
-    if (minute >= end and minute + minutes <= 1440 + start) or minute + minutes <= start:
-        return int(now)
-    opening = int(now) - int(now) % 86400 + end * 60
-    return opening if opening > int(now) else opening + 86400
-
-
 def main(argv) -> int:
     if len(argv) == 2 and argv[0] == "services":
         print("\n".join(registered_services(argv[1])))
@@ -381,22 +302,6 @@ def main(argv) -> int:
             print(f"job_units: {error.args[0]}", file=sys.stderr)
             return 64
         return 0
-    if len(argv) == 4 and argv[0] == "operator-window":
-        try:
-            print(operator_window(argv[1], argv[2], int(argv[3])))
-        except (OSError, ValueError, KeyError) as error:
-            print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
-            return 64
-        return 0
-    if len(argv) == 4 and argv[0] == "operator-start":
-        try:
-            with open(argv[1], encoding="utf-8") as handle:
-                jobs = json.load(handle)["jobs"]
-            print(operator_start(jobs, int(argv[2]), int(argv[3])))
-        except (OSError, ValueError, KeyError) as error:
-            print(f"job_units: {error}", file=sys.stderr)
-            return 64
-        return 0
     if argv == ["deferred-dir"]:
         print(deferred_dir())
         return 0
@@ -405,8 +310,7 @@ def main(argv) -> int:
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
           " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
-          " | release <claimant> | preempted <jobs.v1.json> <job id> | operator-window <jobs.v1.json> <job id> <epoch>"
-          " | operator-start <jobs.v1.json> <epoch> <minutes>",
+          " | release <claimant> | preempted <jobs.v1.json> <job id>",
           file=sys.stderr)
     return 64
 

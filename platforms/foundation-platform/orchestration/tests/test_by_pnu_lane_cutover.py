@@ -2,7 +2,7 @@
 
 It runs each lane's Gold, the parity with the bundle, bake, equality, latency, publish and
 monitor-sample through the granted operator script, waits for each, stops at the first failure,
-records every step, never starts beside Spark and never in the daily scheduled window. The fake
+records every step and never starts beside Spark; no time of day refuses a step (root ADR-0435). The fake
 systemd-run of the operator's harness records each unit and fails the ones FAKE_FAIL names.
 """
 
@@ -28,13 +28,12 @@ def at(hour, minute=0):
     return str(int(datetime.datetime(2026, 10, 13, hour, minute, tzinfo=datetime.timezone.utc).timestamp()))
 
 
-# Clear of every daily scheduled Spark start with the longest step budget to spare: the operator
-# window opens at 21:50 UTC, and an untimed Gold's budget is the rebuild unit's 160 minutes.
+# Any hour: no step waits for a time of day (root ADR-0435).
 NIGHT = at(22)
 
 
 def untimed_lanes():
-    """The lanes whose own Gold job never ran as its unit: their gold budget is the unit's limit."""
+    """The lanes whose own Gold job never ran as its unit: their gold step is bounded by the unit's limit."""
     unmeasured = {job["systemd_service"] for job in JOBS
                   if (job.get("per_run_cap") or {}).get("measured_run_seconds", 0) is None}
     return [lane for lane in CONTRACT["by_pnu_lanes"]
@@ -366,26 +365,21 @@ class LaneCutover(OperatorHarness):
         self.assertIn(migration, last["reason"])
         self.assertEqual(sorted(claims.iterdir()) if claims.exists() else [], [], "the claim is taken off at the end")
 
-    def test_no_step_starts_in_or_runs_into_the_scheduled_window(self):
-        # Every daily start of a spark-pool job is inside the window the runner keeps out of.
+    def test_a_step_starts_at_any_hour_even_inside_the_old_scheduled_window(self):
+        # 2026-11-06 03:46:38Z: "would run into the scheduled window 04:30-21:50 UTC (budget 60 min)"
+        # refused the parcel-ownership gold step. Every daily Spark start's minute, and that one, now
+        # runs every step; the spark pool's claim, not the clock, keeps it apart from the batch.
         daily = sorted({(int(job["schedule"].split()[1]), int(job["schedule"].split()[0])) for job in JOBS
                         if job.get("pool") == "spark" and job["schedule"].split()[1].isdigit()})
-        self.assertTrue(daily)
-        for hour, minute in daily:
+        for hour, minute in [(3, 46), *daily]:
             with self.subTest(start=f"{hour:02d}:{minute:02d}"):
                 result, calls = self.runner(LANE, "1", "--dry-run", now=at(hour, minute))
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertIn("inside the scheduled window", result.stderr)
-        # Twenty minutes before the first one, a Gold of its budget would run into it: nothing starts.
-        first_hour, first_minute = daily[0]
-        early = at(first_hour, first_minute)
-        early = str(int(early) - 20 * 60)
-        if self.log.exists():
-            self.log.unlink()
-        result, calls = self.runner(LANE, "1", now=early)
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
-        self.assertIn("would run into the scheduled window", self.evidence()[-1]["reason"])
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("would not start now", result.stderr)
+        self.gates_ready()
+        result, calls = self.runner(LANE, "1", now=at(3, 46))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.evidence()[-1]["step"], "verify")
 
     def test_a_lane_waiting_for_history_starts_nothing_until_the_history_is_whole(self):
         # Root ADR-0350 §6, ADR-0371 §5: a half-filled 실거래 history reads as "no deal" on the screen,
@@ -426,30 +420,24 @@ class LaneCutover(OperatorHarness):
         result, _ = self.runner(f"{LANE},{LANE}", "1", "--dry-run")
         self.assertEqual(result.returncode, 65, result.stderr)
 
-    def test_an_untimed_gold_starts_only_with_its_unit_limit_left_before_the_window(self):
+    def test_an_untimed_gold_is_shown_bounded_by_its_unit_limit(self):
         # A first full build never timed is bounded only by the unit it starts (the panel rebuild's
-        # 160 minutes, which it reached ten times after 2026-10-20); 60 minutes would let it run on
-        # into the daily scheduled jobs. A timed lane keeps 60.
+        # 160 minutes, which it reached ten times after 2026-10-20). A timed lane shows 60.
         lanes = untimed_lanes()
         if not lanes:
             self.skipTest("every lane's Gold job is timed")
         limit = next(job["time_limit_minutes"] for job in JOBS if job["id"] == "gold_panel_rebuild")
-        self.assertGreater(limit, 60)
-        # 02:00 UTC: 150 minutes before the window, enough for 60, not for the unit limit.
         result, _ = self.runner(f"{LANE},{lanes[0]}", "1", "--dry-run", now=at(2))
-        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stderr.splitlines()
         gold = {lane: next(line for line in lines if f"dry run {lane} gold:" in line) for lane in (LANE, lanes[0])}
-        self.assertNotIn("would not start now", gold[LANE])
-        self.assertIn(f"budget {limit} min", gold[lanes[0]])
-        self.assertIn("would not start now", gold[lanes[0]])
-        result, _ = self.runner(f"{LANE},{lanes[0]}", "1", "--dry-run", now=at(22))
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"bounded by {limit} min", gold[lanes[0]])
 
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for step in ("history", "preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample"):
+        for step in ("history", "preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample",
+                     "verify"):
             self.assertIn(f"dry run {LANE} {step}:", result.stderr)
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "systemctl")])
         self.assertFalse((self.bake / "cutover").exists())

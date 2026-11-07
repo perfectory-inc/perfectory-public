@@ -99,18 +99,6 @@ if [[ "${verdict:-}" != start ]]; then
   exit 0
 fi
 
-# Until the clock windows are gone (root ADR-0435 stage c), a start the runner's window guard would
-# refuse is not an attempt: it is left to a later run, as the run-now dispatcher leaves an approval.
-budget="$("${ops}/by-pnu-lane-cutover.sh" "${lane}" "${generation}" --start-budget)" \
-  || { log "${lane}: the runner cannot plan it; nothing started"; exit 65; }
-start="$(python3 -I -B "${release_root}/scripts/deploy/job_units.py" operator-start \
-  "${release_root}/orchestration/jobs.v1.json" "${now}" "${budget}")" \
-  || { log "${lane}: ${budget} minutes of steps never fit the operator window; nothing started"; exit 65; }
-if ((start > now)); then
-  log "${lane}: its steps fit from $(date -u -d "@${start}" +%FT%TZ); nothing started now"
-  exit 0
-fi
-
 printf '{"at": %s, "lane": "%s", "generation": %s}\n' "${now}" "${lane}" "${generation}" >>"${marks}/${lane}.jsonl"
 log "${lane}: not cut over and its last attempt (if any) is past its backoff; starting its cut-over at generation ${generation}"
 exec "${ops}/by-pnu-pack-operator.sh" "${lane}" cutover "${generation}" --auto

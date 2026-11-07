@@ -36,84 +36,19 @@ for unit, state in units.items():
 '''
 
 
-class TheOperatorWindowIsTheCutOvers(unittest.TestCase):
-    """Root ADR-0425: the scheduled window comes from the job list, and the clock-started batch it
-    places inside it is kept out of the rest of the day (2026-11-05 23:46Z)."""
+class NoStartIsRefusedForTheTimeOfDay(unittest.TestCase):
+    """Root ADR-0435: the clock windows of ADR-0425 and ADR-0433 §3 are gone. 2026-11-06 03:46Z the
+    scheduled window refused the parcel-ownership cut-over; capacity and priority decide instead."""
 
-    def setUp(self):
-        sys.path.insert(0, str(JOB_UNITS.parent))
-        self.addCleanup(sys.path.remove, str(JOB_UNITS.parent))
-        import job_units
-        self.units = job_units
-        self.jobs = json.loads(JOBS.read_text(encoding="utf-8"))["jobs"]
-
-    def at(self, hour, minute):
-        return 1793836800 + hour * 3600 + minute * 60  # 2026-11-05T00:00:00Z
-
-    def test_the_unit_price_migration_is_held_out_of_the_night_and_its_schedule_fits(self):
-        window = self.units.scheduled_window(self.jobs)
-        (migration,) = [job for job in self.jobs if job["id"] == "unit_price_versions_migration"]
-        self.assertTrue(self.units.kept_out_of_operator_window(migration, window),
-                        "its 18:45 schedule is meant to end before the operator window")
-        self.assertEqual(self.units.operator_window(JOBS, migration["id"], self.at(18, 45)), "")
-        # The deploy's unpause at 23:46Z ran the missed 18:45 tick; the cut-over at 00:37Z lost to it.
-        for hour, minute in ((23, 46), (0, 37), (20, 0)):
-            with self.subTest(at=f"{hour:02d}:{minute:02d}"):
-                self.assertIn("operator window",
-                              self.units.operator_window(JOBS, migration["id"], self.at(hour, minute)))
-
-    def test_jobs_an_input_starts_or_whose_schedule_runs_past_the_window_are_not_held(self):
-        window = self.units.scheduled_window(self.jobs)
-        for job in self.jobs:
-            if job["started_by"] != "schedule" or job["pool"] != "spark":
-                with self.subTest(job=job["id"]):
-                    self.assertFalse(self.units.kept_out_of_operator_window(job, window))
-                    self.assertEqual(self.units.operator_window(JOBS, job["id"], self.at(23, 46)), "")
-
-
-class AnApprovedCutOverStartsInTheWindow(unittest.TestCase):
-    """Root ADR-0433 §3: an approved cut-over starts when the operator window has room for its first
-    lane's steps, now or at the window's next opening; it is never refused for the hour. Window
-    04:30-21:50 UTC (synthetic jobs, the 2026-11-06 edges)."""
-
-    JOBS = [{"pool": "spark", "schedule": "30 4 * * *"}, {"pool": "spark", "schedule": "35 21 * * *"},
-            {"pool": "spark", "schedule": "5 * * * *"}, {"pool": "light", "schedule": "0 12 * * *"}]
-
-    def setUp(self):
-        sys.path.insert(0, str(JOB_UNITS.parent))
-        self.addCleanup(sys.path.remove, str(JOB_UNITS.parent))
-        import job_units
-        self.units = job_units
-
-    def at(self, hour, minute, second=0, day=0):
-        return 1793923200 + day * 86400 + hour * 3600 + minute * 60 + second  # 2026-11-06T00:00:00Z
-
-    def test_the_eleven_o_six_starts(self):
-        # 00:37:35Z: 233 minutes left for parcel-ownership's 202: now. 03:46:38Z: 44 left: 21:50.
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(0, 37, 35), 202), self.at(0, 37, 35))
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(3, 46, 38), 202), self.at(21, 50))
-
-    def test_the_window_runs_past_midnight_and_a_late_evening_waits_a_day(self):
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(12, 0), 60), self.at(21, 50))
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(21, 50), 400), self.at(21, 50))
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(23, 0), 330), self.at(23, 0))
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(23, 1), 330), self.at(21, 50, day=1))
-        self.assertEqual(self.units.operator_start(self.JOBS, self.at(4, 29), 1), self.at(4, 29))
-
-    def test_steps_longer_than_the_whole_window_never_fit(self):
-        with self.assertRaises(ValueError):
-            self.units.operator_start(self.JOBS, self.at(22, 0), 401)
-        result = subprocess.run([sys.executable, str(JOB_UNITS), "operator-start", str(JOBS), "0", "100000"],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 64, result.stderr)
-        self.assertIn("never fit", result.stderr)
-
-    def test_the_command_answers_from_the_real_job_list(self):
-        result = subprocess.run([sys.executable, str(JOB_UNITS), "operator-start", str(JOBS), str(self.at(12, 0)), "202"],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        start, end = self.units.scheduled_window(json.loads(JOBS.read_text(encoding="utf-8"))["jobs"])
-        self.assertEqual(int(result.stdout), self.at(12, 0) if not start <= 720 < end else self.at(0, 0) + end * 60)
+    def test_the_window_answers_are_gone_from_the_one_place_that_gave_them(self):
+        for command in (["operator-window", str(JOBS), "unit_price_versions_migration", "1793922360"],
+                        ["operator-start", str(JOBS), "1793936798", "202"]):
+            with self.subTest(command=command[0]):
+                result = subprocess.run([sys.executable, "-I", "-B", str(JOB_UNITS), *command],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 64, result.stdout)
+        listing = json.loads(JOBS.read_text(encoding="utf-8"))
+        self.assertNotIn("operator_window_means", listing)
 
 
 class AnApprovalsProgressIsAppendedLineByLine(unittest.TestCase):

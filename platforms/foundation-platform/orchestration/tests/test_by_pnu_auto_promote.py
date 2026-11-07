@@ -21,11 +21,10 @@ from test_job_units import FAKE_SYSTEMCTL
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = PLATFORM / "scripts/ops/by-pnu-auto-promote.sh"
 
-# `lanes --pending` prints the PENDING file; `<lane> <generation> --start-budget` prints 30.
+# `lanes --pending` prints the PENDING file.
 FAKE_RUNNER = r'''#!/usr/bin/env bash
 here="$(cd "$(dirname "$0")" && pwd)"
 if [[ "$1 $2" == "lanes --pending" ]]; then cat "${here}/PENDING"; exit 0; fi
-[[ "$3" == --start-budget ]] && { echo 30; exit 0; }
 exit 64
 '''
 FAKE_OPERATOR = r'''#!/usr/bin/env bash
@@ -38,7 +37,7 @@ def at(day, hour, minute=0):
     return int(datetime.datetime(2026, 11, day, hour, minute, tzinfo=datetime.timezone.utc).timestamp())
 
 
-# 11-07 22:12Z, a quarter-hour tick in the operator window, while the clock windows still exist (stage c).
+# 11-07 22:12Z, a quarter-hour tick.
 NIGHT = at(7, 22, 12)
 
 
@@ -129,12 +128,14 @@ class AutoPromotion(unittest.TestCase):
         (self.bake / "cutover/20261108T000000Z.jsonl").write_text(json.dumps(failed[0]) + "\n")
         self.assertEqual(self.run_controller(NIGHT + 3600)[1], ["parcel-ownership cutover 2 --auto"])
 
-    def test_while_the_clock_windows_exist_a_start_they_would_refuse_is_not_an_attempt(self):
-        # Until stage c removes them (root ADR-0435), a daytime tick starts nothing and counts nothing.
-        result, started = self.run_controller(at(8, 12))
-        self.assertEqual((result.returncode, started), (0, []))
-        self.assertFalse((self.marks / "parcel-ownership.jsonl").exists())
-
+    def test_a_lane_starts_at_any_hour(self):
+        # 2026-11-06 03:46Z the clock window refused the cut-over; capacity, not the time, decides
+        # (root ADR-0435): the run waits for the spark pool by its claim.
+        for hour in (4, 12, 18, 21):
+            with self.subTest(hour=hour):
+                shutil.rmtree(self.marks, ignore_errors=True)
+                result, started = self.run_controller(at(8, hour))
+                self.assertEqual((result.returncode, started), (0, ["parcel-ownership cutover 1 --auto"]))
 
 if __name__ == "__main__":
     unittest.main()
