@@ -297,6 +297,32 @@ class RunBudgetTest(unittest.TestCase):
         self.assertEqual(job.run_state(summary(False, held, {"appended_seconds": {"1/4": 2.0}})), ("progress", True))
         self.assertEqual(job.run_state(summary(False, held, {"source_batch": "b"})), ("stalled", False))
 
+    def test_a_backfill_yields_at_the_next_step_once_a_publish_waits_and_is_not_stuck(self):
+        # Root ADR-0435, the 2026-11-06 00:37Z replay: the parcel-ownership cut-over waited 45 minutes
+        # for this backfill. Once the host writes the yield file no further step starts, whatever the
+        # budget left; a run that yielded before its first step waits, it is not `stalled`.
+        import tempfile
+        import time
+
+        import vintage_versions as job
+
+        with tempfile.TemporaryDirectory() as directory:
+            signal = Path(directory) / "yield"
+            budget = job.Budget(9000.0, time.monotonic(), {"write": 60.0, "parity": 30.0}, signal)
+            self.assertTrue(budget.allows("write"))
+            self.assertIsNone(budget.yielded)
+            signal.write_text("yielded the spark pool to by_pnu_lane_cutover (publish), which waits for its slots\n")
+            self.assertFalse(budget.allows("write"))
+            self.assertFalse(budget.allows("parity"))
+            self.assertIn("by_pnu_lane_cutover", budget.yielded)
+
+        def summary(*entries):
+            return {"complete": False, "parity": True, "yielded": "yielded the spark pool",
+                    "targets": {"t": {"vintages": {str(n): e for n, e in enumerate(entries)}}}}
+
+        self.assertEqual(job.run_state(summary({"source_batch": "b"})), ("yielded", False))
+        self.assertEqual(job.run_state(summary({"appended_seconds": {"1/4": 2.0}})), ("yielded", True))
+
 
 if __name__ == "__main__":
     unittest.main()
