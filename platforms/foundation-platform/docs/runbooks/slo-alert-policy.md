@@ -94,8 +94,14 @@ PostgreSQL pool pressure는 `foundation_api_db_pool_size`,
 request latency는 method·canonical route·status·histogram bucket별
 `foundation_api_http_request_duration_seconds_bucket`으로 내보낸다.
 
-초기 staleness 임계값은 24시간, 초기 느린 수집 임계값은 3600초, 초기 outbox pending-age
-임계값은 600초, 초기 API p95 지연 임계값은 1초다. 이는 기준 운영 tripwire이며 최종 비즈니스
+lakehouse batch staleness 임계값은 24시간, outbox pending-age 임계값은 600초, API p95 지연
+임계값은 1초다. Bronze 수집의 오래됨·느림 임계값은 원천마다 다르다: 엔드포인트 카탈로그
+(`docs/catalog/public-source-endpoint-catalog.v1.json`)의 `expected_cadence` 가 공급자 공개 주기에서 정한
+`max_age_hours`·`max_run_minutes`(기본 60) 를 foundation-api 가
+`foundation_platform_ingestion_source_expected_max_age_seconds`·`..._max_run_seconds` 로 내보내고
+`foundation-ingestion` 규칙이 그것과 비교한다(root ADR-0443). 공개일이 정해지지 않은 원천은 나이 한계가 없고 그
+수집 작업의 일정이 본다. `FoundationPlatformIngestionRunStale` 이 울리면 그 원천의 수집 작업과 공급자 공개
+여부를 본다. 공급자 주기가 바뀌었으면 카탈로그의 `expected_cadence` 를 실측 근거와 함께 고친다. 이는 기준 운영 tripwire이며 최종 비즈니스
 SLO가 아니다.
 
 ## 검토

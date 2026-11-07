@@ -654,6 +654,10 @@ const AREAS: &[Area] = &[
                         test: "schema_readiness_probe",
                     },
                     LaneTarget::Test {
+                        package: "foundation-api",
+                        test: "metrics_queries_match_schema",
+                    },
+                    LaneTarget::Test {
                         package: "foundation-normalization-infrastructure",
                         test: "active_override_reader",
                     },

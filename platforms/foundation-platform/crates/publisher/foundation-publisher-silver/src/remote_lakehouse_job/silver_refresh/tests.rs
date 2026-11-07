@@ -776,6 +776,12 @@ fn the_unit_areas_load_part_by_part_and_each_step_fits_the_unit() -> anyhow::Res
         "silver-handoff/hubgokr__building_register_exclusive_common_area"
     );
     assert_eq!(env[&key("CHUNK_ROWS")], "1000000");
+    // 2026-11-07 07:00: the part path named its object by the role `source`, which this lane
+    // calls `unit_area`, and every run stopped at "the release has no source object".
+    assert_eq!(
+        manifest_key(contract.handoff_prefix.as_deref().context("prefix")?, &release)?,
+        "silver-handoff/hubgokr__building_register_exclusive_common_area/OPN20990720SYNTHETIC/manifest.json"
+    );
     Ok(())
 }
 
