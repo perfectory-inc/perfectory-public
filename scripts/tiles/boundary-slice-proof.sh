@@ -202,9 +202,11 @@ fetch_tile() {
     "http://127.0.0.1:$port/$route")
 }
 
-# Build both binaries once, here, with cmake present. `rdkafka-sys` builds vendored librdkafka and
-# its build script calls cmake, which the stock `rust` image does not carry —
-# `tools/verify-image/Dockerfile` installs it for exactly this reason. Every later `cargo run` in
+# Build both binaries once, here, with cmake and libclang present. `rdkafka-sys` builds vendored
+# librdkafka and `btls-sys` (the court auction browser sessions, root ADR-0289 §1) builds BoringSSL:
+# both call cmake and the second runs bindgen, which needs libclang. The stock `rust` image carries
+# neither —
+# `tools/verify-image/Dockerfile` installs both for exactly this reason. Every later `cargo run` in
 # this proof then reuses these artifacts and needs no toolchain beyond rustc, so the install happens
 # in one container rather than in each of them.
 #
@@ -221,8 +223,9 @@ docker run --rm \
   "$RUST_IMAGE" bash -euo pipefail -c '
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq >/dev/null 2>&1
-    apt-get install -y --no-install-recommends cmake >/dev/null 2>&1
+    apt-get install -y --no-install-recommends cmake libclang-dev >/dev/null 2>&1
     command -v cmake >/dev/null || { printf "cmake install failed\n" >&2; exit 1; }
+    ls /usr/lib/llvm-*/lib/libclang.so* >/dev/null 2>&1 || { printf "libclang install failed\n" >&2; exit 1; }
     cargo build --locked --quiet -p foundation-api --bin foundation-migrate
     cargo build --locked --quiet -p foundation-outbox-publisher
   '

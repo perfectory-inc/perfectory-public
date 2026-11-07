@@ -5,9 +5,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 WORKDIR /src
 
 # rdkafka-sys (C2 event backbone) builds vendored librdkafka and needs a C/C++
-# toolchain beyond the rust image default.
+# toolchain beyond the rust image default. The court auction browser sessions (wreq, root
+# ADR-0289 §1) build BoringSSL with cmake and generate its bindings with libclang.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends         cmake=3.25.1-1         pkg-config=1.8.1-1         libssl-dev=3.0.22-1~deb12u1         zlib1g-dev=1:1.2.13.dfsg-1 \
+    && apt-get install -y --no-install-recommends         cmake=3.25.1-1         pkg-config=1.8.1-1         libssl-dev=3.0.22-1~deb12u1         zlib1g-dev=1:1.2.13.dfsg-1         libclang-dev=1:14.0-55.7~deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 # cargo-chef splits the build into a dependency layer keyed only by Cargo.lock and the
