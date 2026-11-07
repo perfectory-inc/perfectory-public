@@ -32,7 +32,7 @@
 # (FOUNDATION_OPERATOR_WAIT, which sudo's env_reset removes from a granted run: only the root
 # runner sets it).
 # `cutover <generation> --approved <id>` is the cut-over an operator approved in the console (root
-# ADR-0433): the run-now dispatcher starts it as root, in the operator window, once. The approval
+# ADR-0433): the run-now dispatcher starts it as root, at once, once (root ADR-0435). The approval
 # stands in for the attended start below: a staff identity's request with its reason, in the ledger.
 # It is taken only from root without sudo (a granted run carries SUDO_USER and is refused), only when
 # switches/cutover.d/<id> names these lanes and this generation and has not expired, and only once

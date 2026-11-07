@@ -2,7 +2,8 @@
 
 2026-11-06: the owner typed `ssh -tt ai-server "sudo by-pnu-pack-operator.sh parcel-ownership cutover 1
 --requested-at ... --reason ..."` at 00:37:35Z after a failed sudo password, and again at 03:46:38Z, when
-the gold step refused to run into the 04:30 scheduled window. The console's approval
+the gold step refused to run into the 04:30 scheduled window (a clock window ADR-0435 removed). A lane's
+first publish now needs no approval (the auto-promotion starts it); the console's approval
 (switches/cutover.d/<id>, written by foundation-api) now stands in for that request: the run-now
 dispatcher starts `cutover <generation> --approved <id>` as root, and the runner reports each step to
 the approval's progress, which the console shows.
@@ -128,29 +129,15 @@ class ApprovedCutover(OperatorHarness):
         self.assertEqual((lines[-1]["state"], lines[-1]["outcome"]), ("finished", "passed"))
         self.assertEqual(len({line["run"] for line in lines}), 1)
 
-    def test_the_eleven_o_six_late_start_fails_its_approval_with_the_window_reason(self):
-        # 03:46:38Z: the gold step's 60 minutes would have run into the 04:30 window. Started by an
-        # approval, the run ends with that reason in the approval's progress (the dispatcher would
-        # have waited for 21:50 instead; test_run_now_dispatch.py).
+    def test_the_eleven_o_six_late_start_runs_every_step(self):
+        # 03:46:38Z: the gold step's 60 minutes "would have run into the 04:30 window" and the run was
+        # refused. No time of day refuses a step now (root ADR-0435): the run publishes.
         self.gates_ready()
         late = str(int(datetime.datetime(2026, 11, 6, 3, 46, 38, tzinfo=datetime.timezone.utc).timestamp()))
-        result, calls = self.runner(LANE, "1", now=late, FOUNDATION_CUTOVER_APPROVAL=APPROVAL)
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
-        end = self.progress()[-1]
-        self.assertEqual((end["state"], end["outcome"]), ("finished", "failed"))
-        self.assertIn("would run into the scheduled window", end["reason"])
-
-    def test_the_start_budget_is_the_first_lanes_steps_and_reads_only_the_contracts(self):
-        result, calls = self.runner(LANE, "1", "--start-budget")
+        result, _ = self.runner(LANE, "1", now=late, FOUNDATION_CUTOVER_APPROVAL=APPROVAL)
         self.assertEqual(result.returncode, 0, result.stderr)
-        panel_limit = next(job["time_limit_minutes"] for job in JOBS if job["id"] == "gold_panel_rebuild")
-        # history 0, preview 1, parity 0, bake 60, equality 30, latency 20, publish 30, monitor-sample 1,
-        # verify 10, and gold: 60, or the panel rebuild's limit for a lane whose Gold never ran timed.
-        self.assertIn(int(result.stdout), (152 + 60, 152 + panel_limit))
-        self.assertEqual(calls, [])
-        self.assertFalse((self.bake / "cutover").exists(), "a plan wrote evidence")
-
+        end = self.progress()[-1]
+        self.assertEqual((end["state"], end["outcome"]), ("finished", "passed"))
 
 if __name__ == "__main__":
     unittest.main()

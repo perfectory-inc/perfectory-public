@@ -97,3 +97,10 @@ monitor-sample 을 차례로 돌리고 첫 실패에서 멈추며, 단계마다 
 - 단계: (a) 원장·API (b) 호스트: 디스패처·`operator-start`·`--approved`·`--start-budget`·굽기의 `full.d`·진행 파일과
   읽기 API (c) 더니어 화면. 앞 단계에 기대는 PR 은 draft.
 - 비용: 돈 0. 시작마다 파이썬 한 번(jobs 목록 읽기).
+
+---
+
+개정 각주(2026-11-07): §3 의 "운영자 창에 맞춘 시작"(`job_units.py operator-start`, 일회성 타이머)은
+[ADR-0435](./0435-a-by-pnu-lane-publishes-itself-through-automated-analysis-and-capacity-and-priority-not-the-clock-decide-when-work-starts.md)
+가 대체했다: 승인된 cut-over 는 바로 시작하고 spark 풀을 claim 해 용량을 기다린다. 레인의 첫 발행은 승인 없이 자동 승격이
+시작하므로, 승인은 이미 cut-over 된 레인의 재전환·전량 굽기(`force_full`)·중지 같은 예외 동작에만 남는다.

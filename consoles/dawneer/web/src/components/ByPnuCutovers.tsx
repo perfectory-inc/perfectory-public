@@ -1,8 +1,8 @@
-// by-PNU cut-over tab (root ADR-0433): the owner approves a lane cut-over with one button instead of
-// `ssh -tt ... sudo by-pnu-pack-operator.sh <lanes> cutover <generation>`. The platform records the
-// approval with the signed-in staff member and a reason; the host starts it once, now if the
-// operator window has room for the first lane's steps, else when the window opens, and runs the gates
-// (preview, gold, bake, equality, latency, publish) as its steps. Each approval's progress is below.
+// by-PNU cut-over tab (root ADR-0433, ADR-0435): a lane's first publish starts by itself (the host's
+// auto-promotion); an approval here is the exceptional act, a lane cut over again at a new generation.
+// The platform records it with the signed-in staff member and a reason; the host starts it once, at
+// once, it waits for the spark pool (not for a clock), and runs the gates (preview, gold, bake,
+// equality, latency, publish, verify) as its steps. Each approval's progress is below.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -29,7 +29,7 @@ function ApproveForm({ client }: { client: DawneerClient }) {
       return client.recordOperatorAction(CUTOVER_SUBJECT, checked.request);
     },
     onSuccess: (recorded) => {
-      setNotice(`${recordedMessage(recorded)} · 호스트가 운영자 창에 맞춰 시작합니다`);
+      setNotice(`${recordedMessage(recorded)} · 호스트가 바로 시작하고 Spark 풀을 기다립니다`);
       setReason("");
       void queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     },
@@ -85,7 +85,7 @@ function ApproveForm({ client }: { client: DawneerClient }) {
       <span className="basis-full text-xs text-slate-500">
         {"problem" in checked && (lanes || reason)
           ? checked.problem
-          : "운영자 창 안이고 첫 레인 단계 시간이 남았으면 바로, 아니면 창이 열릴 때 한 번 시작합니다. 48시간 뒤 만료."}
+          : "이미 cut-over 된 레인을 새 세대로 다시 전환할 때만 씁니다(첫 발행은 자동). 바로 한 번 시작하고, 48시간 뒤 만료."}
       </span>
       {notice ? (
         <span role="status" className="basis-full text-xs text-slate-700">

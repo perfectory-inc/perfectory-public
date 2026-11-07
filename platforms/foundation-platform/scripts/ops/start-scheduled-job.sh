@@ -112,25 +112,10 @@ if [[ -n "${turn}" ]]; then
   exit 0
 fi
 
-# A spark-pool job its clock alone starts, scheduled to run inside the daily scheduled window, does
-# not run into the by-PNU operator window when it starts late (root ADR-0425; Slurm starts no job
-# whose time limit reaches into a reservation): a start whose run (time limit and stop grace) would
-# reach into it runs nothing and says why, and the job's next scheduled start runs it. 2026-11-05
-# 23:46Z: the deploy that switched unit_price_versions_migration on unpaused its DAG, Airflow ran the
-# missed 18:45 tick at once, and the owner's parcel-ownership cut-over at 00:37Z waited 45 minutes
-# for it and failed. An operator's run-now is the operator's own act and is not held; a check runs
-# no Spark.
-if [[ -z "${requested}" && "${checking}" == false ]]; then
-  # Which units run and when the window is are job_units.py's answers (root ADR-0184).
-  window="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/../deploy/job_units.py" operator-window \
-    "${jobs_file}" "${job}" "${FOUNDATION_SCHEDULED_NOW:-$(date +%s)}")" \
-    || refuse "cannot read the operator window from ${jobs_file}"
-  if [[ -n "${window}" ]]; then
-    printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${window}"
-    printf 'foundation-job-outcome waiting %s\n' "${window}"
-    exit 0
-  fi
-fi
+# No start is refused by the time of day (root ADR-0435): the pool's capacity and the priority of what
+# waits for it decide (job_units.py pool-full, below). 2026-11-05 23:46Z a backfill's late catch-up start
+# ran into the night and the parcel-ownership cut-over waited 45 minutes for it; now the cut-over's
+# claim holds the pool, the backfill yields at its next step boundary, and no clock window is kept.
 
 # A release build runs alone (root ADR-0137): every job's ExecStartPre refuses while it holds its
 # lock, and a refused unit is a failed unit with a failure alert. A job that comes due during a
