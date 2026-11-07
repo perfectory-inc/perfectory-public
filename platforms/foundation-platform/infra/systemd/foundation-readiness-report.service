@@ -1,0 +1,25 @@
+[Unit]
+Description=Foundation Platform readiness report: every job, by-PNU lane, Bronze source and the host, one table a day from the definitions (root ADR-0442)
+After=network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+# systemd's own journal holds each job's runs (scripts/ops/job-run-times.py reads the same events).
+SupplementaryGroups=systemd-journal
+WorkingDirectory=/opt/foundation-platform/current
+# Read-only toward everything it asks: systemd, the journal, the metrics textfiles and foundation-api's
+# /metrics. It writes the table and its textfile, nothing else.
+ExecStart=/opt/foundation-platform/current/scripts/ops/readiness_report.py
+# 2026-11-07 on the host: about seventy jobs' journals and the lanes' units in under two minutes.
+TimeoutStartSec=15m
+MemoryMax=256M
+MemorySwapMax=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/readiness /var/lib/foundation-jobs/metrics

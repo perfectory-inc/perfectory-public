@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: roadmap
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-07
 ---
 
 # 운영 준비 작업 목록
@@ -51,7 +51,7 @@ last_reviewed: 2026-10-31
 
 ## 진행 중 프로그램 (2026-10 현재)
 
-마지막 대조: 2026-10-31 (origin/main·PR 상태·ADR 파일과 대조. 운영 호스트 실측은 "확인 필요"로 적는다.)
+마지막 대조: 2026-10-31 (origin/main·PR 상태·ADR 파일과 대조. 운영 호스트 실측은 "확인 필요"로 적는다.) 호스트 실측 전체는 §9(2026-11-07).
 
 지금 실제로 진행 중인 작업이다. **각 항목의 상세·결정·남은 단계는 가리킨 ADR이 정본**이며,
 여기서는 프로그램과 순서만 고정한다(작업을 복제하지 않는다 — 이 로드맵의 원칙 그대로). 아래가
@@ -162,6 +162,39 @@ last_reviewed: 2026-10-31
 
 - 결정: [ADR-0410](../adr/0410-the-repository-is-held-to-five-testable-cleanup-rules-and-every-artifact-comes-from-one-declared-definition.md)(정리 규칙 다섯 개, 선언 하나에서 생성, 범주마다 0 을 지키는 가드).
 - 전수 목록과 순서: [하이엔드 정리 인벤토리](./high-end-cleanup-inventory.md). 항목·순서·진행은 거기가 정본이다.
+
+### 9. 준비도 일괄 점검 (2026-11-07, ADR-0442)
+
+- 결정: [ADR-0442](../adr/0442-production-readiness-is-one-table-a-day-built-from-the-definitions-sorted-by-what-users-see.md).
+  막힘을 하나씩 고치며 다음 막힘을 찾지 않는다. `foundation-readiness-report.timer` 가 매일 22:10 UTC 에
+  `scripts/ops/readiness_report.py` 로 모든 작업·레인·원천·호스트를 정의에서 읽어 이 표를 만든다
+  (`/var/lib/foundation-platform/readiness/readiness.md`). 아래는 그 첫 판(2026-11-07 11:30–11:45Z, ai-server 읽기 전용 실측)에
+  주인을 붙인 사본이다. 사용자 영향 순.
+- 주인: W8c 법원경매 · W16 가드 · W17c Cloudflare · W18b 자동 승격 · W19 parquet · W20 낡은 필지/배포 보류 · W21 실패 유닛,
+  또는 NEW(이 점검이 고친 PR, 또는 맡길 brief).
+
+| # | 영향 | 막힘 | 실측 | 주인 |
+| --- | --- | --- | --- | --- |
+| 1 | 화면 | by-PNU 레인 8 개가 신선도 예산 48 h 를 넘김 | manifest 나이: `parcel` 196 h · `building` 194 h · `parcel-forest-ledger` 196 h · `parcel-transfer-history` 196 h · `parcel-zoning`·`parcel-price`·`parcel-characteristics`·`parcel-land-rights` 491 h. 표본 20 PNU 는 실 호스트명에서 20/20 응답(모니터·엣지 프로브 통과) — 깨진 것이 아니라 옛 데이터 | W19 + W20 (아래 3·4) |
+| 2 | 화면 | `unit-price` 레인이 예산 직전 | manifest 46.7 h / 48 h. Gold `gold.unit_price` 11-06 15:20 커밋이 마지막 굽기(11-06 12:05) 뒤 | W18b |
+| 3 | 화면 | `zoning_tile_bake` 가 11-03 22:22 부터 매 run 실패(14 일 무성공) | `maxzoom tiles miss 1820 of the 655599 served ids: 1178 sub-pixel (allowed, ADR-0262) and 642 that are not` | NEW — brief B3 |
+| 4 | 화면 먹이 | `gold_panel_rebuild` 11-02 08:47 이후 무성공 | 증분 병합이 160 분 상한에 timeout(11-05·11-06), 배포 정지로 signal 3 회. `gold.parcel_panel` 10-30 커밋이 입력 `silver.land_transfer_history` 11-04 커밋보다 뒤처짐 | W20 (ADR-0438·0440 반영 뒤 재측정) |
+| 5 | 화면 | 5 레인 미서빙 — `parcel-regulation-zones`·`-sub-parcels`·`-energy`·`-demolitions`·`-real-transaction` | 굽기 작업 꺼짐(첫 발행은 자동 승격). `parcel-regulation-zones` cut-over g1 이 10:27 부터 도는 중 | W18b |
+| 6 | 화면 먹이 | 매시 1 슬롯 작업이 4.5 h 넘게 시작되지 않음 | `onbid_public_auction_silver` 마지막 시작 06:52, `map_edit_fold_admin` 06:35. 그 사이 spark 풀 전부를 07:00 Silver 새로 고침·10:27 cut-over 가 잡음 | W18b (용량·우선순위) |
+| 7 | Silver | VWorld 토지 Silver 8 레인이 매일 실패 | `Parquet error: Disabled feature at compile time: flate2`(11-04 이후). Bronze 대 Silver: 토지권리 11-06 vs 10-16, 토지이용계획 10-20 vs 10-15, 임야 11-06 vs 10-26, 토지이동 11-06 vs 11-04 | W19 |
+| 8 | Silver | `rt_molit_real_transaction_silver` 51 h 무성공 | `ModuleNotFoundError: lakehouse_ingest` — 호스트가 `python3 -I` 로 부르는데 #1008 이 모듈 맨 위에 import 를 둠 | NEW — #1141 |
+| 9 | Silver | `silver_refresh_building_register_unit_areas` 실패 | `Error: the release has no source object`(11-07 07:00 첫 실패, 11-06 성공) | NEW — brief B4 |
+| 10 | 수집 | `court_auction_collect` 거부 | `courtauction.go.kr refused the run (ipcheck=false); stopped after 1528 requests`(11-06 17:31) | W8c |
+| 11 | 수집 | `legal_dong_code_changes` 11-04 10:01 이후 무성공 → `lineage_stewardship` 실패 | 파서 `row 1: 1 cells, expected 11`(code.go.kr 응답). 같은 날 다른 IP 에서는 53,403 코드가 보임. 계보는 `industrial-complex region codes did not follow` 로 실패, 지도가 경계 발행·공매 Gold·품질·유지보수·미디어 대조를 막힘으로 표시. 법정동 변경이 멈추면 ADR-0329 `views.changed_codes` 도 멈춘다 | NEW — brief B2 |
+| 12 | 운영 | `shape_ledger_check` 10-31 이후 매일 실패 | 원장 48 h+ 낡음(28 표), 호스트에 원장 버킷 열쇠 없음 | NEW — #1142 (열쇠는 §6 사장 할 일) |
+| 13 | 운영 | 수집 경보 세 개가 울릴 수 없다 | foundation-api 쿼리가 없는 열 `bronze_object.payload_size_bytes`(실제 `size_bytes`)를 읽어 `foundation_platform_ingestion_run_*` 가 0 줄. 열만 고치면 24 h 규칙이 원천 약 85/105 개에 울린다 — 기대 주기가 105 개 중 11 개에만 있다. `catalog.lakehouse_batch_run` 도 규칙이 거르는 행 0 개 | NEW — brief B1 |
+| 14 | 호스트 | 실패 유닛 35 개 | 대부분 위 실패의 남은 상태, `foundation-by-pnu-public-auction-bake.service` 는 not-found | W21 |
+| 15 | 호스트 | 정상 | 메모리 가용 42.2/62.6 GiB, 스왑 3.0/4.0 GiB 사용, 부하 19; 디스크 `/` 33%·`/data` 54%; `MemoryMax` 90% 넘은 유닛 0 | — |
+| 16 | 호스트 | `foundation-postgres-restore-drill.timer` 한 번도 안 돎 | 첫 실행 11-08 05:50(일요일) 예정 — 막힘 아님 | (W6 첫 실행 확인) |
+
+수집 원천(Bronze 마지막 객체, `catalog.bronze_object`): 공매 6 종 0 h, 실거래 12 종 11-06 17:43(공급자 하루 한도), 법원경매
+물건 11-06 16:05, VWorld 매일 훑기 파일 11-06, 건축HUB 61 종 10-20(월간), code.go.kr 10-28(위 11), 등록공장 10-19.
+`vworldkr__sandan_*`·`vworldkr__boundary_census_*` 는 07-02 이후 객체가 없는데 기대 주기가 선언되지 않아 판정할 수 없다(B1).
 
 ## 우선순위 0 — 출시 전 필수 게이트
 
