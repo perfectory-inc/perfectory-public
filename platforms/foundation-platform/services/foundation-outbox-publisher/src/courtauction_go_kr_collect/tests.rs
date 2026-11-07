@@ -9,7 +9,7 @@ use std::{
 };
 
 use chrono::{DateTime, NaiveDate, Utc};
-use collection_application::AskCounts;
+use collection_application::{AskCounts, CourtAuctionSessions};
 use serde_json::{json, Value};
 use tokio::time::Instant;
 use wiremock::matchers::{header, method, path};
@@ -83,7 +83,7 @@ async fn site(contract: &SourceContract, pages: usize, blocks: usize) -> MockSer
 /// The contract's asking, with the waits shortened so a test does not sleep for minutes.
 fn asking<'a>(
     contract: &SourceContract,
-    sessions: &'a dyn collection_application::CourtAuctionSessions,
+    sessions: &'a dyn CourtAuctionSessions,
     budget: Duration,
 ) -> Asking<'a> {
     let mut asking = Asking::new(
