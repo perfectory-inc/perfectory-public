@@ -604,7 +604,7 @@ groups:
           summary: 미디어 대조기(media_reconcile)가 30시간 넘게 비교하지 않았어요. journalctl -u foundation-media-reconcile.service 를 보세요
           runbook: docs/runbooks/media-reconcile.md
 
-  # A host unit that stays failed (root ADR-0444). Its failure posted one notice when it happened
+  # A host unit that stays failed (root ADR-0445). Its failure posted one notice when it happened
   # (foundation-unit-failed@); 2026-11-01..07 nine units then stayed failed for hours to six days and
   # nothing said so again, because a weekly drill or a retired unit never runs again to post. The
   # asset reconciler writes each failed unit's series every five minutes from systemctl, with the

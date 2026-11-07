@@ -1272,7 +1272,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The daily readiness report's table (root ADR-0442). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/readiness
     systemctl daemon-reload
-    # A failed state means a declared unit is broken now (root ADR-0444): systemd keeps the failure of
+    # A failed state means a declared unit is broken now (root ADR-0445): systemd keeps the failure of
     # a unit whose file the lines above removed, and of an operator's one-off instance, until told.
     # No answer from systemd clears nothing.
     while read -r leftover; do

@@ -350,7 +350,7 @@ class Reconciler(unittest.TestCase):
         self.assertIn('foundation_docker_container_info{id=%q}', rules)
 
     def test_a_failed_unit_is_failing_from_its_first_failure_until_a_clean_run(self):
-        # Root ADR-0444: 2026-11-01..07 nine units stayed failed for days after one notice each; the
+        # Root ADR-0445: 2026-11-01..07 nine units stayed failed for days after one notice each; the
         # hourly serving monitors failed every run, so "failed since" must span their runs.
         units = {
             "foundation-x-drill.service": {"Id": "foundation-x-drill.service", "ActiveState": "failed",

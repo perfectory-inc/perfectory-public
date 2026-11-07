@@ -71,7 +71,7 @@ release yet" 만 남겼고, 호스트는 약 11시간 a879a889 에 머물렀으�
 - `curl -s localhost:19090/api/v1/query --data-urlencode 'query=up{job="node-exporter"}'` 가 1.
 - 배포 중 `deploy.prom` 에 `phase="drain"` 등 한 줄이 보이고, 끝나면 HELP/TYPE 줄만 남는다.
 
-## 실패한 채 남은 유닛 ([루트 ADR-0444](../../../../docs/adr/0444-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md))
+## 실패한 채 남은 유닛 ([루트 ADR-0445](../../../../docs/adr/0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md))
 
 자산 조정기가 5분마다 실패한 유닛을 `/var/lib/foundation-jobs/metrics/foundation-units.prom` 에 주인·런북과 함께 쓴다.
 

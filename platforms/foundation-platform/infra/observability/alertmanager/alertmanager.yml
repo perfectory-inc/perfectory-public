@@ -33,7 +33,7 @@ route:
       group_wait: 30s
       group_interval: 5m
       repeat_interval: 24h
-    # A unit that stayed failed six hours, or a failed unit with no owner (root ADR-0444): the owner
+    # A unit that stayed failed six hours, or a failed unit with no owner (root ADR-0445): the owner
     # is called by name with a channel mention, and again every twelve hours until the unit runs
     # cleanly. 2026-11-01..07 nine units stayed failed for days after a single notice each.
     - matchers:

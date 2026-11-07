@@ -1,4 +1,4 @@
-"""Every host unit that reports its failure names who acts on it and how (root ADR-0444).
+"""Every host unit that reports its failure names who acts on it and how (root ADR-0445).
 
 2026-11-01..07: nine units on ai-server stayed failed for hours to six days (the identity restore
 drill from 11-01, the court auction collector, the 법정동 stewardship, the zoning tile bake, ...).

@@ -95,7 +95,7 @@ class NotifyUnitFailure(unittest.TestCase):
         self.assertEqual([call[-1] for call in calls][-1], "https://slack.com/api/chat.postMessage")
 
     def test_the_notice_names_the_units_owner(self):
-        # Root ADR-0444: 2026-11-01..07 nine failures were posted with nobody named, and sat for days.
+        # Root ADR-0445: 2026-11-01..07 nine failures were posted with nobody named, and sat for days.
         fragment = self.dir / "foundation-identity-restore-drill.service"
         fragment.write_text("[Unit]\nX-Foundation-Owner=platform\n", encoding="utf-8")
         [call] = self.run_script("foundation-identity-restore-drill.service", STUB_FragmentPath=str(fragment))

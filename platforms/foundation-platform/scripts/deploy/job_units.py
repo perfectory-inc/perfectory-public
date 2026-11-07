@@ -16,7 +16,7 @@
                                                must yield its slots now, or nothing (root ADR-0435)
     job_units.py leftover-failed <jobs.v1.json>
                                                each failed unit no declaration runs again, whose failed
-                                               state the deploy clears (root ADR-0444)
+                                               state the deploy clears (root ADR-0445)
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -142,7 +142,7 @@ LEFTOVER_AFTER_SECONDS = 24 * 3600
 
 
 def leftover_failed(jobs_file, systemctl: str = "systemctl", now=None) -> list[str]:
-    """The failed foundation units that nothing declared runs again (root ADR-0444): a unit whose
+    """The failed foundation units that nothing declared runs again (root ADR-0445): a unit whose
     file a release removed (systemd keeps its failed state after the file is gone; the 공매 bake
     retired 11-05 sat failed and not-found), and an instance of a job's template that no job names,
     a day after it failed (the parcel tile bake's operator rehearsals, failed 10-15/16 and still

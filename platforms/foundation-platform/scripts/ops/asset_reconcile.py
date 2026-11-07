@@ -430,7 +430,7 @@ def container_names(run) -> str:
 UNITS_METRICS_NAME = "foundation-units.prom"
 # Since when each failing unit has failed, kept across ticks beside the reconciler's own state.
 UNITS_STATE_FILE = "failing-units.json"
-UNITS_HELP = """# HELP foundation_unit_failed_since_seconds When a failed host unit entered its failed state, with the owner and runbook its unit file names (root ADR-0444).
+UNITS_HELP = """# HELP foundation_unit_failed_since_seconds When a failed host unit entered its failed state, with the owner and runbook its unit file names (root ADR-0445).
 # TYPE foundation_unit_failed_since_seconds gauge
 # HELP foundation_units_failed How many host units are failed now.
 # TYPE foundation_units_failed gauge
@@ -445,7 +445,7 @@ def label(value: str) -> str:
 
 def failed_units(failed, show, tracked: dict, read_text=lambda path: Path(path).read_text(encoding="utf-8")):
     """The textfile of every failed foundation unit, since when it has been failing, and who owns it,
-    with the failing-since table to keep for the next tick (root ADR-0444).
+    with the failing-since table to keep for the next tick (root ADR-0445).
 
     2026-11-01..07: the identity restore drill, the court auction collector and seven others stayed
     failed for days. Each had posted one Slack notice when it failed and nothing after, and a weekly

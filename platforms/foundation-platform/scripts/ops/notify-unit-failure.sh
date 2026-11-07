@@ -28,7 +28,7 @@ alertmanager="http://127.0.0.1:${FOUNDATION_ALERTMANAGER_PORT:-19093}/api/v2/ale
 result="$(systemctl show -p Result --value "${unit}" 2>/dev/null || true)"
 # The unit's Documentation= (its runbook), when it names one.
 runbook="$(systemctl show -p Documentation --value "${unit}" 2>/dev/null || true)"
-# Who acts on it: the unit file's X-Foundation-Owner= (root ADR-0444, config/unit-owners.contract.json).
+# Who acts on it: the unit file's X-Foundation-Owner= (root ADR-0445, config/unit-owners.contract.json).
 fragment="$(systemctl show -p FragmentPath --value "${unit}" 2>/dev/null || true)"
 owner="$( { [[ -n "${fragment}" ]] && sed -n 's/^X-Foundation-Owner=//p' "${fragment}" 2>/dev/null; } | head -n 1 || true)"
 # Whether the unit reports its successes, so a failure can be an alert that resolves.
