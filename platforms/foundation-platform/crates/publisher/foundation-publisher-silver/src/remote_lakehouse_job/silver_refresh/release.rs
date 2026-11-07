@@ -84,6 +84,15 @@ impl Release {
             .get(role)
             .with_context(|| format!("the release has no {role} object"))
     }
+
+    /// The one object of a release of a one-source lane, whatever the contract names its role:
+    /// the part lanes' manifest is keyed by it (`unit_area` and `source` both, root ADR-0391).
+    pub(in crate::remote_lakehouse_job) fn sole_object(&self) -> anyhow::Result<&LedgerObject> {
+        match self.objects.values().collect::<Vec<_>>().as_slice() {
+            [only] => Ok(only),
+            objects => bail!("a part lane reads one source, not {}", objects.len()),
+        }
+    }
 }
 
 /// What every run identity of `lane` starts with; the month follows it.
