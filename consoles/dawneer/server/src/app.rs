@@ -1,8 +1,9 @@
 //! Routes of the Dawneer server (root ADR-0116).
 //!
 //! `/auth/*` signs a staff member in and out, `/api/session` tells the screens who is signed in,
-//! `/api/foundation/*` relays the allow-listed platform routes with the session's token, and
-//! everything else is the built screens.
+//! `/api/foundation/*` relays the allow-listed platform routes with the session's token, Zitadel's
+//! sign-in pages are relayed on this origin (root ADR-0434 §2), and everything else is the built
+//! screens.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,10 +53,45 @@ impl AppState {
     }
 }
 
+/// Zitadel's browser paths, relayed to the issuer (root ADR-0434 §2): the authorize step, its
+/// sign-in pages (password, second factor, enrolment) and sign-out. Its console and APIs are not
+/// here, so they stay on the host's loopback.
+const LOGIN_ROUTES: [&str; 6] = [
+    "/oauth/v2/authorize",
+    "/oauth/v2/authorize/{*rest}",
+    "/ui/login",
+    "/ui/login/",
+    "/ui/login/{*rest}",
+    "/oidc/v1/end_session",
+];
+/// Request headers a sign-in page needs from the browser; the rest (and the console's own session
+/// cookie) stay here.
+const LOGIN_REQUEST_HEADERS: [header::HeaderName; 5] = [
+    header::ACCEPT,
+    header::ACCEPT_LANGUAGE,
+    header::CONTENT_TYPE,
+    header::USER_AGENT,
+    header::REFERER,
+];
+/// Hop-by-hop or recomputed response headers that are not passed back.
+const LOGIN_DROPPED_RESPONSE_HEADERS: [header::HeaderName; 4] = [
+    header::CONNECTION,
+    header::TRANSFER_ENCODING,
+    header::CONTENT_LENGTH,
+    header::UPGRADE,
+];
+
 /// The server's router.
 pub fn router(state: Arc<AppState>) -> Router {
     let web = ServeDir::new(&state.config.web_dir)
         .fallback(ServeFile::new(state.config.web_dir.join("index.html")));
+    // Zitadel's pages carry their own security headers; the console's would break their scripts.
+    let sign_in_pages = LOGIN_ROUTES
+        .iter()
+        .fold(Router::new(), |router, path| {
+            router.route(path, any(login_relay))
+        })
+        .with_state(state.clone());
     Router::new()
         .route("/auth/login", get(login))
         .route("/auth/callback", get(callback))
@@ -79,6 +115,92 @@ pub fn router(state: Arc<AppState>) -> Router {
             HeaderValue::from_static("no-referrer"),
         ))
         .with_state(state)
+        .merge(sign_in_pages)
+}
+
+/// `host[:port]` of the console's origin, as Zitadel's public host header wants it.
+fn public_host(base: &url::Url) -> String {
+    let host = base.host_str().unwrap_or_default();
+    match base.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_owned(),
+    }
+}
+
+/// The `Cookie` header without the console's own session cookie: Zitadel never sees it.
+fn cookies_for_issuer(headers: &HeaderMap) -> Option<String> {
+    let kept: Vec<&str> = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(';'))
+        .map(str::trim)
+        .filter(|pair| {
+            !pair.is_empty()
+                && pair
+                    .split_once('=')
+                    .is_none_or(|(name, _)| name != SESSION_COOKIE)
+        })
+        .collect();
+    (!kept.is_empty()).then(|| kept.join("; "))
+}
+
+/// Relays one of Zitadel's browser paths to the issuer on the host's loopback. Zitadel's documented
+/// proxy contract: the instance is the request's host (the issuer's), the public origin is
+/// `x-zitadel-public-host` (a trusted domain of the instance) and its scheme `x-forwarded-proto`,
+/// so the pages and redirects name the console's origin. Tokens are not issued here: the code
+/// exchange is the server's own call to the issuer, so `iss` stays the one Foundation expects.
+async fn login_relay(
+    State(state): State<Arc<AppState>>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if body.len() > BODY_LIMIT {
+        return plain(StatusCode::PAYLOAD_TOO_LARGE, "request body too large");
+    }
+    let Ok(mut target) = state.config.issuer.join(uri.path()) else {
+        return plain(StatusCode::BAD_REQUEST, "malformed path");
+    };
+    target.set_query(uri.query());
+    let mut request = state
+        .http
+        .request(method, target)
+        .header(
+            "x-zitadel-public-host",
+            public_host(&state.config.public_base),
+        )
+        .header("x-forwarded-proto", state.config.public_base.scheme())
+        .body(body.to_vec());
+    for name in &LOGIN_REQUEST_HEADERS {
+        for value in headers.get_all(name) {
+            request = request.header(name, value.clone());
+        }
+    }
+    if let Some(cookies) = cookies_for_issuer(&headers) {
+        request = request.header(header::COOKIE, cookies);
+    }
+    let upstream = match request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%error, "sign-in relay failed");
+            return plain(
+                StatusCode::BAD_GATEWAY,
+                "the sign-in service is unavailable",
+            );
+        }
+    };
+    let status = upstream.status();
+    let mut passed = upstream.headers().clone();
+    for name in &LOGIN_DROPPED_RESPONSE_HEADERS {
+        passed.remove(name);
+    }
+    let bytes = upstream.bytes().await.unwrap_or_default();
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+    *response.headers_mut() = passed;
+    response
 }
 
 fn plain(status: StatusCode, message: &'static str) -> Response {

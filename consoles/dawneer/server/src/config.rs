@@ -13,7 +13,8 @@ pub struct Config {
     pub bind: SocketAddr,
     /// The origin staff open in the browser; the OIDC redirect URI hangs off it.
     pub public_base: Url,
-    /// The Zitadel issuer (root ADR-0116 §5: the production issuer through a tunnel).
+    /// The Zitadel issuer on the loopback; the server's own calls go here, the browser never does
+    /// (root ADR-0434 §2).
     pub issuer: Url,
     /// The Zitadel project id; tokens must carry it as audience for Foundation to accept them.
     pub project_id: String,
