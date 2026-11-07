@@ -531,6 +531,21 @@
         ]
       },
       {
+        "name": "lefthook-policy-self-test",
+        "paths": [
+          "tools/conftest/lefthook/**",
+          "tools/conftest.env"
+        ]
+      },
+      {
+        "name": "lefthook-policy",
+        "paths": [
+          "lefthook.yml",
+          "tools/conftest/lefthook/**",
+          "tools/conftest.env"
+        ]
+      },
+      {
         "name": "zizmor-workflows-self-test",
         "paths": [
           ".github/zizmor.yml",
