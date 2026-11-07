@@ -44,8 +44,9 @@ SOURCE_SNAPSHOTS_PROPERTY. That record is what this module plans from:
   recomputed, but the build is published by key (`publish: changed_keys`): written to a shadow
   branch, compared with the served Gold by `row_digest`, and only the differing keys merged into
   main and recorded (gold_incremental.Outcome.publish_by_key). The plan names the symbols that
-  changed. A Gold whose pins carry no code version (built before ADR-0321) is taken as built by the
-  current code: the next commit records it.
+  changed. A Gold whose pins carry no code version (built before ADR-0321) is left alone while its
+  inputs do not move; once they do, its rebuild is the same full build published by key, which
+  records the version (root ADR-0437).
 
 `main` is the Spark entry the scheduled job runs (scripts/ops/gold-panel-rebuild.sh). Everything
 else is pure Python, so the CI runner, which has no PySpark, tests the decisions themselves.
@@ -556,24 +557,33 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
             and not gold_code_version.same(recorded_code, current_code):
         code_changed = gold_code_version.changed_parts(recorded_code, current_code)
         reasons.append(f"the producer code changed since the current Gold was built: {code_changed}")
+    # Root ADR-0437: a Gold that records no code version is not known to be what the current code
+    # makes of its pins, so a rebuild its inputs already call for recomputes every row and publishes
+    # by key. The incremental merge's parity sample would find the difference only after the
+    # incremental phases, and the full fallback after them outran the time limit on every run
+    # (gold.parcel_panel, 2026-11-03..06: no commit, nothing served for 192 h).
+    code_unrecorded = (current_code is not None and previous is not None and recorded_code is None
+                       and bool(reasons))
     minimum = None if previous is None else math.ceil(previous * (1 - entry["max_row_loss_fraction"]))
     mode, mode_reasons, previous_pins = ("none", [], None)
     if reasons:
         mode, mode_reasons, previous_pins = incremental_mode(entry, gold, silver, pins, whole_table_inputs,
                                                              unconditional)
     settings = entry.get("incremental") or {}
-    if edition_moved is not None and mode == "incremental":
+    if edition_moved is not None and mode == "incremental" and code_changed is None and not code_unrecorded:
         # The comparison side reads the edition the Gold was built from: only the PNUs whose parcel
         # inputs differ between the two editions are recomputed (root ADR-0381).
         flags += ["--incremental-from-parcel-edition", edition_moved]
     publish = None
-    if code_changed is not None:
+    if code_changed is not None or code_unrecorded:
         # Root ADR-0321 §5: which rows a code change touches is not derivable from the code, so every
         # row is recomputed (the declared full exception); it is written to a shadow branch, and only
         # the rows whose row_digest differs from the served Gold reach main (Write-Audit-Publish).
+        what = (f"the producer code changed ({code_changed})" if code_changed is not None
+                else "the current Gold records no code version, so the current code may build it differently")
         mode, previous_pins, publish = "full", None, "changed_keys"
-        mode_reasons = [f"the producer code changed ({code_changed}): every row is recomputed on a shadow "
-                        "branch, and only the rows whose row_digest differs are merged into main"]
+        mode_reasons = [f"{what}: every row is recomputed on a shadow branch, and only the rows whose "
+                        "row_digest differs are merged into main"]
         flags += ["--publish-changed-keys", repr(float(settings.get("max_changed_key_fraction", 1.0)))]
     coverage = entry.get("section_coverage")
     # Root ADR-0272: the producer measures its sections against the served Gold before it writes.
