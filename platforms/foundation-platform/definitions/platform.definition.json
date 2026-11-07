@@ -990,6 +990,12 @@
             "scripts/tiles/compose.yaml"
           ],
           "why": "The tile slice proof stack runs on a developer machine or CI runner only. It still states caps: Docker Desktop's VM is the whole budget there."
+        },
+        {
+          "files": [
+            "consoles/dawneer/compose.yml"
+          ],
+          "why": "The console image's build, read by the release build in CI (root ADR-0434); the host runs that image from compose.console.yml, counted there."
         }
       ],
       "outside_scope": [

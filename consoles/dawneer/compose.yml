@@ -1,0 +1,17 @@
+# The one build of the console's image (root ADR-0434). The release build (scripts/deploy/
+# foundation-release-build.py) reads it and puts the image in the signed release; the data host never
+# builds it and runs that image from platforms/foundation-platform/compose.console.yml.
+x-log-cap: &log-cap
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  dawneer:
+    logging: *log-cap
+    image: dawneer-console:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    mem_limit: 32m
