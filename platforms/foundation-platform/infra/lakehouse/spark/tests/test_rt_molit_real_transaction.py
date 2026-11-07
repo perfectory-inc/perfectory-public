@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -49,6 +50,17 @@ def rows_of(data: bytes, month="209812"):
 
 def rows_and_rejected(data: bytes, month="209812"):
     return job.rows_of(data, DATASET, month, "k", "20990102T030405Z", NOW, CSV)
+
+
+class RunsOnTheHost(unittest.TestCase):
+    def test_the_host_reads_the_tables_in_isolated_mode(self):
+        # scripts/ops/rt-molit-silver-load.sh runs `python3 -I <job> tables`, and -I leaves the job's
+        # own directory off sys.path: a module-level `from lakehouse_ingest import ...` failed every
+        # hourly run from 2026-11-05 08:13 to 11-07 (ModuleNotFoundError), and no export loaded.
+        run = subprocess.run([sys.executable, "-I", str(SPARK_DIR / "jobs" / "rt_molit_real_transaction.py"), "tables"],
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(run.stdout.startswith("silver.real_transaction "), run.stdout)
 
 
 class ReadsExports(unittest.TestCase):
@@ -240,7 +252,9 @@ class FitsItsUnit(unittest.TestCase):
 
     def test_a_run_stops_starting_objects_at_its_deadline(self):
         now = [0.0]
-        deadline = job.Deadline(10, clock=lambda: now[0])
+        from lakehouse_ingest import Deadline  # noqa: PLC0415
+
+        deadline = Deadline(10, clock=lambda: now[0])
         self.assertFalse(deadline.passed())
         now[0] = 10
         self.assertTrue(deadline.passed())
