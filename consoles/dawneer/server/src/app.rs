@@ -121,10 +121,8 @@ pub fn router(state: Arc<AppState>) -> Router {
 /// `host[:port]` of the console's origin, as Zitadel's public host header wants it.
 fn public_host(base: &url::Url) -> String {
     let host = base.host_str().unwrap_or_default();
-    match base.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host.to_owned(),
-    }
+    base.port()
+        .map_or_else(|| host.to_owned(), |port| format!("{host}:{port}"))
 }
 
 /// The `Cookie` header without the console's own session cookie: Zitadel never sees it.

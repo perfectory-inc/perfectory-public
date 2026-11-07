@@ -98,9 +98,11 @@ pub fn scopes(project_id: &str) -> String {
     format!("openid profile email offline_access urn:zitadel:iam:org:project:id:{project_id}:aud")
 }
 
-/// Fetches and checks the issuer's discovery document, and points the two endpoints the browser
-/// opens at the console's own origin: the browser never reaches the issuer, the console relays its
-/// sign-in pages (root ADR-0434 §2). The server's own calls (token, userinfo) stay on the issuer.
+/// Fetches and checks the issuer's discovery document.
+///
+/// The two endpoints the browser opens point at the console's own origin: the browser never reaches
+/// the issuer, the console relays its sign-in pages (root ADR-0434 §2). The server's own calls
+/// (token, userinfo) stay on the issuer.
 ///
 /// # Errors
 /// Returns [`OidcError`] when it cannot be read or names another issuer.
