@@ -95,7 +95,10 @@ ADR-0433(#1112–#1115, 병합)으로 by-PNU cut-over 와 전량 굽기는 더�
 
 ## 소유자가 한 번 하는 일
 
-PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보고, 에이전트에게는 "했다"만 알린다.
+PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보고, 에이전트에게는 "했다"만 알린다. Zitadel 쪽(앱 redirect·trusted
+domain·2차 인증 필수)은 사람이 하지 않는다 — 배포가 더니어를 띄우기 직전에 제어 체크아웃의 `configure-zitadel.sh` 를 입력이 바뀌었을
+때만 돌린다(`foundation-release.sh` `configure_console_zitadel`). 남은 4번(토큰을 서버에 넣는 명령 하나)은 결함으로 본다: Cloudflare
+API 로 터널을 만들고 토큰을 호스트가 직접 받는 단계가 후속이다(Consequences).
 
 1. **Zero Trust 켜기.** Cloudflare 대시보드 → **Zero Trust** → 팀 이름 정하기 → **Free** 요금제(50명까지 0원).
 2. **Access 앱.** Zero Trust → **Access → Applications → Add an application → Self-hosted** → 이름 `dawneer`, 도메인
@@ -105,9 +108,7 @@ PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보�
 4. **토큰을 서버에.** PowerShell 에서(토큰은 화면·기록에 남지 않게 붙여 넣고 Enter, 그다음 Ctrl+D):
    `ssh -t ai-server "umask 077; cat > /tmp/console-tunnel.env; sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh env-set console-tunnel /tmp/console-tunnel.env; rm -f /tmp/console-tunnel.env"`
    붙여 넣을 한 줄: `TUNNEL_TOKEN=<복사한 토큰>`.
-5. **Zitadel 맞추기.** `ssh -t ai-server "cd ~/identity-platform/current && bash infra/zitadel/configure-zitadel.sh"` — `updated console app
-   dawneer`, `created trusted domain console.perfectory.io`, `updated organization login policy` 가 찍힌다.
-6. **확인(휴대폰).** `https://console.perfectory.io` → Access 메일 PIN → Zitadel 로그인 → 처음 한 번 OTP 앱 등록 → 더니어 → 승인 탭.
+5. **확인(휴대폰).** `https://console.perfectory.io` → Access 메일 PIN → Zitadel 로그인 → 처음 한 번 OTP 앱 등록 → 더니어 → 승인 탭.
 
 ## Consequences
 
@@ -123,7 +124,9 @@ PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보�
   trusted domain 추가·조회(admin API)가 `configure-zitadel.sh` 의 호출 그대로 된다. 중계 머리글을 단 authorize → `/ui/login`(아이디·
   비밀번호·2차 인증 안내) → `/oauth/v2/authorize/callback` → `https://<공개 주소>/auth/callback?code=…` 까지 **모든 리디렉트와 폼
   주소가 공개 https 주소**였고, 그 code 를 루프백에서 바꾼 id·access 토큰의 `iss` 는 `http://127.0.0.1:<루프백 포트>` 였다.
-- 남는 부채: 엣지 설정 코드화(§7, ADR-0423 의 기계), Access JWT 원점 확인, 세션 저장소의 영속화.
+- 남는 부채: 소유자 명령 하나(4번)와 대시보드 설정(1–3) — 엣지 설정 코드화(§7, ADR-0423 의 기계)가 Tunnel 을 만들고 토큰을 호스트
+  파일로 직접 받으면 사라진다. 그 토큰(Tunnel·Access·DNS 편집)을 어디에 둘지(기존 Worker 배포 토큰의 권한을 넓힐지, 새 토큰을
+  둘지)가 소유자 결정으로 남는다; Access 허용 목록은 신원 플랫폼의 직원 목록에서 만드는 것이 목표다, Access JWT 원점 확인, 세션 저장소의 영속화.
 - 출처: [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/),
   [Access self-hosted applications](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/),
   [Zero Trust plans](https://www.cloudflare.com/plans/zero-trust-services/),

@@ -816,6 +816,32 @@ verify_runtime_secrets() {
 # (runtime-secrets group console-tunnel, placed once by the owner). A release built before the
 # console's image existed carries none and leaves it off too. Not starting is a line, never a failed
 # deploy: the data host's serving does not wait on a staff screen.
+# Zitadel follows the console's app list, trusted domain and login policy (root ADR-0434 §2, §3)
+# from the control checkout the host trusts, here and not by a person: identity-platform's
+# configure-zitadel.sh, idempotent. Only what changed runs: the inputs' digest is kept, and an
+# unchanged one skips the call. It runs only on the way to starting the console, so the laptop
+# sign-in keeps working until the hosted one is about to exist.
+console_zitadel_inputs=(
+  /opt/perfectory-control/current/platforms/identity-platform/infra/zitadel/configure-zitadel.sh
+  /opt/perfectory-control/current/platforms/identity-platform/config/staff-console-applications.v1.json
+  /opt/perfectory-control/current/platforms/identity-platform/config/staff-login-policy.v1.json
+  /opt/perfectory-control/current/platforms/identity-platform/config/workload-principal-policy.v1.json
+  /opt/perfectory-control/current/platforms/identity-platform/infra/zitadel/actions/principal-kind.js
+)
+configure_console_zitadel() {
+  local record="${state_root}/console-zitadel.sha256" digest
+  digest="$(cat "${console_zitadel_inputs[@]}" | sha256sum | cut -d' ' -f1)" || return 1
+  if [[ -s "${record}" && "$(cat "${record}")" == "${digest}" ]]; then
+    printf 'console: Zitadel already follows these inputs\n'
+    return 0
+  fi
+  if ! bash "${console_zitadel_inputs[0]}"; then
+    printf 'console: configure-zitadel.sh failed; the console is not started\n' >&2
+    return 1
+  fi
+  printf '%s\n' "${digest}" >"${record}"
+}
+
 console_files=(/etc/identity-platform/secrets/dawneer-oidc-client.env /etc/foundation-platform/console-tunnel.env)
 start_console() {
   local runtime="$1" file
@@ -824,6 +850,7 @@ start_console() {
   done
   docker image inspect dawneer-console:local >/dev/null 2>&1 \
     || { printf 'console: off (the release carries no dawneer-console image)\n'; return 0; }
+  configure_console_zitadel || return 0
   # They borrow foundation-api's network namespace, so a recreated API recreates them here too.
   "${runtime}" --profile console up -d --wait dawneer console-tunnel \
     || printf 'console: did not start; the deploy goes on (see docker logs of dawneer, console-tunnel)\n' >&2
