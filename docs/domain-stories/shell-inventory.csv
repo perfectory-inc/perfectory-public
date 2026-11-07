@@ -161,8 +161,6 @@ scripts/guard/every-table-declares-its-load-self-test.sh,63,true,test-fixture,xt
 scripts/guard/every-table-declares-its-load.sh,77,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/foundation-ci-scope-self-test.sh,9,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/foundation-kafka-contract.sh,105,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/foundation-parcel-current-selector-self-test.sh,112,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/foundation-parcel-current-selector.sh,60,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
 scripts/guard/foundation-r2-lakehouse-live-self-test.sh,151,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/frontend-test-isolation-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/github-policy-json-self-test.sh,463,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI

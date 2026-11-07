@@ -381,28 +381,6 @@
         ]
       },
       {
-        "name": "foundation-parcel-current-selector-self-test",
-        "paths": []
-      },
-      {
-        "name": "foundation-parcel-current-selector",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
-        ]
-      },
-      {
-        "name": "parcel-reads-the-served-edition-self-test",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
-        ]
-      },
-      {
-        "name": "parcel-reads-the-served-edition",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
-        ]
-      },
-      {
         "name": "parcel-edition-promotion-is-readiness-gated-self-test",
         "paths": [
           "platforms/foundation-platform/infra/lakehouse/spark/jobs/**",
