@@ -128,6 +128,16 @@ class AutoPromotion(unittest.TestCase):
         (self.bake / "cutover/20261108T000000Z.jsonl").write_text(json.dumps(failed[0]) + "\n")
         self.assertEqual(self.run_controller(NIGHT + 3600)[1], ["parcel-ownership cutover 2 --auto"])
 
+    def test_a_generation_whose_equality_failed_is_baked_anew(self):
+        # 2026-11-07 07:38Z, the first automatic run: the gold step committed a new snapshot, the bake
+        # resumed generation 1 pinned to 11-05's (39,396,906 rows), and equality compared 42,053,586.
+        (self.bake / "parcel-ownership-pack-g1/summaries").mkdir(parents=True)
+        steps = [{"lane": "parcel-ownership", "step": step, "outcome": outcome, "seconds": 0, "reason": "",
+                  "generation": 1}
+                 for step, outcome in (("gold", "passed"), ("bake", "passed"), ("equality", "failed"))]
+        (self.bake / "cutover/20261107T071226Z.jsonl").write_text("".join(json.dumps(s) + "\n" for s in steps))
+        self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 2 --auto"])
+
     def test_a_lane_starts_at_any_hour(self):
         # 2026-11-06 03:46Z the clock window refused the cut-over; capacity, not the time, decides
         # (root ADR-0435): the run waits for the spark pool by its claim.

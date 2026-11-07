@@ -16,8 +16,10 @@
 #     (2, 4, ... at most 24): a transient answer (2026-11-05 02:42Z: R2 `service error` in the latency
 #     gate) is retried without anyone, a broken lane is not restarted every quarter hour.
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
-#     next one when the last attempt of that generation failed in its bake (a pin Gold no longer
-#     holds is not resumed); 1 for a lane never baked.
+#     next one when the last attempt of that generation failed in its bake or its equality gate: a
+#     bake pinned to a Gold snapshot that has moved since cannot match the Gold it is compared with
+#     (2026-11-07 07:38Z: generation 1, baked 11-05 at 39,396,906 rows, against a Gold of 42,053,586),
+#     and a pin Gold no longer holds is not resumed; 1 for a lane never baked.
 #
 # Every start is recorded in <marks>/auto-promote/<lane>.jsonl (who started what, when) and, by the
 # operator script, in the journal (`journalctl -t foundation-operator-start`).
@@ -84,8 +86,8 @@ for lane in lanes:
                    if (m := re.fullmatch(rf"{re.escape(lane)}-pack-g([1-9][0-9]{{0,3}})", os.path.basename(path)))]
     generation = max(generations, default=1)
     steps = evidence(lane, generation)
-    if any(step.get("step") == "bake" and step.get("outcome") == "failed" for step in steps):
-        generation += 1  # a bake that failed may hold a pin Gold no longer keeps: start a new one
+    if any(step.get("step") in ("bake", "equality") and step.get("outcome") == "failed" for step in steps):
+        generation += 1  # baked from a Gold that moved, or a pin Gold no longer keeps: bake anew
     print(f"start {lane} {generation}")
     break
 PY
