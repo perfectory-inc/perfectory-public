@@ -883,9 +883,13 @@ def load_specs(jobs=None, graph=None):
             other = by_id[name]
             if started_by(other) != "inputs" or not other["enabled"] and job["enabled"]:
                 raise JobListError(f"{job_id}: reconciles {name}, which is not an enabled `inputs` job")
-            # A by-PNU bake serving several lanes is the exception: each lane records its own reads.
+            # A by-PNU bake serving several lanes is the exception: each lane records its own reads. So
+            # is a job making several Gold tables (the panel rebuild, root ADR-0333 §7 stage 2): each records its own
+            # pins; a table it makes and reads itself (the unit price join) is a step of its run.
             made = found[name][1]
-            if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made):
+            golds = [node for dataset in made if dataset not in found[name][0] for node in dataset[1:]]
+            if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made) \
+                    and not (golds and all(node.startswith("gold.") for node in golds)):
                 raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
         if reconciles and (start != "schedule" or job["pool"] != DEFAULT_POOL):
             raise JobListError(f"{job_id}: a reconciler runs on its own schedule in {DEFAULT_POOL}, never on an event")

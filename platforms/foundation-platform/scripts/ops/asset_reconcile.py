@@ -106,6 +106,26 @@ class Verdict:
     note: str = ""
 
 
+def panel_assets(job_id: str, job: dict, service: str, golds: list, nodes: dict, edges: dict,
+                 contract: dict) -> list[Asset]:
+    """Each Gold table a job that makes several builds (gold_panel_rebuild: the parcel and the building
+    panel), its own asset (root ADR-0333 §7, stage 2): its inputs are the tables the job's edges feed it from, less
+    what the job makes itself (the unit price join it builds the building panel with) and the inputs
+    the contract holds back from a real rebuild (`unmeasured_inputs`), so the asset is owed exactly when
+    an input its planner pins moved."""
+    made = {nodes[edges[edge]["to"]].get("table_name") for edge in job["pipeline_graph_edges"]}
+    found = []
+    for name in golds:
+        node = nodes[name]
+        gold = node["table_name"]
+        held_back = set(contract["tables"][gold].get("unmeasured_inputs", {}))
+        tables = {nodes[edges[edge]["from"]].get("table_name") for edge in job["pipeline_graph_edges"]
+                  if edges[edge]["to"] == name} - {None} - made - held_back
+        uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
+        found.append(Asset(job_id, uri, service, gold=gold, inputs=tuple(sorted(tables))))
+    return found
+
+
 def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
     """The assets of every job the reconciler reconciles, from the job list, the graph and the contracts:
     a Gold job's one table, or each lane a by-PNU bake serves (by_pnu_serving_bake serves several, one
@@ -127,6 +147,10 @@ def assets(jobs: dict, graph: dict, contract: dict) -> list[Asset]:
             pinning = pins_from["gold_table"] if pins_from else None
             found.append(Asset(job_id, uri, service, gold=node["table_name"],
                                inputs=tuple(sorted(t for t in tables if t != pinning)), pins_from=pins_from))
+            continue
+        golds = [name for name in outputs if nodes[name].get("table_name") in contract["tables"]]
+        if golds:
+            found.extend(panel_assets(job_id, listing[job_id], service, golds, nodes, edges, contract))
             continue
         # The Gold tables each lane is fed from; a lane's object serving node and its packs are one lane.
         feeds: dict[str, set] = {}
