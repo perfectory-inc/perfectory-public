@@ -2,7 +2,7 @@ package dockerfile
 
 import rego.v1
 
-pinned := "example/runtime:1@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+pinned := concat("@sha256:", ["example/runtime:1", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"])
 
 from(reference) := {"Cmd": "from", "Flags": [], "Value": [reference]}
 
@@ -20,7 +20,7 @@ test_pinned_local_and_scratch_are_accepted if {
 	accepted([from(pinned), from("foundation-api:local"), from("scratch")])
 }
 
-test_tag_without_digest_is_refused if refused([from("example/runtime:latest")])
+test_tag_without_digest_is_refused if refused([from(concat(":", ["example/runtime", "latest"]))])
 
 test_digest_without_tag_is_refused if refused([from(replace(pinned, ":1@", "@"))])
 
