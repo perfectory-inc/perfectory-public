@@ -213,6 +213,8 @@ class OperatorHarness(unittest.TestCase):
         (call,) = [call for call in calls if call["tool"] == "systemd-run"]
         args = call["args"]
         env = dict(args[index + 1].split("=", 1) for index, arg in enumerate(args) if arg == "-E")
+        # Root ADR-0441: every unit the operator starts runs the release this run pinned.
+        self.assertEqual(env.pop("FOUNDATION_RUN_RELEASE", None), RELEASE_ID, args)
         props = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
         return args, env, props
 
@@ -678,7 +680,8 @@ class PackOperator(OperatorHarness):
         self.assertIn("--no-block", args)
         self.assertEqual(env, {})
         # The scheduled unit's command, both tables, with the one reason naming its decision.
-        self.assertEqual(args[-4:-1], ["/opt/foundation-platform/current/scripts/ops/gold-panel-rebuild.sh", "all",
+        # The scheduled unit's script, from the release this run pinned (root ADR-0441).
+        self.assertEqual(args[-4:-1], [str(self.release.resolve() / "scripts/ops/gold-panel-rebuild.sh"), "all",
                                        "--unconditional"])
         self.assertIn("ADR-0166", args[-1])
         # Everything else the scheduled unit states, so the run honours its account, files, time
@@ -915,7 +918,7 @@ class RollbackRehearsal(OperatorHarness):
         self.assertFalse(any("MONITOR_PACK_GENERATION" in arg for arg in preview))
         self.assertIn(f"{self.P}_MONITOR_BASE_URL=https://catalog-preview.perfectory.io", preview)
         self.assertIn("EnvironmentFile=-/etc/foundation-platform/parcel-serving-monitor.env", preview)
-        self.assertEqual(preview[-2:], [str(self.release.parents[1] / "current/scripts/ops/by-pnu-serving-monitor.sh"), "parcel"])
+        self.assertEqual(preview[-2:], [str(self.release.resolve() / "scripts/ops/by-pnu-serving-monitor.sh"), "parcel"])
         self.assertIn(f"rehearsed: a rollback serves {self.NAME} (generation-1+1-pack-patches)", result.stderr)
 
     def test_a_check_that_fails_or_names_no_manifest_reads_nothing_from_the_preview(self):
