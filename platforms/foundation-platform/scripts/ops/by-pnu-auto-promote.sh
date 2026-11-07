@@ -47,6 +47,33 @@ if [[ -n "${running}" ]]; then
   exit 0
 fi
 
+# Root ADR-0439: refreshing what users read now outranks a lane's first publish, at the Gold rebuild
+# lock as in the spark pool. While the asset reconciler says an asset of a `publish` job is owed (a
+# served lane's Gold or bake), no cut-over starts: its Gold step would hold the one rebuild lock for
+# hours (2026-11-07 13:12Z the third parcel-regulation-zones cut-over of the day took it while the
+# parcel lane served a 199-hour-old manifest and its owed panel rebuild could only end `waiting`). A
+# reconciler that has not written for half an hour says nothing here (its own alert pages).
+asset_metrics="${FOUNDATION_AUTO_PROMOTE_ASSET_METRICS:-/var/lib/foundation-jobs/metrics/asset-reconcile.prom}"
+owed="$(python3 -I - "${release_root}/orchestration/jobs.v1.json" "${asset_metrics}" "${now}" <<'PY'
+import json, os, re, sys
+jobs_file, metrics, now = sys.argv[1], sys.argv[2], int(sys.argv[3])
+try:
+    if now - os.stat(metrics).st_mtime > 1800:
+        sys.exit(0)
+    lines = open(metrics, encoding="utf-8").read().splitlines()
+except OSError:
+    sys.exit(0)
+listing = json.load(open(jobs_file, encoding="utf-8"))
+publish = {job["id"] for job in listing["jobs"] if job.get("priority_class") == "publish"}
+owed = re.compile(r'^foundation_asset_owed\{asset="([^"]+)",job="([^"]+)"\} 1$')
+print(" ".join(sorted(found[1] for found in map(owed.match, lines) if found and found[2] in publish)))
+PY
+)" || { log "cannot read what the asset reconciler owes; nothing started"; exit 70; }
+if [[ -n "${owed}" ]]; then
+  log "a served lane's refresh is owed (${owed}); no first publish starts before it"
+  exit 0
+fi
+
 mapfile -t pending < <("${ops}/by-pnu-lane-cutover.sh" lanes --pending)
 if ((${#pending[@]} == 0)); then
   log "every lane is cut over; nothing to do"
