@@ -9,6 +9,7 @@ import { type Demolitions, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
+import type { RealTransaction } from "@/lib/api/real-transaction";
 import type { RegulationZone, RegulationZones } from "@/lib/api/regulation-zones";
 import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
@@ -28,9 +29,11 @@ import {
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
+  parcelRealTransactionQuery,
   parcelRegulationZonesQuery,
   parcelSubParcelsQuery,
 } from "./queries";
+import { ParcelComparablesCard, ParcelRealTransactionsCard } from "./real-transaction";
 
 type Entry = Extract<PanelStackEntry, { kind: "parcel" }>;
 
@@ -45,11 +48,16 @@ type Section = { id: string; label: string; content: ReactNode };
  */
 export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelDocument }) {
   const t = useTranslations("panels.parcel.summary");
-  const [category, setCategory] = useState<"parcel" | "listings" | "publicAuction">("parcel");
+  const realTransactionText = useTranslations("panels.parcel.realTransaction");
+  const [category, setCategory] = useState<
+    "parcel" | "listings" | "publicAuction" | "realTransaction"
+  >("parcel");
   const listings = useQuery(parcelListingsQuery(entry.id));
   const listingCount = listings.data?.total ?? 0;
   const publicAuction = useQuery(parcelPublicAuctionQuery(entry.id));
   const publicAuctionCount = publicAuction.data?.length ?? 0;
+  // A parcel the 실거래 lane has no document for has no 실거래 category (root ADR-0350 §5).
+  const realTransaction = useQuery(parcelRealTransactionQuery(entry.id));
   const categories = [
     { key: "parcel" as const, label: t("categories.parcel"), count: null },
     ...(listingCount > 0
@@ -64,26 +72,38 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
           },
         ]
       : []),
-  ];
-  const parcelSections = useParcelSections(entry, data);
-  const sections: Section[] =
-    category === "listings" && listings.data
+    ...(realTransaction.data
       ? [
           {
-            id: "listings",
-            label: t("categories.listings"),
-            content: <ParcelListingsCard entry={entry} data={listings.data} />,
+            key: "realTransaction" as const,
+            label: t("categories.realTransaction"),
+            count: realTransaction.data.transactionTotal,
           },
         ]
-      : category === "publicAuction" && publicAuction.data
-        ? [
-            {
-              id: "publicAuction",
-              label: t("categories.publicAuction"),
-              content: <ParcelPublicAuctionCard rounds={publicAuction.data} />,
-            },
-          ]
-        : parcelSections;
+      : []),
+  ];
+  const parcelSections = useParcelSections(entry, data);
+  // Each category's page once its read has data; 필지정보 otherwise.
+  const pages: Record<typeof category, Section[] | null | undefined> = {
+    parcel: parcelSections,
+    listings: listings.data && [
+      {
+        id: "listings",
+        label: t("categories.listings"),
+        content: <ParcelListingsCard entry={entry} data={listings.data} />,
+      },
+    ],
+    publicAuction: publicAuction.data && [
+      {
+        id: "publicAuction",
+        label: t("categories.publicAuction"),
+        content: <ParcelPublicAuctionCard rounds={publicAuction.data} />,
+      },
+    ],
+    realTransaction:
+      realTransaction.data && realTransactionSections(realTransactionText, realTransaction.data),
+  };
+  const sections: Section[] = pages[category] ?? parcelSections;
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const active = useScrollSpy(scrollRef, sections.map((s) => s.id).join(","));
@@ -160,6 +180,29 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
       )}
     </div>
   );
+}
+
+/** The 실거래 category's page: the parcel's own deals, then its 법정동's 공장·창고 deals when it carries them. */
+function realTransactionSections(
+  t: ReturnType<typeof useTranslations>,
+  data: RealTransaction,
+): Section[] {
+  return [
+    {
+      id: "realTransactionOwn",
+      label: t("ownSection"),
+      content: <ParcelRealTransactionsCard data={data} />,
+    },
+    ...(data.comparables.length > 0
+      ? [
+          {
+            id: "realTransactionComparables",
+            label: t("comparablesSection"),
+            content: <ParcelComparablesCard data={data} />,
+          },
+        ]
+      : []),
+  ];
 }
 
 /** The section the reader is in: the last one whose top has passed the scroller's top. */

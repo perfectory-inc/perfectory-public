@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ const reads = vi.hoisted(() => ({
   subParcels: null as unknown,
   energy: null as unknown,
   demolitions: null as unknown,
+  realTransaction: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
 // the lane, never from a map.
@@ -48,6 +49,10 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelDemolitionsQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "demolitions", pnu],
     queryFn: async () => reads.demolitions,
+  }),
+  parcelRealTransactionQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "real-transaction", pnu],
+    queryFn: async () => reads.realTransaction,
   }),
 }));
 
@@ -392,6 +397,79 @@ describe("parcel panel categories", () => {
       ).toEqual(["필지정보", "공매 2"]);
     } finally {
       reads.publicAuction = [];
+    }
+  });
+
+  it("adds 실거래 with its count, and labels a deal linked by inference 추정", async () => {
+    const deal = {
+      dataset_slug: "real_transaction_industrial_trade",
+      deal_date: "2098-02-01",
+      deal_amount_10k_krw: 52300,
+      cancelled: false,
+      place_identity_grade: "code_exact",
+    };
+    reads.realTransaction = {
+      as_of_month: "2098-05-01",
+      transactions: [deal],
+      transactions_omitted: 0,
+      main_lot_group_pnus: [],
+      comparables: [
+        {
+          deal_date: "2098-03-02",
+          deal_amount_10k_krw: 8000,
+          jibun_raw: "4**",
+          pnu: PNU,
+          place_identity_grade: "inferred_attributes",
+        },
+      ],
+      comparables_from: "2095-05-01",
+      region: { datasets: [] },
+      transactionTotal: 1,
+      mainLotGroupOthers: [],
+    };
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      const realTransaction = within(bar).getByRole("button", { name: "실거래 1" });
+      fireEvent.click(realTransaction);
+      expect(await screen.findByText("5억 2,300만원")).toBeTruthy();
+      expect(anchors()).toEqual(["이 필지의 실거래", "같은 법정동 공장·창고 거래"]);
+      expect(screen.getByText("지번 4**")).toBeTruthy();
+      expect(screen.getByText("추정")).toBeTruthy();
+    } finally {
+      reads.realTransaction = null;
+    }
+  });
+
+  it("labels a 본번 group deal 추정 · 같은 본번 and lists the group's other parcels", async () => {
+    reads.realTransaction = {
+      as_of_month: "2098-05-01",
+      transactions: [
+        {
+          dataset_slug: "real_transaction_industrial_trade",
+          deal_date: "2098-02-01",
+          deal_amount_10k_krw: 52300,
+          jibun_raw: "3**",
+          cancelled: false,
+          place_identity_grade: "inferred_same_main_lot_group",
+        },
+      ],
+      transactions_omitted: 0,
+      main_lot_group_pnus: [],
+      comparables: [],
+      comparables_from: "2095-05-01",
+      region: { datasets: [] },
+      transactionTotal: 1,
+      mainLotGroupOthers: ["9999900000103000001", "9999900000103000002"],
+    };
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      fireEvent.click(within(bar).getByRole("button", { name: "실거래 1" }));
+      expect(await screen.findByText("추정 · 같은 본번")).toBeTruthy();
+      expect(screen.getByText(/같은 본번의 다른 필지: 300-1, 300-2/)).toBeTruthy();
+    } finally {
+      reads.realTransaction = null;
     }
   });
 });

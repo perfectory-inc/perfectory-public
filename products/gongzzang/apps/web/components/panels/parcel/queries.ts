@@ -6,6 +6,7 @@ import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchEnergy } from "@/lib/api/energy";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
+import { fetchRealTransaction } from "@/lib/api/real-transaction";
 import { fetchRegulationZones } from "@/lib/api/regulation-zones";
 import { fetchSubParcels } from "@/lib/api/sub-parcels";
 import { fetchListings } from "@/lib/listings/api";
@@ -60,6 +61,13 @@ export const parcelRegulationZonesQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "regulation-zones", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchRegulationZones(pnu, signal),
   // The lane changes when a 용도지역지구 release does, once a month (root ADR-0362, ADR-0375).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelRealTransactionQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "real-transaction", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchRealTransaction(pnu, signal),
+  // The lane's Gold is rebuilt once a day (root ADR-0371).
   staleTime: 60 * 60_000,
 });
 
