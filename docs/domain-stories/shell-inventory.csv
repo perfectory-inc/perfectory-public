@@ -178,8 +178,6 @@ scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by mono
 scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-self-test.sh,352,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/lib/fixture-repo.sh,173,true,ci,xtask,"Shared lib sourced by monorepo-guard.sh, the CI guard runner"
-scripts/guard/lineage-is-derived-not-passed-self-test.sh,109,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/lineage-is-derived-not-passed.sh,75,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/live-lane-completeness-self-test.sh,550,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/live-lane-completeness.sh,601,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/migration-approval-gates-self-test.sh,62,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
