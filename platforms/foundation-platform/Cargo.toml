@@ -123,9 +123,19 @@ flate2 = "1.1"
 prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
 arrow-array = "60"
 arrow-schema = "60"
-# zstd is the compression the Gold Iceberg tables are written with; a reader without it fails at
-# the first record batch rather than at configuration time.
-parquet = { version = "60", default-features = false, features = ["arrow", "snap", "zstd"] }
+# Every codec Iceberg's `write.parquet.compression-codec` can name, because a reader is handed
+# whatever a writer chose and a missing one fails only at the first record batch: zstd is what the
+# Gold tables are written with, but `reference.legal_dong_code_change` carries gzip files, and the
+# missing `flate2` stopped every Silver refresh plan from 2026-11-04 (incident W19). Default-off
+# stays so `cli`/`async` are not pulled in; the gzip backend is miniz_oxide, already in the tree.
+parquet = { version = "60", default-features = false, features = [
+    "arrow",
+    "brotli",
+    "flate2-rust_backend",
+    "lz4",
+    "snap",
+    "zstd",
+] }
 
 # DB
 sqlx = { version = "0.8", default-features = false, features = [

@@ -18,6 +18,7 @@ use lakehouse_domain::{
 };
 use parquet::{
     arrow::{arrow_reader::ParquetRecordBatchReaderBuilder, ArrowWriter},
+    basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel},
     file::properties::WriterProperties,
 };
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -320,4 +321,49 @@ fn ranges_within_the_gap_are_one_request_and_far_ones_are_not() {
             },
         ]
     );
+}
+
+/// Every codec Iceberg's `write.parquet.compression-codec` can name decodes, by both reads. Spark
+/// wrote `reference.legal_dong_code_change` with gzip, the parquet crate was built without `flate2`,
+/// and every Silver refresh plan failed from 2026-11-04 with "Disabled feature at compile time:
+/// flate2" (incident W19); a codec dropped from the workspace dependency fails here instead.
+#[tokio::test]
+async fn every_iceberg_parquet_codec_decodes() -> anyhow::Result<()> {
+    let schema = Arc::new(ArrowSchema::new(vec![
+        Field::new("pnu", DataType::Utf8, false),
+        Field::new("label", DataType::Utf8, true),
+    ]));
+    let codecs = [
+        Compression::UNCOMPRESSED,
+        Compression::SNAPPY,
+        Compression::GZIP(GzipLevel::default()),
+        Compression::ZSTD(ZstdLevel::default()),
+        Compression::LZ4,
+        Compression::LZ4_RAW,
+        Compression::BROTLI(BrotliLevel::default()),
+    ];
+    for codec in codecs {
+        let properties = WriterProperties::builder().set_compression(codec).build();
+        let mut writer = ArrowWriter::try_new(Vec::new(), Arc::clone(&schema), Some(properties))?;
+        writer.write(&RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(StringArray::from(vec!["9999910000000000001"])) as ArrayRef,
+                Arc::new(StringArray::from(vec![Some("synthetic")])) as ArrayRef,
+            ],
+        )?)?;
+        let bytes = writer.into_inner()?;
+        let written = ParquetRecordBatchReaderBuilder::try_new(bytes::Bytes::from(bytes.clone()))?
+            .metadata()
+            .row_group(0)
+            .column(0)
+            .compression();
+        assert_eq!(written, codec, "the fixture was not written with {codec}");
+
+        let (expected, ..) = whole(&bytes, None, usize::MAX)?;
+        assert_eq!(expected.len(), 1, "{codec}");
+        let (rows, _) = ranged(&RangeReader::new(bytes), None, usize::MAX).await?;
+        assert_eq!(rows, expected, "{codec}");
+    }
+    Ok(())
 }
