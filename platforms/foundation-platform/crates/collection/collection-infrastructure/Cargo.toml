@@ -24,8 +24,17 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }
+wreq = { workspace = true, optional = true }
+wreq-util = { workspace = true, optional = true }
 foundation-workspace-hack.workspace = true
+
+[features]
+# The 법원경매 browser session pool (root ADR-0289 §1-§2). It builds BoringSSL (cmake and libclang), so
+# only the collector that asks the site turns it on.
+court-auction-browser = ["dep:wreq", "dep:wreq-util"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

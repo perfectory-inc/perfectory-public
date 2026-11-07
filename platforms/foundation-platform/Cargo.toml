@@ -151,6 +151,10 @@ sqlx = { version = "0.8", default-features = false, features = [
 
 # HTTP 클라이언트 (Zitadel JWKS / outbound)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# 법원경매 브라우저 세션 (root ADR-0289 §1): BoringSSL 위의 브라우저 지문. collection-infrastructure 의
+# `court-auction-browser` 기능으로만 빌드된다(cmake·libclang 필요).
+wreq = { version = "0.16.3", features = ["cookies"] }
+wreq-util = { version = "0.2.0", features = ["emulation-serde"] }
 rdkafka = { version = "0.39.0", features = ["cmake-build"] }
 
 # 인증
