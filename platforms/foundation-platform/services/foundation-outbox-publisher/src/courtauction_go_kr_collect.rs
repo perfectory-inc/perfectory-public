@@ -142,8 +142,25 @@ pub(crate) struct SessionContract {
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Collection {
     pub(crate) block_signals: BlockSignals,
+    #[serde(deserialize_with = "pace_groups")]
     pub(crate) pace: BTreeMap<String, PaceRule>,
     pub(crate) session: SessionContract,
+}
+
+/// `collection.pace`: every key but its `$comment` is an endpoint group.
+fn pace_groups<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<String, PaceRule>, D::Error> {
+    let mut groups = BTreeMap::<String, JsonValue>::deserialize(deserializer)?;
+    groups.remove("$comment");
+    groups
+        .into_iter()
+        .map(|(group, rule)| {
+            serde_json::from_value(rule)
+                .map(|rule| (group, rule))
+                .map_err(serde::de::Error::custom)
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, Deserialize)]
