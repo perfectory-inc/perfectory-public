@@ -115,9 +115,14 @@ def claims_dir() -> str:
     return os.environ.get("FOUNDATION_CAPACITY_CLAIMS_DIR") or CLAIMS_DIR
 
 
+def priority_class(listing, entry) -> dict:
+    """A job's or a claimant's priority class (`default` when it names none); a list that declares no
+    classes has one, of value 0 (job_specs.py refuses a class the list does not declare)."""
+    return (listing.get("priority_classes") or {}).get(entry.get("priority_class", "default"), {"value": 0})
+
+
 def priority(listing, entry) -> int:
-    """The value of a job's or a claimant's priority class (`default` when it names none)."""
-    return listing["priority_classes"][entry.get("priority_class", "default")]["value"]
+    return priority_class(listing, entry)["value"]
 
 
 def live_claims(listing, running_units=running) -> list[dict]:
@@ -240,7 +245,7 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
     job = next((job for job in listing["jobs"] if job["id"] == job_id), None)
     if job is None:
         raise KeyError(f"{job_id} is not a job in {jobs_file}")
-    if not listing["priority_classes"][job.get("priority_class", "default")].get("yields_at_step_boundary"):
+    if not priority_class(listing, job).get("yields_at_step_boundary"):
         return ""
     pool = (listing.get("pools") or {}).get(job["pool"])
     if pool is None:
