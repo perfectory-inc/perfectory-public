@@ -382,6 +382,10 @@ class Lane:
     # A Gold row's identity. A PNU stays the unit of change: every row of an affected PNU is
     # recomputed, and its rows the rebuild no longer makes are deleted (root ADR-0204).
     row_key: tuple[str, ...] = (KEY,)
+    # The keys of a whole build, when it is built in shards of their first FULL_SHARD_DIGITS digits
+    # (a 시도), each staged as it finishes (`build_in_shards`, root ADR-0440): a whole build longer than
+    # its unit's time bound resumes from the shards it finished instead of starting again.
+    full_shard_keys: Callable[[dict[str, Any]], Any] | None = None
 
 
 @dataclass
@@ -404,6 +408,8 @@ class Outcome:
     publish_changed_keys: float | None = None
     row_key: tuple[str, ...] = (KEY,)
     published: dict[str, Any] | None = None
+    # The plan's stages a sharded whole build was read from (root ADR-0440), removed once committed.
+    stages: Any = None
     # A whole overwrite's changed keys, as it recorded them (root ADR-0347).
     overwrite_changes: dict[str, int] | None = None
 
@@ -583,9 +589,9 @@ class Outcome:
     def release(self) -> None:
         for frame in ([self.gold] if self.gold is not None else []) + (self.merge or {}).get("persisted", []):
             frame.unpersist()
-        stages = (self.merge or {}).get("stages")
-        if stages is not None:
-            stages.remove()
+        for stages in ((self.merge or {}).get("stages"), self.stages):
+            if stages is not None:
+                stages.remove()
 
 
 def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pins: dict[str, str],
@@ -601,6 +607,10 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     """
     from pyspark.storagelevel import StorageLevel
 
+    max_fraction, sample_keys = getattr(args, "max_changed_key_fraction", None), getattr(args, "parity_sample_keys", None)
+    # One plan, one directory: a merge refused once and the whole build after it share it (root ADR-0440).
+    resume_key = plan_key(target_table, pins, previous or {},
+                          gold_code_version.of_running_producer(target_table, pins), max_fraction, sample_keys)
     reason, changed, appended = None, [], []
     if previous is not None:
         try:
@@ -621,9 +631,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
                               current_gold=current, gold_rows=gold_rows, content_columns=lane.content_columns,
                               max_fraction=args.max_changed_key_fraction, sample_keys=args.parity_sample_keys,
                               seed=pins_seed(pins), started=started, row_key=lane.row_key,
-                              resume_key=plan_key(target_table, pins, previous,
-                                                  gold_code_version.of_running_producer(target_table, pins),
-                                                  args.max_changed_key_fraction, args.parity_sample_keys))
+                              resume_key=resume_key)
             try:
                 _, metrics = lane.validate(plan["recomputed"])
                 if args.expected_count is not None and plan["row_count"] != args.expected_count:
@@ -641,16 +649,56 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
         except IncrementalRefusal as refusal:
             reason = str(refusal)
             print(f"gold-incremental-fallback {reason}", flush=True)
-    # On disk only: a full building panel does not fit the executor's memory store beside the
-    # work that reads it (see Stages).
-    gold = lane.build(frames).persist(StorageLevel.DISK_ONLY)
-    count, metrics = validate_full(gold, args.expected_count)
-    assert_minimum(count, args.minimum_count)
-    if coverage is not None:
-        coverage.check(coverage.measure(gold))
+    stages = None
+    if lane.full_shard_keys is None:
+        # On disk only: a full building panel does not fit the executor's memory store beside the
+        # work that reads it (see Stages).
+        gold = lane.build(frames).persist(StorageLevel.DISK_ONLY)
+    else:
+        stages = Stages(spark, resume_key)
+        gold = build_in_shards(stages, lane, frames)
+    try:
+        count, metrics = validate_full(gold, args.expected_count)
+        assert_minimum(count, args.minimum_count)
+        if coverage is not None:
+            coverage.check(coverage.measure(gold))
+    except ValueError:
+        # A gate that refuses the build refuses its shards again: they are not kept.
+        if stages is not None:
+            stages.remove()
+        raise
     return Outcome("full", count, metrics, gold=gold, full_reason=reason, changed_inputs=changed,
                    appended_inputs=appended, publish_changed_keys=getattr(args, "publish_changed_keys", None),
-                   row_key=lane.row_key)
+                   row_key=lane.row_key, stages=stages)
+
+
+FULL_SHARD_DIGITS = 2
+
+
+def build_in_shards(stages: Stages, lane: Lane, frames: dict[str, Any], digits: int = FULL_SHARD_DIGITS) -> Any:
+    """The whole build, one shard of keys (their first `digits` digits) at a time, each staged.
+
+    Each shard is the build of its keys' restricted inputs (`lane.restrict`), kept to its keys: the
+    same rows the whole build makes of them, as a merge of those keys is (root ADR-0180). A shard
+    already staged by an earlier run of the same plan is read back (`Stages`, root ADR-0440), so a
+    run its unit's time bound kills resumes there. The Gold is the union of the staged shards.
+    """
+    from functools import reduce
+
+    from pyspark.sql import functions as F
+
+    started = time.monotonic()
+    keys = stages.materialize("full-keys", lane.full_shard_keys(frames).select(KEY).distinct())
+    prefixes = sorted(row[0] for row in keys.select(F.substring(KEY, 1, digits)).distinct().collect())
+    parts = []
+    for prefix in prefixes:
+        shard = keys.where(F.col(KEY).startswith(prefix))
+        parts.append(stages.materialize(f"full-{prefix}",
+                                        lane.build(lane.restrict(frames, shard)).join(shard, KEY, "left_semi")))
+        started = phase_done(f"full-shard-{prefix}", started)
+    if not parts:
+        return lane.build(frames)
+    return reduce(lambda whole, part: whole.unionByName(part), parts[1:], parts[0])
 
 
 def pins_seed(pins: dict[str, str]) -> str:
@@ -677,8 +725,9 @@ class Stages:
     a stage Spark finished writing (its `_SUCCESS`) is read back rather than recomputed, as the
     unit-price migration skips the vintages it recorded (root ADR-0317 §5.2). 2026-11-05..06 the
     parcel panel's merge spent 4,541 s finding its PNUs and 2,409 s restricting its inputs before its
-    160 min unit timed out, and each run of the same pins began again from nothing. Another plan's
-    directory is a dead run's of other pins or code, and is deleted.
+    160 min unit timed out, and each run of the same pins began again from nothing. Another plan of
+    the same table is a dead run's of other pins or code, and is deleted; another table's plan is kept
+    (root ADR-0440): the hourly panel job and the kinds job run between two runs of a killed table.
     """
 
     def __init__(self, spark: Any, resume_key: str | None = None) -> None:
@@ -686,7 +735,8 @@ class Stages:
         for dead in local.glob(STAGES_PREFIX + "*"):
             shutil.rmtree(dead, ignore_errors=True)
         if resume_key is not None:
-            for dead in local.glob(RESUMABLE_PREFIX + "*"):
+            table = resume_key.rsplit(".", 1)[0]
+            for dead in local.glob(f"{RESUMABLE_PREFIX}{table}.*"):
                 if dead.name != RESUMABLE_PREFIX + resume_key:
                     shutil.rmtree(dead, ignore_errors=True)
         self.spark = spark
@@ -726,11 +776,13 @@ class Stages:
 
 def plan_key(table: str, pins: dict[str, str], previous: dict[str, str], code: str | None,
              max_fraction: float, sample_keys: int) -> str:
-    """The merge plan's name (root ADR-0438): everything that decides the stages `plan_merge` writes.
-    The same table, pins, previous pins, producer code version and sample bounds make the same stages."""
+    """The merge plan's name (root ADR-0438): `<table>.<digest>` of everything that decides the stages
+    `plan_merge` writes. The same table, pins, previous pins, producer code version and sample bounds
+    make the same stages; the table's own name scopes which dead plans a run deletes (root ADR-0440)."""
     plan = {"table": table, "pins": pins, "previous": previous, "code": code,
             "max_fraction": max_fraction, "sample_keys": sample_keys}
-    return hashlib.sha256(json.dumps(plan, sort_keys=True).encode("utf-8")).hexdigest()[:32]
+    name = table.replace("`", "").split(".")[-1]
+    return f"{name}.{hashlib.sha256(json.dumps(plan, sort_keys=True).encode('utf-8')).hexdigest()[:32]}"
 
 
 def plan_merge(spark: Any, *, build: Callable[[dict[str, Any]], Any],
