@@ -143,6 +143,23 @@ fn cookies_for_issuer(headers: &HeaderMap) -> Option<String> {
     (!kept.is_empty()).then(|| kept.join("; "))
 }
 
+/// A `Set-Cookie` value without its `Domain` attribute. Zitadel v2.65.1 scopes its user-agent cookie
+/// to the instance's domain (`Domain=127.0.0.1`, measured 2026-11-07), which a browser on the
+/// console's origin refuses, and sign-in then cannot hold its user agent; host-only, it is the
+/// console origin's.
+fn host_only(cookie: &str) -> String {
+    cookie
+        .split(';')
+        .filter(|part| {
+            !part
+                .trim()
+                .get(..7)
+                .is_some_and(|name| name.eq_ignore_ascii_case("domain="))
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
 /// Relays one of Zitadel's browser paths to the issuer on the host's loopback. Zitadel's documented
 /// proxy contract: the instance is the request's host (the issuer's), the public origin is
 /// `x-zitadel-public-host` (a trusted domain of the instance) and its scheme `x-forwarded-proto`,
@@ -193,6 +210,16 @@ async fn login_relay(
     let mut passed = upstream.headers().clone();
     for name in &LOGIN_DROPPED_RESPONSE_HEADERS {
         passed.remove(name);
+    }
+    let cookies: Vec<HeaderValue> = passed
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(|v| HeaderValue::from_str(&host_only(v)).ok())
+        .collect();
+    passed.remove(header::SET_COOKIE);
+    for cookie in cookies {
+        passed.append(header::SET_COOKIE, cookie);
     }
     let bytes = upstream.bytes().await.unwrap_or_default();
     let mut response = Response::new(Body::from(bytes));

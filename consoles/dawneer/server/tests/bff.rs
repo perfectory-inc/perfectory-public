@@ -112,7 +112,7 @@ async fn login_page(uri: axum::http::Uri, headers: HeaderMap) -> axum::response:
             ),
             (
                 header::SET_COOKIE,
-                "zitadel.useragent=ua-2; Path=/; HttpOnly",
+                "zitadel.useragent=ua-2; Path=/; Domain=127.0.0.1; HttpOnly",
             ),
         ],
         Json(json!({
@@ -459,11 +459,13 @@ async fn sign_in_pages_are_relayed_on_the_console_origin_without_the_console_ses
         Some("script-src 'nonce-zitadel'"),
         "Zitadel's pages keep their own security headers"
     );
-    assert!(page
-        .headers()
-        .get(header::SET_COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("zitadel.useragent=ua-2")));
+    assert!(
+        page.headers()
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v == "zitadel.useragent=ua-2; Path=/; HttpOnly"),
+        "the issuer's cookie becomes host-only on the console origin"
+    );
     let seen = body_json(page).await?;
     assert_eq!(seen["path"], "/ui/login/login");
     assert_eq!(seen["query"], "authRequestID=999990001");
