@@ -17,7 +17,10 @@
 #     gate) is retried without anyone, a broken lane is not restarted every quarter hour. A lane never
 #     tried goes before it: one at a time, a lane that keeps failing would hold back every lane behind
 #     it in the contract (2026-11-07 08:58Z: parcel-regulation-zones' Gold crashed after 76 minutes, and
-#     its retry was next ahead of three lanes never tried).
+#     its retry was next ahead of three lanes never tried). An attempt whose gold step ran to the panel
+#     Gold rebuild's time bound (orchestration/jobs.v1.json gold_panel_rebuild) does not double it: the
+#     rebuild resumes from the stages it kept (root ADR-0438, ADR-0440), so the next attempt goes on
+#     where it stopped (2026-11-07: parcel-regulation-zones' first national build, longer than the bound).
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
 #     next one when the last attempt of that generation failed in its bake or its equality gate: a
 #     bake pinned to a Gold snapshot that has moved since cannot match the Gold it is compared with
@@ -51,11 +54,13 @@ if ((${#pending[@]} == 0)); then
 fi
 
 # The lane to start and its generation, or nothing while every pending lane waits out its backoff.
-choice="$(python3 -I - "${marks}" "${bake_root}" "${now}" "${pending[@]}" <<'PY'
+choice="$(python3 -I - "${marks}" "${bake_root}" "${now}" "${release_root}/orchestration/jobs.v1.json" "${pending[@]}" <<'PY'
 import glob, json, os, re, sys
-marks, bake_root, now, *lanes = sys.argv[1:]
+marks, bake_root, now, jobs, *lanes = sys.argv[1:]
 now = int(now)
 HOUR, CAP = 3600, 86400
+with open(jobs, encoding="utf-8") as handle:
+    GOLD_LIMIT = 60 * next(job["time_limit_minutes"] for job in json.load(handle)["jobs"] if job["id"] == "gold_panel_rebuild")
 
 def attempts(lane):
     try:
@@ -78,10 +83,15 @@ def evidence(lane, generation):
             return mine
     return []
 
+def stopped_by_its_bound(lane, attempt):
+    """The attempt's gold step ran to the rebuild's time bound: stopped, with its stages kept."""
+    return any(step.get("step") == "gold" and step.get("outcome") == "failed" and step.get("seconds", 0) >= GOLD_LIMIT
+               for step in evidence(lane, attempt.get("generation")))
+
 for lane in sorted(lanes, key=lambda lane: len(attempts(lane))):  # stable: contract order among equals
     tried = attempts(lane)
     if tried:
-        wait = min(CAP, HOUR * 2 ** (len(tried) - 1))
+        wait = HOUR if stopped_by_its_bound(lane, tried[-1]) else min(CAP, HOUR * 2 ** (len(tried) - 1))
         if now < tried[-1]["at"] + wait:
             print(f"wait {lane} {tried[-1]['at'] + wait}")
             continue

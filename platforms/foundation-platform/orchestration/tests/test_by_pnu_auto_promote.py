@@ -124,6 +124,28 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual(self.run_controller(NIGHT + 7200 + 900)[1], ["parcel-ownership cutover 1 --auto"],
                          "then contract order among lanes tried as often")
 
+    def test_a_gold_step_stopped_by_its_time_bound_is_tried_again_after_an_hour(self):
+        # 2026-11-07: parcel-regulation-zones' first national build is longer than the rebuild's 160
+        # minutes; it resumes from its staged shards (root ADR-0440), so a doubled wait only delays it.
+        self.pending("parcel-regulation-zones")
+        marks = [{"at": NIGHT - 6 * 3600, "lane": "parcel-regulation-zones", "generation": 1},
+                 {"at": NIGHT, "lane": "parcel-regulation-zones", "generation": 1}]
+        self.marks.mkdir(parents=True)
+        (self.marks / "parcel-regulation-zones.jsonl").write_text("".join(json.dumps(m) + "\n" for m in marks))
+
+        def gold_failed(seconds):
+            step = {"lane": "parcel-regulation-zones", "step": "gold", "outcome": "failed", "seconds": seconds,
+                    "reason": "", "generation": 1}
+            (self.bake / "cutover/20261107T102724Z.jsonl").write_text(json.dumps(step) + "\n")
+
+        gold_failed(160 * 60 + 5)
+        self.assertEqual(self.run_controller(NIGHT + 3600)[1], ["parcel-regulation-zones cutover 1 --auto"])
+        # A gold step that failed before its bound (08:58Z: Spark stopped itself at 76 minutes) doubles it.
+        (self.marks / "parcel-regulation-zones.jsonl").write_text("".join(json.dumps(m) + "\n" for m in marks))
+        gold_failed(4553)
+        self.assertEqual(self.run_controller(NIGHT + 3600)[1], [])
+        self.assertEqual(self.run_controller(NIGHT + 7200)[1], ["parcel-regulation-zones cutover 1 --auto"])
+
     def test_the_lanes_newest_bake_is_resumed_and_a_failed_bake_moves_to_the_next_generation(self):
         # 11-05: generation 1 baked and passed equality; latency failed. It is resumed, not baked anew.
         self.pending("parcel-ownership")

@@ -104,3 +104,10 @@ REQUEUE·K8s graceful termination).
 - 비용: 돈 0. 이행 run 마다 30초에 파이썬 한 번(`systemctl list-units` 한 번).
 - Dagster 로 옮겨 가면(ADR-0431 `proxied`·`dagster`) 클래스는 `dagster/priority` 태그, 풀은 Dagster pool 의 동시성 한도로 그대로 옮긴다.
   지금은 Dagster 가 작업을 돌리지 않으므로 호스트의 claim 큐가 정본이다.
+
+---
+
+개정(2026-11-07): 백오프의 두 갈래. ① 한 번도 시도하지 않은 레인이 실패한 레인보다 먼저 간다(#1135). ② gold 단계가 패널
+Gold 재생성의 시간 상한(`orchestration/jobs.v1.json` `gold_panel_rebuild.time_limit_minutes`)까지 돌다 멈춘 시도는
+백오프를 두 배로 늘리지 않고 한 시간 뒤 다시 간다. 재생성은 쌓아 둔 단계부터 잇기 때문이다(ADR-0438, ADR-0440).
+parcel-regulation-zones 의 첫 전국 빌드가 상한보다 길다(2026-11-07).
