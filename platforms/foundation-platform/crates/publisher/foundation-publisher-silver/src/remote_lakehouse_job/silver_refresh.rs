@@ -485,7 +485,7 @@ pub(super) struct HubPart {
 
 /// Where the hub export puts a release's manifest.
 pub(super) fn manifest_key(prefix: &str, release: &Release) -> anyhow::Result<String> {
-    let file = release.object("source")?.file_name();
+    let file = release.sole_object()?.file_name();
     let stem = file.strip_suffix(".zip").context("a hub source is a ZIP")?;
     Ok(format!("{prefix}/{stem}/manifest.json"))
 }
@@ -498,7 +498,7 @@ pub(super) fn validate_manifest(
     prefix: &str,
     release: &Release,
 ) -> anyhow::Result<()> {
-    let object = release.object("source")?;
+    let object = release.sole_object()?;
     ensure!(
         manifest.schema_version == 1 && manifest.status == "complete",
         "the hub handoff manifest is not complete"
