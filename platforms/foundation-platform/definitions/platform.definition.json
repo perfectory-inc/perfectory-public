@@ -895,10 +895,12 @@
             "platforms/foundation-platform/compose.recovery.yml",
             "platforms/foundation-platform/compose.identity-bridge.yml",
             "platforms/foundation-platform/compose.metadata-bridge.yml",
-            "platforms/foundation-platform/compose.orchestration-bridge.yml"
+            "platforms/foundation-platform/compose.orchestration-bridge.yml",
+            "platforms/foundation-platform/compose.console.yml"
           ],
           "profiles": [
-            "recovery"
+            "recovery",
+            "console"
           ]
         },
         {
@@ -994,6 +996,10 @@
         {
           "path_prefix": "products/gongzzang/",
           "why": "Gongzzang's production runs on AWS and is not changed from here; its local compose files belong to that product's own decision."
+        },
+        {
+          "path_prefix": "consoles/",
+          "why": "A staff console's own compose file only builds its image, in CI, into the signed release (root ADR-0434); what a console runs on the host is a service of a host project above (compose.console.yml), counted there."
         }
       ]
     },

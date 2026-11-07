@@ -60,6 +60,8 @@ ADR-0433(#1112–#1115, 병합)으로 by-PNU cut-over 와 전량 굽기는 더�
    - 중계는 Zitadel 의 문서화된 프록시 계약을 따른다: `Host` 는 인스턴스(issuer)의 것, `x-zitadel-public-host` 는 더니어의 주소,
      `x-forwarded-proto` 는 그 scheme. 인스턴스는 그 주소를 trusted domain 으로 갖는다 — `configure-zitadel.sh` 가
      `staff-console-applications.v1.json` 의 https redirect URI 의 호스트를 모두 trusted domain 으로 맞춘다(목록은 그 파일 하나).
+   - Zitadel 이 보내는 쿠키는 `Domain` 속성을 떼어 더니어 주소의 host-only 로 돌려준다. v2.65.1 은 user-agent 쿠키에
+     `Domain=127.0.0.1`(인스턴스 도메인)을 붙이는데, 휴대폰 브라우저는 `console.perfectory.io` 에서 그 쿠키를 거부한다(2026-11-07 실측).
    - 더니어의 세션 쿠키는 Zitadel 에 넘기지 않는다. Zitadel 화면의 보안 머리글은 그 화면의 것을 그대로 둔다(더니어의 CSP 를 덮으면
      로그인 스크립트가 막힌다).
    - **토큰은 중계로 나오지 않는다.** 코드 교환·갱신·userinfo 는 더니어 서버가 issuer 루프백에 직접 한다. 그래서 토큰의 `iss` 는
@@ -93,7 +95,10 @@ ADR-0433(#1112–#1115, 병합)으로 by-PNU cut-over 와 전량 굽기는 더�
 
 ## 소유자가 한 번 하는 일
 
-PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보고, 에이전트에게는 "했다"만 알린다.
+PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보고, 에이전트에게는 "했다"만 알린다. Zitadel 쪽(앱 redirect·trusted
+domain·2차 인증 필수)은 사람이 하지 않는다 — 배포가 더니어를 띄우기 직전에 제어 체크아웃의 `configure-zitadel.sh` 를 입력이 바뀌었을
+때만 돌린다(`foundation-release.sh` `configure_console_zitadel`). 남은 4번(토큰을 서버에 넣는 명령 하나)은 결함으로 본다: Cloudflare
+API 로 터널을 만들고 토큰을 호스트가 직접 받는 단계가 후속이다(Consequences).
 
 1. **Zero Trust 켜기.** Cloudflare 대시보드 → **Zero Trust** → 팀 이름 정하기 → **Free** 요금제(50명까지 0원).
 2. **Access 앱.** Zero Trust → **Access → Applications → Add an application → Self-hosted** → 이름 `dawneer`, 도메인
@@ -103,21 +108,25 @@ PowerShell 기준이고 명령에 `$` 가 없다. 비밀값은 소유자만 보�
 4. **토큰을 서버에.** PowerShell 에서(토큰은 화면·기록에 남지 않게 붙여 넣고 Enter, 그다음 Ctrl+D):
    `ssh -t ai-server "umask 077; cat > /tmp/console-tunnel.env; sudo /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/foundation-release.sh env-set console-tunnel /tmp/console-tunnel.env; rm -f /tmp/console-tunnel.env"`
    붙여 넣을 한 줄: `TUNNEL_TOKEN=<복사한 토큰>`.
-5. **Zitadel 맞추기.** `ssh -t ai-server "cd ~/identity-platform/current && bash infra/zitadel/configure-zitadel.sh"` — `updated console app
-   dawneer`, `created trusted domain console.perfectory.io`, `updated organization login policy` 가 찍힌다.
-6. **확인(휴대폰).** `https://console.perfectory.io` → Access 메일 PIN → Zitadel 로그인 → 처음 한 번 OTP 앱 등록 → 더니어 → 승인 탭.
+5. **확인(휴대폰).** `https://console.perfectory.io` → Access 메일 PIN → Zitadel 로그인 → 처음 한 번 OTP 앱 등록 → 더니어 → 승인 탭.
 
 ## Consequences
 
 - 사장은 휴대폰 브라우저로 승인 단추를 누른다. SSH·터널·노트북 비밀이 필요 없다.
-- 비용: Zero Trust Free(≤50명) 0원, Tunnel 0원, DNS 0원. 호스트: 더니어 컨테이너 하나와 `cloudflared` 하나(각 메모리 상한 256 MiB).
+- 비용: Zero Trust Free(≤50명) 0원, Tunnel 0원, DNS 0원. 호스트: 더니어 컨테이너(상한 32 MiB, 실측 기대 약 10 MiB)와 `cloudflared`(상한 64 MiB). 호스트 메모리 예산(62 GiB)이 꽉 차 있어 신원 다리의 socat 두 개 상한을 64→32 MiB(실측 약 1 MiB)로 줄여 자리를 냈다 — 예산 62.00 / 62.00 GiB.
 - 세션 저장소는 아직 메모리다(ADR-0116 §7). 한 호스트·한 프로세스라 맞지만, 더니어 컨테이너가 바뀌는 배포마다 더니어 세션이 끝난다.
   Access(24h)와 Zitadel 의 SSO 쿠키는 남으므로 다시 들어오는 데는 탭 하나(필요하면 2차 인증)다. 여러 벌로 뜨면 Postgres 로 옮긴다.
 - 더니어 서버는 Access 의 JWT(`Cf-Access-Jwt-Assertion`)를 아직 직접 확인하지 않는다. 원점(origin)은 루프백에만 있고 공개 통로는 Tunnel
   하나라서, Access 를 거치지 않은 요청은 호스트 안에서만 온다. 원점 확인(Cloudflare 권고)은 후속이다.
 - `force_mfa` 는 조직 정책이라 DataHub·Airflow 로그인에도 2차 인증이 걸린다(같은 직원, 같은 조직).
 - 노트북 실행(ADR-0116 §5)은 은퇴한다. 개발은 로컬 Zitadel 과 `bff.rs` 의 가짜 issuer 로 한다.
-- 남는 부채: 엣지 설정 코드화(§7, ADR-0423 의 기계), Access JWT 원점 확인, 세션 저장소의 영속화.
+- 실측(2026-11-07, 노트북의 Zitadel v2.65.1 `@sha256:013d…`, 서버와 같은 이미지·`ExternalDomain=127.0.0.1`·`ExternalSecure=false`):
+  trusted domain 추가·조회(admin API)가 `configure-zitadel.sh` 의 호출 그대로 된다. 중계 머리글을 단 authorize → `/ui/login`(아이디·
+  비밀번호·2차 인증 안내) → `/oauth/v2/authorize/callback` → `https://<공개 주소>/auth/callback?code=…` 까지 **모든 리디렉트와 폼
+  주소가 공개 https 주소**였고, 그 code 를 루프백에서 바꾼 id·access 토큰의 `iss` 는 `http://127.0.0.1:<루프백 포트>` 였다.
+- 남는 부채: 소유자 명령 하나(4번)와 대시보드 설정(1–3) — 엣지 설정 코드화(§7, ADR-0423 의 기계)가 Tunnel 을 만들고 토큰을 호스트
+  파일로 직접 받으면 사라진다. 그 토큰(Tunnel·Access·DNS 편집)을 어디에 둘지(기존 Worker 배포 토큰의 권한을 넓힐지, 새 토큰을
+  둘지)가 소유자 결정으로 남는다; Access 허용 목록은 신원 플랫폼의 직원 목록에서 만드는 것이 목표다, Access JWT 원점 확인, 세션 저장소의 영속화.
 - 출처: [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/),
   [Access self-hosted applications](https://developers.cloudflare.com/cloudflare-one/applications/configure-apps/self-hosted-public-app/),
   [Zero Trust plans](https://www.cloudflare.com/plans/zero-trust-services/),

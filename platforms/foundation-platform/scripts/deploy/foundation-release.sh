@@ -811,6 +811,51 @@ verify_runtime_secrets() {
   }
 }
 
+# The Dawneer console and its tunnel (root ADR-0434) start once both of their files exist: the
+# console's Zitadel credentials (identity-platform's configure-zitadel.sh) and the tunnel token
+# (runtime-secrets group console-tunnel, placed once by the owner). A release built before the
+# console's image existed carries none and leaves it off too. Not starting is a line, never a failed
+# deploy: the data host's serving does not wait on a staff screen.
+# Zitadel follows the console's app list, trusted domain and login policy (root ADR-0434 §2, §3)
+# from the control checkout the host trusts, here and not by a person: identity-platform's
+# configure-zitadel.sh, idempotent. Only what changed runs: the inputs' digest is kept, and an
+# unchanged one skips the call. It runs only on the way to starting the console, so the laptop
+# sign-in keeps working until the hosted one is about to exist.
+console_zitadel_inputs=(
+  /opt/perfectory-control/current/platforms/identity-platform/infra/zitadel/configure-zitadel.sh
+  /opt/perfectory-control/current/platforms/identity-platform/config/staff-console-applications.v1.json
+  /opt/perfectory-control/current/platforms/identity-platform/config/staff-login-policy.v1.json
+  /opt/perfectory-control/current/platforms/identity-platform/config/workload-principal-policy.v1.json
+  /opt/perfectory-control/current/platforms/identity-platform/infra/zitadel/actions/principal-kind.js
+)
+configure_console_zitadel() {
+  local record="${state_root}/console-zitadel.sha256" digest
+  digest="$(cat "${console_zitadel_inputs[@]}" | sha256sum | cut -d' ' -f1)" || return 1
+  if [[ -s "${record}" && "$(cat "${record}")" == "${digest}" ]]; then
+    printf 'console: Zitadel already follows these inputs\n'
+    return 0
+  fi
+  if ! bash "${console_zitadel_inputs[0]}"; then
+    printf 'console: configure-zitadel.sh failed; the console is not started\n' >&2
+    return 1
+  fi
+  printf '%s\n' "${digest}" >"${record}"
+}
+
+console_files=(/etc/identity-platform/secrets/dawneer-oidc-client.env /etc/foundation-platform/console-tunnel.env)
+start_console() {
+  local runtime="$1" file
+  for file in "${console_files[@]}"; do
+    [[ -s "${file}" ]] || { printf 'console: off (%s is missing)\n' "${file}"; return 0; }
+  done
+  docker image inspect dawneer-console:local >/dev/null 2>&1 \
+    || { printf 'console: off (the release carries no dawneer-console image)\n'; return 0; }
+  configure_console_zitadel || return 0
+  # They borrow foundation-api's network namespace, so a recreated API recreates them here too.
+  "${runtime}" --profile console up -d --wait dawneer console-tunnel \
+    || printf 'console: did not start; the deploy goes on (see docker logs of dawneer, console-tunnel)\n' >&2
+}
+
 migrate_runtime() {
   local lakehouse="$1"
   assert_current_release
@@ -866,6 +911,7 @@ migrate_runtime() {
   # asking for the api alone leaves its own loopback listeners down, which surfaced on the
   # first identity bring-up as policy calls dying inside a healthy-looking container.
   "${runtime}" up -d --wait identity-zitadel-loopback identity-api-loopback
+  start_console "${runtime}"
   # Prometheus and Alertmanager bind their rule and route files through `current`, and Docker
   # resolves that link when it creates a container: a release that changes an alert rule or a
   # route is otherwise never read (the compose service itself did not change, so `up` keeps the

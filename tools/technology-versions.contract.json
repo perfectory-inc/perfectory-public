@@ -35,6 +35,7 @@
     "acryldata/datahub-ingestion:v1.7.0.1": "sha256:8845102fd495f2589e1ffc00dbd85cee3cbb700abc20d62fac1929ce95535620",
     "acryldata/datahub-upgrade:v1.7.0.1": "sha256:c3db54d8fb94bc761be611c014c5ede3fd02daac1f15c8c177d69eceee79a24c",
     "alpine/socat:1.8.0.3": "sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e",
+    "cloudflare/cloudflared:2026.10.7": "sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba",
     "alpine:3.19": "sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a3145eb11ca1",
     "amazon/aws-cli:2.17.0": "sha256:643507c10ada7964ca6157b3d799f030b90577643da9955d319a77399ed80d73",
     "apache/airflow:3.3.2": "sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371",

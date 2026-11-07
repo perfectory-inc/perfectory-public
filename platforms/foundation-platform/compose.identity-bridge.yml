@@ -12,6 +12,8 @@
 # the alias/container-port literals are checked against the identity
 # platform's endpoint contract by the endpoint guard — they are the carried
 # copy, not the decision.
+# Each sidecar is capped at 32m: measured at about 1 MiB each on the data host (2026-11-07); the
+# 32m left by halving their caps carries the Dawneer console's (root ADR-0434, compose.console.yml).
 # Every service names this cap: one uncapped json-file log filled the host disk (root ADR-0118 §6,
 # guard every-container-has-a-memory-cap).
 x-log-cap: &log-cap
@@ -29,7 +31,7 @@ services:
   identity-zitadel-loopback:
     logging: *log-cap
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
-    mem_limit: 64m
+    mem_limit: 32m
     restart: unless-stopped
     network_mode: "service:foundation-api"
     command:
@@ -42,7 +44,7 @@ services:
   identity-api-loopback:
     logging: *log-cap
     image: alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
-    mem_limit: 64m
+    mem_limit: 32m
     restart: unless-stopped
     network_mode: "service:foundation-api"
     command:

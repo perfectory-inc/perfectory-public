@@ -7,6 +7,11 @@ last_reviewed: 2026-09-30
 
 # 직원 콘솔(더니어) 로그인 준비
 
+> 2026-11-07: 더니어는 데이터 호스트에서 `https://console.perfectory.io` 로 열린다(루트
+> [ADR-0434](../../../../docs/adr/0434-dawneer-is-served-from-the-data-host-behind-cloudflare-access-and-a-tunnel-and-relays-zitadels-sign-in-pages.md)).
+> 아래 1·2 의 노트북 터널과 client secret 복사는 은퇴했다. 3·4(계정과 역할)는 그대로이고, 3 의 Zitadel 관리 콘솔은 여전히
+> 터널(`-L 18453`)로만 열린다 — 공개 주소는 로그인 경로만 중계한다.
+
 루트 [ADR-0116](../../../../docs/adr/0116-dawneer-keeps-staff-tokens-on-its-rust-server.md) 의 첫 판: 더니어는 직원
 노트북에서 돌고, 운영 서버(ai-server)의 Zitadel 과 Foundation API 에 SSH 터널로 붙는다.
 
