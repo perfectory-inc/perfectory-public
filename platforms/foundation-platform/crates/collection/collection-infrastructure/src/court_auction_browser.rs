@@ -144,13 +144,12 @@ impl CourtAuctionSessions for BrowserSessionPool {
         let slot = self.next.fetch_add(1, Ordering::Relaxed) % self.slots.len();
         let (client, record, generation) = {
             let mut held = self.slots[slot].lock().await;
-            let open = match held.client.clone() {
-                Some(open) => open,
-                None => {
-                    let open = self.open(slot, held.generation).await?;
-                    held.client = Some(open.clone());
-                    open
-                }
+            let open = if let Some(open) = held.client.clone() {
+                open
+            } else {
+                let open = self.open(slot, held.generation).await?;
+                held.client = Some(open.clone());
+                open
             };
             (open.0, open.1, held.generation)
         };
