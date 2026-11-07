@@ -220,8 +220,7 @@ scripts/guard/technology-version-consistency-self-test.sh,137,true,test-fixture,
 scripts/guard/technology-version-consistency.sh,227,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
 scripts/guard/the-contract-names-where-its-objects-live-self-test.sh,134,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/the-contract-names-where-its-objects-live.sh,74,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/the-deploy-does-not-restate-the-compose-chain-self-test.sh,102,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh,116,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh,33,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/third-party-artifact-policy-self-test.sh,191,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tiles-slice-proof-env-self-test.sh,29,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
