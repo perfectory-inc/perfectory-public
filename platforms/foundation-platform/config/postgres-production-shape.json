@@ -2,7 +2,7 @@
   "schema_version": "foundation-platform.postgres_production_shape.v1",
   "decision": "root ADR-0259 \u00a78",
   "captured_by": "platforms/foundation-platform/scripts/ops/postgres-production-shape.sh",
-  "captured_at": "2026-10-29",
+  "captured_at": "2026-11-07",
   "tables_with_rows": [
     "catalog.administrative_boundary_revision",
     "catalog.administrative_unit",
@@ -11,6 +11,7 @@
     "catalog.bronze_object",
     "catalog.bronze_object_measurement",
     "catalog.bronze_object_member",
+    "catalog.bronze_object_version",
     "catalog.catalog_mutation_idempotency",
     "catalog.collection_job",
     "catalog.file_asset",
