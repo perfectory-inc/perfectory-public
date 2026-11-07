@@ -81,6 +81,7 @@ use foundation_publisher_core::lakehouse_snapshot_scan;
 use foundation_publisher_silver::land_use_silver_export;
 #[cfg(test)]
 mod main_tests;
+mod media_ladder_backlog;
 mod media_renditions;
 mod media_store;
 mod onbid_media;
@@ -165,6 +166,7 @@ enum Command {
     CollectDataGoKrFileData,
     PlanSilverLoadObjects,
     ListLakehouseObjects,
+    MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
@@ -342,6 +344,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectDataGoKrFileData => Box::pin(data_go_kr_file_data_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
+        Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
         }
@@ -711,6 +714,7 @@ where
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
+        Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
         }

@@ -7,7 +7,8 @@
 
 The onbid collector writes each photo or attachment once, to `<object_prefix>/sha256/<hash>.<ext>`
 (data-go-kr-onbid.contract.json `media`, foundation-shared-kernel media.rs), and the Silver load
-indexes it in `media.reconcile.index_table`; a parcel page shows a photo from the index's hash. Two
+indexes it in `media.reconcile.index_tables` (공매 and 경매 photos share the store, root ADR-0429); a
+parcel page shows a photo from the index's hash. Two
 ways those can disagree, and nothing said so before this:
 
 - missing: the index names a key R2 does not hold. A user sees a broken photo. The collector puts the
@@ -64,7 +65,10 @@ def settings(contract_path: Path = CONTRACT) -> dict:
     reconcile = media["reconcile"]
     return {
         "prefix": media["object_prefix"].rstrip("/") + "/sha256/",
-        "index_table": reconcile["index_table"],
+        # Every Silver index that names a key of the one store (root ADR-0429): 공매 and 경매 photos
+        # share the prefix, so a key either names is referenced. The set is the state's identity.
+        "index_tables": list(reconcile["index_tables"]),
+        "index_table": "+".join(reconcile["index_tables"]),
         "orphan_min_age_hours": int(reconcile["orphan_min_age_hours"]),
     }
 
@@ -78,16 +82,35 @@ def load_state(state_dir: Path) -> dict:
     return state
 
 
-def index_sql(table: str, watermark: str | None) -> str:
-    if not re.fullmatch(r"[a-z_]+\.[a-z_]+", table):
-        raise ValueError(f"index_table is not a schema.table name: {table}")
+def index_sql(tables: list[str], watermark: str | None) -> str:
+    for table in tables:
+        if not re.fullmatch(r"[a-z_]+\.[a-z_]+", table):
+            raise ValueError(f"index_table is not a schema.table name: {table}")
     since = ""
     if watermark is not None:
         start = parse_time(watermark) - INDEX_OVERLAP_HOURS * 3600
         stamp = datetime.fromtimestamp(start, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         since = f" WHERE ingested_at_utc >= TIMESTAMP '{stamp} UTC'"
+    union = " UNION ALL ".join(f"SELECT sha256, media_format, ingested_at_utc FROM {table}{since}" for table in tables)
     return (f"SELECT sha256, media_format, "
-            f"to_iso8601(max(ingested_at_utc) AT TIME ZONE 'UTC') FROM {table}{since} GROUP BY 1, 2")
+            f"to_iso8601(max(ingested_at_utc) AT TIME ZONE 'UTC') FROM ({union}) GROUP BY 1, 2")
+
+
+def trino(sql: str) -> list[list[str]]:
+    completed = subprocess.run(
+        ["docker", "exec", TRINO_CONTAINER, "trino", "--catalog", "r2", "--output-format", "CSV_UNQUOTED",
+         "--execute", sql],
+        capture_output=True, text=True, timeout=600, check=False,
+    )
+    if completed.returncode != 0:
+        last = completed.stderr.strip().splitlines()[-1:] or ["trino failed"]
+        raise RuntimeError(f"the index read failed: {last[0]}")
+    return [row for row in csv.reader(io.StringIO(completed.stdout)) if row]
+
+
+def existing(tables: list[str], present: set[str]) -> list[str]:
+    """The index tables that exist yet: a source whose first Silver load has not run names no key."""
+    return [table for table in tables if table in present]
 
 
 def read_index_delta(state_dir: Path) -> dict:
@@ -95,16 +118,13 @@ def read_index_delta(state_dir: Path) -> dict:
     state = load_state(state_dir)
     # Another index table is another reference set: start it whole.
     watermark = state["watermark"] if state["index_table"] == config["index_table"] else None
-    completed = subprocess.run(
-        ["docker", "exec", TRINO_CONTAINER, "trino", "--catalog", "r2", "--output-format", "CSV_UNQUOTED",
-         "--execute", index_sql(config["index_table"], watermark)],
-        capture_output=True, text=True, timeout=600, check=False,
-    )
-    if completed.returncode != 0:
-        last = completed.stderr.strip().splitlines()[-1:] or ["trino failed"]
-        raise RuntimeError(f"the index read failed: {last[0]}")
-    rows = [row for row in csv.reader(io.StringIO(completed.stdout)) if row]
-    return {"index_table": config["index_table"], "since": watermark,
+    present = {f"silver.{row[0]}" for row in trino(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'silver'")}
+    tables = existing(config["index_tables"], present)
+    rows = trino(index_sql(tables, watermark)) if tables else []
+    # Until every table exists the set is not the configured one: the next run reads it whole again.
+    identity = config["index_table"] if tables == config["index_tables"] else "+".join(tables)
+    return {"index_table": identity, "since": watermark,
             "keys": [[row[0], row[1]] for row in rows], "newest": max((row[2] for row in rows), default=None)}
 
 

@@ -56,6 +56,38 @@
       {"lclDspslGdsLstUsgCd": "20000"}
     ]
   },
+  "item_detail": {
+    "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384. 물건상세, asked after a complete night of the list searches, in the same run and with the same manners (one connection, the spacing floor, the named User-Agent, the window, robots.txt, stop on any refusal). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit. Measured 2026-11-04 (one plain POST, no session, our User-Agent): HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. per_run_limit is the run's bound against the unit's 300 minutes: the list pass is about 2,420 requests at the measured 3.4 s (about 137 minutes), and 1,800 details at the 3 s floor plus about 1 s transfer is about 120 minutes, so a full night ends near 257 minutes; the window's end stops it first in any case. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
+    "dataset_slug": "auction_item_detail",
+    "operation": "selectAuctnCsSrchRslt",
+    "path": "/pgj/pgj15B/selectAuctnCsSrchRslt.on",
+    "request_object": "dma_srchGdsDtlSrch",
+    "request_constants": {"pgmId": "PGJ15BM01"},
+    "key_fields": {"cortOfcCd": "boCd", "csNo": "saNo", "dspslGdsSeq": "maemulSer"},
+    "in_progress_field": "mulJinYn",
+    "in_progress_value": "Y",
+    "sale_date_field": "maeGiil",
+    "status_field": "jinstatCd",
+    "result_pointer": "/data/dma_result",
+    "per_run_limit": 1800,
+    "read_from": "silver.court_auction_item_detail",
+    "photos": {
+      "list_field": "csPicLst",
+      "file_field": "picFile",
+      "title_field": "picTitlNm",
+      "kind_field": "cortAuctnPicDvsCd",
+      "sequence_field": "cortAuctnPicSeq",
+      "page_field": "pageSeq",
+      "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
+      "max_file_bytes": 52428800,
+      "$renditions": "루트 ADR-0427 §7. 그 밤의 Bronze 가 커밋된 뒤(사이트 요청 없음), 그 밤 저장했거나 이미 있던 사진마다 공용 저장소의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 공매와 같은 media_renditions::ensure_ladders 로 만든다. 이미 사다리 표시가 있으면 HEAD 한 번이다. 상한(계산): 사진 원천 하나 ~4.5 초(ADR-0427 Consequences 의 rav1e 추정) × per_run_limit 1,500 ÷ concurrency 4 ≈ 28 분 ≤ run_time_budget_seconds 1,800. 작업 한도 300 분 안: 목록 실측 최장 78 분(4,666 초) + 상세 1,800 × ~4 초 ≈ 120 분 + 사다리 30 분 ≈ 228 분 ≤ 270 분(90 %). 남거나 실패한 사진은 잃지 않는다: media_ladder_backlog 가 Silver 사진 색인에서 가져간다.",
+      "renditions": {
+        "per_run_limit": 1500,
+        "concurrency": 4,
+        "run_time_budget_seconds": 1800
+      }
+    }
+  },
   "collection": {
     "$comment": "Root ADR-0289/0290 values the collection rules read (collection-domain::court_auction). The transport, the queue and Bronze stay outside; these are only what the rules need. Separate from the ADR-0281 manners/refusal/forbidden_in_collector above, which the current collector still reads until it is replaced.",
     "block_signals": {
@@ -98,6 +130,11 @@
     "max_objects": 7
   },
   "pnu_resolution": {
-    "$comment": "ADR-0280 §4. The list rows carry no PNU. The 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with the representative lot (daepyoLotno) are read as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py, whose 시도 prefixes come from the 법정동 code table and its recorded pairs each load (root ADR-0403)."
+    "$comment": "Root ADR-0382 (ADR-0288 §2 stage 3). The list rows carry the representative parcel's 10-digit legal-dong code in four fields (from_code.legal_dong_code_fields, widths 2+3+3+2) and its lot (from_code.lot_field); code + lot is the row's source PNU (source_code_pnu_raw), carried to the current code by place_identity_resolver.resolve, the code path every parcel source takes. Measured 2026-10-21 on a full list crawl (124,533 rows, read-only): 121,963 (97.9%) assemble; the rest are blank codes or prose lots. A row the code path leaves unresolved falls back to the address (ADR-0280 §4): the 행정구역 names (hjguSido, hjguSigu, hjguDong, hjguRd) with daepyoLotno as a jibun address, else rdNm with buldNo as a road address, through address_pnu.py, whose 시도 prefixes come from the 법정동 code table and its recorded pairs each load (root ADR-0403).",
+    "from_code": {
+      "legal_dong_code_fields": ["daepyoSidoCd", "daepyoSiguCd", "daepyoDongCd", "daepyoRdCd"],
+      "legal_dong_code_widths": [2, 3, 3, 2],
+      "lot_field": "daepyoLotno"
+    }
   }
 }

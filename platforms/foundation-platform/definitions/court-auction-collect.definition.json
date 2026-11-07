@@ -25,7 +25,8 @@
       "per_run_cap": {
         "unit": "request",
         "limits": [
-          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/manners/max_requests_per_run"
+          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/manners/max_requests_per_run",
+          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/item_detail/photos/renditions/per_run_limit"
         ],
         "deadline": null,
         "measured_run_seconds": {
@@ -42,7 +43,10 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "source-courtauction-go-kr-to-silver-court-auction-item",
-        "source-courtauction-go-kr-to-silver-court-auction-sale-result"
+        "source-courtauction-go-kr-to-silver-court-auction-sale-result",
+        "source-courtauction-go-kr-to-silver-court-auction-item-detail",
+        "source-courtauction-go-kr-to-silver-court-auction-item-photo",
+        "silver-court-auction-item-detail-to-source-courtauction-go-kr"
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",
@@ -54,8 +58,8 @@
       "id": "silver-court-auction-item",
       "type": "silver_table",
       "title": "법원경매 진행 물건",
-      "description": "물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다.",
-      "status": "contract_only",
+      "description": "물건(법원·사건·물건번호·목록번호)마다 내용이 바뀐 행을 쌓고, 완전한 전수에서 빠진 물건에 삭제 표지를 쌓는다. 주소로 찾은 PNU 와 그 단계를 남긴다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 적재 레인은 돌고, 필지 경매 종류 표(gold.parcel_court_auction)가 읽는다(루트 ADR-0353).",
+      "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
@@ -87,6 +91,44 @@
           "value": "silver.court_auction_sale_result"
         }
       ]
+    },
+    {
+      "id": "silver-court-auction-item-detail",
+      "type": "silver_table",
+      "title": "법원경매 물건상세 읽은 기록",
+      "description": "물건상세를 읽을 때마다(실패 포함) 한 행을 쌓는다. 수집기가 다음 실행의 상세 목록을 이 표에서 계산한다(루트 ADR-0352, ADR-0384).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_item_detail",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_item_detail"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-item-photo",
+      "type": "silver_table",
+      "title": "법원경매 사건 사진",
+      "description": "물건상세가 사건마다 싣는 사진을 내용 해시로 한 번씩 쌓는다. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0290 §7, ADR-0298, ADR-0384). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_item_photo",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_item_photo"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -100,6 +142,7 @@
         "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
         "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
       ],
       "source_slugs": [
@@ -123,6 +166,48 @@
         "courtauctiongokr__auction_sale_result"
       ],
       "description": "매각결과 검색의 바뀐 행(매각가)을 쌓는다. 같은 예의와 멈춤 규칙."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-item-detail",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "목록을 끝까지 읽은 밤, 같은 실행이 바뀌었거나 때가 된 물건의 물건상세를 예의대로 묻고 읽은 기록을 쌓는다(루트 ADR-0384)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-item-photo",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세의 base64 사진을 풀어 공용 미디어 저장소에 내용 해시로 한 번만 담고, 사건의 사진 목록을 쌓는다(루트 ADR-0384)."
+    },
+    {
+      "from": "silver-court-auction-item-detail",
+      "to": "source-courtauction-go-kr",
+      "relation": "schedules",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/detail.rs"
+      ],
+      "description": "수집기가 매 실행 이 표의 마지막 읽음으로 물어볼 물건상세를 계산한다(진행 중 목록 행과 맞춰, 한 번도 읽지 않은 것 먼저, 재수집 규칙이 부르는 것을 매각기일 순으로; 루트 ADR-0352, ADR-0384)."
     }
   ]
 }

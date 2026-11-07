@@ -22,7 +22,8 @@ sys.path.insert(0, str(PLATFORM / "scripts/ops"))
 import media_reconcile  # noqa: E402
 
 PREFIX = "onbid/media/sha256/"
-TABLE = "silver.onbid_real_estate_item_photo"
+TABLES = ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo"]
+TABLE = "+".join(TABLES)
 NOW = 1_800_000_000.0  # a synthetic instant
 
 
@@ -81,11 +82,19 @@ class Reconcile(unittest.TestCase):
             media_reconcile.key_of(PREFIX, "not-a-hash", "jpg")
 
     def test_the_index_is_read_since_the_watermark_less_the_overlap(self):
-        self.assertNotIn("WHERE", media_reconcile.index_sql(TABLE, None))  # the first run reads it whole
+        self.assertNotIn("WHERE", media_reconcile.index_sql(TABLES, None))  # the first run reads it whole
         self.assertIn("WHERE ingested_at_utc >= TIMESTAMP '2026-01-01 22:00:00 UTC'",
-                      media_reconcile.index_sql(TABLE, "2026-01-02T00:00:00.000000Z"))
+                      media_reconcile.index_sql(TABLES, "2026-01-02T00:00:00.000000Z"))
         with self.assertRaises(ValueError):
-            media_reconcile.index_sql("silver.x; select 1", None)
+            media_reconcile.index_sql(["silver.x; select 1"], None)
+
+    # 2026-11-06 (root ADR-0429): the court photo index joins the onbid one; until its first Silver
+    # load the table does not exist, and the reconciler must not fail every day for it.
+    def test_every_index_naming_the_store_is_read_and_a_table_not_there_yet_names_nothing(self):
+        sql = media_reconcile.index_sql(TABLES, None)
+        for table in TABLES:
+            self.assertIn(f"FROM {table}", sql)
+        self.assertEqual(media_reconcile.existing(TABLES, {TABLES[0]}), [TABLES[0]])
 
 
 class Run(unittest.TestCase):

@@ -241,6 +241,16 @@ class CodeLocationTest(unittest.TestCase):
         self.assertEqual({spec.metadata["pipeline_graph_node"]: spec.group_name for spec in assets}, groups)
         self.assertEqual(groups["gold-unit-price-panel"], "gold_unit_price_rebuild")
 
+    def test_a_ledger_its_collector_schedules_from_is_feedback_and_any_other_cycle_is_refused(self):
+        import observe_assets
+
+        nodes = [{"id": "src", "type": "source_group"}, {"id": "ledger", "type": "silver_table"}]
+        feeds = {"id": "src-to-ledger", "from": "src", "to": "ledger", "relation": "feeds"}
+        back = {"id": "ledger-to-src", "from": "ledger", "to": "src", "relation": "schedules"}
+        self.assertEqual(observe_assets.feedback_edges({"nodes": nodes, "edges": [feeds, back]}), {"ledger-to-src"})
+        with self.assertRaises(observe_assets.job_specs.JobListError):
+            observe_assets.feedback_edges({"nodes": nodes, "edges": [feeds, {**back, "relation": "feeds"}]})
+
     def test_the_declared_checks_attach_and_the_unit_price_ones_only_report(self):
         import asset_checks
         import observe_assets

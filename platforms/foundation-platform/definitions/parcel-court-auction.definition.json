@@ -1,0 +1,347 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-court-auction",
+  "jobs": [
+    {
+      "id": "gold_court_auction_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "법원경매 kind Gold (root ADR-0287, ADR-0353; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. An own-producer kind like 공매, so its own job, not gold_kind_rebuild. Partial: only the PNUs whose items changed in Silver, whose sale date passed since the last build, or that sit under a code a change of reference.legal_dong_code_change reaches (views.changed_codes; every item PNU is carried to the current code each build, root ADR-0382), are recomputed and merged (root ADR-0312 §2); a new served parcel edition or lineage rebuilds it whole. Started when court_auction_silver or legal_dong_code_changes commits, by the asset reconciler (asset_reconcile) when that event was lost, and at 22:05 as the fallback (root ADR-0171), not the public-auction rebuild's 21:35: both take the spark pool and the rebuild lock. A committed rebuild starts by_pnu_court_auction_bake (root ADR-0303).",
+      "systemd_service": "foundation-gold-court-auction-rebuild.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "5 22 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 65,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-court-auction-item-to-gold-parcel-court-auction",
+        "reference-legal-dong-code-change-to-gold-parcel-court-auction",
+        "silver-court-auction-item-photo-to-gold-parcel-court-auction"
+      ],
+      "enabled": false,
+      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since."
+    },
+    {
+      "id": "by_pnu_court_auction_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_court_auction (the own-producer court-auction kind, root ADR-0287, ADR-0353) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-court-auction), as section packs (root ADR-0147, ADR-0193 §9), exactly as by_pnu_public_auction_bake does for its lane: a change set decides a create-only patch, a reflect-only manifest or a full new generation. Its own job and asset (root ADR-0303, ADR-0333). Until the operator's first cut-over of the lane (its pack-only gate) a run is `nothing to do`. Started when gold_court_auction_rebuild commits a new snapshot, by the asset reconciler (asset_reconcile) when that event was lost, and at 11:05 as the fallback (root ADR-0171), apart from the 10:15, 10:45 and 10:55 bakes so no two clock starts crowd the host at once; each run's containers are its own one-offs (scripts/guard/batch-containers-are-run-scoped.sh). It does not take turns. Two slots and the lane-bake template's MemoryMax=5G (its instance, root ADR-0418 §8b), the ownership bake's bound and for the same reason: two slots so it never runs beside both the panel bake and the public-auction bake (14 + 5 + 5 = 24g would exceed the host budget, root ADR-0138). Its Gold is the parcels with an item in progress, about 40,000 small documents (2026-10-19 Silver: 37,922 items with a PNU).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-court-auction.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "5 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "priority_class": "publish",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since."
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-court-auction",
+      "type": "gold_table",
+      "title": "필지 법원경매 by-PNU 표",
+      "description": "PNU마다 빌드 시각에 진행 중인 법원경매 물건을 매각기일이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287, ADR-0353). 계약의 종류 한 줄(parcel-court-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 법원경매 Silver 에서 만든다. 공매(parcel-public-auction)의 자리 정하기를 함께 쓰고, 바뀐 물건이 닿는 PNU 만 다시 만든다. 목록 검색에는 사진이 없어 사진 색인이 없다. 이 행을 보여 주는 화면은 출처(대한민국법원 법원경매정보)를 표시해야 한다(저작권법 제24조의2, 루트 ADR-0281 §6).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_court_auction",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_court_auction"
+        }
+      ]
+    },
+    {
+      "id": "parcel-court-auction-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 법원경매 by-PNU 묶음 파일",
+      "description": "gold.parcel_court_auction 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/court-auction/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0287, ADR-0353). 자기 굽기 작업(by_pnu_court_auction_bake)이 돈다(루트 ADR-0303). 첫 발행은 운영자의 묶음 전용 관문을 거친다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-court-auction-item",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "자기 생산자를 가진 종류(루트 ADR-0287, ADR-0353): 법원경매 물건 이력에서 PNU 를 정하고 진행 중인 물건만 PNU 문서로 묶는다. 바뀐 물건과 매각기일이 지난 물건이 닿는 PNU 만 다시 만들어 합친다(루트 ADR-0312 §2)."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "물건의 PNU 를 짓기마다 정본 해석기의 쌍으로 현재 법정동 코드에 옮긴다. 이 표가 바뀌면 바뀐 코드(views.changed_codes) 아래 물건이 닿는 PNU 만 다시 만든다(루트 ADR-0382, ADR-0329 §3)."
+    },
+    {
+      "from": "gold-parcel-court-auction",
+      "to": "parcel-court-auction-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ],
+      "description": "법원경매 Gold 의 PNU 문서를 법정동 묶음으로 굽는다. 자기 굽기 작업이 Gold 커밋마다 바뀐 PNU 만 덧씌운다(루트 ADR-0303)."
+    },
+    {
+      "from": "silver-court-auction-item-photo",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "사건의 사진을 그 사건의 모든 물건 회차에 rounds[].photos 로 싣는다. 사진이 바뀐 사건의 PNU 만 다시 만든다(루트 ADR-0384)."
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-court-auction": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "court-auction",
+      "section": "court_auction",
+      "columns": [
+        "court_auction_json"
+      ],
+      "producer": "court_auction_silver_to_gold",
+      "decision": "docs/adr/0353-court-auction-is-a-parcel-kind-built-partially-and-baked-in-its-own-job.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_court_auction_gold.py"
+    }
+  },
+  "host_memory": {
+    "gold_court_auction_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_court_auction_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_court_auction_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-court-auction",
+        "producer": "infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0353-court-auction-is-a-parcel-kind-built-partially-and-baked-in-its-own-job.md",
+          "reason": "the first served document: a parcel's court auction items in progress, the list search's values and the court's attribution, registered before its first bake"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0384-court-auction-photos-are-read-from-the-item-detail-within-the-night-and-stored-once-by-content.md",
+          "reason": "each round gains its case's photos (rounds[].photos[], content-addressed by sha256, from the 물건상세), an optional field"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
+          "reason": "the 경매 panel: generated from this list and the subject's current revision (pnpm gen:schemas)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "court_auction",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds",
+              "required": true
+            },
+            {
+              "path": "court_auction.source_attribution",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].case_no",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].user_case_no",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].court_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].department_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].building_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].print_address_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].appraisal_amount_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].minimum_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].sale_amount_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].sale_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].sale_time_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].sale_place",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].failed_bid_count",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].photos",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].photos[].sha256",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].photos[].media_kind",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].photos[].media_format",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].photos[].title",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "foundation-publisher",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back, the serving monitor (foundation-by-pnu-serving-monitor@parcel-court-auction) and the Worker autodeploy smoke hold every served document to; it takes the subject's major from the registry",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "source",
+              "required": true
+            },
+            {
+              "path": "court_auction",
+              "required": true
+            },
+            {
+              "path": "attached_via",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "foundation-by-pnu-gateway",
+          "at": "platforms/foundation-platform/services/foundation-by-pnu-gateway/src/schemas.ts",
+          "reason": "the parcel Worker serves the document bytes as they are and reads none of its fields; it holds the manifest's record of the document schema to the subject's majors",
+          "reads": []
+        }
+      ]
+    }
+  ]
+}

@@ -543,8 +543,8 @@ class JobsStartedByTheirInputs(unittest.TestCase):
                              set(specs["gold_panel_rebuild"].producers))
         # The bake serves the panels and the panel-section kinds; the kinds follow the panels (root
         # ADR-0193 §9). The own-producer public-auction kind bakes in its own job (root ADR-0303),
-        # so gold_public_auction_rebuild feeds that job, not this one; so does the ownership kind's
-        # (root ADR-0361).
+        # so gold_public_auction_rebuild feeds that job, not this one; so do the ownership kind's
+        # (root ADR-0361) and the court auction kind's (root ADR-0353).
         self.assertEqual(specs["by_pnu_serving_bake"].producers,
                          ("gold_panel_rebuild", "gold_kind_rebuild"))
         self.assertEqual(specs["by_pnu_parcel_ownership_bake"].producers, ("gold_parcel_ownership_rebuild",))
@@ -556,6 +556,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertEqual(specs["by_pnu_parcel_real_transaction_bake"].producers,
                          ("gold_parcel_real_transaction_rebuild",))
         self.assertEqual(specs["by_pnu_public_auction_bake"].producers, ("gold_public_auction_rebuild",))
+        self.assertEqual(specs["by_pnu_court_auction_bake"].producers, ("gold_court_auction_rebuild",))
         self.assertEqual(specs["gold_kind_rebuild"].producers, ("gold_panel_rebuild",))
         # The Gold rebuild joins the unit prices itself from the two hub price lanes (root ADR-0182),
         # and the table it writes then reads does not start it again.
