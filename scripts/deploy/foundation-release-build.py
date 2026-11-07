@@ -40,8 +40,11 @@ PLATFORM = ROOT / "platforms" / "foundation-platform"
 SCHEMA = "foundation-platform.release_manifest.v1"
 # Compose files whose `build:` entries are images the runtime starts; an image two files build from
 # one Dockerfile (the publisher) is built once.
-COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml",
-                 "compose.console.yml")
+COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml")
+# Compose images whose source is outside the platform tree, so no compose file may build them (the
+# container runtime policy keeps a build context below its compose file): (name, dockerfile, context),
+# relative to the platform. The Dawneer console (root ADR-0434) runs from compose.console.yml.
+OUTSIDE_PLATFORM_BUILDS = (("dawneer-console", "../../consoles/dawneer/Dockerfile", "../../consoles/dawneer"),)
 FILE_MODES = {"foundation-outbox-publisher": "0555"}
 JAR_MODE = "0444"
 
@@ -85,8 +88,7 @@ def compose_builds() -> list[tuple[str, str, str]]:
                 continue
             if isinstance(build, str):
                 build = {"context": build}
-            # A context may sit outside the platform (the Dawneer console, root ADR-0434); the build runs in it.
-            context = Path(os.path.relpath((PLATFORM / build.get("context", ".")).resolve(), PLATFORM.resolve())).as_posix()
+            context = (PLATFORM / build.get("context", ".")).resolve().relative_to(PLATFORM.resolve()).as_posix()
             dockerfile = (Path(context) / build.get("dockerfile", "Dockerfile")).as_posix()
             name = service["image"].split(":")[0].split("/")[-1]
             found.append((name, dockerfile, context))
@@ -100,7 +102,7 @@ def image_builds(release) -> list[tuple[str, str, str, dict]]:
     for name, _tag, dockerfile, context in release.RELEASE_IMAGES:
         builds.append((name, dockerfile, context, limits[name].get("build_args", {})))
         dockerfiles.add(dockerfile)
-    for name, dockerfile, context in compose_builds():
+    for name, dockerfile, context in compose_builds() + list(OUTSIDE_PLATFORM_BUILDS):
         if dockerfile not in dockerfiles:
             builds.append((name, dockerfile, context, {}))
             dockerfiles.add(dockerfile)

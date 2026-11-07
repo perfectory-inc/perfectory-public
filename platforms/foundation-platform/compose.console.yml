@@ -16,10 +16,9 @@ x-log-cap: &log-cap
 services:
   dawneer:
     logging: *log-cap
+    # Built from consoles/dawneer/Dockerfile into the signed release (foundation-release-build.py
+    # OUTSIDE_PLATFORM_BUILDS) and tagged by the admission; never built on the host.
     image: dawneer-console:local
-    build:
-      context: ../../consoles/dawneer
-      dockerfile: Dockerfile
     profiles: ["console"]
     # A Rust BFF with sessions in memory (root ADR-0116 §7); about 10 MiB.
     mem_limit: 32m
