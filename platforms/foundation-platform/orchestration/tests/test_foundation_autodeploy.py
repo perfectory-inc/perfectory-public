@@ -447,7 +447,8 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertIn("nothing to deploy after", result.stdout)
         self.assertEqual(self.deployed(), [])
         self.assertFalse((self.root / "asked.log").exists(), "its checks are not even asked for")
-        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service"])
+        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service",
+                                          "start --no-block foundation-edge-settings.service"])
 
     def test_a_commit_inside_the_release_scope_is_deployed(self):
         head = self.main_changing("platforms/foundation-platform/scripts/deploy/x.sh")
@@ -463,11 +464,13 @@ class TheHostDeploysMainByItself(unittest.TestCase):
     def test_a_host_on_main_lets_the_workers_catch_up(self):
         # Root ADR-0175: the Worker deploy retries a Worker still behind on the ticks after a deploy.
         self.assertEqual(self.tick(head=CURRENT).returncode, 0)
-        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service"])
+        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service",
+                                          "start --no-block foundation-edge-settings.service"])
 
     def test_a_deploy_that_succeeded_starts_the_worker_deploy_without_waiting_for_it(self):
         self.assertEqual(self.tick().returncode, 0)
-        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service"])
+        self.assertEqual(self.started(), ["start --no-block foundation-worker-autodeploy.service",
+                                          "start --no-block foundation-edge-settings.service"])
 
     def test_a_deploy_that_failed_does_not_start_the_worker_deploy(self):
         self.assertEqual(self.tick(FIXTURE_DEPLOY_EXIT="1").returncode, 1)
@@ -480,6 +483,13 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.deployed(), [])
         self.assertEqual(self.tick().returncode, 0)
         self.assertEqual(self.deployed(), [HEAD])
+
+    def test_an_edge_apply_under_way_holds_the_next_host_deploy(self):
+        # Root ADR-0436: it reads the control checkout the deploy is about to move.
+        result = self.tick(FIXTURE_UNITS="foundation-edge-settings.service:no:activating")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("waiting for the Worker deploy and the edge settings", result.stdout)
+        self.assertEqual(self.deployed(), [])
 
     def test_a_new_commit_whose_checks_passed_is_deployed_once(self):
         result = self.tick()

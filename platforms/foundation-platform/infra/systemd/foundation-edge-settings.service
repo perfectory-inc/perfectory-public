@@ -1,0 +1,18 @@
+[Unit]
+Description=Foundation Platform: apply the console's Cloudflare edge settings (Access, tunnel, DNS) from the commit the host runs (root ADR-0436)
+Requires=docker.service
+# Never beside the Worker deploy: the host's memory budget counts one deploy container at a time.
+After=docker.service network-online.target foundation-worker-autodeploy.service
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+# Root: it reads the account token's file and the control checkout, reads the staff list from the
+# identity database container, and writes the console-tunnel and edge-settings files through the
+# runtime-secrets contract. foundation-autodeploy.sh starts it beside the Worker deploy (no timer of
+# its own). Until the token's file exists it does nothing.
+EnvironmentFile=-/etc/foundation-platform/cloudflare-deploy.env
+ExecStart=/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/edge_settings.py
+# An init that fetches one provider, and an apply of seven resources: minutes at most.
+TimeoutStartSec=30min

@@ -43,6 +43,7 @@ usage:
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh datahub
+  foundation-release.sh console
   foundation-release.sh rollback
   foundation-release.sh prune
   foundation-release.sh host-retention
@@ -813,7 +814,8 @@ verify_runtime_secrets() {
 
 # The Dawneer console and its tunnel (root ADR-0434) start once both of their files exist: the
 # console's Zitadel credentials (identity-platform's configure-zitadel.sh) and the tunnel token
-# (runtime-secrets group console-tunnel, placed once by the owner). A release built before the
+# (runtime-secrets group console-tunnel, written by edge_settings.py from the tunnel it applies, root
+# ADR-0436). A release built before the
 # console's image existed carries none and leaves it off too. Not starting is a line, never a failed
 # deploy: the data host's serving does not wait on a staff screen.
 # Zitadel follows the console's app list, trusted domain and login policy (root ADR-0434 §2, §3)
@@ -1162,6 +1164,13 @@ case "${command}" in
   datahub)
     [[ "$#" == 1 ]] || usage
     apply_datahub
+    ;;
+  console)
+    # The console comes up as the deploy brings it up, once its files exist: edge_settings.py runs this
+    # after it wrote the tunnel token (root ADR-0436), so the console does not wait for the next deploy.
+    [[ "$#" == 1 ]] || usage
+    assert_current_release
+    start_console "${release_root}/current/scripts/deploy/foundation-runtime.sh"
     ;;
   timers)
     # The release installs and enables its own systemd timers (root ADR-0077). The unit files
