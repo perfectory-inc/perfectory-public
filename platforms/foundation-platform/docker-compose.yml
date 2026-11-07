@@ -27,7 +27,9 @@ include:
 services:
   postgres:
     image: postgis/postgis:17-3.5-alpine@sha256:fe9821935d163abca5611e3e0a6a7c73c8c547f3412ed2036ec0ed8f789390da
-    mem_limit: 4g
+    # Measured on ai-server 2026-11-07: cgroup memory.peak 503 MiB over 19 days (page cache included;
+    # anonymous 13 MiB, shared_buffers 160 MiB). 1536m is three times that peak (was 4g).
+    mem_limit: 1536m
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FOUNDATION_DB_PORT:-15434}:5432"
