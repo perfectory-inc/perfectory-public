@@ -42,10 +42,33 @@ def untimed_lanes():
             and not CONTRACT["by_pnu_lanes"][lane].get("first_publish_waits_for_history")]
 
 
+# The verify step's edge probe (root ADR-0435): the runner calls it with a clean environment, so the
+# stand-in records into a path written into it. FAIL in the stand-in's directory makes it fail.
+FAKE_PROBE = r'''#!/usr/bin/env python3
+import json, os, pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+samples = {name: value for name, value in os.environ.items() if name.endswith("_MONITOR_SAMPLE_PATH")}
+with open(here / "probe.jsonl", "a", encoding="utf-8") as log:
+    log.write(json.dumps({"args": sys.argv[1:], "samples": samples}) + "\n")
+if (here / "FAIL").exists():
+    sys.exit("by-pnu-edge-probe: 1 failures (root ADR-0327): GET answered 404")
+print("by-pnu-edge-probe: every lane served")
+'''
+
+
 class LaneCutover(OperatorHarness):
     def setUp(self):
         super().setUp()
         self.env["FOUNDATION_CUTOVER_POLL_SECONDS"] = "0"
+        self.probe = self.root / "probe"
+        self.probe.mkdir()
+        (self.probe / "by-pnu-edge-probe.py").write_text(FAKE_PROBE)
+        self.env["FOUNDATION_CUTOVER_EDGE_PROBE"] = str(self.probe / "by-pnu-edge-probe.py")
+        self.env["FOUNDATION_CUTOVER_VERIFY_PAUSE_SECONDS"] = "0"
+
+    def probes(self):
+        path = self.probe / "probe.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
     def runner(self, *args, now=NIGHT, **env):
         """The release's runner, as the cut-over unit runs it (root, no sudo)."""
@@ -144,7 +167,13 @@ class LaneCutover(OperatorHarness):
         steps = self.evidence()
         self.assertEqual([step["step"] for step in steps],
                          ["history", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
-                          "monitor-sample"])
+                          "monitor-sample", "verify"])
+        # The publish is checked the way a user reads it: the lane's Worker at its production hostname,
+        # given only this lane's sample (root ADR-0435).
+        (probe,) = self.probes()
+        hostname = CONTRACT["by_pnu_lanes"][LANE]["public_hostname"]
+        self.assertEqual(probe["args"], ["--base-url", f"https://{hostname}", LANE])
+        self.assertEqual(list(probe["samples"].values()), [str(work / "equality.json")])
         self.assertTrue(all(isinstance(step["seconds"], int) and step["generation"] == 1 for step in steps))
         # A table with no declared parity is never reported as a passed parity.
         parity = next(step for step in steps if step["step"] == "parity")
@@ -275,6 +304,53 @@ class LaneCutover(OperatorHarness):
                 last = self.evidence()[-1]
                 self.assertEqual(last["step"], "gold")
                 self.assertIn(unit, last["reason"])
+
+    def test_a_publish_the_edge_does_not_serve_fails_the_run_after_asking_again(self):
+        # Root ADR-0435: the post-publish check is part of the analysis; a lane its first publish left
+        # unserved has no earlier manifest to go back to, so the run fails (its unit pages).
+        self.gates_ready()
+        (self.probe / "FAIL").write_text("")
+        result, _ = self.runner(LANE, "1", FOUNDATION_CUTOVER_VERIFY_ATTEMPTS="3")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(len(self.probes()), 3)
+        last = self.evidence()[-1]
+        self.assertEqual((last["step"], last["outcome"]), ("verify", "failed"))
+        self.assertIn("no earlier manifest to go back to", last["reason"])
+
+    def test_the_pending_lanes_are_those_not_cut_over_in_contract_order(self):
+        result, _ = self.runner("lanes", "--pending")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.split(), list(CONTRACT["by_pnu_lanes"]))
+        self.mark_cut_over(LANE, "parcel-zoning")
+        result, calls = self.runner("lanes", "--pending")
+        self.assertEqual(result.stdout.split(), [lane for lane in CONTRACT["by_pnu_lanes"]
+                                                 if lane not in (LANE, "parcel-zoning")])
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
+
+    def test_the_automatic_cut_over_is_root_without_sudo_one_pending_lane_and_pages_on_failure(self):
+        # Root ADR-0435: the auto-promotion's start needs no terminal and no request time.
+        result, calls = self.run_operator(LANE, "cutover", "1", "--auto", attended=False, flags=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args, _, props = self.unit(calls)
+        self.assertIn("--unit=foundation-by-pnu-lane-cutover-g1", args)
+        self.assertIn("OnFailure=foundation-unit-failed@foundation-by-pnu-lane-cutover-g1.service", props)
+        self.assertIn("SuccessExitStatus=75", props)
+        self.assertEqual(args[-2:], [LANE, "1"])
+        refused = [((LANE, "cutover", "1", "--auto"), {"SUDO_USER": "operator-a"}, 77),
+                   (("lanes", "cutover", "1", "--auto"), {}, 64),
+                   ((f"{LANE},parcel-zoning", "cutover", "1", "--auto"), {}, 64)]
+        for args, env, code in refused:
+            with self.subTest(args=args, env=env):
+                self.log.unlink(missing_ok=True)
+                result, calls = self.run_operator(*args, attended=False, flags=False, **env)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
+        # Only a first publish: a lane cut over already is not started again on its own.
+        self.mark_cut_over(LANE)
+        self.log.unlink(missing_ok=True)
+        result, calls = self.run_operator(LANE, "cutover", "1", "--auto", attended=False, flags=False)
+        self.assertEqual(result.returncode, 65, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] == "systemd-run"])
 
     def test_the_run_claims_the_spark_pool_while_it_waits_and_leaves_no_claim_behind(self):
         # Root ADR-0435, the 2026-11-06 00:37Z replay: the cut-over waits for the running backfill with

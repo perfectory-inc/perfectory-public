@@ -36,6 +36,12 @@ class ApprovedCutover(OperatorHarness):
     def setUp(self):
         super().setUp()
         self.env["FOUNDATION_CUTOVER_POLL_SECONDS"] = "0"
+        # The verify step's edge probe, a stand-in (test_by_pnu_lane_cutover.FAKE_PROBE).
+        probe = self.root / "probe"
+        probe.mkdir()
+        (probe / "by-pnu-edge-probe.py").write_text(cutover.FAKE_PROBE)
+        self.env["FOUNDATION_CUTOVER_EDGE_PROBE"] = str(probe / "by-pnu-edge-probe.py")
+        self.env["FOUNDATION_CUTOVER_VERIFY_PAUSE_SECONDS"] = "0"
         self.switches = self.root / "switches"
         self.used = self.root / "run-now/cutover-used"
         self.progress_dir = self.root / "releases"
@@ -118,7 +124,7 @@ class ApprovedCutover(OperatorHarness):
         lines = self.progress()
         self.assertEqual([line["step"] for line in lines if line["state"] == "step"],
                          ["history", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
-                          "monitor-sample"])
+                          "monitor-sample", "verify"])
         self.assertEqual((lines[-1]["state"], lines[-1]["outcome"]), ("finished", "passed"))
         self.assertEqual(len({line["run"] for line in lines}), 1)
 
@@ -140,8 +146,8 @@ class ApprovedCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         panel_limit = next(job["time_limit_minutes"] for job in JOBS if job["id"] == "gold_panel_rebuild")
         # history 0, preview 1, parity 0, bake 60, equality 30, latency 20, publish 30, monitor-sample 1,
-        # and gold: 60, or the panel rebuild's limit for a lane whose Gold never ran timed.
-        self.assertIn(int(result.stdout), (142 + 60, 142 + panel_limit))
+        # verify 10, and gold: 60, or the panel rebuild's limit for a lane whose Gold never ran timed.
+        self.assertIn(int(result.stdout), (152 + 60, 152 + panel_limit))
         self.assertEqual(calls, [])
         self.assertFalse((self.bake / "cutover").exists(), "a plan wrote evidence")
 

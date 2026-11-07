@@ -14,6 +14,7 @@
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane> gold-rebuild
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes|lane,lane,...> cutover <generation> [--dry-run]
 #   by-pnu-pack-operator.sh <a by_pnu_lanes lane|lanes|lane,lane,...> cutover <generation> --approved <approval id>
+#   by-pnu-pack-operator.sh <a by_pnu_lanes lane> cutover <generation> --auto
 #   by-pnu-pack-operator.sh gold rebuild <a table's unit of gold-panel-rebuild.contract.json> [--dry-run]
 #   by-pnu-pack-operator.sh <building|parcel> kind-sizes
 #   by-pnu-pack-operator.sh silver plan|status <silver-lane>
@@ -36,6 +37,13 @@
 # It is taken only from root without sudo (a granted run carries SUDO_USER and is refused), only when
 # switches/cutover.d/<id> names these lanes and this generation and has not expired, and only once
 # (a mark made exclusively under the run-now dispatcher's state directory).
+#
+# `cutover <generation> --auto` is the cut-over the auto-promotion starts (scripts/ops/by-pnu-auto-promote.sh,
+# root ADR-0435): a lane whose Gold is ready publishes itself through the same steps, the gates its
+# automated analysis, without a person. It is taken only from root without sudo (a granted run carries
+# SUDO_USER and is refused) and only for one lane not cut over yet; the journal records it like any
+# start. The cut-over unit pages when it fails (foundation-unit-failed@, as every job does); a run that
+# ends `waiting` (exit 75: a lane's history is not loaded yet) is a success and pages nothing.
 #
 # `gold rebuild <unit>` rebuilds that one Gold table the way `gold-rebuild` does, and only when an
 # input moved: a table's first full build is run and timed outside the scheduled job this way (root
@@ -234,9 +242,23 @@ PY
   set -- "$1"
   record_start "${LANE} ${ACTION} $1"
 fi
+# The auto-promotion's start (root ADR-0435): the system, not a person, so no terminal and no
+# request time; the journal names it, and the lane must be one not cut over yet (the runner's list).
+AUTO=""
+if [[ "${ACTION}" == cutover && "$#" == 2 && "${2}" == --auto ]]; then
+  [[ -z "${SUDO_USER:-}" ]] \
+    || refuse "an automatic cut-over is started by the auto-promotion as root, not through sudo (root ADR-0435)" 77
+  is_pack_lane "${LANE}" || refuse "an automatic cut-over takes one pack-only lane"
+  grep -qxF -- "${LANE}" < <("${here}/by-pnu-lane-cutover.sh" lanes --pending) \
+    || refuse "${LANE} is cut over already; an automatic cut-over is only a lane's first publish" 65
+  AUTO=1
+  START_REQUEST="who=auto-promote reason=the lane's Gold is ready and the lane is not served yet (root ADR-0435)"
+  set -- "$1"
+  record_start "${LANE} ${ACTION} $1"
+fi
 # Every action that starts or writes is attended and immediate (see attended_start above), asked
 # once, in the copy that does the work: the control checkout's copy above passes the request on.
-if [[ -z "${APPROVAL}" && "${ACTION}" != status && "${ACTION}" != plan && "${ACTION}" != health ]] \
+if [[ -z "${APPROVAL}" && -z "${AUTO}" && "${ACTION}" != status && "${ACTION}" != plan && "${ACTION}" != health ]] \
   && ! [[ "${FOUNDATION_OPERATOR_WAIT:-}" == 1 && -z "${SUDO_USER:-}" ]]; then
   (($# >= 4)) && [[ "${*: -4:1}" == --requested-at && "${*: -2:1}" == --reason ]] \
     || refuse "${LANE} ${ACTION} takes ${ATTENDED_FLAGS} last"
@@ -537,8 +559,10 @@ if [[ "${ACTION}" == cutover ]]; then
     approval=(-E "FOUNDATION_CUTOVER_APPROVAL=${APPROVAL}")
     progress started "unit=${CUTOVER_UNIT}" "log=${log}" "lanes=${LANE}" "generation=$1"
   fi
-  # Root, like this script: each step it calls starts its own unit as the service user.
+  # Root, like this script: each step it calls starts its own unit as the service user. A failed run
+  # pages like every job (root ADR-0435: a person hears only of a failure); `waiting` (75) does not.
   exec "${SYSTEMD_RUN}" --collect --unit="${CUTOVER_UNIT}" ${approval[@]+"${approval[@]}"} \
+    -p OnFailure="foundation-unit-failed@${CUTOVER_UNIT}.service" -p SuccessExitStatus=75 \
     --description="Foundation Platform pack-only lane cut-over, generation $1 (root ADR-0190, ADR-0193)" \
     -p StandardOutput=append:"${log}" -p StandardError=append:"${log}" \
     "${here}/by-pnu-lane-cutover.sh" "${LANE}" "$1"

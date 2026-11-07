@@ -1277,6 +1277,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-service-checks.timer
     # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).
     systemctl enable --now foundation-run-now.path
+    # A by-PNU lane whose Gold is ready publishes itself (root ADR-0435): a host controller, not a data job.
+    systemctl enable --now foundation-by-pnu-auto-promote.timer
     # The host deploys main by itself once it names its deployer (root ADR-0159); a host without
     # that file is deployed by hand, and its timer stays off. Deploying is not a data job either.
     autodeploy=off
