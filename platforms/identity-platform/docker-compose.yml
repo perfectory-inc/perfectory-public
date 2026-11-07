@@ -11,7 +11,8 @@ services:
     logging: *log-cap
     restart: unless-stopped
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
-    mem_limit: 512m
+    # Measured on ai-server 2026-11-07: cgroup memory.peak 54 MiB over 22 days (was 512m).
+    mem_limit: 128m
     environment:
       POSTGRES_DB: identity
       POSTGRES_USER: identity_admin
