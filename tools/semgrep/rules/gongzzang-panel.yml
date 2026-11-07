@@ -1,0 +1,65 @@
+# The Gongzzang panel framework's three seams (SP10 spec, products/gongzzang/docs/frontend/panel-sss-axes.md):
+# the framework does not know its kinds, the URL grammar lives in the codec, and the panel stack
+# lives in the URL, not in a store.
+#
+# Prevents: until 2026-10-05 the three shell guards these rules replace ran only in pre-commit,
+# and there they read repository-root paths that their `^apps/web/` filter never matched — every
+# commit passed, and a framework->kind import sat on main unseen. One tree-wide scan with
+# repository-root `paths` has no working directory to get wrong.
+rules:
+  - id: gongzzang-panel-framework-does-not-import-kinds
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      lib/panel/** imports $MOD. The panel framework must not depend on components/panels/**
+      (kinds register themselves) — SP10 spec § 9 #5.
+    paths:
+      include:
+        - "/products/gongzzang/apps/web/lib/panel/**"
+    patterns:
+      - pattern-either:
+          - pattern: import "$MOD";
+          - pattern: import $X from "$MOD";
+          - pattern: import { $X } from "$MOD";
+          - pattern: import * as $X from "$MOD";
+          - pattern: export { $X } from "$MOD";
+          - pattern: export * from "$MOD";
+          - pattern: import("$MOD")
+      - metavariable-regex:
+          metavariable: $MOD
+          regex: ^@/components/panels/
+
+  - id: gongzzang-panel-url-grammar-stays-in-the-codec
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      An ad-hoc split(">") of the panel URL. Parse it with lib/panel/codec.ts — SP10 spec § 5.2.
+    paths:
+      include:
+        - "/products/gongzzang/apps/web/**"
+      exclude:
+        - "/products/gongzzang/apps/web/lib/panel/codec.*"
+    pattern: $S.split(">")
+
+  - id: gongzzang-panel-stack-is-not-held-in-a-store
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      A store holds panelStack. The URL is the panel stack's single source — SP10 spec § 5.4.
+    paths:
+      include:
+        - "/products/gongzzang/apps/web/stores/**"
+    # Every form reports at the name itself, so a store object literal is flagged on its key.
+    patterns:
+      - pattern-either:
+          - pattern: panelStack
+          - pattern: $X.$K
+          - pattern: |
+              { ..., $K: $V, ... }
+          - pattern: const $K = $V;
+          - pattern: let $K = $V;
+          - pattern: 'const $K: $T = $V;'
+      - metavariable-regex:
+          metavariable: $K
+          regex: ^panelStack$
+      - focus-metavariable: $K
