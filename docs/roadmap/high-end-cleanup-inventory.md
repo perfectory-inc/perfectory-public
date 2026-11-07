@@ -33,7 +33,7 @@ last_reviewed: 2026-11-04
 | E 땜질 가드 | 10 (PATCH) | 0 | 구현 2,520 · 자기 시험 1,118 | 줄기만 하는 기준선 6개, 가드를 지키는 가드 |
 | (참고) 남기는 가드 | 24 (KEEP-DOMAIN) | 24 | 구현 5,922 · 자기 시험 3,816 | 도메인 불변식 |
 
-A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 11 · 절반 3 · 남음 24. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
+A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 12 · 절반 3 · 남음 23. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
 
 가드 100개(구현 24,439 · 자기 시험 12,039) 중 사고를 날짜·번호로 적은 것은 44개다(ADR-0001 요구).
 11-04 표본 조사의 "가드 76개 중 약 40개 교체 가능"은 전수로 보면 R-OSS 38 + E-SSOT 24 = 62개다.
@@ -220,7 +220,7 @@ LOC는 테스트 파일(`*_tests.rs`, `tests.rs`, `/tests/`, `test_*`)을 제외
 | G054 **끝남(#1087)** | no-silent-test-skip<br>scripts/guard/no-silent-test-skip.sh | 163 (255) | 테스트가 env var를 읽고 바로 `return`해 그린으로 스킵하지 않는지 검사 | 아니오 (일반론) | `#[test]` 내부 `env::var(..)` 후 `return`을 잡는 Semgrep/ast-grep rust 규칙 | 예 | M |
 | G055 | no-env-access-in-domain-layers<br>scripts/guard/no-env-access-in-domain-layers.sh | 61 (97) | `*-domain`/`*-application` crate가 env를 읽지 않는지 검사 | 아니오 | clippy.toml `disallowed-methods=["std::env::var",..]` + `disallowed-macros=["std::env","std::option_env"]` | 예 | S |
 | G059 | judgment-position-exit-codes<br>scripts/guard/judgment-position-exit-codes.sh (+1 files) | 246 (140) | `$?` / `\|\| rc=1` 판정 위치에 파이프라인이 없는지 검사 | 예 2026-08-05 | ast-grep (tree-sitter-bash) 규칙; shellcheck SC2181은 부분적 | 예 | M |
-| G060 | a-pipefail-pipe-has-no-early-exit-reader<br>scripts/guard/a-pipefail-pipe-has-no-early-exit-reader.sh | 93 (50) | pipefail 하에서 파이프가 `grep -q`/`head`로 끝나지 않는지 검사 | 예 2026-10-28 by-pnu-pack-operator | pipefail 파일 내 `$A \| grep -q $$$`를 잡는 ast-grep bash 규칙 | 예 | S |
+| G060 **끝남(이 PR: Semgrep `pipefail-early-exit-reader.yml`, generic — bash 파서가 사고 파일을 못 읽음)** | a-pipefail-pipe-has-no-early-exit-reader<br>scripts/guard/a-pipefail-pipe-has-no-early-exit-reader.sh | 93 (50) | pipefail 하에서 파이프가 `grep -q`/`head`로 끝나지 않는지 검사 | 예 2026-10-28 by-pnu-pack-operator | pipefail 파일 내 `$A \| grep -q $$$`를 잡는 ast-grep bash 규칙 | 예 | S |
 | G061 **워크플로 절반 끝남(#1094); 설정 절반은 [ADR-0423](../adr/0423-github-repository-settings-are-opentofu-state-in-r2-applied-by-the-host-with-a-scoped-token.md)(제안, 소유자 토큰 대기)** | public-github-policy<br>scripts/guard/public-github-policy.sh (+1 files) | 1188 (463) | GitHub desired-state JSON, 워크플로 신뢰 경계, 퍼블리케이션 기구 검사; 다른 가드 목록을 고정 | 아니오 | GitHub settings-as-code(Terraform github provider / safe-settings) + zizmor; 가드 목록 고정은 PATCH | 예 | L |
 | G063 **끝남(#1061 zizmor + 이 PR: 저장소 계약은 Conftest/OPA)** | workflow-policy<br>scripts/guard/check-workflow-policy.sh (+1 files) | 808 (692) | Actions 최소권한, SHA 고정, permissions, working-directory, needs 게이트 검사(자체 YAML 파서) | 아니오 | zizmor(excessive-permissions, unpinned-uses, dangerous-triggers, cache-poisoning) + actionlint + Conftest (753 LOC 대비) | 예 | L |
 | G066 | third-party-artifact-policy<br>tools/github/third-party-artifact-policy.json | 11 (186) | third-party artifact 정책 JSON 검사 | 아니오 | Conftest / check-jsonschema | 예 | S |

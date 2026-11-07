@@ -1,0 +1,34 @@
+# Under `set -o pipefail` no pipeline may end in a reader that stops before its input does.
+#
+# Prevents: on 2026-10-28 CI refused a valid unit. platforms/foundation-platform/scripts/ops/
+# by-pnu-pack-operator.sh ran `printf '%s\n' "${table_units[@]}" | grep -qxF -- "$1" || refuse ...`
+# and rejected "parcel", which is in the list: `grep -q` exits at its first match and closes the
+# pipe, printf takes SIGPIPE (exit 141), and pipefail reports the pipeline as failed, so the match
+# read as a miss. The same shape made run-postgres-backup.sh take a full backup instead of a diff and
+# host-docker-data-root.sh fail its verify. It is a race, more likely the more the writer prints, and
+# in a guard's own `if cmd | grep -q bad; then fail` it fails open.
+#
+# Early-exit readers: `grep` with -q/--quiet/--silent, -m/--max-count or -l/--files-with-matches,
+# and `head`. Write `grep -q P < <(writer)`, `grep -q P <<<"$v"`, or `sed -n 1p` for `head -n 1`
+# (sed reads to the end). Every *.sh is held to it: a sourced file runs under its caller's options.
+# `generic`, not `bash`: the engine's bash parser drops whole ranges of 34 of the 287 tracked scripts
+# (by-pnu-pack-operator.sh, the incident's own file, does not parse at all), so a syntax rule would
+# go quiet exactly there. A reviewed exception says `# early-exit-reader: <why>` on its line.
+rules:
+  - id: pipefail-pipe-has-no-early-exit-reader
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A pipe into grep -q/-m/-l or head; under pipefail the writer's SIGPIPE turns a match into a
+      miss (2026-10-28). Use `grep -q P < <(writer)`, `grep -q P <<<"$v"`, or `sed -n 1p`; a reviewed
+      exception says `# early-exit-reader: <why>` on the line.
+    paths:
+      include:
+        - "*.sh"
+    patterns:
+      # A pipe (not `||`, `|&` too), maybe across a line break, into grep with an unquoted early-exit
+      # flag among its words, or into head; to the line's end so the exception comment overlaps it.
+      - pattern-regex: >-
+          (?<![|])\|&?\s*(?:grep(?:[ \t]+(?:'[^'\n]*'|"(?:[^"\\n]|\.)*"|[^\s'"|;&)<>]+))*?[ \t]+(?:-[A-Za-z]*[qml][A-Za-z0-9]*|--(?:quiet|silent|max-count|files-with-matches))(?=[=\s;|&)]|$)|head(?![\w-]))[^\n]*
+      - pattern-not-regex: (?m)^[ \t]*#[^\n]*
+      - pattern-not-regex: '#[ \t]*early-exit-reader:[ \t]*[^\s][^\n]*'
