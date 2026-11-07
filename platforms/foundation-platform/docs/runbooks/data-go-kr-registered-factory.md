@@ -46,6 +46,14 @@ last_reviewed: 2026-11-04
 도형 포함관계(좌표가 필지 안)로는 정하지 않는다. 일치율은 실행 요약 줄 `registered-factory-summary-json` 의 `match_rate`
 와 `by_basis`·`unresolved_reasons` 다.
 
+## 법정동 코드 변경 따라가기
+
+적재가 끝나면 같은 실행이 `reference.legal_dong_code_change` 를 본다(루트 ADR-0329 §3, ADR-0416). 표의 커밋 기록
+`follow:reference.legal_dong_code_change@<스냅숏>@<UTC>` 이후 변경 표가 움직였으면, `views.changed_codes` 가 이름 대는 코드
+아래의 현재 행과 PNU 가 없는 행만 다시 잇는다. 이 표는 판을 통째로 읽으므로, 연결이 바뀐 줄이 있으면 그 판을
+이번 시각으로 한 번 더 싣는다(바뀐 줄은 새 링크, 나머지는 그대로). 따라가기 기록이 아직 없는 표는 처음 한 번 현재
+행 전부를 다시 잇는다. 요약 줄의 `follow`/`follows` 가 `checked`·`appended` 를 센다.
+
 ## 처음 켜기
 
 1. 감독 아래 단위를 직접 한 번 시작한다(꺼진 작업은 `start-scheduled-job.sh` 가 거부한다):
