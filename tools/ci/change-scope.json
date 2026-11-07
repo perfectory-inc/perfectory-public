@@ -749,17 +749,6 @@
         ]
       },
       {
-        "name": "lineage-is-derived-not-passed-self-test",
-        "paths": []
-      },
-      {
-        "name": "lineage-is-derived-not-passed",
-        "paths": [
-          "**/*.sh",
-          "**/*.rs"
-        ]
-      },
-      {
         "name": "every-table-declares-its-load-self-test",
         "paths": [
           "platforms/foundation-platform/infra/lakehouse/contracts/**"
