@@ -1269,6 +1269,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
     # and their kept CI runs (root ADR-0209). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks
+    # The daily readiness report's table (root ADR-0442). Its unit names the path in ReadWritePaths.
+    install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/readiness
     systemctl daemon-reload
     [[ "${building_monitor_was_on}" == no ]] \
       || systemctl enable --now foundation-by-pnu-serving-monitor@building.timer
@@ -1284,6 +1286,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-host-retention.timer foundation-by-pnu-edge-probe.timer
     # The operations map's service checks (root ADR-0209): a host check too.
     systemctl enable --now foundation-service-checks.timer
+    # The daily readiness report (root ADR-0442): a host check too.
+    systemctl enable --now foundation-readiness-report.timer
     # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).
     systemctl enable --now foundation-run-now.path
     # A by-PNU lane whose Gold is ready publishes itself (root ADR-0435): a host controller, not a data job.
