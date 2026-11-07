@@ -15,10 +15,10 @@ sys.path.insert(0, str(guard_root / "scripts" / "ci"))
 import compose_model  # noqa: E402
 
 NAME = "the-deploy-does-not-restate-the-compose-chain"
-project = root / "platforms/foundation-platform"
 try:
-    document = compose_model.model([project / "docker-compose.yml"], ["*"])
-    release = (project / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+    document = compose_model.model([root / "platforms/foundation-platform/docker-compose.yml"], ["*"])
+    release = (root / "platforms/foundation-platform/scripts/deploy/foundation-release.sh").read_text(
+        encoding="utf-8")
     commands = [line for line in release.splitlines() if not re.match(r"\s*#", line)]
     failures = compose_model.judge(guard_root / "tools/conftest/compose", "compose_chain",
                                    compose_model.write_model("chain", document),

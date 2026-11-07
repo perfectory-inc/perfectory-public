@@ -943,7 +943,7 @@
           "platforms/foundation-platform/scripts/deploy/**",
           "platforms/foundation-platform/docker-compose.yml",
           "platforms/foundation-platform/compose*.yml",
-          "tools/conftest/compose/chain.rego",
+          "tools/conftest/compose/**",
           "scripts/ci/compose_model.py",
           "tools/conftest.env",
           "tools/docker-compose.env"
