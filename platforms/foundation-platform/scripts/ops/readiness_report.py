@@ -9,9 +9,11 @@ Every row comes from a definition the repository already keeps, never from a lis
   schedule period plus its time limit); the operations map's problem for it (failed, or blocked by a
   failed input: foundation-api's foundation_scheduled_job_problem, root ADR-0195);
 - every by-PNU lane of config/by-pnu-lane-index.v1.json: the served manifest's age against its
-  freshness budget and the hourly serving monitor's verdict (the monitor reads the lane's sample
-  PNUs from the live hostname, root ADR-0306), the asset reconciler's lag of its packs behind their
-  Gold (asset-reconcile.prom, root ADR-0333), and its bake and Gold rebuild jobs' rows;
+  freshness budget, how long it has been behind its inputs (asset-reconcile.prom, root ADR-0444: a
+  lane serving every change there is is not stale however old its manifest) and the hourly serving
+  monitor's verdict (the monitor reads the lane's sample PNUs from the live hostname, root ADR-0306),
+  the asset reconciler's lag of its packs behind their Gold (asset-reconcile.prom, root ADR-0333), and
+  its bake and Gold rebuild jobs' rows;
 - every Bronze source foundation-api reports (foundation_platform_ingestion_run_last_finished_at_seconds);
 - the host: memory and swap, the data disks, failed units, and timers that never fired.
 
@@ -146,11 +148,12 @@ def lane_row(lane: dict, metrics: dict, monitor_result: str, jobs_by_id: dict) -
     budget = metrics.get(("foundation_by_pnu_serving_freshness_budget_seconds", name))
     lags = [metrics.get(("foundation_asset_lag_seconds", f"perfectory://{node}")) for node in lane["serving_nodes"]]
     lag = max((value for value in lags if value is not None), default=None)
+    behind = metrics.get(("foundation_by_pnu_lane_behind_seconds", name))
     feeding = [jobs_by_id[j["id"]] for j in lane["bake_jobs"] + lane.get("rebuild_jobs", []) if j["id"] in jobs_by_id]
     live = all(job.get("enabled") for job in feeding) if feeding else False
     if age is None:
         state = "not-served" if not live else "unmeasured"
-    elif budget is not None and age > budget:
+    elif budget is not None and (behind > budget if behind is not None else age > budget):
         state = "stale"
     elif monitor_result not in ("success", ""):
         state = "monitor-failing"
@@ -160,6 +163,7 @@ def lane_row(lane: dict, metrics: dict, monitor_result: str, jobs_by_id: dict) -
         "kind": "lane", "id": name, "unit": f"foundation-by-pnu-serving-monitor@{name}.service", "impact": "serving",
         "state": state, "served_age_hours": None if age is None else round(age / 3600, 1),
         "budget_hours": None if budget is None else round(budget / 3600, 1),
+        "behind_hours": None if behind is None else round(behind / 3600, 1),
         "monitor": monitor_result or None, "asset_lag_hours": None if lag is None else round(lag / 3600, 1),
         "gold_tables": lane["gold_tables"], "feeding_jobs": [j["id"] for j in feeding],
         "feeding_enabled": live,
