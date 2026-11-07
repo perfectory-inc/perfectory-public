@@ -17,6 +17,13 @@
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 65,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
+      },
       "pool": "spark",
       "pool_slots": 3,
       "priority_weight": 2,
@@ -26,8 +33,8 @@
         "reference-legal-dong-code-change-to-gold-parcel-court-auction",
         "silver-court-auction-item-photo-to-gold-parcel-court-auction"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z"
+      "enabled": false,
+      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since."
     },
     {
       "id": "by_pnu_court_auction_bake",
@@ -48,15 +55,23 @@
       "stop_grace_minutes": 30,
       "wait_limit_minutes": 0,
       "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
+      },
       "pool": "spark",
       "pool_slots": 2,
       "priority_weight": 1,
+      "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
         "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
       ],
-      "enabled": true,
-      "enabled_since": "2026-10-30T13:30:00Z"
+      "enabled": false,
+      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since."
     }
   ],
   "assets": [
