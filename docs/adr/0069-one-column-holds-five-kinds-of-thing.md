@@ -164,3 +164,5 @@ The decisions are unchanged. The loader now reads the column and the unit from t
 reducing read is not truncated, and the tests read a fake row that answers only to the column that
 was selected — the previous fake answered to every lineage column, which is why the tests were
 green while three tables were compared on a column they do not fill.
+
+2026-11-08: `scripts/guard/every-table-declares-its-load.sh`(생성된 계약 JSON 을 파이썬으로 다시 읽음)와 자기 시험 → 지움. 선언이 있고 단위가 셋 중 하나라는 조건은 이미 Rust 타입 `LakehouseLoadUnit`(필수 enum)이 표현 불가능하게 만들고, 생성물은 `lakehouse_contract_artifact.rs` 가 Rust 와 대조한다. 남은 두 조건(그 칸이 표에 있고 필수)은 같은 시험 파일의 `every_load_identity_column_is_a_required_column_of_its_table` 이 Rust 정본에서 직접 확인한다(ADR-0027 §4 "예방 가능한 자리에서는 탐지를 만들지 않는다"). 결정은 그대로다.

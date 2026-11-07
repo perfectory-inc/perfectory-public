@@ -760,18 +760,6 @@
         ]
       },
       {
-        "name": "every-table-declares-its-load-self-test",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/contracts/**"
-        ]
-      },
-      {
-        "name": "every-table-declares-its-load",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/contracts/**"
-        ]
-      },
-      {
         "name": "file-line-limit-self-test",
         "paths": []
       },

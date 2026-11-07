@@ -157,8 +157,6 @@ scripts/guard/environment-variable-naming-self-test.sh,168,true,test-fixture,xta
 scripts/guard/environment-variable-naming.sh,286,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/every-container-has-a-memory-cap-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/every-container-has-a-memory-cap.sh,468,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/every-table-declares-its-load-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/every-table-declares-its-load.sh,77,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/foundation-ci-scope-self-test.sh,9,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/foundation-kafka-contract.sh,105,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/foundation-parcel-current-selector-self-test.sh,112,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
