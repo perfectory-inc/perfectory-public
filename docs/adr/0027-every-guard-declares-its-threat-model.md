@@ -124,3 +124,5 @@ Biome GritQL plugin은 parser가 만든 syntax pattern에 진단을 붙일 수 �
 - [Error Prone `RestrictedApi`](https://errorprone.info/api/latest/com/google/errorprone/annotations/RestrictedApi.html)
 - [Bazel visibility](https://bazel.build/concepts/visibility)
 - [Biome linter plugins](https://biomejs.dev/linter/plugins/)
+
+2026-11-08: `scripts/guard/hand-rolled-error-boundary.sh`(python 어휘 분석기 347줄)와 자기 시험 → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/error-boundary.yml`(고정 Opengrep 엔진의 TypeScript·JavaScript 파서, 가드 `scripts/guard/semgrep-rules.sh`)이 한다. §5 의 "언어 문법은 그 언어의 기존 분석기가 소유" 를 따른 것이며, 영역마다 따로인 Biome 설정 대신 트리 전체를 한 번에 보는 엔진을 골랐다. 위협 모델 선언(§1)과 computed member 기대 통과(§2)는 규칙 머리말과 픽스처 `error-boundary.tsx` 로 옮겼다. 결정은 그대로다.
