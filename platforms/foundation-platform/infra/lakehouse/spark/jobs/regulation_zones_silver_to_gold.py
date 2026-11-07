@@ -302,6 +302,7 @@ def read_inputs(spark: Any, args: argparse.Namespace, at: dict[str, str]) -> tup
 
 def main(argv=None) -> int:
     from pyspark.sql import SparkSession  # noqa: PLC0415
+    from pyspark.storagelevel import StorageLevel  # noqa: PLC0415
 
     import by_pnu_kinds  # noqa: PLC0415
     import gold_incremental as incremental  # noqa: PLC0415
@@ -336,7 +337,10 @@ def main(argv=None) -> int:
     spark.sparkContext.addPyFile(__file__)
     try:
         frames, changes = read_inputs(spark, args, pins)
-        frames = {name: frame.cache() for name, frame in frames.items()}
+        # On disk only: the served parcels' polygons kept deserialized in the memory store (7.6 GB of
+        # the 16g driver, 2026-11-07 07:42Z, the table's first build) stalled the JVM past the
+        # 120 s heartbeat at 76 min and Spark stopped itself; as gold_incremental.Stages says.
+        frames = {name: frame.persist(StorageLevel.DISK_ONLY) for name, frame in frames.items()}
         older: list[Any] = []
 
         def previous_inputs() -> tuple[dict[str, Any], Any]:
