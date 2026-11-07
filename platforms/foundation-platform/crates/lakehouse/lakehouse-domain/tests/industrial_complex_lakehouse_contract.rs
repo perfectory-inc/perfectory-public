@@ -360,14 +360,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             assert!(contract
                 .current_row_latest()
                 .is_some_and(|latest| latest.removal_column.is_some()));
-        } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name {
-            // An item's media index: the newest run that recorded a (item, hash) wins, and a
-            // photo reference never vanishes (root ADR-0298).
-            assert_eq!(contract.current_row_predicate, None);
-            assert!(contract
-                .current_row_latest()
-                .is_some_and(|latest| latest.removal_column.is_none()));
-        } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
+        } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name
+            || contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM_DETAIL.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM_PHOTO.table_name
@@ -384,6 +378,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // newest answer is current, and a result never vanishes (root ADR-0280).
             // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
             // vanishes (root ADR-0384).
+            // An item's media index: the newest run that recorded a (item, hash) wins, and a
+            // photo reference never vanishes (root ADR-0298).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()
