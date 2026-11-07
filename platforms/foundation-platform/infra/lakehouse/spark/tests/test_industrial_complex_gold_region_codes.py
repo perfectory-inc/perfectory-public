@@ -7,7 +7,9 @@ nothing re-placed them. Synthetic codes: 97 and 98 merge into 96.
 
 from __future__ import annotations
 
+import sys
 import unittest
+from unittest import mock
 
 # The PySpark stub the schema-evolution test installs, so the job imports without PySpark.
 from test_industrial_complex_gold_schema_evolution import job
@@ -65,3 +67,13 @@ class ChangedPrefixes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FollowArguments(unittest.TestCase):
+    def test_the_stewardship_follow_arguments_are_accepted(self) -> None:
+        # lineage-stewardship-cycle.sh's call, which ValueError'd on the overwrite default 2026-11-07 (W21).
+        argv = ["industrial_complex_silver_to_gold.py", "--follow-region-codes", "--input-mode", "iceberg",
+                "--write-mode", "iceberg", "--followed-code-changes-output", "/w/followed.json",
+                "--summary-output", "/w/summary.json"]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(job, "assert_catalog_env"):
+            job.validate_args(job.parse_args())

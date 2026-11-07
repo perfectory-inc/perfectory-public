@@ -209,6 +209,7 @@ job_journal "${journal}" "stewardship ok run=${run_id} ${summary}"
 notify_slack "${summary}"
 if [ "${complex_region_rc}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: industrial-complex region codes did not follow rc=${complex_region_rc} run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
   printf 'foundation-job-outcome failed industrial-complex region codes\n'
   exit 1
 fi
