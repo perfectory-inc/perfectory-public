@@ -1,8 +1,9 @@
 //! Each collected source's expected cadence as Prometheus series, so the ingestion rules compare a
 //! source's last Bronze run with its own bound instead of one 24-hour line for all (root ADR-0443).
 //!
-//! The bounds are the endpoint catalog's `expected_cadence` (docs/catalog/public-source-endpoint-catalog.v1.json),
-//! derived from each provider's release schedule. A source whose provider publishes on no fixed
+//! The bounds are the endpoint catalog's `expected_cadence`
+//! (`docs/catalog/public-source-endpoint-catalog.v1.json`), derived from each provider's release
+//! schedule. A source whose provider publishes on no fixed
 //! schedule declares no age bound: its Bronze age is not a health signal, its job's schedule is.
 
 use std::collections::BTreeMap;

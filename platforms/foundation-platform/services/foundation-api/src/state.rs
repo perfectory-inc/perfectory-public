@@ -921,7 +921,7 @@ impl AppState {
 }
 
 /// The metric queries `/metrics` runs, public so the schema test proves each one against the
-/// migrated database (tests/metrics_queries_match_schema.rs, root ADR-0443). A query that names a
+/// migrated database (`tests/metrics_queries_match_schema.rs`, root ADR-0443). A query that names a
 /// column the schema lacks fails there, not silently at run time: the ingestion query read
 /// `bronze_object.payload_size_bytes` (the column is `size_bytes`) from its first day, every
 /// scrape returned no rows, and the three ingestion alerts could never fire (2026-11-07 readiness sweep).
