@@ -2,7 +2,8 @@
 //! (root ADR-0151 §6, contract `section_packs.monitor`).
 //!
 //! Reads the first `monitor.pnus` PNUs of the gate sample (the equality evidence on the host; the
-//! real PNUs never enter the repository) from the live hostname and holds each answer to:
+//! real PNUs never enter the repository) that the lane still serves as a document from the live
+//! hostname and holds each answer to:
 //!
 //! - 200, within the read timeout, or a 404 for a PNU the lane serves as a tombstone or not at all
 //!   (root ADR-0437: a lane whose keys come and go, 공매, retires sampled PNUs as their notices end);
@@ -87,12 +88,6 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         .context("the contract names no monitor for this lane")?;
     let (equality, _) =
         gate::read::<EqualityEvidence>(&PathBuf::from(required("MONITOR_SAMPLE_PATH")?))?;
-    let pnus = equality
-        .sample
-        .into_iter()
-        .take(policy.pnus)
-        .collect::<Vec<_>>();
-    ensure!(!pnus.is_empty(), "the monitor sample is empty");
     let output = ProfileStoreConfig::parse(
         env("OUTPUT_STORAGE_DRIVER")?
             .unwrap_or_else(|| "r2".to_owned())
@@ -123,6 +118,13 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
             lane.env("MONITOR_HISTORY_STATE")
         ),
     };
+    let sampled = equality.sample.len();
+    let pnus = served_sample(&store, equality.sample, policy.pnus, &target).await?;
+    ensure!(
+        !pnus.is_empty(),
+        "the lane serves none of the {sampled} PNUs of its gate sample as a document any more; \
+         take a new sample (root ADR-0437)"
+    );
     let mut report = check_at(&store, &base_url, &pnus, policy.latency_p95_max_ms, &target).await?;
     if matches!(target, Target::Served) {
         judge_freshness(
@@ -318,6 +320,35 @@ pub fn judge_serving(report: &mut MonitorReport) {
         && report.failures.is_empty()
         && report.drifted_from_served.is_empty()
         && report.latency_ms.p95 <= report.latency_p95_max_ms;
+}
+
+/// The first `wanted` PNUs of the gate sample `target` serves as a document, so a lane whose keys
+/// come and go is held to `wanted` live PNUs on every run, not to fewer as its first ones retire
+/// (2026-11-07: 4 of the 공매 lane's first 20 had ended in 14 days). A lane that serves objects
+/// takes the first `wanted`, as before.
+pub async fn served_sample(
+    store: &ByPnuServingStore,
+    sample: Vec<String>,
+    wanted: usize,
+    target: &Target,
+) -> anyhow::Result<Vec<String>> {
+    if matches!(target, Target::Served)
+        && ServedManifest::parse(store.lane(), &store.read_manifest().await?.0)?
+            .section_packs
+            .is_none()
+    {
+        return Ok(sample.into_iter().take(wanted).collect());
+    }
+    let mut chosen = Vec::with_capacity(wanted);
+    for pnu in sample {
+        if chosen.len() == wanted {
+            break;
+        }
+        if inspect_target(store, &pnu, target).await?["answer"] == "document" {
+            chosen.push(pnu);
+        }
+    }
+    Ok(chosen)
 }
 
 /// The report of `pnu` as `target` serves it.
