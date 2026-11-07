@@ -33,7 +33,7 @@ last_reviewed: 2026-11-04
 | E 땜질 가드 | 10 (PATCH) | 0 | 구현 2,520 · 자기 시험 1,118 | 줄기만 하는 기준선 6개, 가드를 지키는 가드 |
 | (참고) 남기는 가드 | 24 (KEEP-DOMAIN) | 24 | 구현 5,922 · 자기 시험 3,816 | 도메인 불변식 |
 
-A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 11 · 절반 3 · 남음 24. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
+A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 12 · 절반 3 · 남음 23. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
 
 가드 100개(구현 24,439 · 자기 시험 12,039) 중 사고를 날짜·번호로 적은 것은 44개다(ADR-0001 요구).
 11-04 표본 조사의 "가드 76개 중 약 40개 교체 가능"은 전수로 보면 R-OSS 38 + E-SSOT 24 = 62개다.
@@ -216,7 +216,7 @@ LOC는 테스트 파일(`*_tests.rs`, `tests.rs`, `/tests/`, `test_*`)을 제외
 | G034 **절반(이 PR: URL 규칙은 Semgrep; 캐시 복원 순서는 남음)** | pinned-downloads<br>scripts/guard/pinned-downloads.sh (+1 files) | 169 (84) | 릴리스 다운로드가 캐시 복원 후 `fetch_pinned.py`로만 이뤄지는지 검사 | 약함 (5xx 한 번에 PR 손실) | Semgrep/ast-grep bash+yaml `curl\|wget .*releases/download`(fetcher 밖) | 예 | M |
 | G038 | lineage-is-derived-not-passed<br>scripts/guard/lineage-is-derived-not-passed.sh | 75 (109) | 명령이 계보용으로 호출자가 넘긴 입력 이름을 받지 않는지 검사 | 예 2026-08-31 중복행 1,164,467건 | 그 인자 이름들을 금지하는 Semgrep python/rust 규칙 | 예 | S |
 | G039 | every-table-declares-its-load<br>scripts/guard/every-table-declares-its-load.sh | 77 (63) | 각 레이크하우스 계약 테이블이 적재 식별자를 선언하는지 검사 | 예 2026-09-01 | 계약 JSON에 check-jsonschema `required:[load_identity]` | 예 | S |
-| G050 | the-deploy-does-not-restate-the-compose-chain<br>scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh | 116 (102) | 릴리스 스크립트가 compose 체인(`up --no-deps`, `run migrate`)을 직접 걷지 않는지 검사 | 예 2026-09-02 하루종일 500 에러 | `foundation-release.sh` 위 ast-grep bash / Semgrep generic 규칙 | 예 | M |
+| G050 **끝남(이 PR: Conftest/OPA `compose/chain.rego`, 사슬은 compose 정규화 모델의 depends_on 에서)** | the-deploy-does-not-restate-the-compose-chain<br>scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh | 116 (102) | 릴리스 스크립트가 compose 체인(`up --no-deps`, `run migrate`)을 직접 걷지 않는지 검사 | 예 2026-09-02 하루종일 500 에러 | `foundation-release.sh` 위 ast-grep bash / Semgrep generic 규칙 | 예 | M |
 | G054 **끝남(#1087)** | no-silent-test-skip<br>scripts/guard/no-silent-test-skip.sh | 163 (255) | 테스트가 env var를 읽고 바로 `return`해 그린으로 스킵하지 않는지 검사 | 아니오 (일반론) | `#[test]` 내부 `env::var(..)` 후 `return`을 잡는 Semgrep/ast-grep rust 규칙 | 예 | M |
 | G055 | no-env-access-in-domain-layers<br>scripts/guard/no-env-access-in-domain-layers.sh | 61 (97) | `*-domain`/`*-application` crate가 env를 읽지 않는지 검사 | 아니오 | clippy.toml `disallowed-methods=["std::env::var",..]` + `disallowed-macros=["std::env","std::option_env"]` | 예 | S |
 | G059 | judgment-position-exit-codes<br>scripts/guard/judgment-position-exit-codes.sh (+1 files) | 246 (140) | `$?` / `\|\| rc=1` 판정 위치에 파이프라인이 없는지 검사 | 예 2026-08-05 | ast-grep (tree-sitter-bash) 규칙; shellcheck SC2181은 부분적 | 예 | M |
