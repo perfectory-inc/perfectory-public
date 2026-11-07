@@ -1,0 +1,11 @@
+[Unit]
+Description=Foundation Platform by-PNU auto-promotion: start the first publish of a lane whose Gold is ready, through the cut-over's automated analysis, with no person (root ADR-0435)
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+# Root, like the run-now dispatcher: the cut-over it starts runs as root and starts each step's unit as
+# the service user (by-pnu-pack-operator.sh).
+ExecStart=/bin/bash /opt/foundation-platform/current/scripts/ops/by-pnu-auto-promote.sh
+StateDirectory=foundation-run-now
+TimeoutStartSec=5m

@@ -1,0 +1,12 @@
+[Unit]
+Description=Foundation Platform by-PNU auto-promotion, every quarter hour (root ADR-0435): a lane whose Gold is ready publishes itself
+
+[Timer]
+# A host controller, not a data job (root ADR-0118 §1); off the edge probe's :07 and the monitor's :17.
+OnCalendar=*-*-* *:12/15:00
+RandomizedDelaySec=60
+Persistent=true
+Unit=foundation-by-pnu-auto-promote.service
+
+[Install]
+WantedBy=timers.target
