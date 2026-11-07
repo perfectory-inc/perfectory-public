@@ -101,6 +101,25 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual((result.returncode, started), (0, []))
         self.assertIn("every lane is cut over", result.stdout)
 
+    def test_no_first_publish_starts_while_a_served_lanes_refresh_is_owed(self):
+        # Root ADR-0439: 2026-11-07 13:12Z a cut-over's Gold step took the one rebuild lock while the
+        # parcel lane's owed panel rebuild waited behind it.
+        metrics = self.root / "asset-reconcile.prom"
+        self.env["FOUNDATION_AUTO_PROMOTE_ASSET_METRICS"] = str(metrics)
+        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job="gold_panel_rebuild"} 1\n'
+                           'foundation_asset_owed{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 1\n')
+        os.utime(metrics, (NIGHT, NIGHT))
+        result, started = self.run_controller()
+        self.assertEqual((result.returncode, started), (0, []), result.stderr)
+        self.assertIn("a served lane's refresh is owed (iceberg://gold.parcel_panel)", result.stdout)
+        # A default job owed (the unit price Gold) or a reconciler silent for half an hour holds nothing.
+        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.unit_price",job="gold_unit_price_rebuild"} 1\n')
+        os.utime(metrics, (NIGHT, NIGHT))
+        self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 1 --auto"])
+        metrics.write_text('foundation_asset_owed{asset="iceberg://gold.parcel_panel",job="gold_panel_rebuild"} 1\n')
+        os.utime(metrics, (NIGHT - 1801, NIGHT - 1801))
+        self.assertEqual(len(self.run_controller(now=NIGHT + 3600 * 25)[1]), 1, "a silent reconciler holds nothing")
+
     def test_a_lane_that_failed_is_tried_again_after_a_doubling_backoff_and_the_next_lane_goes_first(self):
         self.assertEqual(self.run_controller()[1], ["parcel-ownership cutover 1 --auto"])
         # A quarter hour later the ownership run failed (11-05 02:42Z: R2 `service error` in latency):
