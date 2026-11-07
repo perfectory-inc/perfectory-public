@@ -198,9 +198,21 @@ tests:
               runbook: docs/runbooks/host-resources.md
 
   # 2026-10-28..11-05: the 공매 lane served a manifest 191 hours old against its 48-hour budget.
-  # The stale lane fires with the lane named; a lane inside its budget stays quiet.
+  # The stale lane fires with the lane named; a lane inside its budget stays quiet. The 공매 lane's
+  # data time is unknown here, so its manifest's age is held (root ADR-0444). 2026-11-07: zoning's
+  # manifest was 498 hours old but it served every change there was; parcel's was 202 hours old and
+  # 290 hours behind a transfer history load.
   - interval: 1h
     input_series:
+      - series: 'foundation_by_pnu_served_manifest_age_seconds{lane="parcel-zoning"}'
+        values: '1792800x3'
+      - series: 'foundation_by_pnu_serving_freshness_budget_seconds{lane="parcel-zoning"}'
+        values: '172800x3'
+      - series: 'foundation_by_pnu_lane_behind_seconds{lane="parcel-zoning"}'
+        values: '0x3'
+      - series: 'foundation_by_pnu_lane_behind_seconds{lane="parcel"}'
+        values: '1044000x3'
+
       - series: 'foundation_by_pnu_served_manifest_age_seconds{lane="parcel-public-auction"}'
         values: '687600x3'
       - series: 'foundation_by_pnu_serving_freshness_budget_seconds{lane="parcel-public-auction"}'
@@ -216,9 +228,16 @@ tests:
           - exp_labels:
               severity: page
               service: serving-freshness
+              lane: parcel
+            exp_annotations:
+              summary: 'parcel 레인 화면이 입력보다 12d 2h 0m 0s 뒤처진 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@parcel.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
+              runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+          - exp_labels:
+              severity: page
+              service: serving-freshness
               lane: parcel-public-auction
             exp_annotations:
-              summary: 'parcel-public-auction 레인 화면이 7d 23h 0m 0s 전에 발행된 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@parcel-public-auction.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
+              summary: 'parcel-public-auction 레인 화면이 입력보다 7d 23h 0m 0s 뒤처진 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@parcel-public-auction.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
               runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
 
   # A monitor that stopped measuring (its timer gone) is said, not taken for a fresh lane.

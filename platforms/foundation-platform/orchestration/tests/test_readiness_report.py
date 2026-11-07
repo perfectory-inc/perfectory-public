@@ -73,6 +73,15 @@ class Lanes(unittest.TestCase):
                    ("foundation_by_pnu_serving_freshness_budget_seconds", "parcel-x"): 2 * 86400}
         self.assertEqual(report.lane_row(self.LANE, metrics, "exit-code", self.JOBS)["state"], "stale")
 
+    def test_2026_11_07_an_old_manifest_serving_every_change_there_is_is_not_stale(self):
+        # Root ADR-0444: zoning's manifest was 498 hours old and served the newest Silver there was.
+        metrics = {("foundation_by_pnu_served_manifest_age_seconds", "parcel-x"): 498 * 3600,
+                   ("foundation_by_pnu_serving_freshness_budget_seconds", "parcel-x"): 2 * 86400,
+                   ("foundation_by_pnu_lane_behind_seconds", "parcel-x"): 0}
+        self.assertEqual(report.lane_row(self.LANE, metrics, "success", self.JOBS)["state"], "ok")
+        metrics[("foundation_by_pnu_lane_behind_seconds", "parcel-x")] = 3 * 86400
+        self.assertEqual(report.lane_row(self.LANE, metrics, "success", self.JOBS)["state"], "stale")
+
     def test_a_lane_whose_bake_is_off_is_not_served_not_unmeasured(self):
         jobs = {**self.JOBS, "by_pnu_x_bake": {"id": "by_pnu_x_bake", "enabled": False}}
         self.assertEqual(report.lane_row(self.LANE, {}, "", jobs)["state"], "not-served")

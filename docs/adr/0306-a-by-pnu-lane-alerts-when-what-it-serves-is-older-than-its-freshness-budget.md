@@ -53,3 +53,7 @@ Google SRE Workbook(데이터 파이프라인 장)은 파이프라인의 1차 SL
   manifest 다.
 - **Gold 스냅숏 대비 지연(manifest 반영 스냅숏 ≠ Gold 현재)** — Gold 재생성이 멈춰도 둘이 같아 초록이 된다. 시계
   나이는 원인과 무관하게 잡는다.
+
+---
+
+2026-11-07 개정 주석: §1 의 판정(나이가 예산을 넘으면 실행 실패)과 Alternatives rejected 셋째 줄은 [ADR-0444](./0444-a-by-pnu-lane-is-stale-when-it-is-behind-its-inputs-not-when-its-manifest-is-old.md) 가 대체한다 — 묵음은 입력보다 뒤처진 시간으로 경보 규칙이 판정하고, 모니터 실행은 서빙 충실도만 판정한다.
