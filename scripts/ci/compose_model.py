@@ -84,10 +84,13 @@ def raw(path: pathlib.Path) -> dict:
     return json.loads(completed.stdout)
 
 
-def judge(policy: pathlib.Path, namespace: str, target: pathlib.Path, data: dict | None = None) -> list[str]:
-    """The `deny` messages a Conftest namespace returns for one document."""
+def judge(policy: pathlib.Path, namespace: str, target: pathlib.Path, data: dict | None = None,
+          parser: str | None = None) -> list[str]:
+    """The `deny` messages a Conftest namespace returns for one document (`parser`: Conftest's)."""
     command = [str(conftest_binary()), "test", "--policy", str(policy), "--namespace", namespace,
                "--output", "json", "--no-color"]
+    if parser:
+        command += ["--parser", parser]
     if data is not None:
         # Conftest loads a data file by its extension.
         handle = tempfile.NamedTemporaryFile("w", suffix=".json", dir=work(), delete=False, encoding="utf-8")

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Checks tracked container-runtime declarations. A Compose file is normalized by the pinned
 # `docker compose config` (tools/docker-compose.env) and judged by the Conftest policies in tools/conftest/compose: the
-# engine resolves anchors, `extends`, `include` and `!reset`, so no rule needs a YAML subset.
-# Dockerfiles and the shell's docker build/run/pull lines are read here.
+# engine resolves anchors, `extends`, `include` and `!reset`, so no rule needs a YAML subset. A
+# Dockerfile is read by Conftest's Dockerfile parser (BuildKit's) and judged by the same directory's
+# `dockerfile` policy. The shell's docker build/run/pull lines are read here.
 set -euo pipefail
 
 root="${1:-.}"
@@ -258,48 +259,20 @@ def shell_logical_lines(text: str) -> list[tuple[int, str]]:
 
 
 def check_dockerfile(path: str, text: str) -> None:
-    aliases: set[str] = set()
-    for line, logical in shell_logical_lines(text):
-        syntax = re.match(r"^\s*#\s*syntax=(\S+)", logical, flags=re.IGNORECASE)
-        if syntax and not image_is_immutable(syntax.group(1)):
-            fail(path, line, "Dockerfile syntax frontends require tag@sha256")
-
-        match = re.match(
-            r"^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?",
-            logical,
-            flags=re.IGNORECASE,
-        )
-        if not match:
-            external_stages: list[str] = []
-            if re.match(r"^\s*COPY\b", logical, flags=re.IGNORECASE):
-                external_stages.extend(
-                    unquote_yaml_scalar(value)
-                    for value in re.findall(r"(?:^|\s)--from=(\"[^\"]+\"|'[^']+'|[^\s]+)", logical)
-                )
-            if re.match(r"^\s*RUN\b", logical, flags=re.IGNORECASE):
-                for mount in re.findall(r"(?:^|\s)--mount=([^\s]+)", logical):
-                    external_stages.extend(
-                        option.split("=", 1)[1]
-                        for option in mount.split(",")
-                        if option.startswith("from=") and len(option.split("=", 1)) == 2
-                    )
-            for source in external_stages:
-                if (
-                    not source.isdigit()
-                    and source.lower() not in aliases
-                    and not image_is_immutable(source)
-                ):
-                    fail(path, line, "external Dockerfile stage images require tag@sha256")
-            continue
-        reference, alias = match.groups()
-        if (
-            reference.lower() != "scratch"
-            and reference.lower() not in aliases
-            and not image_is_immutable(reference)
-        ):
-            fail(path, line, "external Dockerfile FROM images require tag@sha256; only *:local may omit a digest")
-        if alias:
-            aliases.add(alias.lower())
+    # BuildKit returns no parser directives; they are the leading `# key=value` comment lines.
+    syntax = None
+    for raw in text.splitlines():
+        directive = re.match(r"^\s*#\s*([A-Za-z]+)\s*=\s*(\S+)\s*$", raw)
+        if not directive:
+            break
+        if directive.group(1).lower() == "syntax":
+            syntax = directive.group(2)
+    try:
+        for message in compose_model.judge(COMPOSE_POLICY, "dockerfile", ROOT / path,
+                                           {"context": {"syntax": syntax}}, parser="dockerfile"):
+            fail(path, 0, message)
+    except compose_model.ComposeError as error:
+        fail(path, 0, str(error))
 
 
 def assignment_values(text: str, name: str) -> list[str]:
