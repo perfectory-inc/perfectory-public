@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use anyhow::{bail, Context};
 use url::Url;
 
-/// Server settings. Every value comes from the environment. The client credentials come under the
-/// names `configure-zitadel.sh` writes into the app's credentials file, which the host hands to the
+/// Server settings. Every value comes from the environment.
+///
+/// The client credentials come under the names `configure-zitadel.sh` writes into the app's credentials file, which the host hands to the
 /// container as an env file (root ADR-0434 §1), so the secret is never copied anywhere else.
 #[derive(Clone, Debug)]
 pub struct Config {
