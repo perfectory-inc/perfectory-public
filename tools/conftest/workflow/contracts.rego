@@ -171,7 +171,25 @@ deny contains msg if {
 	msg := sprintf("%s: only one job may sign the release (%v)", [path, signers])
 }
 
-# --- continue-on-error, defaults ------------------------------------------------------------------
+# --- continue-on-error, fake-pass fallbacks, defaults ---------------------------------------------
+
+# A command that swallows its own failure (`cmd || echo "not installed"`, `cmd || true`) turns a red
+# step green; the two Gongzzang hooks that carried it passed every push without running. The same
+# fallbacks are refused in lefthook.yml (tools/conftest/lefthook).
+fake_pass_fallbacks := ["|| true", "|| echo", "CI enforces"]
+
+deny contains msg if {
+	some [path, document] in workflows
+	walk(document, [location, value])
+	count(location) > 0
+	location[count(location) - 1] == "run"
+	is_string(value)
+	some line in split(value, "\n")
+	not startswith(trim_space(line), "#")
+	some fallback in fake_pass_fallbacks
+	contains(line, fallback)
+	msg := sprintf("%s: a run hides its own failure with `%s` (%v)", [path, fallback, location])
+}
 
 deny contains msg if {
 	some [path, document] in workflows

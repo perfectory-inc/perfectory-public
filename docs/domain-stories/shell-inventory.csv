@@ -76,8 +76,6 @@ products/gongzzang/scripts/ci/vitest-lane-completeness.sh,75,true,ci,xtask,gongz
 products/gongzzang/scripts/ci/walking-skeleton-e2e.sh,148,true,ci,xtask,gongzzang CI helper invoked from a workflow
 products/gongzzang/scripts/lefthook/check-forbidden-implementation-markers.sh,103,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
 products/gongzzang/scripts/lefthook/check-forbidden-implementation-markers.tests.sh,129,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
-products/gongzzang/scripts/lefthook/check-no-fake-pass.sh,75,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
-products/gongzzang/scripts/lefthook/check-no-fake-pass.tests.sh,144,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
 products/gongzzang/scripts/lefthook/file-line-limit.sh,95,true,ci,xtask,"Moved to CI only (gongzzang-ci.yml), not in lefthook.yml"
 products/gongzzang/scripts/lefthook/file-line-limit.tests.sh,95,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
 products/gongzzang/scripts/lefthook/panel-guards.tests.sh,68,true,test-fixture,xtask,Lefthook self-test run directly by gongzzang-ci.yml
@@ -175,6 +173,8 @@ scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard r
 scripts/guard/import-private-feature-diff-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes-self-test.sh,140,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/lefthook-policy-self-test.sh,10,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/lefthook-policy.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-self-test.sh,352,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/lib/fixture-repo.sh,173,true,ci,xtask,"Shared lib sourced by monorepo-guard.sh, the CI guard runner"
