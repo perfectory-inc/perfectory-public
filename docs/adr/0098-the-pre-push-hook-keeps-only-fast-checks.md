@@ -42,3 +42,5 @@ fmt+check까지, 판정은 CI").
   매달린다는 기존 기록도 그대로 유효하다.
 - gongzzang `docs/conventions/enforcement-flow.md`의 5단계 표는 pre-push 내용이 바뀐 만큼
   이 ADR을 가리키도록 갱신한다.
+
+2026-11-08: pre-push `fast-ratchets` 에서 `foundation-parcel-current-selector.sh` → 지움. 같은 검사는 Semgrep 규칙 `tools/semgrep/rules/parcel-reads.yml` 의 `parcel-current-row-selector-comes-from-the-contract` 가 CI `semgrep-rules`(always)에서 한다. 결정은 그대로다.
