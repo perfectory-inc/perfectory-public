@@ -42,7 +42,7 @@ Catalog 데이터는 Foundation Platform 공개 계약(API·이벤트·불변 �
 | 도메인 crate 는 경계 계약 `path_ownership` 에 선언되고, crate 는 `crates/` 바로 아래에 둔다 | `cargo run -p repo-guard -- capability-layout` |
 | Catalog API 소비 변경은 고정 계약 `docs/architecture/foundation-platform-catalog-api-contract.v1.pin.json` 을 함께 갱신한다 | `crates/foundation-platform-client/tests/catalog_contract_pin.rs` |
 | 파일 1500줄 초과 금지(500줄부터 경고) | `cargo run -p repo-guard -- file-line-limit` |
-| `TODO`·`HACK`·`XXX`·`TEMP`·`임시` 같은 미완 표식과 깨진 인코딩 금지(`.github`·`apps`·`services`·`crates`·`packages`) | `scripts/lefthook/check-forbidden-implementation-markers.sh` |
+| `TODO`·`HACK`·`XXX`·`TEMP`·`임시` 같은 미완 표식과 깨진 인코딩 금지(`.github`·`apps`·`services`·`crates`·`packages`) | 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml`(CI `semgrep-rules`) |
 | 패널 프레임워크는 kind 를 import 하지 않고, URL 문법은 codec 에만, 패널 스택은 store 에 두지 않는다 | `scripts/lefthook/panel-no-*.sh --all` 과 `panel-guards.tests.sh`; 규범은 [panel-sss-axes.md](./docs/frontend/panel-sss-axes.md) |
 | 트래픽·인증 정책은 레지스트리 `docs/architecture/traffic-auth-policy-registry.v1.json` 하나에서 생성한다 | CI `traffic-auth-policy-drift` (`cargo run -p gongzzang-api --bin generate-traffic-auth-policy`) |
 | 공간 쿼리는 SRID 를 명시한다 | `crates/shared-kernel/src/srid.rs` 의 타입 |

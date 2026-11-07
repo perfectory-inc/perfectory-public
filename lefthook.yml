@@ -77,10 +77,6 @@ pre-push:
         - merge
         - rebase
         - run: "! command -v python3 >/dev/null 2>&1"
-    gz-forbidden-markers:
-      root: "products/gongzzang/"
-      run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
-      skip: [merge, rebase]
 
 # Root ADR-0418: the artifacts the declared definitions generate (the job list, the pipeline graph,
 # the lane lines, ...) are not committed. A checkout, a merge and a rebase write them, as CI does after
