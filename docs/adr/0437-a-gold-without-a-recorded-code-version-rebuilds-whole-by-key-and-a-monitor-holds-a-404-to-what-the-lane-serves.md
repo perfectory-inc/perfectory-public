@@ -1,4 +1,4 @@
-# ADR 0437: 코드 판을 적지 않은 Gold 는 입력이 움직이면 전량을 키로 게시하고, 모니터는 404 도 레인이 서빙하는 것에 맞춰 본다
+# ADR 0437: 코드 판을 적지 않은 Gold 는 입력이 움직이면 전량을 키로 게시하고, 모니터는 404 도 레인이 서빙하는 것에 맞춰 보며, 배포는 마이그레이션 코드가 닿는 작업만 잡는다
 
 - Status: Accepted
 - Date: 2026-11-07
@@ -46,10 +46,22 @@ ADR-0321 §4 는 "기록이 없는 머리는 지금 코드로 만든 것으로 �
    PNU 를 tombstone 또는 absent 로 답하면 그 답은 충실하다(`absent_as_served`). 팩이 문서를 가진 PNU 의 404 는 여전히
    실패다. 표본 어느 PNU 에도 문서가 없으면(표본이 다 빠짐) 모니터가 아무것도 검사하지 못하므로 "새 표본을 뜨라"는
    이유로 실패한다. 판정은 `monitor::judge_serving` 하나.
-3. 가드가 막는 실제 사고(루트 ADR-0001): **2026-11-03..06 parcel Gold 가 같은 parity 불일치로 9회 연속 커밋 없이 끝나
+3. **배포 보류는 마이그레이션 코드가 닿는 것만이다.** `config/deploy-steps.contract.json` 의 lakehouse-migrate 는
+   `closure`(program·directories·backfills)를 갖고, `release_changes.changed_tables` 는 그 디렉터리 안의 바뀐 파일을
+   이렇게 판정한다: 프로그램(`lakehouse_schema_migrate`)의 호출 그래프나 그것이 이름 부르는 계약이 바뀌면 모든 표,
+   `BACKFILLS` 의 함수가 닿는 코드가 바뀌면 그 표, 둘 다 아니면(다른 작업의 스크립트, 마이그레이션이 읽지 않는 원천
+   계약) 없음. 분석은 Gold 코드 판과 같은 `gold_code_version.parts` 이고, 두 트리를 새 릴리스의 분석기 하나로 읽는다.
+   per_table 파일과 디렉터리 밖 입력은 그대로다. 마이그레이션 **단계 실행**(deploy_steps.should_run)은 좁히지 않는다.
+   - 실측 재생(11-05..06 main 커밋 13개, 부모 대비 계산): 전 13/13 모든 표 → 후 11개는 새로 더한 표만(0–8개),
+     `BACKFILLS` 를 바꾼 1개만 모든 표.
+   - 대기업 사례: Bazel 은 액션의 실제 입력 그래프가 바뀔 때만 다시 실행하고, 같은 디렉터리의 무관한 파일 변경은
+     캐시를 깨지 않는다. Kubernetes 의 롤링 배포는 바뀐 워크로드만 교체한다.
+4. 가드가 막는 실제 사고(루트 ADR-0001): **2026-11-03..06 parcel Gold 가 같은 parity 불일치로 9회 연속 커밋 없이 끝나
    필지·건물·종류 레인이 8일 낡은 문서를 서빙했다**(§1, `test_a_gold_built_before_the_record_is_rebuilt_whole_and_published_by_key_once_its_inputs_move`).
    **2026-11-07 공매 레인이 11-06 에 발행했는데도 끝난 공고 4건의 404 때문에 모니터가 매시 실패했다**
    (§2, `a_404_for_a_pnu_the_lane_serves_no_document_for_passes`).
+   **2026-11-06 배포 14회 중 9회가 원천 계약 하나·다른 작업 하나에 53개 작업을 잡아 parcel 재생성을 5회 멈췄다**
+   (§3, `ReleaseChangesByClosure`).
 
 ## Consequences
 
@@ -57,9 +69,10 @@ ADR-0321 §4 는 "기록이 없는 머리는 지금 코드로 만든 것으로 �
   뒤 building 이 같은 길로 따라온다(같은 `all` 실행 시간 안에 못 들면 다음 실행).
 - 공매 모니터는 끝난 공고를 실패로 세지 않는다. 표본이 계속 줄어드는 것(새 표본을 뜨는 주체)은 cut-over 단계의 몫이고
   W18(ADR-0435)에 넘긴다.
+- §3 이후 원천 계약·Silver 레인을 더하는 배포는 그 표의 작업만 잡는다. 2시간짜리 재생성은 마이그레이션 프로그램·
+  백필·레지스트리 항목(자기 표)을 바꾸는 배포에만 멈춘다.
 - 이 결정 밖, 함께 측정해 넘긴 것:
-  - 배포 step 0 이 `interruptible` 재생성을 멈춘다(ADR-0301). 11-06 배포 14회 중 9회가 "모든 표"를 바꾼다고 판정해
-    53개 작업을 잡았다 — 바뀐 입력이 마이그레이션의 per_table 이 아닌 파일(새 원천 계약 파일 하나, Spark 작업 하나)이면
-    모든 표로 본다(`release_changes.changed_tables`). 재생성 한 번이 2시간 안팎이라 낮에는 거의 끝나지 못한다. 후속 PR.
+  - 재생성 자체를 멈춰도 잃지 않게(단계 결과를 핀·코드 판 키로 남겨 이어 하기) 하는 것은 후속이다. 그때까지
+    `interruptible: true` 는 §3 으로 드물어진 보류에만 기댄다.
   - zoning·price·characteristics 의 488h 는 원천(연 1회 공개)이 10-17 이후 바뀌지 않아 Gold 도 안 움직인 것이다. Silver
     갱신은 11-04 부터 `flate2` 로 실패 중(W19). 레인별 원천 주기를 모르는 48시간 일률 예산의 오경보 여부는 별도 결정.

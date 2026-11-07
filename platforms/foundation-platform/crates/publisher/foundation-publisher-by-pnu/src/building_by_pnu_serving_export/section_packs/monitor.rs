@@ -163,7 +163,9 @@ pub fn age_hours(published_at_utc: &str, now: DateTime<Utc>) -> anyhow::Result<f
 pub fn verdict(report: &MonitorReport, noun: &str) -> anyhow::Result<()> {
     ensure!(
         report.answered > 0 || report.absent_as_served.is_empty(),
-        "the live {noun} hostname answered no sampled PNU with a document: the lane serves none of          the {} PNUs of its gate sample any more, so the monitor holds it to nothing; take a new          sample (root ADR-0437)",
+        "the live {noun} hostname answered no sampled PNU with a document: the lane serves none of \
+         the {} PNUs of its gate sample any more, so the monitor holds it to nothing; take a new \
+         sample (root ADR-0437)",
         report.pnus
     );
     ensure!(
