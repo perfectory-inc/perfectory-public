@@ -29,7 +29,7 @@ catalog-domain = { workspace = true }
 catalog-infrastructure = { workspace = true }
 collection-domain = { workspace = true }
 collection-application = { workspace = true }
-collection-infrastructure = { workspace = true }
+collection-infrastructure = { workspace = true, features = ["court-auction-browser"] }
 chrono = { workspace = true }
 foundation-contracts = { workspace = true }
 stewardship-domain = { workspace = true }

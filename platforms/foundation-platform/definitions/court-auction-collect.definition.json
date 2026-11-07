@@ -7,11 +7,11 @@
       "id": "court_auction_collect",
       "scope": "full",
       "full_reason": "Every night it walks every list search page by page: the site offers no changed-since query.",
-      "full_cost": "measured from the journal of its supervised nights (the job is disabled since): 2026-10-19 one night took 78 minutes (16:02-17:20 UTC); 2026-10-20 the site refused it after 174 requests in 10 minutes.",
+      "full_cost": "measured from the unit journal: 2026-10-19 one pass at one request every 3 seconds took 78 minutes (16:02-17:20 UTC); 2026-11-06 the same collector read ipcheck=false as a refusal after 1,528 requests in 87 minutes and every later run refused to start (root ADR-0289 replaces both: a list pass is about 2,500 pages at the contract's adaptive pace, measured on 2026-10-21 by the prototype at about 8 minutes).",
       "full_tracked_by": "root ADR-0352: the recrawl frontier is computed each run from the lakehouse, so a night asks only for what is not yet known or is due again",
       "interruptible": false,
       "commits": "at_end",
-      "description": "법원경매정보 list searches (root ADR-0280, ADR-0281; scripts/ops/court-auction-collect.sh): robots.txt, then the item search's four combinations and the sale-result search's two, page by page, one request at a time at least 3 seconds apart, identified by our product name, only between 01:00 and 06:00 KST unless an operator overrides that window for a bounded time (switches/court_auction_collect.window, root ADR-0282), and within a per-night request bound (courtauction-go-kr.contract.json). Any refusal signal stops the night, lands what was collected and blocks later nights until a person clears it. Hands nothing on: court_auction_silver finds what it owes in R2. No Spark.",
+      "description": "법원경매정보 list searches (root ADR-0280, ADR-0289; scripts/ops/court-auction-collect.sh): the item search's four combinations and the sale-result search's two, every page, asked as a browser on a pool of sessions at the adaptive pace of the contract (courtauction-go-kr.contract.json collection.session and collection.pace). A block (the site's ipcheck=false, a redirect, HTML where JSON belongs) is not a refusal: the blocked session is renewed after the contract's wait and the page asked again, with no bound and no person to clear anything. Any hour, unless an operator narrows the hours for a bounded time (switches/court_auction_collect.window, root ADR-0282). The run's time budget is its only early end; a run that got no answer at all fails. Hands nothing on: court_auction_silver finds what it owes in R2. No Spark.",
       "systemd_service": "foundation-court-auction-collect.service",
       "systemd_timer": null,
       "state_paths": [
@@ -23,11 +23,9 @@
       "wait_limit_minutes": 0,
       "time_limit_minutes": 300,
       "per_run_cap": {
-        "unit": "request",
-        "limits": [
-          "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/manners/max_requests_per_run"
-        ],
-        "deadline": null,
+        "unit": "run",
+        "limits": [],
+        "deadline": "infra/lakehouse/contracts/courtauction-go-kr.contract.json#/collection/session/run_time_budget_seconds",
         "measured_run_seconds": {
           "runs": 2,
           "p50": 610,
@@ -105,7 +103,7 @@
       "source_slugs": [
         "courtauctiongokr__auction_item"
       ],
-      "description": "새벽에 물건 검색을 끝까지 읽고, 내용이 바뀐 물건과(완전한 밤에만) 빠진 물건의 삭제 표지를 쌓는다. 거절당하면 멈추고 사람이 확인할 때까지 다시 묻지 않는다."
+      "description": "물건 검색을 끝까지 읽고, 내용이 바뀐 물건과(완전한 바퀴에만) 빠진 물건의 삭제 표지를 쌓는다. 막히면 세션을 새로 열어 다시 묻는다(루트 ADR-0289)."
     },
     {
       "from": "source-courtauction-go-kr",
@@ -122,7 +120,7 @@
       "source_slugs": [
         "courtauctiongokr__auction_sale_result"
       ],
-      "description": "매각결과 검색의 바뀐 행(매각가)을 쌓는다. 같은 예의와 멈춤 규칙."
+      "description": "매각결과 검색의 바뀐 행(매각가)을 쌓는다. 같은 세션 풀과 속도 조절."
     }
   ]
 }
