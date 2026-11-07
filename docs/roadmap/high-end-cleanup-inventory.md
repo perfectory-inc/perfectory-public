@@ -33,6 +33,8 @@ last_reviewed: 2026-11-04
 | E 땜질 가드 | 10 (PATCH) | 0 | 구현 2,520 · 자기 시험 1,118 | 줄기만 하는 기준선 6개, 가드를 지키는 가드 |
 | (참고) 남기는 가드 | 24 (KEEP-DOMAIN) | 24 | 구현 5,922 · 자기 시험 3,816 | 도메인 불변식 |
 
+A-3 가드 → 도구 규칙 진행(2026-11-08 실물 대조): 38개 중 끝남 11 · 절반 3 · 남음 24. 끝남·절반은 아래 A-3 표의 행 상태가 정본이다.
+
 가드 100개(구현 24,439 · 자기 시험 12,039) 중 사고를 날짜·번호로 적은 것은 44개다(ADR-0001 요구).
 11-04 표본 조사의 "가드 76개 중 약 40개 교체 가능"은 전수로 보면 R-OSS 38 + E-SSOT 24 = 62개다.
 
@@ -203,8 +205,8 @@ LOC는 테스트 파일(`*_tests.rs`, `tests.rs`, `/tests/`, `test_*`)을 제외
 | G013 **끝남(#1050)** | utility-library-policy<br>scripts/guard/utility-library-policy.sh | 57 (111) | 역할별로 선택된 라이브러리 외 대안 라이브러리가 없는지(`package.json`) 검사 | 아니오 | ESLint `no-restricted-imports` + Conftest/syncpack 금지 의존성 | 예 | S |
 | G014 | hand-rolled-error-boundary<br>scripts/guard/hand-rolled-error-boundary.sh | 347 (184) | `componentDidCatch`/`getDerivedStateFromError` 없이 `@suspensive/react`를 쓰는지 검사 | 아니오 | ESLint `no-restricted-syntax` MethodDefinition[key.name=/componentDidCatch\|getDerivedStateFromError/] 또는 ast-grep (347 LOC 대비) | 예 | L |
 | G015 **끝남(#1084)** | no-adhoc-cargo-lint<br>scripts/guard/no-adhoc-cargo-lint.sh | 49 (0) | 워크플로가 원시 `cargo clippy`/`fmt`/`test`를 직접 실행하지 않는지 검사 | 예 identity live_provisioning 한 번도 실행 안 됨 | Conftest rego on workflow `steps[].run` regex / Semgrep yaml | 예 | S |
-| G016 | foundation-parcel-current-selector<br>scripts/guard/foundation-parcel-current-selector.sh | 58 (112) | Spark 잡이 필지 현재행 조건에 계약 헬퍼를 쓰는지 검사 | 아니오 | Semgrep python pattern-not-inside 헬퍼; parcel-reads-the-served-edition + `test_platform_contracts.py`와 같은 계열 | 예 | S |
-| G017 | parcel-reads-the-served-edition<br>scripts/guard/parcel-reads-the-served-edition.sh (+1 files) | 87 (57) | Spark 잡이 현재 필지행을 served reader로만 읽는지 검사 | 예 2026-10-21 | Semgrep python 규칙; parcel-current-selector와 합쳐 declared-reads 규칙 하나로 | 예 | S |
+| G016 **끝남(#1150, Semgrep `parcel-reads.yml`)** | foundation-parcel-current-selector<br>scripts/guard/foundation-parcel-current-selector.sh | 58 (112) | Spark 잡이 필지 현재행 조건에 계약 헬퍼를 쓰는지 검사 | 아니오 | Semgrep python pattern-not-inside 헬퍼; parcel-reads-the-served-edition + `test_platform_contracts.py`와 같은 계열 | 예 | S |
+| G017 **끝남(#1150, Semgrep `parcel-reads.yml`)** | parcel-reads-the-served-edition<br>scripts/guard/parcel-reads-the-served-edition.sh (+1 files) | 87 (57) | Spark 잡이 현재 필지행을 served reader로만 읽는지 검사 | 예 2026-10-21 | Semgrep python 규칙; parcel-current-selector와 합쳐 declared-reads 규칙 하나로 | 예 | S |
 | G022 | public-repository-safety<br>scripts/guard/public-repository-safety.sh (+4 files) | 773 (122) | 공개 트리 위생: 비공개 증거·라이선싱·가변 CI 의존성·러너 신뢰·블롭 크기·패키지 publish 플래그 검사 | 아니오 | gitleaks path rules + REUSE + zizmor + pre-commit check-added-large-files + Conftest `private:true`/`publish=false` | 예 | L |
 | G024 | public-repository-safety helpers self-tests<br>scripts/guard/tracked-blob-sizes-self-test.sh | 0 (147) | 블롭 크기·문서 경계 헬퍼의 자기 시험 | - | public-repository-safety가 OSS로 대체되면 함께 사라짐 | 예 | S |
 | G025 | tracked-paths-are-portable<br>scripts/guard/tracked-paths-are-portable.sh (+1 files) | 104 (53) | 추적 경로가 Windows/macOS/Linux에서 모두 유효한지 검사 | 아니오 | ls-lint regex + pre-commit check-case-conflict / core.protectNTFS | 예 | M |
