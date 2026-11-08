@@ -80,6 +80,9 @@ STAGES_PREFIX = "gold-incremental-"
 # or a deploy kills resumes from the stages it finished, and a plan refused once is refused at once.
 RESUMABLE_PREFIX = "gold-resumable-"
 REFUSED_MARKER = "refused.txt"
+# The Silver pins a resumable plan was started from (root ADR-0447): the planner pins the next run of
+# the table to them while the plan is unfinished, so newer heads do not rename the plan and drop its stages.
+PINS_RECORD = "pins.json"
 # Iceberg's table properties for row-level commands, all set to the Gold rebuild contract's
 # `merge.mode` (root ADR-0344): a MERGE that updates or deletes writes by the first.
 ROW_LEVEL_MODE_PROPERTIES = ("write.merge.mode", "write.update.mode", "write.delete.mode")
@@ -611,6 +614,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     # One plan, one directory: a merge refused once and the whole build after it share it (root ADR-0440).
     resume_key = plan_key(target_table, pins, previous or {},
                           gold_code_version.of_running_producer(target_table, pins), max_fraction, sample_keys)
+    record_plan_pins(spark, resume_key, pins)
     reason, changed, appended = None, [], []
     if previous is not None:
         try:
@@ -736,7 +740,7 @@ class Stages:
     """
 
     def __init__(self, spark: Any, resume_key: str | None = None) -> None:
-        local = Path((spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0])
+        local = local_dir(spark)
         for dead in local.glob(STAGES_PREFIX + "*"):
             shutil.rmtree(dead, ignore_errors=True)
         if resume_key is not None:
@@ -769,14 +773,51 @@ class Stages:
         return marker.read_text(encoding="utf-8") if self.resumable and marker.exists() else None
 
     def refuse(self, reason: str) -> None:
-        """Keep only the refusal: the same pins and code are refused the same way (root ADR-0438)."""
+        """Keep only the refusal and the plan's pins: the same pins and code are refused the same way
+        (root ADR-0438), and the whole build after the refusal shares the plan (root ADR-0440, ADR-0447)."""
+        record = self.root / PINS_RECORD
+        pins = record.read_text(encoding="utf-8") if self.resumable and record.exists() else None
         self.remove()
         if self.resumable:
             self.root.mkdir(parents=True, exist_ok=True)
             (self.root / REFUSED_MARKER).write_text(reason, encoding="utf-8")
+            if pins is not None:
+                record.write_text(pins, encoding="utf-8")
 
     def remove(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+def local_dir(spark: Any) -> Path:
+    """Where the stages live: the first of `spark.local.dir`, the disk Spark spills to."""
+    return Path((spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0])
+
+
+def record_plan_pins(spark: Any, resume_key: str, pins: dict[str, str]) -> None:
+    """Record the pins the plan `resume_key` builds from, in its directory (root ADR-0447)."""
+    root = local_dir(spark) / f"{RESUMABLE_PREFIX}{resume_key}"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / PINS_RECORD).write_text(json.dumps({name: str(pin) for name, pin in pins.items()}, sort_keys=True),
+                                    encoding="utf-8")
+
+
+def plan_in_progress(spark: Any, table: str) -> dict[str, str] | None:
+    """The pins of `table`'s unfinished plan, or None (root ADR-0447).
+
+    A plan's directory outlives its run only when the run was stopped before it committed or a gate
+    refused its build (both remove it): its unit's time bound, a deploy, the OOM killer. Runs of one
+    table are serialized by the rebuild lock and each removes the table's other plans, so there is
+    at most one; the newest is taken if a crash left more.
+    """
+    name = table.replace("`", "").split(".")[-1]
+    records = sorted((path for path in local_dir(spark).glob(f"{RESUMABLE_PREFIX}{name}.*/{PINS_RECORD}")),
+                     key=lambda path: path.stat().st_mtime)
+    if not records:
+        return None
+    try:
+        return {str(k): str(v) for k, v in json.loads(records[-1].read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        return None
 
 
 def plan_key(table: str, pins: dict[str, str], previous: dict[str, str], code: str | None,
