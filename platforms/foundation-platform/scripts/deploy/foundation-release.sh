@@ -1293,6 +1293,13 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     # The identity databases' backup, its age check and its weekly restore drill: host infrastructure too.
     systemctl enable --now foundation-identity-backup.timer foundation-identity-backup-freshness.timer \
       foundation-identity-restore-drill.timer
+    # A unit that failed before its retry policy was installed gets the retry it never had, now
+    # rather than at its next timer (root ADR-0445 §5; job_units.py unretried-failed).
+    while read -r unretried; do
+      [[ -n "${unretried}" ]] || continue
+      systemctl start --no-block "${unretried}" || true
+      printf 'foundation-release: started %s, which failed before it was given retries\n' "${unretried}"
+    done < <(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" unretried-failed || true)
     # Like the backup, the root disk's retention (root ADR-0198) and the by-PNU edge probe (ADR-0327) are host infrastructure.
     systemctl enable --now foundation-host-retention.timer foundation-by-pnu-edge-probe.timer
     # The operations map's service checks (root ADR-0209): a host check too.
