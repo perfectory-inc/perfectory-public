@@ -88,7 +88,7 @@ pub fn available_bytes_from(read: &dyn Fn(&Path) -> Option<String>) -> Option<u6
 /// sets a limit.
 fn cgroup_headroom(self_cgroup: &str, read: &dyn Fn(&Path) -> Option<String>) -> Option<u64> {
     // cgroup v2 has one hierarchy, written as `0::<path>`. Its soft bound `memory.high` counts as a
-    // limit too: past it the kernel throttles the cgroup (root ADR-0454 renders a unit's MemoryHigh).
+    // limit too: past it the kernel throttles the cgroup (root ADR-0455 renders a unit's MemoryHigh).
     if let Some(path) = self_cgroup
         .lines()
         .find_map(|line| line.strip_prefix("0::"))

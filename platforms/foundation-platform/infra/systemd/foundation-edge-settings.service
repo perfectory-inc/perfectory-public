@@ -18,7 +18,7 @@ EnvironmentFile=-/etc/foundation-platform/cloudflare-deploy.env
 ExecStart=/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/edge_settings.py
 # An init that fetches one provider, and an apply of seven resources: minutes at most.
 TimeoutStartSec=30min
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=460M
 MemoryMax=512M
 OOMScoreAdjust=0

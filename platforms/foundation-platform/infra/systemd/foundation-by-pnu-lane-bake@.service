@@ -30,7 +30,7 @@ TimeoutStartSec=115m
 # to be set from the first measured scheduled run's peak. The change set runs before the export in the compose `spark-small`
 # container (2560m), a Docker cgroup the host budget counts beside this unit.
 # scripts/guard/every-container-has-a-memory-cap.sh reads this line; without it the guard fails.
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=4608M
 MemoryMax=5G
 OOMScoreAdjust=500

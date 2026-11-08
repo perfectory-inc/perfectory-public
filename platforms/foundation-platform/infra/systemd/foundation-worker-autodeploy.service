@@ -18,7 +18,7 @@ ExecStart=/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-
 # Five Workers, each: an npm install, two uploads and deploys, and smokes that poll for two minutes
 # at most; well under this.
 TimeoutStartSec=2h
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=230M
 MemoryMax=256M
 OOMScoreAdjust=0

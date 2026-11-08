@@ -25,7 +25,7 @@ ExecStart=/usr/bin/python3 -I /opt/foundation-platform/current/scripts/ops/by-pn
 # About 40 reads of at most 20 s each; a hung edge fails the run well before the next one starts.
 TimeoutStartSec=10m
 # The standard library and one document or blob at a time.
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=115M
 MemoryMax=128M
 OOMScoreAdjust=0

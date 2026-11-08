@@ -38,7 +38,7 @@ StateDirectory=foundation-parcel-tile-bake
 # Every byte of the bake: the matching verdict, the served handoff, Spark's spill, GDAL's input and
 # tippecanoe's temporary files (config/tile-bake-containers.contract.json work_disk.production_root).
 ReadWritePaths=/data/foundation-platform/tile-bake
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=921M
 MemoryMax=1G
 OOMScoreAdjust=500

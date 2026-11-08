@@ -41,7 +41,7 @@ ProtectSystem=strict
 # them as uid 185, so the script opens each run's directory to it. Spark's spill goes to the data
 # disk (/data/foundation-platform/lakehouse/spark-scratch, written by the container), never here.
 StateDirectory=foundation-gold-panel-rebuild
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=460M
 MemoryMax=512M
 OOMScoreAdjust=500

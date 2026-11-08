@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Every systemd unit's memory lines, rendered from the host memory budget (root ADR-0454).
+"""Every systemd unit's memory lines, rendered from the host memory budget (root ADR-0455).
 
 `tools/host-memory-budget.contract.json` `systemd_units` declares, once per unit file, its class and
 its hard cap (`memory_max`), sized from the unit's measured `memory peak` with headroom. The unit's
@@ -33,7 +33,7 @@ DEFAULT_UNITS = "platforms/foundation-platform/infra/systemd"
 SIZE = re.compile(r"([0-9]+)([KMG])")
 BYTES = {"K": 1 << 10, "M": 1 << 20, "G": 1 << 30}
 KEYS = ("MemoryHigh", "MemoryMax", "OOMScoreAdjust")
-MARK = "# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit."
+MARK = "# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit."
 ENTRY_KEYS = {"class", "memory_max", "measured_peak", "measured", "headroom_why"}
 
 
@@ -104,7 +104,7 @@ def problems(root: pathlib.Path, contract: dict, room: int | None = None) -> lis
     standing service and host_reserved; a cap above it alone could take the host down."""
     section = contract.get("systemd_units")
     if not isinstance(section, dict):
-        return [f"{CONTRACT}: systemd_units is missing; every systemd unit declares its memory (root ADR-0454)"]
+        return [f"{CONTRACT}: systemd_units is missing; every systemd unit declares its memory (root ADR-0455)"]
     found: list[str] = []
     units = root / section["units"]
     classes = section["classes"]

@@ -24,7 +24,7 @@ TimeoutStopSec=30
 # A Python process reading JSON; counted under host_reserved like the other default_pool jobs.
 # 2026-10-29 12:00Z a tick of six tables peaked at the old 256M with 185M swapped; the panel bake's
 # eight lanes add their Gold tables' metadata.
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=691M
 MemoryMax=768M
 OOMScoreAdjust=500

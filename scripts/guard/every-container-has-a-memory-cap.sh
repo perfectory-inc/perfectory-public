@@ -40,7 +40,7 @@
 # unit with no MemoryMax, reached 33 GB of anonymous memory; the kernel's OOM killer ended it and the
 # PostgreSQL backup beside it lost its connection. `systemd_units` declares every unit file's class
 # and cap from its measured peak; scripts/ci/unit_memory.py renders MemoryHigh, MemoryMax and
-# OOMScoreAdjust from it, and this guard holds every unit to that rendering (root ADR-0454).
+# OOMScoreAdjust from it, and this guard holds every unit to that rendering (root ADR-0455).
 #
 # Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
 # anchored once per file): on 2026-10-02 one uncapped json-file log reached 32GB and filled the
@@ -416,7 +416,7 @@ if "scheduled_jobs" in contract:
         errors.append(f"{CONTRACT}: scheduled_jobs: {error}")
 
 # Every systemd unit's MemoryHigh, MemoryMax and OOMScoreAdjust are its systemd_units entry's, and no
-# one cap alone can take what the standing services and host_reserved leave (root ADR-0454).
+# one cap alone can take what the standing services and host_reserved leave (root ADR-0455).
 if "systemd_units" in contract or (ROOT / unit_memory.DEFAULT_UNITS).is_dir():
     errors.extend(unit_memory.problems(ROOT, contract, physical - standing_total - reserved))
 

@@ -510,7 +510,7 @@ struct VWorldDatasetFileJob {
 impl VWorldDatasetFileJob {
     /// The job without its file list, which every file selected from it shares: a selected file
     /// needs the job's identity, never its siblings, so a run holds each listed file once (root
-    /// ADR-0454 §4).
+    /// ADR-0455 §4).
     fn header(&self) -> Arc<Self> {
         Arc::new(Self {
             endpoint_slug: self.endpoint_slug.clone(),

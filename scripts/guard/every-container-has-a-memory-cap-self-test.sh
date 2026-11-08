@@ -345,7 +345,7 @@ expect_fail "a continued container start with no --memory on any of its lines"
 write_host_script_fixture 'RUN_CMD --rm busybox:1 true' exempt
 expect_pass "a script the contract lists as uncapped, with why"
 
-# Every systemd unit's memory lines are its systemd_units entry's (root ADR-0454). The fixture's one
+# Every systemd unit's memory lines are its systemd_units entry's (root ADR-0455). The fixture's one
 # job runs fixture-job.service, so that unit is batch.
 write_unit_fixture() {
   local job_entry="$1" extra_entry="${2:-}" render="${3:-render}"

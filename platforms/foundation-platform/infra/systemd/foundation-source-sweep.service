@@ -23,7 +23,7 @@ TimeoutStartSec=8h
 # that holds more ends here, not in the host's OOM killer: 2026-11-08 03:43Z it took 33 GB, the kernel
 # killed it and the PostgreSQL backup running beside it failed. Within host_reserved
 # (tools/host-memory-budget.contract.json): default_pool commands run outside containers.
-# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=3686M
 MemoryMax=4G
 OOMScoreAdjust=500
