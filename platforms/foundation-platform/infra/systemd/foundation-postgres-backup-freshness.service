@@ -6,6 +6,8 @@ Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service
+# Stale backups fail every check until one lands: one alert, resolved by the first fresh check.
+OnSuccess=foundation-unit-recovered@%n.service
 
 [Service]
 Type=oneshot

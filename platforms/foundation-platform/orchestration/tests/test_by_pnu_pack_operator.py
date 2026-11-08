@@ -630,7 +630,10 @@ class PackOperator(OperatorHarness):
         unit = (PLATFORM / "infra/systemd/foundation-gold-panel-rebuild.service").read_text(encoding="utf-8")
         for line in unit.splitlines():
             key = line.split("=", 1)[0]
-            if "=" in line and not line.startswith("#") and key not in ("Description", "ExecStart", "OnFailure"):
+            if key.startswith("X-"):
+                # systemd-run refuses an X- assignment (2026-11-08: every lane's gold step failed in 1 s).
+                self.assertFalse([prop for prop in props if prop.startswith(f"{key}=")], key)
+            elif "=" in line and not line.startswith("#") and key not in ("Description", "ExecStart", "OnFailure"):
                 # %N, the unit's own name, is the copy's name: its cleanup reads the release its run recorded.
                 self.assertIn(line.replace("%N", "foundation-gold-panel-rebuild-unconditional"), props)
         self.assertIn("RuntimeDirectory=foundation-gold-panel-rebuild-unconditional", props)

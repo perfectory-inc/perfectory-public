@@ -76,3 +76,7 @@ ADR-0355 §4 는 기타 공공 일괄 파일 12개의 카탈로그 제공자가 
 - 표준데이터 3개(학교·대학·도시철도역)는 OpenAPI 수집 PR 이 따로 연다. 판정표는 그때까지 미수집이라 말한다.
 - 거리 파생(필지 → 가장 가까운 IC·역·항만·공항)은 ADR-0355 §4 대로 새 Gold 틀이고 따로 ADR 을 쓴다. 이 ADR 은
   Silver 까지다.
+
+---
+
+2026-11-09 개정 주석: 표준데이터 3개(학교 위치·대학·도시철도역)의 수집 경로는 [ADR-0453](0453-standard-data-is-collected-through-the-dataset-pages-keyless-download-not-an-openapi-key-a-person-must-register.md) 가 OpenAPI 에서 데이터셋 페이지의 키 없는 내려받기로 바꿨다.

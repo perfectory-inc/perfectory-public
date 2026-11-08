@@ -1,6 +1,7 @@
 // apps/web/components/panels/parcel/queries.ts
 // The parcel views' reads, keyed as `PanelEntryView` keys a view (`["panel", kind, view, id]`), so
 // the panel's own sections and the pushed views share one cache entry per read.
+import { fetchBuildingPermits } from "@/lib/api/building-permits";
 import { fetchBuildings } from "@/lib/api/buildings";
 import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchDemolitions } from "@/lib/api/demolitions";
@@ -9,6 +10,7 @@ import { fetchFactories } from "@/lib/api/factories";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchRealTransaction } from "@/lib/api/real-transaction";
+import { fetchRegisterMasters } from "@/lib/api/register-masters";
 import { fetchRegulationZones } from "@/lib/api/regulation-zones";
 import { fetchSubParcels } from "@/lib/api/sub-parcels";
 import { fetchListings } from "@/lib/listings/api";
@@ -63,6 +65,20 @@ export const parcelFactoriesQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "factories", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchFactories(pnu, signal),
   // The 등록공장 file is a yearly edition (root ADR-0280 §4, ADR-0449).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelBuildingPermitsQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "building-permits", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchBuildingPermits(pnu, signal),
+  // The 건축인허가 기본개요 is a monthly hub.go.kr release (root ADR-0356, ADR-0451).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelRegisterMastersQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "register-masters", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchRegisterMasters(pnu, signal),
+  // The 총괄표제부 is a monthly hub.go.kr release (root ADR-0357, ADR-0450).
   staleTime: 60 * 60_000,
 });
 

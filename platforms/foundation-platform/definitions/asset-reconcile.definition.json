@@ -38,6 +38,7 @@
       "pipeline_graph_edges": [],
       "reconciles": [
         "gold_panel_rebuild",
+        "gold_kind_rebuild",
         "gold_unit_price_rebuild",
         "by_pnu_unit_price_bake",
         "by_pnu_public_auction_bake",

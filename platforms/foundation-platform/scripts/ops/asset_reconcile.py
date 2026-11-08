@@ -121,11 +121,15 @@ def panel_assets(job_id: str, job: dict, service: str, golds: list, nodes: dict,
     for name in golds:
         node = nodes[name]
         gold = node["table_name"]
-        held_back = set(contract["tables"][gold].get("unmeasured_inputs", {}))
+        entry = contract["tables"][gold]
+        held_back = set(entry.get("unmeasured_inputs", {}))
+        # A data kind (gold_kind_rebuild) is fed from its host panel and pinned to what it was built from.
+        pins_from = entry.get("pins_from")
+        pinning = {pins_from["gold_table"]} if pins_from else set()
         tables = {nodes[edges[edge]["from"]].get("table_name") for edge in job["pipeline_graph_edges"]
-                  if edges[edge]["to"] == name} - {None} - made - held_back
+                  if edges[edge]["to"] == name} - {None} - made - held_back - pinning
         uri = job_specs.asset_uri((job_specs.platform_of(node), job_specs.name_of(node)))
-        found.append(Asset(job_id, uri, service, gold=gold, inputs=tuple(sorted(tables))))
+        found.append(Asset(job_id, uri, service, gold=gold, inputs=tuple(sorted(tables)), pins_from=pins_from))
     return found
 
 
@@ -223,10 +227,18 @@ def gold_verdict(asset: Asset, table) -> Verdict:
     if asset.pins_from:
         host = table(asset.pins_from["gold_table"])
         followed = gold_rebuild.recorded_pins(host["snapshots"], host["head"]) if host["head"] else None
-        for name in asset.pins_from["inputs"]:
+        names = asset.pins_from["inputs"]
+        if names == "all":
+            # A kind reads a subset of its host's inputs, all pinned to the host's (gold_rebuild.plan):
+            # the ones its own Gold records. shortcut: an input its producer gains shows only after its next run.
+            if followed is None:
+                return Verdict(note=f"{asset.pins_from['gold_table']} records no source pins")
+            names = sorted(set(recorded or ()) & set(followed))
+        for name in names:
             if followed is None or name not in followed:
                 return Verdict(note=f"{asset.pins_from['gold_table']} records no pin of {name}")
             targets[name] = followed[name]
+            histories.setdefault(name, table(name))
     verdict = Verdict(versions=targets)
     if recorded is None:
         verdict.owed, verdict.note = True, f"{asset.gold} records no source pins"
@@ -346,7 +358,9 @@ def lane_behind_since(asset: Asset, table, reads) -> float | None:
     went, _, oldest = moved(gold, gold["head"], read)
     if went:
         changes.append(oldest)
-    served = read if any(s["snapshot_id"] == read for s in gold["snapshots"]) else gold["head"]
+    # The head's rows are the served ones when no row changed since (a run that only recorded new pins,
+    # 2026-11-08 12:32Z gold.building_panel): its pins are what the lane serves.
+    served = read if went and any(s["snapshot_id"] == read for s in gold["snapshots"]) else gold["head"]
     pins = gold_rebuild.recorded_pins(gold["snapshots"], served)
     if pins is None:
         return None

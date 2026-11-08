@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "전국대학및전문대학정보 표준데이터(15107736). (학교명, 본분교구분명)이 행 키다. 지번 주소를 먼저, 그다음 도로명 주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 OpenAPI 의 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다."
+  purpose: "전국대학및전문대학정보 표준데이터(15107736). (학교명, 본분교구분명)이 행 키다. 지번 주소를 먼저, 그다음 도로명 주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 포털 내려받기의 칸 코드 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다."
 team:
   name: "foundation-platform"
 servers:

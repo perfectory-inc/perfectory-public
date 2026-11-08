@@ -125,5 +125,25 @@ class TheMonitorIsOneAlertPerLane(unittest.TestCase):
         self.assertIn("repeat_interval: 24h", route.group(0))
 
 
+class TheRecoveryJobsTryAgain(unittest.TestCase):
+    # Root ADR-0445 §5, 2026-11-08: the host OOM cut the Sunday full backup and the next try was the next
+    # night's timer; both restore drills were fixed that morning and would have stayed failed a week.
+    UNITS = {"foundation-postgres-backup": "2h", "foundation-identity-backup": "2h",
+             "foundation-postgres-restore-drill": "1d", "foundation-identity-restore-drill": "1d"}
+
+    def test_a_failed_run_retries_a_bounded_number_of_times_and_its_success_resolves_the_alert(self):
+        for unit, longest in self.UNITS.items():
+            text = (AREA / f"infra/systemd/{unit}.service").read_text(encoding="utf-8")
+            head, service = text.split("[Service]", 1)
+            head, service = head.splitlines(), service.splitlines()
+            self.assertIn("OnFailure=foundation-unit-failed@%n.service", head, unit)
+            self.assertIn("OnSuccess=foundation-unit-recovered@%n.service", head, unit)
+            self.assertIn("Restart=on-failure", service, unit)
+            self.assertIn(f"RestartMaxDelaySec={longest}", service, unit)
+            # Without a burst cap a broken run would restart forever.
+            self.assertTrue(any(line.startswith("StartLimitBurst=") for line in head), unit)
+            self.assertTrue(any(line.startswith("StartLimitIntervalSec=") for line in head), unit)
+
+
 if __name__ == "__main__":
     unittest.main()

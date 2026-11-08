@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit. The three 표준데이터 (school location, university, subway station) come through the public-data OpenAPI with DATA_GO_KR_SERVICE_KEY: every page of a pass, landed only when its rows changed. Their per-run cap is max_pages in the contract (18, 3 and 2 pages of 1,000): from the rows measured 2026-11-04 (12,004, 1,995 and 898, read through the portal's own download because the OpenAPI refuses our key until the owner's 활용신청) a pass of all three is 16 pages, about 9.7 MB of JSON (1 MB gzipped) and about 80 s with the 5 s spacing, so the limit holds. A failed collection (the three until the key is registered) still lets the load run for the files that landed; the run fails at the end.",
+      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit. The three 표준데이터 (school location, university, subway station) come through the dataset page's own keyless download (root ADR-0453): the current table and its column list, then every page of a pass, landed only when its rows changed; the OpenAPI is only a cross-check when a registered key is set. Their per-run cap is max_pages in the contract (3, 1 and 1 pages of 10,000): measured 2026-11-09, a pass of all three is 12,004, 1,995 and 898 rows in 4 pages plus 3 column lists, about 9.1 MB of JSON (1 MB gzipped) and under 2 s of answers, about 35 s with the 5 s spacing, so the limit holds. A failed collection still lets the load run for the files that landed; the run fails at the end.",
       "systemd_service": "foundation-data-go-kr-file-data.service",
       "systemd_timer": null,
       "state_paths": [
@@ -53,7 +53,7 @@
       "id": "data-go-kr-file-collection",
       "type": "serving_surface",
       "title": "data.go.kr 파일 매일 확인",
-      "description": "계약의 파일마다 하루 한 번 확인한다(루트 ADR-0401 §1). 포털 파일은 메타데이터를 묻고 파일 id(atchFileId)가 새로울 때만 받고, 표준데이터는 OpenAPI 의 쪽을 전부 읽어 행이 지난 판과 다를 때만 그 원천의 Bronze(datagokr__<dataset_slug>)에 남긴다. 파일마다 따로 커밋한다. 등록공장은 작업 registered_factory 가, 나머지 11개는 작업 data_go_kr_file_data 가 받는다.",
+      "description": "계약의 파일마다 하루 한 번 확인한다(루트 ADR-0401 §1). 포털 파일은 메타데이터를 묻고 파일 id(atchFileId)가 새로울 때만 받고, 표준데이터는 데이터셋 페이지의 키 없는 내려받기로 쪽을 전부 읽어(루트 ADR-0453) 행이 지난 판과 다를 때만 그 원천의 Bronze(datagokr__<dataset_slug>)에 남긴다. 파일마다 따로 커밋한다. 등록공장은 작업 registered_factory 가, 나머지 11개는 작업 data_go_kr_file_data 가 받는다.",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -217,7 +217,7 @@
       "id": "silver-school-location",
       "type": "silver_table",
       "title": "초중등학교 위치",
-      "description": "한국교육시설안전원 전국초중등학교위치 표준데이터(15021148). 학교ID 가 행 키다. 소재지지번주소를 먼저, 그다음 소재지도로명주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 OpenAPI 의 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "description": "한국교육시설안전원 전국초중등학교위치 표준데이터(15021148). 학교ID 가 행 키다. 소재지지번주소를 먼저, 그다음 소재지도로명주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 포털 내려받기의 칸 코드 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
       "status": "contract_only",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -236,7 +236,7 @@
       "id": "silver-subway-station",
       "type": "silver_table",
       "title": "도시철도역",
-      "description": "국가철도공단 전국도시철도역사정보 표준데이터(15013205). 제공자 키가 없어 행의 SHA-256 이 행 키다. 역사도로명주소를 address_pnu 로 PNU 에 잇는다(지하 건물번호는 읽지 않아 못 찾은 이유를 남긴다). 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 OpenAPI 의 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "description": "국가철도공단 전국도시철도역사정보 표준데이터(15013205). 제공자 키가 없어 행의 SHA-256 이 행 키다. 역사도로명주소를 address_pnu 로 PNU 에 잇는다(지하 건물번호는 읽지 않아 못 찾은 이유를 남긴다). 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 포털 내려받기의 칸 코드 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
       "status": "contract_only",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -255,7 +255,7 @@
       "id": "silver-university",
       "type": "silver_table",
       "title": "대학·전문대학",
-      "description": "전국대학및전문대학정보 표준데이터(15107736). (학교명, 본분교구분명)이 행 키다. 지번 주소를 먼저, 그다음 도로명 주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 OpenAPI 의 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
+      "description": "전국대학및전문대학정보 표준데이터(15107736). (학교명, 본분교구분명)이 행 키다. 지번 주소를 먼저, 그다음 도로명 주소를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 포털 내려받기의 칸 코드 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다.",
       "status": "contract_only",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -420,7 +420,7 @@
       "source_slugs": [
         "datagokr__school_location"
       ],
-      "description": "OpenAPI 의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+      "description": "표준데이터 내려받기의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     },
     {
       "from": "source-data-go-kr-file-data",
@@ -436,7 +436,7 @@
       "source_slugs": [
         "datagokr__subway_station"
       ],
-      "description": "OpenAPI 의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+      "description": "표준데이터 내려받기의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     },
     {
       "from": "source-data-go-kr-file-data",
@@ -452,7 +452,7 @@
       "source_slugs": [
         "datagokr__university"
       ],
-      "description": "OpenAPI 의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+      "description": "표준데이터 내려받기의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     }
   ],
   "host_memory": {

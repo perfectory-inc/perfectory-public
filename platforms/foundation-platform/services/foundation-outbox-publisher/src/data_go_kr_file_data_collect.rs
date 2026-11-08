@@ -8,11 +8,13 @@
 //! Bronze as received, under its own source (`datagokr__<dataset_slug>`): the Silver loads open it
 //! and check its rows. Nothing here reads the CSV.
 //!
-//! The three 표준데이터 (`format: openapi_pages`) are not portal files: their rows come through the
-//! public-data `OpenAPI` with the platform's service key, read by the Onbid collector's answer reader.
-//! A run asks every page of one pass; the pass is a new edition only when its rows (their SHA-256,
-//! sorted) differ from the last pass landed, and it lands as every page's raw line in one gzip
-//! JSON-lines object (the Onbid collector's Bronze shape; a line records its request without the key).
+//! The three 표준데이터 (`format: standard_pages`) have no portal file id: their rows come through the
+//! dataset page's own keyless download (`standard_download`, root ADR-0453). A run asks the current
+//! table and its column list, then every page of one pass; the pass is a new edition only when its
+//! rows (their SHA-256, sorted) differ from the last pass landed, and it lands as every answer's raw
+//! line in one gzip JSON-lines object (the Onbid collector's Bronze shape). When the platform's
+//! service key is set, a landed pass is cross-checked against the `OpenAPI`'s total; that check is
+//! recorded in the manifest and never fails the file.
 //!
 //! One file's failure does not stop the others (each commits on its own); the run fails at the end
 //! naming every file that failed. A run writes `..._OUTPUT_DIR/manifest.json` and a local copy of
@@ -73,16 +75,32 @@ pub(crate) struct Download {
     pub(crate) query: BTreeMap<String, String>,
 }
 
-/// How a file arrives: a zip archive, one CSV as it is, or the pages of a 표준데이터 `OpenAPI` pass.
+/// How a file arrives: a zip archive, one CSV as it is, or the pages of a 표준데이터 download pass.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FileFormat {
     Zip,
     Csv,
-    OpenapiPages,
+    StandardPages,
 }
 
-/// The 표준데이터 `OpenAPI` the `openapi_pages` files are asked through.
+/// The dataset page's keyless 표준데이터 download.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct StandardDownload {
+    pub(crate) columns_path: String,
+    pub(crate) columns_query: BTreeMap<String, String>,
+    pub(crate) rows_path: String,
+    pub(crate) page_size: u64,
+}
+
+/// One `standard_pages` file's dataset and its per-run cap.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct StandardFile {
+    pub(crate) public_data_pk: String,
+    pub(crate) max_pages: u64,
+}
+
+/// The 표준데이터 `OpenAPI` a landed `standard_pages` pass is cross-checked against.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct Openapi {
     pub(crate) base_url: String,
@@ -90,12 +108,10 @@ pub(crate) struct Openapi {
     pub(crate) result_codes: ResultCodes,
 }
 
-/// One `openapi_pages` file's operation and its per-run cap.
+/// One `standard_pages` file's `OpenAPI` operation.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct OpenapiFile {
     pub(crate) path: String,
-    pub(crate) page_size: u64,
-    pub(crate) max_pages: u64,
 }
 
 /// One file of the contract. The Silver-side fields (header, bounds, keys) are not read here.
@@ -107,10 +123,11 @@ pub(crate) struct ContractFile {
     pub(crate) operation: String,
     pub(crate) name_ko: String,
     pub(crate) published: String,
-    /// The portal metadata ask; an `openapi_pages` file has none.
+    /// The portal metadata ask; a `standard_pages` file has none.
     #[serde(default)]
     pub(crate) metadata_query: BTreeMap<String, String>,
     pub(crate) format: FileFormat,
+    pub(crate) standard: Option<StandardFile>,
     pub(crate) openapi: Option<OpenapiFile>,
     /// A file too large for the contract-wide timeout states its own.
     pub(crate) request_timeout_seconds: Option<u64>,
@@ -124,6 +141,7 @@ pub(crate) struct SourceContract {
     pub(crate) request_timeout_seconds: u64,
     pub(crate) metadata: Metadata,
     pub(crate) download: Download,
+    pub(crate) standard_download: StandardDownload,
     pub(crate) openapi: Openapi,
     pub(crate) files: BTreeMap<String, ContractFile>,
 }
@@ -208,7 +226,7 @@ fn extension(file: &ContractFile) -> &'static str {
     match file.format {
         FileFormat::Zip => "zip",
         FileFormat::Csv => "csv",
-        FileFormat::OpenapiPages => "gz",
+        FileFormat::StandardPages => "gz",
     }
 }
 
@@ -277,8 +295,8 @@ fn check_download(file: &ContractFile, bytes: &[u8]) -> anyhow::Result<()> {
             file.dataset_slug,
             bytes.len()
         ),
-        // Read page by page in `fetch_pages`.
-        FileFormat::OpenapiPages => {}
+        // Read page by page in `fetch_standard`.
+        FileFormat::StandardPages => {}
         FileFormat::Csv => {
             let head = bytes.trim_ascii_start();
             ensure!(
@@ -307,86 +325,152 @@ pub(crate) fn pass_id(items: &[JsonValue]) -> String {
     format!("rows_{}", &hex[..16])
 }
 
-/// Asks every page of one `openapi_pages` file's pass. `None` when its rows are the last landed
-/// pass's; otherwise the pass and every page's raw line, gzipped.
-pub(crate) async fn fetch_pages(
+fn http_client(contract: &SourceContract, timeout_seconds: u64) -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .user_agent(contract.user_agent.clone())
+        .timeout(Duration::from_secs(timeout_seconds))
+        .build()
+        .context("failed to build the data.go.kr HTTP client")
+}
+
+/// The current table the column-list answer names: its service table, the column list the rows are
+/// asked by, and the row count.
+pub(crate) fn read_columns(body: &str) -> anyhow::Result<(String, Vec<String>, u64)> {
+    let value: JsonValue =
+        serde_json::from_str(body).context("the 표준데이터 column list is not JSON")?;
+    let table = value["tableVO"]["svcTableNm"]
+        .as_str()
+        .filter(|name| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        })
+        .context("the 표준데이터 column list names no service table")?;
+    let columns = value["tableVO"]["colNmList"]
+        .as_array()
+        .and_then(|list| {
+            list.iter()
+                .map(|column| column.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+        })
+        .filter(|columns| !columns.is_empty())
+        .context("the 표준데이터 column list has no colNmList of names")?;
+    let total = value["totalCount"]
+        .as_u64()
+        .context("the 표준데이터 column list has no totalCount")?;
+    Ok((table.to_owned(), columns, total))
+}
+
+/// Asks one download answer and keeps its raw Bronze line: what was asked, when, and the body.
+async fn ask_standard(
+    http: &reqwest::Client,
+    file: &ContractFile,
+    url: String,
+    kind: &str,
+    query: Vec<(String, String)>,
+    lines: &mut Vec<String>,
+) -> anyhow::Result<String> {
+    let response = http
+        .get(url)
+        .query(&query)
+        .send()
+        .await
+        .with_context(|| format!("the {} {kind} request failed", file.dataset_slug))?;
+    let status = response.status().as_u16();
+    let body = response.text().await?;
+    ensure!(
+        (200..300).contains(&status),
+        "the {} {kind} request answered HTTP {status}",
+        file.dataset_slug
+    );
+    lines.push(serde_json::to_string(&json!({
+        "operation": file.operation,
+        "kind": kind,
+        "request": query,
+        "requested_at_utc": Utc::now().to_rfc3339(),
+        "http_status": status,
+        "body": body,
+    }))?);
+    Ok(body)
+}
+
+/// Asks the current table of one `standard_pages` file and every page of its rows. `None` when its
+/// rows are the last landed pass's; otherwise the pass, its row count and every answer's raw line,
+/// gzipped.
+pub(crate) async fn fetch_standard(
     contract: &SourceContract,
     file: &ContractFile,
     base_uri: &str,
-    service_key: Option<&str>,
     spacing: ProviderRequestSpacing,
     requests: &mut usize,
     last: Option<&str>,
-) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
+) -> anyhow::Result<Option<(Announced, usize, Vec<u8>)>> {
     let slug = &file.dataset_slug;
-    let api = file
-        .openapi
+    let standard = file
+        .standard
         .as_ref()
-        .with_context(|| format!("{slug} is openapi_pages without an openapi entry"))?;
-    let key = service_key
-        .with_context(|| format!("{SERVICE_KEY_ENV} is required for the {slug} OpenAPI"))?;
-    let http = reqwest::Client::builder()
-        .user_agent(contract.user_agent.clone())
-        .timeout(Duration::from_secs(contract.request_timeout_seconds))
-        .build()
-        .context("failed to build the data.go.kr HTTP client")?;
-    let mut items = Vec::new();
+        .with_context(|| format!("{slug} is standard_pages without a standard entry"))?;
+    let download = &contract.standard_download;
+    let http = http_client(contract, contract.request_timeout_seconds)?;
     let mut lines = Vec::new();
-    let mut complete = false;
-    for page in 1..=api.max_pages {
-        let mut params = contract.openapi.query.clone();
-        params.insert("pageNo".to_owned(), page.to_string());
-        params.insert("numOfRows".to_owned(), api.page_size.to_string());
+    let mut query = vec![("pk".to_owned(), standard.public_data_pk.clone())];
+    query.extend(download.columns_query.clone());
+    spacing.wait_before_request(*requests).await;
+    *requests += 1;
+    let body = ask_standard(
+        &http,
+        file,
+        format!("{base_uri}{}", download.columns_path),
+        "columns",
+        query,
+        &mut lines,
+    )
+    .await?;
+    let (table, columns, total) = read_columns(&body).with_context(|| slug.clone())?;
+    let pages = total.div_ceil(download.page_size);
+    ensure!(
+        pages <= standard.max_pages,
+        "{slug} reports {total} rows, {pages} pages, more than its {} (the per-run cap)",
+        standard.max_pages
+    );
+    let mut items = Vec::new();
+    for page in 1..=pages {
+        let mut query = vec![
+            ("publicDataPk".to_owned(), standard.public_data_pk.clone()),
+            ("totalCount".to_owned(), total.to_string()),
+            ("svcTableNm".to_owned(), table.clone()),
+            ("perPage".to_owned(), download.page_size.to_string()),
+            ("page".to_owned(), page.to_string()),
+        ];
+        query.extend(
+            columns
+                .iter()
+                .map(|column| ("colNmList".to_owned(), column.clone())),
+        );
         spacing.wait_before_request(*requests).await;
         *requests += 1;
-        let response = http
-            .get(format!("{base_uri}{}", api.path))
-            .query(&[("serviceKey", key)])
-            .query(&params)
-            .send()
-            .await
-            // The URL holds the key; an error must never print it.
-            .map_err(|error| {
-                anyhow::anyhow!("{slug} page {page} failed: {}", error.without_url())
-            })?;
-        let status = response.status().as_u16();
-        let body = response.text().await.map_err(|error| {
-            anyhow::anyhow!("{slug} page {page} body failed: {}", error.without_url())
-        })?;
-        lines.push(serde_json::to_string(&json!({
-            "operation": file.operation,
-            "request": params,
-            "requested_at_utc": Utc::now().to_rfc3339(),
-            "http_status": status,
-            "body": body,
-        }))?);
-        match read_answer(&contract.openapi.result_codes, status, &body)
-            .with_context(|| format!("{slug} page {page}"))?
-        {
-            Answer::QuotaRefused => bail!("{slug} page {page}: the daily quota is spent"),
-            Answer::NoData => {
-                complete = true;
-                break;
-            }
-            Answer::Rows { items: got, total } => {
-                let empty = got.is_empty();
-                items.extend(got);
-                if empty || items.len() as u64 >= total {
-                    ensure!(
-                        items.len() as u64 == total,
-                        "{slug} ended with {} rows of the {total} it reports",
-                        items.len()
-                    );
-                    complete = true;
-                    break;
-                }
-            }
-        }
+        let body = ask_standard(
+            &http,
+            file,
+            format!("{base_uri}{}", download.rows_path),
+            "rows",
+            query,
+            &mut lines,
+        )
+        .await?;
+        let rows: Vec<JsonValue> = serde_json::from_str(&body)
+            .with_context(|| format!("{slug} page {page} is not a JSON array"))?;
+        ensure!(
+            rows.iter().all(JsonValue::is_object),
+            "{slug} page {page} holds a row that is not an object"
+        );
+        items.extend(rows);
     }
     ensure!(
-        complete,
-        "{slug} needs more than its {} pages (the per-run cap)",
-        api.max_pages
+        items.len() as u64 == total,
+        "{slug} answered {} rows of the {total} its column list reports",
+        items.len()
     );
     ensure!(!items.is_empty(), "{slug} answered no rows");
     let id = pass_id(&items);
@@ -398,8 +482,62 @@ pub(crate) async fn fetch_pages(
             attach_file_id: id,
             updated_at: None,
         },
+        items.len(),
         gzip_lines(&lines)?,
     )))
+}
+
+/// The `OpenAPI` cross-check of a landed pass of `rows` rows: one row asked, and whether the total
+/// the gateway reports is the pass's. Never an error: no key, or a key the gateway refuses, is
+/// recorded as such (root ADR-0453).
+pub(crate) async fn openapi_check(
+    contract: &SourceContract,
+    file: &ContractFile,
+    base_uri: &str,
+    service_key: Option<&str>,
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+    rows: usize,
+) -> JsonValue {
+    let (Some(key), Some(api)) = (service_key, file.openapi.as_ref()) else {
+        return json!({"status": "skipped", "reason": "no service key"});
+    };
+    let asked = async {
+        let http = http_client(contract, contract.request_timeout_seconds)?;
+        let mut params = contract.openapi.query.clone();
+        params.insert("pageNo".to_owned(), "1".to_owned());
+        params.insert("numOfRows".to_owned(), "1".to_owned());
+        spacing.wait_before_request(*requests).await;
+        *requests += 1;
+        let response = http
+            .get(format!("{base_uri}{}", api.path))
+            .query(&[("serviceKey", key)])
+            .query(&params)
+            .send()
+            .await
+            // The URL holds the key; an error must never print it.
+            .map_err(|error| anyhow::anyhow!("the OpenAPI failed: {}", error.without_url()))?;
+        let status = response.status().as_u16();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| anyhow::anyhow!("the OpenAPI body failed: {}", error.without_url()))?;
+        read_answer(&contract.openapi.result_codes, status, &body)
+    };
+    match asked.await {
+        Ok(Answer::Rows { total, .. }) => {
+            let matches = total == rows as u64;
+            if !matches {
+                tracing::warn!(dataset = %file.dataset_slug, openapi_total = total, rows, "the OpenAPI total is not the landed pass's");
+            }
+            json!({"status": if matches { "matches" } else { "differs" }, "openapi_total": total, "rows": rows})
+        }
+        Ok(Answer::NoData) => json!({"status": "differs", "openapi_total": 0, "rows": rows}),
+        Ok(Answer::QuotaRefused) => {
+            json!({"status": "skipped", "reason": "the daily quota is spent"})
+        }
+        Err(error) => json!({"status": "skipped", "reason": format!("{error:#}")}),
+    }
 }
 
 /// Asks one file's metadata, and the file when it is new. `None` when the last landed file is
@@ -412,14 +550,11 @@ pub(crate) async fn fetch(
     requests: &mut usize,
     last: Option<&str>,
 ) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
-    let http = reqwest::Client::builder()
-        .user_agent(contract.user_agent.clone())
-        .timeout(Duration::from_secs(
-            file.request_timeout_seconds
-                .unwrap_or(contract.request_timeout_seconds),
-        ))
-        .build()
-        .context("failed to build the data.go.kr HTTP client")?;
+    let http = http_client(
+        contract,
+        file.request_timeout_seconds
+            .unwrap_or(contract.request_timeout_seconds),
+    )?;
     spacing.wait_before_request(*requests).await;
     *requests += 1;
     let response = http
@@ -487,7 +622,7 @@ fn content_type(file: &ContractFile) -> &'static str {
     match file.format {
         FileFormat::Zip => "application/zip",
         FileFormat::Csv => "text/csv",
-        FileFormat::OpenapiPages => "application/gzip",
+        FileFormat::StandardPages => "application/gzip",
     }
 }
 
@@ -621,20 +756,12 @@ fn source_catalog_entry(
         name: file.name_ko.clone(),
         provider: PROVIDER.to_owned(),
         dataset_name: file.dataset_slug.clone(),
-        base_url: Some(if file.format == FileFormat::OpenapiPages {
-            contract.openapi.base_url.clone()
-        } else {
-            contract.base_url.clone()
-        }),
-        auth_kind: if file.format == FileFormat::OpenapiPages {
-            SourceAuthKind::ServiceKey
-        } else {
-            SourceAuthKind::NoAuth
-        },
+        base_url: Some(contract.base_url.clone()),
+        auth_kind: SourceAuthKind::NoAuth,
         payload_format: match file.format {
             FileFormat::Zip => SourcePayloadFormat::Zip,
             FileFormat::Csv => SourcePayloadFormat::Csv,
-            FileFormat::OpenapiPages => SourcePayloadFormat::Json,
+            FileFormat::StandardPages => SourcePayloadFormat::Json,
         },
         license_name: None,
         license_url: None,
@@ -684,19 +811,8 @@ async fn collect_one(
     now: DateTime<Utc>,
 ) -> anyhow::Result<Option<JsonValue>> {
     let last = last_accepted(&config.state_dir, file)?;
-    let fetched = if file.format == FileFormat::OpenapiPages {
-        fetch_pages(
-            contract,
-            file,
-            &config.openapi_base_uri,
-            config.service_key.as_deref(),
-            config.request_spacing,
-            requests,
-            last.as_deref(),
-        )
-        .await?
-    } else {
-        fetch(
+    let (fetched, openapi) = if file.format == FileFormat::StandardPages {
+        match fetch_standard(
             contract,
             file,
             &config.base_uri,
@@ -705,6 +821,33 @@ async fn collect_one(
             last.as_deref(),
         )
         .await?
+        {
+            Some((announced, rows, bytes)) => {
+                let check = openapi_check(
+                    contract,
+                    file,
+                    &config.openapi_base_uri,
+                    config.service_key.as_deref(),
+                    config.request_spacing,
+                    requests,
+                    rows,
+                )
+                .await;
+                (Some((announced, bytes)), Some(check))
+            }
+            None => (None, None),
+        }
+    } else {
+        let fetched = fetch(
+            contract,
+            file,
+            &config.base_uri,
+            config.request_spacing,
+            requests,
+            last.as_deref(),
+        )
+        .await?;
+        (fetched, None)
     };
     let Some((announced, bytes)) = fetched else {
         return Ok(None);
@@ -752,6 +895,7 @@ async fn collect_one(
         "provider_updated_at": announced.updated_at,
         "size_bytes": size,
         "object": object,
+        "openapi_check": openapi,
     })))
 }
 
