@@ -289,3 +289,46 @@ fn a_month_stored_before_the_check_is_owed_again_at_once_whatever_its_age() {
         .collect();
     assert_eq!(due, vec![(Stage::Recheck, "202401".to_owned())]);
 }
+
+#[test]
+fn a_refusal_waits_longer_each_time_in_a_row_and_an_answer_resets_it() {
+    // Root ADR-0446: the old collector wrote refused.json and every later run failed until a
+    // person removed it (court auction 2026-11-06..08 held the same way).
+    let manners = source_contract().unwrap().manners;
+    let waits = manners.refusal_waits_seconds.clone();
+    let now = at("2026-11-08T05:25:00Z");
+    let mut wait = RefusalWait::default();
+    assert!(!wait.waiting(now));
+    for (n, seconds) in waits.iter().chain(waits.last()).enumerate() {
+        wait.refused(&manners, now);
+        assert_eq!(wait.in_a_row as usize, n + 1);
+        let seconds = i64::try_from(*seconds).unwrap();
+        assert!(wait.waiting(now + chrono::Duration::seconds(seconds - 1)));
+        assert!(!wait.waiting(now + chrono::Duration::seconds(seconds)));
+    }
+    let state: State =
+        serde_json::from_str(r#"{"budget":{"kst_date":null,"downloads":0}}"#).unwrap();
+    assert_eq!(state.refusal, RefusalWait::default());
+}
+
+#[test]
+fn a_legacy_refused_json_is_recorded_once_and_left_in_place() {
+    let dir = std::env::temp_dir().join(format!("rt-molit-legacy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ledger = dir.join(REFUSAL_LEDGER);
+    let legacy = dir.join(LEGACY_REFUSAL_FILE);
+    record_legacy_refusal_file(&dir, &ledger).unwrap();
+    assert!(!ledger.exists());
+    std::fs::write(&legacy, r#"{"reason":"HTTP 403 at the count check"}"#).unwrap();
+    record_legacy_refusal_file(&dir, &ledger).unwrap();
+    record_legacy_refusal_file(&dir, &ledger).unwrap();
+    let lines: Vec<JsonValue> = std::fs::read_to_string(&ledger)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["content"]["reason"], "HTTP 403 at the count check");
+    assert!(legacy.exists());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
