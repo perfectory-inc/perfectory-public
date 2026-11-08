@@ -27,7 +27,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-register-titles` | `silver.building_register_titles` | 표제부 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`, ADR-0318) |
 | `building-register-units` | `silver.building_register_units` | 전유부 + 같은 날 표제부·기본개요 | load branch 에 한 묶음 overwrite, 바뀐 대장만 main 에 (`compare`) |
 | `building-register-unit-areas` | `silver.building_register_unit_areas` | 전유공용면적 | R2 에 100만 행 부분 + manifest, 부분 20개씩 load branch 에 append, 바뀐 대장만 main 에 (`compare`, 묶음 = PK 앞 세 자리, 루트 ADR-0391 덧붙임) |
-| `building-register-apartment-price` | `silver.building_register_apartment_price` | 공동주택가격 | 부분 4개씩 append |
+| `building-register-apartment-price` | `silver.building_register_apartment_price_versions` | 공동주택가격 | 부분 40개씩 브랜치에 쌓고, 바뀐 키만 main 에 append(루트 ADR-0317) |
 | `building-register-exclusive-unit` | `silver.building_register_exclusive_unit` | 전유부(다리) | 부분 4개씩 append |
 | `building-register-master` | `silver.building_register_master` | 총괄표제부 `mart_djy_02` (루트 ADR-0357) | 부분을 load branch 에 쌓고 바뀐 대지만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `building-permit-parking` | `silver.building_permit_parking` | 건축인허가 주차장 `mart_kcy_10` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
@@ -155,8 +155,11 @@ run 은 시작 + (150 분의 90% − 그 값)이 지나면 새 단계를 시작�
    찍혔는지도 본다.
 
 공동주택가격 조합(`unit_official_price.py`)은 손으로 돌리지 않는다: Gold 재생성의 건물 단계가 계획 전에 두 표가 함께
-가진 가장 새 월을 전국 한 묶음으로 조합하고, 그 월을 이미 가지면 아무것도 쓰지 않는다. 건물 패널은 가장 새 월의 묶음을
-읽는다(루트 ADR-0182). 그 줄은 Gold 재생성 journal 의 `unit prices: vintage … appended|already held` 다.
+가진 가장 새 월을 조합하되, 입력이 바뀐 관리번호만 다시 조합해 `silver.unit_official_price_versions` 에 바뀐 키만
+덧붙인다. 같은 스냅숏 묶음을 이미 가지면 아무것도 쓰지 않는다. 건물 패널은 버전 표의 현재 행(가장 새 월)을 읽고, 운영자는
+`--price-vintage YYYYMM` 으로 그 월 시점을 읽힐 수 있다(루트 ADR-0182, ADR-0317). 그 줄은 Gold 재생성 journal 의
+`unit prices: vintage … appended|already held` 다. 옛 두 표(`silver.building_register_apartment_price`,
+`silver.unit_official_price`)는 2026-10 까지의 판 전체 사본으로 남고 더 쓰지 않는다.
 
 ## 4. 거부와 고치는 법
 

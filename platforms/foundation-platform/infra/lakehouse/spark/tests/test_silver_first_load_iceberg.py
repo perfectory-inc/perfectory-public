@@ -77,8 +77,11 @@ def first_load_cases(contracts, graph, refresh_lanes, read_job, own=OWN_WRITERS)
     problems += [f"{name}: a pipeline-graph node and no contract" for name in sorted(set(nodes) - declared)]
     problems += [f"{name}: OWN_WRITERS names a table no contract declares" for name in sorted(set(own) - declared)]
     cases = {}
+    # A disabled edge is history and writes nothing: the full-copy price tables keep their old join's
+    # edge after their writers moved to the versions tables (root ADR-0317 §5.4).
+    live = [edge for edge in graph["edges"] if edge.get("status") != "disabled"]
     for table in sorted(declared & set(nodes)):
-        jobs = sorted({via for edge in graph["edges"] if edge["to"] == nodes[table]
+        jobs = sorted({via for edge in live if edge["to"] == nodes[table]
                        for via in edge.get("via", []) if via.startswith(JOBS) and via.endswith(".py")})
         sources = [read_job(job) for job in jobs]
         if table in refresh_lanes:
@@ -87,7 +90,7 @@ def first_load_cases(contracts, graph, refresh_lanes, read_job, own=OWN_WRITERS)
             cases[table] = "own"
         elif shared := next((case for case, call in SHARED_WRITERS if any(call in s for s in sources)), None):
             cases[table] = shared
-        elif not any(edge["to"] == nodes[table] and edge.get("via") for edge in graph["edges"]):
+        elif not any(edge["to"] == nodes[table] and edge.get("via") for edge in live):
             cases[table] = "none"
         else:
             problems.append(f"{table}: written by {jobs or 'a non-Spark writer'} with no first-load case; "

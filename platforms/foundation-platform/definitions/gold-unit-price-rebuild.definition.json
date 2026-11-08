@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Rebuild gold.unit_price (root ADR-0190) with its Spark producer (scripts/ops/gold-panel-rebuild.sh unit-price) when its inputs moved past the snapshots its current Gold recorded: the building registers at the snapshots the current building Gold was built from (pins_from), and silver.unit_official_price at its head; otherwise nothing (root ADR-0139). Only the PNUs whose inputs changed are recomputed and merged (root ADR-0180), whole when finding the change costs more than the rebuild (root ADR-0326). Its own job and asset since root ADR-0333: inside gold_panel_rebuild it shared one 160-minute limit with both panels, and on 2026-10-28 both runs timed out in it (the incremental run had 44 of its measured 44-60 minutes). Started when gold_panel_rebuild committed the building panel or joined a new price vintage, or a register Silver changed, by the asset reconciler (asset_reconcile) when an event was lost, and at 09:35 as the fallback (root ADR-0171); a committed rebuild starts the unit price bake (by_pnu_unit_price_bake). It does not join the unit prices itself: gold_panel_rebuild owns silver.unit_official_price.",
+      "description": "Rebuild gold.unit_price (root ADR-0190) with its Spark producer (scripts/ops/gold-panel-rebuild.sh unit-price) when its inputs moved past the snapshots its current Gold recorded: the building registers at the snapshots the current building Gold was built from (pins_from), and silver.unit_official_price_versions at its head; otherwise nothing (root ADR-0139). Only the PNUs whose inputs changed are recomputed and merged (root ADR-0180), whole when finding the change costs more than the rebuild (root ADR-0326). Its own job and asset since root ADR-0333: inside gold_panel_rebuild it shared one 160-minute limit with both panels, and on 2026-10-28 both runs timed out in it (the incremental run had 44 of its measured 44-60 minutes). Started when gold_panel_rebuild committed the building panel or joined a new price vintage, or a register Silver changed, by the asset reconciler (asset_reconcile) when an event was lost, and at 09:35 as the fallback (root ADR-0171); a committed rebuild starts the unit price bake (by_pnu_unit_price_bake). It does not join the unit prices itself: gold_panel_rebuild owns silver.unit_official_price_versions.",
       "systemd_service": "foundation-gold-unit-price-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -38,7 +38,7 @@
       "pipeline_graph_edges": [
         "silver-building-register-titles-to-gold-unit-price-panel",
         "silver-building-register-units-to-gold-unit-price-panel",
-        "silver-unit-official-price-to-gold-unit-price-panel",
+        "silver-unit-official-price-versions-to-gold-unit-price-panel",
         "gold-building-panel-to-gold-unit-price-panel"
       ],
       "enabled": true,
@@ -87,15 +87,6 @@
       ]
     },
     {
-      "from": "silver-unit-official-price",
-      "to": "gold-unit-price-panel",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py"
-      ]
-    },
-    {
       "from": "gold-building-panel",
       "to": "gold-unit-price-panel",
       "relation": "feeds",
@@ -104,6 +95,15 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/gold_rebuild.py"
       ],
       "description": "단가 Gold 는 건물 Gold 가 만들어진 표제부·전유부 판에 핀을 맞춘다(gold-panel-rebuild.contract.json pins_from, root ADR-0190). 단가 작업이 자기 작업이 된 뒤(root ADR-0333) 이 간선이 건물 Gold 커밋 뒤에 단가를 다시 만들게 하는 순서다."
+    },
+    {
+      "from": "silver-unit-official-price-versions",
+      "to": "gold-unit-price-panel",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/unit_price_panel_silver_to_gold.py"
+      ]
     }
   ],
   "host_memory": {
