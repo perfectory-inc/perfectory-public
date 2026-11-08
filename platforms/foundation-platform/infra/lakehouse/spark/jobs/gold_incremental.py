@@ -688,6 +688,11 @@ def build_in_shards(stages: Stages, lane: Lane, frames: dict[str, Any], digits: 
     from pyspark.sql import functions as F
 
     started = time.monotonic()
+    # Each shard reads the inputs, so each is staged once and a shard scans its Parquet: lazy inputs made
+    # every shard redo their Iceberg reads and current-row windows (2026-11-08 the parcel panel's first
+    # shard ran past 99 min, longer than its whole build's 93).
+    frames = {name: stages.materialize(f"input-{name}", frame) for name, frame in sorted(frames.items())}
+    started = phase_done("full-inputs", started)
     keys = stages.materialize("full-keys", lane.full_shard_keys(frames).select(KEY).distinct())
     prefixes = sorted(row[0] for row in keys.select(F.substring(KEY, 1, digits)).distinct().collect())
     parts = []

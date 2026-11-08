@@ -269,7 +269,10 @@ class DocumentSparkTest(unittest.TestCase):
         resumed = {line.split()[1] for line in printed.getvalue().splitlines() if line.startswith("gold-incremental-resumed")}
         self.assertIn("full-keys", resumed)
         self.assertNotIn(shard.name, resumed)
-        self.assertEqual(len(resumed), len(list(stages.root.glob("full-9*"))), resumed)
+        # Every input is staged once and read back by the next run (root ADR-0440).
+        self.assertEqual({name for name in resumed if name.startswith("input-")}, {f"input-{name}" for name in frames})
+        shards = {name for name in resumed if name.startswith("full-9")}
+        self.assertEqual(len(shards), len(list(stages.root.glob("full-9*"))) - 1, resumed)
 
     def test_the_restriction_keeps_the_zones_whose_box_meets_an_affected_parcel(self):
         near = self.zone("D999", "99999-0001", square(0, 0, 0.0020))
