@@ -213,8 +213,8 @@ last_reviewed: 2026-11-07
 | --- | --- | --- | --- | --- |
 | 공장·산업단지 | 산업단지 경계 (`silver.industrial_complex_boundaries`) | — | `complex-tiles` | 화면 |
 | 공장·산업단지 | 산업단지 기본 정보 (`silver.industrial_complexes`) | — | `complex-tiles` | 화면 |
+| 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | `parcel-factories (꺼짐)` | — | 길 있음·꺼짐 |
 | 공장·산업단지 | 산업단지와 필지 소속 (`silver.complex_parcel_memberships`) | — | — | 없음 |
-| 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | — | — | 없음 |
 | 토지 | 필지별 토지특성 (`silver.land_characteristic`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
 | 토지 | 필지별 임야대장 (`silver.land_forest_ledger`) | `parcel` | — | 화면 |
 | 토지 | 필지별 공시지가 (`silver.land_individual_price`) | `parcel` | — | 화면 |
