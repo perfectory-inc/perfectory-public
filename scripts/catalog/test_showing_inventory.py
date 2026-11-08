@@ -27,13 +27,15 @@ def edge(a, b, relation="feeds"):
 
 def documents(enabled):
     nodes = [node("edition", "silver_table"), node("factory", "silver_table"), node("energy", "silver_table"),
+             node("permit", "silver_table"), node("bronze-permit", "bronze_source"),
              node("gold-panel", "gold_table"), node("gold-energy", "gold_table"),
              node("panel-packs", "serving_surface"), node("energy-packs", "serving_surface"),
              node(inv.PANEL, "serving_surface")]
     edges = [edge("edition", "gold-panel"), edge("gold-panel", "panel-packs"), edge("panel-packs", inv.PANEL, "serves"),
              edge("gold-panel", "gold-energy"), edge("energy", "gold-energy"), edge("gold-energy", "energy-packs")]
     jobs = [{"id": "panel_bake", "enabled": True, "pipeline_graph_edges": ["gold-panel-to-panel-packs"]},
-            {"id": "energy_bake", "enabled": enabled, "pipeline_graph_edges": ["gold-energy-to-energy-packs"]}]
+            {"id": "energy_bake", "enabled": enabled, "pipeline_graph_edges": ["gold-energy-to-energy-packs"]},
+            {"id": "permit_silver", "enabled": enabled, "pipeline_graph_edges": ["bronze-permit-to-permit"]}]
     registry = {"subjects": [{"owner": {"lane": "parcel-energy"}, "consumers": [{"name": "web"}]}]}
     return {dd.GRAPH: {"nodes": nodes, "edges": edges}, dd.JOBS: {"jobs": jobs}, dd.REGISTRY: registry}
 
@@ -54,6 +56,10 @@ class ShowingInventoryTest(unittest.TestCase):
         self.assertEqual(self.rows(False)["silver.energy"]["verdict"], "길 있음·꺼짐")
         self.assertEqual(self.rows(True)["silver.energy"]["verdict"], "화면")
         self.assertEqual(self.rows(True)["silver.factory"]["verdict"], "없음")
+
+    def test_a_silver_without_a_path_whose_loader_is_off_waits_for_its_loader(self):
+        self.assertEqual(self.rows(False)["silver.permit"]["verdict"], "적재 꺼짐")
+        self.assertEqual(self.rows(True)["silver.permit"]["verdict"], "없음")
 
     def test_the_block_is_replaced_between_its_markers_only(self):
         text = f"before\n{inv.BEGIN}\nold\n{inv.END}\nafter\n"
