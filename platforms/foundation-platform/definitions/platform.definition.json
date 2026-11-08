@@ -1211,6 +1211,11 @@
             "measured_peak": "355M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 659 runs, highest 2026-10-20 (foundation-map-edit-fold@complex)"
           },
+          "foundation-media-ladder-backlog.service": {
+            "class": "batch",
+            "memory_max": "3G",
+            "measured": "no run yet (added 2026-11-08, root ADR-0429); sized by its author for four 50-megapixel sources decoded and AV1-encoded at a time (root ADR-0427 §2); systemd logs the peak of every run under this cap"
+          },
           "foundation-media-reconcile.service": {
             "class": "batch",
             "memory_max": "512M",
