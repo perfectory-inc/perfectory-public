@@ -21,8 +21,8 @@
 #     Gold rebuild's time bound (orchestration/jobs.v1.json gold_panel_rebuild) does not double it: the
 #     rebuild resumes from the stages it kept (root ADR-0438, ADR-0440), so the next attempt goes on
 #     where it stopped (2026-11-07: parcel-regulation-zones' first national build, longer than the bound).
-#     Only attempts by the release that runs now count: a new release is new evidence, the way Argo
-#     Rollouts analyses a new revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold
+#     Only attempts by the release that runs now count toward the backoff (the order counts them all):
+#     a new release is new evidence, the way Argo Rollouts analyses a new revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold
 #     step in 1 s left each lane three attempts, and the release that fixed it would have waited 4 hours).
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
 #     next one when the last attempt of that generation failed in its bake or its equality gate: a
@@ -93,12 +93,13 @@ HOUR, CAP = 3600, 86400
 with open(jobs, encoding="utf-8") as handle:
     GOLD_LIMIT = 60 * next(job["time_limit_minutes"] for job in json.load(handle)["jobs"] if job["id"] == "gold_panel_rebuild")
 
-def attempts(lane):
+def attempts(lane, any_release=False):
     try:
         with open(os.path.join(marks, f"{lane}.jsonl"), encoding="utf-8") as handle:
-            return [mark for line in handle if line.strip() and (mark := json.loads(line)).get("release") == release]
+            marks_ = [json.loads(line) for line in handle if line.strip()]
     except FileNotFoundError:
         return []
+    return marks_ if any_release else [mark for mark in marks_ if mark.get("release") == release]
 
 def evidence(lane, generation):
     """The steps of the newest cut-over run that worked on this lane and generation."""
@@ -119,7 +120,10 @@ def stopped_by_its_bound(lane, attempt):
     return any(step.get("step") == "gold" and step.get("outcome") == "failed" and step.get("seconds", 0) >= GOLD_LIMIT
                for step in evidence(lane, attempt.get("generation")))
 
-for lane in sorted(lanes, key=lambda lane: len(attempts(lane))):  # stable: contract order among equals
+# The order counts every attempt, the backoff only this release's: a deploy resets every lane's wait,
+# and the lane at the head of the contract must not go first again after each one (2026-11-08 23:12Z:
+# parcel-regulation-zones, five attempts, restarted ahead of three lanes tried three times each).
+for lane in sorted(lanes, key=lambda lane: len(attempts(lane, any_release=True))):  # stable: contract order among equals
     tried = attempts(lane)
     if tried:
         wait = HOUR if stopped_by_its_bound(lane, tried[-1]) else min(CAP, HOUR * 2 ** (len(tried) - 1))
