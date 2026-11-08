@@ -117,6 +117,9 @@ for job in json.load(open(jobs))["jobs"]:
         if job["enabled"]:
             print(f"{account} ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block {service}, "
                   f"/usr/bin/systemctl stop {service}")
+    # A check that found nothing to do clears its run's failed state (root ADR-0445 §5, start-scheduled-job.sh).
+    if job["enabled"] and job.get("check_service"):
+        print(f"{account} ALL=(root) NOPASSWD: /usr/bin/systemctl reset-failed {job['systemd_service']}")
 PY
   sudoers=/etc/sudoers.d/foundation-scheduler
   visudo -cqf "${staged}" || {
