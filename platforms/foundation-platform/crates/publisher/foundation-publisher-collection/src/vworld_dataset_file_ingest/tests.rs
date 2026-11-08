@@ -424,6 +424,23 @@ fn select_inventory_files_rejects_duplicate_partition_identities() -> TestResult
     Ok(())
 }
 
+/// The files of one job share that job: a copy per file held the job's whole file list once per
+/// file, n² entries, and took the daily sweep to 40 GiB and the OOM killer (2026-11-04, 11-08).
+#[test]
+fn selected_files_share_their_job_instead_of_copying_it() -> TestResult {
+    let mut job = test_job();
+    job.files = vec![
+        test_inventory_file("30017", "20991231DS99994", "9007", "2026-05"),
+        test_inventory_file("30017", "20991231DS99994", "9008", "2026-05"),
+    ];
+
+    let selected = select_inventory_files(&[job], None, None, false)?;
+
+    assert_eq!(selected.len(), 2);
+    assert!(std::sync::Arc::ptr_eq(&selected[0].job, &selected[1].job));
+    Ok(())
+}
+
 #[test]
 fn select_inventory_files_can_exclude_selection_archives() -> TestResult {
     let mut job = test_job();
@@ -799,7 +816,7 @@ pub(super) fn selected(
     file.size_kib = size_kib;
     file.updated_at = updated_at.to_owned();
     super::SelectedVWorldDatasetFile {
-        job: test_job(),
+        job: std::sync::Arc::new(test_job()),
         file,
     }
 }
