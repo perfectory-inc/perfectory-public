@@ -98,7 +98,7 @@
         {"path": "infra/lakehouse/spark/jobs/land_use_zone_area_by_tile.py", "reads": 3, "kept_by": null, "reason": "the Silver head this run named (VERSION AS OF), and appended_between's append steps of its own table from the served by-tile snapshot; an expired step makes changelog.chain return None and the handoff is a declared full one, never a wrong partial"},
         {"path": "infra/lakehouse/spark/jobs/land_use_zone_area_tile_handoff.py", "reads": 1, "kept_by": "head", "reason": "served_rows: the Silver head this run read a moment before (common.current_snapshot)"},
         {"path": "scripts/ops/parcel-boundary-equality.py", "reads": 1, "kept_by": null, "reason": "an operator's one-off cutover proof (root ADR-0194) at a snapshot the operator names; an expired one fails the query"},
-        {"path": "services/foundation-outbox-publisher/src/unit_official_price_projection_load.rs", "reads": 2, "kept_by": null, "reason": "an operator command at the snapshots the operator names; an expired one fails Trino and nothing is promoted"}
+        {"path": "services/foundation-outbox-publisher/src/unit_official_price_projection_load.rs", "reads": 1, "kept_by": null, "reason": "as_of_sql: an operator command at the snapshots the operator names (both versions tables through one helper); an expired one fails Trino and nothing is promoted"}
       ]
     }
   },
