@@ -79,4 +79,4 @@ ADR-0355 §4 는 기타 공공 일괄 파일 12개의 카탈로그 제공자가 
 
 ---
 
-2026-11-09 개정 주석: 표준데이터 3개(학교 위치·대학·도시철도역)의 수집 경로는 [ADR-0452](0452-standard-data-is-collected-through-the-dataset-pages-keyless-download-not-an-openapi-key-a-person-must-register.md) 가 OpenAPI 에서 데이터셋 페이지의 키 없는 내려받기로 바꿨다.
+2026-11-09 개정 주석: 표준데이터 3개(학교 위치·대학·도시철도역)의 수집 경로는 [ADR-0453](0453-standard-data-is-collected-through-the-dataset-pages-keyless-download-not-an-openapi-key-a-person-must-register.md) 가 OpenAPI 에서 데이터셋 페이지의 키 없는 내려받기로 바꿨다.

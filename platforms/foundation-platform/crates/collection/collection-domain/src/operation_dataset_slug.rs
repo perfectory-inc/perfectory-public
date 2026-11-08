@@ -131,7 +131,7 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15083033" => Some("commercial_district"),
         "fileData15136368" => Some("adm_dong_code_linkage"),
         // The three 표준데이터 the same collector asks through the dataset page's keyless download
-        // (`stdData<공공데이터 번호>`, root ADR-0452).
+        // (`stdData<공공데이터 번호>`, root ADR-0453).
         "stdData15021148" => Some("school_location"),
         "stdData15107736" => Some("university"),
         "stdData15013205" => Some("subway_station"),

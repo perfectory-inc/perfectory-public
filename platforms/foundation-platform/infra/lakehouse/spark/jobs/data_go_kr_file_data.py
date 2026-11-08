@@ -7,7 +7,7 @@ planned file, oldest first, this job:
 1. reads its data (the CSV, or every zip member the contract's name pattern matches) strictly in the
    contract's encoding, refuses a header that is not the contract's exactly, and stages a UTF-8 copy; a
    표준데이터 pass (`standard_pages`, gzip JSON lines of the dataset page's raw download answers, root
-   ADR-0452) is staged the same way, its rows' fields in the contract's header order, refusing a field
+   ADR-0453) is staged the same way, its rows' fields in the contract's header order, refusing a field
    the header does not name or a pass whose rows are not the total its column list reports;
 2. builds one row per data line: `row_key` (the provider key's values joined by U+001F, or the
    SHA-256 of the row's cells joined so, ADR-0397) and `provider_fields_json` (every cell under its

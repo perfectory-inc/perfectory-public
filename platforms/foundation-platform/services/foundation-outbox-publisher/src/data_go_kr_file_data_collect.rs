@@ -9,7 +9,7 @@
 //! and check its rows. Nothing here reads the CSV.
 //!
 //! The three 표준데이터 (`format: standard_pages`) have no portal file id: their rows come through the
-//! dataset page's own keyless download (`standard_download`, root ADR-0452). A run asks the current
+//! dataset page's own keyless download (`standard_download`, root ADR-0453). A run asks the current
 //! table and its column list, then every page of one pass; the pass is a new edition only when its
 //! rows (their SHA-256, sorted) differ from the last pass landed, and it lands as every answer's raw
 //! line in one gzip JSON-lines object (the Onbid collector's Bronze shape). When the platform's
@@ -489,7 +489,7 @@ pub(crate) async fn fetch_standard(
 
 /// The `OpenAPI` cross-check of a landed pass of `rows` rows: one row asked, and whether the total
 /// the gateway reports is the pass's. Never an error: no key, or a key the gateway refuses, is
-/// recorded as such (root ADR-0452).
+/// recorded as such (root ADR-0453).
 pub(crate) async fn openapi_check(
     contract: &SourceContract,
     file: &ContractFile,
