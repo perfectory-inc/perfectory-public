@@ -22,7 +22,7 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-08); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -30,10 +30,11 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-court-auction-item-to-gold-parcel-court-auction",
-        "reference-legal-dong-code-change-to-gold-parcel-court-auction"
+        "reference-legal-dong-code-change-to-gold-parcel-court-auction",
+        "silver-court-auction-item-photo-to-gold-parcel-court-auction"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0353). Off until its first build has run attended and been timed within the unit's 65-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-court-auction, root ADR-0193 §7) and per_run_cap carries that measured run (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4) that also lists both court jobs again in asset_reconcile's reconciles."
+      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since."
     },
     {
       "id": "by_pnu_court_auction_bake",
@@ -59,7 +60,7 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-08); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "unmeasured_reason": "Never run as its unit in the journal (new with root ADR-0353; #978 is unmerged); enabling it needs a run measured first (root ADR-0386 §3)."
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -70,7 +71,7 @@
         "gold-parcel-court-auction-to-parcel-court-auction-by-pnu-section-packs"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0353). Off with gold_court_auction_rebuild, which feeds it: nothing to bake until that job's first build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-court-auction cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+      "disabled_reason": "Never run (root ADR-0353, #978 unmerged): ADR-0386 §3 lets a job be enabled only with measured runs. Turned on by the pull request that records its first measured run and sets enabled_since."
     }
   ],
   "assets": [
@@ -139,6 +140,16 @@
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
       ],
       "description": "법원경매 Gold 의 PNU 문서를 법정동 묶음으로 굽는다. 자기 굽기 작업이 Gold 커밋마다 바뀐 PNU 만 덧씌운다(루트 ADR-0303)."
+    },
+    {
+      "from": "silver-court-auction-item-photo",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "사건의 사진을 그 사건의 모든 물건 회차에 rounds[].photos 로 싣는다. 사진이 바뀐 사건의 PNU 만 다시 만든다(루트 ADR-0384)."
     }
   ],
   "by_pnu_lanes": {
@@ -188,6 +199,13 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0353-court-auction-is-a-parcel-kind-built-partially-and-baked-in-its-own-job.md",
           "reason": "the first served document: a parcel's court auction items in progress, the list search's values and the court's attribution, registered before its first bake"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0384-court-auction-photos-are-read-from-the-item-detail-within-the-night-and-stored-once-by-content.md",
+          "reason": "each round gains its case's photos (rounds[].photos[], content-addressed by sha256, from the 물건상세), an optional field"
         }
       ],
       "consumers": [
@@ -266,6 +284,26 @@
             },
             {
               "path": "court_auction.rounds[].failed_bid_count",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].photos",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].photos[].sha256",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].photos[].media_kind",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].photos[].media_format",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].photos[].title",
               "required": false
             }
           ]

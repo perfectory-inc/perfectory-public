@@ -1,0 +1,39 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "media-ladder-backlog",
+  "jobs": [
+    {
+      "id": "media_ladder_backlog",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The photo ladder backlog (root ADR-0429, ADR-0427 §7): every hour, the display ladders a photo's own collector run left (its budget ran out, or the store refused) are made from the Silver photo indexes the shared media store's contract names (data-go-kr-onbid.contract.json media.ladder_backlog.index_tables, today silver.court_auction_item_photo), through the same media_renditions::ensure_ladders the collectors call. Partial: a table whose Iceberg snapshot did not move is not read; otherwise only its rows from the newest source run taken on are added to the pending sources kept under its state path; a source whose ladder is there costs one HEAD. A new ladder version starts every table over. Bounded by media.ladder_backlog (1,500 sources, 4 at a time, 1,500 s). Writes only write-once rendition objects under the store's renditions/ prefix.",
+      "systemd_service": "foundation-media-ladder-backlog.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/media-ladder-backlog"
+      ],
+      "schedule": "35 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/media/ladder_backlog/per_run_limit"
+        ],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit in the journal (new 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "default_pool",
+      "pipeline_graph_edges": [],
+      "reads_data_contracts": true,
+      "enabled": false,
+      "disabled_reason": "New 2026-11-06 (root ADR-0429) and never run: it has nothing to take until the court auction photos (root ADR-0384, #1100) land in silver.court_auction_item_photo, and ADR-0386 §3 wants one attended run measured first. Turned on by the pull request that records that run and sets enabled_since.",
+      "started_once_after_deploy": false
+    }
+  ]
+}

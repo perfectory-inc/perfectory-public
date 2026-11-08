@@ -152,6 +152,54 @@ class PlanTest(unittest.TestCase):
                 job.planned_objects([self.write(Path(tmp) / "b", other, [])], CONTRACT)
 
 
+def detail_line(seq="1", outcome="read", photos=()):
+    request = {"dma_srchGdsDtlSrch": {"cortOfcCd": "B999999", "csNo": "20990130000001", "dspslGdsSeq": seq,
+                                      "pgmId": "PGJ15BM01", "srchInfo": {}}}
+    body = {"data": {"dma_result": {"csPicLst": list(photos)}}}
+    return {"operation": "selectAuctnCsSrchRslt", "request": request, "requested_at_utc": "2099-01-02T03:04:05+00:00",
+            "http_status": 200, "list_fingerprint": "f" * 64, "read_outcome": outcome,
+            "photo_count": len(photos), "body": json.dumps(body)}
+
+
+def stored_photo(n, sha):
+    return {"cortOfcCd": "B999999", "csNo": "20990130000001", "picFile": f"sha256:{sha}", "sha256": sha,
+            "media_format": "jpg", "size_bytes": 1000 + n, "picTitlNm": f"synthetic{n}.jpg",
+            "cortAuctnPicDvsCd": "000241", "cortAuctnPicSeq": str(n), "pageSeq": str(n)}
+
+
+class DetailRowsTest(unittest.TestCase):
+    """Root ADR-0384: a 물건상세 object gives one read row per line and the case's stored photos once."""
+
+    def rows(self, lines):
+        return job.detail_rows_of(lines, CONTRACT["item_detail"], "bronze/d.gz", "20990102T030405Z", NOW)
+
+    def test_every_read_is_a_row_and_a_case_photo_is_one_row_however_many_properties_name_it(self):
+        a, b = "a" * 64, "b" * 64
+        photos = [stored_photo(1, a), stored_photo(2, b)]
+        failed = {**detail_line("3", "failed"), "body": "<html>"}
+        rows = self.rows([detail_line("1", photos=photos), detail_line("2", photos=photos), failed])
+        self.assertEqual([(r["property_seq"], r["read_outcome"]) for r in rows["rows"]],
+                         [(1, "read"), (2, "read"), (3, "failed")], "a failed read is recorded too (ADR-0352 §2)")
+        self.assertEqual(rows["rows"][0]["requested_at_utc"], datetime(2099, 1, 2, 3, 4, 5))
+        self.assertEqual(sorted(r["sha256"] for r in rows["photo_rows"]), [a, b], "photos are the case's, once each")
+        first = next(r for r in rows["photo_rows"] if r["sha256"] == a)
+        self.assertEqual((first["sequence"], first["photo_kind_code"], first["size_bytes"], first["source_line_number"]),
+                         (1, "000241", 1001, 2), "the last line naming it wins")
+
+    def test_a_photo_the_collector_could_not_store_is_not_pointed_at(self):
+        broken = {"cortOfcCd": "B999999", "csNo": "20990130000001", "picFile": None, "cortAuctnPicSeq": "9"}
+        self.assertEqual(self.rows([detail_line(photos=[broken])])["photo_rows"], [])
+
+    def test_a_read_without_its_key_is_refused(self):
+        line = detail_line()
+        line["request"]["dma_srchGdsDtlSrch"]["csNo"] = ""
+        with self.assertRaises(ValueError):
+            self.rows([line])
+
+    def test_the_detail_objects_are_a_role_of_this_load(self):
+        self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_item_detail"], job.DETAIL_ROLE)
+
+
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class ChangesTest(unittest.TestCase):
     @classmethod

@@ -37,6 +37,40 @@
       {"lclDspslGdsLstUsgCd": "20000"}
     ]
   },
+  "item_detail": {
+    "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384, ADR-0289. 물건상세, asked after a list pass that was not cut short, in the same run, on the same session pool and tally as the lists (collection.session; a block renews the session and asks again), paced in pace_group (collection.pace.goods_detail, the photo-heavy group), with the session headers and its own headers (none: measured 2026-11-04, one plain POST answered). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit. Measured 2026-11-04: HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. The details are asked until the run's deadline (collection.session.run_time_budget_seconds) less photos.renditions.run_time_budget_seconds, so the ladder step after the Bronze commit still ends inside the run's budget; what is left is due again next run. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
+    "dataset_slug": "auction_item_detail",
+    "operation": "selectAuctnCsSrchRslt",
+    "path": "/pgj/pgj15B/selectAuctnCsSrchRslt.on",
+    "pace_group": "goods_detail",
+    "headers": {},
+    "request_object": "dma_srchGdsDtlSrch",
+    "request_constants": {"pgmId": "PGJ15BM01"},
+    "key_fields": {"cortOfcCd": "boCd", "csNo": "saNo", "dspslGdsSeq": "maemulSer"},
+    "in_progress_field": "mulJinYn",
+    "in_progress_value": "Y",
+    "sale_date_field": "maeGiil",
+    "status_field": "jinstatCd",
+    "result_pointer": "/data/dma_result",
+    "per_run_limit": 1800,
+    "read_from": "silver.court_auction_item_detail",
+    "photos": {
+      "list_field": "csPicLst",
+      "file_field": "picFile",
+      "title_field": "picTitlNm",
+      "kind_field": "cortAuctnPicDvsCd",
+      "sequence_field": "cortAuctnPicSeq",
+      "page_field": "pageSeq",
+      "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
+      "max_file_bytes": 52428800,
+      "$renditions": "루트 ADR-0427 §7. 그 밤의 Bronze 가 커밋된 뒤(사이트 요청 없음), 그 밤 저장했거나 이미 있던 사진마다 공용 저장소의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 공매와 같은 media_renditions::ensure_ladders 로 만든다. 이미 사다리 표시가 있으면 HEAD 한 번이다. 상한(계산): 사진 원천 하나 ~4.5 초(ADR-0427 Consequences 의 rav1e 추정) × per_run_limit 1,500 ÷ concurrency 4 ≈ 28 분 ≤ run_time_budget_seconds 1,800. 상세 묻기는 collection.session.run_time_budget_seconds 16,000 초에서 이 1,800 초를 뺀 14,200 초에 멈추므로, 사다리는 그 밤 Bronze 커밋 뒤 이 1,800 초 안이니, 실행 전체가 16,000 초에 Bronze 커밋 시간을 더한 만큼으로 작업 한도 18,000 초 안에 끝난다. 남거나 실패한 사진은 잃지 않는다: media_ladder_backlog 가 Silver 사진 색인에서 가져간다.",
+      "renditions": {
+        "per_run_limit": 1500,
+        "concurrency": 4,
+        "run_time_budget_seconds": 1800
+      }
+    }
+  },
   "collection": {
     "$comment": "Root ADR-0289/0290 values the collection rules (collection-domain::court_auction), the asking (collection-application::court_auction_asking) and the browser session pool (collection-infrastructure::court_auction_browser) read.",
     "block_signals": {

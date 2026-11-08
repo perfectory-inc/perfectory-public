@@ -751,7 +751,9 @@
         "saleDate": "매각기일",
         "salePlace": "매각장소",
         "failedBids": "유찰",
-        "failedBidsCount": "{count}회"
+        "failedBidsCount": "{count}회",
+        "photoAltFallback": "경매 물건 사진",
+        "viewOriginal": "원본 보기"
       }
     },
     "complex": {

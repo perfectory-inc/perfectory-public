@@ -19,6 +19,10 @@
 //! Each search's answers of one run land as one gzip JSON Lines Bronze object, one line per page:
 //! the request body, the HTTP status and the response body as received. The Silver load
 //! (`infra/lakehouse/spark/jobs/courtauction_go_kr.py`) parses them.
+//!
+//! After a list pass that was not cut short, the same run asks the 물건상세 of the properties due,
+//! on the same pool and tally, and stores their photos once in the shared media store
+//! ([`detail`], root ADR-0384).
 
 use std::{
     collections::BTreeMap,
@@ -35,7 +39,7 @@ use collection_application::{
     BronzePayload, CourtAuctionSessions, PaceGate, PlannedBronzeObject, PublicDataBulkFileIdentity,
     PublicDataBulkFilePlan, PublicDataBulkFilePlanInput, SessionRecord, SiteMethod, SiteRequest,
 };
-use collection_domain::court_auction::{BlockSignals, Pace, PaceRule};
+use collection_domain::court_auction::{BlockSignals, Pace, PaceRule, RecrawlRule};
 use collection_domain::{
     source_slug, BronzeObject, IngestionRun, IngestionRunStatus, IngestionTrigger, SourceAuthKind,
     SourceCatalogEntry, SourcePayloadFormat,
@@ -56,6 +60,7 @@ use crate::bronze_object_storage::{
     live_write_bronze_object_storage_from_env, live_write_target_preflight,
     BronzeObjectStorageWriter,
 };
+use crate::media_renditions;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
 /// `infra/lakehouse/contracts/courtauction-go-kr.contract.json`, as compiled in.
@@ -145,6 +150,10 @@ pub(crate) struct Collection {
     #[serde(deserialize_with = "pace_groups")]
     pub(crate) pace: BTreeMap<String, PaceRule>,
     pub(crate) session: SessionContract,
+    /// The list-row fields whose change makes a detail due again (root ADR-0290 §2).
+    pub(crate) change_fields: detail::ChangeFields,
+    /// When a detail is due again (root ADR-0290 §3).
+    pub(crate) recrawl: RecrawlRule,
 }
 
 /// `collection.pace`: every key but its `$comment` is an endpoint group.
@@ -168,6 +177,7 @@ pub(crate) struct SourceContract {
     pub(crate) base_url: String,
     pub(crate) item_search: Search,
     pub(crate) sale_result_search: Search,
+    pub(crate) item_detail: detail::ItemDetail,
     pub(crate) collection: Collection,
 }
 
@@ -755,6 +765,62 @@ impl Config {
     }
 }
 
+/// The detail phase of a run whose list pass was not cut short: the frontier from this run's item
+/// search and the lakehouse's last reads, then the reads, on the same pool and tally, until
+/// `deadline`. A failure to read the last reads skips the phase (the lists still land); it never
+/// asks blind.
+async fn run_details(
+    contract: &SourceContract,
+    asking: &Asking<'_>,
+    deadline: Instant,
+    results: &BTreeMap<&'static str, SearchResult>,
+    storage: Option<&dyn ObjectStorageService>,
+) -> anyhow::Result<(detail::DetailResult, Option<Stop>, JsonValue)> {
+    let item = &contract.item_detail;
+    let lines = results
+        .get("item_search")
+        .map(|r| r.lines.as_slice())
+        .unwrap_or_default();
+    let wanted = detail::wanted_from_lines(lines, item, &contract.collection);
+    let last = if storage.is_some() {
+        match detail::last_reads_from_lakehouse(item).await {
+            Ok(last) => last,
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the detail frontier could not be read; no detail asked");
+                let report = json!({"asked": 0, "skipped": format!("{error:#}")});
+                return Ok((detail::DetailResult::default(), None, report));
+            }
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+    let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+    let candidates = wanted.len();
+    let asked = detail::frontier(
+        wanted,
+        &last,
+        &contract.collection.recrawl,
+        today,
+        item.per_run_limit,
+    );
+    let store = detail::PhotoStore {
+        prefix: detail::photo_prefix(item)?,
+        storage,
+    };
+    let (result, stop) =
+        detail::collect_details(contract, asking, deadline, &asked, &store, Utc::now).await?;
+    let report = json!({
+        "in_progress": candidates,
+        "read_before": last.len(),
+        "frontier": asked.len(),
+        "asked": result.asked,
+        "failed": result.failed,
+        "photos": result.photos,
+    });
+    println!("courtauction.go.kr item detail: {report}");
+    Ok((result, stop, report))
+}
+
 /// Collects one run into Bronze.
 ///
 /// # Errors
@@ -782,16 +848,6 @@ pub async fn run() -> anyhow::Result<()> {
     let deadline =
         Instant::now() + Duration::from_secs(contract.collection.session.run_time_budget_seconds);
     let asking = Asking::new(&contract, &pool, deadline, switches);
-    let (results, stop) = collect(&contract, &asking, Utc::now).await?;
-    let counts = asking.tally.counts();
-    let sessions = pool.sessions();
-    let failed = results
-        .iter()
-        .map(|(role, result)| (*role, result.failed.as_slice()))
-        .collect();
-    let night = night_summary(counts, &sessions, &failed, stop.as_ref());
-
-    let mut objects = Vec::new();
     let uow;
     let storage;
     let live = if config.live_write {
@@ -803,6 +859,39 @@ pub async fn run() -> anyhow::Result<()> {
     } else {
         None
     };
+    let (results, mut stop) = collect(&contract, &asking, Utc::now).await?;
+    let mut details = None;
+    if stop.is_none() {
+        // The detail asking leaves the ladder step its budget inside the run's (root ADR-0427 §7).
+        let detail_deadline = deadline
+            .checked_sub(Duration::from_secs(
+                contract
+                    .item_detail
+                    .photos
+                    .renditions
+                    .run_time_budget_seconds,
+            ))
+            .unwrap_or(deadline);
+        let (result, detail_stop, report) = run_details(
+            &contract,
+            &asking,
+            detail_deadline,
+            &results,
+            live.map(|(_, s)| s),
+        )
+        .await?;
+        stop = detail_stop;
+        details = Some((result, report));
+    }
+    let counts = asking.tally.counts();
+    let sessions = pool.sessions();
+    let failed = results
+        .iter()
+        .map(|(role, result)| (*role, result.failed.as_slice()))
+        .collect();
+    let night = night_summary(counts, &sessions, &failed, stop.as_ref());
+
+    let mut objects = Vec::new();
     for (role, search) in searches(&contract) {
         let Some(result) = results.get(role).filter(|result| !result.lines.is_empty()) else {
             continue;
@@ -821,6 +910,56 @@ pub async fn run() -> anyhow::Result<()> {
         entry["rows"] = json!(result.rows);
         objects.push(entry);
     }
+    let ladder_sources = details
+        .as_ref()
+        .map(|(result, _)| result.photos.sources.clone());
+    let detail_report = match details {
+        Some((result, report)) if !result.lines.is_empty() => {
+            let search = contract.item_detail.as_search();
+            let mut entry = persist(
+                &search,
+                &config.output_dir,
+                &result.lines,
+                started,
+                &night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("item_detail");
+            entry["complete"] = json!(stop.is_none());
+            entry["rows"] = json!(result.asked);
+            objects.push(entry);
+            report
+        }
+        Some((_, report)) => report,
+        None => json!({"asked": 0, "skipped": "the list pass did not end cleanly"}),
+    };
+    // After the night's Bronze landed (no site request is made here): each photo stored or seen this
+    // night gets its display ladder from the shared store, within the contract's budget (root
+    // ADR-0427 §7). A ladder that fails or is deferred is not lost: the backlog job takes it from
+    // the Silver photo index. A ladder failure never fails the night.
+    let mut detail_report = detail_report;
+    if let (Some((_, storage)), Some(sources)) = (live, ladder_sources.as_deref()) {
+        let prefix = detail::photo_prefix(&contract.item_detail)?;
+        match media_renditions::ensure_ladders(
+            prefix.as_str(),
+            sources,
+            &contract.item_detail.photos.renditions,
+            storage,
+        )
+        .await
+        {
+            Ok((ladders, _left)) => detail_report["ladders"] = json!(ladders),
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: no rendition ladder this night");
+                detail_report["ladders"] = json!({"skipped": format!("{error:#}")});
+            }
+        }
+        println!(
+            "courtauction.go.kr photo ladders: {}",
+            detail_report["ladders"]
+        );
+    }
     write_json_file(
         &config.output_dir.join("manifest.json"),
         &json!({
@@ -829,6 +968,7 @@ pub async fn run() -> anyhow::Result<()> {
             "collected_at_utc": started.to_rfc3339(),
             "night": night,
             "objects": objects,
+            "item_detail": detail_report,
         }),
     )?;
     tracing::info!(
@@ -859,6 +999,8 @@ pub async fn run() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+pub(crate) mod detail;
 
 #[cfg(test)]
 mod tests;

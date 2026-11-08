@@ -94,13 +94,16 @@ def _reaches(edges, start, goal):
 
 
 def feedback_edges(graph):
-    """The edges by which a serving surface feeds what it is made from: staff decisions coming back
-    (the lineage stewardship loop, root ADR-0118 §2). An asset graph has no cycles, so these are the
-    asset's metadata, not its deps; any other cycle is refused, so a new one is a decision, not a hang
-    (dagster-airlift walks deps recursively and never returns on a cycle)."""
+    """The edges by which a dataset feeds back what it is made from: a serving surface's staff
+    decisions coming back (the lineage stewardship loop, root ADR-0118 §2), and a `schedules` edge by
+    which a collector reads its own ledger to plan its next run (the court auction 물건상세 frontier,
+    root ADR-0352, ADR-0384) — scheduling state, not data. An asset graph has no cycles, so these are
+    the asset's metadata, not its deps; any other cycle is refused, so a new one is a decision, not a
+    hang (dagster-airlift walks deps recursively and never returns on a cycle)."""
     types = {node["id"]: node["type"] for node in graph["nodes"]}
     feedback = {edge["id"] for edge in graph["edges"]
-                if types[edge["from"]].startswith("serving") and _reaches(graph["edges"], edge["to"], edge["from"])}
+                if (types[edge["from"]].startswith("serving") or edge.get("relation") == "schedules")
+                and _reaches(graph["edges"], edge["to"], edge["from"])}
     rest = [edge for edge in graph["edges"] if edge["id"] not in feedback]
     looping = sorted(edge["id"] for edge in rest if _reaches(rest, edge["to"], edge["from"]))
     if looping:

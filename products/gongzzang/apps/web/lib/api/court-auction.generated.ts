@@ -25,6 +25,12 @@ export const ParcelCourtAuctionByPnuSchema = z.object({
       sale_time_raw: z.string().nullish(),
       sale_place: z.string().nullish(),
       failed_bid_count: z.number().int().nullish(),
+      photos: z.array(z.object({
+        sha256: z.string().regex(/^[0-9a-f]{64}$/),
+        media_kind: z.enum(["photo"]),
+        title: z.string().nullish(),
+        media_format: z.enum(["jpg", "png", "gif", "pdf"]),
+      })).nullish(),
     })),
     source_attribution: z.string(),
   }),

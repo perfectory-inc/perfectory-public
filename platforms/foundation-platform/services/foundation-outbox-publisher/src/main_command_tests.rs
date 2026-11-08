@@ -1033,3 +1033,13 @@ fn the_retired_catalog_loaders_are_not_commands() {
         assert!(parse_command(["publisher", retired]).is_err(), "{retired}");
     }
 }
+
+/// The ladders a collector run deferred, made from the Silver photo indexes (root ADR-0429).
+#[test]
+fn media_ladder_backlog_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "media-ladder-backlog"])?,
+        Command::MediaLadderBacklog
+    );
+    Ok(())
+}
