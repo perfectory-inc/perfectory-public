@@ -35,9 +35,11 @@ TIERS = (
     ("주변 생활", ("silver.commercial_", "silver.school_", "silver.university", "silver.dong_population",
                  "silver.household_")),
 )
-VERDICTS = ("화면", "길 있음·꺼짐", "서빙만", "없음")
-# Bookkeeping a user never reads directly: a table's version log, its rejected rows, the ID ledger.
-INTERNAL = ("_versions", "_rejected", "silver.parcel_registry")
+VERDICTS = ("화면", "길 있음·꺼짐", "서빙만", "적재 꺼짐", "없음")
+# Bookkeeping a user never reads directly: a table's version log, its rejected rows, the ID ledger, and
+# the PNU change record the 법정동 pairing reads as evidence (the same 토지이동 events, with their old
+# 지번 in the provider's words, reach the parcel panel from silver.land_transfer_history).
+INTERNAL = ("_versions", "_rejected", "silver.parcel_registry", "silver.parcel_number_change_history")
 
 
 def tier(table: str) -> int:
@@ -57,6 +59,9 @@ def inventory(documents: dict) -> list[dict]:
     web = {(s.get("owner") or {}).get("lane") for s in documents[dd.REGISTRY]["subjects"]
            if any(c["name"] == "web" for c in s.get("consumers", []))}
     on = {e.split("-to-", 1)[1] for j in jobs if j.get("enabled") for e in j.get("pipeline_graph_edges", [])}
+    # A Silver with no path whose every loading job is off holds no rows yet: the step it waits for is
+    # its loader's first run, not a Gold (2026-11-09: 19 such tables read as 없음 beside contract-only ones).
+    loaded = {e.split("-to-", 1)[1] for j in jobs for e in j.get("pipeline_graph_edges", [])}
 
     def walk(start: str, stop_at_gold: bool) -> set[str]:
         # A Silver reaches what its own Gold serves; going on through a second Gold would credit
@@ -85,7 +90,8 @@ def inventory(documents: dict) -> list[dict]:
         live = lambda s: s in on
         verdict = ("화면" if any(shown(s) and live(s) for s in surfaces) else
                    "길 있음·꺼짐" if any(shown(s) for s in surfaces) else
-                   "서빙만" if any(live(s) for s in surfaces) else "없음")
+                   "서빙만" if any(live(s) for s in surfaces) else
+                   "적재 꺼짐" if n["id"] in loaded and n["id"] not in on else "없음")
         lane_names = sorted({lanes[s] + ("" if live(s) else " (꺼짐)") for s in surfaces if s in lanes})
         tiles = sorted(s + ("" if live(s) else " (꺼짐)") for s in surfaces if index[s].get("surface_kind") == "tiles")
         rows.append({"table": n["table_name"], "title": n["title"], "tier": tier(n["table_name"]),
