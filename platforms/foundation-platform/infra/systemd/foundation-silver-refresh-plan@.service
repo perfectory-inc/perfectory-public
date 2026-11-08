@@ -23,7 +23,10 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/silver-refresh.sh %i --pl
 # Measured 2026-10-14..18 on every lane: the same decision, as a run that ended unchanged, took
 # 1.4-4.2 s from start to finish.
 TimeoutStartSec=5m
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=921M
 MemoryMax=1G
+OOMScoreAdjust=500
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

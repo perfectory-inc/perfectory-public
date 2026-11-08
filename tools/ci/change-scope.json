@@ -444,7 +444,8 @@
           "tools/host-memory-budget.contract.json",
           "tools/conftest/compose/host.rego",
           "tools/conftest/compose/host_test.rego",
-          "scripts/ci/compose_model.py"
+          "scripts/ci/compose_model.py",
+          "scripts/ci/unit_memory.py"
         ]
       },
       {

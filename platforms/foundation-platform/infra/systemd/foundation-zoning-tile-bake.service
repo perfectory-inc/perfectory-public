@@ -24,3 +24,7 @@ ProtectSystem=strict
 # The handoff (about 3.3 GB of hex WKB for 655,266 zones), Spark's spill, GDAL's input and
 # tippecanoe's temporary files, on the data disk (tile-bake-containers.contract.json work_disk).
 ReadWritePaths=/data/foundation-platform/tile-bake
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=4608M
+MemoryMax=5G
+OOMScoreAdjust=500

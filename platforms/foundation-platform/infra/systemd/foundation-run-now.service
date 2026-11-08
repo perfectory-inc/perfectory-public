@@ -12,3 +12,7 @@ Type=oneshot
 ExecStart=/bin/bash /opt/foundation-platform/current/scripts/ops/run-now-dispatch.sh
 StateDirectory=foundation-run-now
 TimeoutStartSec=5m
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=460M
+MemoryMax=512M
+OOMScoreAdjust=0

@@ -345,4 +345,63 @@ expect_fail "a continued container start with no --memory on any of its lines"
 write_host_script_fixture 'RUN_CMD --rm busybox:1 true' exempt
 expect_pass "a script the contract lists as uncapped, with why"
 
+# Every systemd unit's memory lines are its systemd_units entry's (root ADR-0455). The fixture's one
+# job runs fixture-job.service, so that unit is batch.
+write_unit_fixture() {
+  local job_entry="$1" extra_entry="${2:-}" render="${3:-render}"
+  write_contract 6g
+  write_stack "    mem_limit: 1g"
+  rm -rf "$fixture/unit-memory"; mkdir -p "$fixture/unit-memory"
+  printf '[Unit]\nDescription=fixture\n\n[Service]\nType=oneshot\nExecStart=/bin/true\n\n[Install]\nWantedBy=multi-user.target\n' \
+    > "$fixture/unit-memory/fixture-job.service"
+  printf '[Service]\nType=oneshot\nExecStart=/bin/true\n' > "$fixture/unit-memory/fixture-alert@.service"
+  printf '{"jobs": [{"id": "a", "systemd_service": "fixture-job.service"}]}\n' > "$fixture/unit-memory/jobs.json"
+  python3 - "$fixture" "$job_entry" "$extra_entry" "$render" "$root/scripts/ci" <<'PY'
+import json, pathlib, sys
+root, job_entry, extra_entry, render, ci = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+sys.path.insert(0, ci)
+import unit_memory
+path = root / "tools/host-memory-budget.contract.json"
+contract = json.loads(path.read_text())
+files = {"fixture-job.service": json.loads(job_entry),
+         "fixture-alert@.service": {"class": "control", "memory_max": "256M", "measured_peak": "20M", "measured": "fixture"}}
+if extra_entry:
+    files.update(json.loads(extra_entry))
+contract["systemd_units"] = {
+    "units": "unit-memory", "jobs": "unit-memory/jobs.json", "memory_max_over_peak": 1.5, "memory_high_of_max": 0.9,
+    "floor": "128M", "unit_files": files,
+    "classes": {"batch": {"oom_score_adjust": 500, "why": "f"}, "control": {"oom_score_adjust": 0, "why": "f"}},
+}
+path.write_text(json.dumps(contract))
+if render == "render":
+    unit_memory.write(root, contract)
+PY
+}
+
+write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}'
+expect_pass "every unit rendered from its entry"
+grep -qx 'MemoryHigh=921M' "$fixture/unit-memory/fixture-job.service" && grep -qx 'OOMScoreAdjust=500' "$fixture/unit-memory/fixture-job.service" || {
+  echo "FAIL $name: the rendered job unit lacks MemoryHigh=921M or OOMScoreAdjust=500" >&2
+  exit 1
+}
+grep -q '^Memory' < <(sed -n '/^\[Install\]/,$p' "$fixture/unit-memory/fixture-job.service") && {
+  echo "FAIL $name: memory lines rendered outside [Service]" >&2
+  exit 1
+}
+sed -i 's/^MemoryMax=1G$/MemoryMax=2G/' "$fixture/unit-memory/fixture-job.service"
+expect_fail "a unit whose MemoryMax was edited by hand"
+write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}' "" "no-render"
+expect_fail "a unit its entry was never rendered into"
+write_unit_fixture '{"class": "batch", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}'
+printf '[Service]\nType=oneshot\n' > "$fixture/unit-memory/fixture-new.service"
+expect_fail "a unit file with no systemd_units entry"
+write_unit_fixture '{"class": "control", "memory_max": "1G", "measured_peak": "300M", "measured": "fixture"}'
+expect_fail "a scheduled job's unit that is not batch"
+write_unit_fixture '{"class": "batch", "memory_max": "400M", "measured_peak": "300M", "measured": "fixture"}'
+expect_fail "a cap under 1.5 x its measured peak with no headroom_why"
+write_unit_fixture '{"class": "batch", "memory_max": "400M", "measured_peak": "300M", "measured": "fixture", "headroom_why": "a decided bound"}'
+expect_pass "a decided bound closer than 1.5 x, with why"
+write_unit_fixture '{"class": "batch", "memory_max": "5G", "measured_peak": "300M", "measured": "fixture"}'
+expect_fail "a unit cap that alone, beside the standing services and host_reserved, would take the host"
+
 echo "OK $name"

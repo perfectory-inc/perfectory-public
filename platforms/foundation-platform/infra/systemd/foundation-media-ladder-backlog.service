@@ -18,7 +18,10 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/media-ladder-backlog.sh
 TimeoutStartSec=40m
 TimeoutStopSec=30
 # Four sources decoded and AV1-encoded at a time (a 50-megapixel cap each, root ADR-0427 §2).
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=2764M
 MemoryMax=3G
+OOMScoreAdjust=500
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

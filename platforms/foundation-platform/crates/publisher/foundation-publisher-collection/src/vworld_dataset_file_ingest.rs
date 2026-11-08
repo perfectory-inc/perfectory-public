@@ -446,8 +446,9 @@ struct VWorldDatasetFileInventoryReport {
 
 #[derive(Clone, Debug)]
 struct SelectedVWorldDatasetFile {
-    // Shared, not copied: a copy per file holds the job's whole file list once per file. 2026-10-31
-    // the sweep listed ~10k files and the copies took 40 GiB; 11-04 and 11-08 the OOM killer ended it.
+    // Shared, not copied, and without its file list (`VWorldDatasetFileJob::header`): a copy per
+    // file holds the job's whole file list once per file. 2026-10-31 the sweep listed ~10k files and
+    // the copies took 40 GiB; 11-04 and 11-08 the OOM killer ended it.
     job: Arc<VWorldDatasetFileJob>,
     file: VWorldDatasetFileInventoryItem,
 }
@@ -504,6 +505,27 @@ struct VWorldDatasetFileJob {
     svc_cde: String,
     ds_id: String,
     files: Vec<VWorldDatasetFileInventoryItem>,
+}
+
+impl VWorldDatasetFileJob {
+    /// The job without its file list, which every file selected from it shares: a selected file
+    /// needs the job's identity, never its siblings, so a run holds each listed file once (root
+    /// ADR-0455 §4).
+    fn header(&self) -> Arc<Self> {
+        Arc::new(Self {
+            endpoint_slug: self.endpoint_slug.clone(),
+            source_slug: self.source_slug.clone(),
+            source_name: self.source_name.clone(),
+            dataset_name: self.dataset_name.clone(),
+            base_uri: self.base_uri.clone(),
+            terms_url: self.terms_url.clone(),
+            operation: self.operation.clone(),
+            provider_module: self.provider_module.clone(),
+            svc_cde: self.svc_cde.clone(),
+            ds_id: self.ds_id.clone(),
+            files: Vec::new(),
+        })
+    }
 }
 
 async fn ingest_file(
@@ -1286,13 +1308,15 @@ fn initial_batch_request_params(
 }
 
 fn read_file_inventory(path: &PathBuf) -> anyhow::Result<VWorldDatasetFileInventoryReport> {
-    let content = fs::read_to_string(path).with_context(|| {
+    // Parsed from the file as it is read, so the run never holds the listing's text beside it.
+    let file = fs::File::open(path).with_context(|| {
         format!(
             "failed to read VWorld dataset file inventory: {}",
             path.display()
         )
     })?;
-    serde_json::from_str(&content).context("failed to parse VWorld dataset file inventory")
+    serde_json::from_reader(std::io::BufReader::new(file))
+        .context("failed to parse VWorld dataset file inventory")
 }
 
 fn select_inventory_files(
@@ -1311,7 +1335,7 @@ fn select_inventory_files(
     // buffer_unordered (check-then-write without a DB claim), so refuse them up front.
     let mut seen = std::collections::HashSet::new();
     for job in jobs.iter().take(job_limit) {
-        let shared = Arc::new(job.clone());
+        let shared = job.header();
         for file in &job.files {
             if exclude_selection_archives
                 && file.download_kind == VWorldDatasetFileKind::SelectionArchive
