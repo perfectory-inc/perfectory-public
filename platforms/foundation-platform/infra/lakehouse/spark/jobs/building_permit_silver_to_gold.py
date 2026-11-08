@@ -10,8 +10,10 @@ What a PNU's document holds (`building_permits`), from the parcel's current rows
 - `records`: the parcel's permits, newest first by the latest of 사용승인일, 실제착공일, 착공연기일,
   착공예정일 and 건축허가일, at most RECORD_BOUND; `building_permit_total` (the Gold column) counts
   them all. Each is the provider's words: 건축구분명, 주용도명, 대지·건축·연면적(㎡) and the five dates
-  (hub-building-permit-basis-outline-source-objects.json). 건물명 and 대지위치 are not carried
-  (ADR-0356).
+  (hub-building-permit-basis-outline-source-objects.json), and the permit's 주차장 대수 from
+  `silver.building_permit_parking` by the same 관리허가대장PK (옥내자주식·옥외자주식·옥내기계식대수,
+  root ADR-0402, ADR-0452; null when the parking file has no row for it). 건물명 and 대지위치 are not
+  carried (ADR-0356).
 
 A row keyed under a code a reorganization renumbered is read under the served code (`renumbered`,
 root ADR-0329 §3). Only PNUs the served parcel edition holds have a document (ADR-0292).
@@ -20,7 +22,8 @@ Partial by design (root ADR-0312 §2): a run recomputes the PNUs whose current r
 the pinned and the current Silver (`changed_rows`, both directions, so a permit whose PNU moved leaves
 its old parcel; the Silver's key is 관리허가대장PK, not the PNU, so its appends alone would not name
 the old PNU) and of parcels that entered or left the served edition; a change of the code change
-table rebuilds whole (`WHOLE_TABLE_INPUTS`), as every own-producer parcel kind.
+table rebuilds whole (`WHOLE_TABLE_INPUTS`), as every own-producer parcel kind. A changed parking row
+recomputes the PNUs its permit is on, before and after (`parking_pnus`).
 """
 from __future__ import annotations
 
@@ -30,6 +33,7 @@ from typing import Any
 
 JOB_NAME = "building_permit_silver_to_gold"
 PERMIT_SOURCE = "silver.building_permit_basis_outline"
+PARKING_SOURCE = "silver.building_permit_parking"
 PARCEL_SOURCE = "silver.parcel_boundaries"
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
 WHOLE_TABLE_INPUTS = (CODE_CHANGE_SOURCE,)
@@ -39,9 +43,13 @@ SECTION = "building_permits"
 RECORD_BOUND = 50
 RECORD_FIELDS = ("arch_kind_name", "main_purpose_name", "plot_area_m2", "building_area_m2", "total_floor_area_m2",
                  "permit_date", "start_scheduled_date", "start_delayed_date", "start_actual_date", "use_approval_date")
-RECORD_STRUCT = "array<struct<" + ",".join(f"{f}:string" for f in RECORD_FIELDS) + ">>"
+# Measured 2026-11-09: 2,835,072 parking rows, every 관리허가대장PK distinct (root ADR-0402).
+PARKING_FIELDS = ("indoor_self_parking_count", "outdoor_self_parking_count", "indoor_mechanical_parking_count")
+DOCUMENT_FIELDS = (*RECORD_FIELDS, *PARKING_FIELDS)
+RECORD_STRUCT = "array<struct<" + ",".join(f"{f}:string" for f in DOCUMENT_FIELDS) + ">>"
 BUILD_COLUMNS = {
     PERMIT_SOURCE: ("pnu", "mgmt_key", *RECORD_FIELDS),
+    PARKING_SOURCE: ("mgmt_key", *PARKING_FIELDS),
     PARCEL_SOURCE: ("pnu",),
 }
 WRITTEN = {"ignoreNullFields": "false"}
@@ -50,7 +58,7 @@ WRITTEN = {"ignoreNullFields": "false"}
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
     """(required inputs, optional input -> flag without it, anchor input, whole-table inputs)."""
     del lane
-    return (PARCEL_SOURCE, PERMIT_SOURCE, CODE_CHANGE_SOURCE), {}, PARCEL_SOURCE, WHOLE_TABLE_INPUTS
+    return (PARCEL_SOURCE, PERMIT_SOURCE, PARKING_SOURCE, CODE_CHANGE_SOURCE), {}, PARCEL_SOURCE, WHOLE_TABLE_INPUTS
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -79,6 +87,9 @@ def gold_rows(frames: dict[str, Any], source_snapshot_id: str, published_at_utc:
     # A permit is its 관리허가대장PK; a tied current row repeated (keep_ties) is one permit here.
     rows = (frames[PERMIT_SOURCE].where(F.col("pnu").isNotNull()).join(served, "pnu", "left_semi")
             .select("pnu", "mgmt_key", *[text(f).alias(f) for f in RECORD_FIELDS]).distinct())
+    # One parking row per key; a tied repeat (keep_ties) is folded to its smallest value per field.
+    parking = frames[PARKING_SOURCE].groupBy("mgmt_key").agg(*[F.min(text(f)).alias(f) for f in PARKING_FIELDS])
+    rows = rows.join(parking, "mgmt_key", "left")
     # Newest first by the latest of its five dates (YYYYMMDD sorts as text); one without a date
     # sorts last; the remaining fields and the key make the order total.
     latest = F.greatest(*[blank(f) for f in ("use_approval_date", "start_actual_date", "start_delayed_date",
@@ -88,11 +99,11 @@ def gold_rows(frames: dict[str, Any], source_snapshot_id: str, published_at_utc:
     ranked = rows.withColumn("_n", F.row_number().over(ordered))
     per_pnu = ranked.groupBy("pnu").agg(
         F.array_sort(F.collect_list(F.when(F.col("_n") <= RECORD_BOUND, F.struct(
-            F.col("_n").alias("_order"), *[F.col(f) for f in RECORD_FIELDS]))))
+            F.col("_n").alias("_order"), *[F.col(f) for f in DOCUMENT_FIELDS]))))
         .alias("_records"),
         F.count(F.lit(1)).alias("building_permit_total"))
     document = F.struct(
-        F.coalesce(F.transform("_records", lambda r: F.struct(*[r[f].alias(f) for f in RECORD_FIELDS])),
+        F.coalesce(F.transform("_records", lambda r: F.struct(*[r[f].alias(f) for f in DOCUMENT_FIELDS])),
                    F.expr(f"CAST(array() AS {RECORD_STRUCT})")).alias("records"))
     content = ("pnu", "building_permits_json", "building_permit_total", "attached_via")
     return (per_pnu.select(
@@ -104,11 +115,24 @@ def gold_rows(frames: dict[str, Any], source_snapshot_id: str, published_at_utc:
 
 
 def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
-    """The input rows the Gold rows of the PNUs `keys` are built from: their own rows only."""
-    return {name: frame.join(keys, "pnu", "left_semi") for name, frame in frames.items()}
+    """The input rows the Gold rows of the PNUs `keys` are built from: their own rows, and the parking
+    rows of their permits (joined by 관리허가대장PK, not by PNU)."""
+    own = {name: frame.join(keys, "pnu", "left_semi") for name, frame in frames.items() if name != PARKING_SOURCE}
+    permits = own[PERMIT_SOURCE].select("mgmt_key").distinct()
+    return {**own, PARKING_SOURCE: frames[PARKING_SOURCE].join(permits, "mgmt_key", "left_semi")}
 
 
-def affected_pnus(changed: list[str], *, changed_rows: Any, parcel_change: Any) -> Any:
+def parking_pnus(changed_keys: Any, *permit_frames: Any) -> Any:
+    """The PNUs of the permits whose parking rows changed, under every permit frame given (the pinned
+    and the current), so a permit that moved PNU recomputes both."""
+    from functools import reduce  # noqa: PLC0415
+
+    on = [frame.select("mgmt_key", "pnu").join(changed_keys.select("mgmt_key"), "mgmt_key", "left_semi")
+          for frame in permit_frames]
+    return reduce(lambda a, b: a.unionByName(b), on).select("pnu").where("pnu IS NOT NULL").distinct()
+
+
+def affected_pnus(changed: list[str], *, changed_rows: Any, parcel_change: Any, parking_change: Any) -> Any:
     """As `land_ownership_silver_to_gold.affected_pnus`, for the one 건축인허가 source. Compared, never read
     as an append: the Silver is keyed by 관리허가대장PK, so a permit that moved PNU must leave the old one."""
     from functools import reduce  # noqa: PLC0415
@@ -116,6 +140,8 @@ def affected_pnus(changed: list[str], *, changed_rows: Any, parcel_change: Any) 
     parts = []
     if PERMIT_SOURCE in changed:
         parts.append(changed_rows())
+    if PARKING_SOURCE in changed:
+        parts.append(parking_change())
     if PARCEL_SOURCE in changed:
         parts.append(parcel_change())
     if not parts:
@@ -151,7 +177,9 @@ def read_inputs(spark: Any, args: argparse.Namespace, at: dict[str, str], counte
     changes, renumbering = panel.read_renumbering(spark, args, at, counters)
     rows = panel.renumbered(panel.read_source(spark, args, PERMIT_SOURCE, at), renumbering)
     parcels = panel.read_served_parcels(spark, args, at, region=False)
+    parking = panel.read_source(spark, args, PARKING_SOURCE, at)
     return ({PERMIT_SOURCE: rows.select(*BUILD_COLUMNS[PERMIT_SOURCE]),
+             PARKING_SOURCE: parking.select(*BUILD_COLUMNS[PARKING_SOURCE]),
              PARCEL_SOURCE: parcels.select(*BUILD_COLUMNS[PARCEL_SOURCE])}, changes)
 
 
@@ -202,7 +230,10 @@ def main(argv=None) -> int:
                 changed_rows=lambda: incremental.changed_rows(previous_frames()[PERMIT_SOURCE],
                                                               frames[PERMIT_SOURCE], ("pnu",)),
                 parcel_change=lambda: incremental.changed_rows(previous_frames()[PARCEL_SOURCE],
-                                                               frames[PARCEL_SOURCE], ("pnu",))),
+                                                               frames[PARCEL_SOURCE], ("pnu",)),
+                parking_change=lambda: parking_pnus(
+                    incremental.changed_rows(previous_frames()[PARKING_SOURCE], frames[PARKING_SOURCE], ("mgmt_key",)),
+                    previous_frames()[PERMIT_SOURCE], frames[PERMIT_SOURCE])),
             validate=validate_gold, content_columns=("pnu", *kind.columns, "attached_via"), gold_columns=columns,
             whole_table_inputs=whole)
         # Root ADR-0272: the 건축인허가 기본개요 is a register, so a 시도 that loses its documents refuses the build.
