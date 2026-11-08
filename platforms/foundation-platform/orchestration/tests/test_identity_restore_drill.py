@@ -47,9 +47,13 @@ elif args[0] == "inspect":
     else:  # {{.State.Running}} of the restored Zitadel
         print("true" if state["zitadel_runs"] else "false")
 elif args[0] == "exec":
-    if "-i" in args:  # pg_restore reads the dump
+    if "-i" in args:  # pg_restore reads the dump, over TCP only (the init server is socket-only)
         sys.stdin.read()
-    elif "pg_isready" not in " ".join(args):
+        if "pg_restore -h 127.0.0.1 " not in args[-1]:
+            sys.exit('pg_restore: error: ... FATAL:  database "zitadel" does not exist')
+    elif "pg_isready" in " ".join(args):
+        sys.exit(0 if state["ready"] else 2)
+    else:
         live = args[1].startswith("live-")
         if "information_schema" in args[-1]:
             print(state["tables"] if live else state["restored_tables"])
@@ -88,7 +92,7 @@ class IdentityRestoreDrill(unittest.TestCase):
             (bin_dir / "python3").write_text(f'#!/usr/bin/env bash\nset -o pipefail\n"{real}" "$@" | tr -d "\\r"\n')
         (self.root / "token").write_text("synthetic-token")
         self.evidence = self.root / "evidence"
-        self.state = {"pg_image": PG_IMAGE, "zitadel_image": ZITADEL_IMAGE, "zitadel_runs": True,
+        self.state = {"pg_image": PG_IMAGE, "zitadel_image": ZITADEL_IMAGE, "zitadel_runs": True, "ready": True,
                       "tables": 129, "restored_tables": 129, "rows": 1284,
                       "keys": [200, '{"keys":[]}'], "me": [200, '{"user":{"id":"synthetic"}}']}
         self.env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
@@ -99,6 +103,7 @@ class IdentityRestoreDrill(unittest.TestCase):
                     "FOUNDATION_RECOVERY_REPOSITORY_CIPHER_PASS": "synthetic-pass",
                     "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_BUCKET": "synthetic-bucket",
                     "FOUNDATION_PLATFORM_R2_POSTGRES_RECOVERY_ENDPOINT_HOST": "r2.invalid",
+                    "FOUNDATION_RESTORE_DRILL_READY_TRIES": "2",
                     "ZITADEL_DRILL_TOKEN_FILE": str(self.root / "token")}
 
     def drill(self):
@@ -139,6 +144,13 @@ class IdentityRestoreDrill(unittest.TestCase):
         run = self.drill()
         self.assertEqual(run.returncode, 1)
         self.assertIn("restored 128 tables, live has 129", run.stderr)
+
+    def test_a_copy_that_never_gets_ready_fails_before_the_restore(self):
+        # 2026-11-08: the wait ran out, fell through, and pg_restore met the image's init-only server.
+        self.state["ready"] = False
+        run = self.drill()
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("zitadel: the restored database was not ready within 2 tries", run.stderr)
 
 
 if __name__ == "__main__":
