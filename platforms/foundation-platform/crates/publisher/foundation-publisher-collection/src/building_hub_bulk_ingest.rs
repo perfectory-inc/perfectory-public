@@ -500,7 +500,18 @@ where
             return Ok(report);
         }
         if state == "dead_lettered" {
-            bail!("bulk JobBus job {} is dead-lettered", bus_job.job_id);
+            // An earlier run spent the attempts: this run asks again with a fresh budget, so the
+            // sweep's own cadence is the wait and no person requeues it (root ADR-0446 §4).
+            job_bus
+                .requeue_dead_lettered(&bus_job.job_id)
+                .await
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "failed to requeue dead-lettered bulk JobBus job {}: {error}",
+                        bus_job.job_id
+                    )
+                })?;
+            tracing::warn!(job_id = %bus_job.job_id, "dead-lettered bulk JobBus job asked again");
         }
     }
 
