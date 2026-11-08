@@ -1239,7 +1239,7 @@ async fn a_new_generation_is_served_and_patches_follow_it() -> anyhow::Result<()
     );
     assert!(matches!(lane.answer(PNU_B).await?, Resolved::Tombstone));
     // The hourly monitor reads what the patch wrote though its gate sample has none of it (root
-    // ADR-0446): the patch's document, never its tombstone.
+    // ADR-0448): the patch's document, never its tombstone.
     for sample in [vec![], vec![PNU_B.to_owned()]] {
         let chosen = served_sample(&lane.store, sample, 2, &Target::Served).await?;
         assert_eq!(chosen, [PNU_A]);

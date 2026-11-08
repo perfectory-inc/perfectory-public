@@ -3,7 +3,7 @@
 //!
 //! Reads `monitor.pnus` PNUs the lane serves as a document from the live hostname, half of them
 //! drawn anew on every run from what its newest patches wrote, the rest from the gate sample (the
-//! equality evidence on the host; the real PNUs never enter the repository; root ADR-0446), and
+//! equality evidence on the host; the real PNUs never enter the repository; root ADR-0448), and
 //! holds each answer to:
 //!
 //! - 200, within the read timeout, or a 404 for a PNU the lane serves as a tombstone or not at all
@@ -325,7 +325,7 @@ pub fn judge_serving(report: &mut MonitorReport) {
 /// (2026-11-07: 4 of the 공매 lane's first 20 had ended in 14 days; root ADR-0437). Served packs
 /// give half of them anew on every run from the documents their newest patches wrote
 /// (`recently_written`), the rest from the gate sample: the cut-over's sample alone never reads a
-/// key that came after it (root ADR-0446: on 2026-11-08, 15 days after its cut-over, 1,234 of the
+/// key that came after it (root ADR-0448: on 2026-11-08, 15 days after its cut-over, 1,234 of the
 /// 공매 lane's 4,677 sampled PNUs had left its Gold and none of the notices published since was in
 /// the sample). Either side fills what the other lacks. A lane that serves objects takes the first
 /// `wanted` of the sample, as before.
