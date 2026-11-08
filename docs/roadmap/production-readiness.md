@@ -257,8 +257,8 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 온비드 부동산 물건 (`silver.onbid_real_estate_item`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 물건상세 (`silver.onbid_real_estate_item_detail`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 물건 사진 (`silver.onbid_real_estate_item_photo`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
-| 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | — | — | 없음 |
 | 물류 입지 | 공항 (`silver.airport`) | — | — | 없음 |
 | 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | — | — | 없음 |

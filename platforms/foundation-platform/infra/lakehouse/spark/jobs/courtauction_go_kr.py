@@ -7,8 +7,11 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
 
 - reads the rows (`data.dlt_srchResult`) of every 200 answer, one row per 물건 (court office, case,
   property and item sequence), the later answer winning when the list shifted between pages;
-- gives each row the PNU its address resolves to (`address_pnu`): the 행정구역 names with the
-  representative lot as a jibun address, else the road name with the building number;
+- gives each row its PNU through the one place-identity resolver (root ADR-0288, ADR-0382): the
+  representative parcel's legal-dong code with its lot (`source_code_pnu_raw`) carried to the current
+  code (`place_identity_resolver.resolve`); a row that path leaves unresolved, by its address
+  (`address_pnu`): the 행정구역 names with the representative lot as a jibun address, else the road
+  name with the building number;
 - appends to `silver.court_auction_item` the rows whose content changed and, only when the night read
   the item search completely, a removal marker for each 물건 that left it (root ADR-0275); to
   `silver.court_auction_sale_result` the rows whose content changed, never a marker; whether the
@@ -32,6 +35,7 @@ from typing import Any, Mapping, Sequence
 
 import address_pnu
 import code_change_follow as follow
+import place_identity_resolver
 
 JOB_NAME = "courtauction_go_kr"
 ITEM_TABLE = "silver.court_auction_item"
@@ -48,6 +52,9 @@ ROLE_TABLE = {"item_search": ITEM_TABLE, "sale_result_search": RESULT_TABLE}
 
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+FROM_CODE = load_source_contract()["pnu_resolution"]["from_code"]
 
 
 def text_or_none(value: Any) -> str | None:
@@ -75,9 +82,20 @@ def ymd(value: Any) -> date | None:
         return None
 
 
+def code_of(item: Mapping[str, Any], from_code: Mapping[str, Any]) -> str | None:
+    """The row's 10-digit legal-dong code from its four code fields, each of its width, or None."""
+
+    parts = [str(item.get(name) or "").strip() for name in from_code["legal_dong_code_fields"]]
+    if [len(p) for p in parts] != list(from_code["legal_dong_code_widths"]) or not all(p.isdigit() for p in parts):
+        return None
+    return "".join(parts)
+
+
 def item_row(item: Mapping[str, Any]) -> dict[str, Any]:
     sold = whole(item.get("maeAmt"))
     return {
+        "source_code_pnu_raw": place_identity_resolver.code_lot_pnu(code_of(item, FROM_CODE),
+                                                                    item.get(FROM_CODE["lot_field"])),
         "court_office_code": str(item["boCd"]).strip(), "case_no": str(item["saNo"]).strip(),
         "property_seq": whole(item["maemulSer"]), "item_seq": whole(item["mokmulSer"]),
         "user_case_no": text_or_none(item.get("srnSaNo")), "court_name": text_or_none(item.get("jiwonNm")),
@@ -260,12 +278,47 @@ def offered_schema(contract: Mapping[str, Any]) -> tuple[list[str], str]:
     return [name for name, _ in fields], ", ".join(f"{name} {kind}" for name, kind in fields)
 
 
+def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
+         crosswalk: tuple[Mapping[str, str], Any]) -> Any:
+    """The offered rows with their PNU: the code path (``place_identity_resolver.resolve`` with
+    ``crosswalk``) first, the address joins (``address_pnu.resolve``) for what it leaves unresolved.
+    A night's load and a code-change follow both link through here (root ADR-0382, ADR-0416)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    resolved = address_pnu.resolve(
+        offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
+        parcels, titles)
+    if "source_code_pnu_raw" in names:
+        remap, ambiguous = crosswalk
+        by_code = place_identity_resolver.resolve(
+            offered.select("row_id", F.col("source_code_pnu_raw").alias("pnu")), remap, ambiguous, parcels
+        ).select("row_id", F.col("pnu").alias("_code_pnu"), F.col("place_identity_grade").alias("_grade"))
+        resolved = resolved.join(by_code, "row_id", "left")
+        by_code_ok = F.col("_code_pnu").isNotNull()
+        resolved = (resolved
+                    .withColumn("pnu", F.coalesce(F.col("_code_pnu"), F.col("pnu")))
+                    .withColumn("pnu_basis", F.when(by_code_ok & (F.col("_grade") == F.lit("code_superseded")),
+                                                    F.lit("legal_dong_code_superseded"))
+                                .when(by_code_ok, F.lit("legal_dong_code")).otherwise(F.col("pnu_basis")))
+                    .withColumn("pnu_candidate_count", F.when(by_code_ok, F.lit(1)).otherwise(F.col("pnu_candidate_count")))
+                    .withColumn("pnu_unresolved_reason",
+                                F.when(by_code_ok, F.lit(None).cast("string")).otherwise(F.col("pnu_unresolved_reason")))
+                    .withColumn("legal_dong_code",
+                                F.when(by_code_ok, F.substring(F.col("pnu"), 1, 10)).otherwise(F.col("legal_dong_code")))
+                    .drop("_code_pnu", "_grade"))
+    return resolved
+
+
 def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: Mapping[str, Any], parcels: Any,
-                   titles: Any, current: Any, snapshot_id: str, now: datetime) -> tuple[Any, Any]:
+                   titles: Any, current: Any, snapshot_id: str, now: datetime,
+                   crosswalk: tuple[Mapping[str, str], Any] = ({}, ())) -> tuple[Any, Any]:
     """(staged rows, the rows to append) for one search of one night.
 
-    The rows go through the joins (``address_pnu.resolve``) and are compared with the table's
-    current rows (``release_changes``). A removal marker survives only for a complete item search.
+    The rows go through the code path (``place_identity_resolver.resolve`` with ``crosswalk``, the
+    pairs of ``pairs_from_lakehouse``), then the address joins (``address_pnu.resolve``) for what
+    it leaves unresolved, and are compared with the table's current rows (``release_changes``). A
+    removal marker survives only for a complete item search.
     """
 
     from platform_contracts import column_names  # noqa: PLC0415
@@ -277,9 +330,7 @@ def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: M
     offered = spark.createDataFrame(
         [tuple(n if name == "row_id" else row.get(name) for name in names) for n, row in enumerate(search["rows"])],
         schema=ddl)
-    resolved = address_pnu.resolve(
-        offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
-        parcels, titles)
+    resolved = link(offered, names, parcels, titles, crosswalk)
     staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
               .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
     changes = release_changes(staged, current, key=KEY, content=content_columns(contract), removal="row_state",
@@ -314,7 +365,8 @@ def relinked_rows(rows: Sequence[Mapping[str, Any]], record: str, snapshot: str,
 
 
 def follow_code_changes(spark: Any, catalog: str, table: str, contract: Mapping[str, Any], prefixes: Mapping[str, str],
-                        dongs: Mapping[tuple[str, str], str], parcels: Any, titles: Any, now: datetime) -> dict[str, Any] | None:
+                        dongs: Mapping[tuple[str, str], str], parcels: Any, titles: Any, now: datetime,
+                        crosswalk: tuple[Mapping[str, str], Any] = ({}, ())) -> dict[str, Any] | None:
     """Re-link the current rows the 법정동 code changes since the table's last follow can move, and
     append only the ones whose link moved (root ADR-0329 §3, ADR-0416). None when there is nothing
     to follow (no change table, or the links are as of its newest snapshot)."""
@@ -344,9 +396,7 @@ def follow_code_changes(spark: Any, catalog: str, table: str, contract: Mapping[
         names, ddl = offered_schema(contract)
         offered = spark.createDataFrame(
             [tuple(n if name == "row_id" else row.get(name) for name in names) for n, row in enumerate(rows)], schema=ddl)
-        resolved = address_pnu.resolve(
-            offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
-            parcels, titles)
+        resolved = link(offered, names, parcels, titles, crosswalk)
         staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
                   .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
         # Same keys on both sides: only the rows whose link moved are appended, and no removal marker.
@@ -403,6 +453,8 @@ def _load(argv: Sequence[str]) -> int:
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
         parcels, titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
+        # ADR-0288 §1: the code pairs are read once for the run, as every parcel source does.
+        crosswalk = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
         for entry in objects:
             search = read_object(entry, source, prefixes, dongs, now)
             role = entry["role"]
@@ -416,7 +468,7 @@ def _load(argv: Sequence[str]) -> int:
             if search["rows"]:
                 current = current_rows(spark.table(table), contract)
                 staged, changes = search_changes(spark, role, search, contract, parcels, titles, current,
-                                                 entry["source_snapshot_id"], now)
+                                                 entry["source_snapshot_id"], now, crosswalk)
                 changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).select(*columns).cache()
                 counts.update(changes=changes.count(), with_pnu=staged.where(F.col("pnu").isNotNull()).count())
                 if "row_state" in columns:
@@ -434,7 +486,7 @@ def _load(argv: Sequence[str]) -> int:
             table = f"`{args.iceberg_catalog_name}`.`silver`.`{contract_table.split('.', 1)[1]}{args.table_suffix}`"
             if spark.catalog.tableExists(table.replace("`", "")):
                 followed = follow_code_changes(spark, args.iceberg_catalog_name, table, contract, prefixes, dongs,
-                                               parcels, titles, now)
+                                               parcels, titles, now, crosswalk)
                 if followed:
                     summary["follows"].append(followed)
     finally:

@@ -28,6 +28,7 @@
       "!apps/web/lib/api/sub-parcels.generated.ts",
       "!apps/web/lib/api/energy.generated.ts",
       "!apps/web/lib/api/demolitions.generated.ts",
+      "!apps/web/lib/api/court-auction.generated.ts",
       "!apps/web/lib/api/factories.generated.ts",
       "!apps/web/lib/api/register-masters.generated.ts",
       "!apps/web/lib/api/building-permits.generated.ts",
