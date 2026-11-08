@@ -4,8 +4,9 @@
 #
 #   by-pnu-serving-monitor.sh <building|parcel|a by_pnu_lanes lane>
 #
-# Reads the first monitor.pnus PNUs of the lane's gate sample (FOUNDATION_PLATFORM_<LANE>_BY_PNU_
-# SERVING_MONITOR_SAMPLE_PATH, the equality evidence on this host) from the live hostname and holds
+# Reads monitor.pnus PNUs the lane serves, half drawn anew each run from its newest patches and the
+# rest from its gate sample (FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING_MONITOR_SAMPLE_PATH, the
+# equality evidence on this host; root ADR-0446), from the live hostname and holds
 # each to the document the lane serves and, while they exist, to the object document (a pack-only
 # lane of the contract's by_pnu_lanes has none, root ADR-0190). Read-only. A breach exits non-zero,
 # and the unit's OnFailure reports it to Slack.
