@@ -150,6 +150,44 @@ class CodeChangePublishIcebergTest(unittest.TestCase):
         self.assertEqual((operation, summary.get("added-data-files", "0")), ("append", "0"))
         self.assertEqual(outcome.report()["publish"]["by"], "metadata")
 
+    def test_a_plan_whose_publish_failed_resumes_its_shadow_write_and_its_difference(self):
+        # 2026-11-07 the parcel panel's shadow write (1,336 s) and its publish began again every run
+        # and never fit its unit together: a run of the same plan now reads both back.
+        import gold_incremental as incremental
+        import gold_rebuild
+
+        table = self.table_with_v1("publish_resume")
+        before, _, _, _ = self.head(table)
+        rows, changed = self.changed_build()
+        plan = "publish_resume." + "a" * 32
+
+        def attempt():
+            outcome = incremental.Outcome(mode="full", row_count=len(rows), metrics={}, gold=self.frame(rows).cache(),
+                                          publish_changed_keys=0.5, stages=incremental.Stages(self.spark, plan))
+            try:
+                with mock.patch("gold_code_version.of_running_producer", return_value="V2"), \
+                        mock.patch("gold_rebuild.write_gold_snapshot", wraps=gold_rebuild.write_gold_snapshot) as write:
+                    outcome.commit(self.spark, table, {"silver.example": "12"}, "overwrite", contract_table=CONTRACT)
+            finally:
+                outcome.release()
+            return outcome, [call for call in write.call_args_list if call.kwargs.get("branch")]
+
+        with mock.patch("gold_incremental.merge_into_gold", side_effect=RuntimeError("killed")):
+            with self.assertRaises(RuntimeError):
+                attempt()
+        stages = incremental.Stages(self.spark, plan)
+        self.assertTrue((stages.root / f"publish-source-{before}" / "_SUCCESS").exists(),
+                        "a failed commit keeps the plan's stages")
+        self.assertEqual(self.head(table)[0], before, "main is untouched")
+        shadow = incremental.shadow_write_of(self.spark, table, incremental.AUDIT_BRANCH)
+        self.assertEqual(shadow, (int(before), plan))
+
+        outcome, shadow_writes = attempt()
+        self.assertEqual(shadow_writes, [], "the shadow write of this plan is read back, not written again")
+        self.assert_published(table, before, rows, changed)
+        self.assertEqual(outcome.report()["publish"], {"to": "changed_keys", "by": "merge"})
+        self.assertFalse(stages.root.exists(), "a committed plan's stages are removed")
+
     def test_past_the_bound_main_is_fast_forwarded_to_the_shadow_build_and_the_keys_are_still_recorded(self):
         table = self.table_with_v1("publish_fast_forward")
         before, _, _, _ = self.head(table)
