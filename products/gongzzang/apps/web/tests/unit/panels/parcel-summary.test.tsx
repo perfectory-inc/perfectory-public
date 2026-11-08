@@ -16,6 +16,7 @@ const reads = vi.hoisted(() => ({
   demolitions: null as unknown,
   factories: null as unknown,
   registerMasters: null as unknown,
+  buildingPermits: null as unknown,
   realTransaction: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
@@ -55,6 +56,10 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelFactoriesQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "factories", pnu],
     queryFn: async () => reads.factories,
+  }),
+  parcelBuildingPermitsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "building-permits", pnu],
+    queryFn: async () => reads.buildingPermits,
   }),
   parcelRegisterMastersQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "register-masters", pnu],
@@ -361,6 +366,37 @@ describe("parcel panel sections", () => {
       expect(screen.queryByText(/대지면적/)).toBeNull();
     } finally {
       reads.registerMasters = null;
+    }
+  });
+
+  it("shows the parcel's 건축인허가 in the register's words, without empty or zero figures", async () => {
+    reads.buildingPermits = {
+      records: [
+        {
+          arch_kind_name: "신축",
+          main_purpose_name: "공장",
+          plot_area_m2: "1000.5",
+          building_area_m2: "0",
+          total_floor_area_m2: "800",
+          permit_date: "20980101",
+          start_scheduled_date: null,
+          start_delayed_date: null,
+          start_actual_date: "20980301",
+          use_approval_date: null,
+        },
+      ],
+      total: 3,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("건축인허가 3건")).toBeTruthy();
+      expect(anchors()).toContain("건축인허가");
+      expect(screen.getByText("신축 · 공장")).toBeTruthy();
+      expect(screen.getByText("대지면적 1000.5㎡ · 연면적 800㎡")).toBeTruthy();
+      expect(screen.getByText("건축허가일 2098.01.01 · 실제착공일 2098.03.01")).toBeTruthy();
+      expect(screen.getByText("최근 1건만 보임 · 전체 3건")).toBeTruthy();
+    } finally {
+      reads.buildingPermits = null;
     }
   });
 

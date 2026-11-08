@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { generate } from "../../codegen/gen-schemas.mjs";
+import { BuildingPermitsDocumentSchema } from "./building-permits";
 import { DemolitionsDocumentSchema } from "./demolitions";
 import { EnergyDocumentSchema } from "./energy";
 import { FactoriesDocumentSchema } from "./factories";
@@ -115,6 +116,16 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
     expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/factories.generated.ts");
     const read = paths(z.toJSONSchema(FactoriesDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the building permits paths its pact lists", () => {
+    const entry = registry.subjects.find(
+      (subject) => subject.owner.lane === "parcel-building-permits",
+    );
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/building-permits.generated.ts");
+    const read = paths(z.toJSONSchema(BuildingPermitsDocumentSchema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 

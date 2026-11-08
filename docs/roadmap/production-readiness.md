@@ -236,12 +236,12 @@ last_reviewed: 2026-11-07
 | 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축인허가 기본개요 (`silver.building_permit_basis_outline`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축인허가 철거멸실관리대장 (`silver.building_permit_demolition_loss`) | `parcel-demolitions (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | — | — | 없음 |
 | 건물 | 건축인허가 부설주차장 (`silver.building_permit_annex_parking`) | — | — | 없음 |
-| 건물 | 건축인허가 기본개요 (`silver.building_permit_basis_outline`) | — | — | 없음 |
 | 건물 | 건축인허가 동별개요 (`silver.building_permit_building_outline`) | — | — | 없음 |
 | 건물 | 건축인허가 층별개요 (`silver.building_permit_floor_overview`) | — | — | 없음 |
 | 건물 | 건축인허가 대수선 (`silver.building_permit_major_repair`) | — | — | 없음 |
