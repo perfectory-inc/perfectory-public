@@ -123,7 +123,7 @@ done
 ```
 
 - 요약 파일과 카탈로그의 표 메타데이터만 읽는다. R2 의 묶음은 읽지 않는다.
-- 기준 Gold 행 수는 운영자가 적는 값이 아니라 카탈로그가 그 스냅숏에 기록한 행 수(`total-records`)다.
+- 기준 Gold 행 수는 운영자가 적는 값이 아니라 카탈로그가 그 스냅숏에 기록한 행 수(`total-records` 에서 `total-position-deletes` 를 뺀 값, ADR-0344 의 merge-on-read)다.
   `…_PACK_EXPECTED_DOCUMENT_COUNT` 를 적으면 그 값과 같아야 하고, 요약이 센 행 수도 같아야 한다.
 - `passed` 는 모든 요약이 한 Gold 스냅숏, 1세대, 모든 항목의 기본 굽기이고, 비교한 수의 합과 같은 수의
   합이 모두 그 Gold 행 수와 같을 때만 참이다.
