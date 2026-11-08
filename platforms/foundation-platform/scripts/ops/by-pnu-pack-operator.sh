@@ -571,7 +571,9 @@ for raw in open(path, encoding="utf-8"):
             sys.exit(f"{path}: section {section} has no transient equivalent")
         continue
     key, _, value = line.partition("=")
-    if key == "Description":
+    # X- lines are ours for systemd to ignore (root ADR-0445's X-Foundation-Owner=); systemd-run refuses
+    # them as "Unknown assignment" (2026-11-08 16:12Z–17:00Z: every lane's gold step failed in 1 s).
+    if key == "Description" or key.startswith("X-"):
         continue
     if key == "ExecStart":
         argv = shlex.split(value)

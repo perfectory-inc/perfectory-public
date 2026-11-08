@@ -21,6 +21,9 @@
 #     Gold rebuild's time bound (orchestration/jobs.v1.json gold_panel_rebuild) does not double it: the
 #     rebuild resumes from the stages it kept (root ADR-0438, ADR-0440), so the next attempt goes on
 #     where it stopped (2026-11-07: parcel-regulation-zones' first national build, longer than the bound).
+#     Only attempts by the release that runs now count: a new release is new evidence, the way Argo
+#     Rollouts analyses a new revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold
+#     step in 1 s left each lane three attempts, and the release that fixed it would have waited 4 hours).
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
 #     next one when the last attempt of that generation failed in its bake or its equality gate: a
 #     bake pinned to a Gold snapshot that has moved since cannot match the Gold it is compared with
@@ -38,6 +41,7 @@ marks="${FOUNDATION_AUTO_PROMOTE_MARKS:-/var/lib/foundation-run-now/auto-promote
 bake_root="${FOUNDATION_OPERATOR_BAKE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 now="${FOUNDATION_AUTO_PROMOTE_NOW:-$(date +%s)}"
 ops="${release_root}/scripts/ops"
+release="$(basename "$(readlink -e "${release_root}")")"
 mkdir -p "${marks}"
 
 running="$(python3 -I -B "${release_root}/scripts/deploy/job_units.py" running 'foundation-by-pnu-lane-cutover-g*.service')" \
@@ -81,9 +85,9 @@ if ((${#pending[@]} == 0)); then
 fi
 
 # The lane to start and its generation, or nothing while every pending lane waits out its backoff.
-choice="$(python3 -I - "${marks}" "${bake_root}" "${now}" "${release_root}/orchestration/jobs.v1.json" "${pending[@]}" <<'PY'
+choice="$(python3 -I - "${marks}" "${bake_root}" "${now}" "${release_root}/orchestration/jobs.v1.json" "${release}" "${pending[@]}" <<'PY'
 import glob, json, os, re, sys
-marks, bake_root, now, jobs, *lanes = sys.argv[1:]
+marks, bake_root, now, jobs, release, *lanes = sys.argv[1:]
 now = int(now)
 HOUR, CAP = 3600, 86400
 with open(jobs, encoding="utf-8") as handle:
@@ -92,7 +96,7 @@ with open(jobs, encoding="utf-8") as handle:
 def attempts(lane):
     try:
         with open(os.path.join(marks, f"{lane}.jsonl"), encoding="utf-8") as handle:
-            return [json.loads(line) for line in handle if line.strip()]
+            return [mark for line in handle if line.strip() and (mark := json.loads(line)).get("release") == release]
     except FileNotFoundError:
         return []
 
@@ -141,6 +145,6 @@ if [[ "${verdict:-}" != start ]]; then
   exit 0
 fi
 
-printf '{"at": %s, "lane": "%s", "generation": %s}\n' "${now}" "${lane}" "${generation}" >>"${marks}/${lane}.jsonl"
+printf '{"at": %s, "lane": "%s", "generation": %s, "release": "%s"}\n' "${now}" "${lane}" "${generation}" "${release}" >>"${marks}/${lane}.jsonl"
 log "${lane}: not cut over and its last attempt (if any) is past its backoff; starting its cut-over at generation ${generation}"
 exec "${ops}/by-pnu-pack-operator.sh" "${lane}" cutover "${generation}" --auto
