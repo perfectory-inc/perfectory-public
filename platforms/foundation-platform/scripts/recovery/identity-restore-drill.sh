@@ -19,6 +19,8 @@ PG_IMAGE="postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e
 SOCAT_IMAGE="alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
 ZITADEL_IMAGE="ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c"
 drill="identity-restore-drill-$(date -u +%Y%m%d%H%M%S)"
+# Tries one second apart; a loaded host makes each `docker exec` slower, so the bound is generous.
+ready_tries="${FOUNDATION_RESTORE_DRILL_READY_TRIES:-600}"
 
 cleanup() {
     docker ps -aq --filter "label=${drill}" | xargs -r docker rm -f >/dev/null 2>&1 || true
@@ -48,17 +50,24 @@ for target in "${IDENTITY_BACKUP_TARGETS[@]}"; do
         --memory 1g -e POSTGRES_USER="$(container_env "${live}" POSTGRES_USER)" \
         -e POSTGRES_DB="$(container_env "${live}" POSTGRES_DB)" -e POSTGRES_HOST_AUTH_METHOD=trust \
         "${PG_IMAGE}" >/dev/null
-    for _ in $(seq 60); do
+    # Ready means the final server on TCP: the image's init runs a socket-only server first, before it
+    # creates POSTGRES_DB. 2026-11-08 the wait ran out on a busy host, fell through, and pg_restore met
+    # that server on the socket: `FATAL: database "zitadel" does not exist`. A copy that never gets
+    # ready now fails here, and the restore itself asks over TCP.
+    ready=""
+    for _ in $(seq "${ready_tries}"); do
         # shellcheck disable=SC2016 # the container's env
-        docker exec "${restored}" sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1' >/dev/null 2>&1 && break
+        docker exec "${restored}" sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1' >/dev/null 2>&1 \
+            && ready=yes && break
         sleep 1
     done
+    [[ -n "${ready}" ]] || { printf '%s: the restored database was not ready within %s tries\n' "${name}" "${ready_tries}" >&2; exit 1; }
     # Roles are not in a database dump; the identity platform's bootstrap (bootstrap-identity.sql)
     # creates them before a real restore. The drill restores the objects under the superuser.
     # shellcheck disable=SC2016 # the container's env
     aws s3 cp --only-show-errors "s3://${bucket}/${key}" - </dev/null \
         | decrypt \
-        | docker exec -i "${restored}" sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges --exit-on-error'
+        | docker exec -i "${restored}" sh -c 'pg_restore -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --no-privileges --exit-on-error'
 
     live_tables="$(psql_in "${live}" "${tables_sql}")"
     restored_tables="$(psql_in "${restored}" "${tables_sql}")"

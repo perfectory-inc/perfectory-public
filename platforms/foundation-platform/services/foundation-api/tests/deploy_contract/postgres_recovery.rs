@@ -49,6 +49,10 @@ fn assert_postgres_recovery_compose_contract() -> TestResult {
     assert!(dockerfile.contains(
         "COPY --chmod=0755 infra/postgres/recovery-entrypoint.sh /usr/local/bin/foundation-postgres-recovery-entrypoint"
     ));
+    // A restore recreates the tablespaces under /tablespaces as postgres; a fresh volume is root's
+    // (2026-11-08 drill: `unable to create path '/tablespaces/parcel-bulk'`).
+    let entrypoint = read_area_file("infra/postgres/recovery-entrypoint.sh")?;
+    assert!(entrypoint.contains("install -d -m 0700 -o postgres -g postgres /tablespaces"));
     assert!(dockerfile
         .lines()
         .filter(|line| line.starts_with("FROM "))
