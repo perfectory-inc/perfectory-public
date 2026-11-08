@@ -237,6 +237,7 @@ last_reviewed: 2026-11-07
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축인허가 철거멸실관리대장 (`silver.building_permit_demolition_loss`) | `parcel-demolitions (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | — | — | 없음 |
 | 건물 | 건축인허가 부설주차장 (`silver.building_permit_annex_parking`) | — | — | 없음 |
@@ -248,7 +249,6 @@ last_reviewed: 2026-11-07
 | 건물 | 건축인허가 대지위치 (`silver.building_permit_site_location`) | — | — | 없음 |
 | 건물 | 건축인허가 공작물관리대장 (`silver.building_permit_structure_ledger`) | — | — | 없음 |
 | 건물 | 건축인허가 가설건축물 (`silver.building_permit_temporary_building`) | — | — | 없음 |
-| 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | — | — | 없음 |
 | 거래·공매·경매 | 온비드 공고 (`silver.onbid_announcement`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고 입찰결과 (`silver.onbid_announcement_bid_result`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고상세 (`silver.onbid_announcement_detail`) | `parcel-public-auction` | — | 화면 |

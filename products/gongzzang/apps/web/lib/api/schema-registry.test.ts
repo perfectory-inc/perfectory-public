@@ -10,6 +10,7 @@ import { FactoriesDocumentSchema } from "./factories";
 import { OwnershipDocumentSchema } from "./ownership";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 import { RealTransactionDocumentSchema } from "./real-transaction";
+import { RegisterMastersDocumentSchema } from "./register-masters";
 import { RegulationZonesDocumentSchema } from "./regulation-zones";
 import { SubParcelsDocumentSchema } from "./sub-parcels";
 
@@ -114,6 +115,16 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
     expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/factories.generated.ts");
     const read = paths(z.toJSONSchema(FactoriesDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the register masters paths its pact lists", () => {
+    const entry = registry.subjects.find(
+      (subject) => subject.owner.lane === "parcel-register-masters",
+    );
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/register-masters.generated.ts");
+    const read = paths(z.toJSONSchema(RegisterMastersDocumentSchema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 
