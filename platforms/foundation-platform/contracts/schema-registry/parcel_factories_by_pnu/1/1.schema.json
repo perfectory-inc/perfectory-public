@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_factories_by_pnu",
+  "description": "A parcel's registered factories as 한국산업단지공단 전국등록공장현황 lists them (root ADR-0280 §4, ADR-0449): the newest edition's distinct factories whose 공장주소 resolved to the parcel, by 회사명, each in the provider's words (회사명, 단지명, 생산품), at most 50; factory_total counts them all.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_factories_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "factories": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "description": "The parcel's distinct factories by 회사명, at most 50.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "company_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "complex_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "products": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "records"
+      ]
+    },
+    "factory_total": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "factories"
+  ]
+}
