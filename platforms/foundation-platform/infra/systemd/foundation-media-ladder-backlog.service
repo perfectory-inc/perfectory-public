@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform photo ladder backlog: the display ladders a collector run left, made from the Silver photo indexes (root ADR-0429)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/media-reconcile.md
+X-Foundation-Owner=serving
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

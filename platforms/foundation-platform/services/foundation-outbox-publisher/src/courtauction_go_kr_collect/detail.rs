@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use anyhow::Context as _;
 use base64::Engine as _;
 use chrono::{DateTime, NaiveDate, Utc};
-use collection_application::{ask, Asked, SiteMethod, SiteRequest};
+use collection_application::{ask, Asked, PaceGate, SiteMethod, SiteRequest};
 use collection_domain::court_auction::{due, fingerprint, CaseView, RecrawlRule};
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::{MediaFormat, ObjectKeyPrefix};
@@ -442,6 +442,36 @@ enum Sent {
     Stopped(Stop),
 }
 
+/// Sends one property's request unless the operator's window is shut.
+async fn send(
+    asking: &Asking<'_>,
+    gate: &PaceGate,
+    deadline: Instant,
+    request: SiteRequest,
+    open: anyhow::Result<bool>,
+    at: DateTime<Utc>,
+    body: JsonValue,
+) -> anyhow::Result<Sent> {
+    if !open? {
+        return Ok(Sent::Stopped(Stop::WindowEnded));
+    }
+    Ok(
+        match ask(
+            asking.sessions,
+            gate,
+            &asking.rules,
+            &asking.tally,
+            &request,
+            deadline,
+        )
+        .await
+        {
+            Asked::Unfinished => Sent::Stopped(Stop::TimeBudget),
+            asked => Sent::Answered { at, body, asked },
+        },
+    )
+}
+
 /// Asks the 물건상세 of `asked` until `deadline`, as many in flight as the detail's pace group
 /// allows, and reads the answers in order, one at a time (an answer is a few MB of base64, so only
 /// the ones in flight are held). `now` is asked before every request, as the list searches do.
@@ -451,7 +481,7 @@ pub(crate) async fn collect_details(
     deadline: Instant,
     asked: &[Wanted],
     store: &PhotoStore<'_>,
-    now: impl Fn() -> DateTime<Utc>,
+    now: impl Fn() -> DateTime<Utc> + Sync,
 ) -> anyhow::Result<(DetailResult, Option<Stop>)> {
     let detail = &contract.item_detail;
     let rule = contract
@@ -471,37 +501,20 @@ pub(crate) async fn collect_details(
         .chain(&detail.headers)
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    let (now, headers) = (&now, &headers);
-    let mut answers = stream::iter(asked)
-        .map(|wanted| async move {
-            let at = now();
-            if !may_ask(&asking.switches, at)? {
-                return anyhow::Ok(Sent::Stopped(Stop::WindowEnded));
-            }
-            let body = request_body(detail, &wanted.key);
-            let request = SiteRequest {
-                method: SiteMethod::Post,
-                path: detail.path.clone(),
-                headers: headers.clone(),
-                body: Some(body.clone()),
-            };
-            Ok(
-                match ask(
-                    asking.sessions,
-                    gate,
-                    &asking.rules,
-                    &asking.tally,
-                    &request,
-                    deadline,
-                )
-                .await
-                {
-                    Asked::Unfinished => Sent::Stopped(Stop::TimeBudget),
-                    asked => Sent::Answered { at, body, asked },
-                },
-            )
-        })
-        .buffered(rule.max.max(1) as usize);
+    let mut answers = stream::iter(asked.iter().map(|wanted| {
+        // Asked when the stream takes the next request, so a window that ended stops the rest.
+        let at = now();
+        let body = request_body(detail, &wanted.key);
+        let request = SiteRequest {
+            method: SiteMethod::Post,
+            path: detail.path.clone(),
+            headers: headers.clone(),
+            body: Some(body.clone()),
+        };
+        let open = may_ask(&asking.switches, at);
+        send(asking, gate, deadline, request, open, at, body)
+    }))
+    .buffered(rule.max.max(1) as usize);
     let mut result = DetailResult::default();
     for wanted in asked {
         let Some(sent) = answers.next().await else {
