@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { groupBy } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import type { BuildingPermits } from "@/lib/api/building-permits";
 import type { Building } from "@/lib/api/buildings";
 import { type Demolitions, dayLabel, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
@@ -25,6 +26,7 @@ import { usePanelStack } from "@/lib/panel/use-panel-stack";
 import { ParcelListingsCard } from "./listings";
 import { ParcelPublicAuctionCard } from "./public-auction";
 import {
+  parcelBuildingPermitsQuery,
   parcelBuildingsQuery,
   parcelDemolitionsQuery,
   parcelEnergyQuery,
@@ -295,6 +297,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
   const factories = useQuery(parcelFactoriesQuery(entry.id));
   const registerMasters = useQuery(parcelRegisterMastersQuery(entry.id));
+  const buildingPermits = useQuery(parcelBuildingPermitsQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -313,6 +316,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
     });
   }
   sections.push(...registerMastersSections(registerMasters.data, t("sections.registerMasters")));
+  sections.push(...buildingPermitsSections(buildingPermits.data, t("sections.buildingPermits")));
   const links = subParcels.data;
   if (links && links.on_other_total + links.from_other_total > 0) {
     sections.push({
@@ -860,6 +864,83 @@ function RegisterMastersSection({ masters }: { masters: RegisterMasters }) {
       {masters.total > masters.records.length && (
         <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
           {t("registerMasters.more", { shown: masters.records.length, total: masters.total })}
+        </p>
+      )}
+    </Group>
+  );
+}
+
+/** The 건축인허가 section, only for a parcel with a building permit. */
+function buildingPermitsSections(
+  permits: BuildingPermits | null | undefined,
+  label: string,
+): Section[] {
+  if (!permits || permits.records.length === 0) return [];
+  return [{ id: "buildingPermits", label, content: <BuildingPermitsSection permits={permits} /> }];
+}
+
+/**
+ * 건축인허가 from the building-permit lane (root ADR-0451): each permit in the register's own words
+ * (건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일), newest first.
+ * A figure the register leaves empty or 0 is not shown.
+ */
+function BuildingPermitsSection({ permits }: { permits: BuildingPermits }) {
+  const t = useTranslations("panels.parcel.summary");
+  // Each line is its labelled fields in the register's order; a field left out is not shown.
+  const line = (fields: [string, string | null | undefined][], keep: (v: string) => boolean) =>
+    fields
+      .filter((field): field is [string, string] => !!field[1] && keep(field[1]))
+      .map(([key, value]) => t(`buildingPermits.${key}`, { value }))
+      .join(" · ");
+  const day = (value: string | null | undefined) => value && dayLabel(value);
+  return (
+    <Group title={t("buildingPermits.title", { count: permits.total })}>
+      <ul className="flex flex-col gap-2">
+        {permits.records.map((record) => (
+          <li
+            key={[
+              record.arch_kind_name,
+              record.main_purpose_name,
+              record.total_floor_area_m2,
+              record.permit_date,
+              record.start_actual_date,
+              record.use_approval_date,
+              record.plot_area_m2,
+            ].join("|")}
+            className="rounded-md border border-[var(--color-hairline)] px-3 py-2 text-[length:var(--text-body-sm)]"
+          >
+            <div className="font-semibold text-[var(--color-ink)]">
+              {[record.arch_kind_name, record.main_purpose_name].filter(Boolean).join(" · ") ||
+                t("none")}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {line(
+                [
+                  ["plotArea", record.plot_area_m2],
+                  ["buildingArea", record.building_area_m2],
+                  ["floorArea", record.total_floor_area_m2],
+                ],
+                filled,
+              )}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {line(
+                [
+                  ["permitDate", day(record.permit_date)],
+                  ["startScheduledDate", day(record.start_scheduled_date)],
+                  ["startDelayedDate", day(record.start_delayed_date)],
+                  ["startActualDate", day(record.start_actual_date)],
+                  ["useApprovalDate", day(record.use_approval_date)],
+                ],
+                () => true,
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {permits.total > permits.records.length && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("buildingPermits.more", { shown: permits.records.length, total: permits.total })}
         </p>
       )}
     </Group>
