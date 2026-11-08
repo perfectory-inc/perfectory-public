@@ -256,6 +256,7 @@
           "land": "토지",
           "factories": "등록공장",
           "buildings": "건물",
+          "registerMasters": "총괄표제부",
           "subParcels": "부속지번",
           "energy": "에너지",
           "demolitions": "멸실 건물",
@@ -282,6 +283,19 @@
           "complex": "단지명 {name}",
           "products": "생산품 {products}",
           "more": "{shown}곳만 보임 · 전체 {total}곳"
+        },
+        "registerMasters": {
+          "title": "총괄표제부 {count}건",
+          "plotArea": "대지면적 {value}㎡",
+          "buildingArea": "건축면적 {value}㎡",
+          "floorArea": "연면적 {value}㎡",
+          "mainBuildings": "주건축물수 {value}",
+          "annexBuildings": "부속건축물수 {value}",
+          "parking": "총주차수 {value}",
+          "permitDate": "허가일 {value}",
+          "startDate": "착공일 {value}",
+          "useApprovalDate": "사용승인일 {value}",
+          "more": "최근 {shown}건만 보임 · 전체 {total}건"
         },
         "demolitions": {
           "title": "멸실된 건물 {count}건",

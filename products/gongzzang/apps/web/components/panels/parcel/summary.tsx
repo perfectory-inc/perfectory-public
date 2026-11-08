@@ -5,12 +5,13 @@ import { groupBy } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { Building } from "@/lib/api/buildings";
-import { type Demolitions, reportDates } from "@/lib/api/demolitions";
+import { type Demolitions, dayLabel, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import type { Factories } from "@/lib/api/factories";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import type { RealTransaction } from "@/lib/api/real-transaction";
+import { filled, type RegisterMasters } from "@/lib/api/register-masters";
 import type { RegulationZone, RegulationZones } from "@/lib/api/regulation-zones";
 import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
@@ -32,6 +33,7 @@ import {
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
   parcelRealTransactionQuery,
+  parcelRegisterMastersQuery,
   parcelRegulationZonesQuery,
   parcelSubParcelsQuery,
 } from "./queries";
@@ -292,6 +294,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const energy = useQuery(parcelEnergyQuery(entry.id));
   const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
   const factories = useQuery(parcelFactoriesQuery(entry.id));
+  const registerMasters = useQuery(parcelRegisterMastersQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -309,6 +312,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <BuildingsSection entry={entry} buildings={buildingList} landRights={landRights} />,
     });
   }
+  sections.push(...registerMastersSections(registerMasters.data, t("sections.registerMasters")));
   const links = subParcels.data;
   if (links && links.on_other_total + links.from_other_total > 0) {
     sections.push({
@@ -771,6 +775,91 @@ function FactoriesSection({ factories }: { factories: Factories }) {
       {factories.total > factories.records.length && (
         <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
           {t("factories.more", { shown: factories.records.length, total: factories.total })}
+        </p>
+      )}
+    </Group>
+  );
+}
+
+/** The 총괄표제부 section, only for a parcel with a site of several buildings. */
+function registerMastersSections(
+  masters: RegisterMasters | null | undefined,
+  label: string,
+): Section[] {
+  if (!masters || masters.records.length === 0) return [];
+  return [{ id: "registerMasters", label, content: <RegisterMastersSection masters={masters} /> }];
+}
+
+/**
+ * 총괄표제부 from the register-master lane (root ADR-0450): each site's totals in the register's own
+ * words (주용도, 대지·건축·연면적, 주·부속건축물수, 총주차수, 허가·착공·사용승인일), newest first.
+ * A figure the register leaves empty or 0 is not shown.
+ */
+function RegisterMastersSection({ masters }: { masters: RegisterMasters }) {
+  const t = useTranslations("panels.parcel.summary");
+  // Each line is its labelled fields in the register's order; a field left out is not shown.
+  const line = (fields: [string, string | null | undefined][], keep: (v: string) => boolean) =>
+    fields
+      .filter((field): field is [string, string] => !!field[1] && keep(field[1]))
+      .map(([key, value]) => t(`registerMasters.${key}`, { value }))
+      .join(" · ");
+  return (
+    <Group title={t("registerMasters.title", { count: masters.total })}>
+      <ul className="flex flex-col gap-2">
+        {masters.records.map((record) => (
+          <li
+            key={[
+              record.main_purpose_name,
+              record.total_floor_area_m2,
+              record.permit_date,
+              record.start_date,
+              record.use_approval_date,
+              record.plot_area_m2,
+            ].join("|")}
+            className="rounded-md border border-[var(--color-hairline)] px-3 py-2 text-[length:var(--text-body-sm)]"
+          >
+            <div className="font-semibold text-[var(--color-ink)]">
+              {record.main_purpose_name ?? t("none")}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {line(
+                [
+                  ["plotArea", record.plot_area_m2],
+                  ["buildingArea", record.building_area_m2],
+                  ["floorArea", record.total_floor_area_m2],
+                ],
+                filled,
+              )}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {line(
+                [
+                  ["mainBuildings", record.main_building_count],
+                  ["annexBuildings", record.annex_building_count],
+                  ["parking", record.parking_count],
+                ],
+                filled,
+              )}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {line(
+                [
+                  ["permitDate", record.permit_date && dayLabel(record.permit_date)],
+                  ["startDate", record.start_date && dayLabel(record.start_date)],
+                  [
+                    "useApprovalDate",
+                    record.use_approval_date && dayLabel(record.use_approval_date),
+                  ],
+                ],
+                () => true,
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {masters.total > masters.records.length && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("registerMasters.more", { shown: masters.records.length, total: masters.total })}
         </p>
       )}
     </Group>
