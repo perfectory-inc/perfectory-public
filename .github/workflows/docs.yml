@@ -49,7 +49,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-pipeline-map.py --check
       - name: Check the roadmap's showing inventory
-        if: ${{ !cancelled() }}
         # Which collected Silver reaches the gongzzang screen, from the definitions (production-readiness §10).
         run: |
           python3 scripts/catalog/render-showing-inventory.py --check
