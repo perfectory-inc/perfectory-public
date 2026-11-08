@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-09
 ---
 
 # data.go.kr 파일 데이터 — 등록공장 수집·주소로 PNU 찾기·적재, 기타 공공 일괄 파일 수집 런북
@@ -112,22 +112,31 @@ last_reviewed: 2026-11-04
 - 거부: 머리줄·칸 수가 계약과 다르거나 인코딩으로 읽히지 않는 바이트(제공자가 형식을 바꿈 → 계약을 고치는 PR), 제공자 키가
   비었거나 겹침, 행이 바닥보다 적거나 현재 행보다 한계 넘게 줄어듦(잘린 파일일 수 있음 → 포털에서 받아 확인).
 
-### 표준데이터 3개 — 공공데이터 OpenAPI (루트 ADR-0401)
+### 표준데이터 3개 — 데이터셋 페이지의 키 없는 내려받기 (루트 ADR-0453)
 
-학교 위치·대학·도시철도역은 포털의 표준데이터라 파일 두 단계로 받을 수 없다(메타데이터가 파일 id 를 주지 않는다). 같은
-수집기가 계약 `openapi`(api.data.go.kr/openapi/tn_pubr_*)로 받는다(`format: openapi_pages`).
+학교 위치·대학·도시철도역은 포털의 표준데이터라 파일 두 단계로 받을 수 없다(메타데이터가 파일 id 를 주지 않는다). 대신
+데이터셋 페이지(`data.go.kr/data/<번호>/standard.do`)의 CSV·JSON 내려받기 단추가 쓰는 것과 같은 두 요청을 같은 수집기가
+보낸다(`format: standard_pages`, 계약 `standard_download`). 서비스 키도, 사람 손(활용신청)도 필요 없다.
 
-| 계약 `files` | data.go.kr · 작업 | 행 키 | 2026-11-04 실측(포털 내려받기로 읽음) | 필지 연결 |
+1. `columns_path`(`/download/columList.json?pk=<번호>&ext=CSV`)가 지금의 표(`svcTableNm`), 칸 목록(`colNmList`), 행 수
+   (`totalCount`)를 말한다. run 마다 묻는다: 제공자가 표나 칸을 바꾸면 다음 run 이 그대로 본다(상태 파일에 표 이름을 적지 않는다).
+2. `rows_path`(`/download/standard.json`)를 쪽마다(`perPage` 10,000) 묻는다. 답은 칸 코드를 키로 한 행의 JSON 배열이다.
+
+| 계약 `files` | data.go.kr · 작업 | 행 키 | 2026-11-09 실측 | 필지 연결(2026-11-04 표본) |
 |---|---|---|---|---|
-| `school_location` | 15021148 `tn_pubr_public_elesch_mskul_lc_api` | 학교ID(`schoolId`) | 12,004행, 13쪽, JSON 약 8 MB | 표본 2,000 중 1,939(97.0%) |
-| `university` | 15107736 `tn_pubr_public_univ_info_api` | (학교명, 본분교구분명) | 1,995행, 2쪽 | 1,995 중 1,356(68.0%), 599 는 road_ambiguous |
-| `subway_station` | 15013205 `tn_pubr_public_ctyrlroad_statn_api` | 행 SHA-256 | 898행, 1쪽 | 898 중 205(22.8%), 511 은 `지하` 건물번호라 unparsed |
+| `school_location` | 15021148 `stdData15021148` | `SCHOOL_ID` | 12,004행, 2쪽, JSON 7.5 MB(gzip 0.84 MB) | 표본 2,000 중 1,939(97.0%) |
+| `university` | 15107736 `stdData15107736` | (`SCHL_NM`, `MAINBRANCH_NM`) | 1,995행, 1쪽, 1.2 MB | 1,995 중 1,356(68.0%), 599 는 road_ambiguous |
+| `subway_station` | 15013205 `stdData15013205` | 행 SHA-256 | 898행, 1쪽, 0.45 MB | 898 중 205(22.8%), 511 은 `지하` 건물번호라 unparsed |
 
-- 한 run 이 파일마다 쪽을 전부(`numOfRows` 1,000) 읽는다. 행(정렬한 행의 SHA-256)이 마지막으로 받은 판과 같으면 아무것도 남기지
-  않는다. 다르면 모든 쪽의 원문 줄을 gzip JSON lines 객체 하나로 그 원천의 Bronze 에 남긴다(요청 기록에 키는 없다).
-  run 당 상한은 계약의 `max_pages`(18·3·2쪽)다. 넘으면 거부한다.
-- 키: `DATA_GO_KR_SERVICE_KEY`(`/etc/foundation-platform/data-go-kr.env`, 온비드와 같은 키). **2026-11-04 세 작업 모두
-  `SERVICE_KEY_IS_NOT_REGISTERED_ERROR`(HTTP 403)** — 사장이 data.go.kr 로그인 후 세 데이터셋 페이지에서 「활용신청」(자동승인)을
-  눌러야 한다. 그때까지 세 파일의 수집이 실패하고, 나머지 파일은 받고 적재된 뒤 run 이 실패로 끝난다(`COLLECT FAILED`).
-- 머리줄은 OpenAPI 의 필드 이름이다. 학교·대학은 데이터셋 페이지의 문서대로, 도시철도역은 문서가 없어 포털 내려받기의 칸 이름을
-  같은 낙타 표기로 옮긴 추정이다. 첫 답에 계약에 없는 필드가 있으면 그 판은 거부되고 오류가 필드를 말한다 → 계약을 고치는 PR.
+- 판: 행(정렬한 행의 SHA-256)이 마지막으로 받은 판과 같으면 아무것도 남기지 않는다. 다르면 칸 목록 답과 모든 쪽 답의 원문 줄
+  (`kind: columns|rows`)을 gzip JSON lines 객체 하나로 그 원천의 Bronze 에 남긴다. 행 수가 칸 목록의 `totalCount` 와 다르면 거부.
+- run 당 상한은 계약의 `max_pages`(3·1·1쪽)다. `totalCount` 가 그보다 많은 쪽을 요구하면 행을 묻기 전에 거부한다. 세 개 합쳐
+  요청 7개, 답 2초 안팎, 간격(5초)을 넣어 약 35초.
+- 머리줄은 내려받기의 칸 코드(`SCHOOL_ID`…, 마지막 두 칸 `INSTT_CODE`·`INSTT_NM`)다. 계약에 없는 칸이 오면 Silver 적재가 그 판을
+  거부하고 오류가 칸 이름을 말한다 → 계약을 고치는 PR.
+- OpenAPI(`api.data.go.kr/openapi/tn_pubr_*`)는 교차 확인일 뿐이다: `DATA_GO_KR_SERVICE_KEY` 가 있으면 새 판을 남긴 run 이 한 행만
+  물어 그 `totalCount` 가 판의 행 수와 같은지 manifest 의 `openapi_check`(`matches`·`differs`·`skipped`)에 적는다. 키가 없거나
+  게이트웨이가 거부해도(2026-11-04 세 작업 모두 `SERVICE_KEY_IS_NOT_REGISTERED_ERROR`, HTTP 403) 파일은 실패하지 않는다.
+- 다른 data.go.kr 원천(2026-11-09 저장소 전수 36개): 파일 데이터는 이미 키 없이 받고, OpenAPI 만 있는 것(온비드 13개·건축HUB 2개·
+  국세청 15081808·한전 15101404·산단공 15152884)은 공개 파일이 없다. 활용신청에 막혀 있으면서 공개 파일이 있는 것은 이 셋뿐이었다.
+  표준데이터가 더 생기면 계약 `files` 에 `standard_pages` 항목 하나를 더한다.

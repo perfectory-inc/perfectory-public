@@ -34,7 +34,7 @@ last_reviewed: 2026-07-30
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 2 | 2 | 0 | 전용 커맨드 2 |
-| data.go.kr | 43 | 20 | 0 | API 예정 11, 전용 커맨드 10, 중복 API 비활성 22 |
+| data.go.kr | 43 | 20 | 0 | API 예정 8, 전용 커맨드 13, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 3 | 2 | 0 | 전용 커맨드 3 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
@@ -115,9 +115,9 @@ last_reviewed: 2026-07-30
 | data.go.kr | 등록공장 | 항만 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 철도역 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 철도역 노선 매핑 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
-| data.go.kr | 등록공장 | 학교 위치 | 공개 API | true | API 예정 |
-| data.go.kr | 등록공장 | 도시철도역 | 공개 API | true | API 예정 |
-| data.go.kr | 등록공장 | 대학교 | 공개 API | true | API 예정 |
+| data.go.kr | 등록공장 | 학교 위치 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 도시철도역 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 대학교 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | mois_standard_code_open_api | 행정표준코드 법정동코드 목록 | 공개 API | false | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 물건상세 입찰정보 | 공개 API | true | API 예정 |
 | data.go.kr | 온비드 공매 | 온비드 물건 입찰결과상세 | 공개 API | true | API 예정 |

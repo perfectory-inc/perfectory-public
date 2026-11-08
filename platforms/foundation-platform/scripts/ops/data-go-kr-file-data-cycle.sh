@@ -55,7 +55,7 @@ trap 'job_journal "${journal}" "data.go.kr file data FAILED at line ${LINENO} ru
 trap 'rm -rf "${work}/collect" "${lake}"' EXIT
 
 # 1. 수집 — 한 파일의 실패가 다른 파일의 적재를 막지 않는다: 수집기가 실패해도 받은 파일의 manifest 는 남으니
-#    계획·적재까지 하고, 끝에서 실패로 끝난다(표준데이터 3개는 사장의 OpenAPI 활용신청 전까지 실패한다).
+#    계획·적재까지 하고, 끝에서 실패로 끝난다.
 datasets="$(python3 -I -c '
 import json, sys
 files = json.load(open(sys.argv[1], encoding="utf-8"))["files"]

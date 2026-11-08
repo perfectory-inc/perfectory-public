@@ -6,8 +6,8 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    fetch, fetch_pages, pass_id, plan, provider_file_id, read_metadata, selected, source_contract,
-    Announced, ContractFile, SourceContract, PREFIX,
+    fetch, fetch_standard, openapi_check, pass_id, plan, provider_file_id, read_columns,
+    read_metadata, selected, source_contract, Announced, ContractFile, SourceContract, PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -220,33 +220,51 @@ async fn a_download_that_is_not_the_file_is_refused() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A synthetic 표준데이터 answer: `response` wrapper, `body.items` the array (no real rows).
-fn standard_page(rows: &[serde_json::Value], total: usize) -> serde_json::Value {
-    json!({"response": {
-        "header": {"resultCode": "00", "resultMsg": "NORMAL_SERVICE"},
-        "body": {"items": rows, "totalCount": total.to_string(), "numOfRows": "2", "pageNo": "1"}
-    }})
+/// A synthetic column-list answer: the service table, its column list and the row count.
+fn columns_answer(total: u64) -> serde_json::Value {
+    json!({
+        "fileName": "합성표준데이터",
+        "totalCount": total,
+        "columList": [{"columCode": "SCHOOL_ID", "columNm": "학교ID"}],
+        "tableVO": {"svcTableNm": "tn_pubr_synthetic_svc", "colNmList": ["SCHOOL_ID", "LNMADR"]}
+    })
 }
 
 fn synthetic_school(id: &str) -> serde_json::Value {
-    json!({"schoolId": id, "schoolNm": "합성학교", "lnmadr": "합성도 합성시 가상동 1"})
+    json!({"SCHOOL_ID": id, "LNMADR": "합성도 합성시 가상동 1", "INSTT_NM": "합성기관"})
 }
 
-async fn standard_api(
+/// Mounts the keyless download: the column list, then each page's rows (`perPage` the contract's).
+async fn standard_download(
     file: &ContractFile,
-    pages: &[serde_json::Value],
+    total: u64,
+    pages: &[Vec<serde_json::Value>],
     server: &MockServer,
 ) -> anyhow::Result<()> {
-    let api = file
-        .openapi
+    let contract = source_contract()?;
+    let download = &contract.standard_download;
+    let pk = file
+        .standard
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("an openapi file"))?;
-    for (index, page) in pages.iter().enumerate() {
+        .ok_or_else(|| anyhow::anyhow!("a standard file"))?
+        .public_data_pk
+        .clone();
+    Mock::given(method("GET"))
+        .and(path(download.columns_path.clone()))
+        .and(query_param("pk", pk.clone()))
+        .and(query_param("ext", "CSV"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(columns_answer(total)))
+        .mount(server)
+        .await;
+    for (index, rows) in pages.iter().enumerate() {
         Mock::given(method("GET"))
-            .and(path(api.path.clone()))
-            .and(query_param("pageNo", (index + 1).to_string()))
-            .and(query_param("type", "json"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(page))
+            .and(path(download.rows_path.clone()))
+            .and(query_param("publicDataPk", pk.clone()))
+            .and(query_param("svcTableNm", "tn_pubr_synthetic_svc"))
+            .and(query_param("colNmList", "LNMADR"))
+            .and(query_param("perPage", download.page_size.to_string()))
+            .and(query_param("page", (index + 1).to_string()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(rows))
             .mount(server)
             .await;
     }
@@ -254,7 +272,7 @@ async fn standard_api(
 }
 
 #[tokio::test]
-async fn a_standard_data_pass_reads_every_page_and_lands_only_when_its_rows_change(
+async fn a_standard_data_pass_asks_the_current_table_and_lands_only_when_its_rows_change(
 ) -> anyhow::Result<()> {
     use std::io::Read;
     let contract = source_contract()?;
@@ -265,43 +283,37 @@ async fn a_standard_data_pass_reads_every_page_and_lands_only_when_its_rows_chan
         synthetic_school("S9999000002"),
         synthetic_school("S9999000003"),
     ];
-    standard_api(
-        school,
-        &[standard_page(&rows[..2], 3), standard_page(&rows[2..], 3)],
-        &server,
-    )
-    .await?;
+    standard_download(school, 3, &[rows.to_vec()], &server).await?;
     let mut requests = 0;
-    let (announced, bytes) = fetch_pages(
+    let (announced, count, bytes) = fetch_standard(
         &contract,
         school,
         &server.uri(),
-        Some("synthetic-key"),
         spacing()?,
         &mut requests,
         None,
     )
     .await?
     .ok_or_else(|| anyhow::anyhow!("a new pass lands"))?;
-    assert_eq!(
-        requests, 2,
-        "one request per page, stopping at the reported total"
-    );
+    assert_eq!((requests, count), (2, 3), "the column list, then one page");
     // The edition is its rows, whatever order the pages give them in.
     let reordered = [rows[2].clone(), rows[0].clone(), rows[1].clone()];
     assert_eq!(announced.attach_file_id, pass_id(&reordered));
     let mut text = String::new();
     flate2::read::GzDecoder::new(bytes.as_slice()).read_to_string(&mut text)?;
-    assert_eq!(text.lines().count(), 2, "every page's raw line");
-    assert!(
-        !text.contains("synthetic-key"),
-        "the key never reaches Bronze"
+    let kinds = text
+        .lines()
+        .map(|line| Ok(serde_json::from_str::<serde_json::Value>(line)?["kind"].clone()))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    assert_eq!(
+        kinds,
+        [json!("columns"), json!("rows")],
+        "every answer's raw line"
     );
-    assert!(fetch_pages(
+    assert!(fetch_standard(
         &contract,
         school,
         &server.uri(),
-        Some("synthetic-key"),
         spacing()?,
         &mut requests,
         Some(&announced.attach_file_id),
@@ -326,80 +338,145 @@ async fn a_standard_data_pass_reads_every_page_and_lands_only_when_its_rows_chan
 }
 
 #[tokio::test]
-async fn a_standard_data_pass_refuses_a_refusal_a_short_pass_and_no_key() -> anyhow::Result<()> {
+async fn a_standard_data_pass_refuses_a_short_pass_and_a_table_past_its_cap() -> anyhow::Result<()>
+{
     let contract = source_contract()?;
     let school = file(&contract, "school_location")?;
     let mut requests = 0;
-    // The gateway's refusal of an unregistered key is an error naming it, not "no rows".
-    let refused = MockServer::start().await;
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(403).set_body_json(json!({"OpenAPI_ServiceResponse": {
-            "cmmMsgHeader": {"errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", "returnReasonCode": "30"}}})))
-        .mount(&refused)
-        .await;
-    let error = fetch_pages(
+    // Rows that end before the column list's total are not a pass.
+    let short = MockServer::start().await;
+    standard_download(school, 5, &[vec![synthetic_school("S9999000001")]], &short).await?;
+    assert!(fetch_standard(
         &contract,
         school,
-        &refused.uri(),
-        Some("k"),
+        &short.uri(),
+        spacing()?,
+        &mut requests,
+        None
+    )
+    .await
+    .is_err());
+    // A table needing more pages than the cap refuses before any row is asked.
+    let long = MockServer::start().await;
+    let cap = school.standard.as_ref().map_or(0, |std| std.max_pages);
+    standard_download(
+        school,
+        (cap + 1) * contract.standard_download.page_size,
+        &[],
+        &long,
+    )
+    .await?;
+    let before = requests;
+    let error = fetch_standard(
+        &contract,
+        school,
+        &long.uri(),
         spacing()?,
         &mut requests,
         None,
     )
     .await
     .err()
-    .ok_or_else(|| anyhow::anyhow!("a refusal fails"))?;
-    assert!(format!("{error:#}").contains("SERVICE_KEY_IS_NOT_REGISTERED_ERROR"));
-    // Rows that end before the reported total are not a pass.
-    let short = MockServer::start().await;
-    standard_api(
-        school,
-        &[
-            standard_page(&[synthetic_school("S9999000001")], 5),
-            standard_page(&[], 5),
-        ],
-        &short,
-    )
-    .await?;
-    assert!(fetch_pages(
+    .ok_or_else(|| anyhow::anyhow!("a table past its cap refuses"))?;
+    assert!(format!("{error:#}").contains("per-run cap"));
+    assert_eq!(requests - before, 1, "only the column list was asked");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_openapi_only_cross_checks_and_never_fails_a_file() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let school = file(&contract, "school_location")?;
+    let mut requests = 0;
+    assert_eq!(
+        openapi_check(
+            &contract,
+            school,
+            "http://127.0.0.1:9",
+            None,
+            spacing()?,
+            &mut requests,
+            3
+        )
+        .await["status"],
+        "skipped",
+        "no key, no request"
+    );
+    assert_eq!(requests, 0);
+    // The gateway's refusal of an unregistered key is recorded, not an error.
+    let refused = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({"OpenAPI_ServiceResponse": {
+            "cmmMsgHeader": {"errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", "returnReasonCode": "30"}}})))
+        .mount(&refused)
+        .await;
+    let check = openapi_check(
         &contract,
         school,
-        &short.uri(),
-        Some("k"),
+        &refused.uri(),
+        Some("synthetic-key"),
         spacing()?,
         &mut requests,
-        None
+        3,
     )
-    .await
-    .is_err());
-    // More pages than the cap refuse rather than run on.
-    let long = MockServer::start().await;
-    let cap = school.openapi.as_ref().map_or(0, |api| api.max_pages);
-    let pages = (0..cap)
-        .map(|_| standard_page(&[synthetic_school("S9999000001")], 1_000_000))
-        .collect::<Vec<_>>();
-    standard_api(school, &pages, &long).await?;
-    assert!(fetch_pages(
-        &contract,
-        school,
-        &long.uri(),
-        Some("k"),
-        spacing()?,
-        &mut requests,
-        None
+    .await;
+    assert_eq!(check["status"], "skipped");
+    assert!(check["reason"].as_str().is_some_and(|reason| reason
+        .contains("SERVICE_KEY_IS_NOT_REGISTERED_ERROR")
+        && !reason.contains("synthetic-key")));
+    // A registered key compares the gateway's total with the landed pass.
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(
+            school
+                .openapi
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("an openapi operation"))?
+                .path
+                .clone(),
+        ))
+        .and(query_param("numOfRows", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"response": {
+            "header": {"resultCode": "00", "resultMsg": "NORMAL_SERVICE"},
+            "body": {"items": [synthetic_school("S9999000001")], "totalCount": "3", "numOfRows": "1", "pageNo": "1"}
+        }})))
+        .mount(&api)
+        .await;
+    for (rows, status) in [(3, "matches"), (4, "differs")] {
+        let check = openapi_check(
+            &contract,
+            school,
+            &api.uri(),
+            Some("synthetic-key"),
+            spacing()?,
+            &mut requests,
+            rows,
+        )
+        .await;
+        assert_eq!(check["status"], status);
+    }
+    Ok(())
+}
+
+#[test]
+fn the_column_list_names_the_current_table_or_refuses() -> anyhow::Result<()> {
+    let (table, columns, total) = read_columns(&columns_answer(12).to_string())?;
+    assert_eq!(
+        (table.as_str(), columns, total),
+        (
+            "tn_pubr_synthetic_svc",
+            vec!["SCHOOL_ID".to_owned(), "LNMADR".to_owned()],
+            12
+        )
+    );
+    assert!(read_columns(
+        r#"{"totalCount": 1, "tableVO": {"svcTableNm": "x; drop", "colNmList": ["A"]}}"#
     )
-    .await
     .is_err());
-    assert!(fetch_pages(
-        &contract,
-        school,
-        &long.uri(),
-        None,
-        spacing()?,
-        &mut requests,
-        None
+    assert!(read_columns(
+        r#"{"totalCount": 1, "tableVO": {"svcTableNm": "tn_x", "colNmList": []}}"#
     )
-    .await
     .is_err());
+    assert!(read_columns("<html>").is_err());
     Ok(())
 }
