@@ -101,11 +101,31 @@ class NotifyUnitFailure(unittest.TestCase):
         [call] = self.run_script("foundation-identity-restore-drill.service", STUB_FragmentPath=str(fragment))
         self.assertIn("주인: platform", json.loads(call[call.index("-d") + 1])["text"])
 
+    def test_a_post_to_alertmanager_waits_out_its_restart(self):
+        # 2026-11-08 19:18:04-17Z: the deploy recreated Alertmanager and three recoveries failed on
+        # "connection refused" at once; each stayed failed until its lane's next hourly success.
+        [call] = self.run_script("--recovered", UNIT, STUB_OnSuccess=f"foundation-unit-recovered@{UNIT}.service")
+        self.assertIn("--retry-connrefused", call)
+        self.assertGreaterEqual(int(call[call.index("--retry") + 1]) * int(call[call.index("--retry-delay") + 1]), 30)
+
     def test_a_unit_without_onsuccess_posts_to_slack_as_before(self):
         calls = self.run_script("foundation-database-backup.service")
         [call] = calls
         self.assertEqual(call[-1], "https://slack.com/api/chat.postMessage")
         self.assertIn("foundation-database-backup.service", json.loads(call[call.index("-d") + 1])["text"])
+
+
+class TheReportersPostWhereComposePublishesAlertmanager(unittest.TestCase):
+    # The host scripts run without the compose env file, so their default port must be the one
+    # compose.observability.yml publishes by default; 11-08's refusals were not a wrong port, and this
+    # keeps it so.
+    def test_the_default_port_is_the_published_one(self):
+        compose = (AREA / "compose.observability.yml").read_text(encoding="utf-8")
+        [published] = re.findall(r'"127\.0\.0\.1:\$\{FOUNDATION_ALERTMANAGER_PORT:-(\d+)\}:9093"', compose)
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(f"http://127.0.0.1:${{FOUNDATION_ALERTMANAGER_PORT:-{published}}}/api/v2/alerts", script)
+        provider = (AREA / "scripts/ops/provider_alert.py").read_text(encoding="utf-8")
+        self.assertIn(f'os.environ.get("FOUNDATION_ALERTMANAGER_PORT", "{published}")', provider)
 
 
 class TheMonitorIsOneAlertPerLane(unittest.TestCase):

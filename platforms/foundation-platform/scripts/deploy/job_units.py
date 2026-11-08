@@ -17,6 +17,8 @@
     job_units.py leftover-failed <jobs.v1.json>
                                                each failed unit no declaration runs again, whose failed
                                                state the deploy clears (root ADR-0445)
+    job_units.py unretried-failed                  each failed unit that declares Restart= but was never
+                                               restarted, which the deploy starts once (root ADR-0445 §5)
 
 A unit runs unless its ActiveState is `inactive` or `failed`. A oneshot job is `activating` for its
 whole run and never `active`, so `systemctl is-active` calls a running job stopped; that let a Gold
@@ -117,6 +119,7 @@ def show(units, systemctl: str = "systemctl") -> dict[str, dict]:
         return {}
     output = subprocess.run([systemctl, "show", "--timestamp=unix", "-p", "Id", "-p", "ActiveState",
                              "-p", "StateChangeTimestamp", "-p", "FragmentPath", "-p", "Documentation",
+                             "-p", "Restart", "-p", "NRestarts",
                              "--", *units], check=True, capture_output=True, text=True).stdout
     shown = {}
     for block in output.strip().split("\n\n"):
@@ -158,6 +161,20 @@ def leftover_failed(jobs_file, systemctl: str = "systemctl", now=None) -> list[s
     shown = show(sorted(instances), systemctl)
     old = {unit for unit in instances if now - since(shown.get(unit, {})) >= LEFTOVER_AFTER_SECONDS}
     return sorted(gone | old)
+
+
+def unretried_failed(systemctl: str = "systemctl") -> list[str]:
+    """The failed foundation units that declare a retry (`Restart=`) and never had one (`NRestarts=0`).
+
+    A failure before its unit's retry policy was installed is never retried: systemd retries only the
+    failures it sees under that policy. 2026-11-08: the backup cut by the 03:43Z OOM and the two drills
+    that failed at 04:54Z/05:30Z were still failed after the 18:01Z release gave them retries, and their
+    next timers were 11-09 and 11-15. A failure retried under the policy has `NRestarts` above 0, and
+    the unit's `StartLimitBurst` counts these starts too, so a deploy cannot start one without end."""
+    listed = [entry["unit"] for entry in failed(systemctl) if entry.get("load") == "loaded"]
+    shown = show(listed, systemctl)
+    return sorted(unit for unit in listed
+                  if shown.get(unit, {}).get("Restart", "no") != "no" and shown[unit].get("NRestarts") == "0")
 
 
 def claims_dir() -> str:
@@ -368,6 +385,13 @@ def main(argv) -> int:
             print(f"job_units: systemd cannot report the failed units: {error}", file=sys.stderr)
             return 2
         return 0
+    if argv == ["unretried-failed"]:
+        try:
+            print("\n".join(unretried_failed()))
+        except (OSError, subprocess.CalledProcessError, ValueError) as error:
+            print(f"job_units: systemd cannot report the failed units: {error}", file=sys.stderr)
+            return 2
+        return 0
     if argv == ["deferred-dir"]:
         print(deferred_dir())
         return 0
@@ -376,7 +400,8 @@ def main(argv) -> int:
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
           " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
-          " | release <claimant> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>",
+          " | release <claimant> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
+          " | unretried-failed",
           file=sys.stderr)
     return 64
 

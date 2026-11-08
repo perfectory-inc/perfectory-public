@@ -388,6 +388,9 @@ describe("parcel panel sections", () => {
           start_delayed_date: null,
           start_actual_date: "20980301",
           use_approval_date: null,
+          indoor_self_parking_count: "12",
+          outdoor_self_parking_count: "0",
+          indoor_mechanical_parking_count: "3",
         },
       ],
       total: 3,
@@ -399,6 +402,7 @@ describe("parcel panel sections", () => {
       expect(screen.getByText("신축 · 공장")).toBeTruthy();
       expect(screen.getByText("대지면적 1000.5㎡ · 연면적 800㎡")).toBeTruthy();
       expect(screen.getByText("건축허가일 2098.01.01 · 실제착공일 2098.03.01")).toBeTruthy();
+      expect(screen.getByText("옥내자주식 12대 · 옥내기계식 3대")).toBeTruthy();
       expect(screen.getByText("최근 1건만 보임 · 전체 3건")).toBeTruthy();
     } finally {
       reads.buildingPermits = null;

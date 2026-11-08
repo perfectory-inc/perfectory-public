@@ -901,7 +901,8 @@ function buildingPermitsSections(
 
 /**
  * 건축인허가 from the building-permit lane (root ADR-0451): each permit in the register's own words
- * (건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일), newest first.
+ * (건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일, and its 주차장
+ * 옥내자주식·옥외자주식·옥내기계식대수, ADR-0452), newest first.
  * A figure the register leaves empty or 0 is not shown.
  */
 function BuildingPermitsSection({ permits }: { permits: BuildingPermits }) {
@@ -953,6 +954,16 @@ function BuildingPermitsSection({ permits }: { permits: BuildingPermits }) {
                   ["useApprovalDate", day(record.use_approval_date)],
                 ],
                 () => true,
+              )}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {line(
+                [
+                  ["indoorSelfParking", record.indoor_self_parking_count],
+                  ["outdoorSelfParking", record.outdoor_self_parking_count],
+                  ["indoorMechanicalParking", record.indoor_mechanical_parking_count],
+                ],
+                filled,
               )}
             </div>
           </li>

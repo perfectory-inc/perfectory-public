@@ -309,6 +309,9 @@
           "startDelayedDate": "착공연기일 {value}",
           "startActualDate": "실제착공일 {value}",
           "useApprovalDate": "사용승인일 {value}",
+          "indoorSelfParking": "옥내자주식 {value}대",
+          "outdoorSelfParking": "옥외자주식 {value}대",
+          "indoorMechanicalParking": "옥내기계식 {value}대",
           "more": "최근 {shown}건만 보임 · 전체 {total}건"
         },
         "demolitions": {
