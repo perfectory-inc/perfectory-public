@@ -119,8 +119,16 @@
     "object_prefix": "onbid/media",
     "reconcile": {
       "$comment": "루트 ADR-0387. 미디어 대조기(scripts/ops/media_reconcile.py, 작업 media_reconcile)가 object_prefix 의 sha256/ 아래 객체 전부를 index_table 의 (sha256, media_format) 전부와 맞춘다. 색인이 이름 대는데 R2 에 없는 키 = 없음(깨진 사진), R2 에 있는데 어느 색인 줄도 이름 대지 않는 키 = 고아(10-26 수집 40분 한도에 걸려 Bronze 커밋 없이 사진만 남은 일). 고아는 orphan_min_age_hours 보다 오래된 것만 센다: 수집 run 이 끝나고 Silver 적재가 그 줄을 색인에 넣기까지의 여유.",
-      "index_table": "silver.onbid_real_estate_item_photo",
+      "$index_tables": "루트 ADR-0429: 이 저장소에 사진을 담는 원천마다 그 Silver 색인 하나. 경매 사진(ADR-0384)이 같은 sha256/ 에 쌓이므로 경매 색인이 없으면 경매 사진이 전부 고아로 세어진다. 한 질의(UNION ALL)에 워터마크 하나: 두 적재 모두 append 이고 대조 시각(06:15 UTC)과 겹치지 않는다.",
+      "index_tables": ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo"],
       "orphan_min_age_hours": 48
+    },
+    "ladder_backlog": {
+      "$comment": "루트 ADR-0429. 사진을 저장한 수집 run 이 그 run 의 상한 안에서 못 만든 표시 사다리를, 이 저장소에 사진을 담는 다른 원천의 Silver 사진 색인에서 가져와 같은 media_renditions::ensure_ladders 로 만든다(작업 media_ladder_backlog, 매시). 공매는 자기 길이 있다(미완료 회차를 다시 받는다, ADR-0427 §4)라 여기 없다; 경매 물건상세는 다시 읽는 주기가 길어(ADR-0352) 이 길이 필요하다. 부분: 표의 Iceberg snapshot 이 그대로면 읽지 않고, 바뀌면 마지막으로 가져간 source_snapshot_id 의 run 부터만 더한다. 상한(계산): 원천 하나 ~4.5 초(ADR-0427 rav1e 추정) × 1,500 ÷ 동시 4 ≈ 28 분 ≤ 1,500 초 + 색인 읽기 < 작업 한도 40 분의 90 %. 첫 바퀴(경매 사건 2만 × 사진 ~11 ≈ 22만, #1100 계산) ÷ 시간당 ~1,300 ≈ 170 run(~7 일), CPU ~275 시간(계산).",
+      "index_tables": ["silver.court_auction_item_photo"],
+      "per_run_limit": 1500,
+      "concurrency": 4,
+      "run_time_budget_seconds": 1500
     },
     "url_host": "www.onbid.co.kr",
     "daily_download_limit": 45000,

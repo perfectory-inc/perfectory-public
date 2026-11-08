@@ -6,8 +6,9 @@ A kind with its own producer (`by_pnu_kinds.Kind.producer`): served on the parce
 panel section, but built from `silver.court_auction_item`, not from the parcel panel, so it is
 neither pinned to nor checked against it. It places items exactly as the 공매 kind places rounds
 (`onbid_public_auction_silver_to_gold.placed`, shared, not copied): the court item's key, its "open"
-rule and its served values are its own. The list searches carry no photo (the 물건상세 that does is
-not collected, root ADR-0353 §4), so a document has no media index.
+rule and its served values are its own. A round carries its case's photos (`photos`, from
+`silver.court_auction_item_photo`, root ADR-0384): the 물건상세 lists them per case, and the bytes
+live once in the shared content-addressed media store the parcel edge serves (root ADR-0296 §5).
 
 공공저작물: 법원경매 데이터는 출처 표시가 필요한 공공저작물이다(저작권법 제24조의2, 루트 ADR-0281
 §6). 문서마다 `court_auction.source_attribution` 로 "대한민국법원 법원경매정보" 를 담아, 이 행을
@@ -53,6 +54,11 @@ ITEM_SOURCE = "silver.court_auction_item"
 PARCEL_SOURCE = onbid.PARCEL_SOURCE
 LINEAGE_SOURCE = onbid.LINEAGE_SOURCE
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
+PHOTO_SOURCE = "silver.court_auction_item_photo"
+# A case's photos: the 물건상세 lists them per (court office, case), for every property of it.
+CASE = ("court_office_code", "case_no")
+PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,kind_code:string,sequence:int,title:string,"
+                "media_format:string,size_bytes:bigint>>")
 # The code change rows a build reads, the parcel panel's (`changed_codes` compares them).
 CODE_CHANGE_COLUMNS = ("kind", "old_code", "new_code", "level", "effective_date", "source")
 # The court item's four-part key (boCd, saNo, maemulSer, mokmulSer), the court_auction_item contract's.
@@ -78,6 +84,7 @@ ROUND_FIELDS = (
     "usage_lcls_code", "usage_mcls_code", "usage_scls_code",
     "appraisal_amount_krw", "minimum_bid_price_krw", "sale_amount_krw",
     "sale_date", "sale_time_raw", "sale_decision_date", "sale_place", "failed_bid_count",
+    "photos",
 )
 GOLD_CONTENT = ("court_auction_json", "attached_via")
 # The item identifiers of a served document, enough to find which PNUs an item is served under.
@@ -91,15 +98,43 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     whole: `affected_pnus` maps their changed keys and codes to PNUs. The parcels and the lineage
     are: a new edition or link moves items the item rows do not name."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE, CODE_CHANGE_SOURCE), {LINEAGE_SOURCE: "--no-carry-lineage"}, PARCEL_SOURCE,
+    return ((PARCEL_SOURCE, ITEM_SOURCE, CODE_CHANGE_SOURCE),
+            {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
             (PARCEL_SOURCE, LINEAGE_SOURCE))
 
 
-def declared_sources(lane: str, carry_lineage: bool) -> tuple[str, ...]:
+def declared_sources(lane: str, carry_lineage: bool, photos: bool = True) -> tuple[str, ...]:
     """Every Silver source this build pins: exactly what the rebuild harness pins from `lane_inputs`
     (`load_source_snapshot_pins` rejects any mismatch, the 2026-10-27 공매 crash)."""
     required, _optional, _anchor, _whole = lane_inputs(lane)
-    return (*required, *((LINEAGE_SOURCE,) if carry_lineage else ()))
+    return (*required, *((LINEAGE_SOURCE,) if carry_lineage else ()), *((PHOTO_SOURCE,) if photos else ()))
+
+
+def photos_by_case(photo_rows: Any) -> Any:
+    """Each case's photos as one array, keyed by case: its current (case, hash) rows, ordered by the
+    site's photo kind then its list order."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    current = current_rows(photo_rows, load_lakehouse_contract(PHOTO_SOURCE))
+    return (current.groupBy(*CASE).agg(F.array_sort(F.collect_list(F.struct(
+        F.col("photo_kind_code").alias("_kind"), F.col("sequence").alias("_seq"), F.col("sha256").alias("_sha"),
+        F.struct("sha256", F.lit("photo").alias("media_kind"), F.col("photo_kind_code").alias("kind_code"),
+                 "sequence", "title", "media_format", F.col("size_bytes").cast("bigint").alias("size_bytes"),
+                 ).alias("_photo"),
+    ))).alias("_sorted")).select(*CASE, F.col("_sorted._photo").alias("photos")))
+
+
+def with_photos(round_rows: Any, photo_rows: Any | None) -> Any:
+    """Each round with its case's `photos`, an empty array when it has none or the table is absent,
+    so every served round carries the field and the web reads one shape."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    empty = F.expr(f"CAST(array() AS {PHOTO_STRUCT})")
+    if photo_rows is None:
+        return round_rows.withColumn("photos", empty)
+    return (round_rows.join(photos_by_case(photo_rows), list(CASE), "left")
+            .withColumn("photos", F.coalesce(F.col("photos"), empty)))
 
 
 def located(items: Any, remap: dict[str, str]) -> Any:
@@ -163,7 +198,9 @@ def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) ->
     fields = [*ROUND_FIELDS, "attached_via"]
     # An earlier snapshot of the item list (or a test frame) may lack a later column: it is null.
     entries = placed_rounds.withColumn("_entry", F.struct(*[
-        (F.col(f) if f in placed_rounds.columns else F.lit(None).cast("string")).alias(f) for f in fields]))
+        (F.col(f) if f in placed_rounds.columns
+         else F.expr(f"CAST(array() AS {PHOTO_STRUCT})") if f == "photos" else F.lit(None).cast("string")).alias(f)
+        for f in fields]))
     order = Window.partitionBy("pnu").orderBy(F.col("sale_date").asc(), *[F.col(k).asc() for k in KEY])
     sized = (entries.withColumn("_bytes", F.length(F.to_json("_entry", WRITTEN)) + F.lit(1))
              .withColumn("_running", F.sum("_bytes").over(order.rowsBetween(Window.unboundedPreceding, 0))))
@@ -197,7 +234,8 @@ def placement(frames: dict[str, Any], how: Placement) -> Any:
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     served = served_rounds(rounds(frames[ITEM_SOURCE]), F.to_date(F.to_timestamp(F.lit(how.as_of))))
-    return onbid.placed(served, frames[PARCEL_SOURCE], how.candidates, how.merges)
+    return onbid.placed(with_photos(served, frames.get(PHOTO_SOURCE)), frames[PARCEL_SOURCE], how.candidates,
+                        how.merges)
 
 
 def gold_rows(located: Any, as_of: str, source_snapshot_id: str, columns: tuple[str, ...]) -> Any:
@@ -211,8 +249,10 @@ def gold_rows(located: Any, as_of: str, source_snapshot_id: str, columns: tuple[
 
 
 def items_of(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
-    """`frames` with the item rows cut to the items of `keys` (every version of each)."""
-    return {name: frame.join(keys.select(*KEY), list(KEY), "left_semi") if name == ITEM_SOURCE else frame
+    """`frames` with the item rows cut to the items of `keys` (every version of each) and the photo
+    rows to their cases."""
+    cut = {ITEM_SOURCE: keys.select(*KEY), PHOTO_SOURCE: keys.select(*CASE).distinct()}
+    return {name: frame.join(cut[name], cut[name].columns, "left_semi") if name in cut else frame
             for name, frame in frames.items()}
 
 
@@ -247,6 +287,10 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
         touched.append(incremental.changed_rows(old[ITEM_SOURCE], new[ITEM_SOURCE], KEY).select(*KEY))
     if CODE_CHANGE_SOURCE in changed and (moved := code_change_keys(old, new)) is not None:
         touched.append(moved)
+    if PHOTO_SOURCE in changed and PHOTO_SOURCE in old and PHOTO_SOURCE in new:
+        # A photo row is its case's: every property of the case serves it.
+        cases = incremental.changed_rows(old[PHOTO_SOURCE], new[PHOTO_SOURCE], (*CASE, "sha256")).select(*CASE).distinct()
+        touched.append(new[ITEM_SOURCE].join(cases, list(CASE), "left_semi").select(*KEY))
     today = F.to_date(F.to_timestamp(F.lit(how.as_of)))
     passed = rounds(new[ITEM_SOURCE]).where(F.col("sale_date").isNotNull() & (F.col("sale_date") < today))
     if previous_as_of is not None:
@@ -278,6 +322,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument("--minimum-count", type=int, help="Refuse, before writing, a Gold with fewer rows (root ADR-0139).")
     parser.add_argument("--no-carry-lineage", dest="carry_lineage", action="store_false",
                         help="Place a retired PNU's item under itself, flagged, instead of following the lineage.")
+    parser.add_argument("--no-photos", dest="photos", action="store_false",
+                        help="Serve every round with an empty photos array, without the photo table.")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
     # The harness passes the section-coverage flags to every kind producer (gold_rebuild.plan, root
@@ -306,10 +352,10 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     from lakehouse_snapshot_pins import read_pinned_iceberg  # noqa: PLC0415
     from platform_contracts import load_lakehouse_contract, with_contract_columns  # noqa: PLC0415
 
-    def versions(at: dict[str, str]) -> Any:
+    def versions(at: dict[str, str], source: str = ITEM_SOURCE) -> Any:
         # Every version, as the contract's columns (an older snapshot reads a later column as null).
-        table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{ITEM_SOURCE.split('.', 1)[1]}"
-        return with_contract_columns(read_pinned_iceberg(spark, table, ITEM_SOURCE, at), load_lakehouse_contract(ITEM_SOURCE))
+        table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{source.split('.', 1)[1]}"
+        return with_contract_columns(read_pinned_iceberg(spark, table, source, at), load_lakehouse_contract(source))
 
     def code_changes(at: dict[str, str]) -> tuple[Any, dict[str, str]]:
         changes = panel.read_source(spark, args, CODE_CHANGE_SOURCE, at).select(*CODE_CHANGE_COLUMNS)
@@ -326,6 +372,10 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         old = {ITEM_SOURCE: located(versions(previous), old_remap)}
         if old_changes is not None:
             old[CODE_CHANGE_SOURCE] = old_changes
+    if args.photos and PHOTO_SOURCE in pins:
+        frames[PHOTO_SOURCE] = versions(pins, PHOTO_SOURCE).cache()
+        if old is not None and previous is not None and PHOTO_SOURCE in previous:
+            old[PHOTO_SOURCE] = versions(previous, PHOTO_SOURCE)
     named = frames[ITEM_SOURCE].select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
     sources = {r.predecessor_pnu for r in named.collect()}
     # Only the candidates from a PNU an item names, not the lineage's 6.5M.
@@ -367,7 +417,7 @@ def main(argv=None) -> int:
         raise ValueError(f"{args.lane} names producer {kind.producer}, not {JOB_NAME}")
     args.published_at_utc = panel.normalize_utc_timestamp(args.published_at_utc)
     _required, _optional, anchor, whole = lane_inputs(args.lane)
-    sources = declared_sources(args.lane, args.carry_lineage)
+    sources = declared_sources(args.lane, args.carry_lineage, args.photos)
     pins = load_source_snapshot_pins("iceberg", args.source_snapshots_path, sources, anchor, args.iceberg_snapshot_id)
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)

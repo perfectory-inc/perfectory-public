@@ -43,13 +43,14 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         # The code change table is read so every PNU follows a code change (root ADR-0382 §2).
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE})
-        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage"})
+        # The case photos are optional, like 공매's media (root ADR-0384).
+        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
         # The item table maps its changed keys to PNUs; a parcel edition or lineage change moves
         # items their rows do not name, so those two rebuild the kind whole (root ADR-0312 §2).
         self.assertEqual(set(whole), {job.PARCEL_SOURCE, job.LINEAGE_SOURCE})
-        self.assertEqual(job.declared_sources("parcel-court-auction", True),
-                         (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE, job.LINEAGE_SOURCE))
-        self.assertEqual(job.declared_sources("parcel-court-auction", False),
+        self.assertEqual(set(job.declared_sources("parcel-court-auction", True, True)), set(required) | set(optional),
+                         "the harness pins every required input and every present optional")
+        self.assertEqual(job.declared_sources("parcel-court-auction", False, False),
                          (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE))
 
     def test_the_kind_line_names_this_producer(self):
@@ -215,7 +216,11 @@ class DocumentSparkTest(unittest.TestCase):
         from pyspark.sql import functions as F
 
         rows = self.rounds([round_row("A", True, date(2099, 1, 5))])
-        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        # A round with one photo, so the photo subtree's paths are written too (root ADR-0384).
+        photo = F.expr(f"CAST(array(named_struct('sha256', repeat('a', 64), 'media_kind', 'photo', 'kind_code', '1', "
+                       f"'sequence', 0, 'title', 'front', 'media_format', 'jpg', 'size_bytes', 100)) AS {job.PHOTO_STRUCT})")
+        placed = (rows.withColumn("photos", photo).withColumn("pnu", F.col("source_pnu"))
+                  .withColumn("attached_via", F.lit(None).cast("string")))
         written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().court_auction_json), "court_auction")
         recorded = {p for p in by_pnu_kinds.document_record("parcel_court_auction_by_pnu") if p.startswith("court_auction.")}
         self.assertEqual(written, recorded)
@@ -312,6 +317,46 @@ class AffectedSparkTest(unittest.TestCase):
                          "the source code PNU stands in for an unresolved one and is carried")
         self.assertEqual({r.case_no for r in job.code_change_keys(old, new).collect()}, {"RENAMED"})
         self.assertIsNone(job.code_change_keys(new, new), "no row of the code table differs")
+
+
+    def test_a_case_s_photos_reach_every_round_of_the_case_in_the_site_s_order(self):
+        # Root ADR-0384: the 물건상세 lists photos per case; every property of the case serves them,
+        # kind then sequence, and a round of another case gets an empty array.
+        import json
+
+        from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+        contract = load_lakehouse_contract(job.PHOTO_SOURCE)
+        names = [c["name"] for c in contract["columns"]]
+        ddl = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
+
+        def photo(sha, kind, seq):
+            row = {"court_office_code": "B", "case_no": "WITH", "sha256": sha * 64, "photo_kind_code": kind,
+                   "sequence": seq, "title": f"synthetic{seq}.jpg", "media_format": "jpg", "size_bytes": 10,
+                   "source_record_id": "o", "source_line_number": 1, "source_snapshot_id": "s1"}
+            return tuple(row.get(n) for n in names)
+
+        photos = self.spark.createDataFrame([photo("b", "000245", 1), photo("a", "000241", 2), photo("c", "000241", 1)], ddl)
+        items = self.spark.createDataFrame([versioned("WITH", CURRENT, "s1", date(2099, 1, 9)),
+                                            ("B", "WITH", 2, 1, SPLIT_A, None, "s1", "Y", date(2099, 1, 9)),
+                                            versioned("WITHOUT", SPLIT_B, "s1", date(2099, 1, 9))], CHANGE_SCHEMA)
+        frames = {job.ITEM_SOURCE: items, job.PHOTO_SOURCE: photos,
+                  job.PARCEL_SOURCE: self.spark.createDataFrame([(CURRENT,), (SPLIT_A,), (SPLIT_B,)], "pnu string")}
+        how = job.Placement("2099-01-04T00:00:00Z")
+        docs = {r.pnu: json.loads(r.court_auction_json) for r in job.document_rows(job.placement(frames, how)).collect()}
+        order = [p["sha256"][0] for p in docs[CURRENT]["rounds"][0]["photos"]]
+        self.assertEqual(order, ["c", "a", "b"], "kind 000241 first, then sequence")
+        self.assertEqual(docs[SPLIT_A]["rounds"][0]["photos"], docs[CURRENT]["rounds"][0]["photos"])
+        self.assertEqual(docs[SPLIT_B]["rounds"][0]["photos"], [])
+        first = docs[CURRENT]["rounds"][0]["photos"][0]
+        self.assertEqual((first["media_kind"], first["kind_code"], first["media_format"]), ("photo", "000241", "jpg"))
+        # A new photo of the case reaches both of its properties' PNUs and nothing else.
+        new = {**frames, job.PHOTO_SOURCE: photos.unionByName(
+            self.spark.createDataFrame([photo("d", "000241", 3)], ddl))}
+        gold = job.gold_rows(job.placement(frames, how), how.as_of, "p",
+                             ("pnu", *job.GOLD_CONTENT, "source_snapshot_id", "published_at_utc", "row_digest"))
+        affected = job.affected_pnus(frames, new, how, gold, how.as_of, [job.PHOTO_SOURCE])
+        self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT, SPLIT_A})
 
 
 if __name__ == "__main__":

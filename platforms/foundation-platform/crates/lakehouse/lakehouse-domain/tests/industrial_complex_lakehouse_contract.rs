@@ -10,15 +10,16 @@ use lakehouse_domain::{
     SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT, SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_MASTER, SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
-    SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_SALE_RESULT,
-    SILVER_INDUSTRIAL_COMPLEXES, SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC,
-    SILVER_LAND_FOREST_LEDGER, SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_OWNERSHIP,
-    SILVER_LAND_RIGHT_REGISTRATION, SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN,
-    SILVER_LAND_USE_ZONE_AREA, SILVER_LAND_USE_ZONE_CODES, SILVER_ONBID_ANNOUNCEMENT,
-    SILVER_ONBID_ANNOUNCEMENT_BID_RESULT, SILVER_ONBID_ANNOUNCEMENT_DETAIL,
-    SILVER_ONBID_ITEM_BID_INFO, SILVER_ONBID_ITEM_BID_RESULT, SILVER_ONBID_REAL_ESTATE_ITEM,
-    SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL, SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO,
-    SILVER_PARCEL_BOUNDARIES, SILVER_UNIT_OFFICIAL_PRICE_VERSIONS,
+    SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_ITEM_DETAIL,
+    SILVER_COURT_AUCTION_ITEM_PHOTO, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
+    SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_OWNERSHIP, SILVER_LAND_RIGHT_REGISTRATION,
+    SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_AREA,
+    SILVER_LAND_USE_ZONE_CODES, SILVER_ONBID_ANNOUNCEMENT, SILVER_ONBID_ANNOUNCEMENT_BID_RESULT,
+    SILVER_ONBID_ANNOUNCEMENT_DETAIL, SILVER_ONBID_ITEM_BID_INFO, SILVER_ONBID_ITEM_BID_RESULT,
+    SILVER_ONBID_REAL_ESTATE_ITEM, SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL,
+    SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO, SILVER_PARCEL_BOUNDARIES,
+    SILVER_UNIT_OFFICIAL_PRICE_VERSIONS,
 };
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -359,15 +360,11 @@ fn only_versioned_tables_define_a_current_row_rule() {
             assert!(contract
                 .current_row_latest()
                 .is_some_and(|latest| latest.removal_column.is_some()));
-        } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name {
-            // An item's media index: the newest run that recorded a (item, hash) wins, and a
-            // photo reference never vanishes (root ADR-0298).
-            assert_eq!(contract.current_row_predicate, None);
-            assert!(contract
-                .current_row_latest()
-                .is_some_and(|latest| latest.removal_column.is_none()));
-        } else if contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
+        } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name
+            || contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
             || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
+            || contract.table_name == SILVER_COURT_AUCTION_ITEM_DETAIL.table_name
+            || contract.table_name == SILVER_COURT_AUCTION_ITEM_PHOTO.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_BID_RESULT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
@@ -379,6 +376,10 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // lists say nothing about an announcement or item they no longer list).
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
+            // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
+            // vanishes (root ADR-0384).
+            // An item's media index: the newest run that recorded a (item, hash) wins, and a
+            // photo reference never vanishes (root ADR-0298).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()

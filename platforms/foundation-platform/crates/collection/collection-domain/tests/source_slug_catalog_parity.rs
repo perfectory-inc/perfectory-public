@@ -99,8 +99,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // 136th–147th are the twelve rt.molit.go.kr 실거래가 bulk exports (root ADR-0348); the
     // 148th–154th are seven of the other public bulk files, whose real provider is the data.go.kr
     // file data (root ADR-0401; the two mois.go.kr ones were already in scope); the 155th–157th are
-    // the three 표준데이터 the same collector asks through the public-data OpenAPI (ADR-0401).
-    assert_eq!(checked, 157, "expected 157 in-scope catalog entries");
+    // the three 표준데이터 the same collector asks through the public-data OpenAPI (ADR-0401); the
+    // 158th is the courtauction.go.kr 물건상세, asked after the list searches in the same run (root ADR-0384).
+    assert_eq!(checked, 158, "expected 158 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"

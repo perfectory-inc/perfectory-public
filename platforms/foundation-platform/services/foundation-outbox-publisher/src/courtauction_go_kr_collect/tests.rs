@@ -405,3 +405,79 @@ fn every_object_records_the_runs_requests_blocks_renewals_and_sessions() {
     assert_eq!(params["requests_in_object"].as_u64(), Some(1_125));
     assert_eq!(params["night"]["requests_sent"].as_u64(), Some(1_540));
 }
+
+/// A site that opens sessions and answers every 물건상세 with one synthetic photo, blocking the
+/// first `blocks` with `ipcheck=false`.
+async fn detail_site(contract: &SourceContract, blocks: usize) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(contract.collection.session.opening_path.as_str()))
+        .respond_with(
+            ResponseTemplate::new(200).insert_header("set-cookie", "JSESSIONID=d; Path=/"),
+        )
+        .mount(&server)
+        .await;
+    let asked = Arc::new(AtomicUsize::new(0));
+    // A JPEG start (the sniff reads the magic bytes), base64 as the site sends it.
+    let photo = "/9j/4AAQ";
+    Mock::given(method("POST"))
+        .and(path(contract.item_detail.path.as_str()))
+        .respond_with(move |_: &Request| {
+            if asked.fetch_add(1, Ordering::Relaxed) < blocks {
+                return ResponseTemplate::new(200).set_body_json(block_body());
+            }
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"status": 200, "data": {"ipcheck": true,
+                "dma_result": {"csPicLst": [{"picFile": photo, "cortAuctnPicSeq": "1"}]}}}))
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+fn wanted(sa: &str) -> super::detail::Wanted {
+    super::detail::Wanted {
+        key: vec!["B999999".into(), sa.into(), "1".into()],
+        sale_date: NaiveDate::from_ymd_opt(2099, 1, 15),
+        status_code: "0002100001".into(),
+        fingerprint: "f".into(),
+    }
+}
+
+#[tokio::test]
+async fn the_details_ride_the_same_pool_a_block_renews_and_photos_become_hashes(
+) -> anyhow::Result<()> {
+    // Before root ADR-0289 the detail phase stopped the night on its first ipcheck=false.
+    let contract = source_contract()?;
+    let server = detail_site(&contract, 1).await;
+    let pool = session_pool(&contract, &server.uri())?;
+    let asking = asking(&contract, &pool, Duration::from_secs(60));
+    let store = super::detail::PhotoStore {
+        prefix: super::detail::photo_prefix(&contract.item_detail)?,
+        storage: None,
+    };
+    let asked = [wanted("20990130000001"), wanted("20990130000002")];
+    let (result, stop) =
+        super::detail::collect_details(&contract, &asking, asking.deadline, &asked, &store, night)
+            .await?;
+    assert_eq!(stop, None);
+    assert_eq!(
+        (result.asked, result.failed, result.photos.photos),
+        (2, 0, 2)
+    );
+    assert_eq!(asking.tally.counts().blocks, 1);
+    assert!(result
+        .lines
+        .iter()
+        .all(|line| line.contains("sha256:") && !line.contains("/9j/4AAQ")));
+
+    let (result, stop) =
+        super::detail::collect_details(&contract, &asking, Instant::now(), &asked, &store, night)
+            .await?;
+    assert_eq!(
+        (stop, result.asked),
+        (Some(Stop::TimeBudget), 0),
+        "the detail deadline ends the asking; the rest is due again next run"
+    );
+    Ok(())
+}

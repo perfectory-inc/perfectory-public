@@ -69,8 +69,11 @@ class Reconciler(unittest.TestCase):
             # The court auction Gold and its lane, caught up (root ADR-0353).
             "gold.parcel_court_auction": table(snap("401", None, 0, operation="overwrite",
                                                     pins={"silver.court_auction_item": "51",
+                                                          "silver.court_auction_item_photo": "71",
                                                           "reference.legal_dong_code_change": "61"})),
             "silver.court_auction_item": table(snap("51", None, 0)),
+            # Its case photos (root ADR-0384).
+            "silver.court_auction_item_photo": table(snap("71", None, 0)),
             # The court auction Gold follows code changes too (root ADR-0382).
             "reference.legal_dong_code_change": table(snap("61", None, 0)),
         }
@@ -87,6 +90,7 @@ class Reconciler(unittest.TestCase):
                                     lambda job: "full" if job in self.full else "", state or {})
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
+        # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake"})
         # Every lane the panel bake serves is an asset of its own, fed from its one Gold table; inside
         # the one unit the kinds follow the parcel lane by run order, so none follows across jobs.

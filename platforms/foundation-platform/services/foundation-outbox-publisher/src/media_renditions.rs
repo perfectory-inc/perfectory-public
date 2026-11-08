@@ -9,6 +9,7 @@
 //! every source once after a version change).
 
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use foundation_media_renditions::{render, Spec};
@@ -19,7 +20,7 @@ use foundation_shared_kernel::{
     content_addressed_key, rendition_key, rendition_manifest_key, MediaFormat, ObjectKeyPrefix,
     Sha256Hex,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 const CONNECTIONS: &str = include_str!("../../../config/r2-connections.contract.json");
@@ -157,6 +158,83 @@ pub(crate) async fn ensure_ladder(
     Ok(Laddered::Written(written))
 }
 
+/// How much of a run the rendition ladders may take (root ADR-0427 §2, ADR-0300 H): no source is
+/// taken once `per_run_limit` were taken or `run_time_budget_seconds` passed. Each source is a HEAD
+/// when its ladder is there, else a read of the original and up to six renditions.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct RenditionBudget {
+    pub(crate) per_run_limit: u32,
+    pub(crate) concurrency: usize,
+    pub(crate) run_time_budget_seconds: u64,
+}
+
+/// What a batch of sources came to.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub(crate) struct LadderReport {
+    pub(crate) present: usize,
+    pub(crate) written: usize,
+    pub(crate) bytes_stored: u64,
+    pub(crate) unrenderable: usize,
+    /// The store refused a read or a write: left for a later run.
+    pub(crate) errored: usize,
+    /// Not taken this run: the budget ran out first.
+    pub(crate) deferred: usize,
+}
+
+/// Makes sure every `(sha256, media_format)` source stored under `prefix` has its ladder, in the
+/// given order, `budget.concurrency` at a time, until the budget is spent. Returns the counts and
+/// the sources left for a later run (errored, then deferred), in order. Sources that are not images
+/// are skipped: they get no ladder.
+pub(crate) async fn ensure_ladders(
+    prefix: &str,
+    sources: &[(String, String)],
+    budget: &RenditionBudget,
+    storage: &dyn ObjectStorageService,
+) -> anyhow::Result<(LadderReport, Vec<(String, String)>)> {
+    let spec = spec()?;
+    let deadline = Instant::now() + Duration::from_secs(budget.run_time_budget_seconds);
+    let limit = usize::try_from(budget.per_run_limit).unwrap_or(usize::MAX);
+    let images: Vec<&(String, String)> = sources
+        .iter()
+        .filter(|(_, format)| is_source(format))
+        .collect();
+    let mut report = LadderReport::default();
+    let mut left = Vec::new();
+    let mut taken = 0;
+    for chunk in images.chunks(budget.concurrency.max(1)) {
+        if taken + chunk.len() > limit || Instant::now() >= deadline {
+            break;
+        }
+        taken += chunk.len();
+        let outcomes = futures_util::future::join_all(chunk.iter().map(|source| {
+            let (sha, format) = (*source).clone();
+            async move {
+                let outcome = ensure_ladder(prefix, &sha, &format, spec, storage).await;
+                ((sha, format), outcome)
+            }
+        }))
+        .await;
+        for ((sha, format), outcome) in outcomes {
+            match outcome {
+                Ok(Laddered::Present) => report.present += 1,
+                Ok(Laddered::Written(bytes)) => {
+                    report.written += 1;
+                    report.bytes_stored += bytes;
+                }
+                Ok(Laddered::Unrenderable) => report.unrenderable += 1,
+                Err(error) => {
+                    report.errored += 1;
+                    tracing::warn!(error = %error, source_sha256 = %sha, "a rendition ladder failed; left for a later run");
+                    left.push((sha, format));
+                }
+            }
+        }
+    }
+    report.deferred = images.len() - taken;
+    left.extend(images[taken..].iter().map(|source| (*source).clone()));
+    Ok((report, left))
+}
+
 /// Write-once: an existing key is the same rendition of the same source and version (a concurrent
 /// or interrupted earlier run), so it is kept.
 async fn put_once(
@@ -286,6 +364,39 @@ mod tests {
             ensure_ladder("onbid/media", &sha, "jpg", spec()?, &storage).await?,
             Laddered::Unrenderable
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_batch_stops_at_its_limit_and_hands_back_the_rest_in_order() -> anyhow::Result<()> {
+        let root = tempfile::tempdir()?;
+        let storage = FileObjectStorage::new(root.path())?;
+        let mut sources = Vec::new();
+        for side in [64_u32, 72, 80] {
+            let bytes = jpeg(side, side);
+            let sha = Sha256Hex::of(&bytes).as_str().to_owned();
+            crate::media_store::store_bytes(
+                &bytes,
+                &ObjectKeyPrefix::parse("onbid/media")?,
+                &storage,
+                1 << 20,
+            )
+            .await?;
+            sources.push((sha, "jpg".to_owned()));
+        }
+        // An appraisal PDF is not a photo source: never taken, never deferred.
+        sources.insert(1, ("c".repeat(64), "pdf".to_owned()));
+        let budget = RenditionBudget {
+            per_run_limit: 2,
+            concurrency: 1,
+            run_time_budget_seconds: 600,
+        };
+        let (report, left) = ensure_ladders("onbid/media", &sources, &budget, &storage).await?;
+        assert_eq!((report.written, report.deferred, report.errored), (2, 1, 0));
+        assert_eq!(left, vec![sources[3].clone()]);
+        let (again, left) = ensure_ladders("onbid/media", &sources, &budget, &storage).await?;
+        assert_eq!((again.present, again.written, again.deferred), (2, 0, 1));
+        assert_eq!(left.len(), 1);
         Ok(())
     }
 }
