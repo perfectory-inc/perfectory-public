@@ -1,0 +1,39 @@
+# No run may wait for a person to remove, clear or acknowledge something (root ADR-0446, 사장 규칙 2026-11-07:
+# 정상 경로에 사람이 없다).
+#
+# Prevents: on 2026-11-06 the court-auction collector read the site's ipcheck=false as a refusal after
+# 1,528 requests and wrote collector/refused.json; the 2026-11-07 16:05Z run then sent no request and
+# failed with "no run starts until a person checks it and removes .../refused.json", and so would every
+# night until someone did (root ADR-0281, removed by ADR-0289 2단계 d, #1155). The rt.molit collector
+# carried the same stop ("later runs are blocked until a person removes refused.json", root ADR-0348
+# §3, removed by ADR-0446). A refusal waits and asks again (backoff, session renewal); a step that is
+# truly a person's is one click in the console (ADR-0433), never a file to delete by hand.
+#
+# Such a gate always tells the person what to do, so the rule reads that sentence: "until a person /
+# an operator ... removes|clears|deletes|acknowledges|unlocks|resets" and the Korean "사람이 … 지워야 /
+# 풀기 전". Past tense ("until a person removed it") is history and passes. `generic`, so a message
+# split across a Rust string continuation or a shell comment is still read. Docs and ADRs are not
+# scanned: they record the incidents.
+rules:
+  - id: no-run-waits-for-a-person-to-remove-a-file
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      This blocks runs until a person removes, clears or acknowledges something (2026-11-07: the
+      court-auction refused.json held every run). Wait and ask again (root ADR-0446), or make the
+      person's step one click in the console (ADR-0433).
+    paths:
+      include:
+        - "*.rs"
+        - "*.py"
+        - "*.sh"
+        - "*.ts"
+        - "*.tsx"
+        - "*.js"
+        - "*.json"
+        - "*.yml"
+        - "*.yaml"
+        - "*.service"
+        - "*.timer"
+    pattern-regex: >-
+      (?i)\buntil\s+(?:a|an|the)\s+(?:person|operator|human|owner|admin)\b[\s\S]{0,60}?\b(?:removes|clears|deletes|acknowledges|unlocks|resets|unpauses)\b|사람이[^\n]{0,20}?(?:지워야|지우기\s*전|지울\s*때까지|풀어야|풀기\s*전|풀\s*때까지)
