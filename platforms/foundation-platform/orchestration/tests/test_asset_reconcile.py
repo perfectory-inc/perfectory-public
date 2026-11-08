@@ -203,6 +203,31 @@ class Reconciler(unittest.TestCase):
         self.assertEqual((keys[-1], state["iceberg://gold.parcel_panel"].get("attempt")), (None, None),
                          "caught up: nothing owed and the attempts forgotten")
 
+    def test_a_gold_run_its_time_limit_stopped_is_started_again_after_an_hour_whatever_its_attempt(self):
+        # 2026-11-07: lock waits and two 160-minute timeouts had doubled the parcel panel's backoff to four
+        # hours; its whole build now resumes from staged shards (root ADR-0440), so an hour is enough.
+        parcel = self.panels["gold.parcel_panel"]
+        pins = {name: "5" for name in parcel.inputs}
+        self.catalog["gold.parcel_panel"] = table(snap("601", None, 0, operation="overwrite", pins=pins))
+        for name in parcel.inputs:
+            self.catalog[name] = table(snap("5", None, 0))
+        self.catalog["silver.land_transfer_history"] = table(snap("5", None, 0), snap("6", "5", 10))
+        url = "iceberg://gold.parcel_panel"
+        state = {url: {"attempt": 5, "attempt_at": T0 + 60 * 20}}
+
+        def key(minutes, timed_out):
+            nonlocal state
+            state[url].setdefault("attempt_of", asset_reconcile.versions_key({url: asset_reconcile.gold_verdict(
+                parcel, self.catalog.__getitem__).versions}))
+            owed, _, state, _ = asset_reconcile.tick(T0 + 60 * minutes, [parcel], self.catalog.__getitem__,
+                                                     self.reads.get, lambda service: False, lambda job: "", state,
+                                                     lambda service: timed_out)
+            return owed[0].split()[-1]
+
+        first = key(21, False)
+        self.assertEqual(key(81, False), first, "a failure's sixth attempt waits four hours")
+        self.assertNotEqual(key(81, True), first, "a time-limit stop waits an hour")
+
     def test_the_unit_price_gold_is_owed_when_the_building_gold_moved_its_registers(self):
         owed, _, _, _ = self.tick()
         self.assertFalse(any("gold_unit_price_rebuild" in line for line in owed))
