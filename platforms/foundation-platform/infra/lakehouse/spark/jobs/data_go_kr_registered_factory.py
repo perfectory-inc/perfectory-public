@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import address_pnu
+import code_change_follow as follow
 
 JOB_NAME = "data_go_kr_registered_factory"
 TABLE = "silver.registered_factory"
@@ -152,6 +153,103 @@ def latest_edition_rows(spark: Any, table: str) -> int | None:
     return rows or None
 
 
+OFFERED_SCHEMA = ("row_id int, serial_no long, company_name string, complex_name string, "
+                  "products string, factory_address_raw string, legal_dong_code string, "
+                  "jibun_pnu string, reason string, road_sido string, road_sigungu string, "
+                  "road_name string, road_main_no int, road_sub_no int, "
+                  "source_line_number int")
+RESOLVED = ("pnu", "pnu_basis", "pnu_unresolved_reason", "pnu_candidate_count", "legal_dong_code")
+LINE_KEY = ("source_record_id", "source_line_number")
+
+
+def relinked_offers(rows: Sequence[Mapping[str, Any]], prefixes: Mapping[str, str],
+                    dongs: Mapping[tuple[str, str], str]) -> list[dict[str, Any]]:
+    """The current rows again with what each kept address offers the joins now (root ADR-0416); the
+    values the edition gave stay, and ``row_id`` points back at the row."""
+
+    out = []
+    for number, current in enumerate(rows):
+        offer = address_pnu.candidates(current["factory_address_raw"] or "", prefixes, dongs)
+        road = offer["road"]
+        out.append({
+            "row_id": number, "serial_no": current["serial_no"], "company_name": current["company_name"],
+            "complex_name": current["complex_name"], "products": current["products"],
+            "factory_address_raw": current["factory_address_raw"], "legal_dong_code": offer["legal_dong_code"],
+            "jibun_pnu": offer["jibun_pnu"], "reason": offer["reason"],
+            "road_sido": road.sido_code if road else None, "road_sigungu": road.sigungu if road else None,
+            "road_name": road.road if road else None, "road_main_no": road.main_no if road else None,
+            "road_sub_no": road.sub_no if road else None, "source_line_number": current["source_line_number"],
+        })
+    return out
+
+
+def follow_code_changes(spark: Any, catalog: str, table: str, prefixes: Mapping[str, str],
+                        dongs: Mapping[tuple[str, str], str], now: datetime) -> dict[str, Any] | None:
+    """Re-link the lines of the served edition the 법정동 code changes since the table's last follow
+    can move (root ADR-0329 §3, ADR-0416). None when there is nothing to follow.
+
+    The table reads one whole edition, the newest by (기준일, load instant) (root ADR-0286 §3): a
+    reload of a 기준일 outranks its earlier load. So when any line's link moved, the edition is
+    appended once more, every line, the moved ones re-linked and the rest as they were, at this
+    run's instant. When none moved, only the follow record is written."""
+
+    from lakehouse_ingest import append_source_object, read_ingested_objects, unquoted_table_name  # noqa: PLC0415
+    from platform_contracts import column_names, current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    after = follow.change_snapshot(spark, catalog)
+    if after is None or not spark.catalog.tableExists(unquoted_table_name(table)):
+        return None
+    before = follow.last_followed(read_ingested_objects(spark, table, unquoted_table_name(table)))
+    if before == after:
+        return None
+    contract = load_lakehouse_contract(TABLE)
+    columns = list(column_names(contract))
+    moved = follow.changed_prefixes(spark, catalog, before, after, JOB_NAME)
+    edition = current_rows(spark.table(table), contract).cache()
+    affected = follow.rows_under(edition, moved, ("legal_dong_code", "pnu"), "pnu").cache()
+    rows = [r.asDict() for r in affected.collect()]
+    record = follow.follow_record(after, now)
+    instant = F.lit(now).cast("timestamp")
+    relinked_lines = 0
+    written = spark.createDataFrame([], schema=spark.table(table).schema).select(*columns)
+    if rows:
+        kept = spark.createDataFrame(
+            [(n, r["source_record_id"], r["source_snapshot_id"]) for n, r in enumerate(rows)],
+            schema="row_id int, source_record_id string, source_snapshot_id string")
+        offered = spark.createDataFrame(relinked_offers(rows, prefixes, dongs), schema=OFFERED_SCHEMA)
+        staged = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, catalog))
+                  .join(kept, "row_id")
+                  .withColumn("ingested_at_utc", instant)
+                  .select(*columns))
+        changed = moved_lines(staged, affected).cache()
+        relinked_lines = changed.count()
+        if relinked_lines:
+            unchanged = (edition.join(changed.select(*LINE_KEY), list(LINE_KEY), "left_anti")
+                         .withColumn("ingested_at_utc", instant).select(*columns))
+            written = unchanged.unionByName(changed.select(*columns))
+    # The record is written even when no line moved: the next follow starts from this snapshot.
+    append_source_object(spark, written, columns, table, record, contract_table=TABLE)
+    affected.unpersist()
+    edition.unpersist()
+    return {"from_snapshot": before, "to_snapshot": after, "prefixes": None if moved is None else len(moved),
+            "checked": len(rows), "relinked": relinked_lines,
+            "appended": edition.count() if relinked_lines else 0}
+
+
+def moved_lines(staged: Any, current: Any) -> Any:
+    """The re-linked lines whose link differs from the line's current row (null-safe)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    old = current.select(*LINE_KEY, *(F.col(c).alias(f"_old_{c}") for c in RESOLVED))
+    joined = staged.join(old, list(LINE_KEY), "left")
+    differs = F.lit(False)
+    for column in RESOLVED:
+        differs = differs | ~F.col(column).eqNullSafe(F.col(f"_old_{column}"))
+    return joined.where(differs).select(*staged.columns)
+
+
 def _summary_line(summary: Mapping[str, Any]) -> None:
     print("registered-factory-summary-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True, default=str))
 
@@ -210,12 +308,7 @@ def _load(argv: Sequence[str]) -> int:
         for entry in objects:
             snapshot, rows = read_member(entry["path"].read_bytes(), source)
             check_bounds(len(rows), latest_edition_rows(spark, table), source)
-            offered = spark.createDataFrame(factory_rows(rows, prefixes, dongs),
-                                            schema=("row_id int, serial_no long, company_name string, complex_name string, "
-                                                    "products string, factory_address_raw string, legal_dong_code string, "
-                                                    "jibun_pnu string, reason string, road_sido string, road_sigungu string, "
-                                                    "road_name string, road_main_no int, road_sub_no int, "
-                                                    "source_line_number int"))
+            offered = spark.createDataFrame(factory_rows(rows, prefixes, dongs), schema=OFFERED_SCHEMA)
             resolved = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name))
                         .withColumn("source_record_id", F.lit(entry["object_key"]))
                         .withColumn("source_snapshot_id", F.lit(snapshot))
@@ -226,6 +319,7 @@ def _load(argv: Sequence[str]) -> int:
             resolved.unpersist()
             summary["editions"].append({"object": entry["object_key"], "source_snapshot_id": snapshot,
                                         "appended": appended, **counts})
+        summary["follow"] = follow_code_changes(spark, args.iceberg_catalog_name, table, prefixes, dongs, now)
     finally:
         spark.stop()
     _summary_line(summary)
