@@ -204,6 +204,14 @@ class LinksPlaces(unittest.TestCase):
         self.assertEqual((report["rows"], report["pnu"], report["legal_dong_only"]), (3, 1, 2))
         self.assertEqual(job.unmasked_unresolved_share(rows), 0.5)
 
+    def test_the_bound_reads_a_share_of_enough_unmasked_lots_not_of_all_rows(self):
+        masked = {"dataset_slug": DATASET, "pnu": None, "legal_dong_code": "9999933021",
+                  "pnu_unresolved_reason": "jibun_masked"}
+        absent = {**masked, "pnu_unresolved_reason": "legal_dong_not_found"}
+        # 2026-11-08: a 토지 매매 month, every lot masked but two, both unresolved.
+        self.assertFalse(job.below_link_bound([masked] * 1000 + [absent] * 2, 0.25))
+        self.assertTrue(job.below_link_bound([masked] * 1000 + [absent] * job.MIN_UNMASKED_LOTS, 0.25))
+
 
 class ReadsPlans(unittest.TestCase):
     def plan(self, root: Path, slug: str, table="silver.real_transaction", schema=job.PLAN_SCHEMA,
