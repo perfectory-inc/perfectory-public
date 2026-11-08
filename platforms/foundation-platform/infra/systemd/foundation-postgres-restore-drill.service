@@ -6,9 +6,20 @@ Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service
+# A retried unit fails more than once: one alert that its next success resolves (notify-unit-failure.sh).
+OnSuccess=foundation-unit-recovered@%n.service
+# A failed drill tries again after 6 h, 12 h, then a day, not a week later (root ADR-0445 §5), so a fix that
+# deploys meanwhile is proven the same week. 2026-11-08: both drills failed, were fixed by 11:43Z (#1180), and
+# would have stayed failed until the 11-15 timer.
+StartLimitIntervalSec=6d
+StartLimitBurst=6
 
 [Service]
 Type=oneshot
+Restart=on-failure
+RestartSec=6h
+RestartSteps=2
+RestartMaxDelaySec=1d
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current

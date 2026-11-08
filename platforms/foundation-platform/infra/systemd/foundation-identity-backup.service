@@ -6,9 +6,20 @@ Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
 OnFailure=foundation-unit-failed@%n.service
+# A retried unit fails more than once: one alert that its next success resolves (notify-unit-failure.sh).
+OnSuccess=foundation-unit-recovered@%n.service
+# A failed backup tries again the same night instead of the next one, at 30 min, 1 h and 2 h (root ADR-0445 §5).
+# 2026-11-08: the host OOM at 03:43Z cut the foundation database's Sunday full backup, and its next try was the
+# 11-09 timer; this dump has the same single nightly try. A dump is whole or absent, so a retry starts over.
+StartLimitIntervalSec=20h
+StartLimitBurst=4
 
 [Service]
 Type=oneshot
+Restart=on-failure
+RestartSec=30min
+RestartSteps=2
+RestartMaxDelaySec=2h
 User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
