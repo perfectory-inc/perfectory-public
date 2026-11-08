@@ -384,7 +384,7 @@ grep -qx 'MemoryHigh=921M' "$fixture/unit-memory/fixture-job.service" && grep -q
   echo "FAIL $name: the rendered job unit lacks MemoryHigh=921M or OOMScoreAdjust=500" >&2
   exit 1
 }
-sed -n '/^\[Install\]/,$p' "$fixture/unit-memory/fixture-job.service" | grep -q '^Memory' && {
+grep -q '^Memory' < <(sed -n '/^\[Install\]/,$p' "$fixture/unit-memory/fixture-job.service") && {
   echo "FAIL $name: memory lines rendered outside [Service]" >&2
   exit 1
 }
