@@ -49,6 +49,7 @@ case "$*" in
     [ -z "$state" ] || echo "$last loaded $state x fixture" ;;
   *InvocationID*) if [ -f "$root/started" ]; then echo new; else echo old; fi ;;
   *Result*) echo "${FIXTURE_RESULT:-success}" ;;
+  is-failed*) [ -n "${FIXTURE_FAILED:-}" ] ;;
 esac
 """
 SLEEP = """#!/bin/sh
@@ -457,6 +458,23 @@ class TheCheckBeforeThePool(HostFixture):
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertNotIn("deferred", result.stdout)
         self.assertIn("systemctl start --no-block foundation-bake.service", asked)
+
+    def test_a_check_that_found_nothing_to_do_clears_its_runs_failed_state(self):
+        # Root ADR-0445 §5, 2026-11-08: seven Silver lanes stayed failed a day after their fix, because
+        # every later check said `already_loaded` and no run started to clear the failure.
+        result, asked = self.start("floor check", FIXTURE_FAILED="1",
+                                   FIXTURE_JOURNAL="plan\nfoundation-job-check unchanged\n")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("/usr/bin/systemctl reset-failed foundation-floor.service", asked)
+        self.assertIn("cleared the failed state of foundation-floor.service", result.stdout)
+
+    def test_a_check_that_found_work_or_failed_leaves_the_failed_state(self):
+        for journal, outcome in (("foundation-job-check would_change\n", "success"),
+                                 ("foundation-job-check unchanged\n", "exit-code")):
+            result, asked = self.start("floor check", FIXTURE_FAILED="1", FIXTURE_RESULT=outcome,
+                                       FIXTURE_JOURNAL=journal)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("reset-failed", asked)
 
     def test_a_failed_check_that_said_unchanged_is_not_a_turn(self):
         self.record("floor", 1000)

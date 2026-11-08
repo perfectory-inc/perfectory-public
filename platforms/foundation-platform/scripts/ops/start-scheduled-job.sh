@@ -62,10 +62,10 @@ for entry in json.load(open(sys.argv[1]))["jobs"]:
     # An operator's run-now may start a job that is off: its supervised run (root ADR-0282).
     if entry["id"] == sys.argv[2] and (entry["enabled"] or sys.argv[4] == "true"):
         service = (entry.get("check_service") or "") if sys.argv[3] == "true" else entry["systemd_service"]
-        print(service or "-", entry["wait_limit_minutes"])
+        print(service or "-", entry["wait_limit_minutes"], entry["systemd_service"])
 PY
 )" || refuse "cannot read ${jobs_file}"
-read -r service wait_limit <<<"${listing}" || true
+read -r service wait_limit run_service <<<"${listing}" || true
 [[ "${service:-}" != - ]] || service=""
 [[ -n "${service}" ]] || refuse "${job} is not an enabled job in ${jobs_file}$([[ "${checking}" == true ]] && echo ' with a check_service')"
 
@@ -256,6 +256,16 @@ if [[ "${checking}" == true ]]; then
   # by-PNU bake deferred every clock start to twelve Silver lanes with nothing to load).
   if [[ "${answer}" == "foundation-job-check unchanged" ]]; then
     date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
+    # Nothing to do means the job's outputs hold its newest inputs: the run that failed before is no
+    # longer the job's state, and a failed state means broken now (root ADR-0445 §5). The run is
+    # skipped, so nothing else would clear it (2026-11-08: seven Silver lanes failed on 11-07 07:00Z when
+    # their check could not read, the 09:12Z fix made it read, and every daily check since said
+    # `already_loaded`, yet the lanes stayed failed).
+    if systemctl is-failed --quiet "${run_service}"; then
+      sudo -n /usr/bin/systemctl reset-failed "${run_service}"         && printf 'start-scheduled-job: cleared the failed state of %s: its check found nothing to do
+' "${run_service}"         || printf 'start-scheduled-job: could not clear the failed state of %s
+' "${run_service}" >&2
+    fi
   fi
   printf 'start-scheduled-job: %s result=%s\n' "${service}" "${result}"
   exit 0
