@@ -404,4 +404,29 @@ expect_pass "a decided bound closer than 1.5 x, with why"
 write_unit_fixture '{"class": "batch", "memory_max": "5G", "measured_peak": "300M", "measured": "fixture"}'
 expect_fail "a unit cap that alone, beside the standing services and host_reserved, would take the host"
 
+# A host service states oom_score_adj exactly when compose_oom names it (root ADR-0455 §6).
+write_oom_fixture() {
+  local adj="$1" named="$2"
+  write_contract 6g
+  write_stack "    mem_limit: 1g${adj:+$'
+'    oom_score_adj: ${adj}}"
+  python3 - "$fixture/tools/host-memory-budget.contract.json" "$named" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+contract = json.loads(path.read_text())
+contract["compose_oom"] = {"classes": {"critical": {"oom_score_adj": -900, "why": "f"}},
+                           "services": {"stack/api": "critical"} if sys.argv[2] else {}}
+path.write_text(json.dumps(contract))
+PY
+}
+
+write_oom_fixture -900 named
+expect_pass "a critical service that states its class's oom_score_adj"
+write_oom_fixture "" named
+expect_fail "a critical service that states no oom_score_adj"
+write_oom_fixture -900 ""
+expect_fail "a service that states an oom_score_adj compose_oom does not name"
+write_oom_fixture 100 named
+expect_fail "a critical service whose oom_score_adj is not its class's"
+
 echo "OK $name"

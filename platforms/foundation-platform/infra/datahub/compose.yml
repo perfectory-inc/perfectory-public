@@ -362,6 +362,7 @@ services:
     image: "alpine/socat:1.8.0.3@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e"
     restart: unless-stopped
     mem_limit: 64m
+    oom_score_adj: -900
     network_mode: "service:frontend-quickstart"
     command:
       - "TCP-LISTEN:18453,fork,reuseaddr,bind=127.0.0.1"

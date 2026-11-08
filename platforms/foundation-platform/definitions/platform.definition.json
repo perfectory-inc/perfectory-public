@@ -1372,6 +1372,39 @@
           }
         }
       },
+      "compose_oom": {
+        "decision": "docs/adr/0455-one-job-cannot-take-the-host-every-unit-declares-its-memory-and-batch-is-killed-first.md",
+        "rule": "A compose service states oom_score_adj exactly when it is named here, with its class's value; every-container-has-a-memory-cap.sh compares the merged compose model with this list (root ADR-0455 §6). Docker has no memory.high; mem_limit is the hard cap every service already states. A service two host projects both run (the runtime project includes the lakehouse services) is named under each.",
+        "classes": {
+          "critical": {
+            "oom_score_adj": -900,
+            "why": "The databases, Zitadel and the gateways that front them (foundation-api, identity-api, their loopbacks, the console tunnel): when the host runs out, the OOM killer takes these last. 2026-11-08 the host OOM cut the PostgreSQL backup's connection (W36)."
+          },
+          "batch": {
+            "oom_score_adj": 500,
+            "why": "The Spark containers the scheduled jobs run: a stopped load is rerun, so the OOM killer takes these first, as the batch systemd units."
+          }
+        },
+        "services": {
+          "airflow/airflow-zitadel-loopback": "critical",
+          "datahub/zitadel-loopback": "critical",
+          "foundation-platform-compute/spark": "batch",
+          "foundation-platform-compute/spark-small": "batch",
+          "foundation-platform-runtime/console-tunnel": "critical",
+          "foundation-platform-runtime/foundation-api": "critical",
+          "foundation-platform-runtime/identity-api-loopback": "critical",
+          "foundation-platform-runtime/identity-zitadel-loopback": "critical",
+          "foundation-platform-runtime/postgres": "critical",
+          "foundation-platform-runtime/spark": "batch",
+          "foundation-platform-runtime/spark-small": "batch",
+          "identity-platform-runtime/identity-api": "critical",
+          "identity-platform-runtime/identity-db": "critical",
+          "identity-platform-runtime/identity-netns": "critical",
+          "identity-platform-runtime/zitadel-loopback": "critical",
+          "zitadel-platform/zitadel": "critical",
+          "zitadel-platform/zitadel-db": "critical"
+        }
+      },
       "host_scripts": {
         "paths": [
           "platforms/foundation-platform/scripts/"
