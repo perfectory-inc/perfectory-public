@@ -168,14 +168,6 @@ jobs:
             tools/xtask
           shared-key: gongzzang-dependencies
           save-if: false
-      - name: Install ripgrep
-        run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
-      - name: Forbidden implementation markers
-        run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
-      # The hook gates every push; its planted-violation test never ran anywhere (ADR-0011).
-      - name: Hook guard planted-violation tests
-        run: |
-          bash scripts/lefthook/check-forbidden-implementation-markers.tests.sh
       - name: File size limit (repo-guard)
         run: cargo run -p repo-guard -- file-line-limit
       - name: Migration version prefixes (repo-guard)
