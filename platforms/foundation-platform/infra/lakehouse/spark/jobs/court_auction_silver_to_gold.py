@@ -24,15 +24,18 @@ Which PNU an item belongs to (the 공매 placement, root ADR-0287):
   the servable Gold (root ADR-0292).
 
 What a PNU's document holds: the items in progress as of the build, soonest sale date first, each
-with its codes, money values, court identifiers, sale schedule and the address the court lists.
-Values only: codes stay codes, and the words are the consumer's.
+with its codes, money values, court identifiers, sale schedule and the address the court lists; and
+the parcel's 매각결과 (`sale_results`, root ADR-0454): the current row of every item of
+`silver.court_auction_sale_result` placed on it the same way, newest sale date first, at most
+SALE_RESULT_BOUND, with `sale_result_total` counting them all. A PNU with sale results and no item in
+progress has a document too. Values only: codes stay codes, and the words are the consumer's.
 
 Which code the PNU carries (root ADR-0382, ADR-0329 §3): the Silver row's PNU, or its source code PNU
 when the load left it unresolved, is carried to the CURRENT legal-dong code on every build through the
 one resolver's crosswalk (`place_identity_resolver.carried_to_current`), never fixed at load time.
 
-Partial (root ADR-0312 §2, ADR-0314): only the PNUs an item change reaches are rebuilt and merged
-(`affected_pnus`), plus those whose items' sale date passed since the current Gold was built and
+Partial (root ADR-0312 §2, ADR-0314): only the PNUs an item or sale-result change reaches are rebuilt
+and merged (`affected_pnus`), plus those whose items' sale date passed since the current Gold was built and
 those under a code a change of the code change table reaches (`views.changed_codes`). A
 change to the served parcels or the lineage moves placements the item rows do not name, so those
 two are whole-table inputs and rebuild the kind whole.
@@ -43,6 +46,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
+from functools import reduce
 from typing import Any
 
 import legal_dong_code_change_views as views
@@ -51,6 +55,7 @@ import place_identity_resolver
 
 JOB_NAME = "court_auction_silver_to_gold"
 ITEM_SOURCE = "silver.court_auction_item"
+SALE_RESULT_SOURCE = "silver.court_auction_sale_result"
 PARCEL_SOURCE = onbid.PARCEL_SOURCE
 LINEAGE_SOURCE = onbid.LINEAGE_SOURCE
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
@@ -86,10 +91,25 @@ ROUND_FIELDS = (
     "sale_date", "sale_time_raw", "sale_decision_date", "sale_place", "failed_bid_count",
     "photos",
 )
+# A served sale result's values (root ADR-0454): the item's identifiers, the court, the address, the
+# status and usage codes, money and the sale it reports. Measured 2026-11-09 on production Silver:
+# 10,120 results (one pass, sale dates 2026-10-13..19), 9,817 with a PNU on 6,774 PNUs, at most 362 on
+# one PNU (an apartment complex), 2,062 with a 매각가.
+SALE_RESULT_FIELDS = (
+    "court_office_code", "case_no", "property_seq", "item_seq", "user_case_no", "court_name", "department_name",
+    "building_name", "print_address_raw", "item_status_code",
+    "usage_lcls_code", "usage_mcls_code", "usage_scls_code",
+    "appraisal_amount_krw", "minimum_bid_price_krw", "sale_amount_krw",
+    "sale_date", "sale_decision_date", "failed_bid_count",
+)
+SALE_RESULT_BOUND = 50
+# The share of the document ceiling the sale results may take; the items in progress get the rest.
+# SALE_RESULT_BOUND results of about 600 bytes each fit well inside it.
+SALE_RESULT_BYTES = 64 * 1024
 GOLD_CONTENT = ("court_auction_json", "attached_via")
 # The item identifiers of a served document, enough to find which PNUs an item is served under.
-DOCUMENT_ROUND_KEYS = ("struct<rounds:array<struct<court_office_code:string,case_no:string,"
-                       "property_seq:int,item_seq:int>>>")
+_KEYS = "array<struct<court_office_code:string,case_no:string,property_seq:int,item_seq:int>>"
+DOCUMENT_ROUND_KEYS = f"struct<rounds:{_KEYS},sale_results:{_KEYS}>"
 
 
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
@@ -98,7 +118,7 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     whole: `affected_pnus` maps their changed keys and codes to PNUs. The parcels and the lineage
     are: a new edition or link moves items the item rows do not name."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE, CODE_CHANGE_SOURCE),
+    return ((PARCEL_SOURCE, ITEM_SOURCE, SALE_RESULT_SOURCE, CODE_CHANGE_SOURCE),
             {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
             (PARCEL_SOURCE, LINEAGE_SOURCE))
 
@@ -165,8 +185,9 @@ def code_change_keys(old: dict[str, Any], new: dict[str, Any]) -> Any | None:
     under = F.lit(False)
     for digits, prefixes in sorted(by_digits.items()):
         under = under | F.substring("pnu", 1, digits).isin(sorted(prefixes))
-    reached = [frame[ITEM_SOURCE].where(under).select(*KEY) for frame in (old, new) if ITEM_SOURCE in frame]
-    return reached[0] if len(reached) == 1 else reached[0].unionByName(reached[1])
+    reached = [frame[name].where(under).select(*KEY) for frame in (old, new)
+               for name in (ITEM_SOURCE, SALE_RESULT_SOURCE) if name in frame]
+    return reduce(lambda a, b: a.unionByName(b), reached)
 
 
 def rounds(items: Any) -> Any:
@@ -176,6 +197,15 @@ def rounds(items: Any) -> Any:
 
     return (current_rows(items, load_lakehouse_contract(ITEM_SOURCE)).withColumnRenamed("pnu", "source_pnu")
             .withColumn("is_open", F.col("row_state").isNull() | (F.col("row_state") != F.lit(REMOVED))))
+
+
+def sale_results(results: Any) -> Any:
+    """One row per item's sale result: its current row (the contract's `current_rows`, newest per key by
+    source_snapshot_id, root ADR-0267), carrying that row's PNU as `source_pnu`. The table has no
+    removal marker: a reported result stays."""
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    return current_rows(results, load_lakehouse_contract(SALE_RESULT_SOURCE)).withColumnRenamed("pnu", "source_pnu")
 
 
 def served_rounds(round_rows: Any, as_of: Any) -> Any:
@@ -189,34 +219,65 @@ def served_rounds(round_rows: Any, as_of: Any) -> Any:
         & F.col("sale_date").isNotNull() & (F.col("sale_date") >= as_of))
 
 
-def document_rows(placed_rounds: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) -> Any:
-    """One row per PNU: `court_auction_json` (the served items, soonest sale date first, cut at the
-    document ceiling, with the source and its attribution), `round_count`, and `attached_via` — null
-    when the PNU holds an item of its own, else its nearest carried item's path."""
+def _entries(placed: Any, fields: tuple[str, ...], first: Any, limit_bytes: int, bound: int | None) -> Any:
+    """Per PNU: `_entries` (the rows' `fields`, `first` then the key, cut where their JSON passes
+    `limit_bytes` or at `bound`), `_count` (every row), `_own` (1 when one is on its own PNU) and `_via`
+    (the least carried path)."""
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
 
-    fields = [*ROUND_FIELDS, "attached_via"]
     # An earlier snapshot of the item list (or a test frame) may lack a later column: it is null.
-    entries = placed_rounds.withColumn("_entry", F.struct(*[
-        (F.col(f) if f in placed_rounds.columns
+    entries = placed.withColumn("_entry", F.struct(*[
+        (F.col(f) if f in placed.columns
          else F.expr(f"CAST(array() AS {PHOTO_STRUCT})") if f == "photos" else F.lit(None).cast("string")).alias(f)
-        for f in fields]))
-    order = Window.partitionBy("pnu").orderBy(F.col("sale_date").asc(), *[F.col(k).asc() for k in KEY])
+        for f in (*fields, "attached_via")]))
+    order = Window.partitionBy("pnu").orderBy(first, *[F.col(k).asc() for k in KEY])
     sized = (entries.withColumn("_bytes", F.length(F.to_json("_entry", WRITTEN)) + F.lit(1))
-             .withColumn("_running", F.sum("_bytes").over(order.rowsBetween(Window.unboundedPreceding, 0))))
-    kept = sized.where(F.col("_running") <= F.lit(limit_bytes - DOCUMENT_ENVELOPE_BYTES))
+             .withColumn("_running", F.sum("_bytes").over(order.rowsBetween(Window.unboundedPreceding, 0)))
+             .withColumn("_n", F.row_number().over(order)))
+    kept = F.col("_running") <= F.lit(limit_bytes)
+    if bound is not None:
+        kept = kept & (F.col("_n") <= F.lit(bound))
+    return sized.groupBy("pnu").agg(
+        F.array_sort(F.collect_list(F.when(kept, F.struct(F.col("_n").alias("_sort"), F.col("_entry").alias("e")))))
+        .getField("e").alias("_entries"),
+        F.count(F.lit(1)).alias("_count"),
+        F.max(F.col("attached_via").isNull().cast("int")).alias("_own"),
+        F.min("attached_via").alias("_via"),
+    )
+
+
+def document_rows(placed_rounds: Any, placed_sales: Any, limit_bytes: int = DOCUMENT_BYTE_LIMIT) -> Any:
+    """One row per PNU holding a served item or a sale result: `court_auction_json` (the served items,
+    soonest sale date first, and the sale results, newest first, each cut at its share of the document
+    ceiling, with the source and its attribution), `round_count`, and `attached_via` — null when the
+    PNU holds an item or result of its own, else its nearest carried one's path."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    parts = ("_entries", "_count", "_own", "_via")
+    items = _entries(placed_rounds, ROUND_FIELDS, F.col("sale_date").asc(),
+                     limit_bytes - DOCUMENT_ENVELOPE_BYTES - SALE_RESULT_BYTES, None)
+    sales = _entries(placed_sales, SALE_RESULT_FIELDS, F.col("sale_date").desc_nulls_last(), SALE_RESULT_BYTES,
+                     SALE_RESULT_BOUND)
+    types = {name: part.schema["_entries"].dataType.simpleString() for name, part in (("r", items), ("s", sales))}
+    joined = (items.select("pnu", *[F.col(c).alias(f"r{c}") for c in parts])
+              .join(sales.select("pnu", *[F.col(c).alias(f"s{c}") for c in parts]), "pnu", "full_outer"))
+
+    def listed(side: str) -> Any:
+        return F.coalesce(F.col(f"{side}_entries"), F.expr(f"CAST(array() AS {types[side]})"))
+
+    own = F.greatest(F.coalesce(F.col("r_own"), F.lit(0)), F.coalesce(F.col("s_own"), F.lit(0)))
     # Nulls are written, so a document's field paths are always the registry's (root ADR-0336).
-    return kept.groupBy("pnu").agg(
+    return joined.select(
+        "pnu",
         F.to_json(F.struct(
-            F.array_sort(F.collect_list(F.struct(
-                F.col("sale_date").alias("_sort"), *[F.col(k).alias(f"_k{i}") for i, k in enumerate(KEY)],
-                F.col("_entry").alias("round")))).getField("round").alias("rounds"),
+            listed("r").alias("rounds"),
+            listed("s").alias("sale_results"),
+            F.coalesce(F.col("s_count"), F.lit(0)).alias("sale_result_total"),
             F.array(*[F.lit(d) for d in SOURCE_DATASETS]).alias("source_datasets"),
             F.lit(SOURCE_ATTRIBUTION).alias("source_attribution"),
         ), WRITTEN).alias("court_auction_json"),
-        F.count(F.lit(1)).alias("round_count"),
-        F.when(F.max(F.col("attached_via").isNull().cast("int")) == 1, F.lit(None).cast("string"))
-        .otherwise(F.min("attached_via")).alias("attached_via"),
+        F.coalesce(F.col("r_count"), F.lit(0)).alias("round_count"),
+        F.when(own == 1, F.lit(None).cast("string")).otherwise(F.least("r_via", "s_via")).alias("attached_via"),
     )
 
 
@@ -238,35 +299,46 @@ def placement(frames: dict[str, Any], how: Placement) -> Any:
                         how.merges)
 
 
-def gold_rows(located: Any, as_of: str, source_snapshot_id: str, columns: tuple[str, ...]) -> Any:
-    """The kind's Gold rows from placed items: one per PNU that holds a servable item."""
+def sale_placement(frames: dict[str, Any], how: Placement) -> Any:
+    """The sale results of `frames` placed on their PNUs as items are (one row per result and PNU)."""
+    return onbid.placed(sale_results(frames[SALE_RESULT_SOURCE]), frames[PARCEL_SOURCE], how.candidates, how.merges)
+
+
+def gold_rows(located: Any, located_sales: Any, as_of: str, source_snapshot_id: str, columns: tuple[str, ...]) -> Any:
+    """The kind's Gold rows from placed items and sale results: one per PNU that holds a servable one."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    return document_rows(onbid.servable(located)).select(
+    return document_rows(onbid.servable(located), onbid.servable(located_sales)).select(
         "pnu", *GOLD_CONTENT, F.lit(source_snapshot_id).alias("source_snapshot_id"),
         F.lit(as_of).alias("published_at_utc"),
     ).withColumn("row_digest", F.sha2(F.to_json(F.struct("pnu", *GOLD_CONTENT)), 256)).select(*columns)
 
 
 def items_of(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
-    """`frames` with the item rows cut to the items of `keys` (every version of each) and the photo
-    rows to their cases."""
-    cut = {ITEM_SOURCE: keys.select(*KEY), PHOTO_SOURCE: keys.select(*CASE).distinct()}
+    """`frames` with the item and sale-result rows cut to the items of `keys` (every version of each)
+    and the photo rows to their cases."""
+    cut = {ITEM_SOURCE: keys.select(*KEY), SALE_RESULT_SOURCE: keys.select(*KEY),
+           PHOTO_SOURCE: keys.select(*CASE).distinct()}
     return {name: frame.join(cut[name], cut[name].columns, "left_semi") if name in cut else frame
             for name, frame in frames.items()}
 
 
 def restrict_inputs(frames: dict[str, Any], keys: Any, how: Placement) -> dict[str, Any]:
-    """The input rows the Gold rows of the PNUs `keys` are built from: every item placed on them."""
-    return items_of(frames, placement(frames, how).join(keys, "pnu", "left_semi").select(*KEY).distinct())
+    """The input rows the Gold rows of the PNUs `keys` are built from: every item and sale result placed
+    on them."""
+    on = [placed.join(keys, "pnu", "left_semi").select(*KEY) for placed in (placement(frames, how),
+                                                                            sale_placement(frames, how))]
+    return items_of(frames, on[0].unionByName(on[1]).distinct())
 
 
 def document_round_keys(gold: Any) -> Any:
-    """(pnu, item key) for every item a Gold document serves."""
+    """(pnu, item key) for every item and sale result a Gold document serves."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
-    rounds_json = F.from_json("court_auction_json", DOCUMENT_ROUND_KEYS)["rounds"]
-    return (gold.select("pnu", F.explode(rounds_json).alias("_r"))
+    body = F.from_json("court_auction_json", DOCUMENT_ROUND_KEYS)
+    listed = F.concat(F.coalesce(body["rounds"], F.expr(f"CAST(array() AS {_KEYS})")),
+                      F.coalesce(body["sale_results"], F.expr(f"CAST(array() AS {_KEYS})")))
+    return (gold.select("pnu", F.explode(listed).alias("_r"))
             .select("pnu", *[F.col(f"_r.{k}").alias(k) for k in KEY]))
 
 
@@ -274,10 +346,10 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
                   previous_as_of: str | None, changed: list[str]) -> Any:
     """The PNUs whose document can differ from the current Gold's (root ADR-0312 §2).
 
-    An item is touched when a row of it changed in the item table, or when its sale date passed
-    since the current Gold was built (`previous_as_of`: it left the served items with no input
-    change). Its PNUs are those the current Gold serves it under and those it is placed on now, so
-    an item that moved, closed or appeared reaches both ends."""
+    An item is touched when a row of it changed in the item or the sale-result table, or when its
+    sale date passed since the current Gold was built (`previous_as_of`: it left the served items with
+    no input change). Its PNUs are those the current Gold serves it under and those it or its result
+    is placed on now, so an item or result that moved, closed or appeared reaches both ends."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     import gold_incremental as incremental  # noqa: PLC0415
@@ -285,6 +357,8 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
     touched = []
     if ITEM_SOURCE in changed and ITEM_SOURCE in old and ITEM_SOURCE in new:
         touched.append(incremental.changed_rows(old[ITEM_SOURCE], new[ITEM_SOURCE], KEY).select(*KEY))
+    if SALE_RESULT_SOURCE in changed and SALE_RESULT_SOURCE in old and SALE_RESULT_SOURCE in new:
+        touched.append(incremental.changed_rows(old[SALE_RESULT_SOURCE], new[SALE_RESULT_SOURCE], KEY).select(*KEY))
     if CODE_CHANGE_SOURCE in changed and (moved := code_change_keys(old, new)) is not None:
         touched.append(moved)
     if PHOTO_SOURCE in changed and PHOTO_SOURCE in old and PHOTO_SOURCE in new:
@@ -296,11 +370,9 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
     if previous_as_of is not None:
         passed = passed.where(F.col("sale_date") >= F.to_date(F.to_timestamp(F.lit(previous_as_of))))
     touched.append(passed.select(*KEY))
-    keys = touched[0]
-    for more in touched[1:]:
-        keys = keys.unionByName(more)
-    keys = keys.distinct()
-    now = placement(items_of(new, keys), how).select("pnu")
+    keys = reduce(lambda a, b: a.unionByName(b), touched).distinct()
+    cut = items_of(new, keys)
+    now = placement(cut, how).select("pnu").unionByName(sale_placement(cut, how).select("pnu"))
     before = document_round_keys(current_gold).join(keys, list(KEY), "left_semi").select("pnu")
     return now.unionByName(before).distinct()
 
@@ -357,6 +429,10 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{source.split('.', 1)[1]}"
         return with_contract_columns(read_pinned_iceberg(spark, table, source, at), load_lakehouse_contract(source))
 
+    def results(at: dict[str, str], remap: dict[str, str]) -> Any:
+        # A result's PNU is carried to the current code on every build, as an item's (root ADR-0454 §3).
+        return place_identity_resolver.carried_to_current(versions(at, SALE_RESULT_SOURCE), remap)
+
     def code_changes(at: dict[str, str]) -> tuple[Any, dict[str, str]]:
         changes = panel.read_source(spark, args, CODE_CHANGE_SOURCE, at).select(*CODE_CHANGE_COLUMNS)
         remap, _ambiguous = place_identity_resolver.crosswalk_of(row.asDict() for row in changes.collect())
@@ -364,19 +440,25 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
 
     changes, remap = code_changes(pins)
     counters["carried_codes"] = len(remap)
-    frames = {ITEM_SOURCE: located(versions(pins), remap).cache(), CODE_CHANGE_SOURCE: changes}
+    frames = {ITEM_SOURCE: located(versions(pins), remap).cache(), SALE_RESULT_SOURCE: results(pins, remap).cache(),
+              CODE_CHANGE_SOURCE: changes}
     old = None
     if previous is not None and ITEM_SOURCE in previous:
         # The old read is carried by the old pairs, so a code change shows as the rows it moved.
         old_changes, old_remap = code_changes(previous) if CODE_CHANGE_SOURCE in previous else (None, {})
         old = {ITEM_SOURCE: located(versions(previous), old_remap)}
+        # A Gold built before the sale results were an input pinned none; that build is whole
+        # (gold_incremental.changed_inputs refuses a merge from it).
+        if SALE_RESULT_SOURCE in previous:
+            old[SALE_RESULT_SOURCE] = results(previous, old_remap)
         if old_changes is not None:
             old[CODE_CHANGE_SOURCE] = old_changes
     if args.photos and PHOTO_SOURCE in pins:
         frames[PHOTO_SOURCE] = versions(pins, PHOTO_SOURCE).cache()
         if old is not None and previous is not None and PHOTO_SOURCE in previous:
             old[PHOTO_SOURCE] = versions(previous, PHOTO_SOURCE)
-    named = frames[ITEM_SOURCE].select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
+    placed_pnus = frames[ITEM_SOURCE].select("pnu").unionByName(frames[SALE_RESULT_SOURCE].select("pnu"))
+    named = placed_pnus.select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
     sources = {r.predecessor_pnu for r in named.collect()}
     # Only the candidates from a PNU an item names, not the lineage's 6.5M.
     candidates = panel.read_carry_candidates(spark, args, counters, pins, sources) if args.carry_lineage else None
@@ -388,16 +470,18 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     # The served cadastral edition only (root ADR-0148), the one the host lane serves, cut to the
     # parcels an item or its lineage can reach (onbid.parcels_named).
     served = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
-    frames[PARCEL_SOURCE] = onbid.parcels_named(served, frames[ITEM_SOURCE], candidates, merges).cache()
+    frames[PARCEL_SOURCE] = onbid.parcels_named(served, placed_pnus, candidates, merges).cache()
     return frames, old, Placement(args.published_at_utc, candidates, merges)
 
 
-def count_placement(located: Any, counters: dict[str, int]) -> None:
-    """The run summary's counts of a full build's placed items."""
+def count_placement(located: Any, located_sales: Any, counters: dict[str, int]) -> None:
+    """The run summary's counts of a full build's placed items and sale results."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     counters["served_rounds"] = located.select(*KEY).distinct().count()
     counters["lineage_missing_rounds"] = located.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
+    counters["served_sale_results"] = located_sales.select(*KEY).distinct().count()
+    counters["lineage_missing_sale_results"] = located_sales.where(F.col("attached_via") == F.lit(LINEAGE_MISSING)).count()
 
 
 def main(argv=None) -> int:
@@ -431,10 +515,10 @@ def main(argv=None) -> int:
         frames, old, how = read_inputs(spark, args, pins, counters, previous)
 
         def build(inputs: dict[str, Any]) -> Any:
-            located = placement(inputs, how).cache()
+            located, located_sales = placement(inputs, how).cache(), sale_placement(inputs, how).cache()
             if inputs is frames:
-                count_placement(located, counters)
-            return gold_rows(located, args.published_at_utc, pins[PARCEL_SOURCE], columns)
+                count_placement(located, located_sales, counters)
+            return gold_rows(located, located_sales, args.published_at_utc, pins[PARCEL_SOURCE], columns)
 
         lane = incremental.Lane(
             build=build, restrict=lambda inputs, keys: restrict_inputs(inputs, keys, how),

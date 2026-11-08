@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchCourtAuction, todayKst, upcoming } from "./court-auction";
+import { courtAuctionTotal, fetchCourtAuction, todayKst, upcoming } from "./court-auction";
 
 vi.mock("@/lib/env", () => ({
   env: { NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: "https://catalog.example.test" },
@@ -76,5 +76,30 @@ describe("court auction edge", () => {
     ]);
     // 15:30 UTC is already the next day in Korea.
     expect(todayKst(new Date("2099-01-04T15:30:00Z"))).toBe("2099-01-05");
+  });
+
+  it("reads a document with 매각결과 and counts them with the items ahead (root ADR-0454)", async () => {
+    const result = {
+      court_office_code: "B",
+      case_no: "9999타경00003",
+      property_seq: 1,
+      item_seq: 1,
+      user_case_no: "2099타경3",
+      appraisal_amount_krw: 100000000,
+      minimum_bid_price_krw: 70000000,
+      sale_amount_krw: 81000000,
+      sale_date: "2099-01-01",
+      failed_bid_count: 1,
+    };
+    const withResults = {
+      ...document(),
+      court_auction: { ...document().court_auction, sale_results: [result], sale_result_total: 4 },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(withResults)));
+    const auction = await fetchCourtAuction(pnu);
+    expect(auction?.sale_results?.[0]?.sale_amount_krw).toBe(81000000);
+    expect(courtAuctionTotal(auction as NonNullable<typeof auction>)).toBe(1 + 4);
+    // A revision 1 document has no results: the items ahead alone.
+    expect(courtAuctionTotal(document().court_auction)).toBe(1);
   });
 });

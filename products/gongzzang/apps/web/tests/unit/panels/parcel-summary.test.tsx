@@ -14,7 +14,12 @@ const reads = vi.hoisted(() => ({
   subParcels: null as unknown,
   energy: null as unknown,
   demolitions: null as unknown,
-  courtAuction: null as { rounds: unknown[]; source_attribution: string } | null,
+  courtAuction: null as {
+    rounds: unknown[];
+    sale_results?: unknown[];
+    sale_result_total?: number;
+    source_attribution: string;
+  } | null,
   factories: null as unknown,
   registerMasters: null as unknown,
   buildingPermits: null as unknown,
@@ -524,6 +529,44 @@ describe("parcel panel categories", () => {
           .getAllByRole("button")
           .map((b) => b.textContent),
       ).toEqual(["필지정보", "경매 2"]);
+    } finally {
+      reads.courtAuction = null;
+    }
+  });
+
+  it("counts a parcel's 매각결과 in 경매 and lists them with their 매각가 (root ADR-0454)", async () => {
+    // Synthetic only (public-repo fixture-safety): a made-up result, no real court data or place names.
+    reads.courtAuction = {
+      rounds: [],
+      sale_results: [
+        {
+          case_no: "9999타경00009",
+          user_case_no: "2099타경9",
+          building_name: "테스트 결과 물건",
+          appraisal_amount_krw: 100000000,
+          minimum_bid_price_krw: 0,
+          sale_amount_krw: 81000000,
+          sale_date: "2099-01-01",
+          failed_bid_count: 0,
+        },
+      ],
+      sale_result_total: 3,
+      source_attribution: "대한민국법원 법원경매정보",
+    };
+    try {
+      renderPanel(parcel());
+      const bar = await screen.findByRole("navigation", { name: "필지 정보 갈래" });
+      const tab = within(bar)
+        .getAllByRole("button")
+        .find((b) => b.textContent === "경매 3");
+      expect(tab).toBeDefined();
+      fireEvent.click(tab as HTMLElement);
+      expect(await screen.findByText("매각결과 (3)")).toBeInTheDocument();
+      expect(screen.getByText("테스트 결과 물건")).toBeInTheDocument();
+      expect(screen.getByText("매각가")).toBeInTheDocument();
+      expect(screen.queryByText("최저매각가")).toBeNull();
+      expect(screen.queryByText("유찰")).toBeNull();
+      expect(screen.queryByText("대한민국법원 법원경매정보")).toBeNull();
     } finally {
       reads.courtAuction = null;
     }
