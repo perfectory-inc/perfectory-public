@@ -1,0 +1,31 @@
+# Domain and application crates never read the process environment.
+#
+# Prevents: a deployment switch read inside a use case is answerable differently by two call
+# sites and cannot be exercised without mutating global state. Such decisions are injected as
+# types (see `RuntimeManifestPublicationCapability`) and resolved once at startup by an
+# infrastructure crate or service, which this rule does not restrict. `env!`/`option_env!` are
+# refused too: they bake one machine's value into the artifact at compile time, a stronger form of
+# the same defect. Every `*-domain` and `*-application` crate is clean, so there is no exception.
+rules:
+  - id: domain-layers-read-no-environment
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      A domain/application crate reads the process environment. Inject the decision as a type and
+      resolve it once in an infrastructure crate or service.
+    paths:
+      # The layer is the crate directory's suffix; `*-application-support` is not that layer.
+      include:
+        - "**/*-domain/src/**"
+        - "**/*-application/src/**"
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: std::env::$READ(...)
+              - pattern: env::$READ(...)
+              - pattern: std::env::$READ::<$T>(...)
+          - metavariable-regex:
+              metavariable: $READ
+              regex: ^(var|var_os|vars|vars_os)$
+      - pattern: env!(...)
+      - pattern: option_env!(...)

@@ -139,7 +139,7 @@ test("/(authenticated)/listings 미인증 → /login redirect", async ({ page })
 - ❌ 테스트 간 공유 state (각 테스트 격리)
 - ❌ "skip" 또는 "ignore" 누적 — 깨진 테스트는 즉시 수정 또는 삭제
 - ❌ 실제 외부 API 호출 (Zitadel, V-World, Naver Maps 등) — 기본 레인에서는 항상 mock
-- ❌ 통과를 꾸미는 테스트 — `scripts/lefthook/check-no-fake-pass.sh` 가 막는다
+- ❌ 통과를 꾸미는 테스트 — 루트 Conftest 정책 `tools/conftest/lefthook`·`tools/conftest/workflow` 가 막는다
 
 ## 10. 자동 강제
 

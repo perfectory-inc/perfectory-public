@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform: deploy the Cloudflare Workers whose sources changed, from the commit the host runs (root ADR-0175)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/worker-autodeploy.md
+X-Foundation-Owner=serving
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

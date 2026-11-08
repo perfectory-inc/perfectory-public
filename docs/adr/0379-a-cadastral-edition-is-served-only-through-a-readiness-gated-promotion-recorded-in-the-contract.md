@@ -58,3 +58,5 @@ GitOps 는 원하는 상태를 Git 에 두고 사람의 승인을 PR 로 남긴�
   계산값). 서빙판에 없는 새 필지(202609 에만 있는 PNU)는 그 판이 승격될 때까지 PNU 미해결로 남는다 — 지도가 보이지 않는 필지에
   붙지 않는다는 뜻이고, 승격하면 다음 run 에 풀린다.
 - 남는 일: 판정 주기 실행(작업 목록 등록), API `GET /data-catalog/v1/parcel-editions` 와 더니어 판 화면, §3 동시 재굽기.
+
+2026-11-08: §5 의 가드 `parcel-reads-the-served-edition.sh`(AST) → 지움. 같은 거부는 Semgrep 규칙 `tools/semgrep/rules/parcel-reads.yml`(taint 모드, 고정 Opengrep 엔진)이 맡는다. 결정은 그대로다.

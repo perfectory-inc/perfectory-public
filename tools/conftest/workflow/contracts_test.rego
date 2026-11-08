@@ -67,6 +67,18 @@ test_missing_top_level_permissions_is_refused if refused(one(object.remove(valid
 
 test_continue_on_error_is_refused if refused(one(with_job("test", "continue-on-error", true)))
 
+test_echo_fallback_is_refused if {
+	refused(one(with_job("test", "steps", [{"run": "cargo check --workspace || echo \"cargo not installed locally\""}])))
+}
+
+test_true_fallback_is_refused if refused(one(with_job("test", "steps", [{"run": "cargo check --workspace || true"}])))
+
+test_fallback_named_in_a_shell_comment_is_accepted if {
+	accepted(one(with_job("test", "steps", [{"run": "# `|| true` would hide a real failure\ncargo check || exit 1"}])))
+}
+
+test_strict_or_is_accepted if accepted(one(with_job("test", "steps", [{"run": "cargo check --workspace || exit 1"}])))
+
 test_secret_reference_is_refused if {
 	refused(one(with_job("test", "steps", [{"run": "echo ${{ secrets.TOKEN }}"}])))
 }

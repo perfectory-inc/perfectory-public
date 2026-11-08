@@ -75,3 +75,5 @@ Kubernetes 의 Gatekeeper, Terraform plan 검사, Dockerfile·CI 설정 검사�
   해당 가드의 change-scope 예산은 30s 다.
 - Rego 를 읽고 쓸 줄 알아야 한다. 대신 정책과 시험이 같은 언어이고, 엔진이 시험을 돌린다.
 - 남은 손 파서는 인벤토리 A-3 의 행으로 추적한다(끝난 행은 `끝남(#PR)`, 절반은 `절반(…)`).
+
+2026-11-08: 공짱 `products/gongzzang/scripts/lefthook/check-no-fake-pass.sh`(줄 단위 문자열 검사)와 시험 → 지움. 같은 거부는 `tools/conftest/lefthook`(새 정책 묶음, 가드 `scripts/guard/lefthook-policy.sh`)과 `tools/conftest/workflow` 의 fake-pass 규칙이 파싱된 `run` 값의 코드 줄(셸 주석 줄 제외)에서 한다. 결정은 그대로다.

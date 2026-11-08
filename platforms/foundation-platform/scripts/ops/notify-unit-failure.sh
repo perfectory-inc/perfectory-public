@@ -28,15 +28,20 @@ alertmanager="http://127.0.0.1:${FOUNDATION_ALERTMANAGER_PORT:-19093}/api/v2/ale
 result="$(systemctl show -p Result --value "${unit}" 2>/dev/null || true)"
 # The unit's Documentation= (its runbook), when it names one.
 runbook="$(systemctl show -p Documentation --value "${unit}" 2>/dev/null || true)"
+# Who acts on it: the unit file's X-Foundation-Owner= (root ADR-0445, config/unit-owners.contract.json).
+fragment="$(systemctl show -p FragmentPath --value "${unit}" 2>/dev/null || true)"
+owner="$( { [[ -n "${fragment}" ]] && sed -n 's/^X-Foundation-Owner=//p' "${fragment}" 2>/dev/null; } | sed -n 1p || true)"
 # Whether the unit reports its successes, so a failure can be an alert that resolves.
 reports_success=false
 if [[ "$(systemctl show -p OnSuccess --value "${unit}" 2>/dev/null || true)" == *foundation-unit-recovered@* ]]; then
   reports_success=true
 fi
-text="$(python3 - "${unit}" "${result:-unknown}" "$(hostname)" "${runbook}" <<'PY'
+text="$(python3 - "${unit}" "${result:-unknown}" "$(hostname)" "${runbook}" "${owner}" <<'PY'
 import sys
-unit, result, host, runbook = sys.argv[1:5]
+unit, result, host, runbook, owner = sys.argv[1:6]
 text = f"🔴 {unit} 실패 (result={result}, host={host}) — journalctl -u {unit}"
+if owner:
+    text += f" — 주인: {owner}"
 if runbook:
     text += f" — 런북: {runbook}"
 print(text)

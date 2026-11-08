@@ -62,3 +62,5 @@ lychee를 뺐다(실측 1,533초 → 1분 미만 목표). 두 결정 모두 문�
   못한다. 그런 사례가 생기면 따라가는 깊이를 늘린다.
 
 2026-11-04: `scripts/guard/lefthook-time-budget.sh` → 지움(검사기와 자기 시험 포함). 결정 5의 기계 강제는 없어지고 1~4의 규칙은 남는다. 훅에만 있는 검사를 막는 일은 "검사를 CI에 먼저 넣는다"는 규칙(`lefthook.yml` 머리 주석, 루트 `AGENTS.md` §가드 · 검증)으로 한다. 느린 훅은 푸시하는 사람이 바로 겪으므로 가드 없이도 보인다.
+
+2026-11-08: 공짱 SP10 패널 가드 셋(`products/gongzzang/scripts/lefthook/panel-no-*.sh`)과 `panel-guards.tests.sh` → 지움. 같은 세 검사는 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-panel.yml`(고정 Opengrep 엔진, 저장소 루트 기준 `paths`, CI `semgrep-rules` always)이 한다. 훅의 pre-commit 세 단계와 gongzzang-ci 의 네 단계도 함께 지웠다. "훅 단계는 모두 CI 에서 돈다" 는 결정은 그대로다.

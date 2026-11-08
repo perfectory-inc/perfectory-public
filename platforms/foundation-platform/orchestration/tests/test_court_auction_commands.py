@@ -1,13 +1,12 @@
 """The court auction jobs' real command lines (scripts/ops/court-auction-collect.sh and
-court-auction-silver-load.sh, root ADR-0280, ADR-0281).
+court-auction-silver-load.sh, root ADR-0280, ADR-0289).
 
 The scripts run from an installed release layout (as in test_parcel_number_change_collect_command.py).
 The publisher and docker are stand-ins: the publisher answers the collect command as the collector
-does (an outcome, or exit 1 after a refusal) and the plan command with FAKE_OWED objects per table;
+does (an outcome, or exit 1 after a run that got no answer) and the plan command with FAKE_OWED objects per table;
 docker records its arguments. What runs for real is the scripts: the collect passes its outcome on and
-keeps no copy; a refused night fails and hands nothing on (what it landed is in Bronze, so the next
-plan finds it); a missing required variable stops the night before any request (the contact is
-optional, root ADR-0283); the load with nothing owed ends without starting Spark; a load hands Spark
+keeps no copy; a run without progress fails and hands nothing on (what it landed is in Bronze, so the next
+plan finds it); a missing required variable stops the run before any request; the load with nothing owed ends without starting Spark; a load hands Spark
 one plan per table and removes the copies whether it succeeds or not.
 """
 
@@ -45,7 +44,7 @@ if sys.argv[1] == "collect-courtauction-go-kr":
     os.makedirs(os.path.join(out, "objects"))
     open(os.path.join(out, "objects", "x.gz"), "wb").write(b"x")
     if os.environ["FAKE_REFUSED"] == "1":
-        print("Error: courtauction.go.kr refused the run (HTTP 429)")
+        print("Error: courtauction.go.kr answered nothing in this run (3 requests, 3 blocks, 3 renewals): no progress")
         sys.exit(1)
     print("foundation-job-outcome changed")
     sys.exit(0)
@@ -135,17 +134,15 @@ class CourtAuctionCommands(unittest.TestCase):
         self.assertEqual(self.copies(), [], "the objects are in R2; the load fetches what it owes")
         self.assertFalse((self.state / "lakehouse").exists(), "nothing is handed to the load")
 
-    def test_a_refused_night_fails_and_hands_nothing_on(self):
+    def test_a_run_without_progress_fails_and_hands_nothing_on(self):
         self.env["FAKE_REFUSED"] = "1"
         result = self.run_script(self.collect)
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertNotIn("foundation-job-outcome", result.stdout, "a stopped night never says it ended well")
+        self.assertNotIn("foundation-job-outcome", result.stdout, "a run without progress never says it ended well")
         self.assertIn("STOPPED", (self.state / "journal.log").read_text(encoding="utf-8"))
-        self.assertEqual(self.copies(), [], "what it landed before the refusal is in Bronze for the next plan")
+        self.assertEqual(self.copies(), [], "what it landed is in Bronze for the next plan")
 
-    def test_the_contact_is_optional_and_a_missing_variable_stops_the_night_before_any_request(self):
-        # Root ADR-0283: no contact address is needed; the night runs without one.
-        self.assertNotIn("FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT", REQUIRED)
+    def test_a_missing_variable_stops_the_run_before_any_request(self):
         self.assertLessEqual(set(REQUIRED), set(NEEDS))
         for name in REQUIRED:
             with self.subTest(name):

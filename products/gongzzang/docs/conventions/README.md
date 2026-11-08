@@ -38,7 +38,7 @@ last_reviewed: 2026-11-05
 | 시크릿 | gitleaks | pre-commit + CI (`secret-scan.yml`) |
 | 의존성 방향 | clippy `disallowed-types` + `repo-guard capability-layout` + `gongzzang-catalog-boundary.yml` | CI |
 | 파일 크기 (1500줄) | `scripts/guard/file-line-limit.sh` / `repo-guard file-line-limit` | pre-push + CI |
-| 금지 마커 (TODO/HACK/XXX 등) | `scripts/lefthook/check-forbidden-implementation-markers.sh` | pre-push + CI |
+| 금지 마커 (TODO/HACK/XXX 등) | 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml` | CI |
 
 ## 위반 처리
 

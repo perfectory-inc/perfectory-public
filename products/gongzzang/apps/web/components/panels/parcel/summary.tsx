@@ -7,6 +7,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import type { Building } from "@/lib/api/buildings";
 import { type Demolitions, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
+import type { Factories } from "@/lib/api/factories";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import type { RealTransaction } from "@/lib/api/real-transaction";
@@ -28,6 +29,7 @@ import {
   parcelCourtAuctionQuery,
   parcelDemolitionsQuery,
   parcelEnergyQuery,
+  parcelFactoriesQuery,
   parcelListingsQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
@@ -309,6 +311,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const subParcels = useQuery(parcelSubParcelsQuery(entry.id));
   const energy = useQuery(parcelEnergyQuery(entry.id));
   const demolitions = useQuery(parcelDemolitionsQuery(entry.id));
+  const factories = useQuery(parcelFactoriesQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -316,6 +319,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <LandSection data={data} ownership={ownership.data ?? null} />,
     },
   ];
+  sections.push(...factoriesSections(factories.data, t("sections.factories")));
   const buildingList = buildings.data?.buildings ?? [];
   const landRights = data.land_right_total ?? 0;
   if (buildingList.length > 0 || landRights > 0) {
@@ -746,6 +750,49 @@ function EnergySection({ energy }: { energy: Energy }) {
       <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
         {t("energy.exclusions")}
       </p>
+    </Group>
+  );
+}
+
+/** The 등록공장 section, only for a parcel with a registered factory. */
+function factoriesSections(factories: Factories | null | undefined, label: string): Section[] {
+  if (!factories || factories.records.length === 0) return [];
+  return [{ id: "factories", label, content: <FactoriesSection factories={factories} /> }];
+}
+
+/**
+ * 등록공장 from the registered-factory lane (root ADR-0449): the factories whose 공장주소 is this parcel,
+ * each in the provider's words (회사명, 단지명, 생산품). A value the source leaves out is not shown.
+ */
+function FactoriesSection({ factories }: { factories: Factories }) {
+  const t = useTranslations("panels.parcel.summary");
+  return (
+    <Group title={t("factories.title", { count: factories.total })}>
+      <ul className="flex flex-col gap-2">
+        {factories.records.map((record) => (
+          <li
+            key={[record.company_name, record.complex_name, record.products].join("|")}
+            className="rounded-md border border-[var(--color-hairline)] px-3 py-2 text-[length:var(--text-body-sm)]"
+          >
+            <div className="font-semibold text-[var(--color-ink)]">
+              {record.company_name ?? t("none")}
+            </div>
+            <div className="text-[var(--color-muted)]">
+              {[
+                record.complex_name ? t("factories.complex", { name: record.complex_name }) : null,
+                record.products ? t("factories.products", { products: record.products }) : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {factories.total > factories.records.length && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("factories.more", { shown: factories.records.length, total: factories.total })}
+        </p>
+      )}
     </Group>
   );
 }

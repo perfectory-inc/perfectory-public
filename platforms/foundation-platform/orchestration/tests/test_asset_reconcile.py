@@ -215,6 +215,31 @@ class Reconciler(unittest.TestCase):
         self.assertEqual((keys[-1], state["iceberg://gold.parcel_panel"].get("attempt")), (None, None),
                          "caught up: nothing owed and the attempts forgotten")
 
+    def test_a_gold_run_its_time_limit_stopped_is_started_again_after_an_hour_whatever_its_attempt(self):
+        # 2026-11-07: lock waits and two 160-minute timeouts had doubled the parcel panel's backoff to four
+        # hours; its whole build now resumes from staged shards (root ADR-0440), so an hour is enough.
+        parcel = self.panels["gold.parcel_panel"]
+        pins = {name: "5" for name in parcel.inputs}
+        self.catalog["gold.parcel_panel"] = table(snap("601", None, 0, operation="overwrite", pins=pins))
+        for name in parcel.inputs:
+            self.catalog[name] = table(snap("5", None, 0))
+        self.catalog["silver.land_transfer_history"] = table(snap("5", None, 0), snap("6", "5", 10))
+        url = "iceberg://gold.parcel_panel"
+        state = {url: {"attempt": 5, "attempt_at": T0 + 60 * 20}}
+
+        def key(minutes, timed_out):
+            nonlocal state
+            state[url].setdefault("attempt_of", asset_reconcile.versions_key({url: asset_reconcile.gold_verdict(
+                parcel, self.catalog.__getitem__).versions}))
+            owed, _, state, _ = asset_reconcile.tick(T0 + 60 * minutes, [parcel], self.catalog.__getitem__,
+                                                     self.reads.get, lambda service: False, lambda job: "", state,
+                                                     lambda service: timed_out)
+            return owed[0].split()[-1]
+
+        first = key(21, False)
+        self.assertEqual(key(81, False), first, "a failure's sixth attempt waits four hours")
+        self.assertNotEqual(key(81, True), first, "a time-limit stop waits an hour")
+
     def test_the_unit_price_gold_is_owed_when_the_building_gold_moved_its_registers(self):
         owed, _, _, _ = self.tick()
         self.assertFalse(any("gold_unit_price_rebuild" in line for line in owed))
@@ -341,6 +366,45 @@ class Reconciler(unittest.TestCase):
         self.assertEqual(len(forward), 1)
         self.assertNotEqual(forward, owed)
 
+    def behind(self, metrics, lane):
+        found = [line for line in metrics if line.startswith(f'foundation_by_pnu_lane_behind_seconds{{lane="{lane}"}} ')]
+        return float(found[0].split()[-1]) if found else None
+
+    def test_2026_11_07_a_lane_serving_its_newest_inputs_is_not_behind_however_old_its_manifest(self):
+        # Root ADR-0444: zoning served 10-17's packs, which reflect its Gold, built from the newest Silver
+        # there was; the parcel lane's Gold was built before a transfer history load it never served.
+        self.panel_caught_up()
+        self.catalog["silver.land_use_plan"] = table(snap("61", None, 0), snap("62", "61", 5, operation="replace", added=9))
+        self.catalog["gold.parcel_zoning"] = table(snap("71", None, 0, operation="overwrite",
+                                                        pins={"silver.land_use_plan": "61"}))
+        self.reads["parcel-zoning"] = {"read_snapshot_id": "71", "outcome": "served"}
+        self.catalog["silver.land_transfer_history"] = table(snap("81", None, 0), snap("82", "81", 10), snap("83", "82", 20))
+        self.catalog["gold.parcel_panel"] = table(snap("91", None, 0, operation="overwrite",
+                                                       pins={"silver.land_transfer_history": "81"}))
+        self.reads["parcel"] = {"read_snapshot_id": "91", "outcome": "served"}
+        _, metrics, _, errors = self.tick(100, panel=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(self.behind(metrics, "parcel-zoning"), 0, "a compaction changes no row")
+        self.assertEqual(self.behind(metrics, "parcel"), 90 * 60, "since the first load it does not serve")
+        # A Gold built from that load and not yet baked: still behind since the load, not the Gold.
+        self.catalog["gold.parcel_panel"] = table(*self.catalog["gold.parcel_panel"]["snapshots"],
+                                                  snap("92", "91", 60, operation="overwrite",
+                                                       pins={"silver.land_transfer_history": "83"}))
+        _, metrics, _, _ = self.tick(100, panel=True)
+        self.assertEqual(self.behind(metrics, "parcel"), 90 * 60)
+        self.reads["parcel"] = {"read_snapshot_id": "92", "outcome": "served"}
+        _, metrics, _, _ = self.tick(100, panel=True)
+        self.assertEqual(self.behind(metrics, "parcel"), 0)
+
+    def test_a_lane_whose_data_time_cannot_be_told_has_no_series(self):
+        # No read yet, or a Gold that records no pins: the alert falls back to the manifest's age.
+        self.panel_caught_up()
+        self.reads["parcel-forest-ledger"] = None
+        _, metrics, _, _ = self.tick(panel=True)
+        self.assertIsNone(self.behind(metrics, "parcel-forest-ledger"))
+        self.assertIsNone(self.behind(metrics, "parcel-zoning"), "its synthetic Gold records no pins")
+        self.assertEqual(self.behind(metrics, "building"), 0)
+
     def test_the_lane_reads_count_the_failures_in_a_row(self):
         import tempfile
         with tempfile.TemporaryDirectory() as root:
@@ -376,6 +440,48 @@ class Reconciler(unittest.TestCase):
         self.assertLess(text.index("docker-a1"), text.index("docker-b2"), "sorted, so a tick that changes nothing writes the same file")
         rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
         self.assertIn('foundation_docker_container_info{id=%q}', rules)
+
+    def test_a_failed_unit_is_failing_from_its_first_failure_until_a_clean_run(self):
+        # Root ADR-0445: 2026-11-01..07 nine units stayed failed for days after one notice each; the
+        # hourly serving monitors failed every run, so "failed since" must span their runs.
+        units = {
+            "foundation-x-drill.service": {"Id": "foundation-x-drill.service", "ActiveState": "failed",
+                                           "StateChangeTimestamp": "@1000", "FragmentPath": "/units/foundation-x-drill.service",
+                                           "Documentation": "file:///opt/foundation-platform/current/docs/runbooks/x.md"},
+            "foundation-x-retired.service": {"Id": "foundation-x-retired.service", "ActiveState": "failed",
+                                             "StateChangeTimestamp": "@2000", "FragmentPath": "", "Documentation": ""},
+        }
+        listed = [{"unit": name} for name in units]
+        files = {"/units/foundation-x-drill.service": "[Unit]\nX-Foundation-Owner=platform\n"}
+
+        def tick(tracked):
+            return asset_reconcile.failed_units(lambda: [entry for entry in listed if units[entry["unit"]]["ActiveState"] == "failed"],
+                                                lambda names: {name: units[name] for name in names if name in units},
+                                                tracked, read_text=files.__getitem__)
+
+        text, tracked = tick({})
+        self.assertIn('foundation_unit_failed_since_seconds{unit="foundation-x-drill.service",owner="platform",'
+                      'runbook="docs/runbooks/x.md"} 1000\n', text)
+        self.assertIn('{unit="foundation-x-retired.service",owner="",runbook=""} 2000\n', text, "no file, no owner")
+        self.assertIn("foundation_units_failed 2\n", text)
+        # The drill runs again (activating) and fails again later: still failing since 1000.
+        units["foundation-x-drill.service"].update(ActiveState="activating", StateChangeTimestamp="@5000")
+        _, tracked = tick(tracked)
+        self.assertEqual(tracked["foundation-x-drill.service"], 1000)
+        units["foundation-x-drill.service"].update(ActiveState="failed", StateChangeTimestamp="@6000")
+        text, tracked = tick(tracked)
+        self.assertIn('runbook="docs/runbooks/x.md"} 1000\n', text)
+        # A clean run ends it; the next failure starts over.
+        units["foundation-x-drill.service"].update(ActiveState="inactive", StateChangeTimestamp="@7000")
+        text, tracked = tick(tracked)
+        self.assertNotIn("foundation-x-drill.service", tracked)
+        self.assertIn("foundation_units_failed 1\n", text)
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn('node_textfile_mtime_seconds{file=~".*/foundation-units.prom"}', rules)
+        self.assertEqual(asset_reconcile.UNITS_METRICS_NAME, "foundation-units.prom")
+
+    def test_a_label_value_keeps_systemds_escapes(self):
+        self.assertEqual(asset_reconcile.label(r'foundation-x@a\x2db.service'), r'foundation-x@a\\x2db.service')
 
     def test_the_unscheduled_alert_waits_three_reconcile_periods(self):
         # Root ADR-0333 §7: the alert fires past three times the reconciler's period.

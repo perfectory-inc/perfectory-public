@@ -15,6 +15,7 @@ const reads = vi.hoisted(() => ({
   energy: null as unknown,
   demolitions: null as unknown,
   courtAuction: null as { rounds: unknown[]; source_attribution: string } | null,
+  factories: null as unknown,
   realTransaction: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
@@ -54,6 +55,10 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelCourtAuctionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "court-auction", pnu],
     queryFn: async () => reads.courtAuction,
+  }),
+  parcelFactoriesQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "factories", pnu],
+    queryFn: async () => reads.factories,
   }),
   parcelRealTransactionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "real-transaction", pnu],
@@ -301,6 +306,28 @@ describe("parcel panel sections", () => {
       expect(screen.getByText("철거 · 2098.01.01~2098.03.01")).toBeTruthy();
     } finally {
       reads.demolitions = null;
+    }
+  });
+
+  it("shows the parcel's 등록공장 in the source's words, with no source note", async () => {
+    reads.factories = {
+      records: [
+        { company_name: "가정밀", complex_name: "가산업단지", products: "금형" },
+        { company_name: "나공업", complex_name: null, products: null },
+      ],
+      total: 3,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("등록공장 3곳")).toBeTruthy();
+      expect(anchors()).toContain("등록공장");
+      expect(screen.getByText("가정밀")).toBeTruthy();
+      expect(screen.getByText("단지명 가산업단지 · 생산품 금형")).toBeTruthy();
+      expect(screen.getByText("나공업")).toBeTruthy();
+      expect(screen.getByText("2곳만 보임 · 전체 3곳")).toBeTruthy();
+      expect(screen.queryByText(/전국등록공장현황/)).toBeNull();
+    } finally {
+      reads.factories = null;
     }
   });
 

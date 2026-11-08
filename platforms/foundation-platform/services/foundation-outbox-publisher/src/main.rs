@@ -54,6 +54,7 @@ mod building_register_unit_area_silver_export;
 mod building_register_unit_silver_export;
 mod canonical_release_proof;
 mod code_go_kr_legal_dong_collect;
+#[cfg(unix)]
 mod courtauction_go_kr_collect;
 mod data_go_kr_file_data_collect;
 mod data_go_kr_onbid_collect;
@@ -340,7 +341,12 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::CollectRtMolitRealTransaction => {
             Box::pin(rt_molit_real_transaction_collect::run())
         }
+        #[cfg(unix)]
         Command::CollectCourtauctionGoKr => Box::pin(courtauction_go_kr_collect::run()),
+        #[cfg(not(unix))]
+        Command::CollectCourtauctionGoKr => Box::pin(async {
+            bail!("collect-courtauction-go-kr runs on the Linux host only (BoringSSL)")
+        }),
         Command::CollectDataGoKrFileData => Box::pin(data_go_kr_file_data_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),

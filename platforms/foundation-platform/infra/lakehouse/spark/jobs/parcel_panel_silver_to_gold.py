@@ -1616,9 +1616,9 @@ def run(spark: SparkSession, args: argparse.Namespace, pins: dict[str, str]) -> 
                           candidates)),
         append_inputs=appends,
         validate=lambda gold: validate_gold_frame(gold, None),
-        content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS,
-        whole_table_inputs=WHOLE_TABLE_INPUTS,
-    )
+        content_columns=CONTENT_DIGEST_COLUMNS, gold_columns=GOLD_COLUMNS, whole_table_inputs=WHOLE_TABLE_INPUTS,
+        # Root ADR-0440 §4: a whole build (5,555 s) is past half its 160 min unit; built a 시도 at a time, it resumes.
+        full_shard_keys=lambda inputs: inputs[PARCEL_SOURCE])
     # Root ADR-0272: every section a kind line serves from this panel, by its first content column. A
     # kind with its own producer (root ADR-0287) shares this panel's host lane but is not a section of
     # it, so the panel does not write its column and the coverage guard must not look for it.

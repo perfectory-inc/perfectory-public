@@ -49,10 +49,12 @@ ENV COREPACK_HOME=/opt/corepack \
 #
 # cmake drives the vendored librdkafka build; libssl/libsasl2/libcurl/zlib are the transports it
 # links (SSL, GSSAPI/SASL, OAUTHBEARER/OIDC, gzip). python3 and python3-pytest run the Foundation
-# python suites.
+# python suites. libclang-dev: bindgen generates the BoringSSL bindings of the court auction browser
+# sessions (wreq, root ADR-0289 §1).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     cmake \
+    libclang-dev \
     python3 \
     python3-pytest \
     libssl-dev \

@@ -168,30 +168,8 @@ jobs:
             tools/xtask
           shared-key: gongzzang-dependencies
           save-if: false
-      - name: Install ripgrep
-        run: sudo apt-get update -qq && sudo apt-get install -y ripgrep
-      - name: No fake pass
-        run: bash scripts/lefthook/check-no-fake-pass.sh
-      - name: Forbidden implementation markers
-        run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
-      # Both hooks gate every push; their planted-violation tests never ran anywhere (ADR-0011).
-      - name: Hook guard planted-violation tests
-        run: |
-          bash scripts/lefthook/check-no-fake-pass.tests.sh
-          bash scripts/lefthook/check-forbidden-implementation-markers.tests.sh
       - name: File size limit (repo-guard)
         run: cargo run -p repo-guard -- file-line-limit
-      # The SP10 panel guards ran only in pre-commit until ADR-0149, and there they could not
-      # match a path, so a framework->kind import sat on main. `--all` scans the whole tree; the
-      # tests plant one violation per guard and require both modes to reject it.
-      - name: Panel framework does not import kinds
-        run: bash scripts/lefthook/panel-no-framework-import-kind.sh --all
-      - name: Panel URL grammar stays in the codec
-        run: bash scripts/lefthook/panel-no-direct-codec.sh --all
-      - name: Panel stack is not held in a store
-        run: bash scripts/lefthook/panel-no-state-without-router.sh --all
-      - name: Panel guard planted-violation tests
-        run: bash scripts/lefthook/panel-guards.tests.sh
       - name: Migration version prefixes (repo-guard)
         run: cargo run -p repo-guard -- migration-version-prefixes
       - name: Capability-first crate layout (repo-guard)

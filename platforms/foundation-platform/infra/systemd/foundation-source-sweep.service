@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform daily source sweep (ADR-0077)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/provider-outage-and-quota.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
@@ -17,6 +19,11 @@ ExecStart=/opt/foundation-platform/current/scripts/ops/daily-source-sweep.sh
 # A bound, not a budget (root ADR-0172): a backlog of ~40 GB may outlast one run; files commit one by
 # one, so a run stopped here resumes next time. Airflow timeout_minutes (jobs.v1.json) stays above it.
 TimeoutStartSec=8h
+# Bodies stream through the spool, so the sweep holds megabytes: 0.65–1.5G peaks 10-20..29. A bug
+# that holds more ends here, not in the host's OOM killer: 2026-11-08 03:43Z it took 33 GB, the kernel
+# killed it and the PostgreSQL backup running beside it failed. Within host_reserved
+# (tools/host-memory-budget.contract.json): default_pool commands run outside containers.
+MemoryMax=4G
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

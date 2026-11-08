@@ -81,3 +81,5 @@ every parcel-derived output moved onto that edition together, never a mix.
   orchestration (§3), and the first real use — promoting 202610 once it reaches `ready`
   (re-collect the provider's re-uploaded objects, load Silver, clear the rehearsal blockers
   `silver.parcel_registry` absence and the maxzoom tile loss, rehearse, then flip).
+
+2026-11-08: `scripts/guard/parcel-reads-the-served-edition.sh`(와 `.py` 검사기·자기 시험) → 지움. §5 의 같은 거부는 Semgrep 규칙 `tools/semgrep/rules/parcel-reads.yml` 의 `parcel-current-rows-go-through-the-served-reader`(taint 모드: 표 이름이 글자·모듈 상수·f-string 지역 이름으로 `current_rows`·`current_rows_of_versioned`·`current_row_latest` 에 닿으면 거부, `served_rows` 를 거치면 허용; 고정 Opengrep 엔진, 가드 `scripts/guard/semgrep-rules.sh`)이 맡는다. 옛 자기 시험의 사례는 픽스처 `parcel-reads.py` 로 옮겼다. 결정은 그대로다.

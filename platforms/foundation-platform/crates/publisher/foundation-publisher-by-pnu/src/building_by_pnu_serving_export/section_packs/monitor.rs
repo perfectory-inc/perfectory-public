@@ -1,9 +1,10 @@
 //! `monitor-building-by-pnu-serving`: the hourly synthetic read of the live building hostname
 //! (root ADR-0151 §6, contract `section_packs.monitor`).
 //!
-//! Reads the first `monitor.pnus` PNUs of the gate sample (the equality evidence on the host; the
-//! real PNUs never enter the repository) that the lane still serves as a document from the live
-//! hostname and holds each answer to:
+//! Reads `monitor.pnus` PNUs the lane serves as a document from the live hostname, half of them
+//! drawn anew on every run from what its newest patches wrote, the rest from the gate sample (the
+//! equality evidence on the host; the real PNUs never enter the repository; root ADR-0448), and
+//! holds each answer to:
 //!
 //! - 200, within the read timeout, or a 404 for a PNU the lane serves as a tombstone or not at all
 //!   (root ADR-0437: a lane whose keys come and go, 공매, retires sampled PNUs as their notices end);
@@ -26,9 +27,13 @@
 //! `by_pnu_section_packs.freshness_budget_hours` (root ADR-0306): from 2026-10-16 to 10-28 every
 //! lane served a manifest 10-12 days old while every run of this monitor passed, since the hostname
 //! was faithful to it. Staleness is kept apart from `passed`, which a Worker deploy reads as "this
-//! version serves what the lane serves" (scripts/deploy/worker_autodeploy.py).
+//! version serves what the lane serves" (scripts/deploy/worker_autodeploy.py). The report carries the
+//! age and `stale` for the series `FoundationByPnuServingStale` reads (serving_freshness_metrics.py);
+//! the rule, not this run, says the lane is stale, since only the asset reconciler knows whether a
+//! lane is behind its inputs (root ADR-0444: 2026-10-17..11-07 four lanes serving the newest Silver
+//! there was failed this monitor hourly on a 498-hour-old manifest).
 //!
-//! Any breach fails the run, so the unit's `OnFailure` reports it to Slack. Read-only.
+//! A serving breach fails the run, so the unit's `OnFailure` reports it. Read-only.
 
 use std::path::PathBuf;
 
@@ -42,10 +47,11 @@ use super::gate::{self, EqualityEvidence, Timings};
 use super::inspect;
 use super::latency::{normalized_digest, timed_get, timings, Accept, REQUEST_TIMEOUT};
 use crate::by_pnu_gateway_contract::ByPnuLane;
+use crate::by_pnu_pack::EntryState;
 use crate::by_pnu_serving_manifest::ServedManifest;
 use crate::by_pnu_serving_store::{local_root, ByPnuServingStore};
 use crate::industrial_complex_gold_profile_store::ProfileStoreConfig;
-use crate::r2_layout::by_pnu;
+use crate::r2_layout::{by_pnu, by_pnu_packs};
 
 /// One run's report, written beside the unit's journal.
 #[derive(Debug, Serialize)]
@@ -158,7 +164,8 @@ pub fn age_hours(published_at_utc: &str, now: DateTime<Utc>) -> anyhow::Result<f
     Ok(seconds / 3600.0)
 }
 
-/// The run's verdict: a serving breach first, then a served manifest past its budget.
+/// The run's verdict: whether the hostname serves what the lane serves. A served manifest past its
+/// budget is the alert's to judge against the lane's inputs (root ADR-0444), not the run's.
 ///
 /// # Errors
 /// Returns an error naming the breach.
@@ -178,15 +185,6 @@ pub fn verdict(report: &MonitorReport, noun: &str) -> anyhow::Result<()> {
         report.drifted_from_served.len(),
         report.latency_ms.p95,
         report.latency_p95_max_ms
-    );
-    ensure!(
-        !report.stale,
-        "the {noun} lane serves a manifest published {} ({:.0} h ago), past its freshness budget \
-         of {:.0} h: no bake has published since, whatever the jobs reported (root ADR-0306; \
-         runbook docs/runbooks/parcel-by-pnu-serving-bake.md section 9)",
-        report.served_published_at_utc,
-        report.served_age_hours,
-        report.freshness_budget_hours.unwrap_or_default()
     );
     Ok(())
 }
@@ -322,33 +320,104 @@ pub fn judge_serving(report: &mut MonitorReport) {
         && report.latency_ms.p95 <= report.latency_p95_max_ms;
 }
 
-/// The first `wanted` PNUs of the gate sample `target` serves as a document, so a lane whose keys
-/// come and go is held to `wanted` live PNUs on every run, not to fewer as its first ones retire
-/// (2026-11-07: 4 of the 공매 lane's first 20 had ended in 14 days). A lane that serves objects
-/// takes the first `wanted`, as before.
+/// The `wanted` PNUs this run reads, `target` serving each as a document. A lane whose keys come
+/// and go is held to `wanted` live PNUs on every run, not to fewer as its first ones retire
+/// (2026-11-07: 4 of the 공매 lane's first 20 had ended in 14 days; root ADR-0437). Served packs
+/// give half of them anew on every run from the documents their newest patches wrote
+/// (`recently_written`), the rest from the gate sample: the cut-over's sample alone never reads a
+/// key that came after it (root ADR-0448: on 2026-11-08, 15 days after its cut-over, 1,234 of the
+/// 공매 lane's 4,677 sampled PNUs had left its Gold and none of the notices published since was in
+/// the sample). Either side fills what the other lacks. A lane that serves objects takes the first
+/// `wanted` of the sample, as before.
 pub async fn served_sample(
     store: &ByPnuServingStore,
     sample: Vec<String>,
     wanted: usize,
     target: &Target,
 ) -> anyhow::Result<Vec<String>> {
-    if matches!(target, Target::Served)
-        && ServedManifest::parse(store.lane(), &store.read_manifest().await?.0)?
-            .section_packs
-            .is_none()
-    {
-        return Ok(sample.into_iter().take(wanted).collect());
-    }
+    let fresh = match target {
+        Target::Served => {
+            let served = ServedManifest::parse(store.lane(), &store.read_manifest().await?.0)?;
+            let Some(state) = served.section_packs else {
+                return Ok(sample.into_iter().take(wanted).collect());
+            };
+            recently_written(store, &state, wanted).await?
+        }
+        Target::Generation(_) | Target::Recorded(..) => Vec::new(),
+    };
     let mut chosen = Vec::with_capacity(wanted);
-    for pnu in sample {
+    let mut rest = fresh.iter();
+    for pnu in rest.by_ref().take(wanted / 2) {
+        if inspect_target(store, pnu, target).await?["answer"] == "document" {
+            chosen.push(pnu.clone());
+        }
+    }
+    for pnu in sample.iter().chain(rest) {
         if chosen.len() == wanted {
             break;
         }
-        if inspect_target(store, &pnu, target).await?["answer"] == "document" {
-            chosen.push(pnu);
+        if !chosen.contains(pnu)
+            && inspect_target(store, pnu, target).await?["answer"] == "document"
+        {
+            chosen.push(pnu.clone());
         }
     }
     Ok(chosen)
+}
+
+/// Up to `wanted` PNUs the newest patches of the served anchor section wrote a document for, one
+/// per unit (a legal dong, or its part), newest patch first and, within a patch, its units in the
+/// gate sample's seeded order (`gate::sample_rank`), the lowest-ranked document of each: what the
+/// lane changed or added last, spread over dongs as a user's reads are. A key a newer patch wrote is
+/// never taken from an older one. It reads at most `4 × wanted` packs, so a run stays bounded however
+/// many units a patch wrote.
+async fn recently_written(
+    store: &ByPnuServingStore,
+    state: &crate::by_pnu_section_pack_manifest::SectionPacksState,
+    wanted: usize,
+) -> anyhow::Result<Vec<String>> {
+    let lane = store.lane();
+    let anchor = lane.section_packs()?.anchor_section.clone();
+    let view = super::read::PackView::served(store, lane, state).await?;
+    let Some(section) = view.sections.iter().find(|section| section.name == anchor) else {
+        return Ok(Vec::new());
+    };
+    let mut found = Vec::with_capacity(wanted);
+    let mut seen = std::collections::HashSet::new();
+    let mut reads = 0;
+    for (patch, units) in &section.patches {
+        let mut ranked = units
+            .iter()
+            .map(|unit| Ok((gate::sample_rank(unit)?, unit)))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        ranked.sort_unstable();
+        let mut written = Vec::new();
+        for (_, unit) in ranked {
+            if found.len() == wanted || reads == 4 * wanted {
+                return Ok(found);
+            }
+            reads += 1;
+            let key =
+                by_pnu_packs::pack_key(lane, &anchor, section.generation, Some(*patch), unit)?;
+            let pack = super::read::read_pack(store, &key).await?;
+            let mut documents = Vec::new();
+            for entry in &pack.entries {
+                if by_pnu::check_key(lane, &entry.pnu).is_err() || seen.contains(&entry.pnu) {
+                    continue;
+                }
+                written.push(entry.pnu.clone());
+                if entry.state == EntryState::Document {
+                    documents.push((gate::sample_rank(&entry.pnu)?, entry.pnu.clone()));
+                }
+            }
+            if let Some((_, pnu)) = documents.into_iter().min() {
+                found.push(pnu);
+            }
+        }
+        // An older patch's entry for a key this one wrote is not what the lane serves.
+        seen.extend(written);
+    }
+    Ok(found)
 }
 
 /// The report of `pnu` as `target` serves it.
@@ -426,30 +495,18 @@ mod tests {
         verdict(&report, "parcel")
     }
 
-    #[test]
-    fn a_lane_older_than_its_budget_fails() -> anyhow::Result<()> {
-        let mut report = faithful("2026-10-26T06:00:00Z")?;
-        judge_freshness(&mut report, BUDGET_HOURS);
-        assert!(report.stale, "{report:?}");
-        let refused = verdict(&report, "parcel").map_err(|error| error.to_string());
-        assert!(
-            matches!(&refused, Err(message) if message.contains("freshness budget")),
-            "{refused:?}"
-        );
-        Ok(())
-    }
-
     /// 2026-10-28: the building lane still served its 2026-10-16 manifest. Every hostname was
-    /// faithful to it and every job said it succeeded, so every run of the monitor passed.
+    /// faithful to it and every job said it succeeded. The report says it is past its budget, for
+    /// the alert; whether that is stale is the lane's inputs' to say (root ADR-0444: zoning's
+    /// 498-hour-old manifest served the newest Silver there was), so the run itself passes.
     #[test]
-    fn a_faithful_hostname_serving_a_stale_manifest_fails() -> anyhow::Result<()> {
+    fn an_old_manifest_served_faithfully_is_reported_past_its_budget() -> anyhow::Result<()> {
         let mut report = faithful("2026-10-16T12:10:35Z")?;
         assert!(report.served_age_hours > 280.0, "{report:?}");
         judge_freshness(&mut report, BUDGET_HOURS);
         // A Worker deploy reads `passed` as "this version serves what the lane serves": still so.
         assert!(report.passed && report.stale, "{report:?}");
-        assert!(verdict(&report, "building").is_err());
-        Ok(())
+        verdict(&report, "building")
     }
 
     #[test]

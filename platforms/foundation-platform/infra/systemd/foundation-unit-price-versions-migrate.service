@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform unit price versions: move both price tables' vintages into their versions tables, parity checked per vintage, one bounded run at a time (ADR-0317 stage 2)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/lakehouse-backfill-and-schema-rebuild.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

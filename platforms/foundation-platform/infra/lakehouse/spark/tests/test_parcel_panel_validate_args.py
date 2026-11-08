@@ -181,6 +181,10 @@ class ParcelPanelLineageTest(unittest.TestCase):
                     stack.enter_context(mock.patch.object(job.F, "col", create=True))
                     stack.enter_context(mock.patch.object(job.StorageLevel, "MEMORY_AND_DISK", "disk", create=True))
                     stack.enter_context(mock.patch.object(job.StorageLevel, "DISK_ONLY", "disk", create=True))
+                    # The whole build goes a 시도 at a time (root ADR-0440 §4); the shards are Spark's to test.
+                    stack.enter_context(mock.patch.object(job.incremental, "build_in_shards",
+                                                          return_value=frame.persist.return_value))
+                    stack.enter_context(mock.patch.object(job.incremental, "Stages"))
                     stdout = stack.enter_context(redirect_stdout(io.StringIO()))
 
                     self.assertEqual(job.main(), 0)

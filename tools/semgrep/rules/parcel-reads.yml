@@ -1,0 +1,83 @@
+# A Spark job reads parcels only the two ways the contract owns: the served edition through
+# `vworld_parcel_editions.served_rows`, and a table's current rows through
+# `platform_contracts.current_row_predicate(contract)` (root ADR-0291 §5, ADR-0379).
+#
+# Prevents (served edition): on 2026-10-21 the 공매 kind producer built its parcel universe from
+# `current_rows` of the whole `silver.parcel_boundaries`. Every cadastral edition's rows are current,
+# so it attached 632 sales to parcels editions 202609/202610 hold and the served 202606 map does
+# not, and the by-PNU serving gate refused the release. `address_pnu.lakehouse_inputs` and the
+# real-transaction load had the same read.
+#
+# Prevents (current-row selector): the Rust contract artifact owns the current-row predicate; a job
+# that writes `valid_to_utc IS NULL` itself keeps reading the old rule after the contract changes it.
+rules:
+  - id: parcel-current-rows-go-through-the-served-reader
+    languages: [python]
+    severity: ERROR
+    message: >-
+      $FN over parcel_boundaries takes every cadastral edition's current rows. Read the served
+      parcels through vworld_parcel_editions.served_rows — root ADR-0291 §5.
+    paths:
+      include:
+        - "/platforms/foundation-platform/infra/lakehouse/spark/jobs/*.py"
+      exclude:
+        # The served reader itself: it filters to the served edition before taking current rows.
+        - "/platforms/foundation-platform/infra/lakehouse/spark/jobs/vworld_parcel_editions.py"
+    # Taint, not text: the table name reaches the call literally, through a module constant or
+    # through a local name built from an f-string, as the three incident readers did.
+    mode: taint
+    pattern-sources:
+      - pattern: '"=~/parcel_boundaries/"'
+      - patterns:
+          - pattern: f"..."
+          - pattern-regex: parcel_boundaries
+    # The served reader filters to the served edition first; what comes out of it is clean.
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: served_rows(...)
+          - pattern: $MOD.served_rows(...)
+          - pattern: read_served_parcels(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FN(...)
+              - pattern: $MOD.$FN(...)
+          - metavariable-regex:
+              metavariable: $FN
+              regex: ^(current_rows|current_rows_of_versioned|current_row_latest)$
+
+  - id: parcel-current-row-selector-comes-from-the-contract
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A hand-written current-row selector. Use platform_contracts.current_row_predicate(contract),
+      which the Rust contract artifact owns.
+    paths:
+      include:
+        - "/platforms/foundation-platform/infra/lakehouse/spark/jobs/*.py"
+      exclude:
+        # The owner of the predicate.
+        - "/platforms/foundation-platform/infra/lakehouse/spark/jobs/platform_contracts.py"
+        # Industrial-complex boundaries are not parcel rows: their current row also requires the
+        # official boundary kind, which no contract predicate states yet.
+        - "/platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_boundaries_silver_to_postgis_handoff.py"
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $COL("valid_to_utc").$NULL(...)
+              - pattern: $COL.col("valid_to_utc").$NULL(...)
+              - pattern: $FRAME["valid_to_utc"].$NULL(...)
+              - pattern: $FRAME.valid_to_utc.$NULL(...)
+          - metavariable-regex:
+              metavariable: $NULL
+              regex: (?i)^(isnull|isnotnull|eqnullsafe)$
+      - patterns:
+          - pattern-either:
+              - pattern: $F.$NULL($F.col("valid_to_utc"))
+              - pattern: $NULL(col("valid_to_utc"))
+          - metavariable-regex:
+              metavariable: $NULL
+              regex: (?i)^(isnull|isnotnull)$
+      - pattern: '"=~/(?i)(^|[^a-z0-9_])[`]?valid_to_utc[`]?\s+IS\s+(NOT\s+)?NULL/"'
+      - pattern: $CONTRACT["current_row_predicate"]
+      - pattern: $CONTRACT.get("current_row_predicate", ...)

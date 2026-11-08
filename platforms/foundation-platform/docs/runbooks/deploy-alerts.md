@@ -70,3 +70,19 @@ release yet" 만 남겼고, 호스트는 약 11시간 a879a889 에 머물렀으�
 
 - `curl -s localhost:19090/api/v1/query --data-urlencode 'query=up{job="node-exporter"}'` 가 1.
 - 배포 중 `deploy.prom` 에 `phase="drain"` 등 한 줄이 보이고, 끝나면 HELP/TYPE 줄만 남는다.
+
+## 실패한 채 남은 유닛 ([루트 ADR-0445](../../../../docs/adr/0445-a-failed-host-unit-names-its-owner-and-runbook-and-a-unit-that-stays-failed-calls-its-owner.md))
+
+자산 조정기가 5분마다 실패한 유닛을 `/var/lib/foundation-jobs/metrics/foundation-units.prom` 에 주인·런북과 함께 쓴다.
+
+| 경보 | 뜻 | 할 일 |
+|---|---|---|
+| `FoundationUnitFailedLong` | 유닛이 6시간 넘게 실패해 왔다(사이사이 다시 돈 실패도 이어서 센다) | 경보의 주인이 `journalctl -u <유닛>` 으로 원인을 읽고, 경보의 런북대로 고친다. 더 안 쓰는 유닛이면 정의에서 지운다 |
+| `FoundationUnitFailedUnowned` | 실패한 유닛에 `X-Foundation-Owner=` 가 없다 | 릴리스가 지운 유닛(not-found)이면 다음 배포의 `timers` 단계가 `reset-failed` 한다. 아니면 유닛 파일에 주인(`config/unit-owners.contract.json`)과 `Documentation=` 런북을 단다 |
+| `FoundationUnitsUnread` | 목록 파일이 30분 넘게 그대로다 | `journalctl -u foundation-asset-reconcile.service` |
+
+배포는 선언되지 않은 실패만 치운다: 파일이 사라진 유닛, 그리고 작업 템플릿의 인스턴스 중 어떤 작업도 이름 대지 않는 것(운영자 리허설)이
+실패한 지 24시간 뒤. 저널에 `cleared the failed state of <유닛>` 이 남는다. 선언된 작업의 실패는 고칠 때까지 남는다.
+점검(`check_service`)이 있는 작업은 점검이 `foundation-job-check unchanged`(할 일 없음: 출력이 최신 입력을 담았다)라고 답한 날
+`start-scheduled-job.sh` 가 그 작업 유닛의 실패 상태를 치운다. 실행이 건너뛰어지니 그 말고는 치울 것이 없다(2026-11-08: 11-07 에 실패한
+Silver 일곱 레인은 같은 날 고쳐 점검이 매일 `already_loaded` 라 답했는데도 하루 넘게 실패로 남았다). 점검이 할 일을 찾았거나 실패했으면 그대로 둔다.

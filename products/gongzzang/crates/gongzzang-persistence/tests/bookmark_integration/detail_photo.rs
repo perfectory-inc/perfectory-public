@@ -1,9 +1,10 @@
 use gongzzang_persistence::listing::PgListingRepository;
 use gongzzang_persistence::listing_photo::PgListingPhotoRepository;
 use listing_domain::repository::ListingRepository as ListingRepo;
-use listing_photo_domain::entity::{ListingPhoto, PhotoContentType};
+use listing_photo_domain::entity::ListingPhoto;
 use listing_photo_domain::repository::ListingPhotoRepository;
 use shared_kernel::id::{Id, ListingPhotoMarker};
+use shared_kernel::media::MediaFormat;
 
 use super::common::{setup_test_pool, test_ctx, truncate_all};
 use super::{seed_active_listing, seed_user};
@@ -32,7 +33,7 @@ async fn find_detail_returns_confirmed_photo_id_for_download_route() {
         None,
         None,
         Some(100),
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         chrono::Utc::now(),
     )
     .expect("confirmed photo");

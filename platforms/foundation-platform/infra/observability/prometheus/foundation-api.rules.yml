@@ -429,14 +429,22 @@ groups:
   - name: foundation-by-pnu-serving
     rules:
       - alert: FoundationByPnuServingStale
+        # Root ADR-0444: behind its inputs, not old. 2026-10-17..11-07 four lanes whose packs held the
+        # newest Silver there was paged hourly on a 498-hour-old manifest. The reconciler dates the
+        # oldest change a lane does not serve; where it cannot, the manifest's age is held instead.
         expr: >-
-          foundation_by_pnu_served_manifest_age_seconds
+          foundation_by_pnu_lane_behind_seconds
           > on(lane) foundation_by_pnu_serving_freshness_budget_seconds
+          or (
+            foundation_by_pnu_served_manifest_age_seconds
+            > on(lane) foundation_by_pnu_serving_freshness_budget_seconds
+            unless on(lane) foundation_by_pnu_lane_behind_seconds
+          )
         labels:
           severity: page
           service: serving-freshness
         annotations:
-          summary: '{{ $labels.lane }} 레인 화면이 {{ humanizeDuration $value }} 전에 발행된 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@{{ $labels.lane }}.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
+          summary: '{{ $labels.lane }} 레인 화면이 입력보다 {{ humanizeDuration $value }} 뒤처진 데이터를 보여 주고 있어요(예산을 넘김) — 그 뒤 굽기가 발행하지 못했거나 그 Gold 가 다시 지어지지 않았어요. 굽기의 거부 이유(journalctl -u foundation-by-pnu-lane-bake@{{ $labels.lane }}.service, 필지·건물 레인은 foundation-by-pnu-serving-bake.service)와 Gold 재빌드 작업을 보세요'
           runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
       - alert: FoundationByPnuServingMonitorSilent
         # The monitor runs hourly; three missed runs and the age above is no longer measured.
@@ -603,3 +611,44 @@ groups:
         annotations:
           summary: 미디어 대조기(media_reconcile)가 30시간 넘게 비교하지 않았어요. journalctl -u foundation-media-reconcile.service 를 보세요
           runbook: docs/runbooks/media-reconcile.md
+
+  # A host unit that stays failed (root ADR-0445). Its failure posted one notice when it happened
+  # (foundation-unit-failed@); 2026-11-01..07 nine units then stayed failed for hours to six days and
+  # nothing said so again, because a weekly drill or a retired unit never runs again to post. The
+  # asset reconciler writes each failed unit's series every five minutes from systemctl, with the
+  # owner and runbook its unit file names (foundation-units.prom), and since when it has been
+  # failing across its runs, so an hourly unit that fails every run escalates too.
+  - name: foundation-units
+    rules:
+      - alert: FoundationUnitFailedLong
+        # Six hours: a daily job that fails is still failed then, and the owner can act the same day.
+        expr: time() - foundation_unit_failed_since_seconds{owner!=""} > 6 * 3600
+        labels:
+          severity: page
+          service: unit-state
+        annotations:
+          summary: '<!channel> {{ $labels.unit }} 가 {{ $value | humanizeDuration }} 째 실패한 채예요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. journalctl -u {{ $labels.unit }} 로 원인을 읽고 런북대로 고치거나, 더 안 쓰는 유닛이면 정의에서 지우세요'
+          runbook: '{{ $labels.runbook }}'
+      - alert: FoundationUnitFailedUnowned
+        # No X-Foundation-Owner=: a unit file the release removed (the deploy clears that state) or one
+        # that never named its owner (orchestration/tests/test_unit_owners.py refuses that in CI).
+        expr: foundation_unit_failed_since_seconds{owner=""}
+        for: 2h
+        labels:
+          severity: page
+          service: unit-state
+        annotations:
+          summary: '<!channel> {{ $labels.unit }} 가 실패했는데 주인이 없어요 — 릴리스가 지운 유닛이면 다음 배포가 실패 상태를 치워요. 남아 있으면 유닛 파일에 X-Foundation-Owner= 와 Documentation= 를 다세요'
+          runbook: docs/runbooks/deploy-alerts.md
+      - alert: FoundationUnitsUnread
+        # The reconciler runs every five minutes; 30 minutes without the file is no answer at all.
+        expr: >-
+          time() - node_textfile_mtime_seconds{file=~".*/foundation-units.prom"} > 1800
+          or absent(foundation_units_failed)
+        for: 10m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: 실패한 유닛 목록을 30분 넘게 못 읽었어요 — 오래 실패한 유닛을 부를 수 없어요. journalctl -u foundation-asset-reconcile.service 를 보세요
+          runbook: docs/runbooks/asset-reconcile.md

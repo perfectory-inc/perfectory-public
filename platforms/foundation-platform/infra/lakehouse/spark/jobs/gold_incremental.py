@@ -71,6 +71,8 @@ from platform_contracts import admit_write
 
 KEY = "pnu"
 DELETE_FLAG = "_foundation_delete"
+# Which change a merge source row is (`merge_source`), on its stage only: the MERGE never reads it.
+CHANGE_COLUMN = "_foundation_change"
 MERGE_SOURCE_VIEW = "foundation_gold_incremental_merge_source"
 INPUT_TAG_PREFIX = "foundation-gold-input-"
 # The Gold table's own reader pin (root ADR-0338): the commit that records the Silver pins.
@@ -80,6 +82,9 @@ STAGES_PREFIX = "gold-incremental-"
 # or a deploy kills resumes from the stages it finished, and a plan refused once is refused at once.
 RESUMABLE_PREFIX = "gold-resumable-"
 REFUSED_MARKER = "refused.txt"
+# The Silver pins a resumable plan was started from (root ADR-0447): the planner pins the next run of
+# the table to them while the plan is unfinished, so newer heads do not rename the plan and drop its stages.
+PINS_RECORD = "pins.json"
 # Iceberg's table properties for row-level commands, all set to the Gold rebuild contract's
 # `merge.mode` (root ADR-0344): a MERGE that updates or deletes writes by the first.
 ROW_LEVEL_MODE_PROPERTIES = ("write.merge.mode", "write.update.mode", "write.delete.mode")
@@ -90,6 +95,8 @@ HASH_SPACE = 2**32
 KEYS_CHANGED_PROPERTY = "foundation.keys-changed"
 # The shadow branch a code change's full build is written to before it is published (root ADR-0321 §5).
 AUDIT_BRANCH = "foundation_code_change_audit"
+# The plan (`plan_key`) a shadow branch write was made for: a later run of the plan reuses the write.
+PLAN_PROPERTY = "foundation.gold-plan"
 
 
 def keys_changed(counts: dict[str, int]) -> int:
@@ -412,12 +419,14 @@ class Outcome:
     stages: Any = None
     # A whole overwrite's changed keys, as it recorded them (root ADR-0347).
     overwrite_changes: dict[str, int] | None = None
+    committed: bool = False
 
     def commit(self, spark: Any, table: str, pins: dict[str, str], write_mode: str, *, contract_table: str) -> None:
         """Commit (`commit_rows`), then tag the commit that records the pins (`retain_build`)."""
         self.commit_rows(spark, table, pins, write_mode, contract_table=contract_table)
         if pins:
             retain_build(spark, table)
+        self.committed = True
 
     def commit_rows(self, spark: Any, table: str, pins: dict[str, str], write_mode: str, *,
                     contract_table: str) -> None:
@@ -491,7 +500,8 @@ class Outcome:
                     changed = self.gold.select(KEY)
                     counts = {"inserted_pnus": self.row_count, "updated_pnus": 0, "deleted_pnus": 0}
                 else:
-                    source, counts = merge_source(self.gold, spark.table(table), self.row_key)
+                    source, counts = merge_source(self.gold, spark.table(table), self.row_key,
+                                                  stage=lambda frame: stages.materialize("overwrite-source", frame))
                     changed = source.select(KEY)
                 changed = stages.materialize("overwrite-changed-keys", changed.distinct())
                 self.overwrite_changes = {"affected_pnus": changed.count(), **counts}
@@ -520,6 +530,13 @@ class Outcome:
         `publish_changed_keys` of the Gold's PNUs differ: main is fast-forwarded to the branch (its
         commit is the full write already made), and the changed keys are recorded all the same.
         The branch is dropped once main has the result.
+
+        A sharded build's plan (`stages`, root ADR-0440) makes both steps resumable, as Iceberg's own
+        WAP marks a staged snapshot with its `wap.id`: the shadow write records the plan key
+        (PLAN_PROPERTY), so a later run of the plan whose branch head is that write on main's head reads
+        it back instead of writing 39.9M rows again, and the difference against main's head is a stage
+        of the plan. 2026-11-07 the parcel panel's shadow write took 1,336 s and its publish ran past the
+        unit's 160 min; each run began both again.
         """
         from lakehouse_engine import current_snapshot
         from lakehouse_ingest import checked_ref
@@ -530,9 +547,14 @@ class Outcome:
         started = time.monotonic()
         branch = checked_ref(AUDIT_BRANCH)
         head = int(current_snapshot(spark, table))
-        spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE BRANCH `{branch}` AS OF VERSION {head}")
-        write_gold_snapshot(self.gold, table, "overwrite", pins, F.lit(True), properties, branch=branch,
-                            contract_table=contract_table)
+        plan = None if self.stages is None or not self.stages.resumable else self.stages.key
+        if plan is not None and shadow_write_of(spark, table, branch) == (head, plan):
+            print(f"gold-incremental-resumed shadow-write {plan}", flush=True)
+        else:
+            spark.sql(f"ALTER TABLE {table} CREATE OR REPLACE BRANCH `{branch}` AS OF VERSION {head}")
+            write_gold_snapshot(self.gold, table, "overwrite", pins, F.lit(True),
+                                {**properties, **({} if plan is None else {PLAN_PROPERTY: plan})}, branch=branch,
+                                contract_table=contract_table)
         shadow = spark.table(f"{table}.`branch_{branch}`")
         written = shadow.count()
         if written != self.row_count:
@@ -540,10 +562,10 @@ class Outcome:
                              "main is untouched")
         started = phase_done("shadow-write", started)
         current = spark.table(table)
-        stages = Stages(spark)
+        stages = Stages(spark) if plan is None else self.stages
         try:
-            source, counts = merge_source(shadow, current, self.row_key)
-            source = stages.materialize("publish-source", source)
+            source, counts = merge_source(shadow, current, self.row_key,
+                                          stage=lambda frame: stages.materialize(f"publish-source-{head}", frame))
             changed = source.select(KEY).distinct().count()
             gold_pnus = self.row_count if self.row_key == (KEY,) else shadow.select(KEY).distinct().count()
             started = phase_done("diff", started)
@@ -561,7 +583,9 @@ class Outcome:
             phase_done("publish", started)
             record_changes(spark, table, source if self.merged else None)
         finally:
-            stages.remove()
+            # The plan's own stages stay until the commit is done (`release`).
+            if plan is None:
+                stages.remove()
         spark.sql(f"ALTER TABLE {table} DROP BRANCH IF EXISTS `{branch}`")
         self.published = {"by": by, "counts": {"affected_pnus": changed, **counts}}
 
@@ -590,7 +614,9 @@ class Outcome:
         for frame in ([self.gold] if self.gold is not None else []) + (self.merge or {}).get("persisted", []):
             frame.unpersist()
         for stages in ((self.merge or {}).get("stages"), self.stages):
-            if stages is not None:
+            # A plan's stages outlive a failed commit, as a killed run's do: the next run of it resumes
+            # there (root ADR-0438). A refused build removed them already (`build_or_merge`).
+            if stages is not None and (self.committed or not stages.resumable):
                 stages.remove()
 
 
@@ -611,6 +637,7 @@ def build_or_merge(spark: Any, args: Any, lane: Lane, frames: dict[str, Any], pi
     # One plan, one directory: a merge refused once and the whole build after it share it (root ADR-0440).
     resume_key = plan_key(target_table, pins, previous or {},
                           gold_code_version.of_running_producer(target_table, pins), max_fraction, sample_keys)
+    record_plan_pins(spark, resume_key, pins)
     reason, changed, appended = None, [], []
     if previous is not None:
         try:
@@ -688,6 +715,11 @@ def build_in_shards(stages: Stages, lane: Lane, frames: dict[str, Any], digits: 
     from pyspark.sql import functions as F
 
     started = time.monotonic()
+    # Each shard reads the inputs, so each is staged once and a shard scans its Parquet: lazy inputs made
+    # every shard redo their Iceberg reads and current-row windows (2026-11-08 the parcel panel's first
+    # shard ran past 99 min, longer than its whole build's 93).
+    frames = {name: stages.materialize(f"input-{name}", frame) for name, frame in sorted(frames.items())}
+    started = phase_done("full-inputs", started)
     keys = stages.materialize("full-keys", lane.full_shard_keys(frames).select(KEY).distinct())
     prefixes = sorted(row[0] for row in keys.select(F.substring(KEY, 1, digits)).distinct().collect())
     parts = []
@@ -699,6 +731,14 @@ def build_in_shards(stages: Stages, lane: Lane, frames: dict[str, Any], digits: 
     if not parts:
         return lane.build(frames)
     return reduce(lambda whole, part: whole.unionByName(part), parts[1:], parts[0])
+
+
+def shadow_write_of(spark: Any, table: str, branch: str) -> tuple[int, str] | None:
+    """(parent snapshot, PLAN_PROPERTY) of `branch`'s head on `table`, or None when there is no branch."""
+    rows = spark.sql(f"SELECT s.parent_id, s.summary['{PLAN_PROPERTY}'] FROM {table}.refs r "
+                     f"JOIN {table}.snapshots s ON r.snapshot_id = s.snapshot_id "
+                     f"WHERE r.name = '{branch}' AND r.type = 'BRANCH'").collect()
+    return (rows[0][0], rows[0][1]) if rows else None
 
 
 def pins_seed(pins: dict[str, str]) -> str:
@@ -731,7 +771,7 @@ class Stages:
     """
 
     def __init__(self, spark: Any, resume_key: str | None = None) -> None:
-        local = Path((spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0])
+        local = local_dir(spark)
         for dead in local.glob(STAGES_PREFIX + "*"):
             shutil.rmtree(dead, ignore_errors=True)
         if resume_key is not None:
@@ -740,6 +780,7 @@ class Stages:
                 if dead.name != RESUMABLE_PREFIX + resume_key:
                     shutil.rmtree(dead, ignore_errors=True)
         self.spark = spark
+        self.key = resume_key
         self.resumable = resume_key is not None
         self.root = local / (f"{RESUMABLE_PREFIX}{resume_key}" if self.resumable
                              else f"{STAGES_PREFIX}{uuid.uuid4().hex}")
@@ -764,14 +805,51 @@ class Stages:
         return marker.read_text(encoding="utf-8") if self.resumable and marker.exists() else None
 
     def refuse(self, reason: str) -> None:
-        """Keep only the refusal: the same pins and code are refused the same way (root ADR-0438)."""
+        """Keep only the refusal and the plan's pins: the same pins and code are refused the same way
+        (root ADR-0438), and the whole build after the refusal shares the plan (root ADR-0440, ADR-0447)."""
+        record = self.root / PINS_RECORD
+        pins = record.read_text(encoding="utf-8") if self.resumable and record.exists() else None
         self.remove()
         if self.resumable:
             self.root.mkdir(parents=True, exist_ok=True)
             (self.root / REFUSED_MARKER).write_text(reason, encoding="utf-8")
+            if pins is not None:
+                record.write_text(pins, encoding="utf-8")
 
     def remove(self) -> None:
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+def local_dir(spark: Any) -> Path:
+    """Where the stages live: the first of `spark.local.dir`, the disk Spark spills to."""
+    return Path((spark.conf.get("spark.local.dir", None) or "/tmp").split(",")[0])
+
+
+def record_plan_pins(spark: Any, resume_key: str, pins: dict[str, str]) -> None:
+    """Record the pins the plan `resume_key` builds from, in its directory (root ADR-0447)."""
+    root = local_dir(spark) / f"{RESUMABLE_PREFIX}{resume_key}"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / PINS_RECORD).write_text(json.dumps({name: str(pin) for name, pin in pins.items()}, sort_keys=True),
+                                    encoding="utf-8")
+
+
+def plan_in_progress(spark: Any, table: str) -> dict[str, str] | None:
+    """The pins of `table`'s unfinished plan, or None (root ADR-0447).
+
+    A plan's directory outlives its run only when the run was stopped before it committed or a gate
+    refused its build (both remove it): its unit's time bound, a deploy, the OOM killer. Runs of one
+    table are serialized by the rebuild lock and each removes the table's other plans, so there is
+    at most one; the newest is taken if a crash left more.
+    """
+    name = table.replace("`", "").split(".")[-1]
+    records = sorted((path for path in local_dir(spark).glob(f"{RESUMABLE_PREFIX}{name}.*/{PINS_RECORD}")),
+                     key=lambda path: path.stat().st_mtime)
+    if not records:
+        return None
+    try:
+        return {str(k): str(v) for k, v in json.loads(records[-1].read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        return None
 
 
 def plan_key(table: str, pins: dict[str, str], previous: dict[str, str], code: str | None,
@@ -868,8 +946,8 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
             "what the build makes of its pinned inputs")
 
     recomputed = built.join(affected, KEY, "left_semi")
-    source, counts = merge_source(recomputed, current_gold, row_key, affected)
-    source = stages.materialize("source", source)
+    source, counts = merge_source(recomputed, current_gold, row_key, affected,
+                                  lambda frame: stages.materialize("source", frame))
     inserted, deleted = counts["inserted_pnus"], counts["deleted_pnus"]
     return {
         "source": source,
@@ -889,29 +967,34 @@ def plan_merge_in(stages: Stages, *, build: Callable[[dict[str, Any]], Any],
 
 
 def merge_source(rebuilt: Any, current_gold: Any, row_key: tuple[str, ...],
-                 affected: Any | None = None) -> tuple[Any, dict[str, int]]:
+                 affected: Any | None = None, stage: Callable[[Any], Any] = lambda frame: frame
+                 ) -> tuple[Any, dict[str, int]]:
     """The rows a MERGE must write to turn `current_gold` into `rebuilt`, and their counts.
 
     Upserts: rebuilt rows whose `row_digest` differs from the current row of their key, or that have
     none. Deletes (DELETE_FLAG): current rows of the `affected` PNUs (every PNU when None) that the
-    rebuild no longer makes, e.g. a building whose units all moved away (root ADR-0204).
+    rebuild no longer makes, e.g. a building whose units all moved away (root ADR-0204). The rebuilt
+    keys lie within `affected` when it is given.
+
+    One full outer join makes both, `stage` fixes it (a `Stages.materialize`), and one aggregation
+    of the staged rows counts them: 2026-11-07 the parcel panel's publish joined its 39.9M-row shadow
+    with main four times (three counts and the stage) and ran past 100 min of its 160 min unit.
     """
     from pyspark.sql import functions as F
 
     key = list(row_key)
-    current = current_gold.select(*key, F.col("row_digest").alias("_current_digest"))
-    upserts = (rebuilt.join(current, key, "left")
-               .where(~F.col("row_digest").eqNullSafe(F.col("_current_digest"))))
-    inserted = upserts.where(F.col("_current_digest").isNull()).count()
-    updated = upserts.where(F.col("_current_digest").isNotNull()).count()
-    gone = current_gold.select(*key) if affected is None else current_gold.select(*key).join(affected, KEY, "left_semi")
-    deletes = gone.join(rebuilt.select(*key), key, "left_anti")
-    deleted = deletes.count()
-    gold_columns = list(current_gold.columns)
-    source = upserts.select(*gold_columns).withColumn(DELETE_FLAG, F.lit(False)).unionByName(
-        deletes.select(*[F.col(c) if c in row_key else F.lit(None).cast(current_gold.schema[c].dataType).alias(c)
-                         for c in gold_columns]).withColumn(DELETE_FLAG, F.lit(True)))
-    return source, {"inserted_pnus": inserted, "updated_pnus": updated, "deleted_pnus": deleted}
+    current = current_gold if affected is None else current_gold.join(affected, KEY, "left_semi")
+    current = current.select(*key, F.col("row_digest").alias("_current_digest"), F.lit(True).alias("_current"))
+    joined = rebuilt.withColumn("_rebuilt", F.lit(True)).join(current, key, "full_outer")
+    change = (F.when(F.col("_rebuilt").isNull(), "deleted_pnus")
+              .when(F.col("_current").isNull(), "inserted_pnus")
+              .when(~F.col("row_digest").eqNullSafe(F.col("_current_digest")), "updated_pnus"))
+    staged = stage(joined.withColumn(CHANGE_COLUMN, change).where(F.col(CHANGE_COLUMN).isNotNull())
+                   .select(*current_gold.columns, (F.col(CHANGE_COLUMN) == "deleted_pnus").alias(DELETE_FLAG),
+                           CHANGE_COLUMN))
+    counts = dict.fromkeys(("inserted_pnus", "updated_pnus", "deleted_pnus"), 0)
+    counts.update({row[0]: row[1] for row in staged.groupBy(CHANGE_COLUMN).count().collect()})
+    return staged.drop(CHANGE_COLUMN), counts
 
 
 def current_fingerprint(spark: Any, table: str) -> str | None:

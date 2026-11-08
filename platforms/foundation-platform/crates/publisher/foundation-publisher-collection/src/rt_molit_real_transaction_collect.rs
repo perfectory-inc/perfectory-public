@@ -16,9 +16,13 @@
 //!
 //! A busy answer (HTTP 429 or a 5xx) is asked again after a growing backoff, `retry.attempts` times
 //! at most. An outright refusal (HTTP 403, or a page where JSON or CSV belongs), or a busy answer that
-//! outlasts the retries, ends the run and writes `refused.json`; while that file exists every run
-//! refuses before any request, until a person removes it. The provider's daily-limit answer ends the
-//! run and waits for the next KST day. Any other provider error fails the run.
+//! outlasts the retries, ends the run, fails it (the unit's failure alert) and waits: the n-th refusal
+//! in a row waits `manners.refusal_waits_seconds[n]` (the last repeats), runs inside the wait send
+//! no request, and the first run after it asks the provider again; an export answered resets the
+//! count (root ADR-0446). Every refusal is appended to `refusals.jsonl`. No file stops a run and no
+//! person clears anything; a `refused.json` left by the old collector is recorded there once as
+//! legacy and never read again. The provider's daily-limit answer ends the run and waits for the
+//! next KST day. Any other provider error fails the run.
 
 use std::{
     collections::BTreeMap,
@@ -78,6 +82,8 @@ pub struct Manners {
     pub daily_download_limit: u32,
     pub run_time_budget_seconds: u64,
     pub retry: Retry,
+    /// After the n-th refusal in a row the collector waits the n-th of these (the last repeats).
+    pub refusal_waits_seconds: Vec<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -133,6 +139,15 @@ pub fn source_contract() -> anyhow::Result<SourceContract> {
     ensure!(
         contract.manners.retry.attempts >= 1,
         "manners.retry.attempts must be at least 1"
+    );
+    ensure!(
+        !contract.manners.refusal_waits_seconds.is_empty()
+            && contract
+                .manners
+                .refusal_waits_seconds
+                .iter()
+                .all(|&w| w > 0),
+        "manners.refusal_waits_seconds must hold at least one wait above 0 (root ADR-0446)"
     );
     Ok(contract)
 }
@@ -210,10 +225,40 @@ pub struct MonthMark {
     pub verified: bool,
 }
 
+/// The refusals in a row and when the provider is asked again (root ADR-0446).
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct RefusalWait {
+    pub in_a_row: u32,
+    pub ask_again_utc: Option<DateTime<Utc>>,
+}
+
+impl RefusalWait {
+    /// Counts one more refusal at `now` and sets when to ask again.
+    pub fn refused(&mut self, manners: &Manners, now: DateTime<Utc>) {
+        self.in_a_row = self.in_a_row.saturating_add(1);
+        let step = usize::try_from(self.in_a_row - 1).unwrap_or(usize::MAX);
+        let wait = manners
+            .refusal_waits_seconds
+            .get(step)
+            .or(manners.refusal_waits_seconds.last())
+            .copied()
+            .unwrap_or(0);
+        self.ask_again_utc =
+            Some(now + chrono::Duration::seconds(i64::try_from(wait).unwrap_or(i64::MAX)));
+    }
+
+    #[must_use]
+    pub fn waiting(&self, now: DateTime<Utc>) -> bool {
+        self.ask_again_utc.is_some_and(|at| now < at)
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct State {
     #[serde(default)]
     pub budget: Budget,
+    #[serde(default)]
+    pub refusal: RefusalWait,
     /// `"<dataset>/<YYYYMM>"` → its mark.
     #[serde(default)]
     pub months: BTreeMap<String, MonthMark>,
@@ -482,7 +527,7 @@ pub struct RunReport {
     pub rows: u64,
     /// Exports still inconsistent after the retries (root ADR-0364): not landed, asked again next run.
     pub inconsistent: Vec<String>,
-    /// `run_limit`, `daily_limit`, `provider_daily_limit`, `time_budget`.
+    /// `run_limit`, `daily_limit`, `provider_daily_limit`, `time_budget`, `refusal_wait`.
     pub stopped_by: Option<String>,
 }
 
@@ -538,8 +583,8 @@ fn request_for(
 /// Collects the months owed and writes the run's manifest.
 ///
 /// # Errors
-/// When a refusal file blocks the run, the provider refuses (the file is then written), answers an
-/// unknown error, or a Bronze commit, the state or the manifest cannot be written.
+/// When the provider refuses (the wait is then set and the refusal appended to the ledger), answers
+/// an unknown error, or a Bronze commit, the state, the ledger or the manifest cannot be written.
 pub async fn run() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let config = Config::from_env(&contract)?;
@@ -547,19 +592,14 @@ pub async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("failed to create {}", config.output_dir.display()))?;
     std::fs::create_dir_all(&config.state_dir)
         .with_context(|| format!("failed to create {}", config.state_dir.display()))?;
-    let refused_path = config.state_dir.join("refused.json");
-    if refused_path.exists() {
-        bail!(
-            "rt.molit.go.kr refused an earlier run ({}); no request is sent until a person reads it \
-             and removes the file (root ADR-0348 §6)",
-            refused_path.display()
-        );
-    }
+    let ledger_path = config.state_dir.join(REFUSAL_LEDGER);
+    record_legacy_refusal_file(&config.state_dir, &ledger_path)?;
     let now = Utc::now();
     let started = Instant::now();
     let state_path = config.state_dir.join("state.json");
     let mut state = State::load(&state_path)?;
     state.roll_budget(now);
+    let waiting = state.refusal.waiting(now);
     let work = plan_work(&contract, &state, now)?;
     let mut report = RunReport {
         owed_at_start: work.len(),
@@ -573,7 +613,10 @@ pub async fn run() -> anyhow::Result<()> {
     }
     let manners = &contract.manners;
     let mut objects = Vec::new();
-    if !work.is_empty() {
+    if waiting {
+        report.stopped_by = Some("refusal_wait".to_owned());
+    }
+    if !work.is_empty() && !waiting {
         if config.live_write {
             crate::bronze_object_storage::live_write_target_preflight()
                 .context("rt.molit.go.kr collection live-write preflight failed")?;
@@ -633,8 +676,9 @@ pub async fn run() -> anyhow::Result<()> {
                     Err(error) => match classify(&contract, error) {
                         Ok(asked) => asked,
                         Err(error) if error.downcast_ref::<RtMolitRefusal>().is_some() => {
+                            state.refusal.refused(manners, Utc::now());
                             state.save(&state_path)?;
-                            return refuse(&refused_path, error, &report);
+                            return refuse(&ledger_path, error, &state.refusal, &report);
                         }
                         Err(error) => {
                             state.save(&state_path)?;
@@ -653,6 +697,7 @@ pub async fn run() -> anyhow::Result<()> {
                     }
                     Asked::Export { count, bytes } => (count, bytes),
                 };
+                state.refusal = RefusalWait::default();
                 report.exports += 1;
                 report.rows += count;
                 let key = month_key(&item.dataset, item.month);
@@ -738,20 +783,81 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Writes the refusal file and fails the run (root ADR-0281 §3).
-fn refuse(path: &Path, error: anyhow::Error, report: &RunReport) -> anyhow::Result<()> {
-    write_json_file(
-        path,
+/// The append-only refusal ledger in the state directory (root ADR-0446).
+const REFUSAL_LEDGER: &str = "refusals.jsonl";
+/// The old collector's stop file (root ADR-0348 §3, superseded by root ADR-0446).
+const LEGACY_REFUSAL_FILE: &str = "refused.json";
+
+fn append_ledger(path: &Path, line: &JsonValue) -> anyhow::Result<()> {
+    use std::io::Write as _;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open {}", path.display()))?;
+    writeln!(file, "{line}").with_context(|| format!("failed to append to {}", path.display()))
+}
+
+/// Copies a `refused.json` the old collector left into the ledger, once; the file stays where it is
+/// and nothing reads it again.
+///
+/// # Errors
+/// When the file or the ledger cannot be read or the ledger cannot be appended to.
+pub fn record_legacy_refusal_file(state_dir: &Path, ledger: &Path) -> anyhow::Result<()> {
+    let legacy = state_dir.join(LEGACY_REFUSAL_FILE);
+    if !legacy.exists() {
+        return Ok(());
+    }
+    let recorded = match std::fs::read_to_string(ledger) {
+        Ok(text) => text
+            .lines()
+            .filter_map(|line| serde_json::from_str::<JsonValue>(line).ok())
+            .any(|line| line["legacy_file"] == LEGACY_REFUSAL_FILE),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", ledger.display()))
+        }
+    };
+    if recorded {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(&legacy)
+        .with_context(|| format!("failed to read {}", legacy.display()))?;
+    append_ledger(
+        ledger,
+        &json!({
+            "legacy_file": LEGACY_REFUSAL_FILE,
+            "recorded_at_utc": Utc::now().to_rfc3339(),
+            "content": serde_json::from_str::<JsonValue>(&raw).unwrap_or(JsonValue::String(raw)),
+        }),
+    )
+}
+
+/// Appends the refusal to the ledger and fails the run, so the unit's failure alert names it; the
+/// wait in the state decides when the provider is asked again (root ADR-0446).
+fn refuse(
+    ledger: &Path,
+    error: anyhow::Error,
+    wait: &RefusalWait,
+    report: &RunReport,
+) -> anyhow::Result<()> {
+    append_ledger(
+        ledger,
         &json!({
             "refused_at_utc": Utc::now().to_rfc3339(),
             "reason": format!("{error:#}"),
+            "in_a_row": wait.in_a_row,
+            "ask_again_utc": wait.ask_again_utc,
             "report": report,
-            "clear": "read the reason, check the site by hand, then remove this file",
         }),
     )?;
-    Err(error.context(
-        "rt.molit.go.kr refused; later runs are blocked until a person removes refused.json",
-    ))
+    let at = wait
+        .ask_again_utc
+        .map_or_else(String::new, |at| at.to_rfc3339());
+    Err(error.context(format!(
+        "rt.molit.go.kr refused ({} in a row); runs send no request until {at}, then ask again",
+        wait.in_a_row
+    )))
 }
 
 #[cfg(test)]

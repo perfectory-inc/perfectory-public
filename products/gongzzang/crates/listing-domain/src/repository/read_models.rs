@@ -48,8 +48,9 @@ pub struct ListingPhotoSummary {
     pub photo_id: String,
     /// R2 object key.
     pub r2_key: String,
-    /// Optional thumbnail R2 object key.
-    pub thumbnail_r2_key: Option<String>,
+    /// sha256 of the stored bytes: the photo's content-addressed key and its display ladder
+    /// (root ADR-0427). `None` for an id-key photo the backfill has not mapped yet.
+    pub content_sha256: Option<String>,
     /// Optional caption.
     pub caption: Option<String>,
     /// Display order.

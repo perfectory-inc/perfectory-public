@@ -93,7 +93,7 @@ packages/                    ← TS 라이브러리 (ui, api-types 생성물)
 | 7 | 의존성 방향 위반 | (Rust) repo-guard `capability-layout` + `gongzzang-catalog-boundary.yml`; (TS) 도구 **미도입** — 수동 준수 | CI |
 | 8 | 파일 1500줄 초과 | `cargo run -p repo-guard -- file-line-limit` (gongzzang-ci Repo guardrails job), 루트 `file-line-limit.sh` | pre-push + CI |
 | 9 | 글로서리 외 도메인 용어 | **미도입** — 자동 grep 룰 없음, 리뷰에서 수동 준수 | (수동) |
-| 10 | TODO/HACK/XXX/TEMP 코드 | `scripts/lefthook/check-forbidden-implementation-markers.sh` + clippy `todo`·`unimplemented` deny | pre-push + CI |
+| 10 | TODO/HACK/XXX/TEMP 코드 | 루트 Semgrep 규칙 `tools/semgrep/rules/gongzzang-implementation-markers.yml` + clippy `todo`·`unimplemented` deny | CI |
 | 11 | Foundation Platform 소유 Catalog crate·Catalog 표 쓰기·Catalog 변경 route 재도입 | `gongzzang-catalog-boundary.yml` | CI |
 | 12 | Foundation Platform Catalog API consumer drift | catalog API consumer pin 테스트 (§1) | CI |
 

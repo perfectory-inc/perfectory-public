@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::Redirect;
 use axum::{Extension, Json};
@@ -11,6 +11,10 @@ use product_identity_infrastructure::middleware::AuthenticatedUser;
 use product_identity_infrastructure::role_guard::require_role;
 use serde::{Deserialize, Serialize};
 use shared_kernel::id::{Id, ListingMarker as ListingIdMarker, ListingPhotoMarker, UserMarker};
+use shared_kernel::media::{
+    content_addressed_key, rendition_key, MediaFormat, Sha256Hex, LISTING_PHOTO_MEDIA_PREFIX,
+    RENDITION_FORMATS, RENDITION_VERSION, RENDITION_WIDTHS,
+};
 use user_domain::entity::UserRole;
 
 use crate::http::mutation_ctx::http_user_action;
@@ -34,6 +38,18 @@ pub struct RequestPhotoUploadRequest {
     pub content_type: String,
     /// 캡션 (≤200자, 선택).
     pub caption: Option<String>,
+    /// 파일 바이트의 sha256 (소문자 hex). 주면 사진은 내용주소 키
+    /// (`media/listing-photo/sha256/<hex>.<ext>`)에 올라가고, 저장소가 그 해시가 아닌 바이트를 거절해요
+    /// (root ADR-0427). 없으면 옛 id 키 — 그 키를 쓰는 클라이언트가 계속 동작해요.
+    pub content_sha256: Option<String>,
+}
+
+/// `GET /listings/:listing_id/photos/:photo_id` query.
+#[derive(Debug, Deserialize)]
+pub struct PhotoDownloadQuery {
+    /// One rung of the display ladder (`<width>.<format>`, e.g. `400.webp`); absent is the stored
+    /// file itself (root ADR-0427).
+    pub rendition: Option<String>,
 }
 
 /// `POST /listings/:id/photos` 응답.
@@ -86,8 +102,8 @@ pub async fn request_photo_upload(
 
     let listing = load_listing_for_actor(&state, &auth, &id).await?;
 
-    let content_type = listing_photo_domain::entity::PhotoContentType::from_str(&body.content_type)
-        .map_err(|e| {
+    let content_type =
+        listing_photo_domain::entity::upload_format(&body.content_type).map_err(|e| {
             problem(
                 "validation",
                 "content_type 가 유효하지 않아요 (image/jpeg, image/png, image/webp)",
@@ -95,17 +111,31 @@ pub async fn request_photo_upload(
                 Some(e.to_string()),
             )
         })?;
+    let content_sha256 = body
+        .content_sha256
+        .as_deref()
+        .map(Sha256Hex::parse)
+        .transpose()
+        .map_err(|e| {
+            problem(
+                "validation",
+                "content_sha256 가 유효하지 않아요 (소문자 hex 64자)",
+                StatusCode::BAD_REQUEST,
+                Some(e.to_string()),
+            )
+        })?;
 
     let photo_id = Id::<ListingPhotoMarker>::new();
-    let ext = match content_type {
-        listing_photo_domain::entity::PhotoContentType::Jpeg => "jpg",
-        listing_photo_domain::entity::PhotoContentType::Png => "png",
-        listing_photo_domain::entity::PhotoContentType::Webp => "webp",
-    };
-    let r2_key = format!(
-        "media/listing-photo/listings/{}/photos/{}.{ext}",
-        listing.id.as_str(),
-        photo_id.as_str()
+    let r2_key = content_sha256.as_ref().map_or_else(
+        || {
+            format!(
+                "media/listing-photo/listings/{}/photos/{}.{}",
+                listing.id.as_str(),
+                photo_id.as_str(),
+                content_type.extension()
+            )
+        },
+        |hash| content_addressed_key(LISTING_PHOTO_MEDIA_PREFIX, hash, content_type),
     );
 
     let now = Utc::now();
@@ -113,7 +143,7 @@ pub async fn request_photo_upload(
         photo_id.clone(),
         listing.id.clone(),
         &r2_key,
-        None,
+        content_sha256.clone(),
         body.caption.as_deref(),
         body.display_order,
         None,
@@ -136,6 +166,7 @@ pub async fn request_photo_upload(
         .issue_upload_url(PhotoUploadUrlRequest {
             r2_key: r2_key.clone(),
             content_type,
+            content_sha256,
         })
         .await
         .map_err(|error| photo_upload_problem(&error))?;
@@ -189,12 +220,14 @@ fn photo_upload_problem(error: &PhotoUploadUrlError) -> ProblemResponse {
     )
 }
 
-/// `GET /listings/:listing_id/photos/:photo_id` redirects to a short-lived R2 signed URL.
-#[tracing::instrument(skip(state, auth), fields(actor = %auth.user.id, listing_id = %listing_id, photo_id = %photo_id))]
+/// `GET /listings/:listing_id/photos/:photo_id` redirects to a short-lived R2 signed URL of the
+/// stored file, or with `?rendition=<width>.<format>` of one rung of its display ladder.
+#[tracing::instrument(skip(state, auth, query), fields(actor = %auth.user.id, listing_id = %listing_id, photo_id = %photo_id))]
 pub async fn get_photo_download_redirect(
     State(state): State<ListingsState>,
     Extension(auth): Extension<AuthenticatedUser>,
     Path((listing_id, photo_id)): Path<(String, String)>,
+    Query(query): Query<PhotoDownloadQuery>,
 ) -> Result<Redirect, ProblemResponse> {
     let listing_id = Id::<ListingIdMarker>::from_str(&listing_id).map_err(|e| {
         problem(
@@ -262,15 +295,44 @@ pub async fn get_photo_download_redirect(
         ));
     }
 
+    let r2_key = match query.rendition.as_deref() {
+        None => photo.r2_key,
+        Some(rung) => {
+            rendition_object_key(photo.content_sha256.as_ref(), rung).ok_or_else(|| {
+                problem(
+                    "not-found",
+                    "사진을 찾을 수 없어요",
+                    StatusCode::NOT_FOUND,
+                    None,
+                )
+            })?
+        }
+    };
     let download = state
         .photo_download_issuer
-        .issue_download_url(PhotoDownloadUrlRequest {
-            r2_key: photo.r2_key,
-        })
+        .issue_download_url(PhotoDownloadUrlRequest { r2_key })
         .await
         .map_err(|error| photo_download_problem(&error))?;
 
     Ok(Redirect::temporary(&download.url))
+}
+
+/// The ladder key of one rung (`<width>.<format>`) of a photo stored by its hash (root ADR-0427);
+/// `None` for a rung the ladder does not have or a photo with no hash yet.
+fn rendition_object_key(content_sha256: Option<&Sha256Hex>, rung: &str) -> Option<String> {
+    let (width, extension) = rung.split_once('.')?;
+    let width = width.parse::<u32>().ok()?;
+    let format = MediaFormat::from_extension(extension)?;
+    if !RENDITION_WIDTHS.contains(&width) || !RENDITION_FORMATS.contains(&format) {
+        return None;
+    }
+    Some(rendition_key(
+        LISTING_PHOTO_MEDIA_PREFIX,
+        RENDITION_VERSION,
+        content_sha256?,
+        width,
+        format,
+    ))
 }
 
 /// `POST /listings/:listing_id/photos/:photo_id/confirm` verifies R2 object presence.
@@ -359,7 +421,7 @@ pub async fn confirm_photo_upload(
         photo_id: photo.id.as_str().to_owned(),
         r2_key: photo.r2_key,
         file_size_bytes: metadata.file_size_bytes,
-        content_type: metadata.content_type.as_str().to_owned(),
+        content_type: metadata.content_type.content_type().to_owned(),
         uploaded_at,
     }))
 }
@@ -487,6 +549,32 @@ pub async fn delete_photo(
         })?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[cfg(test)]
+mod rendition_tests {
+    use shared_kernel::media::Sha256Hex;
+
+    use super::rendition_object_key;
+
+    #[test]
+    fn a_rung_of_the_ladder_names_its_key_and_nothing_else_does() {
+        let h = "0123456789abcdef".repeat(4);
+        let hash = Sha256Hex::parse(&h).ok();
+        assert_eq!(
+            rendition_object_key(hash.as_ref(), "400.webp"),
+            Some(format!("media/listing-photo/renditions/r1/{h}/400.webp"))
+        );
+        assert_eq!(
+            rendition_object_key(hash.as_ref(), "1920.avif"),
+            Some(format!("media/listing-photo/renditions/r1/{h}/1920.avif"))
+        );
+        for rung in ["401.webp", "400.jpg", "400", "../400.webp", "x.webp"] {
+            assert_eq!(rendition_object_key(hash.as_ref(), rung), None, "{rung}");
+        }
+        // An id-key photo the backfill has not mapped has no ladder.
+        assert_eq!(rendition_object_key(None, "400.webp"), None);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

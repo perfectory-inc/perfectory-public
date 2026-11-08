@@ -81,6 +81,9 @@ PACKS_SUFFIX = "-by-pnu-section-packs"
 # A failed lane is started again after this, doubling per failure in a row up to the cap (lane_verdict).
 FAILURE_BACKOFF_BASE = 600.0
 FAILURE_BACKOFF_CAP = 4 * 3600.0
+# A Gold run stopped at its unit's time limit is started again after this, whatever its attempt: a
+# whole build resumes from the shards it staged (root ADR-0440), as a cut-over's gold step does (ADR-0435 b).
+TIME_LIMIT_RETRY = 3600.0
 
 
 @dataclass(frozen=True)
@@ -251,7 +254,7 @@ def failure_backoff(failures: int) -> float:
     return min(FAILURE_BACKOFF_BASE * 2 ** (failures - 1), FAILURE_BACKOFF_CAP)
 
 
-def gold_attempt(asset: Asset, verdict: Verdict, busy: bool, kept: dict, now: float) -> dict:
+def gold_attempt(asset: Asset, verdict: Verdict, busy: bool, kept: dict, now: float, timed_out: bool = False) -> dict:
     """The versions a Gold asset's start is keyed by: its owed versions, and once a start of them has
     ended without catching the Gold up, the attempt it is (root ADR-0333 §7, as a lane's failure is).
 
@@ -260,7 +263,9 @@ def gold_attempt(asset: Asset, verdict: Verdict, busy: bool, kept: dict, now: fl
     versions owed under a key already used, and nothing started it again until an input moved
     (2026-11-07 08:45Z the panel rebuild ended `waiting` behind a lane cut-over's rebuild). The asset
     still owed and not running is started again after the lanes' backoff (ten minutes doubling to
-    four hours, `failure_backoff`), counted from when its job last ran, under a new key."""
+    four hours, `failure_backoff`), counted from when its job last ran, under a new key; after a run its
+    time limit stopped, an hour (`TIME_LIMIT_RETRY`): 2026-11-07 the parcel panel's lock waits and
+    timeouts had doubled it to four hours, so a sharded build that resumes sat idle between runs."""
     if not asset.gold or not verdict.owed:
         for name in ("attempt", "attempt_of", "attempt_at"):
             kept.pop(name, None)
@@ -270,7 +275,7 @@ def gold_attempt(asset: Asset, verdict: Verdict, busy: bool, kept: dict, now: fl
         kept.update(attempt_of=owed, attempt=0, attempt_at=now)
     elif busy:
         kept["attempt_at"] = now
-    elif now - kept["attempt_at"] >= failure_backoff(kept["attempt"] + 1):
+    elif now - kept["attempt_at"] >= (TIME_LIMIT_RETRY if timed_out else failure_backoff(kept["attempt"] + 1)):
         kept.update(attempt=kept["attempt"] + 1, attempt_at=now)
     return {**verdict.versions, "attempt": kept["attempt"]} if kept["attempt"] else verdict.versions
 
@@ -322,7 +327,42 @@ def lane_verdict(asset: Asset, table, reads, now: float) -> Verdict:
     return verdict
 
 
-def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict):
+def lane_behind_since(asset: Asset, table, reads) -> float | None:
+    """When the oldest input change the lane does not serve yet was committed, the lane's data time
+    (root ADR-0444): its Gold's row changes after the snapshot it serves, and each Silver or reference
+    table's row changes after the pin of the Gold it serves (the Gold head's pins when that snapshot
+    is no longer kept). 0.0 when the lane serves every change there is; None when it cannot be told (no
+    read yet, no pins, a change without a kept commit time), and the alert then holds the served
+    manifest's age instead.
+
+    2026-10-17..11-07 the zoning, price, characteristics and land-rights lanes served packs that
+    reflected their Gold, built from the newest Silver there was, and their monitors failed hourly on
+    a 498-hour-old manifest; the parcel lane at 202 hours looked the same and was really behind."""
+    gold = table(asset.lane_table)
+    read = (reads(asset.lane) or {}).get("read_snapshot_id")
+    if gold["head"] is None or read is None:
+        return None
+    changes = []
+    went, _, oldest = moved(gold, gold["head"], read)
+    if went:
+        changes.append(oldest)
+    served = read if any(s["snapshot_id"] == read for s in gold["snapshots"]) else gold["head"]
+    pins = gold_rebuild.recorded_pins(gold["snapshots"], served)
+    if pins is None:
+        return None
+    for name, pin in sorted(pins.items()):
+        source = table(name)
+        if source["head"] is None:
+            continue
+        went, _, oldest = moved(source, source["head"], pin)
+        if went:
+            changes.append(oldest)
+    if None in changes:
+        return None
+    return min(changes, default=0.0)
+
+
+def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict, timed_out=lambda service: False):
     """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables."""
     owed_by_job, metrics, errors, next_state = {}, [], [], {}
     for asset in found:
@@ -342,9 +382,20 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
         metrics.append(f"foundation_asset_reconcile_error{{{labels}}} 0")
         metrics.append(f"foundation_asset_lag_seconds{{{labels}}} {max(verdict.lag, 0.0):.0f}")
         metrics.append(f"foundation_asset_owed{{{labels}}} {int(verdict.owed)}")
+        if asset.lane:
+            try:
+                since = lane_behind_since(asset, table, reads)
+            except Exception as error:  # noqa: BLE001 -- unknown data time; the owed verdict above stands
+                print(f"asset_reconcile: could not date the {asset.lane} lane's inputs: {type(error).__name__}: {error}",
+                      file=sys.stderr)
+                since = None
+            if since is not None:
+                behind = max(now - since, 0.0) if since else 0.0
+                metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}"}} {behind:.0f}')
         if busy or full:
             kept["busy_at"] = now
-        versions = gold_attempt(asset, verdict, busy, kept, now)
+        versions = gold_attempt(asset, verdict, busy, kept, now, not busy and asset.gold is not None
+                                and timed_out(asset.service))
         if verdict.owed and not busy and not verdict.waiting:
             owed_by_job.setdefault(asset.job, {})[asset.uri] = versions
         if verdict.owed and not busy and not full and not verdict.waiting:
@@ -378,6 +429,8 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_asset_unscheduled_since_timestamp_seconds gauge
 # HELP foundation_asset_reconcile_error Whether the reconciler could not read the asset this tick.
 # TYPE foundation_asset_reconcile_error gauge
+# HELP foundation_by_pnu_lane_behind_seconds How long the lane has served data behind its inputs: since the oldest Gold, Silver or reference change it does not serve (root ADR-0444); 0 when it serves every change.
+# TYPE foundation_by_pnu_lane_behind_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
 """
@@ -425,6 +478,60 @@ def container_names(run) -> str:
         identifier, name = line.split()
         lines.append(f'foundation_docker_container_info{{id="/system.slice/docker-{identifier}.scope",name="{name}"}} 1\n')
     return CONTAINERS_HELP + "".join(sorted(lines))
+
+
+UNITS_METRICS_NAME = "foundation-units.prom"
+# Since when each failing unit has failed, kept across ticks beside the reconciler's own state.
+UNITS_STATE_FILE = "failing-units.json"
+UNITS_HELP = """# HELP foundation_unit_failed_since_seconds When a failed host unit entered its failed state, with the owner and runbook its unit file names (root ADR-0445).
+# TYPE foundation_unit_failed_since_seconds gauge
+# HELP foundation_units_failed How many host units are failed now.
+# TYPE foundation_units_failed gauge
+"""
+RELEASE_PREFIX = "file:///opt/foundation-platform/current/"
+
+
+def label(value: str) -> str:
+    """A Prometheus label value: systemd escapes instance names with backslashes (`\\x2d`)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def failed_units(failed, show, tracked: dict, read_text=lambda path: Path(path).read_text(encoding="utf-8")):
+    """The textfile of every failed foundation unit, since when it has been failing, and who owns it,
+    with the failing-since table to keep for the next tick (root ADR-0445).
+
+    2026-11-01..07: the identity restore drill, the court auction collector and seven others stayed
+    failed for days. Each had posted one Slack notice when it failed and nothing after, and a weekly
+    or retired unit never runs again to post another. This is the state, not the event: the
+    FoundationUnitFailedLong rule calls the owner while a unit keeps failing. A unit is failing from
+    the first tick that saw it failed until one sees it neither failed nor running, so an hourly
+    unit that fails every run stays one failure, not a new one each hour. The owner and runbook are
+    the unit file's X-Foundation-Owner= and Documentation=; a unit whose file is gone (retired by a
+    release) has neither, and FoundationUnitFailedUnowned says so. `failed` and `show` are
+    job_units.failed and job_units.show, the host's one way to ask systemd."""
+    names = sorted(entry["unit"] for entry in failed())
+    shown = show(sorted(set(names) | set(tracked)))
+    failing = {}
+    for name, first in tracked.items():
+        # Still failed, or running again (a failing unit between two runs); only a success (or a
+        # reset) ends it.
+        if job_units.failed_or_running(shown.get(name, {})):
+            failing[name] = first
+    lines = []
+    for name in names:
+        unit = shown.get(name, {})
+        failing[name] = min(failing.get(name, job_units.since(unit)), job_units.since(unit))
+        owner = ""
+        if unit.get("FragmentPath"):
+            try:
+                owner = next((line.split("=", 1)[1].strip() for line in read_text(unit["FragmentPath"]).splitlines()
+                              if line.startswith("X-Foundation-Owner=")), "")
+            except OSError:
+                pass
+        runbook = (unit.get("Documentation") or "").split(" ")[0].removeprefix(RELEASE_PREFIX)
+        lines.append(f'foundation_unit_failed_since_seconds{{unit="{label(name)}",owner="{label(owner)}",'
+                     f'runbook="{label(runbook)}"}} {failing[name]}\n')
+    return UNITS_HELP + "".join(lines) + f"foundation_units_failed {len(names)}\n", failing
 
 
 def write_replacing(path: Path, text: str) -> None:
@@ -500,22 +607,42 @@ def main() -> int:
     def pool_full(job_id):
         return job_units.pool_full(job_specs.JOBS, job_id)
 
-    owed, metrics, state, errors = tick(time.time(), found, table, last_read(bake_root), running, pool_full, state)
+    def timed_out(service):
+        assert service in services
+        try:
+            shown = subprocess.run(["systemctl", "show", "-p", "Result", "--value", service],
+                                   capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return False  # unknown: the doubling backoff stands
+        return shown.stdout.strip() == "timeout"
+
+    owed, metrics, state, errors = tick(time.time(), found, table, last_read(bake_root), running, pool_full, state,
+                                        timed_out)
     write_replacing(state_dir / STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
     # The pools every job's Compose project draws from; a probe that fails stops nothing, and the
     # FoundationDockerNetworksUnread rule says the series went stale.
-    def docker(command):
+    def run(command):
         return subprocess.run(command, check=True, capture_output=True, text=True, timeout=30).stdout
 
     try:
-        write_replacing(metrics_file.with_name(NETWORKS_METRICS_NAME), bridge_networks(docker))
+        write_replacing(metrics_file.with_name(NETWORKS_METRICS_NAME), bridge_networks(run))
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not count the Docker bridge networks: {error}", file=sys.stderr)
     try:
-        write_replacing(metrics_file.with_name(CONTAINERS_METRICS_NAME), container_names(docker))
+        write_replacing(metrics_file.with_name(CONTAINERS_METRICS_NAME), container_names(run))
     except (OSError, subprocess.SubprocessError, ValueError) as error:
         print(f"asset_reconcile: could not list the running containers: {error}", file=sys.stderr)
+    try:
+        try:
+            tracked = json.loads((state_dir / UNITS_STATE_FILE).read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            tracked = {}
+        text, tracked = failed_units(job_units.failed, job_units.show, tracked)
+        write_replacing(metrics_file.with_name(UNITS_METRICS_NAME), text)
+        write_replacing(state_dir / UNITS_STATE_FILE, json.dumps(tracked, sort_keys=True) + "\n")
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
+        print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
     for line in owed:
         print(line)
     for error in errors:

@@ -25,7 +25,7 @@ defect class for thirty rewrites and a worse signal-to-noise ratio, and a guard 
 switched off. That distinction is the guard's whole scope, so it is stated here rather than left for
 someone to rediscover. Under `set -o pipefail` that shape has a second, different defect — `grep -q`
 exits at its first match, the writer takes SIGPIPE, and the match reads as a miss — which
-a-pipefail-pipe-has-no-early-exit-reader refuses (2026-10-28).
+the Semgrep rule tools/semgrep/rules/pipefail-early-exit-reader.yml refuses (2026-10-28).
 
 An audited exception carries `# verification-judgment: reviewed-pipeline` on the same line.
 """

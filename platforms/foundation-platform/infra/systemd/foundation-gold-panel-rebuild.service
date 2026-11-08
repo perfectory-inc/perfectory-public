@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform panel Gold rebuild: rebuild gold.parcel_panel, then gold.building_panel, when a Silver input changed rows (ADR-0122, ADR-0138, ADR-0139)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/gold-panel-rebuild.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

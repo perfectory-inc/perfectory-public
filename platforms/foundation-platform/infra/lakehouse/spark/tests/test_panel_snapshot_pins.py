@@ -164,6 +164,9 @@ class PanelSnapshotPinsTest(unittest.TestCase):
                     carry = stack.enter_context(mock.patch.object(job, "read_carry_candidates", return_value=None))
                     stack.enter_context(mock.patch.object(job, "resolve_zoning_anchors", return_value={}))
                     stack.enter_context(mock.patch.object(job.F, "broadcast", create=True))
+                    # Its whole build goes a 시도 at a time (root ADR-0440 §4); the shards are Spark's to test.
+                    stack.enter_context(mock.patch.object(job.incremental, "build_in_shards", return_value=frame))
+                    stack.enter_context(mock.patch.object(job.incremental, "Stages"))
                 else:
                     session = stack.enter_context(mock.patch.object(job, "SparkSession"))
                     builder = session.builder.appName.return_value.config.return_value

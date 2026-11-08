@@ -60,6 +60,26 @@ class Plan(unittest.TestCase):
         self.assertEqual(decision["source_snapshots"], {"silver.a": "12", "silver.b": "21"})
         self.assertEqual(decision["minimum_row_count"], 990)
 
+    def test_an_unfinished_plan_keeps_its_pins_until_it_commits(self):
+        """Root ADR-0447: a build longer than its unit resumes from its shards only under the same
+        pins; a daily Silver commit between two of its runs renamed the plan and dropped them."""
+        a2 = snap("12", "11", "2026-01-20T00:00:00Z", "overwrite", added=5, deleted=4)
+        a3 = snap("13", "12", "2026-01-21T00:00:00Z", "append", added=3)
+        silver = {"silver.a": table(A1, a2, a3), "silver.b": table(B1)}
+        built = gold({"silver.a": "11", "silver.b": "21"})
+        started = {"silver.a": "12", "silver.b": "21"}
+        decision = rebuild.plan("gold.x", ENTRY, INPUTS, built, silver, in_progress=started)
+        self.assertEqual((decision["action"], decision["source_snapshots"]), ("rebuild", started))
+        self.assertEqual(decision["resumed_plan_pins"], {"silver.a": "12"})
+        heads = {"silver.a": "13", "silver.b": "21"}
+        for why, record, current in (
+                ("committed already: a leftover", started, gold(started)),
+                ("its pin expired", {"silver.a": "10", "silver.b": "21"}, built),
+                ("another set of inputs", {"silver.a": "12"}, built)):
+            decision = rebuild.plan("gold.x", ENTRY, INPUTS, current, silver, in_progress=record)
+            self.assertEqual(decision["source_snapshots"], heads, why)
+            self.assertIsNone(decision["resumed_plan_pins"], why)
+
     def test_compaction_empty_commits_and_an_expired_pin_change_nothing(self):
         # Maintenance compacts (replace), then expires the pin: the kept history still names it
         # as the parent of the compaction. A schema-only commit adds no rows.

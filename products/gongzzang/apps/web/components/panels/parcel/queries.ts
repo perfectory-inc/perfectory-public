@@ -5,6 +5,7 @@ import { fetchBuildings } from "@/lib/api/buildings";
 import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchEnergy } from "@/lib/api/energy";
+import { fetchFactories } from "@/lib/api/factories";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchRealTransaction } from "@/lib/api/real-transaction";
@@ -55,6 +56,13 @@ export const parcelDemolitionsQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "demolitions", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchDemolitions(pnu, signal),
   // The 철거멸실관리대장 is published monthly and rarely changes (root ADR-0397, ADR-0399).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelFactoriesQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "factories", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchFactories(pnu, signal),
+  // The 등록공장 file is a yearly edition (root ADR-0280 §4, ADR-0449).
   staleTime: 60 * 60_000,
 });
 

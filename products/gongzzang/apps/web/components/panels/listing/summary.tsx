@@ -1,13 +1,16 @@
 "use client";
 import { Badge } from "@gongzzang/ui";
 import { MEDIA_QUERIES_MAX } from "@gongzzang/ui/tokens.js";
-import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { PhotoTile } from "@/components/media/photo-grid";
 import type { ListingDetail } from "@/lib/listings/api";
 import { formatAreaPyeong, formatPriceKrw } from "@/lib/listings/format";
-import { listingPhotoImageSrc } from "@/lib/listings/photos";
+import { listingPhotoImageSrc, listingPhotoStore } from "@/lib/listings/photos";
 import type { PanelStackEntry } from "@/lib/panel/types";
+
+/** The cover fills the panel: the whole width of a phone, 600px on a desktop panel. */
+const COVER_SIZES = `${MEDIA_QUERIES_MAX.xl} 100vw, 600px`;
 
 export function ListingSummaryCard({
   entry,
@@ -24,14 +27,27 @@ export function ListingSummaryCard({
     <div className="flex flex-col gap-4 p-6">
       {cover && !imageBroken && (
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-[var(--color-surface-cream-strong)]">
-          <Image
-            src={listingPhotoImageSrc(entry.id, cover)}
-            alt={data.title}
-            fill
-            className="object-cover"
-            sizes={`${MEDIA_QUERIES_MAX.xl} 100vw, 600px`}
-            onError={() => setImageBroken(true)}
-          />
+          {cover.content_sha256 && cover.media_format ? (
+            // The display ladder made once from the stored original (root ADR-0427).
+            <PhotoTile
+              store={listingPhotoStore(entry.id, cover)}
+              photo={{ sha256: cover.content_sha256, media_format: cover.media_format }}
+              alt={data.title}
+              viewOriginal={t("viewOriginal")}
+              sizes={COVER_SIZES}
+            />
+          ) : (
+            // An id-key photo the backfill has not mapped yet: its file, through the same route.
+            // biome-ignore lint/performance/noImgElement: a short-lived signed redirect; the Next optimizer would cache a private photo server-side.
+            <img
+              src={listingPhotoImageSrc(entry.id, cover)}
+              alt={data.title}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+              onError={() => setImageBroken(true)}
+            />
+          )}
         </div>
       )}
       {cover && imageBroken && (

@@ -1,0 +1,28 @@
+# Error boundaries come from @suspensive/react, not from a hand-written React class (root ADR-0027).
+#
+# Threat model: honest-mistake detection. Prevents the honest reintroduction of the two direct React
+# class error-boundary lifecycles — `componentDidCatch` and `getDerivedStateFromError` — after the
+# repository adopted @suspensive/react. Does not prevent deliberate evasion: a computed member name
+# (`["component" + "DidCatch"]`), Object.defineProperty or runtime construction passes, and the
+# fixture pins that as an expected pass so nobody cites this rule as a semantic wall (ADR-0027 §2).
+#
+# The engine's TypeScript parser owns the syntax (ADR-0027 §5), so comments, strings, regular
+# expressions and JSX text are not identifiers and cannot match. It decodes `\uXXXX` in an
+# identifier but keeps `\u{..}` as written, so an escaped member name is refused outright: nobody
+# writes one honestly. There is no inline suppression; a justified use changes this rule.
+rules:
+  - id: error-boundaries-come-from-suspensive
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: >-
+      $M is a hand-written React error-boundary lifecycle. Use ErrorBoundary from
+      @suspensive/react — root ADR-0027.
+    patterns:
+      - pattern-either:
+          - pattern: $M(...) { ... }
+          - pattern: $X.$M
+      - metavariable-regex:
+          metavariable: $M
+          # The engine anchors this at the start of the name, so the escape alternative spans `.*`.
+          regex: ^(componentDidCatch|getDerivedStateFromError)$|.*[\\]u[{]
+      - focus-metavariable: $M

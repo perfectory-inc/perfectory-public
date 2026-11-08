@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use shared_kernel::domain_event::DomainEvent;
 use shared_kernel::id::{Id, ListingMarker, ListingPhotoMarker};
 
-use crate::entity::PhotoContentType;
+use shared_kernel::media::MediaFormat;
 
 /// Event type emitted after an uploaded listing photo object has been verified.
 pub const LISTING_PHOTO_UPLOAD_CONFIRMED_EVENT_TYPE: &str = "listing_photo.upload_confirmed";
@@ -19,7 +19,7 @@ pub struct ListingPhotoUploadConfirmed {
     photo_id: Id<ListingPhotoMarker>,
     listing_id: Id<ListingMarker>,
     r2_key: String,
-    content_type: PhotoContentType,
+    content_type: MediaFormat,
     file_size_bytes: i64,
     occurred_at: DateTime<Utc>,
 }
@@ -34,7 +34,7 @@ pub struct ListingPhotoUploadConfirmedFacts {
     /// Verified R2 object key.
     pub r2_key: String,
     /// Verified object MIME type.
-    pub content_type: PhotoContentType,
+    pub content_type: MediaFormat,
     /// Verified object size in bytes.
     pub file_size_bytes: i64,
     /// Domain event occurrence time.
@@ -74,7 +74,7 @@ impl DomainEvent for ListingPhotoUploadConfirmed {
             "photo_id": self.photo_id.as_str(),
             "listing_id": self.listing_id.as_str(),
             "r2_key": self.r2_key,
-            "content_type": self.content_type.as_str(),
+            "content_type": self.content_type.content_type(),
             "file_size_bytes": self.file_size_bytes,
         })
     }

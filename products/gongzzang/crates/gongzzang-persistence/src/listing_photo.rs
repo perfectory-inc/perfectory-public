@@ -14,9 +14,10 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use listing_photo_domain::entity::{ListingPhoto, PhotoContentType};
+use listing_photo_domain::entity::ListingPhoto;
 use listing_photo_domain::repository::{ListingPhotoRepository, RepoError};
 use shared_kernel::id::{AuditLogMarker, Id, ListingMarker, ListingPhotoMarker, OutboxEventMarker};
+use shared_kernel::media::{MediaFormat, Sha256Hex};
 use shared_kernel::mutation::MutationContext;
 use sqlx::postgres::PgRow;
 use sqlx::{PgPool, Row};
@@ -38,20 +39,18 @@ impl PgListingPhotoRepository {
     }
 }
 
-/// `select` 절에서 모든 `listing_photo` 컬럼을 일관되게 가져오기 위한 상수.
-const PHOTO_COLUMNS: &str = "id, listing_id, r2_key, thumbnail_r2_key, caption, \
-    display_order, width_px, height_px, file_size_bytes, \
-    content_type, uploaded_at, deleted_at";
+/// 모든 `listing_photo` 컬럼을 일관되게 가져오는 `select … from` 절. `content_sha256` 은 새 업로드면 행의
+/// 값, 옛 id 키 사진이면 백필이 쌓은 대응(`listing_photo_content_address`)의 값이에요 (root ADR-0427).
+const PHOTO_SELECT: &str = "select p.id, p.listing_id, p.r2_key, \
+    coalesce(p.content_sha256, m.content_sha256) as content_sha256, p.caption, \
+    p.display_order, p.width_px, p.height_px, p.file_size_bytes, \
+    p.content_type, p.uploaded_at, p.deleted_at \
+    from listing_photo p \
+    left join listing_photo_content_address m on m.legacy_r2_key = p.r2_key";
 
-fn parse_content_type(s: &str) -> Result<PhotoContentType, RepoError> {
-    match s {
-        "image/jpeg" => Ok(PhotoContentType::Jpeg),
-        "image/png" => Ok(PhotoContentType::Png),
-        "image/webp" => Ok(PhotoContentType::Webp),
-        other => Err(RepoError::Database(format!(
-            "unexpected content_type in DB: {other}"
-        ))),
-    }
+fn parse_content_type(s: &str) -> Result<MediaFormat, RepoError> {
+    MediaFormat::from_content_type(s)
+        .ok_or_else(|| RepoError::Database(format!("unexpected content_type in DB: {s}")))
 }
 
 /// `PgRow` 를 `ListingPhoto` 로 변환해요. 12 필드 모두 round-trip.
@@ -65,8 +64,8 @@ fn row_to_photo(row: &PgRow) -> Result<ListingPhoto, RepoError> {
     let r2_key: String = row
         .try_get("r2_key")
         .map_err(|e| RepoError::Database(e.to_string()))?;
-    let thumbnail_r2_key: Option<String> = row
-        .try_get("thumbnail_r2_key")
+    let content_sha256: Option<String> = row
+        .try_get("content_sha256")
         .map_err(|e| RepoError::Database(e.to_string()))?;
     let caption: Option<String> = row
         .try_get("caption")
@@ -98,12 +97,17 @@ fn row_to_photo(row: &PgRow) -> Result<ListingPhoto, RepoError> {
     let listing_id = Id::<ListingMarker>::try_from_str(&listing_id_str)
         .map_err(|e| RepoError::Database(format!("malformed listing_id in DB: {e}")))?;
     let content_type = parse_content_type(&content_type_str)?;
+    let content_sha256 = content_sha256
+        .as_deref()
+        .map(Sha256Hex::parse)
+        .transpose()
+        .map_err(|e| RepoError::Database(format!("malformed content_sha256 in DB: {e}")))?;
 
     Ok(ListingPhoto {
         id,
         listing_id,
         r2_key,
-        thumbnail_r2_key,
+        content_sha256,
         caption,
         display_order,
         width_px,
@@ -119,7 +123,7 @@ fn row_to_photo(row: &PgRow) -> Result<ListingPhoto, RepoError> {
 impl ListingPhotoRepository for PgListingPhotoRepository {
     #[instrument(skip(self), fields(photo_id = %id.as_str()))]
     async fn find(&self, id: &Id<ListingPhotoMarker>) -> Result<Option<ListingPhoto>, RepoError> {
-        let sql = format!("select {PHOTO_COLUMNS} from listing_photo where id = $1");
+        let sql = format!("{PHOTO_SELECT} where p.id = $1");
         let row = sqlx::query(&sql)
             .bind(id.as_str())
             .fetch_optional(&self.pool)
@@ -134,9 +138,9 @@ impl ListingPhotoRepository for PgListingPhotoRepository {
         listing_id: &Id<ListingMarker>,
     ) -> Result<Vec<ListingPhoto>, RepoError> {
         let sql = format!(
-            "select {PHOTO_COLUMNS} from listing_photo \
-             where listing_id = $1 and deleted_at is null and file_size_bytes is not null \
-             order by display_order asc"
+            "{PHOTO_SELECT} \
+             where p.listing_id = $1 and p.deleted_at is null and p.file_size_bytes is not null \
+             order by p.display_order asc"
         );
         let rows = sqlx::query(&sql)
             .bind(listing_id.as_str())
@@ -165,14 +169,14 @@ impl ListingPhotoRepository for PgListingPhotoRepository {
         sqlx::query(
             r"
             insert into listing_photo (
-                id, listing_id, r2_key, thumbnail_r2_key, caption,
+                id, listing_id, r2_key, content_sha256, caption,
                 display_order, width_px, height_px, file_size_bytes,
                 content_type, uploaded_at, deleted_at
             )
             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             on conflict (id) do update set
                 r2_key = excluded.r2_key,
-                thumbnail_r2_key = excluded.thumbnail_r2_key,
+                content_sha256 = excluded.content_sha256,
                 caption = excluded.caption,
                 display_order = excluded.display_order,
                 width_px = excluded.width_px,
@@ -186,13 +190,13 @@ impl ListingPhotoRepository for PgListingPhotoRepository {
         .bind(photo.id.as_str())
         .bind(photo.listing_id.as_str())
         .bind(&photo.r2_key)
-        .bind(&photo.thumbnail_r2_key)
+        .bind(photo.content_sha256.as_ref().map(Sha256Hex::as_str))
         .bind(&photo.caption)
         .bind(photo.display_order)
         .bind(photo.width_px)
         .bind(photo.height_px)
         .bind(photo.file_size_bytes)
-        .bind(photo.content_type.as_str())
+        .bind(photo.content_type.content_type())
         .bind(photo.uploaded_at)
         .bind(photo.deleted_at)
         .execute(&mut *tx)

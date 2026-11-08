@@ -74,16 +74,8 @@ products/gongzzang/infra/zitadel/init-zitadel.sh,114,true,deploy,runner,Run via 
 products/gongzzang/packages/api-types/scripts/generate.tests.sh,43,true,test-fixture,xtask,"npm ""test"" script (package.json) for codegen"
 products/gongzzang/scripts/ci/vitest-lane-completeness.sh,75,true,ci,xtask,gongzzang CI helper invoked from a workflow
 products/gongzzang/scripts/ci/walking-skeleton-e2e.sh,148,true,ci,xtask,gongzzang CI helper invoked from a workflow
-products/gongzzang/scripts/lefthook/check-forbidden-implementation-markers.sh,103,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
-products/gongzzang/scripts/lefthook/check-forbidden-implementation-markers.tests.sh,129,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
-products/gongzzang/scripts/lefthook/check-no-fake-pass.sh,75,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
-products/gongzzang/scripts/lefthook/check-no-fake-pass.tests.sh,144,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
 products/gongzzang/scripts/lefthook/file-line-limit.sh,95,true,ci,xtask,"Moved to CI only (gongzzang-ci.yml), not in lefthook.yml"
 products/gongzzang/scripts/lefthook/file-line-limit.tests.sh,95,true,unreferenced,xtask,Self-test never runs; run it from CI (ADR-0011)
-products/gongzzang/scripts/lefthook/panel-guards.tests.sh,68,true,test-fixture,xtask,Lefthook self-test run directly by gongzzang-ci.yml
-products/gongzzang/scripts/lefthook/panel-no-direct-codec.sh,27,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
-products/gongzzang/scripts/lefthook/panel-no-framework-import-kind.sh,28,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
-products/gongzzang/scripts/lefthook/panel-no-state-without-router.sh,26,true,git-hook,xtask,Invoked by root lefthook.yml pre-commit/pre-push
 products/gongzzang/scripts/sqlx-migrate.sh,23,true,dev-tool,xtask,Manual DB setup command documented in README
 products/gongzzang/scripts/sqlx-prepare.sh,27,true,dev-tool,xtask,"Manual sqlx-prepare wrapper, sibling of sqlx-migrate.sh"
 products/gongzzang/scripts/web-preview/common.sh,51,true,deploy,runner,"PR web-preview deploy, started by a systemd unit"
@@ -122,8 +114,6 @@ scripts/github/validate-legal-publication.sh,48,true,ci,xtask,Helper called from
 scripts/github/validate-public-repository-identity.sh,39,true,ci,xtask,Helper called from the scripts/guard public-repo policy chain
 scripts/guard/a-deploy-verifies-the-schema-it-left-self-test.sh,103,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/a-deploy-verifies-the-schema-it-left.sh,84,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/a-pipefail-pipe-has-no-early-exit-reader-self-test.sh,50,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/a-pipefail-pipe-has-no-early-exit-reader.sh,93,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/actions-cache-controls-self-test.sh,90,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/area-ci-input-coverage-self-test.sh,124,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/area-ci-input-coverage.sh,119,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
@@ -141,7 +131,7 @@ scripts/guard/build-coupling-baseline.sh,310,true,git-hook,xtask,Run directly by
 scripts/guard/by-pnu-document-records-are-append-only-self-test.sh,57,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/by-pnu-document-records-are-append-only.sh,30,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/cargo-verify-isolation-self-test.sh,214,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/check-container-runtime-policy.sh,513,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/check-container-runtime-policy.sh,486,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-tracked-blob-sizes.sh,38,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/check-workflow-policy.sh,107,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/ci-time-budget-self-test.sh,10,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
@@ -157,29 +147,23 @@ scripts/guard/environment-variable-naming-self-test.sh,168,true,test-fixture,xta
 scripts/guard/environment-variable-naming.sh,286,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/every-container-has-a-memory-cap-self-test.sh,317,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/every-container-has-a-memory-cap.sh,468,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/every-table-declares-its-load-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/every-table-declares-its-load.sh,77,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/foundation-ci-scope-self-test.sh,9,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/foundation-kafka-contract.sh,105,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/foundation-parcel-current-selector-self-test.sh,112,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/foundation-parcel-current-selector.sh,60,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
 scripts/guard/foundation-r2-lakehouse-live-self-test.sh,151,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/frontend-test-isolation-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/github-policy-json-self-test.sh,463,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/gitleaks-policy-self-test.sh,61,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/hand-rolled-error-boundary-self-test.sh,184,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/hand-rolled-error-boundary.sh,347,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/hook-isolation-self-test.sh,248,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract-self-test.sh,118,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/identity-endpoints-match-the-contract.sh,121,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/import-private-feature-diff-self-test.sh,114,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes-self-test.sh,140,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/judgment-position-exit-codes.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/lefthook-policy-self-test.sh,10,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
+scripts/guard/lefthook-policy.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-ci.sh,17,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/legal-publication-self-test.sh,352,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/lib/fixture-repo.sh,173,true,ci,xtask,"Shared lib sourced by monorepo-guard.sh, the CI guard runner"
-scripts/guard/lineage-is-derived-not-passed-self-test.sh,109,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/lineage-is-derived-not-passed.sh,75,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/live-lane-completeness-self-test.sh,550,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/live-lane-completeness.sh,601,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/migration-approval-gates-self-test.sh,62,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
@@ -187,8 +171,6 @@ scripts/guard/migration-approval-gates.sh,12,true,ci,xtask,Guard run by monorepo
 scripts/guard/migration-naming-self-test.sh,32,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/migration-naming.sh,25,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/monorepo-guard.sh,37,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/no-env-access-in-domain-layers-self-test.sh,97,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/no-env-access-in-domain-layers.sh,61,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/no-subdir-github.sh,12,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/npm-advisory-fix-guards-self-test.sh,63,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/npm-security-overrides-self-test.sh,14,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
@@ -230,8 +212,7 @@ scripts/guard/technology-version-consistency-self-test.sh,137,true,test-fixture,
 scripts/guard/technology-version-consistency.sh,227,true,git-hook,xtask,Run directly by lefthook.yml pre-push fast-ratchets
 scripts/guard/the-contract-names-where-its-objects-live-self-test.sh,134,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/the-contract-names-where-its-objects-live.sh,74,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
-scripts/guard/the-deploy-does-not-restate-the-compose-chain-self-test.sh,102,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
-scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh,116,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
+scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh,33,true,ci,xtask,Guard run by monorepo-guard.sh via CI (tools/ci/change-scope.json)
 scripts/guard/third-party-artifact-policy-self-test.sh,191,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tiles-slice-proof-env-self-test.sh,29,false,test-fixture,keep,Guard self-test; run by monorepo-guard.sh via CI
 scripts/guard/tracked-blob-sizes-self-test.sh,70,true,test-fixture,xtask,Guard self-test; run by monorepo-guard.sh via CI

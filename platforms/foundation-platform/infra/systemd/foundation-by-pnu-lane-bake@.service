@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform by-PNU %i bake: the lane's Gold to R2 by-PNU serving section packs, its own job as every own-producer kind's (root ADR-0303, ADR-0418 §8b)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/parcel-by-pnu-serving-bake.md
+X-Foundation-Owner=serving
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

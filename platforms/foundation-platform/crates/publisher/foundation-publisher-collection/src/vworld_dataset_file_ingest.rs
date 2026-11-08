@@ -446,7 +446,9 @@ struct VWorldDatasetFileInventoryReport {
 
 #[derive(Clone, Debug)]
 struct SelectedVWorldDatasetFile {
-    job: VWorldDatasetFileJob,
+    // Shared, not copied: a copy per file holds the job's whole file list once per file. 2026-10-31
+    // the sweep listed ~10k files and the copies took 40 GiB; 11-04 and 11-08 the OOM killer ended it.
+    job: Arc<VWorldDatasetFileJob>,
     file: VWorldDatasetFileInventoryItem,
 }
 
@@ -1309,6 +1311,7 @@ fn select_inventory_files(
     // buffer_unordered (check-then-write without a DB claim), so refuse them up front.
     let mut seen = std::collections::HashSet::new();
     for job in jobs.iter().take(job_limit) {
+        let shared = Arc::new(job.clone());
         for file in &job.files {
             if exclude_selection_archives
                 && file.download_kind == VWorldDatasetFileKind::SelectionArchive
@@ -1332,7 +1335,7 @@ fn select_inventory_files(
                 );
             }
             selected.push(SelectedVWorldDatasetFile {
-                job: job.clone(),
+                job: Arc::clone(&shared),
                 file: file.clone(),
             });
         }

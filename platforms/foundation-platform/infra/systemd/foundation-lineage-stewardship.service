@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform parcel lineage stewardship cycle: load pending legal-dong code changes (ADR-0143), fold decisions, rebuild and load the review queue (ADR-0115)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/legal-dong-code-changes.md
+X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

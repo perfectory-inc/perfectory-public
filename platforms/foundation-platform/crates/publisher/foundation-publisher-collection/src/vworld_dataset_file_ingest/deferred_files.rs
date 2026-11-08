@@ -6,6 +6,8 @@
 //! (`scripts/ops/raon-large-files.sh` → `plan-provider-acquisition-jobs`), so the held check is the
 //! same one the download path makes and lives in one place.
 
+use std::sync::Arc;
+
 use collection_application::ports::{BronzeIngestRepository, BronzeIngestUnitOfWork};
 use collection_infrastructure::{VWorldDatasetFileInventoryItem, VWorldDatasetFileKind};
 
@@ -31,11 +33,12 @@ pub(super) fn excluded_selection_archives(
     jobs.iter()
         .take(max_jobs.unwrap_or(jobs.len()))
         .flat_map(|job| {
+            let shared = Arc::new(job.clone());
             job.files
                 .iter()
                 .filter(|file| file.download_kind == VWorldDatasetFileKind::SelectionArchive)
                 .map(move |file| SelectedVWorldDatasetFile {
-                    job: job.clone(),
+                    job: Arc::clone(&shared),
                     file: file.clone(),
                 })
         })

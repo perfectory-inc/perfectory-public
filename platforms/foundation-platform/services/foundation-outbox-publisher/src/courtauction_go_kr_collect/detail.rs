@@ -1,8 +1,9 @@
 //! 법원경매 물건상세, the run's second half (root ADR-0290 §7, ADR-0352, ADR-0384).
 //!
-//! After a complete night of the list searches, the same collector asks the 물건상세 of the
-//! properties due, with the same manners (one connection, the spacing floor, the named User-Agent,
-//! the window, stop on any refusal). Which properties is computed each run, never stored
+//! After a list pass that was not cut short, the same run asks the 물건상세 of the properties due,
+//! on the same session pool and tally as the lists (root ADR-0289): the contract's `goods_detail`
+//! pace, a block renews the session and asks again, the operator's window and the run's deadline
+//! end it. Which properties is computed each run, never stored
 //! (root ADR-0352): this run's in-progress list rows against the last read the lakehouse records
 //! (`silver.court_auction_item_detail`), never-read first, then what the contract's recrawl rule
 //! says is due, soonest sale date first, at most the contract's per-run limit.
@@ -19,15 +20,17 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use anyhow::Context as _;
 use base64::Engine as _;
 use chrono::{DateTime, NaiveDate, Utc};
+use collection_application::{ask, Asked, SiteMethod, SiteRequest};
 use collection_domain::court_auction::{due, fingerprint, CaseView, RecrawlRule};
 use foundation_outbox::ObjectStorageService;
 use foundation_shared_kernel::{MediaFormat, ObjectKeyPrefix};
-use reqwest::header::{ACCEPT, CONTENT_TYPE, RETRY_AFTER};
+use futures_util::stream::{self, StreamExt as _};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest as _, Sha256};
+use tokio::time::Instant;
 
-use super::{Collector, Search, SourceContract, Stop, KST_HOURS};
+use super::{may_ask, Asking, Collection, Search, SourceContract, Stop, KST_HOURS};
 use crate::media_renditions::RenditionBudget;
 use crate::media_store::{store_bytes, Stored};
 
@@ -48,6 +51,10 @@ pub(crate) struct ItemDetail {
     pub(crate) dataset_slug: String,
     pub(crate) operation: String,
     pub(crate) path: String,
+    /// The `collection.pace` group the details are paced in.
+    pub(crate) pace_group: String,
+    /// The headers this endpoint is sent besides the session's.
+    pub(crate) headers: BTreeMap<String, String>,
     pub(crate) request_object: String,
     pub(crate) request_constants: BTreeMap<String, String>,
     /// Request field -> the list row field it is taken from.
@@ -70,6 +77,8 @@ impl ItemDetail {
             operation: self.operation.clone(),
             path: self.path.clone(),
             page_size: 0,
+            pace_group: self.pace_group.clone(),
+            headers: self.headers.clone(),
             conditions: Vec::new(),
             date_window: None,
         }
@@ -79,13 +88,6 @@ impl ItemDetail {
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct ChangeFields {
     pub(crate) item_search: Vec<String>,
-}
-
-/// The parts of the contract's `collection` the detail phase reads (root ADR-0290 §2-§3).
-#[derive(Clone, Debug, Deserialize)]
-pub(crate) struct CollectionRules {
-    pub(crate) change_fields: ChangeFields,
-    pub(crate) recrawl: RecrawlRule,
 }
 
 /// A property of the list: the detail's request key, in the contract's request field order.
@@ -130,7 +132,7 @@ fn hex(bytes: &[u8]) -> String {
 pub(crate) fn wanted_from_lines(
     lines: &[String],
     detail: &ItemDetail,
-    rules: &CollectionRules,
+    rules: &Collection,
 ) -> Vec<Wanted> {
     let mut found: BTreeMap<Key, Wanted> = BTreeMap::new();
     for line in lines {
@@ -392,45 +394,13 @@ pub(crate) async fn rewrite_photos(
     Ok(count)
 }
 
-/// What one detail answer came to.
-pub(crate) enum Answer {
-    Result(JsonValue),
-    /// The site refused: the run stops.
-    Refused(String),
-    /// Not a refusal, and no result either: the read is recorded as failed and the run goes on.
-    Failed(String),
-}
-
-/// Reads a detail response: the refusal signals of the list searches, then the result object.
-pub(crate) fn read_answer(
-    contract: &SourceContract,
-    detail: &ItemDetail,
-    status: u16,
-    retry_after: bool,
-    content_type: &str,
-    text: &str,
-) -> Answer {
-    if contract.refusal.http_statuses.contains(&status) {
-        return Answer::Refused(format!("HTTP {status}"));
-    }
-    if retry_after {
-        return Answer::Refused("Retry-After".to_owned());
-    }
-    if !(200..300).contains(&status) {
-        return Answer::Refused(format!("HTTP {status}"));
-    }
-    if !content_type.contains("json") {
-        return Answer::Refused(format!("a {content_type:?} page where JSON belongs"));
-    }
-    let Ok(value) = serde_json::from_str::<JsonValue>(text) else {
-        return Answer::Refused("a body that is not JSON".to_owned());
-    };
-    if value["data"]["ipcheck"] == JsonValue::Bool(false) {
-        return Answer::Refused("ipcheck=false".to_owned());
-    }
+/// The detail's result object of an answer the asking took as data, or why there is none.
+pub(crate) fn read_result(detail: &ItemDetail, body: &str) -> Result<JsonValue, String> {
+    let value: JsonValue =
+        serde_json::from_str(body).map_err(|error| format!("a body that is not JSON: {error}"))?;
     match value.pointer(&detail.result_pointer) {
-        Some(JsonValue::Object(_)) => Answer::Result(value),
-        _ => Answer::Failed(format!("no object at {}", detail.result_pointer)),
+        Some(JsonValue::Object(_)) => Ok(value),
+        _ => Err(format!("no object at {}", detail.result_pointer)),
     }
 }
 
@@ -441,37 +411,6 @@ pub(crate) struct DetailResult {
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
-}
-
-impl Collector<'_> {
-    /// POSTs one property's 물건상세 and returns (status, retry-after, content type, body).
-    async fn detail_response(
-        &mut self,
-        detail: &ItemDetail,
-        body: &JsonValue,
-    ) -> anyhow::Result<(u16, bool, String, String)> {
-        let response = self
-            .send(
-                |http, url| {
-                    http.post(url)
-                        .header(CONTENT_TYPE, "application/json;charset=UTF-8")
-                        .header(ACCEPT, "application/json")
-                        .json(body)
-                },
-                &detail.path,
-            )
-            .await?;
-        let status = response.status().as_u16();
-        let retry_after = response.headers().contains_key(RETRY_AFTER);
-        let content_type = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let text = response.text().await.unwrap_or_default();
-        Ok((status, retry_after, content_type, text))
-    }
 }
 
 /// The request body of one property.
@@ -493,47 +432,111 @@ pub(crate) struct PhotoStore<'a> {
     pub(crate) storage: Option<&'a dyn ObjectStorageService>,
 }
 
-/// Asks the 물건상세 of `asked`, in order, stopping at the first refusal or the end of the window.
-/// `now` and `allowed` are asked before every request, as the list searches do.
+/// One property's asking, before its answer is read.
+enum Sent {
+    Answered {
+        at: DateTime<Utc>,
+        body: JsonValue,
+        asked: Asked,
+    },
+    Stopped(Stop),
+}
+
+/// Asks the 물건상세 of `asked` until `deadline`, as many in flight as the detail's pace group
+/// allows, and reads the answers in order, one at a time (an answer is a few MB of base64, so only
+/// the ones in flight are held). `now` is asked before every request, as the list searches do.
 pub(crate) async fn collect_details(
     contract: &SourceContract,
-    collector: &mut Collector<'_>,
+    asking: &Asking<'_>,
+    deadline: Instant,
     asked: &[Wanted],
     store: &PhotoStore<'_>,
     now: impl Fn() -> DateTime<Utc>,
-    allowed: impl Fn(DateTime<Utc>) -> anyhow::Result<bool>,
 ) -> anyhow::Result<(DetailResult, Option<Stop>)> {
     let detail = &contract.item_detail;
+    let rule = contract
+        .collection
+        .pace
+        .get(&detail.pace_group)
+        .with_context(|| format!("no collection.pace group {:?}", detail.pace_group))?;
+    let gate = asking
+        .gates
+        .get(&detail.pace_group)
+        .with_context(|| format!("no collection.pace group {:?}", detail.pace_group))?;
+    let headers: Vec<(String, String)> = contract
+        .collection
+        .session
+        .headers
+        .iter()
+        .chain(&detail.headers)
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let (now, headers) = (&now, &headers);
+    let mut answers = stream::iter(asked)
+        .map(|wanted| async move {
+            let at = now();
+            if !may_ask(&asking.switches, at)? {
+                return anyhow::Ok(Sent::Stopped(Stop::WindowEnded));
+            }
+            let body = request_body(detail, &wanted.key);
+            let request = SiteRequest {
+                method: SiteMethod::Post,
+                path: detail.path.clone(),
+                headers: headers.clone(),
+                body: Some(body.clone()),
+            };
+            Ok(
+                match ask(
+                    asking.sessions,
+                    gate,
+                    &asking.rules,
+                    &asking.tally,
+                    &request,
+                    deadline,
+                )
+                .await
+                {
+                    Asked::Unfinished => Sent::Stopped(Stop::TimeBudget),
+                    asked => Sent::Answered { at, body, asked },
+                },
+            )
+        })
+        .buffered(rule.max.max(1) as usize);
     let mut result = DetailResult::default();
     for wanted in asked {
-        let at = now();
-        if collector.quiet_hours_waived.is_none() && !allowed(at)? {
-            return Ok((result, Some(Stop::QuietHoursEnded)));
-        }
-        let body = request_body(detail, &wanted.key);
-        let (status, retry_after, content_type, text) =
-            collector.detail_response(detail, &body).await?;
+        let Some(sent) = answers.next().await else {
+            break;
+        };
+        let (at, body, asked) = match sent? {
+            Sent::Answered { at, body, asked } => (at, body, asked),
+            Sent::Stopped(why) => return Ok((result, Some(why))),
+        };
         result.asked += 1;
         let mut line = json!({
             "operation": detail.operation,
             "request": body,
             "requested_at_utc": at.to_rfc3339(),
-            "http_status": status,
             "list_fingerprint": wanted.fingerprint,
         });
-        match read_answer(contract, detail, status, retry_after, &content_type, &text) {
-            Answer::Refused(reason) => {
-                line["read_outcome"] = json!("refused");
-                result.lines.push(serde_json::to_string(&line)?);
-                return Ok((result, Some(Stop::Refused(reason))));
+        let read = match asked {
+            Asked::Data { reply, .. } => {
+                line["http_status"] = json!(reply.status);
+                read_result(detail, &reply.body).map_err(|reason| (reason, Some(reply.body)))
             }
-            Answer::Failed(reason) => {
+            Asked::Failed { reason, reply } => {
+                line["http_status"] = json!(reply.as_ref().map(|reply| reply.status));
+                Err((reason, reply.map(|reply| reply.body)))
+            }
+            Asked::Unfinished => return Ok((result, Some(Stop::TimeBudget))),
+        };
+        match read {
+            Err((reason, text)) => {
                 result.failed += 1;
                 line["read_outcome"] = json!("failed");
                 line["failure"] = json!(reason);
                 line["body"] = json!(text);
             }
-            Answer::Result(mut value) => {
+            Ok(mut value) => {
                 let photo_count = match value.pointer_mut(&detail.result_pointer) {
                     Some(found) => {
                         rewrite_photos(
@@ -756,23 +759,15 @@ mod tests {
     }
 
     #[test]
-    fn a_detail_answer_without_its_result_is_a_failure_and_ipcheck_is_a_refusal() {
+    fn a_detail_answer_without_its_result_is_a_failure() {
         let contract = contract();
         let detail = &contract.item_detail;
-        let read =
-            |text: &str| read_answer(&contract, detail, 200, false, "application/json", text);
-        assert!(matches!(
-            read(r#"{"data": {"dma_result": {}}}"#),
-            Answer::Result(_)
-        ));
-        assert!(matches!(read(r#"{"data": {}}"#), Answer::Failed(_)));
-        assert!(matches!(
-            read(r#"{"data": {"ipcheck": false}}"#),
-            Answer::Refused(_)
-        ));
-        assert!(matches!(
-            read_answer(&contract, detail, 429, false, "application/json", "{}"),
-            Answer::Refused(_)
-        ));
+        assert!(read_result(detail, r#"{"data": {"dma_result": {}}}"#).is_ok());
+        assert!(read_result(detail, r#"{"data": {}}"#).is_err());
+        assert!(read_result(detail, "not json").is_err());
+        assert!(
+            contract.collection.pace.contains_key(&detail.pace_group),
+            "the detail names a known pace group"
+        );
     }
 }

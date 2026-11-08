@@ -15,7 +15,7 @@ use gongzzang_persistence::listing_photo::PgListingPhotoRepository;
 use gongzzang_persistence::user::PgUserRepository;
 use listing_domain::entity::Listing;
 use listing_domain::repository::ListingRepository;
-use listing_photo_domain::entity::{ListingPhoto, PhotoContentType};
+use listing_photo_domain::entity::ListingPhoto;
 use listing_photo_domain::repository::{ListingPhotoRepository, RepoError};
 use shared_kernel::area::AreaM2;
 use shared_kernel::description::Description;
@@ -24,6 +24,7 @@ use shared_kernel::email::Email;
 use shared_kernel::id::{Id, ListingMarker, ListingPhotoMarker};
 use shared_kernel::listing_title::ListingTitle;
 use shared_kernel::listing_type::ListingType;
+use shared_kernel::media::{MediaFormat, Sha256Hex};
 use shared_kernel::money::MoneyKrw;
 use shared_kernel::mutation::MutationContext;
 use shared_kernel::pnu::Pnu;
@@ -106,7 +107,7 @@ fn make_photo(listing_id: Id<ListingMarker>, order: i32) -> ListingPhoto {
         Some(1920),
         Some(1080),
         Some(2_000_000),
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         now,
     )
     .expect("photo")
@@ -124,7 +125,7 @@ fn make_pending_photo(listing_id: Id<ListingMarker>, order: i32) -> ListingPhoto
         None,
         None,
         None,
-        PhotoContentType::Jpeg,
+        MediaFormat::Jpeg,
         now,
     )
     .expect("pending photo")
@@ -144,7 +145,7 @@ async fn round_trip_via_find_by_listing() {
     assert_eq!(photos.len(), 1);
     assert_eq!(photos[0].r2_key, photo.r2_key);
     assert_eq!(photos[0].display_order, 0);
-    assert_eq!(photos[0].content_type, PhotoContentType::Jpeg);
+    assert_eq!(photos[0].content_type, MediaFormat::Jpeg);
     assert_eq!(photos[0].width_px, Some(1920));
     assert_eq!(photos[0].height_px, Some(1080));
     assert_eq!(photos[0].file_size_bytes, Some(2_000_000));
@@ -407,4 +408,45 @@ async fn delete_photo_audit_logs_with_action_delete() {
     .await
     .unwrap();
     assert_eq!(delete_audit_count.0, 1);
+}
+
+/// Root ADR-0427: an id-key photo reads its hash from the backfill's append-only mapping, the old
+/// key keeps reading, and the mapping refuses to be rewritten.
+#[tokio::test]
+async fn an_id_key_photo_reads_its_hash_from_the_append_only_mapping() {
+    let pool = setup_test_pool().await;
+    truncate_all(&pool).await;
+    let listing_id = seed_listing(&pool, "zsub-photo-map", "photomap@example.com").await;
+    let repo = PgListingPhotoRepository::new(pool.clone());
+    let photo = make_photo(listing_id.clone(), 0);
+    repo.save(&photo, test_ctx()).await.expect("save");
+    let before = repo.find(&photo.id).await.expect("find").expect("row");
+    assert!(before.content_sha256.is_none());
+
+    let hash = "0123456789abcdef".repeat(4);
+    sqlx::query(
+        "insert into listing_photo_content_address \
+         (legacy_r2_key, content_sha256, content_key, size_bytes) values ($1, $2, $3, $4)",
+    )
+    .bind(&photo.r2_key)
+    .bind(&hash)
+    .bind(format!("media/listing-photo/sha256/{hash}.jpg"))
+    .bind(2_000_000_i64)
+    .execute(&pool)
+    .await
+    .expect("mapping insert");
+
+    let found = repo.find(&photo.id).await.expect("find").expect("row");
+    assert_eq!(
+        found.content_sha256.as_ref().map(Sha256Hex::as_str),
+        Some(hash.as_str())
+    );
+    assert_eq!(found.r2_key, photo.r2_key, "the old key keeps reading");
+    let listed = repo.find_by_listing(&listing_id).await.expect("list");
+    assert_eq!(listed[0].content_sha256, found.content_sha256);
+
+    let rewrite = sqlx::query("update listing_photo_content_address set size_bytes = 1")
+        .execute(&pool)
+        .await;
+    assert!(rewrite.is_err(), "the mapping is append-only");
 }

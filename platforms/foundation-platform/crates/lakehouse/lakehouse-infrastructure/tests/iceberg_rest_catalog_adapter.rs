@@ -350,6 +350,8 @@ async fn ensure_table_returns_existing_snapshot_without_cloudflare_business_api(
 
 const TAGGED: i64 = 999_990_000_000_000_001;
 const OTHER: i64 = 999_990_000_000_000_002;
+const MERGED: i64 = 999_990_000_000_000_031;
+const EQUALITY: i64 = 999_990_000_000_000_032;
 const GOLD_PATH: &str = "/v1/cloudflare-catalog-prefix/namespaces/gold/tables/parcel_panel";
 
 async fn mount_gold(server: &MockServer, refs: serde_json::Value) {
@@ -616,7 +618,14 @@ async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Bo
                 "current-snapshot-id": OTHER,
                 "snapshots": [
                     {"snapshot-id": TAGGED, "summary": {"operation": "overwrite", "total-records": "5945767"}},
-                    {"snapshot-id": OTHER, "summary": {"operation": "overwrite"}}
+                    {"snapshot-id": OTHER, "summary": {"operation": "overwrite"}},
+                    // A merge-on-read MERGE (root ADR-0344): 69,211 replaced rows still counted in
+                    // total-records, deleted by position (the parcel panel, 2026-11-08).
+                    {"snapshot-id": MERGED, "summary": {"operation": "overwrite", "total-records": "39930722",
+                                                        "total-position-deletes": "69211",
+                                                        "total-equality-deletes": "0"}},
+                    {"snapshot-id": EQUALITY, "summary": {"operation": "overwrite", "total-records": "10",
+                                                          "total-equality-deletes": "2"}}
                 ]
             }
         })))
@@ -628,6 +637,20 @@ async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Bo
             .load_snapshot_record_count("gold.parcel_panel", TAGGED)
             .await?,
         Some(5_945_767)
+    );
+    assert_eq!(
+        catalog
+            .load_snapshot_record_count("gold.parcel_panel", MERGED)
+            .await?,
+        Some(39_861_511),
+        "a merge-on-read snapshot's replaced rows were counted"
+    );
+    assert!(
+        catalog
+            .load_snapshot_record_count("gold.parcel_panel", EQUALITY)
+            .await
+            .is_err(),
+        "equality deletes were read as a row count"
     );
     assert!(
         catalog

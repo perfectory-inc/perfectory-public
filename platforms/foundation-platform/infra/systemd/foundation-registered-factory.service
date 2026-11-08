@@ -1,5 +1,7 @@
 [Unit]
 Description=Foundation Platform 전국등록공장현황 from data.go.kr: land a new edition in Bronze, give its rows a PNU by address and load silver.registered_factory (root ADR-0280)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/data-go-kr-registered-factory.md
+X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target

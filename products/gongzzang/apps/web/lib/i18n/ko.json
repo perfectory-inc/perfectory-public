@@ -255,6 +255,7 @@
         },
         "sections": {
           "land": "토지",
+          "factories": "등록공장",
           "buildings": "건물",
           "subParcels": "부속지번",
           "energy": "에너지",
@@ -276,6 +277,12 @@
           "electricity": "전기 사용량({unit})",
           "gas": "가스 사용량",
           "exclusions": "제공처 기준: 산업·수송·발전·열병합·충전용 사용과 단독주택·200세대 미만 공동주택은 집계에서 빠진다."
+        },
+        "factories": {
+          "title": "등록공장 {count}곳",
+          "complex": "단지명 {name}",
+          "products": "생산품 {products}",
+          "more": "{shown}곳만 보임 · 전체 {total}곳"
         },
         "demolitions": {
           "title": "멸실된 건물 {count}건",
@@ -754,6 +761,7 @@
         "area": "면적",
         "price": "가격",
         "photoUnavailable": "사진을 불러오지 못했어요",
+        "viewOriginal": "원본 보기",
         "type": {
           "factory": "공장",
           "warehouse": "창고",

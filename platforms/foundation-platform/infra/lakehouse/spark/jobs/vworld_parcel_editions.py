@@ -215,8 +215,8 @@ def served_rows(frame: Any, contract: Mapping[str, Any] | None = None, snapshot:
     edition only (root ADR-0291 §5). Every edition's rows are current by the predicate, so a reader that
     takes `current_rows` of the whole table puts each parcel in once per edition and attaches its
     records to parcels the map does not serve (the 632 공매 orphans of 2026-10-21). The edition is
-    filtered before the predicate is applied; the parcel-reads-the-served-edition guard
-    refuses any other served-universe read."""
+    filtered before the predicate is applied; the Semgrep rule
+    tools/semgrep/rules/parcel-reads.yml refuses any other served-universe read."""
 
     from platform_contracts import current_row_predicate, load_lakehouse_contract, pinned_edition  # noqa: PLC0415
 

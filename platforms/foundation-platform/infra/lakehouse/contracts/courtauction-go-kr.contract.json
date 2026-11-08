@@ -1,36 +1,15 @@
 {
-  "$comment": "Root ADR-0280 (ownership), ADR-0281 (collected openly, politely, stopping when refused) and ADR-0283 (the User-Agent names us; a contact is optional). How 법원경매정보 (courtauction.go.kr) is asked, how slowly, when, and what makes a run stop. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the Silver load (infra/lakehouse/spark/jobs/courtauction_go_kr.py) and their tests read this file; nothing else restates these values. Checked 2026-10-19: no robots.txt (404); the list searches answer JSON to a plain POST with no session; one condition listed 17,863 items.",
+  "$comment": "Root ADR-0280 (ownership) and ADR-0289 (asked as a browser at an adaptive pace, never giving up; it superseded ADR-0281 and ADR-0283). How 법원경매정보 (courtauction.go.kr) is asked and what a block is. The collector (`collect-courtauction-go-kr` in services/foundation-outbox-publisher), the collection rules (collection-domain::court_auction), the Silver load (infra/lakehouse/spark/jobs/courtauction_go_kr.py) and their tests read this file; nothing else restates these values.",
   "version": 1,
   "base_url": "https://www.courtauction.go.kr",
-  "user_agent_product": "perfectory-foundation-court-auction/1",
-  "contact_env": "FOUNDATION_PLATFORM_COURT_AUCTION_CONTACT",
-  "contact_required": false,
-  "manners": {
-    "$comment": "ADR-0281 §1-§5. request_spacing_seconds is a floor a setting may only raise; a robots.txt Crawl-delay above it raises it too. One connection, no concurrency. A run starts only inside the quiet hours (KST) and sends no request after they end. max_requests_per_run bounds one night: since root ADR-0290 §1 asks the item search with a ±365-day window it lists about 108,306 rows (2026-10-21), 2,167 pages of 50, plus about 251 sale-result pages and robots.txt (2026-10-19 night) = about 2,420 requests; 3,500 keeps a complete pass with 45% room and, at the measured 3.4 s a request (78 minutes for 1,377), ends within about 200 minutes, inside the 300-minute window. Retries are for network errors only, never for a refusal.",
-    "request_spacing_seconds": 3,
-    "request_timeout_seconds": 60,
-    "max_requests_per_run": 3500,
-    "network_retries": 2,
-    "quiet_hours_kst": {"start": "01:00", "end": "06:00"},
-    "robots_path": "/robots.txt"
-  },
-  "refusal": {
-    "$comment": "ADR-0281 §3. Any of these ends the run at once as `refused` and blocks later runs until a person removes the state file the collector writes. An HTML body where JSON belongs (a login, notice, block or CAPTCHA page) and the site's own ipcheck=false are refusals too.",
-    "http_statuses": [403, 429, 503],
-    "retry_after_header": true,
-    "json_content_type_required": true,
-    "ipcheck_field": "data.ipcheck"
-  },
-  "forbidden_in_collector": {
-    "$comment": "ADR-0281 §4. The collector's source must not contain these (a test reads it): no proxy, no rotation, no browser disguise, no CAPTCHA, no randomness in timing or identity.",
-    "names": ["Proxy::", ".proxy(", "Stealth", "PlayWright", "playwright", "captcha", "CAPTCHA", "rand::", "fake_user_agent", "Sec-Fetch", "sec-ch-ua", "Mozilla/"]
-  },
   "item_search": {
     "$comment": "물건 검색 (진행 물건). cortAuctnSrchCondCd 0004601/0004602 and lclDspslGdsLstUsgCd 10000/20000 are the four combinations the site's own search form sends; the codes are stored as given, their meanings are not restated here. A pass is complete only when every combination was read to its last page.",
     "dataset_slug": "auction_item",
     "operation": "searchControllerMain",
     "path": "/pgj/pgjsearch/searchControllerMain.on",
     "page_size": 50,
+    "pace_group": "item_search",
+    "headers": {"submissionid": "mf_wfm_mainFrame_sbm_selectGdsDtlSrch", "SC-Pgmid": "PGJ151F01"},
     "conditions": [
       {"cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "10000"},
       {"cortAuctnSrchCondCd": "0004601", "lclDspslGdsLstUsgCd": "20000"},
@@ -51,16 +30,20 @@
     "operation": "selectDspslSchdRsltSrch",
     "path": "/pgj/pgjsearch/selectDspslSchdRsltSrch.on",
     "page_size": 50,
+    "pace_group": "item_search",
+    "headers": {"submissionid": "mf_wfm_mainFrame_sbm_selectDspslRsltSrch", "SC-Pgmid": "PGJ158M01"},
     "conditions": [
       {"lclDspslGdsLstUsgCd": "10000"},
       {"lclDspslGdsLstUsgCd": "20000"}
     ]
   },
   "item_detail": {
-    "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384. 물건상세, asked after a complete night of the list searches, in the same run and with the same manners (one connection, the spacing floor, the named User-Agent, the window, robots.txt, stop on any refusal). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit. Measured 2026-11-04 (one plain POST, no session, our User-Agent): HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. per_run_limit is the run's bound against the unit's 300 minutes: the list pass is about 2,420 requests at the measured 3.4 s (about 137 minutes), and 1,800 details at the 3 s floor plus about 1 s transfer is about 120 minutes, so a full night ends near 257 minutes; the window's end stops it first in any case. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
+    "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384, ADR-0289. 물건상세, asked after a list pass that was not cut short, in the same run, on the same session pool and tally as the lists (collection.session; a block renews the session and asks again), paced in pace_group (collection.pace.goods_detail, the photo-heavy group), with the session headers and its own headers (none: measured 2026-11-04, one plain POST answered). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit. Measured 2026-11-04: HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. The details are asked until the run's deadline (collection.session.run_time_budget_seconds) less photos.renditions.run_time_budget_seconds, so the ladder step after the Bronze commit still ends inside the run's budget; what is left is due again next run. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
     "dataset_slug": "auction_item_detail",
     "operation": "selectAuctnCsSrchRslt",
     "path": "/pgj/pgj15B/selectAuctnCsSrchRslt.on",
+    "pace_group": "goods_detail",
+    "headers": {},
     "request_object": "dma_srchGdsDtlSrch",
     "request_constants": {"pgmId": "PGJ15BM01"},
     "key_fields": {"cortOfcCd": "boCd", "csNo": "saNo", "dspslGdsSeq": "maemulSer"},
@@ -80,7 +63,7 @@
       "page_field": "pageSeq",
       "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
       "max_file_bytes": 52428800,
-      "$renditions": "루트 ADR-0427 §7. 그 밤의 Bronze 가 커밋된 뒤(사이트 요청 없음), 그 밤 저장했거나 이미 있던 사진마다 공용 저장소의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 공매와 같은 media_renditions::ensure_ladders 로 만든다. 이미 사다리 표시가 있으면 HEAD 한 번이다. 상한(계산): 사진 원천 하나 ~4.5 초(ADR-0427 Consequences 의 rav1e 추정) × per_run_limit 1,500 ÷ concurrency 4 ≈ 28 분 ≤ run_time_budget_seconds 1,800. 작업 한도 300 분 안: 목록 실측 최장 78 분(4,666 초) + 상세 1,800 × ~4 초 ≈ 120 분 + 사다리 30 분 ≈ 228 분 ≤ 270 분(90 %). 남거나 실패한 사진은 잃지 않는다: media_ladder_backlog 가 Silver 사진 색인에서 가져간다.",
+      "$renditions": "루트 ADR-0427 §7. 그 밤의 Bronze 가 커밋된 뒤(사이트 요청 없음), 그 밤 저장했거나 이미 있던 사진마다 공용 저장소의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 공매와 같은 media_renditions::ensure_ladders 로 만든다. 이미 사다리 표시가 있으면 HEAD 한 번이다. 상한(계산): 사진 원천 하나 ~4.5 초(ADR-0427 Consequences 의 rav1e 추정) × per_run_limit 1,500 ÷ concurrency 4 ≈ 28 분 ≤ run_time_budget_seconds 1,800. 상세 묻기는 collection.session.run_time_budget_seconds 16,000 초에서 이 1,800 초를 뺀 14,200 초에 멈추므로, 사다리는 그 밤 Bronze 커밋 뒤 이 1,800 초 안이니, 실행 전체가 16,000 초에 Bronze 커밋 시간을 더한 만큼으로 작업 한도 18,000 초 안에 끝난다. 남거나 실패한 사진은 잃지 않는다: media_ladder_backlog 가 Silver 사진 색인에서 가져간다.",
       "renditions": {
         "per_run_limit": 1500,
         "concurrency": 4,
@@ -89,14 +72,32 @@
     }
   },
   "collection": {
-    "$comment": "Root ADR-0289/0290 values the collection rules read (collection-domain::court_auction). The transport, the queue and Bronze stay outside; these are only what the rules need. Separate from the ADR-0281 manners/refusal/forbidden_in_collector above, which the current collector still reads until it is replaced.",
+    "$comment": "Root ADR-0289/0290 values the collection rules (collection-domain::court_auction), the asking (collection-application::court_auction_asking) and the browser session pool (collection-infrastructure::court_auction_browser) read.",
     "block_signals": {
-      "$comment": "ADR-0289 §3. A block is HTTP 200 with data.ipcheck=false, a redirect, or HTML where JSON belongs; a good answer has status=200 and an object at /data. Checked before any failure so a blocked session is not read as a broken request.",
+      "$comment": "ADR-0289 §3. A block is HTTP 200 with data.ipcheck=false, a redirect, or HTML where JSON belongs; a good answer has status=200 and an object at /data. Checked before any failure so a blocked session is not read as a broken request. A block is never a refusal: the asking waits session.block_waits_seconds, renews the blocked session and asks again, with no bound; nothing is written that stops a later run, and no person clears anything.",
       "http_statuses": [301, 302, 303, 307, 403, 429],
       "ipcheck_pointer": "/data/ipcheck",
       "data_pointer": "/data",
       "status_pointer": "/status",
       "ok_status": 200
+    },
+    "session": {
+      "$comment": "ADR-0289 §1-§3. The site blocks cookies, not addresses (2026-10-21: 16 blocks in about 162,000 requests over 73 minutes, every one cleared by a fresh session), so a session is a browser-profile client with its own cookie jar, opened by a GET of opening_path. pool_size sessions take turns. After the n-th block of one request the asking waits block_waits_seconds[n] (the last repeats for ever), renews that session and asks again. A failure that is not a block (network, 5xx, broken JSON) is asked again failure_retries times, waiting failure_wait_seconds and doubling, then recorded as a failed page; the pass is then incomplete. run_time_budget_seconds is the only end of the asking: it stops the run inside its unit's time limit (orchestration/jobs.v1.json per_run_cap.deadline), and what was left is asked again by the next run. A run that got no answer at all fails: that is the no-progress alert, read by the readiness report. headers are what the site's own screen sends with every call; each search adds its own.",
+      "browser_profile": "chrome_149",
+      "pool_size": 3,
+      "opening_path": "/pgj/index.on",
+      "request_timeout_seconds": 60,
+      "block_waits_seconds": [5, 15, 60, 300],
+      "failure_retries": 5,
+      "failure_wait_seconds": 2,
+      "run_time_budget_seconds": 16000,
+      "headers": {
+        "Content-Type": "application/json;charset=UTF-8",
+        "Accept": "application/json",
+        "Origin": "https://www.courtauction.go.kr",
+        "Referer": "https://www.courtauction.go.kr/pgj/index.on",
+        "SC-Userid": "NONUSER"
+      }
     },
     "change_fields": {
       "$comment": "ADR-0290 §2. The list-row fields whose change means a case's detail should be re-read; fields outside this set do not count. Validated against real rows when the detail lane lands; this is the state a list row carries.",

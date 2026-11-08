@@ -368,41 +368,6 @@
         "budget_seconds": 60
       },
       {
-        "name": "hand-rolled-error-boundary-self-test",
-        "paths": []
-      },
-      {
-        "name": "hand-rolled-error-boundary",
-        "paths": [
-          "**/*.js",
-          "**/*.ts",
-          "**/*.tsx",
-          "**/*.mjs"
-        ]
-      },
-      {
-        "name": "foundation-parcel-current-selector-self-test",
-        "paths": []
-      },
-      {
-        "name": "foundation-parcel-current-selector",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
-        ]
-      },
-      {
-        "name": "parcel-reads-the-served-edition-self-test",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
-        ]
-      },
-      {
-        "name": "parcel-reads-the-served-edition",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/spark/jobs/**"
-        ]
-      },
-      {
         "name": "parcel-edition-promotion-is-readiness-gated-self-test",
         "paths": [
           "platforms/foundation-platform/infra/lakehouse/spark/jobs/**",
@@ -549,6 +514,21 @@
           ".github/workflows/**",
           "tools/github/**",
           "tools/conftest/workflow/**",
+          "tools/conftest.env"
+        ]
+      },
+      {
+        "name": "lefthook-policy-self-test",
+        "paths": [
+          "tools/conftest/lefthook/**",
+          "tools/conftest.env"
+        ]
+      },
+      {
+        "name": "lefthook-policy",
+        "paths": [
+          "lefthook.yml",
+          "tools/conftest/lefthook/**",
           "tools/conftest.env"
         ]
       },
@@ -749,29 +729,6 @@
         ]
       },
       {
-        "name": "lineage-is-derived-not-passed-self-test",
-        "paths": []
-      },
-      {
-        "name": "lineage-is-derived-not-passed",
-        "paths": [
-          "**/*.sh",
-          "**/*.rs"
-        ]
-      },
-      {
-        "name": "every-table-declares-its-load-self-test",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/contracts/**"
-        ]
-      },
-      {
-        "name": "every-table-declares-its-load",
-        "paths": [
-          "platforms/foundation-platform/infra/lakehouse/contracts/**"
-        ]
-      },
-      {
         "name": "file-line-limit-self-test",
         "paths": []
       },
@@ -960,18 +917,15 @@
         ]
       },
       {
-        "name": "the-deploy-does-not-restate-the-compose-chain-self-test",
-        "paths": [
-          "platforms/foundation-platform/scripts/deploy/**",
-          "platforms/foundation-platform/docker-compose.yml"
-        ]
-      },
-      {
         "name": "the-deploy-does-not-restate-the-compose-chain",
         "paths": [
           "platforms/foundation-platform/scripts/deploy/**",
           "platforms/foundation-platform/docker-compose.yml",
-          "platforms/foundation-platform/compose*.yml"
+          "platforms/foundation-platform/compose*.yml",
+          "tools/conftest/compose/**",
+          "scripts/ci/compose_model.py",
+          "tools/conftest.env",
+          "tools/docker-compose.env"
         ]
       },
       {
@@ -1025,17 +979,6 @@
         ]
       },
       {
-        "name": "no-env-access-in-domain-layers-self-test",
-        "paths": []
-      },
-      {
-        "name": "no-env-access-in-domain-layers",
-        "paths": [
-          "platforms/**",
-          "products/**"
-        ]
-      },
-      {
         "name": "area-ci-input-coverage-self-test",
         "paths": []
       },
@@ -1083,16 +1026,6 @@
         "paths": [
           "**/*.sh",
           ".github/workflows/**"
-        ]
-      },
-      {
-        "name": "a-pipefail-pipe-has-no-early-exit-reader-self-test",
-        "paths": []
-      },
-      {
-        "name": "a-pipefail-pipe-has-no-early-exit-reader",
-        "paths": [
-          "**/*.sh"
         ]
       },
       {

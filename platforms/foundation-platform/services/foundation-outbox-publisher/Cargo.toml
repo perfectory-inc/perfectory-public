@@ -73,6 +73,8 @@ zip = { workspace = true }
 foundation-workspace-hack.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+# The 법원경매 collector runs on the Linux host only: BoringSSL needs NASM to build on Windows.
+collection-infrastructure = { workspace = true, features = ["court-auction-browser"] }
 rustix = { workspace = true }
 
 [dev-dependencies]

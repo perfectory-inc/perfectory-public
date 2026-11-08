@@ -322,7 +322,9 @@ def validate_args(args: argparse.Namespace) -> None:
     validate_identifier("target iceberg namespace", args.target_iceberg_namespace)
     validate_identifier("target iceberg table", args.target_iceberg_table)
 
-    if args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite":
+    # The follow only MERGEs region columns, so the overwrite default does not apply to it: it refused
+    # its first scheduled run on 2026-11-07 for want of --allow-non-smoke-overwrite (incident W21).
+    if args.write_mode == "iceberg" and args.iceberg_write_mode == "overwrite" and not args.follow_region_codes:
         is_smoke_table = args.target_iceberg_table.endswith("_smoke")
         if not is_smoke_table and not args.allow_non_smoke_overwrite:
             raise ValueError(
