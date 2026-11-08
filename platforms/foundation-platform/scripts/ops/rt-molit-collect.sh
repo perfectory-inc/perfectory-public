@@ -9,9 +9,12 @@
 #          (rt-molit-real-transaction.contract.json manners). 바쁘다는 답(429·5xx)은 늘어나는 간격으로 다시 묻는다.
 #          바이트가 그대로인 달은 다시 쓰지 않고, 바뀐 달은 내용 주소 키(export--sha256-<hex>.csv)로 옆에 쌓는다.
 #
-# 분명한 거절(HTTP 403, JSON·CSV 자리의 HTML)이나 재시도를 넘긴 바쁨은 그 run 을 끝내고 refused.json 을 남긴다.
-# 그 파일이 있는 동안 모든 run 이 요청 없이 실패한다: 사람이 읽고 지워야 다시 묻는다. 제공자의 하루 한도 답은
-# 다음 KST 날까지 기다린다. 실패하면 0 이 아닌 값으로 끝나고 Airflow 실패 알림이 슬랙에 간다(ADR-0122).
+# 분명한 거절(HTTP 403, JSON·CSV 자리의 HTML)이나 재시도를 넘긴 바쁨은 그 run 을 실패로 끝내고(알림) 기다린다:
+# 연달아 n 번째 거절이면 계약 manners.refusal_waits_seconds[n](1시간·6시간·하루, 마지막 반복)만큼. 그동안의 run 은
+# 요청 없이 refusal_wait 로 끝나고, 대기가 지난 첫 run 이 다시 묻는다(루트 ADR-0446). 거절은 collector/refusals.jsonl
+# 에 쌓인다. 다음 실행을 막는 파일도, 사람이 지울 것도 없다(옛 refused.json 은 장부에 한 번 옮겨 적고 읽지 않는다).
+# 제공자의 하루 한도 답은 다음 KST 날까지 기다린다. 실패하면 0 이 아닌 값으로 끝나고 Airflow 실패 알림이 슬랙에
+# 간다(ADR-0122).
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
