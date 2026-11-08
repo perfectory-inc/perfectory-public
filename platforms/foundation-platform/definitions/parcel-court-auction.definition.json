@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "법원경매 kind Gold (root ADR-0287, ADR-0353; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs. An own-producer kind like 공매, so its own job, not gold_kind_rebuild. Partial: only the PNUs whose items changed in Silver, whose sale date passed since the last build, or that sit under a code a change of reference.legal_dong_code_change reaches (views.changed_codes; every item PNU is carried to the current code each build, root ADR-0382), are recomputed and merged (root ADR-0312 §2); a new served parcel edition or lineage rebuilds it whole. Started when court_auction_silver or legal_dong_code_changes commits, by the asset reconciler (asset_reconcile) when that event was lost, and at 22:05 as the fallback (root ADR-0171), not the public-auction rebuild's 21:35: both take the spark pool and the rebuild lock. A committed rebuild starts by_pnu_court_auction_bake (root ADR-0303).",
+      "description": "법원경매 kind Gold (root ADR-0287, ADR-0353; scripts/ops/gold-panel-rebuild.sh parcel-court-auction): gold.parcel_court_auction from the court auction item history (silver.court_auction_item), the items in progress as of the build placed on their PNUs, and the sale results (silver.court_auction_sale_result, 매각결과, root ADR-0454) placed the same way. An own-producer kind like 공매, so its own job, not gold_kind_rebuild. Partial: only the PNUs whose items or sale results changed in Silver, whose sale date passed since the last build, or that sit under a code a change of reference.legal_dong_code_change reaches (views.changed_codes; every item PNU is carried to the current code each build, root ADR-0382), are recomputed and merged (root ADR-0312 §2); a new served parcel edition or lineage rebuilds it whole. Started when court_auction_silver (which loads both tables) or legal_dong_code_changes commits, by the asset reconciler (asset_reconcile) when that event was lost, and at 22:05 as the fallback (root ADR-0171), not the public-auction rebuild's 21:35: both take the spark pool and the rebuild lock. A committed rebuild starts by_pnu_court_auction_bake (root ADR-0303).",
       "systemd_service": "foundation-gold-court-auction-rebuild.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -30,6 +30,7 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-court-auction-item-to-gold-parcel-court-auction",
+        "silver-court-auction-sale-result-to-gold-parcel-court-auction",
         "reference-legal-dong-code-change-to-gold-parcel-court-auction",
         "silver-court-auction-item-photo-to-gold-parcel-court-auction"
       ],
@@ -79,7 +80,7 @@
       "id": "gold-parcel-court-auction",
       "type": "gold_table",
       "title": "필지 법원경매 by-PNU 표",
-      "description": "PNU마다 빌드 시각에 진행 중인 법원경매 물건을 매각기일이 이른 순서로 담는 데이터 종류 표(루트 ADR-0287, ADR-0353). 계약의 종류 한 줄(parcel-court-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 법원경매 Silver 에서 만든다. 공매(parcel-public-auction)의 자리 정하기를 함께 쓰고, 바뀐 물건이 닿는 PNU 만 다시 만든다. 목록 검색에는 사진이 없어 사진 색인이 없다. 이 행을 보여 주는 화면은 출처(대한민국법원 법원경매정보)를 표시해야 한다(저작권법 제24조의2, 루트 ADR-0281 §6).",
+      "description": "PNU마다 빌드 시각에 진행 중인 법원경매 물건을 매각기일이 이른 순서로, 그 필지의 매각결과를 매각기일이 늦은 순서로 최대 50건 담는 데이터 종류 표(루트 ADR-0287, ADR-0353, ADR-0454). 계약의 종류 한 줄(parcel-court-auction)이 자기 생산자를 이름 짓고, 필지 패널이 아니라 법원경매 Silver 에서 만든다. 공매(parcel-public-auction)의 자리 정하기를 함께 쓰고, 바뀐 물건이 닿는 PNU 만 다시 만든다. 목록 검색에는 사진이 없어 사진 색인이 없다. 이 행을 보여 주는 화면은 출처(대한민국법원 법원경매정보)를 표시해야 한다(저작권법 제24조의2, 루트 ADR-0281 §6).",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -118,6 +119,17 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "자기 생산자를 가진 종류(루트 ADR-0287, ADR-0353): 법원경매 물건 이력에서 PNU 를 정하고 진행 중인 물건만 PNU 문서로 묶는다. 바뀐 물건과 매각기일이 지난 물건이 닿는 PNU 만 다시 만들어 합친다(루트 ADR-0312 §2)."
+    },
+    {
+      "from": "silver-court-auction-sale-result",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "description": "매각결과의 현재 행을 물건과 같은 자리 정하기로 PNU 에 놓고, 짓기마다 PNU 를 현재 법정동 코드로 옮긴다. 결과 행이 바뀐 물건이 닿는 PNU(바뀌기 전과 뒤)만 다시 만든다(루트 ADR-0454)."
     },
     {
       "from": "reference-legal-dong-code-change",
@@ -206,13 +218,20 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0384-court-auction-photos-are-read-from-the-item-detail-within-the-night-and-stored-once-by-content.md",
           "reason": "each round gains its case's photos (rounds[].photos[], content-addressed by sha256, from the 물건상세), an optional field"
+        },
+        {
+          "major": 1,
+          "revision": 3,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0454-a-parcel-court-auction-document-carries-its-sale-results.md",
+          "reason": "the document gains the parcel's 매각결과 (court_auction.sale_results, newest sale date first, at most 50, and court_auction.sale_result_total, both optional), from silver.court_auction_sale_result; a parcel with results and no item in progress has a document with empty rounds"
         }
       ],
       "consumers": [
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
-          "reason": "the 경매 panel: generated from this list and the subject's current revision (pnpm gen:schemas)",
+          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas)",
           "reads": [
             {
               "path": "schema_version",
@@ -304,6 +323,58 @@
             },
             {
               "path": "court_auction.rounds[].photos[].title",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].case_no",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].user_case_no",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].court_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].department_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].building_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].print_address_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].appraisal_amount_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].minimum_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].sale_amount_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].sale_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_results[].failed_bid_count",
+              "required": false
+            },
+            {
+              "path": "court_auction.sale_result_total",
               "required": false
             }
           ]

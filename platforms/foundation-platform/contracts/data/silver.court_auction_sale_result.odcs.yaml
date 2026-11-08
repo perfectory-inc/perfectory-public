@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.court_auction_sale_result"
 name: "법원경매 매각결과"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "매각결과 검색의 행(매각가 포함)을 내용이 바뀔 때만 쌓는다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 적재 레인은 돌고, 읽는 소비자(by-PNU 레인)가 아직 없어 섬으로 둔다."
+  purpose: "매각결과 검색의 행(매각가 포함)을 내용이 바뀔 때만 쌓는다(루트 ADR-0280). 이 행을 보여 주는 소비자는 출처(대한민국법원 법원경매정보)를 구체적으로 표시해야 한다(저작권 보호정책, 저작권법 제24조의2; 루트 ADR-0281 §6). 적재 레인은 돌고, 필지 경매 종류 표(gold.parcel_court_auction)가 필지마다 매각결과로 읽는다(루트 ADR-0454)."
 team:
   name: "foundation-platform"
 servers:
@@ -196,7 +196,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-court-auction-sale-result"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

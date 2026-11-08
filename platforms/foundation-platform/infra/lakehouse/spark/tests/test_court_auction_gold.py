@@ -42,7 +42,8 @@ class InputsTest(unittest.TestCase):
         required, optional, anchor, whole = job.lane_inputs("parcel-court-auction")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         # The code change table is read so every PNU follows a code change (root ADR-0382 §2).
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE})
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE,
+                                         job.CODE_CHANGE_SOURCE})
         # The case photos are optional, like 공매's media (root ADR-0384).
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
         # The item table maps its changed keys to PNUs; a parcel edition or lineage change moves
@@ -51,7 +52,16 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(set(job.declared_sources("parcel-court-auction", True, True)), set(required) | set(optional),
                          "the harness pins every required input and every present optional")
         self.assertEqual(job.declared_sources("parcel-court-auction", False, False),
-                         (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE))
+                         (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE, job.CODE_CHANGE_SOURCE))
+
+    def test_a_sale_result_carries_what_the_screen_reads_and_its_bound_fits_its_share(self):
+        # Root ADR-0454: the 매각결과 the parcel's 경매 card shows, in the source's values; the bound's
+        # results fit the share of the document ceiling the items in progress leave them.
+        for field in ("case_no", "appraisal_amount_krw", "minimum_bid_price_krw", "sale_amount_krw", "sale_date",
+                      "failed_bid_count"):
+            self.assertIn(field, job.SALE_RESULT_FIELDS)
+        self.assertLessEqual(job.SALE_RESULT_BOUND * 1024, job.SALE_RESULT_BYTES)
+        self.assertLess(job.SALE_RESULT_BYTES + job.DOCUMENT_ENVELOPE_BYTES, job.DOCUMENT_BYTE_LIMIT)
 
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
@@ -167,6 +177,23 @@ def round_row(case, is_open, sale_date, in_progress="Y", pnu_value=CURRENT):
             "2", "1", in_progress, "01", "0101", "010101", 100, 70, None, sale_date, "10:00", None, "제1호 법정", 1)
 
 
+SALE_SCHEMA = ", ".join(
+    ["court_office_code string", "case_no string", "property_seq int", "item_seq int", "pnu string",
+     "attached_via string"]
+    + [f"{name} {kind}" for name, kind in (
+        ("user_case_no", "string"), ("court_name", "string"), ("department_name", "string"),
+        ("building_name", "string"), ("print_address_raw", "string"), ("item_status_code", "string"),
+        ("usage_lcls_code", "string"), ("usage_mcls_code", "string"), ("usage_scls_code", "string"),
+        ("appraisal_amount_krw", "long"), ("minimum_bid_price_krw", "long"), ("sale_amount_krw", "long"),
+        ("sale_date", "date"), ("sale_decision_date", "date"), ("failed_bid_count", "int"))])
+
+
+def sale_row(case, sale_date, pnu_value=CURRENT, attached_via=None, amount=90):
+    # A placed sale result (`pnu`, `attached_via` as placement leaves them).
+    return ("B", case, 1, 1, pnu_value, attached_via, "2099타경9", "테스트지방법원", "경매1계", "테스트 물건",
+            "테스트시 테스트로 1", "04", "01", "0101", "010101", 100, 70, amount, sale_date, None, 1)
+
+
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class DocumentSparkTest(unittest.TestCase):
     @classmethod
@@ -181,6 +208,9 @@ class DocumentSparkTest(unittest.TestCase):
 
     def rounds(self, rows):
         return self.spark.createDataFrame(rows, ROUND_SCHEMA)
+
+    def sales(self, rows=()):
+        return self.spark.createDataFrame(list(rows), SALE_SCHEMA)
 
     def test_only_items_in_progress_with_a_sale_date_ahead_are_served(self):
         rows = self.rounds([
@@ -199,9 +229,10 @@ class DocumentSparkTest(unittest.TestCase):
 
         rows = self.rounds([round_row("LATE", True, date(2099, 1, 9)), round_row("SOON", True, date(2099, 1, 3))])
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        doc = job.document_rows(placed).first()
+        doc = job.document_rows(placed, self.sales()).first()
         body = json.loads(doc.court_auction_json)
         self.assertEqual([r["case_no"] for r in body["rounds"]], ["SOON", "LATE"])
+        self.assertEqual((body["sale_results"], body["sale_result_total"]), ([], 0))
         self.assertEqual(body["rounds"][0]["case_status_code"], "2", "codes stay codes")
         self.assertIn("sale_date", body["rounds"][0])
         self.assertEqual(body["source_datasets"], list(job.SOURCE_DATASETS))
@@ -216,12 +247,15 @@ class DocumentSparkTest(unittest.TestCase):
         from pyspark.sql import functions as F
 
         rows = self.rounds([round_row("A", True, date(2099, 1, 5))])
-        # A round with one photo, so the photo subtree's paths are written too (root ADR-0384).
+        # A round with one photo, so the photo subtree's paths are written too (root ADR-0384), and one
+        # sale result, so are the 매각결과's (root ADR-0454).
         photo = F.expr(f"CAST(array(named_struct('sha256', repeat('a', 64), 'media_kind', 'photo', 'kind_code', '1', "
                        f"'sequence', 0, 'title', 'front', 'media_format', 'jpg', 'size_bytes', 100)) AS {job.PHOTO_STRUCT})")
         placed = (rows.withColumn("photos", photo).withColumn("pnu", F.col("source_pnu"))
                   .withColumn("attached_via", F.lit(None).cast("string")))
-        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed).first().court_auction_json), "court_auction")
+        sales = self.sales([sale_row("S", date(2099, 1, 1))])
+        written = by_pnu_kinds.json_paths(json.loads(job.document_rows(placed, sales).first().court_auction_json),
+                                          "court_auction")
         recorded = {p for p in by_pnu_kinds.document_record("parcel_court_auction_by_pnu") if p.startswith("court_auction.")}
         self.assertEqual(written, recorded)
 
@@ -231,9 +265,9 @@ class DocumentSparkTest(unittest.TestCase):
 
         rows = self.rounds([round_row(f"R{day}", True, date(2099, 1, day)) for day in range(3, 9)])
         placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
-        one = len(json.loads(job.document_rows(placed).first().court_auction_json)["rounds"][0].__repr__())
-        small = job.DOCUMENT_ENVELOPE_BYTES + 3 * (one + 200)
-        body = json.loads(job.document_rows(placed, limit_bytes=small).first().court_auction_json)
+        one = len(json.loads(job.document_rows(placed, self.sales()).first().court_auction_json)["rounds"][0].__repr__())
+        small = job.DOCUMENT_ENVELOPE_BYTES + job.SALE_RESULT_BYTES + 3 * (one + 200)
+        body = json.loads(job.document_rows(placed, self.sales(), limit_bytes=small).first().court_auction_json)
         kept = [r["case_no"] for r in body["rounds"]]
         self.assertTrue(0 < len(kept) < 6)
         self.assertEqual(kept, [f"R{day}" for day in range(3, 3 + len(kept))], "the soonest sale dates are kept")
@@ -244,10 +278,43 @@ class DocumentSparkTest(unittest.TestCase):
         rows = self.rounds([round_row("OWN", True, date(2099, 1, 5)), round_row("CARRIED", True, date(2099, 1, 6))])
         mixed = rows.withColumn("pnu", F.lit(CURRENT)).withColumn(
             "attached_via", F.when(F.col("case_no") == "CARRIED", F.lit("lineage:confirmed")))
-        self.assertIsNone(job.document_rows(mixed).first().attached_via)
+        self.assertIsNone(job.document_rows(mixed, self.sales()).first().attached_via)
         carried = rows.where(F.col("case_no") == "CARRIED").withColumn("pnu", F.lit(SPLIT_A)).withColumn(
             "attached_via", F.lit("origin:split:confirmed"))
-        self.assertEqual(job.document_rows(carried).first().attached_via, "origin:split:confirmed")
+        self.assertEqual(job.document_rows(carried, self.sales()).first().attached_via, "origin:split:confirmed")
+
+    def test_sale_results_are_newest_first_bounded_counted_and_give_a_pnu_without_items_a_document(self):
+        # Root ADR-0454: the parcel's 매각결과 sit beside its items in progress; a parcel with results
+        # and no item in progress still has a document, its `rounds` empty.
+        import json
+        from pyspark.sql import functions as F
+
+        many = [sale_row(f"S{day:02d}", date(2099, 1, day), pnu_value=SPLIT_A) for day in range(1, 29)]
+        many += [sale_row(f"T{day:02d}", date(2098, 12, day), pnu_value=SPLIT_A) for day in range(1, 29)]
+        rows = self.rounds([round_row("OPEN", True, date(2099, 2, 1))])
+        placed = rows.withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        sales = self.sales([*many, sale_row("ONE", date(2099, 1, 3), amount=None)])
+        docs = {d.pnu: d for d in job.document_rows(placed, sales).collect()}
+        self.assertEqual(set(docs), {CURRENT, SPLIT_A})
+        only_sales = json.loads(docs[SPLIT_A].court_auction_json)
+        self.assertEqual((only_sales["rounds"], docs[SPLIT_A].round_count), ([], 0))
+        kept = [r["case_no"] for r in only_sales["sale_results"]]
+        self.assertEqual(len(kept), job.SALE_RESULT_BOUND)
+        self.assertEqual(kept[:3], ["S28", "S27", "S26"], "the newest sale dates are kept")
+        self.assertEqual(only_sales["sale_result_total"], len(many))
+        both = json.loads(docs[CURRENT].court_auction_json)
+        self.assertEqual([r["case_no"] for r in both["rounds"]], ["OPEN"])
+        self.assertEqual([(r["case_no"], r["sale_amount_krw"]) for r in both["sale_results"]], [("ONE", None)],
+                         "a result without a 매각가 is served with it null")
+        self.assertIsNone(docs[CURRENT].attached_via)
+
+    def test_a_pnu_holding_only_a_carried_sale_result_is_attached(self):
+        from pyspark.sql import functions as F
+
+        sales = self.sales([sale_row("S", date(2099, 1, 1), pnu_value=SPLIT_B, attached_via="origin:split:confirmed")])
+        none = self.rounds([]).withColumn("pnu", F.col("source_pnu")).withColumn("attached_via", F.lit(None).cast("string"))
+        doc = job.document_rows(none, sales).first()
+        self.assertEqual((doc.pnu, doc.attached_via), (SPLIT_B, "origin:split:confirmed"))
 
 
 CHANGE_SCHEMA = ("court_office_code string, case_no string, property_seq int, item_seq int, pnu string, "
@@ -291,8 +358,31 @@ class AffectedSparkTest(unittest.TestCase):
         gold = self.spark.createDataFrame([served(CURRENT, "MOVED"), served(SPLIT_A, "PASSED"), served(SPLIT_B, "STILL")],
                                           "pnu string, court_auction_json string")
         how = job.Placement("2099-01-04T00:00:00Z")
+        new[job.SALE_RESULT_SOURCE] = old[job.SALE_RESULT_SOURCE] = self.results([])
         affected = job.affected_pnus(old, new, how, gold, "2099-01-02T00:00:00Z", [job.ITEM_SOURCE])
         self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT, RETIRED, SPLIT_A})
+
+    def results(self, rows):
+        return self.spark.createDataFrame(rows, "court_office_code string, case_no string, property_seq int, "
+                                                "item_seq int, pnu string, source_snapshot_id string")
+
+    def test_a_changed_sale_result_reaches_the_pnu_it_left_and_the_one_it_is_on_now(self):
+        # Root ADR-0454 §4: a result row compared by its item key, both ends, nothing else touched.
+        import json
+
+        old = {job.ITEM_SOURCE: self.spark.createDataFrame([], CHANGE_SCHEMA),
+               job.SALE_RESULT_SOURCE: self.results([("B", "MOVED", 1, 1, CURRENT, "s1"),
+                                                     ("B", "STILL", 1, 1, SPLIT_B, "s1")])}
+        new = {job.ITEM_SOURCE: old[job.ITEM_SOURCE],
+               job.SALE_RESULT_SOURCE: self.results([("B", "MOVED", 1, 1, CURRENT, "s1"), ("B", "STILL", 1, 1, SPLIT_B, "s1"),
+                                                     ("B", "MOVED", 1, 1, SPLIT_A, "s2"), ("B", "NEW", 1, 1, SPLIT_A, "s2")]),
+               job.PARCEL_SOURCE: self.spark.createDataFrame([(p,) for p in (CURRENT, SPLIT_A, SPLIT_B)], "pnu string")}
+        body = {"rounds": [], "sale_results": [{"court_office_code": "B", "case_no": "MOVED", "property_seq": 1,
+                                                 "item_seq": 1}]}
+        gold = self.spark.createDataFrame([(CURRENT, json.dumps(body))], "pnu string, court_auction_json string")
+        affected = job.affected_pnus(old, new, job.Placement("2099-01-04T00:00:00Z"), gold, None,
+                                     [job.SALE_RESULT_SOURCE])
+        self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT, SPLIT_A})
 
 
     def test_every_build_carries_an_item_to_the_current_code_and_a_code_change_reaches_it(self):
@@ -308,14 +398,19 @@ class AffectedSparkTest(unittest.TestCase):
         items = (self.spark.createDataFrame([versioned("RENAMED", None, "s1", date(2099, 1, 9)),
                                              versioned("STILL", ELSEWHERE, "s1", date(2099, 1, 9))], CHANGE_SCHEMA)
                  .withColumn("source_code_pnu_raw", F.when(F.col("case_no") == "RENAMED", F.lit(renamed))))
+        results = self.results([("B", "RESULT", 1, 1, renamed, "s1")])
         old = {job.ITEM_SOURCE: job.located(items, {}),
+               job.SALE_RESULT_SOURCE: job.place_identity_resolver.carried_to_current(results, {}),
                job.CODE_CHANGE_SOURCE: self.spark.createDataFrame([], changes_schema)}
         new = {job.ITEM_SOURCE: job.located(items, {old_code: new_code}),
+               job.SALE_RESULT_SOURCE: job.place_identity_resolver.carried_to_current(results, {old_code: new_code}),
                job.CODE_CHANGE_SOURCE: self.spark.createDataFrame([pair], changes_schema)}
         placed = {r.case_no: r.pnu for r in new[job.ITEM_SOURCE].collect()}
         self.assertEqual(placed, {"RENAMED": f"{new_code}100070000", "STILL": ELSEWHERE},
                          "the source code PNU stands in for an unresolved one and is carried")
-        self.assertEqual({r.case_no for r in job.code_change_keys(old, new).collect()}, {"RENAMED"})
+        self.assertEqual(new[job.SALE_RESULT_SOURCE].first().pnu, f"{new_code}100070000",
+                         "a sale result is carried to the current code too")
+        self.assertEqual({r.case_no for r in job.code_change_keys(old, new).collect()}, {"RENAMED", "RESULT"})
         self.assertIsNone(job.code_change_keys(new, new), "no row of the code table differs")
 
 
@@ -340,10 +435,11 @@ class AffectedSparkTest(unittest.TestCase):
         items = self.spark.createDataFrame([versioned("WITH", CURRENT, "s1", date(2099, 1, 9)),
                                             ("B", "WITH", 2, 1, SPLIT_A, None, "s1", "Y", date(2099, 1, 9)),
                                             versioned("WITHOUT", SPLIT_B, "s1", date(2099, 1, 9))], CHANGE_SCHEMA)
-        frames = {job.ITEM_SOURCE: items, job.PHOTO_SOURCE: photos,
+        frames = {job.ITEM_SOURCE: items, job.PHOTO_SOURCE: photos, job.SALE_RESULT_SOURCE: self.results([]),
                   job.PARCEL_SOURCE: self.spark.createDataFrame([(CURRENT,), (SPLIT_A,), (SPLIT_B,)], "pnu string")}
         how = job.Placement("2099-01-04T00:00:00Z")
-        docs = {r.pnu: json.loads(r.court_auction_json) for r in job.document_rows(job.placement(frames, how)).collect()}
+        docs = {r.pnu: json.loads(r.court_auction_json) for r in job.document_rows(job.placement(frames, how),
+                                                                            job.sale_placement(frames, how)).collect()}
         order = [p["sha256"][0] for p in docs[CURRENT]["rounds"][0]["photos"]]
         self.assertEqual(order, ["c", "a", "b"], "kind 000241 first, then sequence")
         self.assertEqual(docs[SPLIT_A]["rounds"][0]["photos"], docs[CURRENT]["rounds"][0]["photos"])
@@ -353,7 +449,7 @@ class AffectedSparkTest(unittest.TestCase):
         # A new photo of the case reaches both of its properties' PNUs and nothing else.
         new = {**frames, job.PHOTO_SOURCE: photos.unionByName(
             self.spark.createDataFrame([photo("d", "000241", 3)], ddl))}
-        gold = job.gold_rows(job.placement(frames, how), how.as_of, "p",
+        gold = job.gold_rows(job.placement(frames, how), job.sale_placement(frames, how), how.as_of, "p",
                              ("pnu", *job.GOLD_CONTENT, "source_snapshot_id", "published_at_utc", "row_digest"))
         affected = job.affected_pnus(frames, new, how, gold, how.as_of, [job.PHOTO_SOURCE])
         self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT, SPLIT_A})

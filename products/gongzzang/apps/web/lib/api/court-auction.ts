@@ -5,14 +5,20 @@ import { ParcelCourtAuctionByPnuSchema as Generated } from "./court-auction.gene
 
 // A parcel's 법원경매 (court auctions) are their own by-PNU document on the parcel edge
 // (`parcel-court-auction` lane, root ADR-0280, ADR-0287, ADR-0353), apart from the parcel document,
-// mirroring the 공매 lane. The panel shows the source's own words (root ADR-0070/0078). The
-// document's shape is the foundation's schema registry's (root ADR-0336): the generated schema is
+// mirroring the 공매 lane, with the parcel's 매각결과 beside its items in progress (root ADR-0454).
+// The panel shows the source's own words (root ADR-0070/0078). The document's shape is the foundation's schema registry's (root ADR-0336): the generated schema is
 // its current revision narrowed to what this panel reads, accepting every revision of the major, so
 // this file only extends it. `source_attribution` stays in the document but is not shown (root ADR-0428).
 export const CourtAuctionDocumentSchema = Generated.extend({ pnu: PnuSchema });
 
 export type CourtAuction = z.infer<typeof CourtAuctionDocumentSchema>["court_auction"];
 export type CourtAuctionRound = CourtAuction["rounds"][number];
+export type CourtAuctionSaleResult = NonNullable<CourtAuction["sale_results"]>[number];
+
+/** What the 경매 page counts: the items still ahead and every 매각결과 of the parcel (root ADR-0454). */
+export function courtAuctionTotal(auction: CourtAuction): number {
+  return auction.rounds.length + (auction.sale_result_total ?? auction.sale_results?.length ?? 0);
+}
 
 /** Today's date in Korea (the court's sale dates are KST calendar dates), as `YYYY-MM-DD`. */
 export function todayKst(now: Date = new Date()): string {

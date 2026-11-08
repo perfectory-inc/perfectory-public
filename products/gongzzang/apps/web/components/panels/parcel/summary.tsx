@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { BuildingPermits } from "@/lib/api/building-permits";
 import type { Building } from "@/lib/api/buildings";
+import { courtAuctionTotal } from "@/lib/api/court-auction";
 import { type Demolitions, dayLabel, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import type { Factories } from "@/lib/api/factories";
@@ -67,7 +68,7 @@ export function ParcelSummaryCard({ entry, data }: { entry: Entry; data: ParcelD
   // A parcel the 실거래 lane has no document for has no 실거래 category (root ADR-0350 §5).
   const realTransaction = useQuery(parcelRealTransactionQuery(entry.id));
   const courtAuction = useQuery(parcelCourtAuctionQuery(entry.id));
-  const courtAuctionCount = courtAuction.data?.rounds.length ?? 0;
+  const courtAuctionCount = courtAuction.data ? courtAuctionTotal(courtAuction.data) : 0;
   const categories = [
     { key: "parcel" as const, label: t("categories.parcel"), count: null },
     ...(listingCount > 0
