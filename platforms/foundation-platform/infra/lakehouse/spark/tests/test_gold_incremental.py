@@ -243,6 +243,24 @@ class ProducerDecisions(unittest.TestCase):
             self.assertTrue(again.root.exists())
             self.assertIsNone(incremental.Stages(spark).refusal())
 
+    def test_a_plan_records_its_pins_for_the_next_run_and_keeps_them_through_a_refusal(self):
+        """Root ADR-0447: the planner pins a table's next run to its unfinished plan's pins."""
+        with tempfile.TemporaryDirectory() as local:
+            spark = SimpleNamespace(conf=SimpleNamespace(get=lambda key, default: local, set=lambda key, value: None))
+            self.assertIsNone(incremental.plan_in_progress(spark, "gold.t"))
+            pins = {"silver.a": "12", "silver.b": "21"}
+            key = incremental.plan_key("gold.t", pins, {"silver.a": "11"}, "code-1", 0.3, 10)
+            incremental.record_plan_pins(spark, key, pins)
+            stages = incremental.Stages(spark, key)
+            self.assertEqual(incremental.plan_in_progress(spark, "`r2`.`gold`.`t`"), pins)
+            self.assertIsNone(incremental.plan_in_progress(spark, "gold.u"), "another table's plan")
+            # The whole build after a refused merge shares the plan, so its pins stay.
+            stages.refuse("parity sample: 1 of 20258 PNUs")
+            self.assertEqual(incremental.plan_in_progress(spark, "gold.t"), pins)
+            # A committed or gate-refused build removes the plan: the next run plans from the heads.
+            stages.remove()
+            self.assertIsNone(incremental.plan_in_progress(spark, "gold.t"))
+
     def test_incremental_arguments_are_refused_where_a_merge_cannot_follow(self):
         path = Path(self.id().replace(".", "_") + ".json")
         path.write_text(json.dumps({building.TITLE_SOURCE: "11"}), encoding="utf-8")

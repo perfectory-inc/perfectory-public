@@ -435,12 +435,14 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
          whole_table_inputs: tuple[str, ...] = (),
          pinned_gold: dict[str, Any] | None = None,
          code_version: Callable[[list[str]], str] | None = None,
-         parcel_contract: dict[str, Any] | None = None) -> dict[str, Any]:
+         parcel_contract: dict[str, Any] | None = None,
+         in_progress: dict[str, str] | None = None) -> dict[str, Any]:
     """Decide one Gold table's rebuild.
 
     `gold`: {"head", "snapshots", "row_count", "published_at_utc"} or None when the table does
     not exist. `silver`: input -> {"head", "snapshots"}, or None for a table that does not exist.
-    `unconditional`: the reason to rebuild regardless of the history. `time_fallback`: whether a
+    `in_progress`: the pins of the table's plan an earlier run left unfinished
+    (`gold_incremental.plan_in_progress`, root ADR-0447). `unconditional`: the reason to rebuild regardless of the history. `time_fallback`: whether a
     Gold without recorded pins may be judged by its publish time (the job is not enabled yet).
     `measuring`: a dry run, which may read an input the contract lists as unmeasured.
     `pinned_gold`: the state of the table the contract's `pins_from` names, like `gold`: the inputs
@@ -500,6 +502,9 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
                 raise PlanError(f"{table}: {name} is pinned to {follows['gold_table']}, but it is not an input "
                                 "of both producers")
             pins[name] = followed[name]
+    resumed = resumable_pins(pins, in_progress, silver, gold, follows, present)
+    if resumed is not None:
+        pins = resumed
     flags = [flag for name, flag in optional.items() if name in unread]
     if follows is not None and follows.get("parity_argument"):
         # Root ADR-0193 §6-2: the producer checks its rows against the followed table's, which is only
@@ -624,7 +629,38 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
         "publish": publish,
         # Root ADR-0381: the served edition the current Gold was built from, when a promotion moved it.
         "previous_parcel_edition": edition_moved,
+        # Root ADR-0447: the unfinished plan's pins this run keeps, where the heads have moved past them.
+        "resumed_plan_pins": None if resumed is None else {name: pin for name, pin in sorted(resumed.items())
+                                                            if pin != silver[name]["head"]},
     }
+
+
+def resumable_pins(heads: dict[str, str], in_progress: dict[str, str] | None,
+                   silver: dict[str, dict[str, Any] | None], gold: dict[str, Any] | None,
+                   follows: dict[str, Any] | None, present: list[str]) -> dict[str, str] | None:
+    """The pins of the table's unfinished plan, when this run keeps them instead of the heads (root
+    ADR-0447), else None.
+
+    A plan is named by its pins (`gold_incremental.plan_key`), so a run pinned to newer heads names
+    another plan and deletes the stages the unfinished one kept: a build longer than its unit, resumed
+    from its shards (root ADR-0440), would start over whenever a Silver input committed between two
+    of its runs, and a daily input never lets it finish. Kept only while each pinned snapshot is still
+    in its table's history (an expired one cannot be read), the record names this run's inputs,
+    every pin taken from a followed Gold (`pins_from`) is still that Gold's, and the Gold has not
+    committed those pins already (a plan that committed is finished; its directory is a leftover).
+    The run after the commit plans from the heads, an incremental catch-up.
+    """
+    if in_progress is None or set(in_progress) != set(heads) or in_progress == heads:
+        return None
+    if gold is not None and gold.get("head") is not None             and recorded_pins(gold["snapshots"], gold["head"]) == in_progress:
+        return None
+    for name, pin in in_progress.items():
+        if not any(snapshot["snapshot_id"] == pin for snapshot in (silver.get(name) or {}).get("snapshots", [])):
+            return None
+    followed = set() if follows is None else set(present if follows["inputs"] == "all" else follows["inputs"])
+    if any(in_progress[name] != heads[name] for name in followed if name in heads):
+        return None
+    return dict(in_progress)
 
 
 def assert_minimum_row_count(row_count: int, minimum: int | None) -> None:
@@ -760,7 +796,8 @@ def main(argv=None) -> int:
                         whole_table_inputs=producer_whole_table_inputs(producer, entry), pinned_gold=pinned_gold,
                         code_version=lambda inputs: gold_code_version.value(
                             entry["producer"], gold_code_version.settings(contract), args.gold_table, inputs),
-                        parcel_contract=parcel_editions.load())
+                        parcel_contract=parcel_editions.load(),
+                        in_progress=gold_incremental.plan_in_progress(spark, args.gold_table))
     finally:
         spark.stop()
     for path, value in ((args.pins_output, decision["source_snapshots"]), (args.plan_output, decision)):
@@ -770,7 +807,7 @@ def main(argv=None) -> int:
     print("gold-rebuild-plan " + json.dumps(
         {k: decision[k] for k in ("gold_table", "action", "reasons", "previous_row_count", "minimum_row_count",
                                   "mode", "mode_reasons", "absent_inputs", "unmeasured_inputs_unread",
-                                  "code_version_recorded", "code_changed_parts", "publish")},
+                                  "code_version_recorded", "code_changed_parts", "publish", "resumed_plan_pins")},
         ensure_ascii=False, sort_keys=True))
     return 0
 
