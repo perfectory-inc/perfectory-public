@@ -64,8 +64,10 @@ print(json.dumps([{
 }], ensure_ascii=False))
 PY
 }
+# A deploy recreates Alertmanager: 2026-11-08 19:18:04-17Z it refused three recoveries, which then
+# stayed failed. --retry-connrefused waits out such a restart (about a minute).
 post_alert() {
-  curl -sS --fail --max-time 10 -H "Content-Type: application/json" -d "$(alert "$1")" "${alertmanager}" >/dev/null
+  curl -sS --fail --max-time 10 --retry 12 --retry-delay 5 --retry-connrefused -H "Content-Type: application/json" -d "$(alert "$1")" "${alertmanager}" >/dev/null
 }
 
 if [[ "${recovered}" == true ]]; then

@@ -67,9 +67,12 @@ args = sys.argv[1:]
 if args[0] == "list-units":
     print(os.environ["FAKE_FAILED"])
 elif args[0] == "show":
-    since = json.loads(os.environ["FAKE_SINCE"])
-    units = args[args.index("--") + 1:]
-    print("\n\n".join(f"Id={unit}\nActiveState=failed\nStateChangeTimestamp=@{since[unit]}" for unit in units))
+    since = json.loads(os.environ.get("FAKE_SINCE", "{}"))
+    # FAKE_RESTARTS: {unit: [Restart, NRestarts]}, the two unretried_failed reads.
+    restarts = json.loads(os.environ.get("FAKE_RESTARTS", "{}"))
+    print("\n\n".join(f"Id={unit}\nActiveState=failed\nStateChangeTimestamp=@{since.get(unit, 0)}"
+                      f"\nRestart={restarts.get(unit, ['no', '0'])[0]}\nNRestarts={restarts.get(unit, ['no', '0'])[1]}"
+                      for unit in args[args.index("--") + 1:]))
 '''
 
 
@@ -119,6 +122,30 @@ class TheDeployClearsOnlyLeftovers(unittest.TestCase):
         clear = release.index('job_units.py" leftover-failed "${jobs_file}"')
         self.assertIn('systemctl reset-failed "${leftover}"', release[clear - 600:clear])
         self.assertLess(release.rindex("systemctl daemon-reload", 0, clear), clear)
+
+    def test_a_failure_from_before_its_retry_policy_is_started_once_by_the_deploy(self):
+        # 2026-11-08: the backup cut by the 03:43Z OOM and the drills failed at 04:54Z/05:30Z kept their
+        # failed state after the 18:01Z release gave them Restart=; the next timers were 11-09 and 11-15.
+        os.environ["FAKE_FAILED"] = json.dumps([
+            {"unit": "foundation-postgres-backup.service", "load": "loaded"},
+            # Retried under its policy until the burst ran out: never started again by a deploy.
+            {"unit": "foundation-postgres-restore-drill.service", "load": "loaded"},
+            # No retry declared: its failure waits for its next run.
+            {"unit": "foundation-source-sweep.service", "load": "loaded"},
+            {"unit": "foundation-retired.service", "load": "not-found"},
+        ])
+        os.environ["FAKE_RESTARTS"] = json.dumps({
+            "foundation-postgres-backup.service": ["on-failure", "0"],
+            "foundation-postgres-restore-drill.service": ["on-failure", "5"],
+        })
+        self.addCleanup(os.environ.pop, "FAKE_FAILED", None)
+        self.addCleanup(os.environ.pop, "FAKE_RESTARTS", None)
+        self.assertEqual(job_units.unretried_failed(str(self.systemctl)), ["foundation-postgres-backup.service"])
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        start = release.index('job_units.py" unretried-failed')
+        self.assertIn('systemctl start --no-block "${unretried}"', release[start - 400:start])
+        # After the reload that installed the policy, so the retry runs under it.
+        self.assertLess(release.rindex("systemctl daemon-reload", 0, start), start)
 
 
 if __name__ == "__main__":
