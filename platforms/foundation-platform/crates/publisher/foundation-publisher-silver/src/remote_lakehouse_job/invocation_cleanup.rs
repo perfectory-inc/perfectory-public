@@ -206,7 +206,10 @@ fn cleanup_containers(docker: &Path, project: &str, wait: Duration) -> anyhow::R
         .stderr(Stdio::inherit())
         .status()
         .context("cannot stop job containers")?;
-    let remaining = list(docker, project)?;
+    // A stopped `compose run --rm` container is removed by the daemon itself: wait for that before
+    // `rm`, which raced it and printed "removal ... already in progress" on every timed-out gold
+    // rebuild (2026-11-06..08, eight times in a row). Only a container still there is removed here.
+    let remaining = settled(docker, project, wait)?;
     // --rm can remove a container between listing and stopping. A failed command is
     // harmless only when the exact invocation has no containers left.
     ensure!(
@@ -224,12 +227,7 @@ fn cleanup_containers(docker: &Path, project: &str, wait: Duration) -> anyhow::R
         .stderr(Stdio::inherit())
         .status()
         .context("cannot remove job containers")?;
-    // A container the daemon was already removing (`--rm`) is gone shortly after a failed `rm`.
-    let after = if removed.success() {
-        list(docker, project)?
-    } else {
-        settled(docker, project, wait)?
-    };
+    let after = list(docker, project)?;
     ensure!(
         after.is_empty(),
         "job containers remain after cleanup (rm success={})",
@@ -408,23 +406,29 @@ mod tests {
         // there, and ten per-run networks were left of the 31 the address pools hold.
         let directory = tempfile::tempdir()?;
         let project = project_id(Job::GoldPanelRebuild, &mut |_| Some("c".repeat(32)))?;
+        // 2026-11-06..08 the same race printed "removal ... already in progress" on every timeout:
+        // the cleanup now waits for the daemon's own removal and never calls `rm` on such a container.
         let racing = fake_docker(directory.path(), &[(&"5".repeat(64), &project, "True")])?;
         let calls = directory.path().join("network-calls");
         let quoted = super::super::shell_quote(&calls.to_string_lossy());
-        // `rm` fails, but the container goes as the daemon finishes the removal it had begun.
+        let rm_calls = directory.path().join("rm-calls");
+        let rm_quoted = super::super::shell_quote(&rm_calls.to_string_lossy());
+        // `stop` lets the daemon remove the container (`--rm`); a later `rm` would fail as it did.
         let script = std::fs::read_to_string(&racing)?
+            .replace("stop) ;;", "stop) : > \"$table\" ;;")
             .replace(
-                "    mv \"$table.next\" \"$table\"\n  done ;;",
-                "    mv \"$table.next\" \"$table\"\n  done\n  exit 1 ;;",
+                "rm)\n  shift",
+                &format!("rm)\n  echo rm >> {rm_quoted}\n  exit 1\n  shift"),
             )
             .replace(
                 "network) ;;",
                 &format!("network) echo \"$2\" >> {quoted} ;;"),
             );
-        assert!(script.contains("done\n  exit 1 ;;"), "{script}");
+        assert!(script.contains("stop) : >"), "{script}");
         std::fs::write(&racing, script)?;
         cleanup_with(&racing, &project, Duration::from_secs(5))?;
         assert_eq!(std::fs::read_to_string(&calls)?, "ls\n");
+        assert!(!rm_calls.exists(), "rm raced the daemon's removal");
         Ok(())
     }
 }
