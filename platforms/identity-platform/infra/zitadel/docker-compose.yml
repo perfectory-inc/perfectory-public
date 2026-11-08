@@ -17,6 +17,7 @@ services:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     # Measured on ai-server 2026-11-07: cgroup memory.peak 132 MiB over 22 days (was 1g).
     mem_limit: 256m
+    oom_score_adj: -900
     restart: unless-stopped
     environment:
       POSTGRES_DB: zitadel
@@ -35,6 +36,7 @@ services:
     image: ghcr.io/zitadel/zitadel:v2.65.1@sha256:013d23b69aa681f03d36a7fd61e4837a7b049a7e22bd7215eb3e98e9dbf5543c
     # Measured on ai-server 2026-11-07: cgroup memory.peak 186 MiB over 22 days (was 1g).
     mem_limit: 384m
+    oom_score_adj: -900
     restart: unless-stopped
     # The PAT volume must be owned by this uid before the first boot or setup
     # aborts with a permission error and never writes the bootstrap PAT.

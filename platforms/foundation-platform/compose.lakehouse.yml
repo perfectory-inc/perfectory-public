@@ -76,6 +76,7 @@ services:
     # the national parcel load (39,861,511 rows) peaked at 17.1GiB, the land-use load (247,584,668
     # rows) at 3.1GiB. The cap leaves about 3GB above the peak.
     mem_limit: 20g
+    oom_score_adj: 500
     # Batch callers use compose run --rm. A sleeping standing container would sit beside every job.
     restart: "no"
     profiles:
@@ -121,6 +122,7 @@ services:
     logging: *log-cap
     image: apache/spark:3.5.6-scala2.12-java17-python3-ubuntu@sha256:702d82ecea50c6f8344d3df753ba26f05ffd9d1d052e180fed9c3d6c04f77730
     mem_limit: 2560m
+    oom_score_adj: 500
     # Batch callers use compose run --rm. A sleeping standing container would sit beside every job.
     restart: "no"
     profiles:

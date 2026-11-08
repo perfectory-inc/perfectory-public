@@ -254,6 +254,11 @@ for cap, label in contract_one_shots(contract):
         largest_job = (cap, label)
 
 project_caps: dict[str, dict[str, int]] = {}
+# Which host services the OOM killer takes last or first (root ADR-0455 §6); a service not named
+# states no oom_score_adj.
+oom_section = contract.get("compose_oom") or {}
+oom_classes = oom_section.get("classes", {})
+oom_services = dict(oom_section.get("services", {}))
 
 groups = [(project, True) for project in contract["projects"]]
 groups += [({"name": "not on " + host["name"], "files": entry["files"], "profiles": None}, False)
@@ -292,6 +297,15 @@ for project, on_host in groups:
         if (condition or {}).get("condition") == "service_completed_successfully"
     }
     for service_name, service in sorted(services.items()):
+        oom_class = oom_services.pop(f"{label}/{service_name}", None)
+        oom_want = oom_classes.get(oom_class, {}).get("oom_score_adj") if oom_class else None
+        if oom_class and oom_want is None:
+            errors.append(f"{CONTRACT}: compose_oom names {label}/{service_name} with unknown class {oom_class!r}")
+        elif service.get("oom_score_adj") != oom_want:
+            errors.append(
+                f"project {label}: service {service_name} states oom_score_adj {service.get('oom_score_adj')}, "
+                f"but {CONTRACT} compose_oom says {oom_want} (root ADR-0455 §6)"
+            )
         cap = caps.get(service_name)
         if cap is None:
             continue  # compose_host reported it
@@ -304,6 +318,9 @@ for project, on_host in groups:
             continue
         standing_total += cap
         report.append(f"  {gib(cap):>8}  {label}/{service_name}")
+
+for name in sorted(oom_services):
+    errors.append(f"{CONTRACT}: compose_oom names {name}, which no host project runs")
 
 for relative in compose_files():
     if relative in placed or any(relative.startswith(prefix) for prefix in outside):

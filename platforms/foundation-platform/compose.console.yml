@@ -45,6 +45,7 @@ services:
     profiles: ["console"]
     # cloudflared holds four connections to the edge; about 30 MiB.
     mem_limit: 64m
+    oom_score_adj: -900
     restart: unless-stopped
     network_mode: "service:foundation-api"
     # The tunnel's routes live at the edge (a remotely managed tunnel): console.perfectory.io to

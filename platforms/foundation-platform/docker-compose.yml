@@ -30,6 +30,7 @@ services:
     # Measured on ai-server 2026-11-07: cgroup memory.peak 503 MiB over 19 days (page cache included;
     # anonymous 13 MiB, shared_buffers 160 MiB). 1536m is three times that peak (was 4g).
     mem_limit: 1536m
+    oom_score_adj: -900
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FOUNDATION_DB_PORT:-15434}:5432"
@@ -147,6 +148,7 @@ services:
     logging: *log-cap
     image: foundation-platform-runtime:local
     mem_limit: 512m
+    oom_score_adj: -900
     restart: unless-stopped
     build:
       context: .
