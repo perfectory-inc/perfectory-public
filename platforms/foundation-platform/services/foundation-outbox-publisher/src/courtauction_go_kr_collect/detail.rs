@@ -442,19 +442,28 @@ enum Sent {
     Stopped(Stop),
 }
 
-/// Sends one property's request unless the operator's window is shut.
+/// Asks one property's 물건상세 unless the operator's window is shut. `now` is asked when the
+/// request is about to go, as the list searches do (a future runs only when polled).
 async fn send(
     asking: &Asking<'_>,
     gate: &PaceGate,
     deadline: Instant,
-    request: SiteRequest,
-    open: anyhow::Result<bool>,
-    at: DateTime<Utc>,
-    body: JsonValue,
+    detail: &ItemDetail,
+    headers: &[(String, String)],
+    wanted: &Wanted,
+    now: &(dyn Fn() -> DateTime<Utc> + Sync),
 ) -> anyhow::Result<Sent> {
-    if !open? {
+    let at = now();
+    if !may_ask(&asking.switches, at)? {
         return Ok(Sent::Stopped(Stop::WindowEnded));
     }
+    let body = request_body(detail, &wanted.key);
+    let request = SiteRequest {
+        method: SiteMethod::Post,
+        path: detail.path.clone(),
+        headers: headers.to_vec(),
+        body: Some(body.clone()),
+    };
     Ok(
         match ask(
             asking.sessions,
@@ -501,20 +510,13 @@ pub(crate) async fn collect_details(
         .chain(&detail.headers)
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect();
-    let mut answers = stream::iter(asked.iter().map(|wanted| {
-        // Asked when the stream takes the next request, so a window that ended stops the rest.
-        let at = now();
-        let body = request_body(detail, &wanted.key);
-        let request = SiteRequest {
-            method: SiteMethod::Post,
-            path: detail.path.clone(),
-            headers: headers.clone(),
-            body: Some(body.clone()),
-        };
-        let open = may_ask(&asking.switches, at);
-        send(asking, gate, deadline, request, open, at, body)
-    }))
-    .buffered(rule.max.max(1) as usize);
+    // Built here, run only as the stream polls them: no closure lives across an await (a closure in
+    // the stream broke the binary's Send bound, "FnOnce is not general enough").
+    let sends: Vec<_> = asked
+        .iter()
+        .map(|wanted| send(asking, gate, deadline, detail, &headers, wanted, &now))
+        .collect();
+    let mut answers = stream::iter(sends).buffered(rule.max.max(1) as usize);
     let mut result = DetailResult::default();
     for wanted in asked {
         let Some(sent) = answers.next().await else {
