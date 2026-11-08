@@ -89,7 +89,7 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(started, ["parcel-ownership cutover 1 --auto"])
         (attempt,) = [json.loads(line) for line in (self.marks / "parcel-ownership.jsonl").read_text().splitlines()]
-        self.assertEqual(attempt, {"at": NIGHT, "lane": "parcel-ownership", "generation": 1})
+        self.assertEqual(attempt, {"at": NIGHT, "lane": "parcel-ownership", "generation": 1, "release": "release"})
 
     def test_nothing_starts_beside_a_running_cut_over_or_when_every_lane_is_served(self):
         result, started = self.run_controller(units=["foundation-by-pnu-lane-cutover-g1.service"])
@@ -143,12 +143,25 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual(self.run_controller(NIGHT + 7200 + 900)[1], ["parcel-ownership cutover 1 --auto"],
                          "then contract order among lanes tried as often")
 
+    def test_attempts_by_an_earlier_release_hold_no_backoff(self):
+        # 2026-11-08 16:12Z-17:00Z: a release whose transient gold unit systemd-run refused failed every
+        # lane's gold step in 1 s, three times each; the release that fixed it would have waited 4 hours.
+        self.pending("parcel-sub-parcels")
+        self.marks.mkdir(parents=True)
+        earlier = [{"at": NIGHT - 900 * n, "lane": "parcel-sub-parcels", "generation": 1, "release": "broken"}
+                   for n in (3, 2)] + [{"at": NIGHT - 900, "lane": "parcel-sub-parcels", "generation": 1}]
+        (self.marks / "parcel-sub-parcels.jsonl").write_text("".join(json.dumps(m) + "\n" for m in earlier))
+        self.assertEqual(self.run_controller()[1], ["parcel-sub-parcels cutover 1 --auto"])
+        # The attempt by this release counts: the next waits its hour.
+        self.assertEqual(self.run_controller(NIGHT + 900)[1], [])
+        self.assertEqual(self.run_controller(NIGHT + 3600)[1], ["parcel-sub-parcels cutover 1 --auto"])
+
     def test_a_gold_step_stopped_by_its_time_bound_is_tried_again_after_an_hour(self):
         # 2026-11-07: parcel-regulation-zones' first national build is longer than the rebuild's 160
         # minutes; it resumes from its staged shards (root ADR-0440), so a doubled wait only delays it.
         self.pending("parcel-regulation-zones")
-        marks = [{"at": NIGHT - 6 * 3600, "lane": "parcel-regulation-zones", "generation": 1},
-                 {"at": NIGHT, "lane": "parcel-regulation-zones", "generation": 1}]
+        marks = [{"at": NIGHT - 6 * 3600, "lane": "parcel-regulation-zones", "generation": 1, "release": "release"},
+                 {"at": NIGHT, "lane": "parcel-regulation-zones", "generation": 1, "release": "release"}]
         self.marks.mkdir(parents=True)
         (self.marks / "parcel-regulation-zones.jsonl").write_text("".join(json.dumps(m) + "\n" for m in marks))
 
