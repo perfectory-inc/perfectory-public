@@ -24,6 +24,10 @@
 #     Only attempts by the release that runs now count: a new release is new evidence, the way Argo
 #     Rollouts analyses a new revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold
 #     step in 1 s left each lane three attempts, and the release that fixed it would have waited 4 hours).
+#     A lane no release ever tried still goes before one only fresh to this release: the reset is for
+#     the backoff, not the order (2026-11-08 20:27Z and 23:12Z: each new release put
+#     parcel-regulation-zones' 160-minute national Gold first again in contract order, ahead of
+#     parcel-building-permits, parcel-court-auction and parcel-register-masters, never tried).
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
 #     next one when the last attempt of that generation failed in its bake or its equality gate: a
 #     bake pinned to a Gold snapshot that has moved since cannot match the Gold it is compared with
@@ -93,12 +97,15 @@ HOUR, CAP = 3600, 86400
 with open(jobs, encoding="utf-8") as handle:
     GOLD_LIMIT = 60 * next(job["time_limit_minutes"] for job in json.load(handle)["jobs"] if job["id"] == "gold_panel_rebuild")
 
-def attempts(lane):
+def every_attempt(lane):
     try:
         with open(os.path.join(marks, f"{lane}.jsonl"), encoding="utf-8") as handle:
-            return [mark for line in handle if line.strip() and (mark := json.loads(line)).get("release") == release]
+            return [json.loads(line) for line in handle if line.strip()]
     except FileNotFoundError:
         return []
+
+def attempts(lane):
+    return [mark for mark in every_attempt(lane) if mark.get("release") == release]
 
 def evidence(lane, generation):
     """The steps of the newest cut-over run that worked on this lane and generation."""
@@ -119,7 +126,7 @@ def stopped_by_its_bound(lane, attempt):
     return any(step.get("step") == "gold" and step.get("outcome") == "failed" and step.get("seconds", 0) >= GOLD_LIMIT
                for step in evidence(lane, attempt.get("generation")))
 
-for lane in sorted(lanes, key=lambda lane: len(attempts(lane))):  # stable: contract order among equals
+for lane in sorted(lanes, key=lambda lane: (len(attempts(lane)), bool(every_attempt(lane)))):  # stable: contract order among equals
     tried = attempts(lane)
     if tried:
         wait = HOUR if stopped_by_its_bound(lane, tried[-1]) else min(CAP, HOUR * 2 ** (len(tried) - 1))

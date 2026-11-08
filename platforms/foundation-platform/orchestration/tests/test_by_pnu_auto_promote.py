@@ -156,6 +156,17 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual(self.run_controller(NIGHT + 900)[1], [])
         self.assertEqual(self.run_controller(NIGHT + 3600)[1], ["parcel-sub-parcels cutover 1 --auto"])
 
+    def test_a_lane_no_release_tried_goes_before_one_only_fresh_to_this_release(self):
+        # 2026-11-08 20:27Z and 23:12Z: each new release reset parcel-regulation-zones' attempts, and
+        # contract order put its 160-minute national Gold first again, ahead of never-tried lanes.
+        self.pending("parcel-regulation-zones", "parcel-court-auction")
+        self.marks.mkdir(parents=True)
+        (self.marks / "parcel-regulation-zones.jsonl").write_text(json.dumps(
+            {"at": NIGHT - 3 * 3600, "lane": "parcel-regulation-zones", "generation": 1, "release": "earlier"}) + "\n")
+        self.assertEqual(self.run_controller()[1], ["parcel-court-auction cutover 1 --auto"])
+        self.assertEqual(self.run_controller(NIGHT + 900)[1], ["parcel-regulation-zones cutover 1 --auto"],
+                         "its earlier release's attempt holds no backoff")
+
     def test_a_gold_step_stopped_by_its_time_bound_is_tried_again_after_an_hour(self):
         # 2026-11-07: parcel-regulation-zones' first national build is longer than the rebuild's 160
         # minutes; it resumes from its staged shards (root ADR-0440), so a doubled wait only delays it.

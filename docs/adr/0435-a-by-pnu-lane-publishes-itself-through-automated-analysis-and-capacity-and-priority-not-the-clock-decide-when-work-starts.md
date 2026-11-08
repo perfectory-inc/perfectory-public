@@ -111,3 +111,8 @@ REQUEUE·K8s graceful termination).
 Gold 재생성의 시간 상한(`orchestration/jobs.v1.json` `gold_panel_rebuild.time_limit_minutes`)까지 돌다 멈춘 시도는
 백오프를 두 배로 늘리지 않고 한 시간 뒤 다시 간다. 재생성은 쌓아 둔 단계부터 잇기 때문이다(ADR-0438, ADR-0440).
 parcel-regulation-zones 의 첫 전국 빌드가 상한보다 길다(2026-11-07).
+
+개정(2026-11-09): ①의 "한 번도 시도하지 않은 레인"은 어느 배포에서도 시도하지 않은 레인이다. 새 배포가 지우는 것은 백오프뿐이고
+순서는 아니다. 같은 배포의 시도 수가 같으면, 예전 배포에서 시도한 레인보다 한 번도 시도하지 않은 레인이 먼저 간다. 2026-11-08
+20:27Z·23:12Z 에 새 배포가 나올 때마다 parcel-regulation-zones(160분 상한의 전국 Gold)가 계약 순서로 다시 맨 앞에 섰다. 그 뒤에서
+parcel-building-permits·parcel-court-auction·parcel-register-masters 는 한 번도 시도되지 않았다.
