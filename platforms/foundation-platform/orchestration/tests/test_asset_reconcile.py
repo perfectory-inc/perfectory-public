@@ -51,7 +51,10 @@ class Reconciler(unittest.TestCase):
         cls.lanes = {asset.lane: asset for asset in found if asset.job == "by_pnu_serving_bake"}
         # The panel Gold rebuild makes two panels, each its own asset (root ADR-0333 §7, stage 2).
         cls.panels = {asset.gold: asset for asset in found if asset.job == "gold_panel_rebuild"}
-        cls.assets = {asset.job: asset for asset in found if asset.job not in ("by_pnu_serving_bake", "gold_panel_rebuild")}
+        # The kind Gold rebuild makes every data kind's table, each its own asset pinned to its host panel.
+        cls.kinds = {asset.gold: asset for asset in found if asset.job == "gold_kind_rebuild"}
+        cls.assets = {asset.job: asset for asset in found
+                      if asset.job not in ("by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild")}
         cls.jobs = jobs
 
     def setUp(self):
@@ -406,6 +409,47 @@ class Reconciler(unittest.TestCase):
         self.assertIsNone(self.behind(metrics, "parcel-forest-ledger"))
         self.assertIsNone(self.behind(metrics, "parcel-zoning"), "its synthetic Gold records no pins")
         self.assertEqual(self.behind(metrics, "building"), 0)
+
+    def test_2026_11_08_a_gold_that_only_recorded_new_pins_serves_them(self):
+        # 12:32Z gold.building_panel committed an empty append with the Silver pins it was rebuilt from
+        # (no PNU's row changed); the lane still served the snapshot below it and read 106 hours behind.
+        self.panel_caught_up()
+        self.catalog["silver.building_register_titles"] = table(snap("11", None, 0), snap("12", "11", 10))
+        _, metrics, _, _ = self.tick(100, panel=True)
+        self.assertEqual(self.behind(metrics, "building"), 90 * 60)
+        self.catalog["gold.building_panel"] = table(*self.catalog["gold.building_panel"]["snapshots"],
+                                                    snap("202", "201", 60, added=0,
+                                                         pins={"silver.building_register_titles": "12",
+                                                               "silver.building_register_units": "21"}))
+        owed, metrics, _, _ = self.tick(100, panel=True)
+        self.assertEqual(self.behind(metrics, "building"), 0)
+        self.assertEqual(self.panel_owed(owed), [], "no row to bake")
+
+    def test_2026_11_08_a_kind_is_owed_when_its_host_panel_moved_its_pins(self):
+        # 08:45Z gold.parcel_panel committed a new land transfer history pin; the kind rebuild's daily
+        # start ended `waiting` on the spark pool and nothing started it again (it was not reconciled).
+        kind = self.kinds["gold.parcel_transfer_history"]
+        self.assertEqual((kind.inputs, kind.pins_from["gold_table"], kind.service),
+                         ((), "gold.parcel_panel", "foundation-gold-kind-rebuild.service"))
+        self.catalog["silver.land_transfer_history"] = table(snap("81", None, 0), snap("82", "81", 10))
+        self.catalog["gold.parcel_panel"] = table(snap("91", None, 0, operation="overwrite",
+                                                       pins={"silver.land_transfer_history": "81",
+                                                             "silver.land_use_plan": "61"}))
+        self.catalog["gold.parcel_transfer_history"] = table(snap("95", None, 0, operation="overwrite",
+                                                                  pins={"silver.land_transfer_history": "81"}))
+        tick = lambda state=None: asset_reconcile.tick(T0 + 6000, [kind], self.catalog.__getitem__, self.reads.get,
+                                                       lambda service: False, lambda job: "", state or {})
+        owed, _, _, errors = tick()
+        self.assertEqual((owed, errors), ([], []), "its host has not moved: caught up")
+        self.catalog["gold.parcel_panel"] = table(*self.catalog["gold.parcel_panel"]["snapshots"],
+                                                  snap("92", "91", 60, operation="overwrite",
+                                                       pins={"silver.land_transfer_history": "82",
+                                                             "silver.land_use_plan": "61"}))
+        owed, metrics, _, _ = tick()
+        self.assertEqual(len(owed), 1)
+        self.assertRegex(owed[0], r"^foundation-asset-owed gold_kind_rebuild ")
+        self.assertIn('foundation_asset_owed{asset="iceberg://gold.parcel_transfer_history",job="gold_kind_rebuild"} 1',
+                      metrics)
 
     def test_the_lane_reads_count_the_failures_in_a_row(self):
         import tempfile

@@ -235,7 +235,7 @@ pub async fn load_unit(
     })
 }
 
-async fn read_pack(store: &ByPnuServingStore, key: &str) -> anyhow::Result<Pack> {
+pub(super) async fn read_pack(store: &ByPnuServingStore, key: &str) -> anyhow::Result<Pack> {
     let bytes = store.read_bytes(key).await?;
     Pack::read(&bytes).with_context(|| format!("{key} is not a readable section pack"))
 }

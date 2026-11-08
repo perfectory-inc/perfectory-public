@@ -1,0 +1,294 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-building-permits",
+  "jobs": [
+    {
+      "id": "gold_parcel_building_permits_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-building-permits.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "15 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-permit-basis-outline-to-gold-parcel-building-permits",
+        "reference-legal-dong-code-change-to-gold-parcel-building-permits"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0451). Off until its first full build (6,527,521 permits on 3,742,220 PNUs in the 202610 vintage, measured 2026-11-09) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-building-permits, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4), or the auto-promotion of root ADR-0435 once measured."
+    },
+    {
+      "id": "by_pnu_parcel_building_permits_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_building_permits (the own-producer 건축인허가 kind, root ADR-0451) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-building-permits), as section packs (root ADR-0147, ADR-0193 §9), exactly as the ownership bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the operator's first pack-only publish of the lane (root ADR-0190). Started when gold_parcel_building_permits_rebuild commits a new snapshot, and at 11:15 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-building-permits.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "15 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "priority_class": "publish",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-building-permits-to-parcel-building-permits-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0451). Off with gold_parcel_building_permits_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the lane is cut over (by-pnu-pack-operator.sh parcel-building-permits cutover 1, root ADR-0190, or the auto-promotion of root ADR-0435); switching both on is one separate deploy step (ADR-0122 §4)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-building-permits",
+      "type": "gold_table",
+      "title": "필지 건축인허가 by-PNU 표",
+      "description": "PNU마다 그 필지의 건축인허가 기본개요(건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일)를 담는 데이터 종류 표(루트 ADR-0451). 계약의 종류 한 줄(parcel-building-permits)이 자기 생산자를 이름 짓고, silver.building_permit_basis_outline 의 현재 행에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_building_permits",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_building_permits"
+        }
+      ]
+    },
+    {
+      "id": "parcel-building-permits-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 건축인허가 by-PNU 묶음 파일",
+      "description": "gold.parcel_building_permits 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/building-permits/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0451). 첫 발행은 자동 승격(루트 ADR-0435)이 한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-building-permit-basis-outline",
+      "to": "gold-parcel-building-permits",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
+      ],
+      "description": "자기 생산자를 가진 종류(루트 ADR-0287 9항, ADR-0451): 관리허가대장PK 마다의 현재 행을 서빙 필지판의 PNU에만 문서로 묶는다. 고정한 Silver 와 지금 Silver 에서 현재 행이 다른 PNU(양방향)와 필지판에 들고 난 PNU만 다시 계산한다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-building-permits",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "개편으로 바뀐 코드에 걸린 건축인허가 행을 서빙 필지판의 코드로 읽는다(모든 필지 섹션과 같은 renumbered, 루트 ADR-0329 §3). 이 표가 바뀌면 종류를 통째로 짓는다(루트 ADR-0451)."
+    },
+    {
+      "from": "gold-parcel-building-permits",
+      "to": "parcel-building-permits-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-building-permits": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "building-permits",
+      "section": "building_permits",
+      "columns": [
+        "building_permits_json",
+        "building_permit_total:long"
+      ],
+      "producer": "building_permit_silver_to_gold",
+      "decision": "docs/adr/0451-a-parcel-shows-its-building-permits-as-its-own-by-pnu-kind.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_building_permit_gold.py"
+    }
+  },
+  "host_memory": {
+    "gold_parcel_building_permits_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_parcel_building_permits_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_building_permits_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-building-permits",
+        "producer": "infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_building_permits_by_pnu.v1",
+          "decision": "docs/adr/0451-a-parcel-shows-its-building-permits-as-its-own-by-pnu-kind.md",
+          "reason": "the first document: the parcel's 건축인허가 기본개요 permits (건축구분명, 주용도명, 대지면적, 건축면적, 연면적, 건축허가일, 착공예정일, 착공연기일, 실제착공일, 사용승인일), from the current rows of silver.building_permit_basis_outline"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "source",
+              "required": true
+            },
+            {
+              "path": "building_permits",
+              "required": true
+            },
+            {
+              "path": "building_permit_total",
+              "required": false
+            },
+            {
+              "path": "attached_via",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/building-permits.generated.ts",
+          "reason": "the parcel panel's 건축인허가 group (root ADR-0451): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "building_permits",
+              "required": true
+            },
+            {
+              "path": "building_permits.records",
+              "required": true
+            },
+            {
+              "path": "building_permits.records[].arch_kind_name",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].main_purpose_name",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].plot_area_m2",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].building_area_m2",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].total_floor_area_m2",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].permit_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].start_scheduled_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].start_delayed_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].start_actual_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].use_approval_date",
+              "required": false
+            },
+            {
+              "path": "building_permit_total",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

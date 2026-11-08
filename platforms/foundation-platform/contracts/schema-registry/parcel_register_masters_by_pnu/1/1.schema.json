@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_register_masters_by_pnu",
+  "description": "A parcel's 건축물대장 총괄표제부 as 건축HUB lists them (root ADR-0357, ADR-0450): the current site rows (one per 관리건축물대장PK) on the parcel, newest first by the latest of 사용승인일, 착공일 and 허가일, each in the provider's words, at most 50; register_master_total counts them all.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_register_masters_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "register_masters": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "description": "The parcel's 총괄표제부 sites newest first, at most 50.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "plot_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total_floor_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "main_purpose_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "main_building_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "annex_building_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parking_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "permit_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "start_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "use_approval_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "records"
+      ]
+    },
+    "register_master_total": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "register_masters"
+  ]
+}

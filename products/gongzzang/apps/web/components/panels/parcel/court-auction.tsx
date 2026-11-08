@@ -5,9 +5,7 @@ import type { CourtAuction, CourtAuctionRound } from "@/lib/api/court-auction";
 import { formatPriceKrw } from "@/lib/listings/format";
 
 /** The parcel's 법원경매 (court auctions) as a category page, one card per item.
- *
- * 법원경매 데이터는 출처 표시가 필요한 공공저작물이다(저작권법 제24조의2, 루트 ADR-0281 §6):
- * 문서가 담아 준 출처(`source_attribution`)를 지어내지 않고 그대로 표시한다. */
+ * No source line on screen; `source_attribution` stays in the document (root ADR-0428). */
 export function ParcelCourtAuctionCard({ data }: { data: CourtAuction }) {
   const t = useTranslations("panels.parcel.courtAuction");
   if (data.rounds.length === 0) {
@@ -48,9 +46,6 @@ export function ParcelCourtAuctionCard({ data }: { data: CourtAuction }) {
           </li>
         ))}
       </ul>
-      <footer className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
-        {t("source", { attribution: data.source_attribution })}
-      </footer>
     </div>
   );
 }

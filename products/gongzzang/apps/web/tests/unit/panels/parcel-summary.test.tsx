@@ -15,6 +15,9 @@ const reads = vi.hoisted(() => ({
   energy: null as unknown,
   demolitions: null as unknown,
   courtAuction: null as { rounds: unknown[]; source_attribution: string } | null,
+  factories: null as unknown,
+  registerMasters: null as unknown,
+  buildingPermits: null as unknown,
   realTransaction: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
@@ -54,6 +57,18 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelCourtAuctionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "court-auction", pnu],
     queryFn: async () => reads.courtAuction,
+  }),
+  parcelFactoriesQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "factories", pnu],
+    queryFn: async () => reads.factories,
+  }),
+  parcelBuildingPermitsQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "building-permits", pnu],
+    queryFn: async () => reads.buildingPermits,
+  }),
+  parcelRegisterMastersQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "register-masters", pnu],
+    queryFn: async () => reads.registerMasters,
   }),
   parcelRealTransactionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "real-transaction", pnu],
@@ -301,6 +316,92 @@ describe("parcel panel sections", () => {
       expect(screen.getByText("철거 · 2098.01.01~2098.03.01")).toBeTruthy();
     } finally {
       reads.demolitions = null;
+    }
+  });
+
+  it("shows the parcel's 등록공장 in the source's words, with no source note", async () => {
+    reads.factories = {
+      records: [
+        { company_name: "가정밀", complex_name: "가산업단지", products: "금형" },
+        { company_name: "나공업", complex_name: null, products: null },
+      ],
+      total: 3,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("등록공장 3곳")).toBeTruthy();
+      expect(anchors()).toContain("등록공장");
+      expect(screen.getByText("가정밀")).toBeTruthy();
+      expect(screen.getByText("단지명 가산업단지 · 생산품 금형")).toBeTruthy();
+      expect(screen.getByText("나공업")).toBeTruthy();
+      expect(screen.getByText("2곳만 보임 · 전체 3곳")).toBeTruthy();
+      expect(screen.queryByText(/전국등록공장현황/)).toBeNull();
+    } finally {
+      reads.factories = null;
+    }
+  });
+
+  it("shows the parcel's 총괄표제부 in the register's words, without empty or zero figures", async () => {
+    reads.registerMasters = {
+      records: [
+        {
+          plot_area_m2: "0",
+          building_area_m2: "400.25",
+          total_floor_area_m2: "800",
+          main_purpose_name: "공장",
+          main_building_count: "2",
+          annex_building_count: "0",
+          parking_count: "10",
+          permit_date: "20980101",
+          start_date: null,
+          use_approval_date: "20990101",
+        },
+      ],
+      total: 2,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("총괄표제부 2건")).toBeTruthy();
+      expect(anchors()).toContain("총괄표제부");
+      expect(screen.getByText("공장")).toBeTruthy();
+      expect(screen.getByText("건축면적 400.25㎡ · 연면적 800㎡")).toBeTruthy();
+      expect(screen.getByText("주건축물수 2 · 총주차수 10")).toBeTruthy();
+      expect(screen.getByText("허가일 2098.01.01 · 사용승인일 2099.01.01")).toBeTruthy();
+      expect(screen.getByText("최근 1건만 보임 · 전체 2건")).toBeTruthy();
+      expect(screen.queryByText(/대지면적/)).toBeNull();
+    } finally {
+      reads.registerMasters = null;
+    }
+  });
+
+  it("shows the parcel's 건축인허가 in the register's words, without empty or zero figures", async () => {
+    reads.buildingPermits = {
+      records: [
+        {
+          arch_kind_name: "신축",
+          main_purpose_name: "공장",
+          plot_area_m2: "1000.5",
+          building_area_m2: "0",
+          total_floor_area_m2: "800",
+          permit_date: "20980101",
+          start_scheduled_date: null,
+          start_delayed_date: null,
+          start_actual_date: "20980301",
+          use_approval_date: null,
+        },
+      ],
+      total: 3,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("건축인허가 3건")).toBeTruthy();
+      expect(anchors()).toContain("건축인허가");
+      expect(screen.getByText("신축 · 공장")).toBeTruthy();
+      expect(screen.getByText("대지면적 1000.5㎡ · 연면적 800㎡")).toBeTruthy();
+      expect(screen.getByText("건축허가일 2098.01.01 · 실제착공일 2098.03.01")).toBeTruthy();
+      expect(screen.getByText("최근 1건만 보임 · 전체 3건")).toBeTruthy();
+    } finally {
+      reads.buildingPermits = null;
     }
   });
 

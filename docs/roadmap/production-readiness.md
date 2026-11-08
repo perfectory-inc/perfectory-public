@@ -196,6 +196,90 @@ last_reviewed: 2026-11-07
 물건 11-06 16:05, VWorld 매일 훑기 파일 11-06, 건축HUB 61 종 10-20(월간), code.go.kr 10-28(위 11), 등록공장 10-19.
 `vworldkr__sandan_*`·`vworldkr__boundary_census_*` 는 07-02 이후 객체가 없는데 기대 주기가 선언되지 않아 판정할 수 없다(B1).
 
+### 10. 수집한 데이터가 화면에 닿는가 (사장 목표 "보여 주는 것이 이긴다", 2026-11-08)
+
+- Silver 표마다 그 표가 닿는 by-PNU 레인·타일과, 그 접점이 공짱 화면을 먹이는지(`gongzzang-panel` 로 가는 연결 또는
+  레지스트리의 `web` 소비자)를 정의(`platforms/foundation-platform/definitions`)에서 만든다. 손으로 고치지 않는다 —
+  `python3 scripts/catalog/render-showing-inventory.py` 가 아래 표를 다시 쓰고, `--check` 가 낡은 표를 거부하며,
+  `--summary` 가 판정별 개수를 찍는다(합계 줄을 두지 않는 이유: ADR-0176).
+- 판정: **화면** = 켜진 작업이 채우는 접점이 화면을 먹인다. **길 있음·꺼짐** = 화면까지 길은 선언됐지만 채우는 작업이 꺼져
+  있다(대개 첫 발행 대기, ADR-0435 자동 승격). **서빙만** = 켜진 접점이 있으나 화면이 읽지 않는다. **없음** = Gold·서빙 길이 없다.
+- 순서는 산업 부동산 사용자가 먼저 찾는 것(공장·창고 → 토지 → 건물 → 거래·경매 → 물류 입지)이다. "없음"인 위쪽 줄부터
+  Gold 종류 또는 기존 레인의 칸 + 공짱 패널 칸으로 잇는다(한 데이터셋 = PR 하나).
+
+<!-- BEGIN GENERATED showing-inventory: python3 scripts/catalog/render-showing-inventory.py -->
+
+| 사용자 가치 | Silver 표 | by-PNU 레인 | 타일 | 공짱 화면 |
+| --- | --- | --- | --- | --- |
+| 공장·산업단지 | 산업단지 경계 (`silver.industrial_complex_boundaries`) | — | `complex-tiles` | 화면 |
+| 공장·산업단지 | 산업단지 기본 정보 (`silver.industrial_complexes`) | — | `complex-tiles` | 화면 |
+| 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | `parcel-factories (꺼짐)` | — | 길 있음·꺼짐 |
+| 공장·산업단지 | 산업단지와 필지 소속 (`silver.complex_parcel_memberships`) | — | — | 없음 |
+| 토지 | 필지별 토지특성 (`silver.land_characteristic`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
+| 토지 | 필지별 임야대장 (`silver.land_forest_ledger`) | `parcel` | — | 화면 |
+| 토지 | 필지별 공시지가 (`silver.land_individual_price`) | `parcel` | — | 화면 |
+| 토지 | 필지별 대지권 등록 (`silver.land_right_registration`) | `parcel` | — | 화면 |
+| 토지 | 필지별 토지이동이력 (`silver.land_transfer_history`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
+| 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
+| 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
+| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-real-transaction (꺼짐)`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
+| 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
+| 토지 | 필지별 토지소유 (`silver.land_ownership`) | `parcel-ownership (꺼짐)`<br>`parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
+| 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 길 있음·꺼짐 |
+| 토지 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |
+| 건물 | 건축물대장 공동주택가격 (`silver.building_register_apartment_price`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 건축물대장 전유부 (`silver.building_register_exclusive_unit`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 건물 층별 정보 (`silver.building_register_floors`) | `building` | — | 화면 |
+| 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-real-transaction (꺼짐)`<br>`unit-price` | — | 화면 |
+| 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |
+| 건물 | 건물 호별 정보 (`silver.building_register_units`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축인허가 기본개요 (`silver.building_permit_basis_outline`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축인허가 철거멸실관리대장 (`silver.building_permit_demolition_loss`) | `parcel-demolitions (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | — | — | 없음 |
+| 건물 | 건축인허가 부설주차장 (`silver.building_permit_annex_parking`) | — | — | 없음 |
+| 건물 | 건축인허가 동별개요 (`silver.building_permit_building_outline`) | — | — | 없음 |
+| 건물 | 건축인허가 층별개요 (`silver.building_permit_floor_overview`) | — | — | 없음 |
+| 건물 | 건축인허가 대수선 (`silver.building_permit_major_repair`) | — | — | 없음 |
+| 건물 | 건축인허가 주차장 (`silver.building_permit_parking`) | — | — | 없음 |
+| 건물 | 건축인허가 대지위치 (`silver.building_permit_site_location`) | — | — | 없음 |
+| 건물 | 건축인허가 공작물관리대장 (`silver.building_permit_structure_ledger`) | — | — | 없음 |
+| 건물 | 건축인허가 가설건축물 (`silver.building_permit_temporary_building`) | — | — | 없음 |
+| 거래·공매·경매 | 온비드 공고 (`silver.onbid_announcement`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 공고 입찰결과 (`silver.onbid_announcement_bid_result`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 공고상세 (`silver.onbid_announcement_detail`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 물건 입찰정보 (`silver.onbid_item_bid_info`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 물건 입찰결과 (`silver.onbid_item_bid_result`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 부동산 물건 (`silver.onbid_real_estate_item`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 물건상세 (`silver.onbid_real_estate_item_detail`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 온비드 물건 사진 (`silver.onbid_real_estate_item_photo`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | — | — | 없음 |
+| 물류 입지 | 공항 (`silver.airport`) | — | — | 없음 |
+| 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | — | — | 없음 |
+| 물류 입지 | 항만 (`silver.port`) | — | — | 없음 |
+| 물류 입지 | 철도역 (`silver.railway_station`) | — | — | 없음 |
+| 물류 입지 | 도시철도역 (`silver.subway_station`) | — | — | 없음 |
+| 주변 생활 | 상가(상권) (`silver.commercial_district`) | — | — | 없음 |
+| 주변 생활 | 행정동 성별 연령별 인구 (`silver.dong_population`) | — | — | 없음 |
+| 주변 생활 | 행정동 세대원수별 세대수 (`silver.household_count`) | — | — | 없음 |
+| 주변 생활 | 초중등학교 위치 (`silver.school_location`) | — | — | 없음 |
+| 주변 생활 | 대학·전문대학 (`silver.university`) | — | — | 없음 |
+| 행정·내부 | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | `admin-tiles` | 화면 |
+| 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles (꺼짐)` | 화면 |
+| 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
+| 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
+| 행정·내부 | 필지 ID 원장 (`silver.parcel_registry`) | — | — | 없음 |
+| 행정·내부 | 실거래가 적재 거부 줄 (`silver.real_transaction_rejected`) | — | — | 없음 |
+| 행정·내부 | 세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | — | — | 없음 |
+
+<!-- END GENERATED showing-inventory -->
+
 ## 우선순위 0 — 출시 전 필수 게이트
 
 ### Kafka 이벤트 전달

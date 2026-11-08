@@ -385,9 +385,22 @@ def link_report(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return report
 
 
+def unmasked_lots(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    return [r for r in rows if r.get("pnu_unresolved_reason") not in ("jibun_masked", "no_jibun")]
+
+
 def unmasked_unresolved_share(rows: Sequence[Mapping[str, Any]]) -> float:
-    lots = [r for r in rows if r.get("pnu_unresolved_reason") not in ("jibun_masked", "no_jibun")]
+    lots = unmasked_lots(rows)
     return sum(1 for r in lots if not r.get("pnu")) / len(lots) if lots else 0.0
+
+
+# The fewest unmasked lots whose share is read: 2 of an export are no rate (2026-11-05..08: 토지 매매 exports of
+# ~45,000 rows, all but 2 lots masked, both legal_dong_not_found, failed every run at a share of 1.0).
+MIN_UNMASKED_LOTS = 50
+
+
+def below_link_bound(rows: Sequence[Mapping[str, Any]], bound: float) -> bool:
+    return len(unmasked_lots(rows)) >= MIN_UNMASKED_LOTS and unmasked_unresolved_share(rows) > bound
 
 
 def dataset_of(source_slug: str, contract: Mapping[str, Any]) -> str:
@@ -611,7 +624,7 @@ def _load(argv: Sequence[str]) -> int:
                     "unrepresented_fields": unknown}
             line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
                                                      contract_table=TABLE)
-            if share > float(source["silver_load"]["max_unmasked_unresolved_share"]) and len(linked) >= 50:
+            if below_link_bound(linked, float(source["silver_load"]["max_unmasked_unresolved_share"])):
                 below_bound.append(entry["object_key"])
             changes.unpersist()
             staged.unpersist()

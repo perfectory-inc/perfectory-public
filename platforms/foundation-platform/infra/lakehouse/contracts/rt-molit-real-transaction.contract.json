@@ -10,10 +10,11 @@
     "max_downloads_per_run": 30,
     "daily_download_limit": 90,
     "run_time_budget_seconds": 1500,
-    "retry": {"attempts": 3, "initial_backoff_seconds": 30, "max_backoff_seconds": 300}
+    "retry": {"attempts": 3, "initial_backoff_seconds": 30, "max_backoff_seconds": 300},
+    "refusal_waits_seconds": [3600, 21600, 86400]
   },
   "refusal": {
-    "$comment": "Root ADR-0348 §3 (rt_molit_real_transaction_export_ingest.rs RtMolitRefusal and RtMolitBusy): an outright refusal (HTTP 403, or a page where JSON or CSV belongs: a block, notice, login or CAPTCHA page), or a busy answer that outlasts the retries, ends the run and writes refused.json in the state directory; every later run refuses before any request until a person removes it.",
+    "$comment": "Root ADR-0348 §3 (rt_molit_real_transaction_export_ingest.rs RtMolitRefusal and RtMolitBusy): an outright refusal (HTTP 403, or a page where JSON or CSV belongs: a block, notice, login or CAPTCHA page), or a busy answer that outlasts the retries, ends the run and fails it (the unit failure alert), and the collector waits (root ADR-0446, superseding the refused.json stop of ADR-0348 §6): after the n-th refusal in a row it waits manners.refusal_waits_seconds[n] (the last repeats), so a refusing provider is asked about once an hour, then every six hours, then once a day; a run inside the wait sends no request and ends with stopped_by refusal_wait; the first run after it asks again, and an export answered resets the count. Every refusal is appended to refusals.jsonl in the state directory. No file stops a run and no person clears anything; a refused.json left by the old collector is copied into that ledger once as legacy and never read.",
     "http_statuses": [403],
     "busy_statuses": "429 and 5xx, retried"
   },

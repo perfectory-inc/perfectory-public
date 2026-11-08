@@ -69,3 +69,5 @@ Silver 의 zoning 은 0, 서빙 못 한 적재가 있는 parcel 은 그 적재�
   처리 원칙에 어긋나고, 나이가 "확인했다" 를 뜻하게 되어 반영 여부를 여전히 말하지 않는다.
 - **모니터(Rust)가 카탈로그를 읽어 직접 판정** — 행 변경 규칙(`input_change_since_pin`)이 Python 플래너에 있다.
   Rust 로 두 벌을 두면 둘이 갈라진다. 이미 그 규칙으로 5분마다 판정하는 조정기가 값을 낸다.
+
+2026-11-08 개정 주석: §1 의 "서빙하는 Gold 판이 적은 고정판" 은 서빙 판 뒤에 행을 바꾼 Gold 커밋이 없으면 **Gold 머리의 고정판**이다 — 머리가 고정판만 새로 적은 빈 커밋이면 레인이 서빙하는 행은 머리의 행과 같다. 2026-11-08 12:32Z `gold.building_panel` 이 바뀐 PNU 0 으로 새 Silver 고정판만 적었는데(빈 append), 굽기는 굽을 행이 없어 읽은 판을 그대로 두었고 building 레인은 서빙 판의 옛 고정판으로 106시간 뒤처졌다고 읽혔다. 같은 날 자산 조정기(ADR-0333 §7)의 `reconciles` 에 `gold_kind_rebuild` 를 더했다: kind Gold 는 host 패널이 고정한 판(`pins_from.inputs: all`, 그 kind 가 적은 입력)이 움직이면 owed 다. 11-07·11-08 kind 재생성의 매일 시작이 spark 풀 대기(`waiting`)로 끝났고 다시 시작하는 것이 없어, parcel-transfer-history 레인이 host 패널이 지나간 Gold 를 133시간 서빙했다. 그 대기는 kind 재생성이 `default` 등급이라 lane cut-over 의 `first_publish` 청구에 밀린 것이어서, 패널 재생성처럼 `priority_class: publish`·`priority_class_from: by_pnu_serving_bake`(ADR-0439)를 받는다.

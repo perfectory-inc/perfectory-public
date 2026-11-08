@@ -151,10 +151,10 @@ impl PostgresJobBus {
 
     /// Return one dead-lettered job to the pending queue with a fresh attempt budget.
     ///
-    /// Dead-lettering is terminal for every consumer (ADR 0013): bulk ingest bails on a
-    /// `dead_lettered` row, so a job that died on a transient failure blocks its source lane
-    /// until an operator intervenes. This is that operator path. Only a `dead_lettered` row
-    /// is eligible; `last_failure` is kept as history until the next nack overwrites it.
+    /// Dead-lettering ends one run's attempts (ADR 0013); the next run of the bulk ingest calls
+    /// this to ask again with a fresh budget, so no person requeues a job (root ADR-0446 §4).
+    /// Only a `dead_lettered` row is eligible; `last_failure` is kept as history until the next
+    /// nack overwrites it.
     ///
     /// Returns `false` when the job does not exist or is not dead-lettered.
     ///

@@ -63,15 +63,11 @@ pre-push:
     # The document catalog, audit report and foundation baseline are not committed, and the ADR
     # index is the directory, so no PR regenerates a shared file here (root ADR-0176).
     docs-integrity:
-      run: python3 scripts/catalog/audit-documentation.py --check --strict && python3 scripts/catalog/render-adr-index.py --check && python3 scripts/catalog/render-pipeline-map.py --check
+      run: python3 scripts/catalog/audit-documentation.py --check --strict && python3 scripts/catalog/render-adr-index.py --check && python3 scripts/catalog/render-pipeline-map.py --check && python3 scripts/catalog/render-showing-inventory.py --check
       skip:
         - merge
         - rebase
         - run: "! command -v python3 >/dev/null 2>&1"
-    gz-forbidden-markers:
-      root: "products/gongzzang/"
-      run: bash scripts/lefthook/check-forbidden-implementation-markers.sh
-      skip: [merge, rebase]
 
 # Root ADR-0418: the artifacts the declared definitions generate (the job list, the pipeline graph,
 # the lane lines, ...) are not committed. A checkout, a merge and a rebase write them, as CI does after

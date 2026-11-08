@@ -4,12 +4,15 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { generate } from "../../codegen/gen-schemas.mjs";
+import { BuildingPermitsDocumentSchema } from "./building-permits";
 import { CourtAuctionDocumentSchema } from "./court-auction";
 import { DemolitionsDocumentSchema } from "./demolitions";
 import { EnergyDocumentSchema } from "./energy";
+import { FactoriesDocumentSchema } from "./factories";
 import { OwnershipDocumentSchema } from "./ownership";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 import { RealTransactionDocumentSchema } from "./real-transaction";
+import { RegisterMastersDocumentSchema } from "./register-masters";
 import { RegulationZonesDocumentSchema } from "./regulation-zones";
 import { SubParcelsDocumentSchema } from "./sub-parcels";
 
@@ -107,6 +110,34 @@ describe("the web parses what the schema registry says (root ADR-0336)", () => {
     const pact = entry?.consumers.find((consumer) => consumer.name === "web");
     expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/demolitions.generated.ts");
     const read = paths(z.toJSONSchema(DemolitionsDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the factories paths its pact lists", () => {
+    const entry = registry.subjects.find((subject) => subject.owner.lane === "parcel-factories");
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/factories.generated.ts");
+    const read = paths(z.toJSONSchema(FactoriesDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the building permits paths its pact lists", () => {
+    const entry = registry.subjects.find(
+      (subject) => subject.owner.lane === "parcel-building-permits",
+    );
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/building-permits.generated.ts");
+    const read = paths(z.toJSONSchema(BuildingPermitsDocumentSchema, { io: "input" }));
+    expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
+  });
+
+  it("reads exactly the register masters paths its pact lists", () => {
+    const entry = registry.subjects.find(
+      (subject) => subject.owner.lane === "parcel-register-masters",
+    );
+    const pact = entry?.consumers.find((consumer) => consumer.name === "web");
+    expect(pact?.at).toBe("products/gongzzang/apps/web/lib/api/register-masters.generated.ts");
+    const read = paths(z.toJSONSchema(RegisterMastersDocumentSchema, { io: "input" }));
     expect([...new Set(read)].sort()).toEqual(pact?.reads.map((r) => r.path).sort());
   });
 

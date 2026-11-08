@@ -83,3 +83,11 @@ release yet" 만 남겼고, 호스트는 약 11시간 a879a889 에 머물렀으�
 
 배포는 선언되지 않은 실패만 치운다: 파일이 사라진 유닛, 그리고 작업 템플릿의 인스턴스 중 어떤 작업도 이름 대지 않는 것(운영자 리허설)이
 실패한 지 24시간 뒤. 저널에 `cleared the failed state of <유닛>` 이 남는다. 선언된 작업의 실패는 고칠 때까지 남는다.
+점검(`check_service`)이 있는 작업은 점검이 `foundation-job-check unchanged`(할 일 없음: 출력이 최신 입력을 담았다)라고 답한 날
+`start-scheduled-job.sh` 가 그 작업 유닛의 실패 상태를 치운다. 실행이 건너뛰어지니 그 말고는 치울 것이 없다(2026-11-08: 11-07 에 실패한
+Silver 일곱 레인은 같은 날 고쳐 점검이 매일 `already_loaded` 라 답했는데도 하루 넘게 실패로 남았다). 점검이 할 일을 찾았거나 실패했으면 그대로 둔다.
+Airflow 밖에서 타이머로 도는 복구 작업(`foundation-postgres-backup`·`foundation-identity-backup`·두 복원 드릴)은 실패하면
+systemd 가 스스로 다시 돈다(`Restart=on-failure`, 늘어나는 간격): 백업은 30분·1시간·2시간 뒤 세 번, 드릴은 6시간·12시간·하루 간격으로
+다섯 번까지(`StartLimitBurst`). 시도마다 `OnFailure=` 알림이 나가고, 성공하면 `OnSuccess=` 가 그 알림을 닫는다. 다음 시도를 기다리는
+동안 유닛은 `activating (auto-restart)` 라 실패 목록에 없고, 횟수를 다 쓰면 실패로 남는다(2026-11-08: 03:43Z 호스트 OOM 이 일요일 전체
+백업을 끊었는데 다음 시도가 다음 날 타이머라 최신 백업이 이틀 묵었고, 아침에 고친 두 드릴은 다음 주 타이머까지 실패로 남을 뻔했다).

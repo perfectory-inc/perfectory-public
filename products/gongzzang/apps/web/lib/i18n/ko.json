@@ -255,7 +255,10 @@
         },
         "sections": {
           "land": "토지",
+          "factories": "등록공장",
           "buildings": "건물",
+          "registerMasters": "총괄표제부",
+          "buildingPermits": "건축인허가",
           "subParcels": "부속지번",
           "energy": "에너지",
           "demolitions": "멸실 건물",
@@ -276,6 +279,37 @@
           "electricity": "전기 사용량({unit})",
           "gas": "가스 사용량",
           "exclusions": "제공처 기준: 산업·수송·발전·열병합·충전용 사용과 단독주택·200세대 미만 공동주택은 집계에서 빠진다."
+        },
+        "factories": {
+          "title": "등록공장 {count}곳",
+          "complex": "단지명 {name}",
+          "products": "생산품 {products}",
+          "more": "{shown}곳만 보임 · 전체 {total}곳"
+        },
+        "registerMasters": {
+          "title": "총괄표제부 {count}건",
+          "plotArea": "대지면적 {value}㎡",
+          "buildingArea": "건축면적 {value}㎡",
+          "floorArea": "연면적 {value}㎡",
+          "mainBuildings": "주건축물수 {value}",
+          "annexBuildings": "부속건축물수 {value}",
+          "parking": "총주차수 {value}",
+          "permitDate": "허가일 {value}",
+          "startDate": "착공일 {value}",
+          "useApprovalDate": "사용승인일 {value}",
+          "more": "최근 {shown}건만 보임 · 전체 {total}건"
+        },
+        "buildingPermits": {
+          "title": "건축인허가 {count}건",
+          "plotArea": "대지면적 {value}㎡",
+          "buildingArea": "건축면적 {value}㎡",
+          "floorArea": "연면적 {value}㎡",
+          "permitDate": "건축허가일 {value}",
+          "startScheduledDate": "착공예정일 {value}",
+          "startDelayedDate": "착공연기일 {value}",
+          "startActualDate": "실제착공일 {value}",
+          "useApprovalDate": "사용승인일 {value}",
+          "more": "최근 {shown}건만 보임 · 전체 {total}건"
         },
         "demolitions": {
           "title": "멸실된 건물 {count}건",
@@ -714,8 +748,7 @@
         "saleDate": "매각기일",
         "salePlace": "매각장소",
         "failedBids": "유찰",
-        "failedBidsCount": "{count}회",
-        "source": "출처: {attribution}"
+        "failedBidsCount": "{count}회"
       }
     },
     "complex": {

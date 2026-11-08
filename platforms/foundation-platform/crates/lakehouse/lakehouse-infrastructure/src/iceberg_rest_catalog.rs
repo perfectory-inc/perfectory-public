@@ -389,15 +389,19 @@ impl IcebergRestCatalog {
         manifest_list_of(table_name, payload, snapshot_id, true).map(Some)
     }
 
-    /// The number of live rows of `snapshot_id`, as the table metadata records it (the snapshot
-    /// summary's `total-records`).
+    /// The number of live rows of `snapshot_id`, as the table metadata records it: the snapshot
+    /// summary's `total-records` less its `total-position-deletes`, as `by_pnu_panel_delta.live_rows`
+    /// reads it (root ADR-0344). `total-records` counts a row a merge-on-read MERGE replaced until
+    /// compaction folds the delete in: on 2026-11-08 the parcel panel's merge of 69,211 changed PNUs
+    /// recorded 39,930,722 for a table of 39,861,511 rows, and the by-PNU bake refused its patch.
+    /// Equality deletes are refused: no Gold writer makes them, and their count is not one of rows.
     ///
     /// Returns `Ok(None)` when the table does not exist.
     ///
     /// # Errors
     ///
     /// Returns `LakehouseError` when the catalog cannot be reached, the metadata no longer holds
-    /// the snapshot (expired), or its summary records no row count.
+    /// the snapshot (expired), its summary records no row count, or it carries equality deletes.
     pub async fn load_snapshot_record_count(
         &self,
         table_name: &str,
@@ -416,11 +420,18 @@ impl IcebergRestCatalog {
                     "{table_name} metadata no longer holds snapshot {snapshot_id}"
                 ))
             })?;
-        let count = match snapshot.summary.get("total-records") {
+        let read = |key: &str| match snapshot.summary.get(key) {
             Some(serde_json::Value::String(value)) => value.parse::<u64>().ok(),
             Some(serde_json::Value::Number(value)) => value.as_u64(),
             _ => None,
         };
+        if read("total-equality-deletes").unwrap_or(0) > 0 {
+            return Err(LakehouseError::Upstream(format!(
+                "{table_name} snapshot {snapshot_id} carries equality deletes; only position deletes are read"
+            )));
+        }
+        let count = read("total-records")
+            .and_then(|records| records.checked_sub(read("total-position-deletes").unwrap_or(0)));
         count.map(Some).ok_or_else(|| {
             LakehouseError::Upstream(format!(
                 "{table_name} snapshot {snapshot_id} records no total-records in its summary"

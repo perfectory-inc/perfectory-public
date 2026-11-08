@@ -6,9 +6,9 @@ planned file, oldest first, this job:
 
 1. reads its data (the CSV, or every zip member the contract's name pattern matches) strictly in the
    contract's encoding, refuses a header that is not the contract's exactly, and stages a UTF-8 copy; a
-   표준데이터 pass (`openapi_pages`, gzip JSON lines of raw OpenAPI pages) is staged the same way, its rows'
-   fields in the contract's header order, refusing a field the header does not name or a pass whose rows
-   are not the total its pages report;
+   표준데이터 pass (`standard_pages`, gzip JSON lines of the dataset page's raw download answers, root
+   ADR-0453) is staged the same way, its rows' fields in the contract's header order, refusing a field
+   the header does not name or a pass whose rows are not the total its column list reports;
 2. builds one row per data line: `row_key` (the provider key's values joined by U+001F, or the
    SHA-256 of the row's cells joined so, ADR-0397) and `provider_fields_json` (every cell under its
    header name); refuses an empty or repeated provider key, an edition under the row floor or shrunk
@@ -89,7 +89,6 @@ def link_kind(entry: Mapping[str, Any]) -> str:
     return "parcel" if entry["place_link"]["kind"] in PARCEL_LINKS else "area"
 
 
-OK_CODE, NO_DATA_CODE = "00", "03"  # data-go-kr-file-data.contract.json openapi.result_codes
 
 
 def data_spec(entry: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -130,30 +129,12 @@ def data_streams(path: Path, entry: Mapping[str, Any]) -> Iterator[tuple[str, io
                 yield _member_name(info), stream
 
 
-def page_items(body: str) -> tuple[list[dict[str, Any]], int | None]:
-    """(rows, the total the page reports) of one raw OpenAPI page; no rows and None for a 03 answer. The
-    Python twin of the collector's `read_answer`: any other code refuses."""
-
-    value = json.loads(body)
-    value = value.get("response", value)
-    header = value.get("header") or value.get("result") or {}
-    code = header.get("resultCode")
-    if code == NO_DATA_CODE:
-        return [], None
-    if code != OK_CODE:
-        raise ValueError(f"a page answered resultCode {code!r}")
-    page = value["body"]
-    items = page.get("items")
-    if isinstance(items, dict):
-        items = items.get("item")
-    items = [items] if isinstance(items, dict) else (items if isinstance(items, list) else [])
-    return items, int(str(page["totalCount"]).strip())
-
-
 def stage_pages(path: Path, entry: Mapping[str, Any], out_dir: Path) -> list[Path]:
     """The UTF-8 copy of one 표준데이터 pass: each row's fields in header order (an absent or null field
     is empty), refused when a row has a field the header does not name (every provider field is kept)
-    or the rows are not the total the pages report. Row n is numbered n + 1, as a CSV line would be."""
+    or the rows are not the total its column-list answer reports. A pass is the collector's raw lines:
+    one `columns` answer (`totalCount`), then each `rows` answer (a JSON array of rows keyed by column
+    code). Row n is numbered n + 1, as a CSV line would be."""
 
     header = list(entry["header"])
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -164,16 +145,21 @@ def stage_pages(path: Path, entry: Mapping[str, Any], out_dir: Path) -> list[Pat
         for line in lines:
             if not line.strip():
                 continue
-            items, reported = page_items(json.loads(line)["body"])
-            total = reported if reported is not None else total
-            for item in items:
+            answer = json.loads(line)
+            body = json.loads(answer["body"])
+            if answer["kind"] == "columns":
+                total = int(body["totalCount"])
+                continue
+            if answer["kind"] != "rows" or not isinstance(body, list):
+                raise ValueError(f"{entry['dataset_slug']}: a line is neither the column list nor a page of rows")
+            for item in body:
                 extra = sorted(set(item) - set(header))
                 if extra:
                     raise ValueError(f"{entry['dataset_slug']}: the answer has fields the contract header does not name: {extra}")
                 rows += 1
                 writer.writerow([rows + 1, *("" if item.get(name) is None else str(item[name]) for name in header)])
-    if total is not None and rows != total:
-        raise ValueError(f"{entry['dataset_slug']}: {rows} rows, but the pages report {total}")
+    if rows != total:
+        raise ValueError(f"{entry['dataset_slug']}: {rows} rows, but the column list reports {total}")
     return [target]
 
 
@@ -186,7 +172,7 @@ def stage(path: Path, entry: Mapping[str, Any], out_dir: Path) -> list[Path]:
     header = list(spec["header"])
     if len(set(header)) != len(header):
         raise ValueError(f"{entry['dataset_slug']}: the contract header repeats a name")
-    if entry["format"] == "openapi_pages":
+    if entry["format"] == "standard_pages":
         return stage_pages(path, entry, out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     staged = []
