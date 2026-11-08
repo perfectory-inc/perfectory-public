@@ -110,7 +110,8 @@ pub fn onbid_dataset_slug(operation: &str) -> Option<&'static str> {
     }
 }
 
-/// Resolves a data.go.kr file-data `operation` (`fileData<공공데이터 번호>`) to its canonical
+/// Resolves a data.go.kr file-data `operation` (`fileData<공공데이터 번호>`, or `stdData<공공데이터 번호>`
+/// for a 표준데이터) to its canonical
 /// `dataset_slug` (root ADR-0280).
 ///
 /// Returns `None` for any file the platform does not collect; callers must treat `None` as a hard
@@ -129,10 +130,11 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15002851" => Some("airport"),
         "fileData15083033" => Some("commercial_district"),
         "fileData15136368" => Some("adm_dong_code_linkage"),
-        // The three 표준데이터 the same collector asks through the public-data OpenAPI (ADR-0401).
-        "tn_pubr_public_elesch_mskul_lc_api" => Some("school_location"),
-        "tn_pubr_public_univ_info_api" => Some("university"),
-        "tn_pubr_public_ctyrlroad_statn_api" => Some("subway_station"),
+        // The three 표준데이터 the same collector asks through the dataset page's keyless download
+        // (`stdData<공공데이터 번호>`, root ADR-0452).
+        "stdData15021148" => Some("school_location"),
+        "stdData15107736" => Some("university"),
+        "stdData15013205" => Some("subway_station"),
         _ => None,
     }
 }

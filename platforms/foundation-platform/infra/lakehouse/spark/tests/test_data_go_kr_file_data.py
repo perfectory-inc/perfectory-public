@@ -106,31 +106,31 @@ class Reading(unittest.TestCase):
             self.assertEqual(len(copies), 2)
             self.assertEqual(copies[0].read_text(encoding="utf-8"), "2," + ",".join(["x"] * len(header)) + "\n")
 
-    def pass_file(self, tmp, pages):
+    def pass_file(self, tmp, total, pages):
+        """A synthetic pass as the collector lands it: the column-list answer, then each page of rows."""
         path = Path(tmp) / "pass.gz"
+        answers = [("columns", {"totalCount": total, "tableVO": {"svcTableNm": "tn_pubr_synthetic_svc"}})]
+        answers += [("rows", page) for page in pages]
         with gzip.open(path, "wt", encoding="utf-8") as out:
-            for page in pages:
-                out.write(json.dumps({"operation": "synthetic", "request": {"pageNo": "1"}, "http_status": 200,
-                                      "body": json.dumps(page, ensure_ascii=False)}, ensure_ascii=False) + "\n")
+            for kind, body in answers:
+                out.write(json.dumps({"operation": "synthetic", "kind": kind, "request": [["page", "1"]],
+                                      "http_status": 200, "body": json.dumps(body, ensure_ascii=False)},
+                                     ensure_ascii=False) + "\n")
         return path
 
-    @staticmethod
-    def page(rows, total, code="00"):
-        return {"response": {"header": {"resultCode": code}, "body": {"items": rows, "totalCount": str(total)}}}
-
     def test_a_standard_data_pass_is_staged_in_header_order_and_an_unknown_field_refuses(self):
-        entry = {**FILES["school_location"], "header": ["schoolId", "schoolNm", "lnmadr"]}
+        entry = {**FILES["school_location"], "header": ["SCHOOL_ID", "SCHOOL_NM", "LNMADR", "CDDC_CODE"]}
         with tempfile.TemporaryDirectory() as tmp:
-            source = self.pass_file(tmp, [self.page([{"lnmadr": "합성도 합성시 가상동 1", "schoolId": "S1"}], 2),
-                                          self.page([{"schoolId": "S2", "schoolNm": "합성학교", "lnmadr": None}], 2)])
+            source = self.pass_file(tmp, 2, [[{"LNMADR": "합성도 합성시 가상동 1", "SCHOOL_ID": "S1", "CDDC_CODE": 9999}],
+                                             [{"SCHOOL_ID": "S2", "SCHOOL_NM": "합성학교", "LNMADR": None}]])
             [copy] = job.stage(source, entry, Path(tmp) / "out")
             self.assertEqual(copy.read_text(encoding="utf-8").splitlines(),
-                             ["2,S1,,합성도 합성시 가상동 1", "3,S2,합성학교,"])
-            for pages in ([self.page([{"schoolId": "S1", "newField": "x"}], 1)],  # a field the contract lacks
-                          [self.page([{"schoolId": "S1"}], 2)],  # fewer rows than reported
-                          [self.page([], 0, code="30")]):  # a refusal is not rows
+                             ["2,S1,,합성도 합성시 가상동 1,9999", "3,S2,합성학교,,"])
+            for total, pages in ((1, [[{"SCHOOL_ID": "S1", "NEW_FIELD": "x"}]]),  # a field the contract lacks
+                                 (2, [[{"SCHOOL_ID": "S1"}]]),  # fewer rows than the column list reports
+                                 (1, [{"SCHOOL_ID": "S1"}])):  # a page that is not a list of rows
                 with self.assertRaises(ValueError):
-                    job.stage(self.pass_file(tmp, pages), entry, Path(tmp) / "bad")
+                    job.stage(self.pass_file(tmp, total, pages), entry, Path(tmp) / "bad")
 
     def test_the_lot_column_is_tried_first_then_the_road_column(self):
         lot, road = "합성도 합성시 가상동 12-3", "합성도 합성시 가상로 45"

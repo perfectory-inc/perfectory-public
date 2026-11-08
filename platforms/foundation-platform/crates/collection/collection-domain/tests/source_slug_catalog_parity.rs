@@ -236,7 +236,7 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
         "expected all 7 onbid operations to match the catalog"
     );
     // The registered factory, the nine other public bulk endpoints (root ADR-0401: the railway
-    // station and station-line endpoints are one file) and the three 표준데이터 OpenAPI ones.
+    // station and station-line endpoints are one file) and the three 표준데이터 (root ADR-0452).
     assert_eq!(
         file_data_checked, 13,
         "expected the 13 file-data endpoints to match the catalog"
