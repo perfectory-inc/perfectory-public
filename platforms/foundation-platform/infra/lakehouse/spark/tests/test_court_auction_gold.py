@@ -363,8 +363,10 @@ class AffectedSparkTest(unittest.TestCase):
         self.assertEqual({r.pnu for r in affected.collect()}, {CURRENT, RETIRED, SPLIT_A})
 
     def results(self, rows):
-        return self.spark.createDataFrame(rows, "court_office_code string, case_no string, property_seq int, "
-                                                "item_seq int, pnu string, source_snapshot_id string")
+        # Sale-result rows (key, PNU, snapshot); their sale date, which orders a document, is left null.
+        return self.spark.createDataFrame([(*row, None) for row in rows],
+                                          "court_office_code string, case_no string, property_seq int, "
+                                          "item_seq int, pnu string, source_snapshot_id string, sale_date date")
 
     def test_a_changed_sale_result_reaches_the_pnu_it_left_and_the_one_it_is_on_now(self):
         # Root ADR-0454 §4: a result row compared by its item key, both ends, nothing else touched.
