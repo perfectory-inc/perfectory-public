@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
+      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요) and, by the same 관리허가대장PK, silver.building_permit_parking (root ADR-0452), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) of the permits whose parking rows changed (before and after), and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
       "systemd_service": "foundation-gold-lane-rebuild@parcel-building-permits.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -30,6 +30,7 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-building-permit-basis-outline-to-gold-parcel-building-permits",
+        "silver-building-permit-parking-to-gold-parcel-building-permits",
         "reference-legal-dong-code-change-to-gold-parcel-building-permits"
       ],
       "enabled": false,
@@ -78,7 +79,7 @@
       "id": "gold-parcel-building-permits",
       "type": "gold_table",
       "title": "필지 건축인허가 by-PNU 표",
-      "description": "PNU마다 그 필지의 건축인허가 기본개요(건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일)를 담는 데이터 종류 표(루트 ADR-0451). 계약의 종류 한 줄(parcel-building-permits)이 자기 생산자를 이름 짓고, silver.building_permit_basis_outline 의 현재 행에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
+      "description": "PNU마다 그 필지의 건축인허가 기본개요(건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일, 그 허가의 주차장 대수)를 담는 데이터 종류 표(루트 ADR-0451). 계약의 종류 한 줄(parcel-building-permits)이 자기 생산자를 이름 짓고, silver.building_permit_basis_outline 의 현재 행과 같은 관리허가대장PK 의 silver.building_permit_parking 에서 만든다(루트 ADR-0452). 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -117,6 +118,16 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
       "description": "자기 생산자를 가진 종류(루트 ADR-0287 9항, ADR-0451): 관리허가대장PK 마다의 현재 행을 서빙 필지판의 PNU에만 문서로 묶는다. 고정한 Silver 와 지금 Silver 에서 현재 행이 다른 PNU(양방향)와 필지판에 들고 난 PNU만 다시 계산한다."
+    },
+    {
+      "from": "silver-building-permit-parking",
+      "to": "gold-parcel-building-permits",
+      "relation": "joins",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
+      ],
+      "description": "허가마다 그 허가의 주차장 대수(옥내자주식·옥외자주식·옥내기계식)를 같은 관리허가대장PK 로 붙인다(루트 ADR-0452). 주차장 행이 바뀐 허가의 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "reference-legal-dong-code-change",
@@ -187,6 +198,13 @@
           "schema_version": "foundation-platform.parcel_building_permits_by_pnu.v1",
           "decision": "docs/adr/0451-a-parcel-shows-its-building-permits-as-its-own-by-pnu-kind.md",
           "reason": "the first document: the parcel's 건축인허가 기본개요 permits (건축구분명, 주용도명, 대지면적, 건축면적, 연면적, 건축허가일, 착공예정일, 착공연기일, 실제착공일, 사용승인일), from the current rows of silver.building_permit_basis_outline"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.parcel_building_permits_by_pnu.v1",
+          "decision": "docs/adr/0452-a-building-permit-on-the-parcel-carries-its-parking-from-the-same-permit-key.md",
+          "reason": "each permit gains its parking counts from the same 관리허가대장PK (옥내자주식대수, 옥외자주식대수, 옥내기계식대수, all optional), from silver.building_permit_parking"
         }
       ],
       "consumers": [
@@ -224,7 +242,7 @@
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/building-permits.generated.ts",
-          "reason": "the parcel panel's 건축인허가 group (root ADR-0451): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reason": "the parcel panel's 건축인허가 group (root ADR-0451, ADR-0452): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
           "reads": [
             {
               "path": "schema_version",
@@ -280,6 +298,18 @@
             },
             {
               "path": "building_permits.records[].use_approval_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].indoor_self_parking_count",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].outdoor_self_parking_count",
+              "required": false
+            },
+            {
+              "path": "building_permits.records[].indoor_mechanical_parking_count",
               "required": false
             },
             {
