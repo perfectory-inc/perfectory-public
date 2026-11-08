@@ -23,6 +23,7 @@ use super::bake::{self, BakeConfig, PackExportSummary};
 use super::equality::{self, EqualityConfig};
 use super::gate::{self, LatencyEvidence, Timings};
 use super::latency::{self, LatencyConfig};
+use super::monitor::{served_sample, Target};
 use super::publish::{self, ChangeSetPaths, PublishConfig};
 use super::read::{self, PackView, Resolved};
 use super::sections::{self, PackDocument, PackProvenance, Renderer, KNOWN_SECTIONS};
@@ -1237,6 +1238,12 @@ async fn a_new_generation_is_served_and_patches_follow_it() -> anyhow::Result<()
         object(&changed, NEXT_SNAPSHOT)?
     );
     assert!(matches!(lane.answer(PNU_B).await?, Resolved::Tombstone));
+    // The hourly monitor reads what the patch wrote though its gate sample has none of it (root
+    // ADR-0448): the patch's document, never its tombstone.
+    for sample in [vec![], vec![PNU_B.to_owned()]] {
+        let chosen = served_sample(&lane.store, sample, 2, &Target::Served).await?;
+        assert_eq!(chosen, [PNU_A]);
+    }
 
     // An empty change set: no summaries, only the reflected snapshot moves.
     let before = lane.live().await?.section_packs.context("packs")?;
@@ -1422,20 +1429,15 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
             &faithful.uri(),
             &pnus,
             3_000.0,
-            &super::monitor::Target::Served,
+            &Target::Served,
         )
         .await?;
         assert!(held.passed, "{phase}: {held:?}");
         assert_eq!(held.answered, 2, "{phase}");
 
-        let report = super::monitor::check_at(
-            &lane.store,
-            &drifted.uri(),
-            &pnus,
-            3_000.0,
-            &super::monitor::Target::Served,
-        )
-        .await?;
+        let report =
+            super::monitor::check_at(&lane.store, &drifted.uri(), &pnus, 3_000.0, &Target::Served)
+                .await?;
         assert!(!report.passed, "{phase}: a drifted document passed");
         assert_eq!(
             report.drifted_from_served,
@@ -1443,25 +1445,15 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
             "{phase}"
         );
 
-        let report = super::monitor::check_at(
-            &lane.store,
-            &failing.uri(),
-            &pnus,
-            3_000.0,
-            &super::monitor::Target::Served,
-        )
-        .await?;
+        let report =
+            super::monitor::check_at(&lane.store, &failing.uri(), &pnus, 3_000.0, &Target::Served)
+                .await?;
         assert!(!report.passed, "{phase}: a 503 passed");
         assert_eq!(report.failures.len(), 2, "{phase}: {report:?}");
 
-        let report = super::monitor::check_at(
-            &lane.store,
-            &slow.uri(),
-            &pnus,
-            100.0,
-            &super::monitor::Target::Served,
-        )
-        .await?;
+        let report =
+            super::monitor::check_at(&lane.store, &slow.uri(), &pnus, 100.0, &Target::Served)
+                .await?;
         assert!(!report.passed, "{phase}: a p95 above the bound passed");
         assert!(report.latency_ms.p95 > 100.0, "{phase}: {report:?}");
     }
@@ -1481,7 +1473,7 @@ async fn the_monitor_holds_the_live_hostname_to_the_lane() -> anyhow::Result<()>
         &faithful.uri(),
         &pnus,
         3_000.0,
-        &super::monitor::Target::Served,
+        &Target::Served,
     )
     .await?;
     assert!(
