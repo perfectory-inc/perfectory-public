@@ -4,8 +4,8 @@
 //! whatever runs it, not a number written beside the code: the Silver lane unit's
 //! `MemoryMax=16G` (`infra/systemd/foundation-silver-refresh@.service`, counted by
 //! `tools/host-memory-budget.contract.json`), a container's `--memory`, or a host with no cap.
-//! Linux publishes that limit as the process's cgroup: `memory.max` (cgroup v2) or
-//! `memory.limit_in_bytes` (v1) on the cgroup `/proc/self/cgroup` names, and on every ancestor,
+//! Linux publishes that limit as the process's cgroup: `memory.max` and the soft `memory.high`
+//! (cgroup v2), or `memory.limit_in_bytes` (v1) on the cgroup `/proc/self/cgroup` names, and on every ancestor,
 //! since a slice's cap bounds everything under it. A limit is a share of the whole cgroup, so what
 //! is left is the limit minus the cgroup's current usage. The host's `MemAvailable` bounds it too.
 use std::path::{Path, PathBuf};
@@ -87,18 +87,19 @@ pub fn available_bytes_from(read: &dyn Fn(&Path) -> Option<String>) -> Option<u6
 /// The smallest `limit − usage` over the process's cgroup and its ancestors; `None` when no level
 /// sets a limit.
 fn cgroup_headroom(self_cgroup: &str, read: &dyn Fn(&Path) -> Option<String>) -> Option<u64> {
-    // cgroup v2 has one hierarchy, written as `0::<path>`.
+    // cgroup v2 has one hierarchy, written as `0::<path>`. Its soft bound `memory.high` counts as a
+    // limit too: past it the kernel throttles the cgroup (root ADR-0454 renders a unit's MemoryHigh).
     if let Some(path) = self_cgroup
         .lines()
         .find_map(|line| line.strip_prefix("0::"))
     {
-        return smallest_headroom(
-            Path::new(CGROUP_V2_ROOT),
-            path,
-            "memory.max",
-            "memory.current",
-            read,
-        );
+        let root = Path::new(CGROUP_V2_ROOT);
+        let hard = smallest_headroom(root, path, "memory.max", "memory.current", read);
+        let soft = smallest_headroom(root, path, "memory.high", "memory.current", read);
+        return match (hard, soft) {
+            (Some(hard), Some(soft)) => Some(hard.min(soft)),
+            (one, other) => one.or(other),
+        };
     }
     // cgroup v1 has a memory hierarchy, written as `<id>:<controllers>:<path>`.
     let path = self_cgroup.lines().find_map(|line| {
@@ -240,6 +241,21 @@ mod tests {
             ("/proc/meminfo", "MemAvailable:   104857600 kB\n".to_owned()),
         ]);
         assert_eq!(available_bytes_from(&read), Some(15 * GIB));
+    }
+
+    #[test]
+    fn a_units_memory_high_bounds_it_below_its_max() {
+        let read = files(&[
+            (
+                "/proc/self/cgroup",
+                "0::/system.slice/foundation-silver-refresh@x.service\n".to_owned(),
+            ),
+            (&unit("memory.max"), format!("{}\n", 16 * GIB)),
+            (&unit("memory.high"), format!("{}\n", 14 * GIB)),
+            (&unit("memory.current"), format!("{GIB}\n")),
+            ("/proc/meminfo", "MemAvailable:   104857600 kB\n".to_owned()),
+        ]);
+        assert_eq!(available_bytes_from(&read), Some(13 * GIB));
     }
 
     #[test]

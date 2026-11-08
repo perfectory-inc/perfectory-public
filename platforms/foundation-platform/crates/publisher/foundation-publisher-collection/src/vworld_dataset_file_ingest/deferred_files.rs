@@ -33,7 +33,7 @@ pub(super) fn excluded_selection_archives(
     jobs.iter()
         .take(max_jobs.unwrap_or(jobs.len()))
         .flat_map(|job| {
-            let shared = Arc::new(job.clone());
+            let shared = job.header();
             job.files
                 .iter()
                 .filter(|file| file.download_kind == VWorldDatasetFileKind::SelectionArchive)

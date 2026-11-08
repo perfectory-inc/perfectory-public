@@ -36,6 +36,12 @@
 # start there states `--memory` (a continued line is read whole), or its script is in `host.uncapped` with why.
 # On 2026-10-18 the parcel number change collector's aws-cli ran with no cap, and so did six more.
 #
+# Systemd units hold memory outside every container. On 2026-11-08 03:43Z foundation-source-sweep, a
+# unit with no MemoryMax, reached 33 GB of anonymous memory; the kernel's OOM killer ended it and the
+# PostgreSQL backup beside it lost its connection. `systemd_units` declares every unit file's class
+# and cap from its measured peak; scripts/ci/unit_memory.py renders MemoryHigh, MemoryMax and
+# OOMScoreAdjust from it, and this guard holds every unit to that rendering (root ADR-0454).
+#
 # Two more limits share this inventory. Every service names the file's log cap (`logging: *log-cap`,
 # anchored once per file): on 2026-10-02 one uncapped json-file log reached 32GB and filled the
 # root disk under the production database twice. And every service that stays up on the host
@@ -65,6 +71,7 @@ NAME = sys.argv[2]
 GUARD_ROOT = pathlib.Path(sys.argv[3]).resolve()
 sys.path.insert(0, str(GUARD_ROOT / "scripts" / "ci"))
 import compose_model  # noqa: E402  (the guard's own repository, also for a fixture root)
+import unit_memory  # noqa: E402
 
 # What each service states (cap, log cap, restart, batch names) is the Rego in compose_host
 # (root ADR-0422), judged on the project as the pinned Compose merges it; this script adds the caps up.
@@ -407,6 +414,11 @@ if "scheduled_jobs" in contract:
         scheduled = scheduled_load(contract["scheduled_jobs"])
     except (OSError, ValueError, KeyError, TypeError) as error:
         errors.append(f"{CONTRACT}: scheduled_jobs: {error}")
+
+# Every systemd unit's MemoryHigh, MemoryMax and OOMScoreAdjust are its systemd_units entry's, and no
+# one cap alone can take what the standing services and host_reserved leave (root ADR-0454).
+if "systemd_units" in contract or (ROOT / unit_memory.DEFAULT_UNITS).is_dir():
+    errors.extend(unit_memory.problems(ROOT, contract, physical - standing_total - reserved))
 
 DOCKER_RUN = re.compile(r"\bdocker\s+run\b")
 MEMORY_FLAG = re.compile(r"(?:^|\s)(?:--memory(?:=|\s+)\S|-m\s+\S)")

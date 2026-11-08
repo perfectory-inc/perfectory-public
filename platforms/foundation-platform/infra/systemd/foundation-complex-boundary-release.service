@@ -24,3 +24,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/foundation-platform/map-edit-fold
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+MemoryHigh=460M
+MemoryMax=512M
+OOMScoreAdjust=500

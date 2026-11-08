@@ -438,6 +438,9 @@ fn selected_files_share_their_job_instead_of_copying_it() -> TestResult {
 
     assert_eq!(selected.len(), 2);
     assert!(std::sync::Arc::ptr_eq(&selected[0].job, &selected[1].job));
+    // The shared job holds no file list: a run holds each listed file once, however many it lists.
+    assert!(selected[0].job.files.is_empty());
+    assert_eq!(selected[0].job.ds_id, "30017");
     Ok(())
 }
 

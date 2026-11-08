@@ -22,7 +22,10 @@ TimeoutStartSec=10m
 TimeoutStopSec=30
 # A Python process holding ~30,000 keys twice, and the publisher listing them; counted under
 # host_reserved like the other default_pool jobs.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+MemoryHigh=460M
 MemoryMax=512M
+OOMScoreAdjust=500
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

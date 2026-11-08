@@ -18,7 +18,10 @@ WorkingDirectory=/opt/foundation-platform/current
 ExecStart=/opt/foundation-platform/current/scripts/ops/readiness_report.py
 # 2026-11-07 on the host: about seventy jobs' journals and the lanes' units in under two minutes.
 TimeoutStartSec=15m
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+MemoryHigh=230M
 MemoryMax=256M
+OOMScoreAdjust=0
 MemorySwapMax=0
 NoNewPrivileges=true
 PrivateTmp=true

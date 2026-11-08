@@ -34,7 +34,10 @@ RuntimeDirectory=%N
 # it indexes the nation's titles and basis outlines before it streams the units). The export child
 # exits before Spark starts, so a lane holds this or the Spark cap, never both
 # (tools/host-memory-budget.contract.json counts the larger): 16G stays under Spark's 20g.
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0454); do not edit.
+MemoryHigh=14745M
 MemoryMax=16G
+OOMScoreAdjust=500
 # The largest national export measured by hand took 18 minutes (unit areas, root ADR-0142); the
 # first supervised run of each lane measures the whole run. The bound is what the spark pool's
 # starvation check lets five scheduled lanes hold (orchestration/jobs.v1.json timeout_minutes 160,

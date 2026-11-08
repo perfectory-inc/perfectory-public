@@ -1007,6 +1007,362 @@
         "memory": null,
         "why": "What each job in a declared Airflow pool runs, one at a time: compose services by host project, containers a contract caps, or its systemd unit's MemoryMax. The guard sums every set of a pool's jobs whose pool_slots fit its slots and counts the largest instead of the largest one-shot job when it is larger. The release build refuses to start while a registered job runs (ADR-0137) and manual Spark loads run with the DAGs paused, so neither adds to it."
       },
+      "systemd_units": {
+        "decision": "docs/adr/0454-one-job-cannot-take-the-host-every-unit-declares-its-memory-and-batch-is-killed-first.md",
+        "rule": "Every systemd unit file under `units` has one entry here, and nowhere else states its memory: scripts/ci/unit_memory.py renders its MemoryHigh= (memory_high_of_max of the cap, the soft bound where the kernel throttles and reclaims before it kills), MemoryMax= (memory_max, the hard cap) and OOMScoreAdjust= (its class's) into the unit, and every-container-has-a-memory-cap.sh refuses a unit file without an entry, a unit whose lines differ from its rendering, and a cap that alone, beside every service that stays up and host_reserved, would not fit physical_memory. memory_max is at least memory_max_over_peak times measured_peak (the highest `memory peak` systemd logged for the unit file's runs, page cache included), unless headroom_why says why a decided bound is closer; a unit with no peak yet says in measured why, and its first runs under the cap log one. A unit that starts containers holds only its script: the containers are the Docker daemon's cgroups, capped by compose or their contract.",
+        "units": "platforms/foundation-platform/infra/systemd",
+        "jobs": "platforms/foundation-platform/orchestration/jobs.v1.json",
+        "memory_max_over_peak": 1.5,
+        "memory_high_of_max": 0.9,
+        "floor": "128M",
+        "classes": {
+          "batch": {
+            "oom_score_adjust": 500,
+            "why": "Scheduled data jobs, bakes, collectors, migrations and drills: a stopped run resumes or reruns, so when the host runs out the OOM killer takes these first. Every unit a job in `jobs` runs is batch."
+          },
+          "control": {
+            "oom_score_adjust": 0,
+            "why": "Deploys, alerts, probes and checks: small, and the host's way to report and recover, so neither preferred nor protected."
+          },
+          "recovery": {
+            "oom_score_adjust": -500,
+            "why": "The database backups: 2026-11-08 the OOM killer ended a backup's connection (W36). Protected below the databases themselves (compose oom_score_adj), above everything else."
+          }
+        },
+        "unit_files": {
+          "foundation-admin-boundary-release.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 45 runs, highest 2026-11-08 (foundation-admin-boundary-release)"
+          },
+          "foundation-asset-reconcile.service": {
+            "class": "batch",
+            "memory_max": "768M",
+            "measured_peak": "512M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 3035 runs, highest 2026-10-31 (foundation-asset-reconcile)"
+          },
+          "foundation-autodeploy.service": {
+            "class": "control",
+            "memory_max": "3584M",
+            "measured_peak": "2253M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 236 runs, highest 2026-10-18 (foundation-autodeploy)"
+          },
+          "foundation-building-register-floor.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 20 runs, highest 2026-11-08 (foundation-building-register-floor)"
+          },
+          "foundation-by-pnu-auto-promote.service": {
+            "class": "control",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell script that asks the control API to promote; 17 runs logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-by-pnu-edge-probe.service": {
+            "class": "control",
+            "memory_max": "128M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its 128M cap, set when it was written; it logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-by-pnu-lane-bake@.service": {
+            "class": "batch",
+            "memory_max": "5G",
+            "measured_peak": "397M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 6 runs, highest 2026-11-08 (foundation-by-pnu-lane-bake@parcel-public-auction)"
+          },
+          "foundation-by-pnu-serving-bake.service": {
+            "class": "batch",
+            "memory_max": "14G",
+            "measured_peak": "13517M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 25 runs, highest 2026-10-29 (foundation-by-pnu-serving-bake)",
+            "headroom_why": "A bound decided from a measured shard (root ADR-0138): the export refuses a shard over 900,000 rows, whose anonymous peak was 11.1G, so 14G is that peak x1.3; the 13517M journal peak includes page cache, which the kernel reclaims before it kills."
+          },
+          "foundation-by-pnu-serving-monitor@.service": {
+            "class": "control",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its 512M cap, set when it was written; it logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-by-pnu-unit-price-bake.service": {
+            "class": "batch",
+            "memory_max": "3G",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-by-pnu-unit-price-bake)"
+          },
+          "foundation-complex-boundary-release.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "306M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 33 runs, highest 2026-11-04 (foundation-complex-boundary-release)"
+          },
+          "foundation-court-auction-collect.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured_peak": "547M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 4 runs, highest 2026-11-08 (foundation-court-auction-collect)"
+          },
+          "foundation-court-auction-silver-load.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "306M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-06 (foundation-court-auction-silver-load)"
+          },
+          "foundation-data-go-kr-file-data.service": {
+            "class": "batch",
+            "memory_max": "2G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the collector runs natively like the onbid collector (1843M measured); no run logged yet; systemd logs the peak of every run under this cap"
+          },
+          "foundation-data-quality.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 21 runs, highest 2026-11-08 (foundation-data-quality)"
+          },
+          "foundation-edge-settings.service": {
+            "class": "control",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as one python script that sets edge settings through an API; 1 run, CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-gold-court-auction-rebuild.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap"
+          },
+          "foundation-gold-kind-rebuild.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 21 runs, highest 2026-11-08 (foundation-gold-kind-rebuild)"
+          },
+          "foundation-gold-lane-rebuild@.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-gold-panel-rebuild.service runs (307M measured, 57 runs); Spark runs in its own capped container; systemd logs the peak of every run under this cap"
+          },
+          "foundation-gold-panel-rebuild.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 57 runs, highest 2026-11-08 (foundation-gold-panel-rebuild)"
+          },
+          "foundation-gold-public-auction-rebuild.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 20 runs, highest 2026-11-08 (foundation-gold-public-auction-rebuild)"
+          },
+          "foundation-gold-unit-price-rebuild.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "306M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 11 runs, highest 2026-11-04 (foundation-gold-unit-price-rebuild)"
+          },
+          "foundation-host-retention.service": {
+            "class": "control",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as one python script that ages out files; 6 runs logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-identity-backup-freshness.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the check foundation-postgres-backup-freshness.service runs for the other database; systemd logs the peak of every run under this cap"
+          },
+          "foundation-identity-backup.service": {
+            "class": "recovery",
+            "memory_max": "256M",
+            "measured_peak": "26M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 2 runs, highest 2026-11-05 (foundation-identity-backup)"
+          },
+          "foundation-identity-restore-drill.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its drill database runs in a capped container; cgroup peak 14M on 2026-11-08 (systemctl MemoryPeak); systemd logs the peak of every run under this cap"
+          },
+          "foundation-lakehouse-maintenance.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 33 runs, highest 2026-11-08 (foundation-lakehouse-maintenance)"
+          },
+          "foundation-lakehouse-migrate.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "306M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 1 runs, highest 2026-11-06 (foundation-lakehouse-migrate)"
+          },
+          "foundation-legal-dong-code.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-legal-dong-code)"
+          },
+          "foundation-lineage-stewardship.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 23 runs, highest 2026-11-08 (foundation-lineage-stewardship)"
+          },
+          "foundation-map-edit-fold@.service": {
+            "class": "batch",
+            "memory_max": "768M",
+            "measured_peak": "355M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 659 runs, highest 2026-10-20 (foundation-map-edit-fold@complex)"
+          },
+          "foundation-media-reconcile.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-08 (foundation-media-reconcile)"
+          },
+          "foundation-onbid-collect.service": {
+            "class": "batch",
+            "memory_max": "3G",
+            "measured_peak": "1844M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 486 runs, highest 2026-11-06 (foundation-onbid-collect)"
+          },
+          "foundation-onbid-silver-load.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured_peak": "542M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 433 runs, highest 2026-10-29 (foundation-onbid-silver-load)"
+          },
+          "foundation-outbox-publish.service": {
+            "class": "batch",
+            "memory_max": "1280M",
+            "measured_peak": "770M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 341 runs, highest 2026-11-08 (foundation-outbox-publish)"
+          },
+          "foundation-parcel-edition-readiness.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell cycle over the control API and Trino; runs logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-parcel-number-change.service": {
+            "class": "batch",
+            "memory_max": "256M",
+            "measured_peak": "11M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 12 runs, highest 2026-10-21 (foundation-parcel-number-change)"
+          },
+          "foundation-parcel-registry.service": {
+            "class": "batch",
+            "memory_max": "2G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the cycle runs the publisher natively like the outbox publisher (770M measured); no run logged yet; systemd logs the peak of every run under this cap"
+          },
+          "foundation-parcel-tile-bake@.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as GDAL and tippecanoe run in their own capped containers (config/tile-bake-containers.contract.json); this holds the script; systemd logs the peak of every run under this cap"
+          },
+          "foundation-postgres-backup-freshness.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as cgroup peak 25M on 2026-11-08 (systemctl MemoryPeak); systemd logs the peak of every run under this cap"
+          },
+          "foundation-postgres-backup.service": {
+            "class": "recovery",
+            "memory_max": "256M",
+            "measured_peak": "25M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 2 runs, highest 2026-11-05 (foundation-postgres-backup)"
+          },
+          "foundation-postgres-restore-drill.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its drill database runs in a capped container; cgroup peak 27M on 2026-11-08 (systemctl MemoryPeak); systemd logs the peak of every run under this cap"
+          },
+          "foundation-readiness-report.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured_peak": "42M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 1 runs, highest 2026-11-07 (foundation-readiness-report)"
+          },
+          "foundation-registered-factory.service": {
+            "class": "batch",
+            "memory_max": "256M",
+            "measured_peak": "13M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 13 runs, highest 2026-10-28 (foundation-registered-factory)"
+          },
+          "foundation-rt-molit-collect.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 37 runs, highest 2026-11-08 (foundation-rt-molit-collect)"
+          },
+          "foundation-rt-molit-silver-load.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 141 runs, highest 2026-11-08 (foundation-rt-molit-silver-load)"
+          },
+          "foundation-run-now.service": {
+            "class": "control",
+            "memory_max": "512M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell dispatcher that starts other units; 1 run, CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-service-checks.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its 256M cap, set when it was written; it logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-shape-ledger-check.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "313M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 37 runs, highest 2026-10-20 (foundation-shape-ledger-check)"
+          },
+          "foundation-silver-refresh-plan@.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured_peak": "398M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 521 runs, highest 2026-11-02 (foundation-silver-refresh-plan@building-register-master)"
+          },
+          "foundation-silver-refresh@.service": {
+            "class": "batch",
+            "memory_max": "16G",
+            "measured_peak": "15668M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 84 runs, highest 2026-10-20 (foundation-silver-refresh@building-register-unit-areas)",
+            "headroom_why": "The export sizes its workers to three quarters of what its cgroup has left (process_memory.rs, which reads MemoryHigh too), so a national lane fills what it is given by design and its peak is near the cap; 16G is the bound root ADR-0138 counts under the spark pool."
+          },
+          "foundation-source-sweep.service": {
+            "class": "batch",
+            "memory_max": "4G",
+            "measured_peak": "1536M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 26 runs, highest 2026-10-21 (foundation-source-sweep); the runs 10-31..11-08 peaked at 42.2G, the n x n copy #1183 fixed, and are not the size"
+          },
+          "foundation-unit-failed@.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as a shell script that sends one alert; runs logged CPU only; systemd logs the peak of every run under this cap"
+          },
+          "foundation-unit-price-versions-migrate.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "307M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 3 runs, highest 2026-11-07 (foundation-unit-price-versions-migrate)"
+          },
+          "foundation-unit-recovered@.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as the script foundation-unit-failed@.service runs; systemd logs the peak of every run under this cap"
+          },
+          "foundation-vworld-parcel-edition.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "308M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 20 runs, highest 2026-11-08 (foundation-vworld-parcel-edition)"
+          },
+          "foundation-worker-autodeploy.service": {
+            "class": "control",
+            "memory_max": "256M",
+            "measured_peak": "64M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 11 runs, highest 2026-11-04 (foundation-worker-autodeploy)"
+          },
+          "foundation-zoning-tile-bake.service": {
+            "class": "batch",
+            "memory_max": "5G",
+            "measured_peak": "3175M",
+            "measured": "journal `memory peak` 2026-10-18..11-08, 7 runs, highest 2026-11-06 (foundation-zoning-tile-bake)"
+          }
+        }
+      },
       "host_scripts": {
         "paths": [
           "platforms/foundation-platform/scripts/"
