@@ -48,6 +48,13 @@ jobs:
       - name: Check generated pipeline map and API example
         if: ${{ !cancelled() }}
         run: python3 scripts/catalog/render-pipeline-map.py --check
+      - name: Check the roadmap's showing inventory
+        # Which collected Silver reaches the gongzzang screen, from the definitions (production-readiness §10).
+        run: |
+          python3 scripts/catalog/render-showing-inventory.py --check
+          python3 scripts/catalog/render-showing-inventory.py --summary >> "$GITHUB_STEP_SUMMARY"
+      - name: Test showing inventory renderer
+        run: python3 -m unittest scripts/catalog/test_showing_inventory.py -v
       - name: Check documents
         if: ${{ !cancelled() }}
         # `--strict` fails when a maintained page has no or an unknown metadata type; `--check`
