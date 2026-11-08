@@ -173,8 +173,10 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         # Root ADR-0439: a lane's first publish ranks below refreshing what users read now, and the
         # panel Gold rebuild takes the class of the bake that waits on it.
         self.assertEqual(listing["capacity_claimants"]["by_pnu_lane_cutover"]["priority_class"], "first_publish")
-        self.assertEqual((by_id["gold_panel_rebuild"]["priority_class"], by_id["gold_panel_rebuild"]["priority_class_from"]),
-                         ("publish", "by_pnu_serving_bake"))
+        # So does the kind Gold rebuild: 2026-11-07 and 11-08 its start ended `waiting` behind a cut-over's claim.
+        for job_id in ("gold_panel_rebuild", "gold_kind_rebuild"):
+            self.assertEqual((by_id[job_id]["priority_class"], by_id[job_id]["priority_class_from"]),
+                             ("publish", "by_pnu_serving_bake"), job_id)
 
     def test_the_eleven_o_six_backfill_yields_to_the_waiting_cut_over_and_nothing_lower_starts(self):
         claimed = self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER)

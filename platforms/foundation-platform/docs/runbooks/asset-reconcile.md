@@ -14,6 +14,7 @@ last_reviewed: 2026-10-29
 | 자산 | 작업 | 마지막에 읽은 판 | 지금 입력 판 |
 |---|---|---|---|
 | `iceberg://gold.unit_price` | `gold_unit_price_rebuild` | 단가 Gold 커밋이 기록한 핀 | 표제부·전유부: 건물 Gold 가 만들어진 판(`pins_from`), 단가 Silver: head |
+| `iceberg://gold.<종류>` (종류 Gold 6개) | `gold_kind_rebuild` | 종류 Gold 커밋이 기록한 핀 | 그 종류가 적은 입력마다 host 패널(`gold.parcel_panel`)이 만들어진 판(`pins_from.inputs: all`, 루트 ADR-0444 2026-11-08 개정) |
 | `perfectory://unit-price-by-pnu-section-packs` | `by_pnu_unit_price_bake` | `/data/foundation-platform/by-pnu-bake/unit-price/reads.jsonl` 마지막 줄 | `gold.unit_price` head (+ 건물 레인이 서빙하는 판) |
 | `perfectory://parcel-public-auction-by-pnu-section-packs` | `by_pnu_public_auction_bake` | `.../parcel-public-auction/reads.jsonl` 마지막 줄 | `gold.parcel_public_auction` head |
 | `perfectory://<레인>-by-pnu-section-packs` (parcel, building, 종류 레인 6개) | `by_pnu_serving_bake` | `.../<레인>/reads.jsonl` 마지막 줄 | 그 레인 Gold head |

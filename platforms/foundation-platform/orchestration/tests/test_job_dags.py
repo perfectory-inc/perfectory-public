@@ -284,10 +284,12 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         [cls.spec] = [spec for spec in job_specs.load_specs() if spec.reconciles]
         cls.tasks = {task.task_id: task for task in cls.dags[cls.spec.dag_id].tasks}
 
-    def test_it_covers_every_by_pnu_bake_and_the_unit_price_assets(self):
+    def test_it_covers_every_by_pnu_bake_and_the_gold_they_serve(self):
+        # 2026-11-07..08 the kind rebuild's daily start ended `waiting` on the spark pool twice and nothing
+        # started it again: the transfer history lane served a Gold its host panel had moved past.
         self.assertEqual(set(self.spec.reconciles),
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
-                          "by_pnu_serving_bake", "gold_panel_rebuild"})
+                          "by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild"})
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).
