@@ -43,8 +43,10 @@ fi
 
 packages="$(python3 - "$AREA/infra/lakehouse/contracts/lakehouse-engine.contract.json" <<'PY'
 import json, sys
-iceberg = json.load(open(sys.argv[1], encoding="utf-8"))["iceberg"]
-print(",".join(f"{artifact}:{iceberg['version']}" for artifact in iceberg["artifacts"]))
+contract = json.load(open(sys.argv[1], encoding="utf-8"))
+iceberg, sedona = contract["iceberg"], contract["sedona"]
+print(",".join([*(f"{artifact}:{iceberg['version']}" for artifact in iceberg["artifacts"]),
+                *(f"{artifact}:{sedona['version']}" for artifact in sedona["artifacts"]), sedona["geotools_wrapper"]]))
 PY
 )"
 echo "foundation-spark-runtime: compose service spark with $packages"

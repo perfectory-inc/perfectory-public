@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.highway_access_point"
 name: "고속도로 출입시설"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "한국도로공사 출입시설 준공년도. 도·시군구·읍면동 이름을 현재 법정동 코드표로 법정동 코드까지만 잇는다(지번이 없어 PNU 없음). 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다."
+  purpose: "한국도로공사 출입시설 준공년도. 도·시군구·읍면동 이름을 현재 법정동 코드표로 법정동 코드까지만 잇는다(지번이 없어 PNU 없음). 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 필지 by-PNU 종류 parcel-nearby 가 읽는다(루트 ADR-0465)."
 team:
   name: "foundation-platform"
 servers:
@@ -72,7 +72,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-highway-access-point"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

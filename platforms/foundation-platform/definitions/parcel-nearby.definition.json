@@ -1,0 +1,414 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-nearby",
+  "jobs": [
+    {
+      "id": "gold_parcel_nearby_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "주변 kind Gold (root ADR-0465; scripts/ops/gold-panel-rebuild.sh parcel-nearby): gold.parcel_nearby, for every served parcel what is near its centroid — the nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 with the spheroid distance (Apache Sedona ST_KNN), the 상가(상권) stores in the H3 rings around it (Sedona ST_H3CellIDs/ST_H3KRing) and the 고속도로 출입시설 of its 시군구 — when the Silver lanes or the served parcel edition moved past the pins the current Gold recorded. A changed store recomputes only the parcels within the rings of the cells it left or entered, a changed parcel only itself, and merges them; a change of a facility file or the code change table rebuilds whole and publishes only the documents whose digest changed (parcel_nearby_silver_to_gold.WHOLE_TABLE_INPUTS: those files hold 14 to 12,004 rows and any parcel's nearest point may move). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_nearby_bake bakes its commit.",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-nearby.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "45 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-parcel-boundaries-to-gold-parcel-nearby",
+        "silver-airport-to-gold-parcel-nearby",
+        "silver-railway-station-to-gold-parcel-nearby",
+        "silver-subway-station-to-gold-parcel-nearby",
+        "silver-school-location-to-gold-parcel-nearby",
+        "silver-university-to-gold-parcel-nearby",
+        "silver-commercial-district-to-gold-parcel-nearby",
+        "silver-highway-access-point-to-gold-parcel-nearby",
+        "reference-legal-dong-code-change-to-gold-parcel-nearby"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0465). Off until its Silver tables exist and its first full build (every served parcel, 39,861,511 in the current edition, against 14 airports, 215 stations, 898 subway stations, 12,004 schools, 1,995 universities and 2,753,778 stores, measured 2026-11-04/09 by the file contract) has run and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-nearby, root ADR-0193 §7); switching it on is the auto-promotion of root ADR-0435 once measured (ADR-0457 §1 does not cover a national first build)."
+    },
+    {
+      "id": "by_pnu_parcel_nearby_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_nearby (the own-producer 주변 kind, root ADR-0465) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-nearby), as section packs (root ADR-0147, ADR-0193 §9), exactly as the building-permit bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the lane's first publish (root ADR-0190, ADR-0435). Started when gold_parcel_nearby_rebuild commits a new snapshot, and at 11:45 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-nearby.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "45 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "priority_class": "publish",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-nearby-to-parcel-nearby-by-pnu-section-packs"
+      ],
+      "enabled": false,
+      "disabled_reason": "New (root ADR-0465). Off with gold_parcel_nearby_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the lane is cut over (root ADR-0190, or the auto-promotion of root ADR-0435)."
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-nearby",
+      "type": "gold_table",
+      "title": "필지 주변 by-PNU 표",
+      "description": "서빙 필지판의 필지마다 그 중심에서 가장 가까운 공항·철도역·도시철도역·초중등학교·대학(이름과 회전타원체 거리), 둘레 H3 칸의 상가(상권) 수, 같은 시군구의 고속도로 출입시설을 담는 데이터 종류 표(루트 ADR-0465). Apache Sedona 의 ST_KNN·H3 함수로 Gold 에서 계산한다. 바뀐 상가 둘레와 바뀐 필지만 다시 계산하고, 시설 파일이 바뀌면 통째로 지어 digest 가 다른 문서만 발행한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_nearby",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_nearby"
+        }
+      ]
+    },
+    {
+      "id": "parcel-nearby-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 주변 by-PNU 묶음 파일",
+      "description": "gold.parcel_nearby 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/nearby/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0465). 첫 발행은 자동 승격(루트 ADR-0435)이 한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/config/r2-connections.contract.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-parcel-boundaries",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "서빙 필지판의 필지마다 경계의 중심(Sedona ST_Centroid)이 거리를 재는 점이고 그 H3 칸이 상가 둘레의 가운데다(루트 ADR-0465). 들고 나거나 경계가 바뀐 필지만 다시 계산한다."
+    },
+    {
+      "from": "silver-airport",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "가장 가까운 공항(공항명)과 회전타원체 거리, 위도·경도(WGS84좌표)로(Sedona ST_KNN, 루트 ADR-0465). 이 파일이 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+    },
+    {
+      "from": "silver-railway-station",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "가장 가까운 철도역(역이름)과 거리, 위도좌표·경도좌표로(Sedona ST_KNN, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+    },
+    {
+      "from": "silver-subway-station",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "가장 가까운 도시철도역(역사명·노선명)과 거리, 위도·경도로(Sedona ST_KNN, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+    },
+    {
+      "from": "silver-school-location",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "가장 가까운 초중등학교(학교명·학교급구분)와 거리, 위도·경도로(Sedona ST_KNN, 루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+    },
+    {
+      "from": "silver-university",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "가장 가까운 대학(학교명·학교구분명)과 거리. 파일에 좌표가 없어 주소가 이른 필지의 중심을 쓴다(루트 ADR-0465). 바뀌면 통째로 짓고 바뀐 문서만 발행한다."
+    },
+    {
+      "from": "silver-commercial-district",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "상가 좌표(경도·위도)의 H3 칸(해상도 9)마다 상가 수를 세어, 필지 칸 둘레 두 겹의 합을 싣는다(Sedona ST_H3CellIDs·ST_H3KRing, 루트 ADR-0465). 상가가 떠나거나 들어온 칸의 둘레 안 필지만 다시 계산한다."
+    },
+    {
+      "from": "silver-highway-access-point",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      ],
+      "description": "필지의 시군구(법정동 코드 앞 다섯 자리)에 있는 고속도로 출입시설(노선명·출입시설)을 싣는다. 파일에 좌표도 지번도 없어 거리를 재지 않는다(루트 ADR-0401 §4, ADR-0465). 바뀌면 통째로 짓는다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-nearby",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "대학의 PNU 와 출입시설의 법정동 코드를 서빙 필지판의 코드로 읽는다(모든 필지 종류와 같은 renumbered, 루트 ADR-0329 §3). 이 표가 바뀌면 종류를 통째로 짓는다."
+    },
+    {
+      "from": "gold-parcel-nearby",
+      "to": "parcel-nearby-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-nearby": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "nearby",
+      "section": "nearby",
+      "columns": [
+        "nearby_json"
+      ],
+      "producer": "parcel_nearby_silver_to_gold",
+      "decision": "docs/adr/0465-a-parcel-shows-what-is-near-it-computed-in-gold-with-sedona-and-h3.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_parcel_nearby_gold.py"
+    }
+  },
+  "host_memory": {
+    "gold_parcel_nearby_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_parcel_nearby_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_nearby_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-nearby",
+        "producer": "infra/lakehouse/spark/jobs/parcel_nearby_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_nearby_by_pnu.v1",
+          "decision": "docs/adr/0465-a-parcel-shows-what-is-near-it-computed-in-gold-with-sedona-and-h3.md",
+          "reason": "the first document: the parcel's nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 with the spheroid distance from its centroid, the 상가(상권) stores in the H3 rings around it, and the 고속도로 출입시설 of its 시군구"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "source",
+              "required": true
+            },
+            {
+              "path": "nearby",
+              "required": true
+            },
+            {
+              "path": "attached_via",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/nearby.generated.ts",
+          "reason": "the parcel panel's 주변 group (root ADR-0465): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "nearby",
+              "required": true
+            },
+            {
+              "path": "nearby.airport",
+              "required": false
+            },
+            {
+              "path": "nearby.airport.name",
+              "required": false
+            },
+            {
+              "path": "nearby.airport.distance_m",
+              "required": true
+            },
+            {
+              "path": "nearby.railway_station",
+              "required": false
+            },
+            {
+              "path": "nearby.railway_station.name",
+              "required": false
+            },
+            {
+              "path": "nearby.railway_station.distance_m",
+              "required": true
+            },
+            {
+              "path": "nearby.subway_station",
+              "required": false
+            },
+            {
+              "path": "nearby.subway_station.name",
+              "required": false
+            },
+            {
+              "path": "nearby.subway_station.route_name",
+              "required": false
+            },
+            {
+              "path": "nearby.subway_station.distance_m",
+              "required": true
+            },
+            {
+              "path": "nearby.school",
+              "required": false
+            },
+            {
+              "path": "nearby.school.name",
+              "required": false
+            },
+            {
+              "path": "nearby.school.school_level",
+              "required": false
+            },
+            {
+              "path": "nearby.school.distance_m",
+              "required": true
+            },
+            {
+              "path": "nearby.university",
+              "required": false
+            },
+            {
+              "path": "nearby.university.name",
+              "required": false
+            },
+            {
+              "path": "nearby.university.school_kind",
+              "required": false
+            },
+            {
+              "path": "nearby.university.distance_m",
+              "required": true
+            },
+            {
+              "path": "nearby.commercial_store_count",
+              "required": true
+            },
+            {
+              "path": "nearby.highway_access_points",
+              "required": false
+            },
+            {
+              "path": "nearby.highway_access_points.total",
+              "required": true
+            },
+            {
+              "path": "nearby.highway_access_points.records",
+              "required": true
+            },
+            {
+              "path": "nearby.highway_access_points.records[].route_name",
+              "required": false
+            },
+            {
+              "path": "nearby.highway_access_points.records[].facility_name",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

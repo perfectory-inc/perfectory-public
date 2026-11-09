@@ -19,6 +19,16 @@
     "version_reason": "Must equal the Hadoop the Spark image already carries. Measured 2026-08-31 by listing /opt/spark/jars in apache/spark:3.5.6-scala2.12-java17-python3-ubuntu: hadoop-client-api-3.3.4.jar and hadoop-client-runtime-3.3.4.jar. A different hadoop-aws brings a second copy of classes the runtime already defines.",
     "scope": "The `s3a://` filesystem, so `spark.read` can open an object that is not part of an Iceberg table — the Silver handoff JSONL a load consumes. That image ships no aws, s3, or hadoop-cloud jar at all: 252 jars, none of them. Without this, `spark.read.json(\"s3a://...\")` fails on the scheme while the same job writes Iceberg tables to the same bucket, because those two go through different code."
   },
+  "sedona": {
+    "version": "1.9.1",
+    "artifacts": [
+      "org.apache.sedona:sedona-spark-shaded-3.5_2.12"
+    ],
+    "geotools_wrapper": "org.datasyslab:geotools-wrapper:1.9.1-33.5",
+    "sql_extensions": "org.apache.sedona.sql.SedonaSqlExtensions",
+    "decision": "docs/adr/0465-a-parcel-shows-what-is-near-it-computed-in-gold-with-sedona-and-h3.md",
+    "scope": "Apache Sedona's spatial SQL (ST_KNN nearest-neighbour join, ST_DistanceSpheroid, the H3 functions ST_H3CellIDs and ST_H3KRing) for the Gold producers that compute what is near a parcel (root ADR-0465). Frozen with the release like the blocks above (lakehouse_engine.iceberg_packages); a session opts in with lakehouse_engine.with_sedona, which adds the extension beside Iceberg's. The Rust Silver loaders submit only the Iceberg and Hadoop blocks: they run no spatial SQL. The shaded artifact for Spark 3.5 / Scala 2.12 (the spark block), measured 2026-11-09 on Maven Central: 82,601,139 bytes, the wrapper 31,949,894."
+  },
   "spark": {
     "version": "3.5.6",
     "scala_binary_version": "2.12",

@@ -262,7 +262,8 @@
           "subParcels": "부속지번",
           "energy": "에너지",
           "demolitions": "멸실 건물",
-          "rules": "규제"
+          "rules": "규제",
+          "nearby": "주변"
         },
         "subParcels": {
           "onOther": "이 필지 건물이 함께 선 필지 {count}건",
@@ -433,7 +434,20 @@
         },
         "copy": "복사",
         "copied": "복사됨",
-        "notice": "법적 효력이 없는 참고 정보예요"
+        "notice": "법적 효력이 없는 참고 정보예요",
+        "nearby": {
+          "title": "주변 시설",
+          "airport": "공항",
+          "railway_station": "철도역",
+          "subway_station": "도시철도역",
+          "school": "초중등학교",
+          "university": "대학",
+          "point": "{name} · {distance}",
+          "unnamed": "이름 없음",
+          "stores": "상가(상권)",
+          "storeCount": "반경 약 500m 안 {count}곳",
+          "highway": "같은 시군구의 고속도로 출입시설 {count}곳"
+        }
       },
       "buildings": {
         "title": "건축물",

@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.commercial_district"
 name: "상가(상권)"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "소상공인시장진흥공단 상가(상권)정보, 상가업소번호마다 한 행. 제공자의 19자리 지번코드를 복사하지 않고 place-identity 해석기로 현재 PNU 를 정한다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 읽는 소비자가 아직 없어 contract_only 다."
+  purpose: "소상공인시장진흥공단 상가(상권)정보, 상가업소번호마다 한 행. 제공자의 19자리 지번코드를 복사하지 않고 place-identity 해석기로 현재 PNU 를 정한다. 판마다 행 키(제공자 키 또는 행의 SHA-256)로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 필지 by-PNU 종류 parcel-nearby 가 읽는다(루트 ADR-0465)."
 team:
   name: "foundation-platform"
 servers:
@@ -76,7 +76,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-commercial-district"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

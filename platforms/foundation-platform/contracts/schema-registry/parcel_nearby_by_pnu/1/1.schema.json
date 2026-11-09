@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_nearby_by_pnu",
+  "description": "What is near a parcel (root ADR-0465), from its centroid: the nearest 공항, 철도역, 도시철도역, 초중등학교 and 대학 in the providers' words with the distance in metres on the WGS84 spheroid (null when the file has no located row), the 상가(상권) stores in the two H3 rings (resolution 9) around its cell, and the 고속도로 출입시설 of its 시군구 (at most 20, and their total; null when it has none).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_nearby_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "nearby": {
+      "type": "object",
+      "properties": {
+        "airport": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "distance_m": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "distance_m"
+          ]
+        },
+        "railway_station": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "distance_m": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "distance_m"
+          ]
+        },
+        "subway_station": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "route_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "distance_m": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "distance_m"
+          ]
+        },
+        "school": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "school_level": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "distance_m": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "distance_m"
+          ]
+        },
+        "university": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "school_kind": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "distance_m": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "distance_m"
+          ]
+        },
+        "commercial_store_count": {
+          "type": "integer"
+        },
+        "highway_access_points": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 20.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "route_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "facility_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        }
+      },
+      "required": [
+        "commercial_store_count"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "nearby"
+  ]
+}

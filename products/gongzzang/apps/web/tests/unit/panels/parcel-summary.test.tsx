@@ -23,6 +23,7 @@ const reads = vi.hoisted(() => ({
   factories: null as unknown,
   registerMasters: null as unknown,
   buildingPermits: null as unknown,
+  nearby: null as unknown,
   realTransaction: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
@@ -70,6 +71,10 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelBuildingPermitsQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "building-permits", pnu],
     queryFn: async () => reads.buildingPermits,
+  }),
+  parcelNearbyQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "nearby", pnu],
+    queryFn: async () => reads.nearby,
   }),
   parcelRegisterMastersQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "register-masters", pnu],
@@ -455,6 +460,33 @@ describe("parcel panel sections", () => {
       expect(screen.queryByText(/대지위치/)).toBeNull();
     } finally {
       reads.buildingPermits = null;
+    }
+  });
+
+  it("shows what is near the parcel with distances, and leaves out what the files lack", async () => {
+    reads.nearby = {
+      airport: { name: "공항", distance_m: 12_345 },
+      railway_station: null,
+      subway_station: { name: "역", route_name: "1호선", distance_m: 850 },
+      school: null,
+      university: null,
+      commercial_store_count: 42,
+      highway_access_points: {
+        total: 1,
+        records: [{ route_name: "경부선", facility_name: "가IC" }],
+      },
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("주변 시설")).toBeTruthy();
+      expect(anchors()).toContain("주변");
+      expect(screen.getByText("공항 · 12.3km")).toBeTruthy();
+      expect(screen.getByText("역 · 1호선 · 850m")).toBeTruthy();
+      expect(screen.getByText("반경 약 500m 안 42곳")).toBeTruthy();
+      expect(screen.getByText("경부선 가IC")).toBeTruthy();
+      expect(screen.queryByText("철도역")).toBeNull();
+    } finally {
+      reads.nearby = null;
     }
   });
 
