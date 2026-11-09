@@ -21,7 +21,7 @@ describe("generated Wrangler configuration", () => {
       workers_dev: false,
       keep_vars: true,
       // The front door's origin is a custom domain too; a door switched to CloudFront drops the public one
-      // (root ADR-0460).
+      // (root ADR-0461).
       routes: [
         ...(frontDoor.doors.tiles.answered_by === "cloudfront" ? [] : [gateway.public_hostname]),
         ...gateway.public_hostname_aliases,

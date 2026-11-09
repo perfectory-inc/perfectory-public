@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Measure where Korean visitors enter, and how fast, for the same reads through Cloudflare and through
-the Seoul front door (root ADR-0460).
+the Seoul front door (root ADR-0461).
 
     korea-edge-measure.py --sample SAMPLE.json [--cloudfront DOOR=dXXXX.cloudfront.net ...]
                           [--reads 5] [--globalping 12] [--json OUT.jsonl]

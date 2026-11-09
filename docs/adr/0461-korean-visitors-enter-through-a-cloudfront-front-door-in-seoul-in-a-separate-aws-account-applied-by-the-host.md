@@ -1,4 +1,4 @@
-# ADR 0460: 한국 방문자는 서울의 CloudFront 앞문으로 들어온다 — 별도 AWS 계정, 호스트가 OpenTofu 로 적용, 되돌리기는 DNS 한 줄
+# ADR 0461: 한국 방문자는 서울의 CloudFront 앞문으로 들어온다 — 별도 AWS 계정, 호스트가 OpenTofu 로 적용, 되돌리기는 DNS 한 줄
 
 - Status: Accepted
 - Date: 2026-11-09

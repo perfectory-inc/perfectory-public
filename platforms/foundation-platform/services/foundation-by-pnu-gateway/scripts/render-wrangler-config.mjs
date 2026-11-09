@@ -35,7 +35,7 @@ export function render(contract, lane, frontDoor = { doors: {} }) {
   }
   // The public hostname lives in the contract, nowhere else: the deploy attaches exactly the
   // domains the contract names, so moving the serving address is a one-line contract change.
-  // The Seoul front door (root ADR-0460): the Worker also answers the door's origin hostname, which
+  // The Seoul front door (root ADR-0461): the Worker also answers the door's origin hostname, which
   // CloudFront reads; once the door is switched to CloudFront the public hostname is its CNAME and no
   // longer this Worker's custom domain (Wrangler drops a domain the config no longer names).
   const door = Object.values(frontDoor.doors ?? {}).find((entry) => entry.gateway === block);

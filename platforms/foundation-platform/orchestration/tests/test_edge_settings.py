@@ -4,7 +4,7 @@ ADR-0436).
 A fixture host holds a control checkout (the real contracts and module inputs), the release it runs
 and the token's file. Stand-ins answer for the rest: the staff list, the Cloudflare API, OpenTofu,
 the runtime-secrets writer (a plain file here) and the console start. The front door (infra/cdn,
-root ADR-0460) applies after the console under its own records once the aws-cdn group holds a key.
+root ADR-0461) applies after the console under its own records once the aws-cdn group holds a key.
 """
 
 import contextlib

@@ -18,7 +18,7 @@ Worker deploy, on every tick that finds the host on main's head. Each run:
   the SHA-256 of its value), so no second credential exists;
 - writes the tunnel token OpenTofu read back into the runtime-secrets group console-tunnel, and starts
   the console (foundation-release.sh console) when that token changed. Nobody copies it;
-- then applies the Seoul front door, infra/cdn (root ADR-0460), the same way under its own records,
+- then applies the Seoul front door, infra/cdn (root ADR-0461), the same way under its own records,
   once the runtime-secrets group aws-cdn holds the separate AWS account's apply key: CloudFront, its
   certificates and the budget with that key, the zone's records with the account token, the state in
   the same bucket under its own key with the same passphrase. Without that key it does nothing.
@@ -241,7 +241,7 @@ def run_locked(host: Host, tree: pathlib.Path, commit: str) -> int:
     # The front door is its own apply: a console failure does not hold it back, nor the reverse.
     keys = values_in(on_host(host, group_path(tree, FRONT_DOOR_GROUP)))
     if not all(keys.get(name) for name in FRONT_DOOR_KEY_NAMES):
-        log(f"front door off: {group_path(tree, FRONT_DOOR_GROUP)} holds no AWS apply key (root ADR-0460)")
+        log(f"front door off: {group_path(tree, FRONT_DOOR_GROUP)} holds no AWS apply key (root ADR-0461)")
         return console
     digest = hashlib.sha256("\0".join([
         fingerprint(tree, FRONT_DOOR_INPUTS), json.dumps(front_door_hostnames(tree), sort_keys=True), account,

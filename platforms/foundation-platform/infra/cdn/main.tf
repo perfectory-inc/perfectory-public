@@ -1,4 +1,4 @@
-# The Seoul front door as code (root ADR-0460): a CloudFront distribution in front of each Cloudflare
+# The Seoul front door as code (root ADR-0461): a CloudFront distribution in front of each Cloudflare
 # Worker Korean visitors read, its ACM certificate (us-east-1, validated through the Cloudflare zone),
 # the DNS-only CNAME of each door config/cdn-front-door.contract.json has switched to CloudFront, and
 # the account's zero-spend budget. scripts/deploy/edge_settings.py applies it on the data host after
@@ -104,7 +104,7 @@ provider "aws" {
   default_tags {
     tags = {
       managed-by = "opentofu"
-      decision   = "root-adr-0460"
+      decision   = "root-adr-0461"
     }
   }
 }
@@ -135,7 +135,7 @@ resource "cloudflare_dns_record" "validation" {
   content  = trimsuffix(one(aws_acm_certificate.door[each.key].domain_validation_options).resource_record_value, ".")
   proxied  = false
   ttl      = 60
-  comment  = "ACM validation of the ${each.key} front door (root ADR-0460)"
+  comment  = "ACM validation of the ${each.key} front door (root ADR-0461)"
 }
 
 resource "aws_acm_certificate_validation" "door" {
@@ -146,7 +146,7 @@ resource "aws_acm_certificate_validation" "door" {
 
 resource "aws_cloudfront_cache_policy" "origin" {
   name        = "perfectory-origin-cache-control"
-  comment     = "The origin's Cache-Control decides (root ADR-0460)"
+  comment     = "The origin's Cache-Control decides (root ADR-0461)"
   min_ttl     = local.contract.cache.min_ttl_seconds
   default_ttl = local.contract.cache.default_ttl_seconds
   max_ttl     = local.contract.cache.max_ttl_seconds
@@ -179,7 +179,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 # Server-Timing names the PoP and whether the edge held the answer: what the verification reads.
 resource "aws_cloudfront_response_headers_policy" "timing" {
   name    = "perfectory-server-timing"
-  comment = "Server-Timing on every answer (root ADR-0460)"
+  comment = "Server-Timing on every answer (root ADR-0461)"
   server_timing_headers_config {
     enabled       = true
     sampling_rate = 100
@@ -189,7 +189,7 @@ resource "aws_cloudfront_response_headers_policy" "timing" {
 resource "aws_cloudfront_distribution" "door" {
   for_each        = local.doors
   enabled         = true
-  comment         = "${each.key} front door (root ADR-0460)"
+  comment         = "${each.key} front door (root ADR-0461)"
   aliases         = [each.value.public_hostname]
   http_version    = "http2and3"
   is_ipv6_enabled = true
@@ -268,7 +268,7 @@ resource "cloudflare_dns_record" "door" {
   content  = aws_cloudfront_distribution.door[each.key].domain_name
   proxied  = false
   ttl      = 60
-  comment  = "${each.key} front door: CloudFront (root ADR-0460)"
+  comment  = "${each.key} front door: CloudFront (root ADR-0461)"
 }
 
 resource "aws_budgets_budget" "free_tier" {

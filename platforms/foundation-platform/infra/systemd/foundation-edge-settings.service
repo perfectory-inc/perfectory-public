@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform: apply the console's Cloudflare edge settings (Access, tunnel, DNS) and the Seoul front door (CloudFront) from the commit the host runs (root ADR-0436, ADR-0460)
+Description=Foundation Platform: apply the console's Cloudflare edge settings (Access, tunnel, DNS) and the Seoul front door (CloudFront) from the commit the host runs (root ADR-0436, ADR-0461)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/edge-settings.md
 X-Foundation-Owner=platform
 Requires=docker.service

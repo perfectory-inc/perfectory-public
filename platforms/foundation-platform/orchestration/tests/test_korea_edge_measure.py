@@ -1,4 +1,4 @@
-"""The Korea edge measurement (scripts/ops/korea-edge-measure.py, root ADR-0460) reads its doors from
+"""The Korea edge measurement (scripts/ops/korea-edge-measure.py, root ADR-0461) reads its doors from
 the front door contract and names where each answer entered."""
 
 import importlib.util
