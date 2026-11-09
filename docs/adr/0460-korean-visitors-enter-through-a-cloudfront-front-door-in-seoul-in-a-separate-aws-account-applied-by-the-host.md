@@ -1,6 +1,6 @@
 # ADR 0460: 한국 방문자는 서울의 CloudFront 앞문으로 들어온다 — 별도 AWS 계정, 호스트가 OpenTofu 로 적용, 되돌리기는 DNS 한 줄
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-09
 - Builds on: [ADR-0436](./0436-the-consoles-cloudflare-edge-is-opentofu-applied-by-the-host-with-the-existing-account-token-and-the-allowlist-is-the-identity-staff-list.md)(엣지 설정은
   OpenTofu, 호스트가 적용, 상태는 R2 에 잠금·암호화),
@@ -46,7 +46,7 @@ Organizations 의 "작업마다 계정을 나눈다"(blast radius) 권고 그대
 
 **A 를 고른다.** B 는 2순위로 남긴다(같은 계약 모양에 프로바이더만 바꾸면 된다). C 는 병행해서 견적만 받는다(사장 결정).
 
-## Decision (제안 — 계정이 생기면 Accepted)
+## Decision
 
 1. **계약 하나.** `platforms/foundation-platform/config/cdn-front-door.contract.json` 이 앞문의 정본이다. 문(door) 셋:
    - `tiles` — `vector_tile_gateway`(공개 `tiles.perfectory.io`), 원점 `tiles-origin.perfectory.io`.
