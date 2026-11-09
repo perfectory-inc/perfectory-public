@@ -530,6 +530,57 @@ class Reconciler(unittest.TestCase):
         self.assertIn('node_textfile_mtime_seconds{file=~".*/foundation-units.prom"}', rules)
         self.assertEqual(asset_reconcile.UNITS_METRICS_NAME, "foundation-units.prom")
 
+    def test_a_dagster_location_that_does_not_load_is_said_with_the_last_comparison(self):
+        # Root ADR-0431: 2026-11-06 21:16Z..11-09 the code location failed every load, the UI answered,
+        # the deploy said "observing" and the ledger got no line. The textfile says the load error, and
+        # the last comparison comes from the event log, so it is known while the location is down.
+        observing = {"observers": {"dagster": {"enabled": True, "ui": "http://127.0.0.1:19085"}}}
+        dag_ids = {"synthetic_b": "foundation_synthetic_b", "synthetic_a": "foundation_synthetic_a"}
+        asked = []
+
+        def post(query):
+            asked.append(query)
+            return {"workspaceOrError": {"locationEntries": [
+                        {"name": "definitions.py", "locationOrLoadError": {"__typename": "PythonError"}}]},
+                    "j0": [{"evaluation": {"timestamp": 1800000000.5}}], "j1": []}
+
+        text = asset_reconcile.dagster_state(observing, dag_ids, post)
+        self.assertIn("foundation_dagster_observing 1\n", text)
+        self.assertIn("foundation_dagster_answered 1\n", text)
+        self.assertIn('foundation_dagster_code_location_loaded{location="definitions.py"} 0\n', text)
+        self.assertIn("foundation_dual_run_jobs 2\n", text)
+        self.assertIn('foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_a"} 1800000000.5\n', text)
+        self.assertNotIn('job="synthetic_b"', text, "a job that never compared has no time")
+        self.assertIn('j0: assetCheckExecutions(assetKey: {path: ["foundation_airflow", "dag", "foundation_synthetic_a"]},'
+                      ' checkName: "dual_run_matches_airflow", limit: 1)', asked[0], "one query, in job order")
+        loaded = asset_reconcile.dagster_state(observing, dag_ids, lambda query: {"workspaceOrError": {"locationEntries": [
+            {"name": "definitions.py", "locationOrLoadError": {"__typename": "RepositoryLocation"}}]}})
+        self.assertIn('{location="definitions.py"} 1\n', loaded)
+
+        def refused(query):
+            raise OSError("connection refused")
+
+        self.assertIn("foundation_dagster_answered 0\n", asset_reconcile.dagster_state(observing, dag_ids, refused))
+        off = asset_reconcile.dagster_state({"observers": {"dagster": {"enabled": False}}}, dag_ids, refused)
+        self.assertIn("foundation_dagster_observing 0\n", off)
+        self.assertNotIn("\nfoundation_dagster_answered ", off, "a switched-off Dagster is not asked")
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        for name in ("alert: FoundationDagsterCodeLocationDown", "alert: FoundationDualRunSilent",
+                     'node_textfile_mtime_seconds{file=~".*/dagster.prom"}'):
+            self.assertIn(name, rules)
+        self.assertEqual(asset_reconcile.DAGSTER_METRICS_NAME, "dagster.prom")
+
+    def test_the_dual_run_check_is_named_as_the_code_location_names_it(self):
+        # The host has no Dagster to import dual_run from; its names are read from the file.
+        import ast
+
+        tree = ast.parse((ORCHESTRATION / "dagster/dual_run.py").read_text(encoding="utf-8"))
+        names = {target.id: node.value.value for node in tree.body if isinstance(node, ast.Assign)
+                 for target in node.targets if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant)}
+        self.assertEqual(asset_reconcile.DUAL_RUN_CHECK, names["CHECK_NAME"])
+        self.assertEqual(asset_reconcile.DUAL_RUN_KEY_PREFIX, (names["INSTANCE_NAME"], "dag"))
+        self.assertIn('AssetKey([INSTANCE_NAME, "dag", spec.dag_id])', (ORCHESTRATION / "dagster/dual_run.py").read_text(encoding="utf-8"))
+
     def test_a_label_value_keeps_systemds_escapes(self):
         self.assertEqual(asset_reconcile.label(r'foundation-x@a\x2db.service'), r'foundation-x@a\\x2db.service')
 

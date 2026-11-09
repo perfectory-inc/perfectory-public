@@ -38,7 +38,9 @@ tick that saw it running or its pool full) and foundation_asset_reconcile_timest
 beside it docker-networks.prom, the host's bridge networks against what Docker's address pools hold,
 which every job's Compose project draws from (bridge_networks), and docker-containers.prom, each running
 container's cgroup id with its name (container_names), which cAdvisor cannot see without the engine's
-socket and the FoundationContainerMemoryNearCap rule looks up (root ADR-0385). The
+socket and the FoundationContainerMemoryNearCap rule looks up (root ADR-0385), and dagster.prom,
+whether Dagster's code location loads and when the dual run last compared (dagster_state; the
+FoundationDagster*/FoundationDualRun* rules, root ADR-0431). The
 FoundationAsset* rules turn them into asset_lag_seconds and asset_unscheduled_seconds and alert. The
 idle-since times are kept under the job's state path between ticks. It changes no data: its outcome
 is `unchanged`, or `failed` when no asset could be read.
@@ -548,6 +550,76 @@ def failed_units(failed, show, tracked: dict, read_text=lambda path: Path(path).
     return UNITS_HELP + "".join(lines) + f"foundation_units_failed {len(names)}\n", failing
 
 
+DAGSTER_METRICS_NAME = "dagster.prom"
+# The dual run's check and the DAG asset it sits on (orchestration/dagster/dual_run.py CHECK_NAME,
+# dag_key); the host has no Dagster to import them from, so a test reads them from that file.
+DUAL_RUN_CHECK = "dual_run_matches_airflow"
+DUAL_RUN_KEY_PREFIX = ("foundation_airflow", "dag")
+DAGSTER_HELP = """# HELP foundation_dagster_observing Whether Dagster observes Airflow (jobs.v1.json observers.dagster.enabled, root ADR-0333 stage 0).
+# TYPE foundation_dagster_observing gauge
+# HELP foundation_dagster_answered Whether Dagster's GraphQL answered this tick.
+# TYPE foundation_dagster_answered gauge
+# HELP foundation_dagster_code_location_loaded Whether a Dagster code location loads (0: a load error, or still loading).
+# TYPE foundation_dagster_code_location_loaded gauge
+# HELP foundation_dual_run_jobs How many jobs are at dagster_stage shadow (root ADR-0431 §2).
+# TYPE foundation_dual_run_jobs gauge
+# HELP foundation_dual_run_last_comparison_timestamp_seconds When a job's dual-run check last compared, and so appended to the ledger (root ADR-0458).
+# TYPE foundation_dual_run_last_comparison_timestamp_seconds gauge
+"""
+
+
+def dagster_state(jobs: dict, dag_ids: dict, post) -> str:
+    """The textfile of whether Dagster's code location loads and when each job in the dual run last
+    compared (root ADR-0431, ADR-0458). `dag_ids` is job id -> DAG id of the jobs at `shadow`; `post`
+    sends one GraphQL query to Dagster and returns its `data`, raising OSError or ValueError when
+    Dagster does not answer.
+
+    From 2026-11-06 21:16Z to 11-09 the code location failed every load (6,222 times in the daemon's
+    log), so no dual-run check ran and the ledger got no line, while Dagster's UI answered and the
+    deploy said "observing". A comparison is read from the instance's event log, not the location, so
+    the time of the last one is known while the location is down. A check's evaluation is reported
+    only after its ledger line is written (dual_run.append), so an evaluation is a ledger line."""
+    observing = bool(jobs.get("observers", {}).get("dagster", {}).get("enabled"))
+    text = DAGSTER_HELP + f"foundation_dagster_observing {int(observing)}\n"
+    if not observing:
+        return text
+    text += f"foundation_dual_run_jobs {len(dag_ids)}\n"
+    names = sorted(dag_ids)
+    checks = "".join(
+        f' j{index}: assetCheckExecutions(assetKey: {{path: {json.dumps([*DUAL_RUN_KEY_PREFIX, dag_ids[job]])}}},'
+        f' checkName: "{DUAL_RUN_CHECK}", limit: 1) {{ evaluation {{ timestamp }} }}'
+        for index, job in enumerate(names))
+    query = ("{ workspaceOrError { __typename ... on Workspace { locationEntries { name locationOrLoadError"
+             " { __typename } } } }" + checks + " }")
+    try:
+        data = post(query)
+        entries = data["workspaceOrError"]["locationEntries"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return text + "foundation_dagster_answered 0\n"
+    text += "foundation_dagster_answered 1\n"
+    for entry in sorted(entries, key=lambda entry: entry["name"]):
+        loaded = (entry.get("locationOrLoadError") or {}).get("__typename") == "RepositoryLocation"
+        text += f'foundation_dagster_code_location_loaded{{location="{label(entry["name"])}"}} {int(loaded)}\n'
+    for index, job in enumerate(names):
+        found = data.get(f"j{index}") or []
+        evaluation = (found[0] if found else {}).get("evaluation")
+        if evaluation:
+            text += f'foundation_dual_run_last_comparison_timestamp_seconds{{job="{label(job)}"}} {evaluation["timestamp"]}\n'
+    return text
+
+
+def dagster_post(url: str):
+    """`post` for dagster_state: one GraphQL query to Dagster's webserver (jobs.v1.json observers.dagster.ui)."""
+    import urllib.request  # noqa: PLC0415
+
+    def post(query: str) -> dict:
+        request = urllib.request.Request(f"{url}/graphql", data=json.dumps({"query": query}).encode(), method="POST",
+                                         headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read())["data"]
+    return post
+
+
 def write_replacing(path: Path, text: str) -> None:
     """Replaced whole by a rename, so a scrape or the next tick never reads half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -657,6 +729,12 @@ def main() -> int:
         write_replacing(state_dir / UNITS_STATE_FILE, json.dumps(tracked, sort_keys=True) + "\n")
     except (OSError, subprocess.SubprocessError, ValueError, KeyError) as error:
         print(f"asset_reconcile: could not list the failed units: {error}", file=sys.stderr)
+    try:
+        dag_ids = {spec.job_id: spec.dag_id for spec in job_specs.load_specs(jobs, graph) if spec.dagster_stage == "shadow"}
+        ui = jobs.get("observers", {}).get("dagster", {}).get("ui", "")
+        write_replacing(metrics_file.with_name(DAGSTER_METRICS_NAME), dagster_state(jobs, dag_ids, dagster_post(ui)))
+    except (OSError, ValueError, job_specs.JobListError) as error:
+        print(f"asset_reconcile: could not ask Dagster: {error}", file=sys.stderr)
     for line in owed:
         print(line)
     for error in errors:

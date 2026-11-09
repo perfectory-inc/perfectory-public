@@ -652,3 +652,51 @@ groups:
         annotations:
           summary: 실패한 유닛 목록을 30분 넘게 못 읽었어요 — 오래 실패한 유닛을 부를 수 없어요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md
+
+  # Dagster, observing Airflow and deciding beside it (root ADR-0431, ADR-0458). From 2026-11-06 21:16Z
+  # to 11-09 its code location failed every load (6,222 times in the daemon's log): no dual-run check
+  # ran, the evidence ledger got no line, the UI answered and the deploy said "observing", and the
+  # move gate counted from nothing for 2.5 days. The asset reconciler asks Dagster's GraphQL every
+  # five minutes (dagster.prom): the location's load state, and the newest check evaluation of each
+  # job in the dual run, read from the instance's event log so it is known while the location is down.
+  - name: foundation-dagster
+    rules:
+      - alert: FoundationDagsterCodeLocationDown
+        # A deploy restarts both containers and the location loads within two minutes; fifteen is a
+        # location that does not load, or a webserver that does not answer.
+        expr: >-
+          (foundation_dagster_answered == 0 or min(foundation_dagster_code_location_loaded) == 0)
+          and on() foundation_dagster_observing == 1
+        for: 15m
+        labels:
+          severity: ticket
+          service: dual-run
+        annotations:
+          summary: 'Dagster 코드 위치가 15분 넘게 뜨지 않아요 — 이중 실행이 비교를 하나도 남기지 못하고 옮기는 문턱이 멈춰요. docker logs airflow-dagster-daemon-1 의 마지막 오류를 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDualRunSilent
+        # A check compares after every Airflow run of its job; eight of the jobs run more than once a
+        # day, so a day without any comparison is a dual run that stopped. 26 hours, the dual run's
+        # page hold, so a day whose only comparisons are daily jobs' late runs does not flap.
+        expr: >-
+          foundation_dual_run_jobs > 0 and on() foundation_dagster_observing == 1
+          unless on() (time() - max(foundation_dual_run_last_comparison_timestamp_seconds) < 26 * 3600)
+        for: 1h
+        labels:
+          severity: ticket
+          service: dual-run
+        annotations:
+          summary: '이중 실행의 작업 {{ $value }}개가 26시간 넘게 비교를 하나도 남기지 않았어요 — 원장(/var/lib/dagster/dual-run/comparisons.jsonl)이 자라지 않아 옮기는 문턱이 서 있어요. Dagster 의 dual_run_matches_airflow 검사 run 과 센서 틱을 보세요'
+          runbook: docs/runbooks/production-orchestrator-cutover.md
+      - alert: FoundationDagsterUnread
+        # The reconciler runs every five minutes; without its file the two above cannot fire.
+        expr: >-
+          time() - node_textfile_mtime_seconds{file=~".*/dagster.prom"} > 1800
+          or absent(foundation_dagster_observing)
+        for: 10m
+        labels:
+          severity: ticket
+          service: dual-run
+        annotations:
+          summary: Dagster 상태(dagster.prom)를 30분 넘게 못 읽었어요 — 코드 위치가 죽어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
+          runbook: docs/runbooks/asset-reconcile.md
