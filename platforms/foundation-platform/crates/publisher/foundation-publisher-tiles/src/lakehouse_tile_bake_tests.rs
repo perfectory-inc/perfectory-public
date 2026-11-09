@@ -522,7 +522,7 @@ fn the_contract_bakes_parcels_at_maxzoom_detail_14_and_refuses_another_range() -
 {
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     assert_eq!(contract.maxzoom_detail.get("parcels"), Some(&14));
-    assert_eq!(contract.maxzoom_detail.get("complex"), None);
+    assert_eq!(contract.maxzoom_detail.get("complex"), Some(&14));
     // 2026-11-03 to 11-07: zoning at z14 and the default 12 lost 642 zones wider than a pixel at
     // zoom 22, and the gate refused every bake; at 16 one unit is one pixel there, as for parcels.
     assert_eq!(contract.maxzoom_detail.get("zoning"), Some(&16));
@@ -1239,5 +1239,32 @@ fn the_tile_bytes_gate_names_the_largest_tile_of_each_zoom_and_refuses_over_budg
         .err()
         .context("one byte under the largest tile is refused")?;
     assert!(refused.to_string().contains("(2, 1, 0)"), "{refused}");
+    Ok(())
+}
+
+#[test]
+fn a_maxzoom_unit_is_at_most_a_pixel_at_render_max_zoom() -> anyhow::Result<()> {
+    // Root ADR-0485: complex, z16 tiles drawn to 22 at the default 12, was 4 px a unit at zoom 22.
+    let complex = complex_layer();
+    assert!(ensure_maxzoom_detail_reaches_render_max_zoom(&complex, None).is_err());
+    ensure_maxzoom_detail_reaches_render_max_zoom(&complex, Some(14))?;
+    ensure_maxzoom_detail_reaches_render_max_zoom(&parcel_layer(14, 16), Some(14))?;
+    assert!(
+        ensure_maxzoom_detail_reaches_render_max_zoom(&parcel_layer(14, 16), Some(13)).is_err()
+    );
+    let mut admin = complex_layer();
+    admin.render_max_zoom = admin.tile_max_zoom;
+    ensure_maxzoom_detail_reaches_render_max_zoom(&admin, None)?;
+    // Every unit the contract names bakes under the rule with its contract detail.
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let zoning = contract.units_born_from_a_lakehouse_bake["zoning"].served_layer();
+    ensure_maxzoom_detail_reaches_render_max_zoom(
+        &zoning,
+        contract.maxzoom_detail.get("zoning").copied(),
+    )?;
+    ensure_maxzoom_detail_reaches_render_max_zoom(
+        &complex,
+        contract.maxzoom_detail.get("complex").copied(),
+    )?;
     Ok(())
 }
