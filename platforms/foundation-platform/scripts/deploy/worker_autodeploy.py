@@ -163,7 +163,7 @@ def served_document_schemas(platform: pathlib.Path, gateways: dict[str, Any], ga
     lanes = [own, *(lane for lane, entry in gateways.get("by_pnu_lanes", {}).items() if entry.get("host") == gateway)]
     registry = json.loads((platform / "contracts/schema-registry/registry.json").read_text(encoding="utf-8"))
     return {entry["subject"]: sorted({revision["major"] for revision in entry["revisions"]})
-            for entry in registry["subjects"] if entry["owner"]["lane"] in lanes}
+            for entry in registry["subjects"] if entry["owner"].get("lane") in lanes}
 
 
 def _pointer(block: dict[str, Any], dotted: str) -> Any:

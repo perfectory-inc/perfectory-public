@@ -10,9 +10,10 @@ export function isReadOnlyPreview(): boolean {
 }
 
 /**
- * The preview has no identity, no session store and no Rust API behind it, so it serves the one
- * page whose data comes straight from the public edges and answers 404 for everything else.
+ * The preview has no identity, no session store and no Rust API behind it, so it serves the pages
+ * whose data comes straight from the public edges — the map, and the industrial-complex list, read
+ * from the parcel edge's index (root ADR-0456) — and answers 404 for everything else.
  */
 export function isReadOnlyPreviewPage(pathname: string): boolean {
-  return pathname === ROUTES.listings.index;
+  return pathname === ROUTES.listings.index || pathname === ROUTES.complexes.index;
 }

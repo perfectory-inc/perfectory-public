@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.industrial_complex_gold_profile major 1 revision 1",
+  "description": "One industrial complex's Gold profile (gold.complex_catalog's row, verbatim in attributes), written create-only at gold/industrial-complex/profiles/<artifact_id>.json and served immutable on the parcel edge (root ADR-0456). Decimals (official_area_sqm, calculated_area_sqm, development_progress_percent) are exact decimal text. A field that is not required may be absent or null.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.industrial_complex_gold_profile.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "artifact_id": {
+      "type": "string"
+    },
+    "complex_id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        },
+        "metadata_location": {
+          "type": "string"
+        },
+        "manifest_list_location": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "properties": {
+        "complex_id": {
+          "type": "string"
+        },
+        "official_complex_code": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "development_stage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sido_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sigungu_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sido_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "address_text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "management_agency_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "developer_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "designated_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "construction_start_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completion_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "official_area_sqm": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "development_progress_percent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lot_sales_status": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lot_sales_status_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "business_period_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "business_period_start_month": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "business_period_end_month": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "designation_basis_law_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "development_method_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "development_purpose_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "invited_industries_raw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "calculated_area_sqm": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parcel_count": {
+          "type": "integer"
+        },
+        "boundary_object_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_snapshot_id": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        },
+        "published_at_utc": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "complex_id",
+        "official_complex_code",
+        "name",
+        "kind",
+        "status",
+        "parcel_count",
+        "source_snapshot_id",
+        "iceberg_snapshot_id",
+        "published_at_utc"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "artifact_id",
+    "complex_id",
+    "source",
+    "attributes"
+  ]
+}

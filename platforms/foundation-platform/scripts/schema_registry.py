@@ -93,7 +93,7 @@ def current(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def subject_of_lane(registry: dict[str, Any], lane: str) -> dict[str, Any] | None:
-    return next((entry for entry in registry["subjects"] if entry["owner"]["lane"] == lane), None)
+    return next((entry for entry in registry["subjects"] if entry["owner"].get("lane") == lane), None)
 
 
 # --- the schema subset -------------------------------------------------------------------------
@@ -201,7 +201,7 @@ def full(old: dict[str, Any], new: dict[str, Any]) -> list[str]:
 # --- the registry's rules ----------------------------------------------------------------------
 
 
-def check_subject(platform: pathlib.Path, entry: dict[str, Any], lanes: dict[str, Any]) -> list[str]:
+def check_subject(platform: pathlib.Path, entry: dict[str, Any], connections: dict[str, Any]) -> list[str]:
     subject = entry.get("subject", "")
     out = []
 
@@ -268,7 +268,16 @@ def check_subject(platform: pathlib.Path, entry: dict[str, Any], lanes: dict[str
             if other != major and string == canonical(subject, major):
                 fail(f"major {major}'s string {string} is a legacy string of major {other}; take a major above every legacy number")
     out += check_consumers(platform, entry)
-    lane = (entry.get("owner") or {}).get("lane")
+    owner = entry.get("owner") or {}
+    if "surface" in owner:
+        # A document that is not by PNU (root ADR-0456): its owner is the connection contract's
+        # top-level block that serves it, never also a lane.
+        surface = owner["surface"]
+        if "lane" in owner or surface in ("by_pnu_lanes", "connections") or not isinstance(connections.get(surface), dict):
+            fail(f"owner.surface {surface!r} is no serving block of config/r2-connections.contract.json, or names a lane too")
+        return out
+    lanes = connections["by_pnu_lanes"]
+    lane = owner.get("lane")
     line = lanes.get(lane)
     if line is None:
         fail(f"owner.lane {lane!r} is no by_pnu_lanes line of config/r2-connections.contract.json")
@@ -390,15 +399,15 @@ def check(platform: pathlib.Path = PLATFORM, base: str | None = None) -> list[st
     out = []
     if registry.get("schema_version") != 1 or not isinstance(registry.get("subjects"), list):
         return ["registry.json: schema_version 1 with a list of subjects"]
-    lanes = json.loads((platform / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
+    connections = json.loads((platform / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
     subjects = [entry.get("subject") for entry in registry["subjects"]]
     if len(set(subjects)) != len(subjects):
         out.append("registry.json: a subject is listed twice")
-    owners = [(entry.get("owner") or {}).get("lane") for entry in registry["subjects"]]
+    owners = [(entry.get("owner") or {}).get("lane") or (entry.get("owner") or {}).get("surface") for entry in registry["subjects"]]
     if len(set(owners)) != len(owners):
-        out.append("registry.json: two subjects name the same owner lane")
+        out.append("registry.json: two subjects name the same owner lane or surface")
     for entry in registry["subjects"]:
-        out += check_subject(platform, entry, lanes)
+        out += check_subject(platform, entry, connections)
     listed = {schema_file(e["subject"], r).as_posix() for e in registry["subjects"] for r in e.get("revisions") or []
               if isinstance(r.get("major"), int) and isinstance(r.get("revision"), int)}
     for path in sorted((platform / REGISTRY).rglob("*.schema.json")):

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.industrial_complex_index major 1 revision 1",
+  "description": "Every industrial complex's list fields and the key of its current Gold profile, one document at gold/industrial-complex/index.json on the parcel edge (root ADR-0456), complex_id order. generation counts the index's changes; each one is also kept create-only at gold/industrial-complex/index-history/<generation>.json. content_sha256 is the hash of the complex's Gold row without its run columns (iceberg_snapshot_id, published_at_utc): a complex whose hash did not change keeps its profile. source is the Gold snapshot the last change was read from. A field that is not required may be absent or null.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.industrial_complex_index.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "generation": {
+      "type": "integer"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "complexes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "complex_id": {
+            "type": "string"
+          },
+          "official_complex_code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "development_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sido_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sido_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sigungu_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "address_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "official_area_sqm": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile_object_key": {
+            "type": "string"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "complex_id",
+          "official_complex_code",
+          "name",
+          "kind",
+          "status",
+          "profile_object_key",
+          "content_sha256"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "generation",
+    "source",
+    "complexes"
+  ]
+}

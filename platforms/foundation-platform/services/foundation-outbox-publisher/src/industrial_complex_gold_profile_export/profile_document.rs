@@ -13,9 +13,18 @@ use uuid::Uuid;
 
 use crate::r2_layout::industrial_complex_gold_profile_key;
 
-/// Wire schema version of the published profile document.
-pub(super) const PROFILE_SCHEMA_VERSION: &str =
-    "foundation-platform.industrial_complex_gold_profile.v1";
+/// The profile's subject in the schema registry (root ADR-0336, ADR-0456): its owner is the
+/// profile gateway's block of the connection contract, whose key layout the profile keeps.
+const PROFILE_SURFACE: &str = "profile_gateway";
+
+/// What a profile document carries in `schema_version` and `schema_revision`, from the registry.
+pub(super) fn profile_schema() -> anyhow::Result<(String, Option<u32>)> {
+    let subject = foundation_publisher_core::schema_registry::subject_of_surface(PROFILE_SURFACE)?;
+    Ok((
+        format!("{}.v{}", subject.subject, subject.major),
+        subject.written_revision(),
+    ))
+}
 
 /// One profile artifact, ready to be written create-only.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -47,7 +56,9 @@ pub(super) struct GoldSnapshotProvenance {
 
 #[derive(Debug, Serialize)]
 struct ProfileDocument<'a> {
-    schema_version: &'static str,
+    schema_version: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema_revision: Option<u32>,
     artifact_id: Uuid,
     complex_id: &'a str,
     source: &'a GoldSnapshotProvenance,
@@ -63,11 +74,17 @@ pub(super) fn build(
         .get("complex_id")
         .and_then(JsonValue::as_str)
         .context("Gold catalog row is missing complex_id")?;
-    let artifact_id = artifact_id(provenance.iceberg_snapshot_id.as_str(), complex_id);
+    let (schema_version, schema_revision) = profile_schema()?;
+    let artifact_id = artifact_id(
+        &schema_version,
+        provenance.iceberg_snapshot_id.as_str(),
+        complex_id,
+    );
     let object_key = industrial_complex_gold_profile_key(&artifact_id.to_string())?;
 
     let mut body = serde_json::to_vec_pretty(&ProfileDocument {
-        schema_version: PROFILE_SCHEMA_VERSION,
+        schema_version: &schema_version,
+        schema_revision,
         artifact_id,
         complex_id,
         source: provenance,
@@ -89,8 +106,8 @@ pub(super) fn build(
 ///
 /// A UUIDv5 keeps `gold/industrial-complex/profiles/{artifact_id}.json` (FP-ADR-0005) while
 /// making the address a function of its inputs, which is what lets a re-run be idempotent.
-fn artifact_id(iceberg_snapshot_id: &str, complex_id: &str) -> Uuid {
-    let namespace = Uuid::new_v5(&Uuid::NAMESPACE_URL, PROFILE_SCHEMA_VERSION.as_bytes());
+fn artifact_id(schema_version: &str, iceberg_snapshot_id: &str, complex_id: &str) -> Uuid {
+    let namespace = Uuid::new_v5(&Uuid::NAMESPACE_URL, schema_version.as_bytes());
     Uuid::new_v5(
         &namespace,
         format!("{iceberg_snapshot_id}:{complex_id}").as_bytes(),
@@ -172,10 +189,8 @@ mod tests {
         let artifact = build(&provenance(), &attributes())?;
         let document: JsonValue = serde_json::from_slice(&artifact.body)?;
 
-        assert_eq!(
-            document["schema_version"],
-            "foundation-platform.industrial_complex_gold_profile.v1"
-        );
+        assert_eq!(document["schema_version"], super::profile_schema()?.0);
+        assert_eq!(document["schema_revision"], 1);
         assert_eq!(document["source"]["table"], "gold.complex_catalog");
         // parcel_count 0 and calculated_area_sqm null are the values the Gold table holds today.
         // They are carried, not corrected: see root ADR-0036.

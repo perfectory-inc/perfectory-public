@@ -394,6 +394,16 @@
           "max_source_pixels": 50000000
         }
       },
+      "industrial_complex_documents": {
+        "purpose": "산업단지 문서를 필지 엣지(parcel lane = catalog.perfectory.io)에서 서빙한다(루트 ADR-0456). 제품 API 의 Postgres 사본을 거치지 않는다 — 레이크하우스가 중심이다. 목록 = index_object 한 장(모든 단지의 목록 칸과 그 단지 프로필의 키), 상세 = 단지마다의 Gold 프로필(profile_gateway.object_key 가 키·형식의 정본, create-only·immutable). 내보내기는 부분이다: 내용이 같은 단지는 지난 프로필을 그대로 가리키고, 바뀐 단지만 새 프로필을 쓴다. index_object 는 유일하게 덮어쓰는 객체이고, 쓰기 전에 같은 바이트를 index_history_dir/<generation>.json 에 create-only 로 남긴다(append-only 이력, by-PNU manifest·manifest-history 와 같은 모양). 읽기만 한다 — Worker 는 이 키들만 get 한다.",
+        "decision": "docs/adr/0456-industrial-complexes-are-served-from-the-catalog-edge-as-one-index-and-per-complex-profiles.md",
+        "lane": "parcel",
+        "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
+        "index_object": "gold/industrial-complex/index.json",
+        "index_history_dir": "gold/industrial-complex/index-history",
+        "index_cache_control": "no-cache, max-age=0",
+        "index_cache_control_reason": "덮어쓰는 객체라 브라우저가 매번 ETag 로 다시 묻는다(바뀌지 않았으면 304). 프로필은 키가 내용마다 달라 profile_gateway.cache_control(immutable)이다."
+      },
       "connections": {
         "lakehouse": {
           "required_env": [

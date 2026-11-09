@@ -34,9 +34,12 @@ pub struct Subject {
     current: Revision,
 }
 
+/// Who writes the subject's documents: a by-PNU lane, or a serving surface that is a top-level block
+/// of the connection contract (root ADR-0456: the industrial-complex documents).
 #[derive(Debug, Deserialize)]
 struct Owner {
-    lane: String,
+    lane: Option<String>,
+    surface: Option<String>,
 }
 
 /// One revision of a subject.
@@ -142,7 +145,21 @@ pub fn subject_of_lane(lane: &str) -> anyhow::Result<Option<&'static Subject>> {
     Ok(registry()?
         .subjects
         .iter()
-        .find(|subject| subject.owner.lane == lane))
+        .find(|subject| subject.owner.lane.as_deref() == Some(lane)))
+}
+
+/// The subject a serving surface (a top-level block of the connection contract) owns.
+///
+/// # Errors
+/// Returns an error when the registry cannot be read or lists no subject for `surface`.
+pub fn subject_of_surface(surface: &str) -> anyhow::Result<&'static Subject> {
+    registry()?
+        .subjects
+        .iter()
+        .find(|subject| subject.owner.surface.as_deref() == Some(surface))
+        .ok_or_else(|| {
+            anyhow::anyhow!("the schema registry lists no subject for surface {surface}")
+        })
 }
 
 #[cfg(test)]
