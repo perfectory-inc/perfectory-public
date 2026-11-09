@@ -127,7 +127,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
     config.gold_record_count =
         Some(gate::gold_record_count(lane, &config.expected_gold_snapshot, stated).await?);
     let store = ByPnuServingStore::open(lane, &config.output)?;
-    let gateway = format!("https://{}", lane.policy()?.public_hostname);
+    let gateway = format!("https://{}", lane.worker_hostname()?);
     let state = publish(&config, &store, &gateway).await?;
     tracing::info!(
         reflected_gold_iceberg_snapshot_id = %state.reflected_gold_iceberg_snapshot_id,

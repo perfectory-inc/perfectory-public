@@ -49,3 +49,12 @@ preview_origin() {
   node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).result.subdomain)' "$CF_BODY" |
     sed "s|^|https://${WORKER}.|; s|$|.workers.dev|"
 }
+
+# The name visitors open: the Seoul front door's web_preview door (root ADR-0461), CloudFront in
+# front of the workers.dev origin above. Read from the contract, never copied.
+front_door_origin() {
+  node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).doors.web_preview;
+    if(d.answered_by!=="cloudfront"||!d.public_hostname){console.error("the web_preview door does not answer on CloudFront");process.exit(1)}
+    process.stdout.write(`https://${d.public_hostname}`)' \
+    "$(dirname "${BASH_SOURCE[0]}")/../../../../platforms/foundation-platform/config/cdn-front-door.contract.json"
+}

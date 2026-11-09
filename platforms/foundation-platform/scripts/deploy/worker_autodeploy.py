@@ -181,12 +181,21 @@ def _target(label: str, env: str | None, section: dict[str, Any], name: str, hos
                   has_routes=bool(section.get("routes") or section.get("route")))
 
 
+def front_door_origins(platform: pathlib.Path) -> dict[str, str]:
+    """The origin hostname of each gateway with a front door (config/cdn-front-door.contract.json):
+    always one of the Worker's custom domains, whichever way the door's answered_by points."""
+
+    doors = json.loads((platform / "config/cdn-front-door.contract.json").read_text(encoding="utf-8"))["doors"]
+    return {door["gateway"]: door["origin_hostname"] for door in doors.values() if "gateway" in door}
+
+
 def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
     """The listed Workers, each checked against its gateway block and its Wrangler config."""
 
     platform = tree / PLATFORM
     contract = json.loads((platform / "config/worker-deploys.contract.json").read_text(encoding="utf-8"))
     gateways = json.loads((platform / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+    origins = front_door_origins(platform)
     workers = []
     for entry in contract["workers"]:
         # A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190).
@@ -206,7 +215,9 @@ def load_workers(tree: pathlib.Path) -> tuple[list[Worker], int]:
         if config.get("name") != block["worker_name"]:
             raise Refused(65, f"{entry['id']}: {entry['wrangler_config']} deploys {config.get('name')!r}, "
                               f"not the contract's {block['worker_name']!r}")
-        hostname = block.get("public_hostname") or entry["smoke"].get("hostname")
+        # A gateway behind the Seoul front door (root ADR-0461) is read on its origin hostname: the
+        # public one may be CloudFront, which answers from its cache and passes no version pin.
+        hostname = origins.get(entry["gateway"]) or block.get("public_hostname") or entry["smoke"].get("hostname")
         if not hostname:
             raise Refused(65, f"{entry['id']}: neither the gateway block nor the smoke names a hostname")
         targets = []

@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: runbook
-last_reviewed: 2026-10-14
+last_reviewed: 2026-11-09
 ---
 
 # 임시 웹 미리보기 (읽기 전용)
@@ -22,18 +22,23 @@ products/gongzzang/scripts/web-preview/deploy.sh <git-ref>   # 다른 커밋
 필요한 것: git, docker, node(npx), curl, 데이터 호스트 ssh(`ai-server`). 네이버 지도 client id 는 이
 체크아웃의 `apps/web/.env.local` 에서 읽는다(없으면 `NAVER_MAPS_CLIENT_ID` 를 준다). 스크립트는 다음을 한다.
 
-1. 계정의 workers.dev 서브도메인에서 주소를 정한다: `https://gongzzang-web-preview.<서브도메인>.workers.dev`.
+1. 방문 주소는 서울 앞문(루트 [ADR-0461](../../../../docs/adr/0461-korean-visitors-enter-through-a-cloudfront-front-door-in-seoul-in-a-separate-aws-account-applied-by-the-host.md))의
+   `web_preview` 문 이름(`config/cdn-front-door.contract.json`, 지금 `https://web-preview.perfectory.io`)이고, 앱은 그 주소로
+   빌드된다. 그 문의 원점은 계정의 workers.dev 주소 `https://gongzzang-web-preview.<서브도메인>.workers.dev` 다. 앱 안의 엣지
+   읽기는 미리보기 자신의 `/edge/*` 중계로 가므로(같은 출처) 엣지 Worker 의 CORS 목록은 바꾸지 않는다. 중계는 앞문이 선 엣지를
+   그 문의 원점 이름으로 부른다(Cloudflare 안에서 바로).
 2. `git archive` 한 트리를 Docker(Linux) 안에서 빌드한다. OpenNext·wrangler 는 컨테이너 안에서만 설치한다.
 3. 데이터 호스트의 runtime-manifest 를 찍어 정적 자산으로 넣는다(타일 주소는 `/edge/tiles` 로).
 4. 압축 크기가 무료 한도 3 MiB 를 넘으면 배포하지 않고 멈춘다.
-5. 배포하고 `/listings` 200, 매니페스트 200, 엣지 중계 200, `/profile`·`/api/*` 404 를 확인한다.
+5. 배포하고 앞문 주소로 `/listings` 200, 매니페스트 200, 엣지 중계 200, `/profile`·`/api/*` 404 를, workers.dev 주소로
+   `/listings` 200 을 확인한다.
 
 지도가 옛 릴리스를 보이면(새 타일 발행 뒤) 같은 명령을 다시 돌린다.
 
 ## 네이버 지도 (사람이 한 번)
 
 네이버 클라우드 콘솔 → Services → AI·NAVER API → Maps → Application → 공짱 웹 앱 → 수정 →
-Web 서비스 URL 에 미리보기 주소를 추가한다. 등록 전에는 배경지도가 인증 실패로 사라지고 폴리곤도 그려지지 않는다.
+Web 서비스 URL 에 미리보기 주소(앞문 `https://web-preview.perfectory.io`)를 추가한다. 등록 전에는 배경지도가 인증 실패로 사라지고 폴리곤도 그려지지 않는다.
 패널은 주소의 `?p=` 로 열 수 있다.
 
 ## 내리기

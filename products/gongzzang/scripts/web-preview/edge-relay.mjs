@@ -3,10 +3,13 @@
 // the Worker asks the edge without an Origin header, the way any server does.
 //
 // The hostnames are the `public_hostname`s of platforms/foundation-platform/config/
-// r2-connections.contract.json; edge-relay.test.mjs fails when they drift.
+// r2-connections.contract.json, or the door's `origin_hostname` where the Seoul front door
+// (config/cdn-front-door.contract.json, root ADR-0461) stands before one: this Worker already
+// runs on Cloudflare, so it asks the edge Worker there instead of going out to CloudFront and back.
+// edge-relay.test.mjs fails when they drift.
 export const EDGES = {
-  tiles: "tiles.perfectory.io",
-  parcels: "catalog.perfectory.io",
+  tiles: "tiles-origin.perfectory.io",
+  parcels: "catalog-origin.perfectory.io",
   buildings: "buildings.perfectory.io",
   "unit-prices": "unit-prices.perfectory.io",
   "map-edits": "map-edits.perfectory.io",

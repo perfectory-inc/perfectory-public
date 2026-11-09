@@ -122,7 +122,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    let gateway = format!("https://{}", lane.policy()?.public_hostname);
+    let gateway = format!("https://{}", lane.worker_hostname()?);
     let manifest = publish(&config, &store, &gateway).await?;
     tracing::info!(
         unit = lane.unit(),

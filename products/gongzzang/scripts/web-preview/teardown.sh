@@ -45,4 +45,4 @@ done
 [[ -n "$gone" ]] || { echo "LEFT: ${origin} still answers ${code}" >&2; left=1; }
 [[ "$left" == 0 ]] || exit 1
 echo "removed: no Worker, no storage, ${origin} answers 404"
-echo "owner, by hand: remove ${origin} from the Naver Maps application's Web service URLs"
+echo "owner, by hand: remove ${origin} and $(front_door_origin) from the Naver Maps application's Web service URLs"
