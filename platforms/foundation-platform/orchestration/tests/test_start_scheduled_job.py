@@ -99,7 +99,8 @@ class HostFixture(unittest.TestCase):
                     "FOUNDATION_SCHEDULED_DEFERRED_DIR": str(self.deferred),
                     "FOUNDATION_JOB_SWITCHES_DIR": str(self.root / "switches"),
                     "FOUNDATION_SCHEDULED_CONSUMED_DIR": str(self.root / "consumed"),
-                    "FOUNDATION_OPERATOR_STOPS_DIR": str(self.root / "stopped")}
+                    "FOUNDATION_OPERATOR_STOPS_DIR": str(self.root / "stopped"),
+                    "FOUNDATION_START_QUEUE_DIR": str(self.root / "queue")}
         (self.root / "switches/run-now.d").mkdir(parents=True)
 
     def start(self, job, **env):
@@ -163,6 +164,28 @@ class EveryStartTakesThePoolsSlots(HostFixture):
                       result.stdout)
         self.assertIn("foundation-paused.service holds 3", result.stdout)
         self.assertFalse((self.starts / "floor").exists(), "a start that did not happen was recorded")
+
+    def test_a_refused_start_is_queued_and_its_next_start_takes_it_off_with_its_wait(self):
+        # Root ADR-0462, the 2026-11-09 07:00Z replay: ten first Silver loads were refused by the pool and
+        # nothing recorded them, so their next try was the next day's. The refusal is now queued, a
+        # second one keeps when it began, and the start that runs takes it off and says how long it waited.
+        queue = self.root / "queue"
+        for attempt in (1, 2):
+            result, asked = self.start("floor", FIXTURE_HELD="foundation-paused.service")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(asked, "")
+            self.assertIn(f"refused {attempt} times; started again when its pool has room", result.stdout)
+        record = json.loads((queue / "floor.json").read_text())
+        self.assertEqual(record["attempts"], 2)
+        self.assertIn("foundation-paused.service holds 3", record["reason"])
+        result, asked = self.start("floor triggered")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("systemctl start --no-block foundation-floor.service", asked)
+        self.assertRegex(result.stdout, r"floor waited \d+ seconds in the start queue")
+        self.assertFalse((queue / "floor.json").exists(), "the start that ran left its refusal queued")
+        (history,) = (queue / "history.jsonl").read_text().splitlines()
+        self.assertEqual(json.loads(history)["attempts"], 2)
+        self.assertEqual(json.loads((queue / "floor.started.json").read_text())["since"], record["since"])
 
     def test_a_job_that_fits_beside_what_runs_starts(self):
         result, asked = self.start("bake", FIXTURE_HELD="foundation-fold.service")

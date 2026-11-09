@@ -212,7 +212,7 @@ def proxy_operator():
             if not result.succeeded:
                 raise RuntimeError(f"Dagster run {self.dagster_run_id} ended {result.status}: {outcome or 'no outcome'}")
             context["ti"].xcom_push(key=OUTCOME_KEY, value=outcome)
-            if self.spec.reconciles:
+            if self.spec.reconciles or self.spec.requeues:
                 context["ti"].xcom_push(key=OWED_KEY, value=json.loads(result.tags.get(OWED_TAG) or "[]"))
             if outcome in ("waiting", "skipped"):
                 raise AirflowSkipException(f"the run ended {outcome}; its Dagster run {self.dagster_run_id} says why")
@@ -276,7 +276,7 @@ for spec in SPECS:
                 # run-now started it (conf `operator_request`, root ADR-0282 §4), which the host checks
                 # and uses once. Rendered by Airflow per run.
                 "command": spec.job_id + RUN_KIND,
-                "reconciles": spec.reconciles,
+                "reconciles": spec.reconciles + spec.requeues,
                 # Seconds without output before the run counts as hung; the journal prints as it goes.
                 "cmd_timeout": spec.timeout_minutes * 60,
                 # The journal is not kept as an XCom; the outcome is (RunJob).
@@ -307,7 +307,7 @@ for spec in SPECS:
             # this bookkeeping step reports nothing of its own (Dawneer reads the latest run, ADR-0165).
             extend_global_openlineage_emission_policy(publish, emit_task_events=False)
             run >> publish
-        if spec.reconciles:
+        if spec.reconciles or spec.requeues:
             select = SelectOwed(task_id="select", dag_id_prefix=spec.dag_id.removesuffix(spec.job_id), retries=0)
             # Each owed job once per key; a run id that exists already (this key was started) is skipped.
             start = TriggerDagRunOperator.partial(task_id="start", skip_when_already_exists=True,

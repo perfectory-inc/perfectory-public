@@ -52,12 +52,14 @@
 #
 # No step waits for a time of day (root ADR-0435; the clock windows of ADR-0425 and ADR-0433 §3 are
 # gone: 2026-11-06 03:46Z one refused the parcel-ownership cut-over). The guard around them is
-#   - one Spark job at a time, by capacity (root ADR-0435): the run claims the whole spark pool in
-#     the host's capacity queue for as long as its unit runs (jobs.v1.json capacity_claimants
-#     by_pnu_lane_cutover, class `first_publish`, root ADR-0439), so no start of a lower class, and no later start of its
-#     own, takes the pool while it waits, and a running backfill yields at its next step boundary.
-#     Before `gold` and `bake` the run waits until no unit of a spark-pool job, Gold rebuild or pack
-#     bake runs. Nothing new can start under the claim, so the wait is bounded by the longest run
+#   - one Spark job at a time, by capacity (root ADR-0435): before `gold` and `bake` the run claims
+#     the whole spark pool in the host's capacity queue (jobs.v1.json capacity_claimants
+#     by_pnu_lane_cutover, class `first_publish`, root ADR-0439), so no start of a lower class, and no
+#     later start of its own, takes the pool while it waits, and a running backfill yields at its next
+#     step boundary; it waits until no unit of a spark-pool job, Gold rebuild or pack bake runs, and
+#     takes the claim off when that step ends. Its other steps use no Spark and claim nothing (root
+#     ADR-0462: 2026-11-09 06:13Z..07:10Z a run's claim held the pool through a latency step and
+#     refused ten Silver loads at 07:00Z). Nothing new can start under the claim, so the wait is bounded by the longest run
 #     limit (time_limit_minutes + stop_grace_minutes) of the jobs that ran when it began; a wait
 #     past it means the host is wedged, and the run fails and pages. The operator refuses again on
 #     its own when one does (exit 75).
@@ -247,14 +249,18 @@ fi
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 EVIDENCE="${BAKE_ROOT}/cutover/${RUN_ID}.jsonl"
 mkdir -p "${EVIDENCE%/*}"
-# The run's claim on the spark pool (root ADR-0435), for as long as its unit runs; taken off when it
-# ends. A claim that cannot be queued stops the run: without it a backfill keeps the pool.
+# The run's claim on the spark pool (root ADR-0435), from the wait before a Spark step to that step's
+# end (root ADR-0462), and never past the run's end. A claim that cannot be queued stops the run:
+# without it a backfill keeps the pool.
 JOB_UNITS="${PLATFORM_ROOT}/scripts/deploy/job_units.py"
 JOBS_FILE="${PLATFORM_ROOT}/orchestration/jobs.v1.json"
 CLAIM_UNIT="foundation-by-pnu-lane-cutover-g${GENERATION}.service"
-python3 -I -B "${JOB_UNITS}" claim "${JOBS_FILE}" by_pnu_lane_cutover "${CLAIM_UNIT}" \
-  || refuse "cannot queue the run's claim on the spark pool" 70
-trap 'python3 -I -B "${JOB_UNITS}" release by_pnu_lane_cutover || true' EXIT
+claim_spark() {
+  python3 -I -B "${JOB_UNITS}" claim "${JOBS_FILE}" by_pnu_lane_cutover "${CLAIM_UNIT}" \
+    || refuse "cannot queue the run's claim on the spark pool" 70
+}
+release_spark() { python3 -I -B "${JOB_UNITS}" release by_pnu_lane_cutover || true; }
+trap release_spark EXIT
 # An operator's stop (systemctl stop of this unit, root ADR-0433 §1) ends the run between steps: the
 # step in progress runs on in its own unit, nothing after it starts.
 trap 'progress finished outcome=failed "reason=stopped by an operator: the step in progress finishes in its own unit, nothing after it starts" "run=${RUN_ID}"; exit 143' TERM
@@ -300,7 +306,10 @@ for entry in "${PLAN[@]}"; do
   read -r lane table unit parity preview path base base_path monitor history gold_budget worker hostname <<<"${entry}"
   lane_started="$(now)" gold_output=""
   for step in "${STEPS[@]}"; do
-    [[ "${step}" == gold || "${step}" == bake ]] && wait_for_spark "${lane}" "${step}"
+    if [[ "${step}" == gold || "${step}" == bake ]]; then
+      claim_spark
+      wait_for_spark "${lane}" "${step}"
+    fi
     started="$(now)" reason=""
     log "${lane} ${step}: starting"
     case "${step}" in
@@ -389,6 +398,8 @@ PY
           fail "${lane}" "${step}" "$(($(now) - started))" "by-pnu-pack-operator.sh ${lane} ${step} ${GENERATION} failed (exit ${rc}); see ${BAKE_ROOT}/${lane}-pack-g${GENERATION}/logs/${step}.log"; }
         ;;
     esac
+    # The Spark step ended: what follows uses no Spark and keeps no slot from other work.
+    [[ "${step}" != gold && "${step}" != bake ]] || release_spark
     seconds=$(($(now) - started))
     record "${lane}" "${step}" passed "${seconds}" "${reason}"
     log "${lane} ${step}: passed in ${seconds}s"

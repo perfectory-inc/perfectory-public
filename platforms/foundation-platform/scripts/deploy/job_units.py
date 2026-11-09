@@ -11,6 +11,9 @@
                                                queue the claimant's claim on its pool's slots, which counts
                                                while that unit runs (root ADR-0435)
     job_units.py release <claimant>            take the claimant's claim off the queue
+    job_units.py queue <job id> <reason>       record a start its pool refused, to be started again (root ADR-0462)
+    job_units.py dequeue <job id>              take a job that starts now off the start queue, and say how
+                                               long it waited
     job_units.py preempted <jobs.v1.json> <job id>
                                                why a running job of a class that yields at a step boundary
                                                must yield its slots now, or nothing (root ADR-0435)
@@ -54,6 +57,15 @@ JOB_ID = re.compile(r"[a-z][a-z0-9_]*")
 # `capacity_claimants`, written by root (the claimants run as root) and read by every start.
 CLAIMS_DIR = "/var/lib/foundation-run-now/capacity"
 CLAIMANT = re.compile(r"[a-z][a-z0-9_]*")
+# The host's start queue (root ADR-0462): one record per job whose start its pool refused, written by the
+# scheduler's runner and read by the asset reconciler, which starts the job again once its pool has room.
+# A pool-full refusal used to end the start with nothing recorded, so a daily job had one try a day
+# (2026-11-09 07:00Z: ten first Silver loads refused behind a lane cut-over's claim, none started again).
+QUEUE_DIR = "/var/lib/foundation-jobs/queue"
+# The last start of each queued job, kept beside its record for the queue wait metric; every start is
+# also appended to the history.
+STARTED_SUFFIX = ".started.json"
+QUEUE_HISTORY = "history.jsonl"
 
 
 def deferred_dir() -> str:
@@ -181,6 +193,79 @@ def claims_dir() -> str:
     return os.environ.get("FOUNDATION_CAPACITY_CLAIMS_DIR") or CLAIMS_DIR
 
 
+def queue_dir() -> str:
+    return os.environ.get("FOUNDATION_START_QUEUE_DIR") or QUEUE_DIR
+
+
+def _replace_json(path: str, record: dict) -> None:
+    with open(f"{path}.next", "w", encoding="utf-8") as handle:
+        json.dump(record, handle, sort_keys=True)
+    os.chmod(f"{path}.next", 0o644)
+    os.replace(f"{path}.next", path)
+
+
+def _queue_files(suffix: str) -> dict[str, dict]:
+    try:
+        names = sorted(os.listdir(queue_dir()))
+    except FileNotFoundError:
+        return {}
+    found = {}
+    for name in names:
+        job_id = name.removesuffix(suffix)
+        if not name.endswith(suffix) or not JOB_ID.fullmatch(job_id):
+            continue  # another kind of file, or a partial write (`.next`)
+        try:
+            with open(os.path.join(queue_dir(), name), encoding="utf-8") as handle:
+                found[job_id] = json.load(handle)
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def queued() -> dict[str, dict]:
+    """{job id: its record} of every start a pool refused and no start of the job has taken off since."""
+    return _queue_files(".json")
+
+
+def last_started() -> dict[str, dict]:
+    """{job id: the record of its last start that had waited in the queue}."""
+    return _queue_files(STARTED_SUFFIX)
+
+
+def queue(job_id, reason, now) -> dict:
+    """Records that `job_id`'s start was refused by its pool: since the first refusal not followed by a
+    start, how many times, and the last reason. The record is what the reconciler starts again."""
+    if not JOB_ID.fullmatch(job_id):
+        raise KeyError(f"{job_id} is not a job id")
+    os.makedirs(queue_dir(), mode=0o755, exist_ok=True)
+    earlier = queued().get(job_id) or {}
+    record = {"since": int(earlier.get("since", now)), "attempts": int(earlier.get("attempts", 0)) + 1,
+              "last_at": int(now), "reason": str(reason)[:500]}
+    _replace_json(os.path.join(queue_dir(), f"{job_id}.json"), record)
+    return record
+
+
+def dequeue(job_id, now) -> int | None:
+    """Takes `job_id` off the queue as it starts; the seconds it waited since its first refusal, or None
+    when it was not queued. Its start is kept as its last one and appended to the history."""
+    if not JOB_ID.fullmatch(job_id):
+        raise KeyError(f"{job_id} is not a job id")
+    record = queued().get(job_id)
+    if record is None:
+        return None
+    waited = max(int(now) - int(record["since"]), 0)
+    started = {"job": job_id, "since": int(record["since"]), "started_at": int(now), "waited_seconds": waited,
+               "attempts": int(record.get("attempts", 1))}
+    _replace_json(os.path.join(queue_dir(), f"{job_id}{STARTED_SUFFIX}"), started)
+    with open(os.path.join(queue_dir(), QUEUE_HISTORY), "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(started, sort_keys=True) + "\n")
+    try:
+        os.unlink(os.path.join(queue_dir(), f"{job_id}.json"))
+    except FileNotFoundError:
+        pass
+    return waited
+
+
 def priority_class(listing, entry) -> dict:
     """A job's or a claimant's priority class (`default` when it names none); a list that declares no
     classes has one, of value 0 (job_specs.py refuses a class the list does not declare)."""
@@ -191,11 +276,22 @@ def priority(listing, entry) -> int:
     return priority_class(listing, entry)["value"]
 
 
-def live_claims(listing, running_units=running) -> list[dict]:
+def aged(listing, entry, since, now) -> float:
+    """The priority of what has waited since `since`: its class's value, raised by the list's
+    queue_aging for every hour it waited, up to its cap (root ADR-0462; Slurm's multifactor age factor),
+    so a start a higher class keeps refusing outranks it in the end and nothing starves."""
+    aging = listing.get("queue_aging") or {}
+    waited_hours = max(now - since, 0) / 3600 if since is not None else 0.0
+    return priority(listing, entry) + min(waited_hours * aging.get("points_per_hour", 0), aging.get("max_points", 0))
+
+
+def live_claims(listing, running_units=running, now=None) -> list[dict]:
     """The queued claims whose unit runs, each with its claimant's pool, slots and priority.
 
     A claim names the systemd unit its claimant runs in; once that unit stops (it finished, failed or
-    was killed) the claim holds nothing, so no crash leaves the pool reserved."""
+    was killed) the claim holds nothing, so no crash leaves the pool reserved. Its priority is aged
+    from when it was queued (`aged`)."""
+    now = time.time() if now is None else now
     declared = listing.get("capacity_claimants") or {}
     try:
         names = sorted(os.listdir(claims_dir()))
@@ -216,7 +312,7 @@ def live_claims(listing, running_units=running) -> list[dict]:
             continue
         claims.append({**record, "claimant": claimant, "pool": declared[claimant]["pool"],
                        "slots": declared[claimant]["pool_slots"],
-                       "priority": priority(listing, declared[claimant]),
+                       "priority": aged(listing, declared[claimant], record.get("since"), now),
                        "priority_class": declared[claimant]["priority_class"]})
     return claims
 
@@ -246,11 +342,13 @@ def release(claimant) -> None:
         pass
 
 
-def _waiting_claims(listing, pool, rank, running_units, *, equal) -> list[dict]:
-    """The live claims on `pool` above `rank`, or (`equal`) at it too: a claim queued first is served
-    first within its class, as in any priority queue."""
-    return [found for found in live_claims(listing, running_units)
-            if found["pool"] == pool and (found["priority"] > rank or equal and found["priority"] == rank)]
+def _waiting_claims(listing, pool, rank, running_units, *, equal, since=None, now=None) -> list[dict]:
+    """The live claims on `pool` above `rank`, or (`equal`) at it too when queued no later than `since`
+    (a start that has not waited is queued after every claim): a claim queued first is served first
+    within its priority, as in any priority queue."""
+    return [found for found in live_claims(listing, running_units, now)
+            if found["pool"] == pool and (found["priority"] > rank or equal and found["priority"] == rank
+                                          and (since is None or (found.get("since") or 0) <= since))]
 
 
 def pool_full(jobs_file, unit, running_units=running) -> str:
@@ -288,8 +386,13 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
     need = mine.get("pool_slots", 1)
     # A claim waiting for this pool keeps its slots free of any start of a lower class, and of a
     # later one of its own (root ADR-0435): on 2026-11-06 a backfill that started first held the pool
-    # while the cut-over waited for it.
-    above = _waiting_claims(listing, mine["pool"], priority(listing, mine), running_units, equal=True)
+    # while the cut-over waited for it. A start its pool refused before has aged in the queue since its
+    # first refusal (root ADR-0462), so in the end it outranks a claim that keeps being queued anew.
+    now = time.time()
+    job_id = next((job["id"] for job in jobs if job["systemd_service"] == named), None)
+    since = (queued().get(job_id) or {}).get("since") if job_id else None
+    above = _waiting_claims(listing, mine["pool"], aged(listing, mine, since, now), running_units, equal=True,
+                            since=since, now=now)
     reserved = sum(found["slots"] for found in above)
     if sum(taken.values()) + need + reserved <= pool["slots"]:
         return ""
@@ -361,6 +464,22 @@ def main(argv) -> int:
             print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
             return 64
         return 0
+    if len(argv) == 3 and argv[0] == "queue":
+        try:
+            record = queue(argv[1], argv[2], time.time())
+        except (OSError, KeyError) as error:
+            print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
+            return 64
+        print(f"queued since {record['since']}, refused {record['attempts']} times")
+        return 0
+    if len(argv) == 2 and argv[0] == "dequeue":
+        try:
+            waited = dequeue(argv[1], time.time())
+        except (OSError, KeyError) as error:
+            print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
+            return 64
+        print("" if waited is None else waited)
+        return 0
     if len(argv) == 2 and argv[0] == "release":
         try:
             release(argv[1])
@@ -400,7 +519,7 @@ def main(argv) -> int:
         return 0
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
           " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
-          " | release <claimant> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
+          " | release <claimant> | queue <job id> <reason> | dequeue <job id> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
           " | unretried-failed",
           file=sys.stderr)
     return 64

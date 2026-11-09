@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
@@ -151,11 +152,12 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         (self.root / "systemctl").chmod(0o755)
         self.claims = self.root / "capacity"
 
-    def job_units(self, *args, units=None):
+    def job_units(self, *args, units=None, queue=None):
         return subprocess.run(
             [sys.executable, "-I", "-B", str(JOB_UNITS), *args],
             env={**os.environ, "PATH": f"{self.root}{os.pathsep}{os.environ['PATH']}",
                  "FAKE_LOG": str(self.root / "systemctl.log"), "FOUNDATION_CAPACITY_CLAIMS_DIR": str(self.claims),
+                 "FOUNDATION_START_QUEUE_DIR": str(queue or self.root / "queue"),
                  "FAKE_UNITS": ",".join(f"{unit}=activating" for unit in units or ())},
             capture_output=True, text=True, timeout=30)
 
@@ -215,6 +217,51 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
                                         units=[self.MIGRATION]).stdout.strip(), "")
         self.assertEqual(self.job_units("release", "by_pnu_lane_cutover").returncode, 0)
         self.assertEqual(sorted(self.claims.iterdir()), [])
+
+    def test_a_start_refused_long_enough_outranks_a_claim_queued_anew(self):
+        # Root ADR-0462, the 2026-11-09 replay: the cut-over's claim (first_publish) was queued anew every
+        # run, and a Silver load (default) refused at 07:00Z had no way past it. Its wait now ages it: four
+        # hours in the queue tie a fresh claim; past them the start goes first.
+        job = "building_register_floor"
+        self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)
+        queue = self.root / "queue"
+        queue.mkdir()
+        for hours, held in ((0, True), (3, True), (5, False), (9, False)):
+            with self.subTest(hours=hours):
+                record = {"since": int(time.time()) - hours * 3600, "attempts": 1, "last_at": int(time.time()), "reason": "-"}
+                (queue / f"{job}.json").write_text(json.dumps(record))
+                result = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER], queue=queue)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual("kept for claims queued before" in result.stdout, held, result.stdout)
+        # What runs still holds its slots: aging orders the waiters, it takes no running job's place.
+        result = self.job_units("pool-full", str(JOBS), job, units=[self.CUTOVER, "foundation-gold-panel-rebuild.service"],
+                                queue=queue)
+        self.assertIn("has no room", result.stdout)
+
+    def test_the_release_makes_the_queue_the_runner_writes(self):
+        # Root ADR-0462: the scheduler account owns it, and tmpfiles cannot (it runs before that account exists).
+        release = (JOB_UNITS.parent / "foundation-release.sh").read_text(encoding="utf-8")
+        source = JOB_UNITS.read_text(encoding="utf-8")
+        (made,) = re.findall(r"^scheduler_queue=(\S+)$", release, re.MULTILINE)
+        self.assertIn(f'QUEUE_DIR = "{made}"', source)
+        self.assertIn('-m 0755 "${scheduler_queue}"', release)
+
+    def test_the_queue_keeps_its_first_refusal_and_a_start_takes_it_off(self):
+        queue = self.root / "queue"
+        for attempt in (1, 2):
+            result = self.job_units("queue", "building_register_floor", f"refusal {attempt}", queue=queue)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"refused {attempt} times", result.stdout)
+        record = json.loads((queue / "building_register_floor.json").read_text())
+        self.assertEqual((record["attempts"], record["reason"]), (2, "refusal 2"))
+        waited = self.job_units("dequeue", "building_register_floor", queue=queue)
+        self.assertEqual(waited.returncode, 0, waited.stderr)
+        self.assertGreaterEqual(int(waited.stdout), 0)
+        self.assertFalse((queue / "building_register_floor.json").exists())
+        self.assertEqual(self.job_units("dequeue", "building_register_floor", queue=queue).stdout.strip(), "",
+                         "a job that was not queued waited for nothing")
+        self.assertEqual(len((queue / "history.jsonl").read_text().splitlines()), 1)
+        self.assertEqual(self.job_units("queue", "../etc", "x", queue=queue).returncode, 64)
 
     def test_only_a_yielding_class_is_preempted_and_only_a_declared_claimant_claims(self):
         self.assertEqual(self.job_units("claim", str(JOBS), "by_pnu_lane_cutover", self.CUTOVER).returncode, 0)

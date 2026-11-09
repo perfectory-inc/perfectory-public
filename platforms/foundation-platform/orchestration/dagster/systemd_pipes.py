@@ -176,7 +176,8 @@ class SystemdUnitPipesClient(PipesClient):
         self.transport = transport if transport is not None else SubprocessForcedCommand(command)
 
     def run(self, *, context, job_id, triggered=True, extras=None, kind=None) -> SystemdRun:
-        listed = {job["id"]: job for job in observe_assets.contracts()[0]["jobs"]}
+        jobs = observe_assets.contracts()[0]
+        listed = {job["id"]: job for job in jobs["jobs"]}
         if job_id not in listed:
             raise Failure(f"{job_id} is not a job of jobs.v1.json")
         kind = ("triggered" if triggered else "") if kind is None else kind
@@ -198,4 +199,5 @@ class SystemdUnitPipesClient(PipesClient):
             raise Failure(f"{job_id} failed: {reason}", metadata={"outcome": word, "reason": reason})
         context.log.info(f"{job_id} ended {word}{(': ' + reason) if reason else ''}")
         return SystemdRun(context, job_id, word, reason, messages, extras,
-                          job_specs.owed_runs("".join(owed), tuple(listed[job_id].get("reconciles", ()))))
+                          job_specs.owed_runs("".join(owed), tuple(listed[job_id].get("reconciles", ()))
+                                              + job_specs.requeued(jobs, listed[job_id])))

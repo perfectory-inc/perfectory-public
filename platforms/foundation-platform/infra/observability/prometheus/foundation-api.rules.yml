@@ -392,6 +392,19 @@ groups:
         annotations:
           summary: '{{ $labels.asset }} 의 입력이 바뀌었는데 {{ humanizeDuration $value }}째 {{ $labels.job }} 실행이 없어요(풀에 자리가 있는데도). foundation_asset_reconcile DAG 의 start 과제와 journalctl -u foundation-asset-reconcile.service 를 보세요'
           runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationJobQueueWaitOverBudget
+        # Root ADR-0462: a start its pool refused waits in the host's start queue and ages; past its
+        # class's budget it is starving (2026-11-09 07:00Z ten first Silver loads were refused behind a
+        # cut-over's claim and nothing started them again before the next day).
+        expr: >-
+          foundation_job_queue_wait_seconds > on(job, pool, priority_class) foundation_job_queue_wait_budget_seconds
+        for: 10m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.job }} 의 시작이 {{ $labels.pool }} 풀 대기열에서 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). journalctl -u foundation-asset-reconcile.service 의 queued start 줄과 무엇이 풀을 잡고 있는지 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
       - alert: FoundationAssetReconcilerStopped
         # Six periods: a deploy pauses every DAG for up to about 15 minutes (root ADR-0321 §5
         # measurements), and the unscheduled series above stop moving when the reconciler does.

@@ -120,7 +120,7 @@ def run_job(spec, transport=None):
             context.instance.add_run_tags(context.run_id, {job_specs.OUTCOME_TAG: "failed"})
             raise
         tags = {job_specs.OUTCOME_TAG: result.outcome}
-        if spec.reconciles:
+        if spec.reconciles or spec.requeues:
             tags[job_specs.OWED_TAG] = json.dumps([list(owed) for owed in result.owed])
         context.instance.add_run_tags(context.run_id, tags)
         for materialization in result.materializations(keys):

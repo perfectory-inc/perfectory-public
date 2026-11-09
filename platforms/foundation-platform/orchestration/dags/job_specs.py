@@ -132,6 +132,7 @@ class JobSpec:
     check_service: str | None = None  # decides, without a pool slot, whether the run has work
     enabled_since: str | None = None  # jobs.v1.json `enabled_since` (root ADR-0239)
     reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
+    requeues: tuple = ()  # the jobs whose refused starts it starts again from the start queue (root ADR-0462)
     dagster_stage: str = "airflow"  # DAGSTER_STAGES
     priority: int = 100  # the value of its priority class (root ADR-0435)
 
@@ -598,6 +599,17 @@ def dagster_order(jobs, feeders):
             for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
 
 
+def requeued(jobs, job):
+    """The jobs whose starts their pool refused `job` starts again from the host's start queue
+    (`requeues_refused_starts_in`, its pools; root ADR-0462): every enabled job of those pools that
+    Airflow starts, besides the ones it reconciles. A job Dagster decides has no DAG to start."""
+    pools = job.get("requeues_refused_starts_in") or ()
+    reconciled = set(job.get("reconciles", ()))
+    return tuple(sorted(other["id"] for other in jobs["jobs"]
+                        if other["pool"] in pools and other["enabled"] and other["id"] not in reconciled
+                        and dagster_stage(other, jobs) != "dagster"))
+
+
 def started_by(job):
     """What starts a job: `schedule` or `inputs` (jobs.v1.json `started_by`, required)."""
     value = job.get("started_by")
@@ -955,6 +967,11 @@ def load_specs(jobs=None, graph=None):
             if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made) \
                     and not (golds and all(node.startswith("gold.") for node in golds)):
                 raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
+        requeues = requeued(jobs, job)
+        unknown = set(job.get("requeues_refused_starts_in") or ()) - set(declared_pools(jobs))
+        if unknown or requeues and not reconciles:
+            raise JobListError(f"{job_id}: requeues_refused_starts_in names pools the list bounds"
+                               f" ({sorted(unknown) or 'its own'}), and only the reconciler requeues")
         if reconciles and (start != "schedule" or job["pool"] != DEFAULT_POOL):
             raise JobListError(f"{job_id}: a reconciler runs on its own schedule in {DEFAULT_POOL}, never on an event")
         specs.append(
@@ -978,6 +995,7 @@ def load_specs(jobs=None, graph=None):
                 check_service=check,
                 enabled_since=since,
                 reconciles=reconciles,
+                requeues=requeues,
                 dagster_stage=dagster_stage(job, jobs),
                 priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
             )
