@@ -52,6 +52,27 @@ class Edge(unittest.TestCase):
         self.assertEqual(checks.colo_of("fl=1\nh=x\nip=192.0.2.1\ncolo=SEA\nhttp=http/2\n"), "SEA")
         self.assertIsNone(checks.colo_of("fl=1\nh=x\n"))
 
+    def test_a_hostname_behind_the_front_door_is_entered_at_cloudfronts_pop(self):
+        # Root ADR-0461: through CloudFront the trace's colo is where CloudFront entered Cloudflare.
+        class Answer:
+            def __init__(self, pop):
+                self.headers = {"x-amz-cf-pop": pop} if pop else {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+            def read(self):
+                return b"fl=1\ncolo=ICN\n"
+
+        original = checks.urllib.request.urlopen
+        self.addCleanup(setattr, checks.urllib.request, "urlopen", original)
+        for pop, entry in (("ICN57-P5", "ICN57-P5"), (None, "ICN")):
+            checks.urllib.request.urlopen = lambda *_args, pop=pop, **_kwargs: Answer(pop)
+            self.assertEqual(checks.trace("h")[1], entry)
+
     def test_percentiles_are_nearest_rank_and_the_colo_is_the_most_common(self):
         answers = iter([(t, "SEA" if t < 900 else "ICN") for t in (100, 200, 300, 400, 500, 600, 700, 800, 900, 1000)])
         host = checks.measure_host("h", lambda _host: next(answers))
