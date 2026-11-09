@@ -46,10 +46,7 @@ class Declared:
 
 
 def kinds():
-    """Check name -> its kind. The kinds' modules import Kind from here, so they are read on first use."""
-    import publish_checks
-    import unit_price_checks
-
+    """Check name -> its kind (the modules imported at the end of this one)."""
     return {**unit_price_checks.KINDS, **publish_checks.KINDS}
 
 
@@ -98,3 +95,11 @@ def _evaluator(kind, item):
         return kind.evaluate(context, item)
 
     return evaluate
+
+
+# At import, after Kind (the kinds' modules import it from here): Dagster's code server imports
+# definitions.py with this directory on sys.path, restores sys.path, and only then calls defs(), so an
+# import first made there finds nothing (every load failed on `import publish_checks` from 2026-11-06
+# 21:16Z to 11-09, and the dual run recorded no comparison).
+import publish_checks  # noqa: E402
+import unit_price_checks  # noqa: E402

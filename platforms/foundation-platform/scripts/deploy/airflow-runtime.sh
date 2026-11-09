@@ -214,7 +214,7 @@ env_value() { sed -n "s/^$1=//p" "${env_file}" | tail -1; }
 # Dagster follows orchestration/jobs.v1.json `observers.dagster` (root ADR-0333 stage 0). It runs
 # no job, so it never fails the deploy: what goes wrong is said on stderr and Airflow goes on.
 sync_dagster() {
-  local code
+  local code load_error
   if [[ "${COMPOSE_PROFILES:-}" != dagster-observe ]]; then
     # Off: its containers go; its database and history stay.
     compose --profile dagster-observe rm --stop --force "${dagster_services[@]}" >/dev/null 2>&1 || true
@@ -248,9 +248,22 @@ sync_dagster() {
   compose up -d "${dagster_services[@]}" >/dev/null && compose restart "${dagster_services[@]}" >/dev/null
   for _ in $(seq 1 30); do
     code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:19085/server_info || true)"
-    [[ "${code}" == 200 ]] && { printf 'dagster: observing; UI on 127.0.0.1:19085\n'; return 0; }
+    [[ "${code}" == 200 ]] && break
     sleep 10
   done
+  if [[ "${code}" == 200 ]]; then
+    # The UI answers while the code location fails to load: from 2026-11-06 21:16Z to 11-09 every load
+    # failed and this said "observing", and the dual run recorded no comparison (root ADR-0431).
+    load_error="$(curl -s -X POST -H 'Content-Type: application/json' http://127.0.0.1:19085/graphql \
+      --data '{"query":"{ workspaceOrError { ... on Workspace { locationEntries { name locationOrLoadError { __typename ... on PythonError { message } } } } } }"}' |
+      python3 -c 'import json, sys
+entries = json.load(sys.stdin)["data"]["workspaceOrError"]["locationEntries"]
+print("; ".join(e["name"] + ": " + e["locationOrLoadError"]["message"].splitlines()[0] for e in entries
+                if (e["locationOrLoadError"] or {}).get("__typename") == "PythonError"))' 2>&1 || true)"
+    [[ -z "${load_error}" ]] && { printf 'dagster: observing; UI on 127.0.0.1:19085\n'; return 0; }
+    printf 'airflow-runtime: WARN dagster: the code location does not load (%s); Dagster is not observing\n' "${load_error}" >&2
+    return 0
+  fi
   printf 'airflow-runtime: WARN dagster: the UI answered %s after 5 minutes\n' "${code}" >&2
 }
 

@@ -208,6 +208,38 @@ class AirliftParityTest(unittest.TestCase):
                     return seen
         self.fail("the sensor did not finish the recorded day in 50 ticks")
 
+    def test_the_code_location_builds_after_its_loader_restores_the_path(self):
+        # Dagster's code server imports definitions.py with its directory on sys.path, restores sys.path,
+        # and only then calls defs(): from 2026-11-06 21:16Z to 11-09 every load failed on an import
+        # first made in defs() (`import publish_checks`), and the dual run recorded no comparison.
+        import os
+        import tempfile
+
+        from dagster._core.code_pointer import load_python_file
+
+        here = PLATFORM / "orchestration" / "dagster"
+
+        def ours(module):
+            return str(PLATFORM) in (getattr(module, "__file__", None) or "")
+
+        saved_path, saved_modules, cwd = list(sys.path), dict(sys.modules), os.getcwd()
+        try:
+            sys.path[:] = [entry for entry in sys.path if entry and str(PLATFORM) not in entry]
+            for name in [name for name, module in sys.modules.items() if ours(module)]:
+                del sys.modules[name]
+            with tempfile.TemporaryDirectory() as elsewhere:
+                os.chdir(elsewhere)
+                module = load_python_file(str(here / "definitions.py"), str(here))
+                self.assertNotIn(str(here), sys.path)
+                self.assertTrue(module.build(self.instance).resolve_asset_graph().asset_check_keys)
+                os.chdir(cwd)
+        finally:
+            os.chdir(cwd)
+            sys.path[:] = saved_path
+            for name in [name for name, module in sys.modules.items() if ours(module)]:
+                del sys.modules[name]
+            sys.modules.update({name: module for name, module in saved_modules.items() if ours(module)})
+
     def test_the_dual_run_checks_attach_to_the_shadow_jobs_dags(self):
         import definitions
         import dual_run
