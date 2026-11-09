@@ -553,7 +553,8 @@ class WithAirflow(unittest.TestCase):
                 if spec.started_by == "inputs":
                     self.assertEqual(type(restored.timetable).__name__, "AssetOrTimeSchedule")
                     uris = {asset.uri.rstrip("/") for asset in dag.timetable.asset_condition.objects}
-                    self.assertEqual(uris, {job_specs.asset_uri(dataset) for dataset in spec.inputs})
+                    # Its starting inputs: a dataset it writes and reads itself never starts it (root ADR-0182).
+                    self.assertEqual(uris, {job_specs.asset_uri(dataset) for dataset in spec.starting_inputs})
                 else:
                     self.assertEqual(type(restored.timetable).__name__, "CronTriggerTimetable")
                 if spec.outputs:
