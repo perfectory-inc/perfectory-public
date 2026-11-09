@@ -17,7 +17,7 @@
     "default_ttl_seconds": 0,
     "max_ttl_seconds": 31536000,
     "key_headers": ["Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"],
-    "reason": "The origin's Cache-Control decides, and nothing here copies it: the immutable release URLs (tiles, by-PNU generations, media, profiles: public, max-age=31536000, immutable) stay a year, the manifests and the index (no-cache, max-age=0) are asked again every time, the patched tiles and the by-PNU latest documents keep their hour, and an answer without Cache-Control is not stored (default 0). The Workers answer Vary: Origin and refuse an origin they do not list, so Origin and the preflight's two request headers are in the key; no cookie and no query string reaches them (the tile Worker answers 404 to any query, the by-PNU Worker accepts none)."
+    "reason": "The origin's Cache-Control decides, and nothing here copies it: the immutable release URLs (tiles, by-PNU generations, media, profiles: public, max-age=31536000, immutable) stay a year, the manifests and the index (no-cache, max-age=0) are asked again every time, the patched tiles and the by-PNU documents, whose answer changes under the same URL, keep their hour in the browser and s-maxage=60 here (root ADR-0470: the seconds their Worker itself holds the manifest that decides them; orchestration/tests/test_cdn_shared_cache_lifetime.py), and an answer without Cache-Control is not stored (default 0). The Workers answer Vary: Origin and refuse an origin they do not list, so Origin and the preflight's two request headers are in the key; no cookie and no query string reaches them (the tile Worker answers 404 to any query, the by-PNU Worker accepts none)."
   },
   "doors": {
     "tiles": {

@@ -327,7 +327,7 @@
           ]
         },
         "content_type": "application/json; charset=utf-8",
-        "cache_control": "public, max-age=3600",
+        "cache_control": "public, max-age=3600, s-maxage=60",
         "manifest_cache_control": "no-cache, max-age=0",
         "manifest_edge_cache_seconds": 60,
         "pack_only": true,
@@ -707,7 +707,7 @@
           ]
         },
         "content_type": "application/json; charset=utf-8",
-        "cache_control": "public, max-age=3600",
+        "cache_control": "public, max-age=3600, s-maxage=60",
         "manifest_cache_control": "no-cache, max-age=0",
         "manifest_edge_cache_seconds": 60,
         "pack_only": true,
@@ -800,7 +800,7 @@
           "manifest_schema_version": "foundation-platform.vector_tile_patches.v1",
           "patch_infix": ".patch-",
           "manifest_cache_seconds": 60,
-          "cache_control": "public, max-age=3600",
+          "cache_control": "public, max-age=3600, s-maxage=60",
           "max_patched_tile_ratio": 0.05,
           "max_patched_tile_ratio_reason": "Root ADR-0111 §9's initial compaction point (5% of the base's tiles), under Mapbox Tiling Service's advice to retile in full above 15% changed. Above it the bake is a full one and makes a new base. The 202606 to 202609 editions moved 0.26% of PNUs in and out where no region was reorganized and 16.2% where one was (root ADR-0251): the first is a patch, the second a new base."
         }

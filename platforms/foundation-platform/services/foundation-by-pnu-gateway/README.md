@@ -87,7 +87,7 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
 - PNU 부재는 CORS 헤더를 포함한 404 `no-store`다. 웹은 이를 `BuildingNotServedError`로 구분한다.
 - 거부: query, 원시 객체 키, 다른 prefix, traversal, 비정규 PNU는 404; 다른 method는 405;
   미허용 Origin은 403
-- 캐시: 문서 응답은 `public, max-age=3600`. 개별 PNU 응답의 엣지 캐시 키에 서빙 상태의 지문(묶음 계획의 지문)이
+- 캐시: 문서 응답은 `public, max-age=3600, s-maxage=60`(공유 캐시 — 서울 앞문 CloudFront — 는 manifest 캐시와 같은 1분, 루트 ADR-0470). 개별 PNU 응답의 엣지 캐시 키에 서빙 상태의 지문(묶음 계획의 지문)이
   들어가므로, 새 패치나 새 기본 세대가 발행되면 엣지는 옛 응답을 즉시 쓰지 않는다(manifest 캐시 1분 이내).
   **브라우저는 다르다**: 같은 URL 의 응답을 `max-age`(계약의 `cache_control`) 동안 다시 묻지 않고 쓸 수 있다
   (루트 ADR-0141 2026-10-04 개정 주석).
