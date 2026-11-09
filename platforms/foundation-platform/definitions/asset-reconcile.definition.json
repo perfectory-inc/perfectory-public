@@ -42,7 +42,9 @@
         "gold_unit_price_rebuild",
         "by_pnu_unit_price_bake",
         "by_pnu_public_auction_bake",
-        "by_pnu_serving_bake"
+        "by_pnu_serving_bake",
+        "by_pnu_parcel_building_permits_bake",
+        "by_pnu_parcel_nearby_bake"
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",

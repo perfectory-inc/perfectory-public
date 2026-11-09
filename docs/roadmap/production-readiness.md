@@ -225,29 +225,29 @@ last_reviewed: 2026-11-07
 | 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
 | 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 화면 |
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
-| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby (꺼짐)`<br>`parcel-real-transaction (꺼짐)`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
+| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction (꺼짐)`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
 | 토지 | 필지별 토지소유 (`silver.land_ownership`) | `parcel-ownership (꺼짐)`<br>`parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
+| 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 부설주차장 (`silver.building_permit_annex_parking`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 기본개요 (`silver.building_permit_basis_outline`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 동별개요 (`silver.building_permit_building_outline`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 층별개요 (`silver.building_permit_floor_overview`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 대수선 (`silver.building_permit_major_repair`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 주차장 (`silver.building_permit_parking`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 대지위치 (`silver.building_permit_site_location`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 공작물관리대장 (`silver.building_permit_structure_ledger`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 가설건축물 (`silver.building_permit_temporary_building`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 건축물대장 공동주택가격 (`silver.building_register_apartment_price`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건축물대장 전유부 (`silver.building_register_exclusive_unit`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건물 층별 정보 (`silver.building_register_floors`) | `building` | — | 화면 |
-| 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits (꺼짐)`<br>`parcel-real-transaction (꺼짐)`<br>`unit-price` | — | 화면 |
+| 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits`<br>`parcel-real-transaction (꺼짐)`<br>`unit-price` | — | 화면 |
 | 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |
 | 건물 | 건물 호별 정보 (`silver.building_register_units`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 부설주차장 (`silver.building_permit_annex_parking`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 기본개요 (`silver.building_permit_basis_outline`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 동별개요 (`silver.building_permit_building_outline`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축인허가 철거멸실관리대장 (`silver.building_permit_demolition_loss`) | `parcel-demolitions (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 층별개요 (`silver.building_permit_floor_overview`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 대수선 (`silver.building_permit_major_repair`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 주차장 (`silver.building_permit_parking`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 대지위치 (`silver.building_permit_site_location`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 공작물관리대장 (`silver.building_permit_structure_ledger`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 가설건축물 (`silver.building_permit_temporary_building`) | `parcel-building-permits (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters (꺼짐)` | — | 길 있음·꺼짐 |
 | 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 온비드 공고 (`silver.onbid_announcement`) | `parcel-public-auction` | — | 화면 |
@@ -263,14 +263,14 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
-| 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 물류 입지 | 도시철도역 (`silver.subway_station`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
+| 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |
+| 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby` | — | 화면 |
+| 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby` | — | 화면 |
+| 물류 입지 | 도시철도역 (`silver.subway_station`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 항만 (`silver.port`) | — | — | 없음 |
-| 주변 생활 | 상가(상권) (`silver.commercial_district`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 주변 생활 | 초중등학교 위치 (`silver.school_location`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
-| 주변 생활 | 대학·전문대학 (`silver.university`) | `parcel-nearby (꺼짐)` | — | 길 있음·꺼짐 |
+| 주변 생활 | 상가(상권) (`silver.commercial_district`) | `parcel-nearby` | — | 화면 |
+| 주변 생활 | 초중등학교 위치 (`silver.school_location`) | `parcel-nearby` | — | 화면 |
+| 주변 생활 | 대학·전문대학 (`silver.university`) | `parcel-nearby` | — | 화면 |
 | 주변 생활 | 행정동 성별 연령별 인구 (`silver.dong_population`) | — | — | 없음 |
 | 주변 생활 | 행정동 세대원수별 세대수 (`silver.household_count`) | — | — | 없음 |
 | 행정·내부 | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | `admin-tiles` | 화면 |

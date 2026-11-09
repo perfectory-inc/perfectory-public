@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 5400,
+          "estimated_from": "computed, never run: one read of the served parcel boundaries (39,861,511 parcels, a centroid and an H3 cell each), five Sedona ST_KNN joins against at most 12,004 points, 756 million H3 ring rows (19 per parcel) joined to a broadcast count of 2,753,778 stores by cell, and the highway list per 시군구; the same unit template's parcel-ownership build over 39,396,906 parcels and about 120 million owner rows measured 1,602 s (2026-11-05, its cut-over's gold step), so about three such passes, 5,400 s, inside the 8,100 s share of the 150-minute limit; a first run past it is stopped by TimeoutStartSec and the auto-promotion's gold step resumes it"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -39,8 +42,8 @@
         "silver-highway-access-point-to-gold-parcel-nearby",
         "reference-legal-dong-code-change-to-gold-parcel-nearby"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0465). Off until its Silver tables exist and its first full build (every served parcel, 39,861,511 in the current edition, against 14 airports, 215 stations, 898 subway stations, 12,004 schools, 1,995 universities and 2,753,778 stores, measured 2026-11-04/09 by the file contract) has run and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-nearby, root ADR-0193 §7); switching it on is the auto-promotion of root ADR-0435 once measured (ADR-0457 §1 does not cover a national first build)."
+      "enabled": true,
+      "enabled_since": "2026-11-09T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_nearby_bake",
@@ -66,7 +69,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed from the parcel-ownership bake, the same by-pnu-serving-bake.sh: 636 s for 39,396,906 documents (2026-11-05, its cut-over's bake step); the nearby lane bakes one document for each of 39,861,511 parcels, so 1,500 s, more than twice it"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -76,8 +82,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-nearby-to-parcel-nearby-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0465). Off with gold_parcel_nearby_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the lane is cut over (root ADR-0190, or the auto-promotion of root ADR-0435)."
+      "enabled": true,
+      "enabled_since": "2026-11-09T18:00:00Z"
     }
   ],
   "assets": [

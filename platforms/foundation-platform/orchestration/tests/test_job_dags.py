@@ -291,7 +291,9 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         # started it again: the transfer history lane served a Gold its host panel had moved past.
         self.assertEqual(set(self.spec.reconciles),
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
-                          "by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild"})
+                          "by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild",
+                          # Root ADR-0468: switched on with the first runs they read.
+                          "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake"})
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).
