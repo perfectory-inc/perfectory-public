@@ -32,3 +32,8 @@ id = "RUSTSEC-2024-0436"
 ignoreUntil = 2027-02-02
 reason = "paste: 취약점이 아니라 '관리 중단' 권고다. 사진 사다리(root ADR-0427)의 AVIF 인코더 rav1e 0.8.1(최신)이 컴파일 때만 쓰는 proc-macro 로 끌어온다 — 실행 바이너리에 코드가 없다. deny.toml 이 같은 권고를 parquet 때문에 이미 열어 두었다. rav1e 가 paste 를 떼면(업스트림 이슈) 닫는다."
 
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0459"
+ignoreUntil = 2027-02-02
+reason = "libsqlite3-sys(번들 C SQLite CVE-2026-119375): 네 Rust lockfile 의 0.30.1 은 sqlx 0.8.6 의 sqlx-macros-core 가 sqlite 기능 없이도 lockfile 에만 풀어 넣는 sqlx-sqlite 의 것이다(sqlx 의 알려진 동작). 2026-11-09 네 워크스페이스 모두 `cargo tree --workspace --all-features --target all -e normal,build,dev -i libsqlite3-sys` 가 비었다 — 어느 빌드도 컴파일하지 않고 SQLite 를 열지 않는다. 수정판 0.39 는 sqlx 0.9 가 끌어오므로 sqlx 승급 때 닫는다."
