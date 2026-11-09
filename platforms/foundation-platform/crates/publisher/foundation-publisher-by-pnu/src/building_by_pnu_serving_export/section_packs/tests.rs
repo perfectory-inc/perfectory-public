@@ -346,6 +346,7 @@ impl Lane {
             }),
             bound_cpu_p99_ms: policy.cutover_gate.worker_cpu_p99_max_ms,
             availability: 1.0,
+            edge_colos: std::collections::BTreeMap::new(),
             increase_cold_ms: increase,
             increase_warm_ms: gate::Increase::default(),
             load: Some(gate::LoadEvidence {
@@ -1122,13 +1123,23 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
     no_load.load = None;
     assert!(!no_load.verdict()?, "a probe without its load phase passed");
     let mut unavailable = passing.clone();
-    if let Some(load) = unavailable.load.as_mut() {
-        load.availability = section_pack_policy()?.cutover_gate.slo.availability_min - 0.0001;
+    let load = unavailable.load.as_mut().context("no load phase")?;
+    load.failures.insert("http-503".to_owned(), 10);
+    assert!(!unavailable.verdict()?, "a load phase's 503s passed");
+    // ADR-0459: client timeouts pass; a clientDisconnected invocation or lost reads over 1% fail.
+    let (lost, over) = (passing.sample_size / 500, passing.sample_size / 100 + 1);
+    for (class, count, cut, passes) in [
+        ("pack:request-timeout", lost, 0, true),
+        ("pack:request-timeout", lost, lost, false),
+        ("pack:connect", over, 0, false),
+    ] {
+        let mut read = passing.clone();
+        read.answered -= count;
+        read.failures.insert(class.to_owned(), count);
+        let cpu = read.worker_cpu.as_mut().context("no analytics")?;
+        cpu.statuses.insert("success".into(), cpu.requests - cut);
+        assert_eq!(read.verdict()?, passes, "{class} {count} {cut}");
     }
-    assert!(
-        !unavailable.verdict()?,
-        "a load phase below the availability SLO passed"
-    );
     let mut slow_tail = passing;
     slow_tail.increase_cold_ms.p99 = section_pack_policy()?
         .cutover_gate

@@ -160,13 +160,15 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
 - 계약의 `probe_concurrency`(8)개 PNU 를 동시에 읽는다. PNU 마다 운영 경로와 미리보기를 한 번씩, 번갈아 먼저
   읽고, 읽기마다 따로 잰다. 둘 다 200 이어야 하고, 내용은 `source` 를 빼고 같아야 한다.
 - 법정동의 첫 읽기가 차가운 읽기다. 판정은 계약의 SLO(`cutover_gate.slo`)로 한다: 묶음의 차가운 p50·p95·p99 가
-  같은 PNU 의 운영 경로보다 `latency_max_increase_ms.cold` 이상, 따뜻한 것이 `.warm` 이상 늘지 않아야 하고, 미리보기
-  읽기의 200 비율(`availability`)이 `availability_min`(99.95%) 이상이어야 한다.
-- 실패는 쪽·종류별(`pack:http-503`, `live:body-timeout` …)로 센다. 운영 경로 쪽 실패는 망이나 객체 경로의 것이라
-  묶음 가용성에 넣지 않지만, 답한 PNU 가 표본의 `availability_min` 에 못 미치면 통과가 아니다.
+  같은 PNU 의 운영 경로보다 `latency_max_increase_ms.cold` 이상, 따뜻한 것이 `.warm` 이상 늘지 않아야 하고, 미리보기의
+  **서버 가용성**이 `availability_min`(99.95%) 이상이어야 한다(root ADR-0459): 클라이언트에 온 답 가운데 서버 실패(HTTP 상태,
+  gzip 아님, 깨진 gzip)가 아닌 비율과, 그 창의 Workers analytics invocation 가운데 `success` 의 비율 중 작은 값.
+- 실패는 쪽·종류별(`pack:http-503`, `live:body-timeout` …)로 센다. 답을 받지 못한 실패(`request*`·`connect`·`body*`)는
+  클라이언트 망의 것이라 서버 가용성에 넣지 않고, 쪽마다 `client_transport_failure_max_share`(1%) 이하여야 한다.
+  클라이언트가 본 200 비율(`availability`)과 답한 엣지(`edge_colos`, `CF-Ray` 끝자리)는 증거에 따로 남는다.
 - 짝 읽기 뒤 부하 단계(`cutover_gate.load_test`, 초당 25건 10분 = 15,000건, 동시 최대 64)가 미리보기만 읽는다.
   표본에서 시드 해시로 뽑아 법정동이 되풀이되므로 차가운 읽기와 따뜻한 읽기가 섞인다. 동시 한도에 걸려 시작하지
-  못한 요청(`shed`)도 가용성에서 뺀다. 그 구간의 Worker CPU·`exceededResources` 도 분석에서 읽어 같은 한도로 본다.
+  못한 요청(`shed`)은 클라이언트 몫으로 잃은 읽기와 함께 `client_transport_failure_max_share` 로 잰다. 그 구간의 Worker CPU·`exceededResources` 도 분석에서 읽어 같은 한도로 본다.
 - 모든 읽기는 브라우저처럼 `Accept-Encoding: gzip` 을 보낸다. 미리보기 답이 `Content-Encoding: gzip` 이 아니면 저장된
   덩어리를 그대로 낸 것이 아니므로 실패(`pack:not-gzip`)다. 증거의 `encodings` 가 쪽마다 받은 인코딩을,
   `server_timing.outcomes` 가 미리보기가 간 경로(`document`·`document-decompressed`·…)를 센다.
