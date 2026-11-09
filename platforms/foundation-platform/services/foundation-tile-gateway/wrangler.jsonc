@@ -13,6 +13,10 @@
     {
       "pattern": "tiles.gongzzang.app",
       "custom_domain": true
+    },
+    {
+      "pattern": "tiles-origin.perfectory.io",
+      "custom_domain": true
     }
   ],
   "r2_buckets": [

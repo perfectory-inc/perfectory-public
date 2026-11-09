@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform: apply the console's Cloudflare edge settings (Access, tunnel, DNS) from the commit the host runs (root ADR-0436)
+Description=Foundation Platform: apply the console's Cloudflare edge settings (Access, tunnel, DNS) and the Seoul front door (CloudFront) from the commit the host runs (root ADR-0436, ADR-0460)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/edge-settings.md
 X-Foundation-Owner=platform
 Requires=docker.service
@@ -13,10 +13,12 @@ Type=oneshot
 # Root: it reads the account token's file and the control checkout, reads the staff list from the
 # identity database container, and writes the console-tunnel and edge-settings files through the
 # runtime-secrets contract. foundation-autodeploy.sh starts it beside the Worker deploy (no timer of
-# its own). Until the token's file exists it does nothing.
+# its own). Until the token's file exists it does nothing; until the aws-cdn file holds the separate
+# AWS account's key it applies no front door (it reads that file itself, as edge-settings.env).
 EnvironmentFile=-/etc/foundation-platform/cloudflare-deploy.env
 ExecStart=/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/scripts/deploy/edge_settings.py
-# An init that fetches one provider, and an apply of seven resources: minutes at most.
+# Two modules: the console's seven resources, then the front door's distributions, whose first
+# creation waits for CloudFront to deploy them (minutes each, in parallel).
 TimeoutStartSec=30min
 # Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
 MemoryHigh=460M

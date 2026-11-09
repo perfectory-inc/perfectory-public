@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 ---
 
 # 더니어 엣지 설정 — Access·Tunnel·DNS 를 호스트가 코드로 맞춘다
@@ -47,3 +47,24 @@ systemctl show -p Result foundation-edge-settings.service
 ## 토큰
 
 Worker 배포와 같은 계정 토큰(`cloudflare-deploy` 그룹)이다. 교체가 필요할 때의 권한 목록과 서버에 넣는 길은 ADR-0436 "소유자가 하는 일"에 있다.
+
+## 서울 앞문 (CloudFront, 루트 ADR-0460)
+
+[루트 ADR-0460](../../../../docs/adr/0460-korean-visitors-enter-through-a-cloudfront-front-door-in-seoul-in-a-separate-aws-account-applied-by-the-host.md).
+
+같은 유닛이 콘솔 엣지 뒤에 `infra/cdn/main.tf` 를 적용한다. 정본은 `config/cdn-front-door.contract.json`.
+
+- **꺼져 있음**: `/etc/foundation-platform/aws-cdn.env` 에 별도 AWS 계정의 적용 키가 없으면 로그에 `front door off` 한 줄뿐이다.
+  키를 넣는 길은 ADR-0460 "소유자가 하는 일" 2.
+- **성공**: `applied <commit> (front door)` 와 문마다 `front door <문>: dXXXX.cloudfront.net`. 기록은
+  `/data/foundation-platform/edge-settings/cdn/applied.json`·`failed.json`(콘솔과 따로).
+- **전환**: 계약의 문 `answered_by` 를 `cloudfront` 로 바꾸는 PR 하나(문 하나씩). Worker 배포가 공개 이름을 Worker 도메인에서 빼고, 이 적용이
+  DNS-only CNAME 을 만든다.
+- **되돌리기**: 그 줄을 `cloudflare` 로 되돌리는 PR. 급하면 Cloudflare 대시보드 → Workers → 그 Worker → Settings → Domains & Routes →
+  Add → Custom domain 에 공개 이름(예: `tiles.perfectory.io`) — 기존 CNAME 을 덮고 1분 안에 Cloudflare 가 다시 답한다. 그 뒤 계약도
+  되돌린다(안 그러면 다음 적용이 CNAME 을 다시 만든다).
+- **실측**(읽기만, 노트북):
+  `python platforms/foundation-platform/scripts/ops/korea-edge-measure.py --sample <샘플.json> --cloudfront tiles=<배포이름> --cloudfront catalog=<배포이름> --globalping 12`
+  샘플은 저장소 밖 로컬 파일(`{"tiles": ["/<source>/<z>/<x>/<y>"], "catalog": ["/parcels/by-pnu/<pnu>"]}`). 전환된 문은
+  `--cloudfront` 가 필요 없다.
+- **비용 알림**: 예산 `perfectory-cdn-free-tier` 가 실제 지출 $0.01 을 넘으면 직원 메일로 온다. 오면 콘솔 Billing → Bills 에서 서비스별로 본다.

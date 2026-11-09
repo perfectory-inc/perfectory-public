@@ -22,6 +22,10 @@
     {
       "pattern": "catalog.gongzzang.app",
       "custom_domain": true
+    },
+    {
+      "pattern": "catalog-origin.perfectory.io",
+      "custom_domain": true
     }
   ],
   "r2_buckets": [

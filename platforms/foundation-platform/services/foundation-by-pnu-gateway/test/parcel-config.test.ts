@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
+import frontDoor from "../../../config/cdn-front-door.contract.json";
 import connectionContract from "../../../config/r2-connections.contract.json";
 
 describe("generated Wrangler configuration", () => {
@@ -34,12 +35,15 @@ describe("generated Wrangler configuration", () => {
     const gateway = connectionContract.parcel_by_pnu_gateway;
 
     // 주소의 정본은 계약이다: 배포가 붙이는 도메인은 계약이 이름한 것과 정확히 같아야 하고,
-    // 그래서 주소 이전은 계약 한 줄 변경이 된다.
+    // 그래서 주소 이전은 계약 한 줄 변경이 된다. 서울 앞문의 원점도 붙고, 앞문을 CloudFront 로 돌리면 공개 주소는
+    // 빠진다(루트 ADR-0460).
+    const door = frontDoor.doors.catalog;
     expect(config.routes).toEqual(
-      [gateway.public_hostname, ...gateway.public_hostname_aliases].map((pattern) => ({
-        pattern,
-        custom_domain: true,
-      })),
+      [
+        ...(door.answered_by === "cloudfront" ? [] : [gateway.public_hostname]),
+        ...gateway.public_hostname_aliases,
+        door.origin_hostname,
+      ].map((pattern) => ({ pattern, custom_domain: true })),
     );
     for (const route of config.routes ?? []) {
       expect(route.pattern).toMatch(/^[a-z0-9.-]+$/);

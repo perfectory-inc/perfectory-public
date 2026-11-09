@@ -4,6 +4,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import frontDoor from "../../../config/cdn-front-door.contract.json";
 import connectionContract from "../../../config/r2-connections.contract.json";
 
 const gateway = connectionContract.vector_tile_gateway;
@@ -19,9 +20,13 @@ describe("generated Wrangler configuration", () => {
       compatibility_date: gateway.compatibility_date,
       workers_dev: false,
       keep_vars: true,
-      routes: [gateway.public_hostname, ...gateway.public_hostname_aliases].map((pattern) => ({
-        pattern, custom_domain: true,
-      })),
+      // The front door's origin is a custom domain too; a door switched to CloudFront drops the public one
+      // (root ADR-0460).
+      routes: [
+        ...(frontDoor.doors.tiles.answered_by === "cloudfront" ? [] : [gateway.public_hostname]),
+        ...gateway.public_hostname_aliases,
+        frontDoor.doors.tiles.origin_hostname,
+      ].map((pattern) => ({ pattern, custom_domain: true })),
       r2_buckets: [{
         binding: gateway.r2_binding,
         bucket_name: connectionContract.connections.tile_derivatives.expected_values.FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_BUCKET,
@@ -54,6 +59,7 @@ describe("generated Wrangler configuration", () => {
       await mkdir(dirname(contract), { recursive: true });
       await copyFile(new URL("../scripts/render-wrangler-config.mjs", import.meta.url), script);
       await writeFile(contract, JSON.stringify(connectionContract));
+      await writeFile(join(fixture, "config/cdn-front-door.contract.json"), JSON.stringify(frontDoor));
       const run = (mode: string) => spawnSync(process.execPath, [script, mode], { encoding: "utf8" });
       expect(run("--write").status).toBe(0);
       expect(run("--check").status).toBe(0);
