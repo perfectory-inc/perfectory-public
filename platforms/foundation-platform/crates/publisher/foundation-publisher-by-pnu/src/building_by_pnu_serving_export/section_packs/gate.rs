@@ -150,13 +150,15 @@ pub struct NoGzipEvidence {
 }
 
 impl NoGzipEvidence {
-    /// Every read the client got an answer to was 200, uncompressed and equal; a read lost on the
-    /// client's network (root ADR-0459) is held to `transport_max_share` instead.
-    fn holds(&self, transport_max_share: f64) -> bool {
+    /// Every read the client got an answer to was 200, uncompressed and equal, and at least
+    /// `min_coverage` of them got one; a read lost on the client's network is reported, not a
+    /// failure (root ADR-0460).
+    #[allow(clippy::cast_precision_loss)]
+    fn holds(&self, min_coverage: f64) -> bool {
         let lost = served(self.sent, &self.failures, None, None).transport;
         self.answered > 0
             && self.answered + lost == self.sent
-            && within_share(lost, self.sent, transport_max_share)
+            && self.answered as f64 >= self.sent as f64 * min_coverage
             && self.identity == self.answered
             && self.mismatched == 0
             && self.not_compared < self.answered
@@ -178,7 +180,10 @@ pub struct Served {
     /// (`clientDisconnected` counts against it, since only the probe reads a preview). 0 without
     /// analytics.
     pub server_availability: f64,
-    /// Reads the client lost without an answer.
+    /// The invocations analytics recorded over the reads sent: the share the server was judged on
+    /// (root ADR-0460). 0 without analytics.
+    pub coverage: f64,
+    /// Reads the client lost without an answer: its network, reported (root ADR-0460).
     pub transport: u64,
 }
 
@@ -215,6 +220,7 @@ pub fn served(
             part as f64 / whole as f64
         }
     };
+    let coverage = cpu.map_or(0.0, |cpu| share(cpu.requests, sent));
     let recorded = cpu.map_or(0.0, |cpu| {
         share(
             cpu.statuses.get(SUCCESS).copied().unwrap_or(0),
@@ -223,14 +229,9 @@ pub fn served(
     });
     Served {
         server_availability: share(sent.saturating_sub(server_failed), sent).min(recorded),
+        coverage,
         transport,
     }
-}
-
-/// Whether `part` is at most `max_share` of `whole`.
-#[allow(clippy::cast_precision_loss)]
-fn within_share(part: u64, whole: u64, max_share: f64) -> bool {
-    part as f64 <= whole as f64 * max_share
 }
 
 /// The preview Worker's CPU over the probe window, as Workers analytics records it.
@@ -402,10 +403,10 @@ impl LatencyEvidence {
                     && cpu.cpu_p99_ms <= gate.worker_cpu_p99_max_ms
             })
         };
-        // The server is judged on what it answered and what analytics recorded; the client's lost
-        // reads on either side are its network, bounded apart (root ADR-0459: 2026-11-09 three
-        // lanes failed on 15 s client timeouts alone while analytics recorded every invocation as
-        // success).
+        // The server is judged on what it answered and what analytics recorded, over enough of the
+        // reads; the client's lost reads are its network and are reported (root ADR-0459, ADR-0460:
+        // 2026-11-09 lanes failed on client timeouts alone while analytics recorded every
+        // invocation as success).
         let pack = served(
             self.sample_size,
             &self.failures,
@@ -413,12 +414,13 @@ impl LatencyEvidence {
             self.worker_cpu.as_ref(),
         );
         let live_lost = served(self.sample_size, &self.failures, Some("live"), None).transport;
-        let transport_max = slo.client_transport_failure_max_share;
+        let min_coverage = slo.analytics_min_coverage;
+        let covered = |served: &Served| served.coverage >= min_coverage;
+        // Every pair the server failed on either side counts; enough pairs must be timed.
         #[allow(clippy::cast_precision_loss)]
         let enough_answered = (self.answered + pack.transport + live_lost) as f64
             >= self.sample_size as f64 * slo.availability_min
-            && within_share(pack.transport, self.sample_size, transport_max)
-            && within_share(live_lost, self.sample_size, transport_max);
+            && self.answered as f64 >= self.sample_size as f64 * min_coverage;
         // A lane of fewer documents than the target is sampled whole (every PNU is a candidate,
         // `candidate_rate`), so its floor is the lane itself, not a target it can never reach
         // (2026-10-23: the public-auction lane, 4,821 documents). The full target holds for any lane
@@ -446,6 +448,7 @@ impl LatencyEvidence {
                 slo.cold_reads_not_from_r2_max_share,
             )
             && pack.server_availability >= slo.availability_min
+            && covered(&pack)
             && self
                 .increase_cold_ms
                 .within(&slo.latency_max_increase_ms.cold)
@@ -457,17 +460,12 @@ impl LatencyEvidence {
             && self
                 .no_gzip
                 .as_ref()
-                .is_some_and(|no_gzip| no_gzip.holds(transport_max))
+                .is_some_and(|no_gzip| no_gzip.holds(min_coverage))
             && self.load.as_ref().is_some_and(|load| {
                 let served = served(load.sent, &load.failures, None, load.worker_cpu.as_ref());
                 load.sent > 0
                     && served.server_availability >= slo.availability_min
-                    // A shed read is the client's: its pacing found `max_in_flight` outstanding.
-                    && within_share(
-                        served.transport + load.shed,
-                        load.sent + load.shed,
-                        transport_max,
-                    )
+                    && covered(&served)
                     && cpu_within(&load.worker_cpu)
             }))
     }

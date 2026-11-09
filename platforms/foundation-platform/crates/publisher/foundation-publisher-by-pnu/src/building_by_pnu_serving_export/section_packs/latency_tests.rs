@@ -306,6 +306,12 @@ async fn the_no_gzip_sample_must_answer_uncompressed_and_equal() -> anyhow::Resu
         worker_cpu: full.worker_cpu.clone(),
         ..gate::LoadEvidence::default()
     });
+    // Analytics covers the whole sample (root ADR-0460), not the five reads the stand-in served.
+    let size = full.sample_size;
+    if let Some(cpu) = full.worker_cpu.as_mut() {
+        cpu.requests = size;
+        cpu.statuses = [("success".to_owned(), size)].into();
+    }
     // This stand-in names no Server-Timing, so nothing shows its cold reads came from R2: the
     // cold bound measured nothing it can vouch for, and the gate stays shut on that alone.
     full.no_gzip = Some(no_gzip_held(2));
@@ -395,6 +401,12 @@ async fn worker_cpu_is_read_from_analytics_and_gates() -> anyhow::Result<()> {
         worker_cpu: full.worker_cpu.clone(),
         ..gate::LoadEvidence::default()
     });
+    // Analytics covers the whole sample (root ADR-0460), not the five reads the stand-in served.
+    let size = full.sample_size;
+    if let Some(cpu) = full.worker_cpu.as_mut() {
+        cpu.requests = size;
+        cpu.statuses = [("success".to_owned(), size)].into();
+    }
     assert!(full.verdict()?, "{full:?}");
     let mut unread = full.clone();
     unread.no_gzip = None;

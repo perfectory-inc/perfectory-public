@@ -61,3 +61,7 @@
 - 이 결정은 컷오버 관문 (나)만 바꾼다. Worker 배포 카나리(`health.rs`)와 시간마다 도는 서빙 모니터(`monitor.rs`)는 클라이언트 실패를
   여전히 그대로 센다. 같은 정체가 그쪽을 깨면 같은 분류(`is_transport_class`)를 쓰는 후속 결정으로 옮긴다.
 - 경로(LAX) 자체는 W43 이 고친다. 고친 뒤에는 `edge_colos` 가 그 결과를 보여 준다.
+
+---
+
+개정 각주(2026-11-09): §2 는 [ADR-0460](./0460-the-cutover-latency-gate-reports-the-clients-lost-reads-and-holds-the-servers-verdict-to-analytics-coverage.md) 이 대체했다 — 잃은 읽기는 보고만 하고, 서버 판정은 analytics 적용 범위(`analytics_min_coverage`)로 세운다.
