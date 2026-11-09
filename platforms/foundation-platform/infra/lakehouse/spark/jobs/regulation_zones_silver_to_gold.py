@@ -394,7 +394,7 @@ def main(argv=None) -> int:
             if not args.validate_only:
                 spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`")
                 ensure_contract_table(spark, table, contract)
-                outcome.commit(spark, table, pins, args.iceberg_write_mode)
+                outcome.commit(spark, table, pins, args.iceberg_write_mode, contract_table=contract["table_name"])
                 incremental.retain_input_snapshots(spark, args.iceberg_catalog_name, args.source_iceberg_namespace,
                                                    kind.gold_table, pins)
             summary = {

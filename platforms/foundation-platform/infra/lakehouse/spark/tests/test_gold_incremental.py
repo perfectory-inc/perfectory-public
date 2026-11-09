@@ -411,5 +411,28 @@ class RowLevelMode(unittest.TestCase):
         self.assertEqual(len(settled.statements), 1)
 
 
+
+class CommitCallers(unittest.TestCase):
+    def test_every_producer_passes_what_commit_requires(self):
+        # 2026-11-04 #817 made contract_table required; nine producers' fakes hid it, and every one of
+        # their Gold builds crashed at commit after the build (2026-11-09 01:40Z: parcel-regulation-zones
+        # after 8,856 s, all 17 시도 built).
+        import ast
+        import inspect
+
+        required = {name for name, parameter in inspect.signature(incremental.Outcome.commit).parameters.items()
+                    if parameter.kind is parameter.KEYWORD_ONLY and parameter.default is parameter.empty}
+        jobs = Path(incremental.__file__).parent
+        callers = 0
+        for path in sorted(jobs.glob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "commit"
+                        and isinstance(node.func.value, ast.Name) and node.func.value.id == "outcome"):
+                    callers += 1
+                    with self.subTest(path=path.name, line=node.lineno):
+                        self.assertLessEqual(required, {keyword.arg for keyword in node.keywords})
+        self.assertGreater(callers, 10)
+
+
 if __name__ == "__main__":
     unittest.main()
