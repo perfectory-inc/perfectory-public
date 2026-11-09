@@ -11,6 +11,7 @@ import json
 import pathlib
 import re
 import sys
+import tempfile
 import unittest
 
 ORCHESTRATION = pathlib.Path(__file__).resolve().parents[1]
@@ -76,22 +77,60 @@ class Reconciler(unittest.TestCase):
             "silver.court_auction_item_photo": table(snap("71", None, 0)),
             # The court auction Gold follows code changes too (root ADR-0382).
             "reference.legal_dong_code_change": table(snap("61", None, 0)),
+            # The building-permit and nearby lanes (root ADR-0468), caught up.
+            "gold.parcel_building_permits": table(snap("501", None, 0)),
+            "gold.parcel_nearby": table(snap("601", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},
                       "parcel-court-auction": {"read_snapshot_id": "401", "outcome": "served"},
                       "unit-price": {"read_snapshot_id": "301", "outcome": "served"},
-                      "building": {"read_snapshot_id": "201", "outcome": "served"}}
-        self.running, self.full = set(), set()
+                      "building": {"read_snapshot_id": "201", "outcome": "served"},
+                      "parcel-building-permits": {"read_snapshot_id": "501", "outcome": "served"},
+                      "parcel-nearby": {"read_snapshot_id": "601", "outcome": "served"}}
+        self.running, self.full, self.unpublished = set(), set(), set()
 
     def tick(self, now_minutes=40, state=None, panel=False):
         found = list(self.assets.values()) + (list(self.lanes.values()) if panel else [])
         return asset_reconcile.tick(T0 + 60 * now_minutes, found, self.catalog.__getitem__,
                                     self.reads.get, lambda service: service in self.running,
-                                    lambda job: "full" if job in self.full else "", state or {})
+                                    lambda job: "full" if job in self.full else "", state or {},
+                                    published=lambda lane: lane not in self.unpublished)
+
+    def test_a_lane_no_cut_over_has_published_is_not_owed_its_bake(self):
+        # Root ADR-0468: the building-permit and nearby bakes, switched on before the auto-promotion published
+        # their lanes, say `not cut over yet` and record no read. Owed every tick, a `publish` job's asset would
+        # hold back every lane's first publish (by-pnu-auto-promote.sh), theirs too.
+        del self.reads["parcel-building-permits"]
+        self.unpublished = {"parcel-building-permits"}
+        owed, metrics, _, errors = self.tick()
+        self.assertEqual(errors, [])
+        self.assertFalse(any("by_pnu_parcel_building_permits_bake" in line for line in owed))
+        self.assertIn('foundation_asset_owed{asset="perfectory://parcel-building-permits-by-pnu-section-packs",'
+                      'job="by_pnu_parcel_building_permits_bake"} 0', metrics)
+        # Once a cut-over published it, a lane with no read yet is owed its bake, which records one.
+        self.unpublished = set()
+        owed, _, _, _ = self.tick()
+        self.assertTrue(any(line.startswith("foundation-asset-owed by_pnu_parcel_building_permits_bake ") for line in owed))
+
+    def test_a_cut_over_publishes_a_lane_when_its_publish_step_passed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "cutover").mkdir()
+            (root / "cutover" / "20261109T154223Z.jsonl").write_text(
+                "\n".join(['{"lane": "parcel-demolitions", "step": "publish", "outcome": "passed", "generation": 1}',
+                           '{"lane": "parcel-energy", "step": "equality", "outcome": "failed", "generation": 1}',
+                           '{"lane": "parcel-energy", "step": "publish", "outcome": "failed", "generation": 1}',
+                           "not json"]) + "\n",
+                encoding="utf-8")
+            published = asset_reconcile.cut_over(root)
+            self.assertTrue(published("parcel-demolitions"))
+            self.assertFalse(published("parcel-energy"))
+            self.assertFalse(published("parcel-nearby"))
 
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
         # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
-        self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake"})
+        self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
+                                            "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake"})
         # Every lane the panel bake serves is an asset of its own, fed from its one Gold table; inside
         # the one unit the kinds follow the parcel lane by run order, so none follows across jobs.
         self.assertEqual({lane: (asset.lane_table, asset.follows, asset.uri) for lane, asset in self.lanes.items()},

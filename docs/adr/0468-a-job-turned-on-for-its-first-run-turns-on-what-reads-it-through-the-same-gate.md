@@ -43,6 +43,12 @@ ADR-0457 은 켜는 쪽만 말했다. 무엇을 위해 켜는가(화면에 보�
 3. **켜도 안전한 이유.** 굽기는 cut-over 전에는 `nothing to do: the pack-only lane is not cut over yet` 로 `unchanged` 다
    (`by-pnu-serving-bake.sh`). Gold 작업과 cut-over 의 gold 단계는 rebuild 잠금 하나를 나눠 한쪽이 짓고 다른 쪽은
    `nothing to do` 이거나 잠금 대기다. 어느 쪽이 먼저 짓든 같은 Gold 다.
+4. **두 굽기는 조정기가 맡는다.** 켜진 by-PNU 굽기는 모두 조정기의 `reconciles` 에 있다(`test_job_dags`, 2026-10-29 패널 굽기의
+   사고). 그런데 cut-over 전 굽기는 읽은 판을 남기지 않아(`reads.jsonl` 없음) 조정기가 매 틱 "아직 읽은 것 없음 → owed" 로
+   보고, `publish` 작업의 owed 자산은 자동 승격의 모든 첫 발행을 막는다(`by-pnu-auto-promote.sh`, ADR-0439). 그래서 읽은 판이
+   없는 레인은 cut-over 증거(`by-pnu-bake/cutover/*.jsonl`)에 `publish` 단계가 통과한 적이 있을 때만 owed 다
+   (`asset_reconcile.cut_over`). 그 전에는 `waiting`(첫 발행은 자동 승격의 몫). 11-09 의 parcel-ownership 처럼 cut-over 로 발행된
+   레인도 `reads.jsonl` 이 없으므로, 발행 뒤 첫 틱에 굽기가 owed 가 되어 읽은 판을 남긴다.
 
 ## 버린 대안
 

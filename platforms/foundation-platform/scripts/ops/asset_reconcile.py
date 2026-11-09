@@ -303,7 +303,7 @@ def gold_attempt(asset: Asset, verdict: Verdict, busy: bool, kept: dict, now: fl
     return {**verdict.versions, "attempt": kept["attempt"]} if kept["attempt"] else verdict.versions
 
 
-def lane_verdict(asset: Asset, table, reads, now: float) -> Verdict:
+def lane_verdict(asset: Asset, table, reads, now: float, published=lambda lane: True) -> Verdict:
     """Owed when the lane's Gold moved past the snapshot its last run left served.
 
     The versions owed name the snapshot read too, so a run that moved the lane but not to the head (a
@@ -326,6 +326,12 @@ def lane_verdict(asset: Asset, table, reads, now: float) -> Verdict:
     if gold["head"] is None:
         return verdict
     if last is None:
+        # A lane no run has published yet is the auto-promotion's (root ADR-0435): its bake would only say
+        # `not cut over yet` and record no read, so the lane would be owed every tick, and an owed asset of
+        # a `publish` job holds back every lane's first publish (by-pnu-auto-promote.sh, root ADR-0468).
+        if not published(asset.lane):
+            verdict.waiting = f"the {asset.lane} lane is not cut over yet; its first publish is the auto-promotion's"
+            return verdict
         verdict.owed, verdict.note = True, f"the {asset.lane} lane has recorded no read yet"
         return verdict
     went, new, old = moved(gold, gold["head"], read)
@@ -387,14 +393,15 @@ def lane_behind_since(asset: Asset, table, reads) -> float | None:
     return min(changes, default=0.0)
 
 
-def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict, timed_out=lambda service: False):
+def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict, timed_out=lambda service: False,
+         published=lambda lane: True):
     """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables."""
     owed_by_job, metrics, errors, next_state = {}, [], [], {}
     for asset in found:
         labels = f'asset="{asset.uri}",job="{asset.job}"'
         kept = dict(state.get(asset.uri, {}))
         try:
-            verdict = gold_verdict(asset, table) if asset.gold else lane_verdict(asset, table, reads, now)
+            verdict = gold_verdict(asset, table) if asset.gold else lane_verdict(asset, table, reads, now, published)
             busy = running(asset.service)
             full = "" if busy else pool_full(asset.job)
         except Exception as error:  # noqa: BLE001 -- one asset that cannot be read does not stop the others
@@ -766,6 +773,27 @@ def last_read(bake_root: Path):
     return read
 
 
+def cut_over(bake_root: Path):
+    """Whether a lane's cut-over has published it (a `publish` step that passed in the cut-over runner's
+    evidence, by-pnu-lane-cutover.sh): the lanes the auto-promotion has not published yet record no read."""
+    lanes: set | None = None
+
+    def published(lane: str) -> bool:
+        nonlocal lanes
+        if lanes is None:
+            lanes = set()
+            for path in sorted((bake_root / "cutover").glob("*.jsonl")):
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    try:
+                        step = json.loads(line)
+                    except ValueError:
+                        continue
+                    if step.get("step") == "publish" and step.get("outcome") == "passed":
+                        lanes.add(step.get("lane"))
+        return lane in lanes
+    return published
+
+
 def main() -> int:
     jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
     graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
@@ -806,7 +834,7 @@ def main() -> int:
 
     now = time.time()
     owed, metrics, state, errors = tick(now, found, table, last_read(bake_root), running, pool_full, state,
-                                        timed_out)
+                                        timed_out, cut_over(bake_root))
     try:
         queued_owed, queued_metrics = queued_starts(now, jobs, job_units.queued(), job_units.last_started(),
                                                     running, pool_full)
