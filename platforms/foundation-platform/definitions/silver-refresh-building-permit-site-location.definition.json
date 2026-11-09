@@ -38,7 +38,8 @@
         "source-building-hub-bulk-to-silver-building-permit-site-location"
       ],
       "enabled": true,
-      "enabled_since": "2026-11-09T03:00:00Z"
+      "enabled_since": "2026-11-09T03:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

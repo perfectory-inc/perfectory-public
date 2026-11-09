@@ -48,7 +48,8 @@
       "enabled": true,
       "pool_slots": 3,
       "priority_weight": 1,
-      "enabled_since": "2026-11-09T03:00:00Z"
+      "enabled_since": "2026-11-09T03:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

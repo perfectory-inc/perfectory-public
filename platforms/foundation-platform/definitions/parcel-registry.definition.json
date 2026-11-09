@@ -41,7 +41,8 @@
         "silver-parcel-boundaries-to-silver-parcel-registry"
       ],
       "enabled": true,
-      "enabled_since": "2026-11-09T03:00:00Z"
+      "enabled_since": "2026-11-09T03:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
