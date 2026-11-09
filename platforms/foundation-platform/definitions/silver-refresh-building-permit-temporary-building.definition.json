@@ -47,8 +47,8 @@
       "id": "silver-building-permit-temporary-building",
       "type": "silver_table",
       "title": "건축인허가 가설건축물",
-      "description": "가설건축물 신고마다 한 행: 구조(컨테이너조·경량철골 등)·주용도(창고시설·공장·임시창고 등)·건축면적·연면적·지상층수·존치만료일. 공장 부지의 임시 창고·사무실이다. 한 허가에 여러 행이라 행 글자의 SHA-256 이 키다. 원문 23칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0402).",
-      "status": "contract_only",
+      "description": "가설건축물 신고마다 한 행: 구조(컨테이너조·경량철골 등)·주용도(창고시설·공장·임시창고 등)·건축면적·연면적·지상층수·존치만료일. 공장 부지의 임시 창고·사무실이다. 한 허가에 여러 행이라 행 글자의 SHA-256 이 키다. 원문 23칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0464).",
+      "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-permit-temporary-building-source-objects.json",

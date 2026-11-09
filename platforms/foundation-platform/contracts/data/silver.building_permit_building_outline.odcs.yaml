@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.building_permit_building_outline"
 name: "건축인허가 동별개요"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "허가의 동마다 한 행: 주·부속 구분, 주용도, 구조·지붕, 건축면적·연면적·용적률산정연면적, 호·가구·세대 수, 승강기 수. 필지에 허가된 건물 하나하나를 말하고 관리허가대장PK 로 기본개요의 허가에 붙는다. 원문 29칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0402)."
+  purpose: "허가의 동마다 한 행: 주·부속 구분, 주용도, 구조·지붕, 건축면적·연면적·용적률산정연면적, 호·가구·세대 수, 승강기 수. 필지에 허가된 건물 하나하나를 말하고 관리허가대장PK 로 기본개요의 허가에 붙는다. 원문 29칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0464)."
 team:
   name: "foundation-platform"
 servers:
@@ -164,7 +164,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-building-permit-building-outline"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"

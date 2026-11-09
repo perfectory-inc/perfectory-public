@@ -26,6 +26,90 @@ export const ParcelBuildingPermitsByPnuSchema = z.object({
       outdoor_self_parking_count: z.string().nullish(),
       indoor_mechanical_parking_count: z.string().nullish(),
     })),
+    building_outlines: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        main_annex_name: z.string().nullish(),
+        main_purpose_name: z.string().nullish(),
+        structure_name: z.string().nullish(),
+        roof_name: z.string().nullish(),
+        building_area_m2: z.string().nullish(),
+        total_floor_area_m2: z.string().nullish(),
+        far_floor_area_m2: z.string().nullish(),
+        unit_count: z.string().nullish(),
+        family_count: z.string().nullish(),
+        household_count: z.string().nullish(),
+        passenger_elevator_count: z.string().nullish(),
+        emergency_elevator_count: z.string().nullish(),
+      })),
+    }).nullish(),
+    floor_overviews: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        floor_kind_name: z.string().nullish(),
+        floor_no: z.string().nullish(),
+        main_purpose_name: z.string().nullish(),
+        structure_name: z.string().nullish(),
+        floor_area_m2: z.string().nullish(),
+        arch_kind_name: z.string().nullish(),
+      })),
+    }).nullish(),
+    site_locations: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        representative_flag: z.string().nullish(),
+        main_building_name: z.string().nullish(),
+        land_category_name: z.string().nullish(),
+      })),
+    }).nullish(),
+    major_repairs: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        major_repair_kind_name: z.string().nullish(),
+        major_repair_change_name: z.string().nullish(),
+      })),
+    }).nullish(),
+    temporary_buildings: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        main_purpose_name: z.string().nullish(),
+        structure_name: z.string().nullish(),
+        building_area_m2: z.string().nullish(),
+        total_floor_area_m2: z.string().nullish(),
+        plot_area_m2: z.string().nullish(),
+        ground_floor_count: z.string().nullish(),
+        existence_expiry_date: z.string().nullish(),
+      })),
+    }).nullish(),
+    annex_parkings: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        land_category_name: z.string().nullish(),
+        related_jibun_name: z.string().nullish(),
+      })),
+    }).nullish(),
+    structures: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        facility_kind_name: z.string().nullish(),
+        structure_name: z.string().nullish(),
+        length: z.string().nullish(),
+        height: z.string().nullish(),
+        area_m2: z.string().nullish(),
+        building_coverage_ratio: z.string().nullish(),
+        zone_name: z.string().nullish(),
+        district_name: z.string().nullish(),
+        precinct_name: z.string().nullish(),
+      })),
+    }).nullish(),
+    regular_inspections: z.object({
+      total: z.number().int(),
+      records: z.array(z.object({
+        inspection_agency_name: z.string().nullish(),
+        inspection_start_date: z.string().nullish(),
+        processed_date: z.string().nullish(),
+      })),
+    }).nullish(),
   }),
   building_permit_total: z.number().int().nullish(),
 });

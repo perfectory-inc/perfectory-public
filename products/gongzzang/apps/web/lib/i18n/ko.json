@@ -312,7 +312,58 @@
           "indoorSelfParking": "옥내자주식 {value}대",
           "outdoorSelfParking": "옥외자주식 {value}대",
           "indoorMechanicalParking": "옥내기계식 {value}대",
-          "more": "최근 {shown}건만 보임 · 전체 {total}건"
+          "more": "최근 {shown}건만 보임 · 전체 {total}건",
+          "building_outlines": {
+            "title": "동별개요 {count}건",
+            "building_area_m2": "건축면적 {value}㎡",
+            "total_floor_area_m2": "연면적 {value}㎡",
+            "far_floor_area_m2": "용적률산정연면적 {value}㎡",
+            "unit_count": "호수 {value}",
+            "family_count": "가구수 {value}",
+            "household_count": "세대수 {value}",
+            "passenger_elevator_count": "승용승강기수 {value}",
+            "emergency_elevator_count": "비상용승강기수 {value}"
+          },
+          "floor_overviews": {
+            "title": "층별개요 {count}건",
+            "floor_area_m2": "층면적 {value}㎡",
+            "structure_name": "구조 {value}",
+            "arch_kind_name": "건축구분 {value}"
+          },
+          "temporary_buildings": {
+            "title": "가설건축물 {count}건",
+            "building_area_m2": "건축면적 {value}㎡",
+            "total_floor_area_m2": "연면적 {value}㎡",
+            "plot_area_m2": "대지면적 {value}㎡",
+            "ground_floor_count": "지상층수 {value}",
+            "existence_expiry_date": "가설건축물존치만료일 {value}"
+          },
+          "structures": {
+            "title": "공작물관리대장 {count}건",
+            "length": "길이 {value}",
+            "height": "높이 {value}",
+            "area_m2": "면적 {value}㎡",
+            "building_coverage_ratio": "건폐율 {value}%",
+            "zone_name": "지역 {value}",
+            "district_name": "지구 {value}",
+            "precinct_name": "구역 {value}"
+          },
+          "major_repairs": {
+            "title": "대수선 {count}건"
+          },
+          "site_locations": {
+            "title": "대지위치 {count}건",
+            "representative_flag": "대표 대지"
+          },
+          "annex_parkings": {
+            "title": "부설주차장 {count}건",
+            "related_jibun_name": "관련지번 {value}"
+          },
+          "regular_inspections": {
+            "title": "건축물 정기점검 {count}건",
+            "inspection_start_date": "점검시작일 {value}",
+            "processed_date": "처리일자 {value}"
+          }
         },
         "demolitions": {
           "title": "멸실된 건물 {count}건",
