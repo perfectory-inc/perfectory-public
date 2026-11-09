@@ -19,6 +19,9 @@
 #   history    the lane line's first_publish_waits_for_history (root ADR-0350 §6, ADR-0371 §5): every
 #              month of those 실거래 datasets is loaded (scripts/ops/serving_history_readiness.py,
 #              read with the operations map's reader token); a lane without it is `not-declared`
+#   inputs     every input the Gold's planner refuses to build without exists in the catalog
+#              (scripts/ops/gold_input_readiness.py <gold table>, root ADR-0471): read before the gold
+#              step claims the spark pool, with the same reader token
 #   preview    the lane's and its latency baseline lane's preview hostnames answer their
 #              capabilities path (gate (나) reads both)
 #   gold       the operator's `<lane> gold-rebuild`: gold-panel-rebuild.sh <the table's unit>, the
@@ -70,8 +73,9 @@
 # auto-promotion (scripts/ops/by-pnu-auto-promote.sh, root ADR-0435) publishes. It reads the contracts
 # and the monitor files only.
 #
-# A lane whose history step finds its 실거래 history not loaded yet is not ready, not broken: the run
-# records it `waiting` and exits 75, which its unit counts a success (nothing pages).
+# A lane whose history step finds its 실거래 history not loaded yet, or whose inputs step finds an input
+# of its Gold not loaded yet, is not ready, not broken: the run records it `waiting` and exits 75, which
+# its unit counts a success (nothing pages), and it claimed nothing.
 #
 # A cut-over approved in the console (root ADR-0433) carries its approval id in
 # FOUNDATION_CUTOVER_APPROVAL (set by by-pnu-pack-operator.sh --approved): each step's line and the
@@ -105,9 +109,10 @@ SPARK_WAIT_MINUTES="${FOUNDATION_CUTOVER_SPARK_WAIT_MINUTES:-}"
 VERIFY_ATTEMPTS="${FOUNDATION_CUTOVER_VERIFY_ATTEMPTS:-5}"
 VERIFY_PAUSE_SECONDS="${FOUNDATION_CUTOVER_VERIFY_PAUSE_SECONDS:-60}"
 EDGE_PROBE="${FOUNDATION_CUTOVER_EDGE_PROBE:-${PLATFORM_ROOT}/scripts/ops/by-pnu-edge-probe.py}"
+INPUT_READINESS="${FOUNDATION_CUTOVER_INPUT_READINESS:-${PLATFORM_ROOT}/scripts/ops/gold_input_readiness.py}"
 now() { echo "${FOUNDATION_CUTOVER_NOW:-$(date -u +%s)}"; }
 
-STEPS=(history preview gold parity bake equality latency publish monitor-sample verify)
+STEPS=(history inputs preview gold parity bake equality latency publish monitor-sample verify)
 
 # One line per lane to cut over: lane, gold table, rebuild unit, parity argument or -, preview
 # hostname, its capabilities path, baseline preview hostname, its capabilities path, monitor file,
@@ -233,6 +238,7 @@ if [[ -n "${DRY_RUN}" ]]; then
     for step in "${STEPS[@]}"; do
       case "${step}" in
         history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: every month of ${history} is loaded" ;;
+        inputs) what="gold_input_readiness.py ${table}: every input its planner requires exists" ;;
         preview) what="GET the two capabilities paths above" ;;
         gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table}; bounded by ${gold_budget} min)" ;;
         parity) [[ "${parity}" == - ]] && what="not-declared: ${table} has no pins_from.parity_argument" \
@@ -327,6 +333,17 @@ for entry in "${PLAN[@]}"; do
           record "${lane}" "${step}" waiting "$(($(now) - started))" "${reason}"
           log "${lane} history: waiting: ${reason}; the run ends here and nothing after it starts"
           progress finished outcome=waiting "reason=${lane} history: ${reason}" "run=${RUN_ID}"
+          exit 75; }
+        ;;
+      inputs)
+        reason="$( (set -a; [[ ! -r "${ETC}/operations-map.env" ]] || . "${ETC}/operations-map.env"; set +a
+                    python3 -I -B "${INPUT_READINESS}" "${table}" 2>&1) )" || { rc=$?
+          # As history: an input not loaded yet waits (exit 75), anything else fails. The gold step
+          # after it would claim the pool only for its planner to refuse (2026-11-09).
+          ((rc == 75)) || fail "${lane}" "${step}" "$(($(now) - started))" "${reason:-gold_input_readiness.py ${table} could not tell}"
+          record "${lane}" "${step}" waiting "$(($(now) - started))" "${reason}"
+          log "${lane} inputs: waiting: ${reason}; the run ends here and nothing after it starts"
+          progress finished outcome=waiting "reason=${lane} inputs: ${reason}" "run=${RUN_ID}"
           exit 75; }
         ;;
       preview)
