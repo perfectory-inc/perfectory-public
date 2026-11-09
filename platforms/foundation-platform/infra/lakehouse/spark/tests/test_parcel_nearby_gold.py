@@ -1,6 +1,6 @@
 """Parcel nearby by-PNU kind (root ADR-0465).
 
-Synthetic PNUs (prefix 99999) and synthetic coordinates. Pins: each parcel's nearest airport, station,
+Synthetic PNUs (prefix 99999) and synthetic coordinates (the reserved longitude band 127.123). Pins: each parcel's nearest airport, station,
 school and university by Sedona's ST_KNN with the spheroid distance in metres; a coordinate outside
 Korea or not a number is no candidate; a parcel counts the stores in the H3 rings around its cell and
 not a store beyond them; it lists the 고속도로 출입시설 of its 시군구; a changed store names the
@@ -21,7 +21,7 @@ LANE = "parcel-nearby"
 GOLD_COLUMNS = ("pnu", "nearby_json", "attached_via", "row_digest", "source_snapshot_id", "published_at_utc")
 NEAR, FAR = "9999910100" + "100010000", "9999920100" + "100020000"
 # About 1.1 km apart at this latitude, 0.01 degrees of latitude; FAR is 0.5 degrees north.
-NEAR_AT, FAR_AT = (127.0, 37.0), (127.0, 37.5)
+NEAR_AT, FAR_AT = (127.123, 37.0), (127.123, 37.5)
 
 
 class InputsTest(unittest.TestCase):
@@ -109,9 +109,9 @@ class DocumentSparkTest(unittest.TestCase):
     def frames(self, stores=(), highway=()):
         point = {source: self.points(fields, []) for source, (_, fields) in job.NEAREST.items()}
         point[job.AIRPORT_SOURCE] = self.points(("name",), [
-            ("a1", "37.01", "127.0", "북쪽공항"), ("a2", "37.6", "127.0", "먼공항"), ("a3", "0", "0", "좌표오류"),
-            ("a4", "", "127.0", "빈좌표")])
-        point[job.SUBWAY_SOURCE] = self.points(("name", "route_name"), [("s1", "37.0", "127.001", "역", "1호선")])
+            ("a1", "37.01", "127.1230", "북쪽공항"), ("a2", "37.6", "127.1230", "먼공항"), ("a3", "0", "0", "좌표오류"),
+            ("a4", "", "127.1230", "빈좌표")])
+        point[job.SUBWAY_SOURCE] = self.points(("name", "route_name"), [("s1", "37.0", "127.1239", "역", "1호선")])
         stores_frame = self.spark.createDataFrame(list(stores), "row_key string, lat string, lon string")
         highway_frame = self.spark.createDataFrame(list(highway), "row_key string, sigungu string, route_name string, "
                                                                   "facility_name string")
@@ -132,8 +132,8 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertIsNone(near["school"])
 
     def test_stores_count_within_the_rings_only(self):
-        stores = [("r1", "37.0001", "127.0001"), ("r2", "37.0003", "127.0002"), ("r3", "37.2", "127.0"),
-                  ("r4", "99", "127.0")]
+        stores = [("r1", "37.0001", "127.1231"), ("r2", "37.0003", "127.1232"), ("r3", "37.2", "127.1230"),
+                  ("r4", "99", "127.1230")]
         documents, _ = self.documents(self.frames(stores=stores))
         self.assertEqual((documents[NEAR]["commercial_store_count"], documents[FAR]["commercial_store_count"]), (2, 0))
 
@@ -145,7 +145,7 @@ class DocumentSparkTest(unittest.TestCase):
 
     def test_a_changed_store_names_the_parcels_within_its_rings(self):
         points = job.parcel_points(self.parcels([(NEAR, NEAR_AT), (FAR, FAR_AT)]))
-        cells = job.store_cells(self.spark.createDataFrame([("r1", "37.0001", "127.0001")],
+        cells = job.store_cells(self.spark.createDataFrame([("r1", "37.0001", "127.1231")],
                                                            "row_key string, lat string, lon string"))
         self.assertEqual({r.pnu for r in job.store_pnus(cells.select("cell"), points).collect()}, {NEAR})
 
@@ -158,7 +158,7 @@ class DocumentSparkTest(unittest.TestCase):
     def test_a_document_carries_exactly_the_registry_s_fields(self):
         import by_pnu_kinds
 
-        point = {source: self.points(fields, [("x", "37.0", "127.0", *["v"] * len(fields))])
+        point = {source: self.points(fields, [("x", "37.0", "127.1230", *["v"] * len(fields))])
                  for source, (_, fields) in job.NEAREST.items()}
         frames = {**self.frames(highway=[("h1", "99999", "선", "IC")]), **point}
         documents, _ = self.documents(frames)

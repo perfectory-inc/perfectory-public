@@ -59,7 +59,7 @@ STORE_H3_RING = 2
 STORE_RADIUS_M = 500
 RECORD_BOUND = 20
 # The mainland, Jeju, Ulleung and Dokdo, with margin (degrees).
-KOREA_BOUNDS = {"lat": (32.5, 39.0), "lon": (124.0, 132.0)}
+KOREA_BOUNDS = {"lat": (32.5, 39.0), "lon": (124.0, 132.0)}  # public-repository-safety: reviewed-runtime-coordinate
 # Every nearest-point file: source -> (document key, document fields).
 NEAREST = {**{source: (key, tuple(fields)) for source, (key, _, _, fields) in POINTS.items()},
            UNIVERSITY_SOURCE: (UNIVERSITY[0], tuple(UNIVERSITY[1]))}
