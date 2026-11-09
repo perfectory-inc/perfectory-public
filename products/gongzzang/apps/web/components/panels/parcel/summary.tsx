@@ -18,6 +18,7 @@ import { courtAuctionTotal } from "@/lib/api/court-auction";
 import { type Demolitions, dayLabel, reportDates } from "@/lib/api/demolitions";
 import { chronological, type Energy, electricityPeak, monthLabel } from "@/lib/api/energy";
 import type { Factories } from "@/lib/api/factories";
+import { distanceLabel, NEAREST, type Nearby } from "@/lib/api/nearby";
 import { latestChange, type Ownership, ownerKinds } from "@/lib/api/ownership";
 import { jibunOf, type ParcelDocument } from "@/lib/api/parcels";
 import type { RealTransaction } from "@/lib/api/real-transaction";
@@ -43,6 +44,7 @@ import {
   parcelEnergyQuery,
   parcelFactoriesQuery,
   parcelListingsQuery,
+  parcelNearbyQuery,
   parcelOwnershipQuery,
   parcelPublicAuctionQuery,
   parcelRealTransactionQuery,
@@ -327,6 +329,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const factories = useQuery(parcelFactoriesQuery(entry.id));
   const registerMasters = useQuery(parcelRegisterMastersQuery(entry.id));
   const buildingPermits = useQuery(parcelBuildingPermitsQuery(entry.id));
+  const nearby = useQuery(parcelNearbyQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -346,6 +349,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   }
   sections.push(...registerMastersSections(registerMasters.data, t("sections.registerMasters")));
   sections.push(...buildingPermitsSections(buildingPermits.data, t("sections.buildingPermits")));
+  sections.push(...nearbySections(nearby.data, t("sections.nearby")));
   const links = subParcels.data;
   if (links && links.on_other_total + links.from_other_total > 0) {
     sections.push({
@@ -894,6 +898,57 @@ function RegisterMastersSection({ masters }: { masters: RegisterMasters }) {
         <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
           {t("registerMasters.more", { shown: masters.records.length, total: masters.total })}
         </p>
+      )}
+    </Group>
+  );
+}
+
+/** The 주변 section, only for a parcel the nearby lane has a document for. */
+function nearbySections(nearby: Nearby | null | undefined, label: string): Section[] {
+  if (!nearby) return [];
+  return [{ id: "nearby", label, content: <NearbySection nearby={nearby} /> }];
+}
+
+/**
+ * 주변 from the nearby lane (root ADR-0465): the nearest 공항·철도역·도시철도역·초중등학교·대학 in the
+ * providers' words with the distance from the parcel's centroid, the 상가 around it and the 고속도로
+ * 출입시설 of its 시군구. An entry the files have nothing for is not shown.
+ */
+function NearbySection({ nearby }: { nearby: Nearby }) {
+  const t = useTranslations("panels.parcel.summary.nearby");
+  const rows: [string, ReactNode][] = NEAREST.flatMap((key) => {
+    const point = nearby[key];
+    if (!point) return [];
+    const detail =
+      "route_name" in point
+        ? point.route_name
+        : "school_level" in point
+          ? point.school_level
+          : "school_kind" in point
+            ? point.school_kind
+            : null;
+    const name = [point.name, detail].filter(Boolean).join(" · ") || t("unnamed");
+    return [
+      [t(key), t("point", { name, distance: distanceLabel(point.distance_m) })] as [
+        string,
+        ReactNode,
+      ],
+    ];
+  });
+  rows.push([t("stores"), t("storeCount", { count: nearby.commercial_store_count })]);
+  const access = nearby.highway_access_points;
+  return (
+    <Group title={t("title")}>
+      <Rows rows={rows} />
+      {access && access.records.length > 0 && (
+        <div className="flex flex-col gap-1 text-[length:var(--text-body-sm)]">
+          <div className="text-[var(--color-muted)]">{t("highway", { count: access.total })}</div>
+          <div className="text-[var(--color-ink)]">
+            {access.records
+              .map((r) => [r.route_name, r.facility_name].filter(Boolean).join(" "))
+              .join(" · ")}
+          </div>
+        </div>
       )}
     </Group>
   );

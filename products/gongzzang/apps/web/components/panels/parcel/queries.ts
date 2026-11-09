@@ -7,6 +7,7 @@ import { fetchCourtAuction } from "@/lib/api/court-auction";
 import { fetchDemolitions } from "@/lib/api/demolitions";
 import { fetchEnergy } from "@/lib/api/energy";
 import { fetchFactories } from "@/lib/api/factories";
+import { fetchNearby } from "@/lib/api/nearby";
 import { fetchOwnership } from "@/lib/api/ownership";
 import { fetchPublicAuction } from "@/lib/api/public-auction";
 import { fetchRealTransaction } from "@/lib/api/real-transaction";
@@ -72,6 +73,13 @@ export const parcelBuildingPermitsQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "building-permits", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchBuildingPermits(pnu, signal),
   // The 건축인허가 기본개요 is a monthly hub.go.kr release (root ADR-0356, ADR-0451).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelNearbyQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "nearby", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchNearby(pnu, signal),
+  // Computed in Gold from facility files that change a few times a year and monthly 상가 (ADR-0465).
   staleTime: 60 * 60_000,
 });
 

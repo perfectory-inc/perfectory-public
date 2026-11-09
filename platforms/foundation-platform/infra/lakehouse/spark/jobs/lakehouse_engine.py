@@ -95,7 +95,18 @@ def iceberg_packages() -> str:
     coordinates = [f"{artifact}:{version}" for artifact in iceberg["artifacts"]]
     hadoop = contract["hadoop"]
     coordinates += [f"{artifact}:{hadoop['version']}" for artifact in hadoop["artifacts"]]
+    sedona = contract["sedona"]
+    coordinates += [*(f"{artifact}:{sedona['version']}" for artifact in sedona["artifacts"]), sedona["geotools_wrapper"]]
     return ",".join(coordinates)
+
+
+def with_sedona(builder: Any) -> Any:
+    """A Spark builder with Apache Sedona's SQL functions beside Iceberg's extension (root ADR-0465).
+
+    Call it after `apply_catalog_settings`, which sets `spark.sql.extensions` to Iceberg's alone; the
+    jars are the release's (`iceberg_packages` names them)."""
+    extension = load_engine_contract()["sedona"]["sql_extensions"]
+    return builder.config("spark.sql.extensions", f"{ICEBERG_SPARK_EXTENSIONS},{extension}")
 
 
 # 카탈로그 접속 설정이 사는 곳.
