@@ -431,12 +431,16 @@ impl LatencyEvidence {
             u64::try_from(gate.latency_sample_size)?
         };
         // A pack-only lane is timed against another lane's documents (root ADR-0190), so its own
-        // p95 is also held to the contract's absolute bound.
+        // p95 is also held to the contract's absolute bound: the Worker's own time (Server-Timing
+        // `total`) over enough of its answers, since the client's is the network's (root ADR-0463:
+        // 2026-11-09 client p95 1.6-2.3 s through LAX, Worker p95 0.15-0.21 s).
+        #[allow(clippy::cast_precision_loss)]
         let within_absolute = crate::by_pnu_gateway_contract::ByPnuLane::from_unit(&self.lane)
             .and_then(crate::by_pnu_gateway_contract::ByPnuLane::pack_lane)
             .is_none_or(|pack| {
-                self.pack_ms.p95 <= pack.latency_p95_max_ms
-                    && (self.warm_answered == 0 || self.pack_warm_ms.p95 <= pack.latency_p95_max_ms)
+                self.server_timing.answers as f64
+                    >= self.answered as f64 * slo.analytics_min_coverage
+                    && self.server_timing.total_ms.p95 <= pack.latency_p95_max_ms
             });
         Ok(self.sample_size >= sample_floor
             && within_absolute

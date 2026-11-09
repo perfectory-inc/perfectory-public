@@ -65,3 +65,5 @@
 ---
 
 개정 각주(2026-11-09): §2 는 [ADR-0460](./0460-the-cutover-latency-gate-reports-the-clients-lost-reads-and-holds-the-servers-verdict-to-analytics-coverage.md) 이 대체했다 — 잃은 읽기는 보고만 하고, 서버 판정은 analytics 적용 범위(`analytics_min_coverage`)로 세운다.
+
+개정 각주(2026-11-09): §3 의 "팩 전용 레인의 절대 p95 상한은 바뀌지 않는다" 는 [ADR-0463](./0463-a-pack-only-lanes-absolute-p95-bound-is-the-workers-own-time-not-the-clients.md) 이 대체했다 — 그 상한은 Worker 자신의 p95(Server-Timing) 에 건다.
