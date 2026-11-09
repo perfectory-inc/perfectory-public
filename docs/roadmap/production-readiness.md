@@ -223,11 +223,11 @@ last_reviewed: 2026-11-07
 | 토지 | 필지별 대지권 등록 (`silver.land_right_registration`) | `parcel` | — | 화면 |
 | 토지 | 필지별 토지이동이력 (`silver.land_transfer_history`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
 | 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
+| 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 화면 |
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
 | 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-real-transaction (꺼짐)`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
 | 토지 | 필지별 토지소유 (`silver.land_ownership`) | `parcel-ownership (꺼짐)`<br>`parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
-| 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 길 있음·꺼짐 |
 | 건물 | 건축물대장 공동주택가격 (`silver.building_register_apartment_price`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건축물대장 전유부 (`silver.building_register_exclusive_unit`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건물 층별 정보 (`silver.building_register_floors`) | `building` | — | 화면 |
