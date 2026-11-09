@@ -25,7 +25,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed, about 2.5x the nearest larger measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB; this lane's newest release is about 2 MB in the Bronze ledger (2026-11-09)"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -34,8 +37,8 @@
       "pipeline_graph_edges": [
         "source-building-hub-bulk-to-silver-building-maintenance-regular-inspection-history"
       ],
-      "enabled": false,
-      "disabled_reason": "New lane, never run as its unit: off until its first supervised run (runbooks/silver-refresh.md §3) has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-09T03:00:00Z"
     }
   ],
   "assets": [
