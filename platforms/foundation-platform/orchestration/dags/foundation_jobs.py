@@ -246,6 +246,9 @@ SPECS = load_specs()
 ProxyRunJob = proxy_operator() if any(spec.dagster_stage == "proxied" for spec in SPECS) else None
 
 for spec in SPECS:
+    if spec.dagster_stage == "dagster":
+        # Dagster decides and runs it (orchestration/dagster/decide.py): Airflow builds no DAG for it.
+        continue
     started = (
         f"Starts at `{spec.schedule}` (UTC)."
         if spec.started_by == "schedule"

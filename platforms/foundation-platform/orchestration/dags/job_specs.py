@@ -61,6 +61,9 @@ STARTED_BY = ("schedule", "inputs")
 # beside it and compares; `proxied` Airflow decides, Dagster runs; `dagster` Dagster decides and runs.
 DAGSTER_STAGES = ("airflow", "shadow", "proxied", "dagster")
 # The stages something implements today; a later stage is refused until its slice lands (ADR-0431 §5).
+# `dagster` is half built: Dagster decides (orchestration/dagster/decide.py) and Airflow builds no DAG, but
+# the deploy's drain and start-once, an operator's run-now, the runs' lineage and the operations map
+# still reach a job through its Airflow DAG; the slice that moves them adds the stage here.
 IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow", "proxied")
 # The stages in which Dagster runs the job's unit, and Dagster's decisions are compared with Airflow's
 # while Airflow still decides (root ADR-0458 §4).

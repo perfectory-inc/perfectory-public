@@ -399,6 +399,22 @@ def proxied(spec_ids):
     return mock.patch.object(job_specs, "load_specs", load)
 
 
+class ADagsterJobHasNoDag(unittest.TestCase):
+    def test_airflow_builds_no_dag_for_a_job_dagster_decides(self):
+        # `dagster_stage: dagster` (root ADR-0431 §3): Dagster's sensor decides it (decide.py), so Airflow
+        # must not decide it too, or the job would start twice.
+        spec = next(spec for spec in job_specs.load_specs() if spec.enabled)
+        real = job_specs.load_specs
+        modules, built = stand_ins()
+        with mock.patch.object(job_specs, "load_specs", lambda *a, **k: [
+                dataclasses.replace(other, dagster_stage="dagster") if other.job_id == spec.job_id else other
+                for other in real(*a, **k)]):
+            load_dag_file(modules)
+        dags = {dag.dag_id for dag in built["dags"]}
+        self.assertNotIn(spec.dag_id, dags)
+        self.assertEqual(len(dags), len(real()) - 1)
+
+
 def airlift_stand_in(launched):
     """dagster_airlift.in_airflow as the proxied task uses it: launch a run, read its end and tags."""
     in_airflow = types.ModuleType("dagster_airlift.in_airflow")
