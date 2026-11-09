@@ -414,6 +414,50 @@ describe("parcel panel sections", () => {
     }
   });
 
+  it("shows the permit family's other files on a parcel without a permit, in the register's words", async () => {
+    reads.buildingPermits = {
+      records: [],
+      total: 0,
+      temporary_buildings: {
+        total: 2,
+        records: [
+          {
+            main_purpose_name: "창고시설",
+            structure_name: "컨테이너조",
+            building_area_m2: "30",
+            total_floor_area_m2: "0",
+            plot_area_m2: null,
+            ground_floor_count: "1",
+            existence_expiry_date: "20991231",
+          },
+        ],
+      },
+      regular_inspections: {
+        total: 1,
+        records: [
+          { inspection_agency_name: "기관", inspection_start_date: "20980102", processed_date: "" },
+        ],
+      },
+      site_locations: null,
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("가설건축물 2건")).toBeTruthy();
+      expect(anchors()).toContain("건축인허가");
+      expect(screen.queryByText(/^건축인허가 \d+건$/)).toBeNull();
+      expect(screen.getByText("창고시설 · 컨테이너조")).toBeTruthy();
+      expect(
+        screen.getByText("건축면적 30㎡ · 지상층수 1 · 가설건축물존치만료일 2099.12.31"),
+      ).toBeTruthy();
+      expect(screen.getByText("최근 1건만 보임 · 전체 2건")).toBeTruthy();
+      expect(screen.getByText("건축물 정기점검 1건")).toBeTruthy();
+      expect(screen.getByText("점검시작일 2098.01.02")).toBeTruthy();
+      expect(screen.queryByText(/대지위치/)).toBeNull();
+    } finally {
+      reads.buildingPermits = null;
+    }
+  });
+
   it("shows 부속지번 both ways, each other parcel by its 지번 and 대장종류", async () => {
     reads.subParcels = {
       on_other_parcels: [

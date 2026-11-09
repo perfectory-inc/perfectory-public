@@ -47,8 +47,8 @@
       "id": "silver-building-permit-structure-ledger",
       "type": "silver_table",
       "title": "건축인허가 공작물관리대장",
-      "description": "공작물 신고마다 한 행: 공작물종류(옹벽·담장·굴뚝·고가수조 등)·구조·길이·높이·면적과 지목·용도지역·지구·구역. 공장 부지의 부대시설이다. 한 허가에 여러 행이라 행 글자의 SHA-256 이 키다. 원문 28칸 보존. 읽는 소비자(필지 by-PNU 패널)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0402).",
-      "status": "contract_only",
+      "description": "공작물 신고마다 한 행: 공작물종류(옹벽·담장·굴뚝·고가수조 등)·구조·길이·높이·면적과 지목·용도지역·지구·구역. 공장 부지의 부대시설이다. 한 허가에 여러 행이라 행 글자의 SHA-256 이 키다. 원문 28칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0462).",
+      "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-permit-structure-ledger-source-objects.json",

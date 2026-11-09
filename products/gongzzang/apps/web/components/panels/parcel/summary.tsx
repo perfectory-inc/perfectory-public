@@ -4,7 +4,15 @@ import { useQuery } from "@tanstack/react-query";
 import { groupBy } from "es-toolkit";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import type { BuildingPermits } from "@/lib/api/building-permits";
+import {
+  type BuildingPermits,
+  hasPermitContent,
+  PERMIT_DETAIL_DATES,
+  PERMIT_DETAILS,
+  type PermitDetailKey,
+  type PermitDetailRecord,
+  permitDetail,
+} from "@/lib/api/building-permits";
 import type { Building } from "@/lib/api/buildings";
 import { courtAuctionTotal } from "@/lib/api/court-auction";
 import { type Demolitions, dayLabel, reportDates } from "@/lib/api/demolitions";
@@ -891,12 +899,12 @@ function RegisterMastersSection({ masters }: { masters: RegisterMasters }) {
   );
 }
 
-/** The 건축인허가 section, only for a parcel with a building permit. */
+/** The 건축인허가 section, only for a parcel with a building permit or a row of another permit file. */
 function buildingPermitsSections(
   permits: BuildingPermits | null | undefined,
   label: string,
 ): Section[] {
-  if (!permits || permits.records.length === 0) return [];
+  if (!permits || !hasPermitContent(permits)) return [];
   return [{ id: "buildingPermits", label, content: <BuildingPermitsSection permits={permits} /> }];
 }
 
@@ -907,6 +915,76 @@ function buildingPermitsSections(
  * A figure the register leaves empty or 0 is not shown.
  */
 function BuildingPermitsSection({ permits }: { permits: BuildingPermits }) {
+  return (
+    <>
+      {permits.records.length > 0 && <PermitsGroup permits={permits} />}
+      {PERMIT_DETAILS.map(({ key, head, fields }) => (
+        <PermitDetailGroup key={key} permits={permits} detail={key} head={head} fields={fields} />
+      ))}
+    </>
+  );
+}
+
+/**
+ * One other file of the permit family on the parcel (root ADR-0462): its rows in the register's own
+ * words, the heading fields unlabelled and the rest labelled. A figure left empty or 0 is not shown.
+ */
+function PermitDetailGroup({
+  permits,
+  detail,
+  head,
+  fields,
+}: {
+  permits: BuildingPermits;
+  detail: PermitDetailKey;
+  head: readonly string[];
+  fields: readonly string[];
+}) {
+  const t = useTranslations("panels.parcel.summary");
+  const listed = permitDetail(permits, detail);
+  if (!listed) return null;
+  const value = (record: PermitDetailRecord, field: string) => {
+    const raw = record[field];
+    return raw && PERMIT_DETAIL_DATES.has(field) ? dayLabel(raw) : raw;
+  };
+  const key = (record: PermitDetailRecord, index: number) =>
+    [index, ...head.map((f) => record[f]), ...fields.map((f) => record[f])].join("|");
+  return (
+    <Group title={t(`buildingPermits.${detail}.title`, { count: listed.total })}>
+      <ul className="flex flex-col gap-2">
+        {listed.records.map((record, index) => {
+          const labelled = fields
+            .map((field) => [field, value(record, field)] as const)
+            .filter((pair): pair is readonly [string, string] => filled(pair[1]))
+            .map(([field, v]) => t(`buildingPermits.${detail}.${field}`, { value: v }))
+            .join(" · ");
+          return (
+            <li
+              key={key(record, index)}
+              className="rounded-md border border-[var(--color-hairline)] px-3 py-2 text-[length:var(--text-body-sm)]"
+            >
+              <div className="font-semibold text-[var(--color-ink)]">
+                {head
+                  .map((f) => record[f])
+                  .filter(Boolean)
+                  .join(" · ") || t("none")}
+              </div>
+              {labelled && <div className="text-[var(--color-muted)]">{labelled}</div>}
+            </li>
+          );
+        })}
+      </ul>
+      {listed.total > listed.records.length && (
+        <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+          {t("buildingPermits.more", { shown: listed.records.length, total: listed.total })}
+        </p>
+      )}
+    </Group>
+  );
+}
+
+/** The parcel's permits (기본개요), newest first. */
+function PermitsGroup({ permits }: { permits: BuildingPermits }) {
   const t = useTranslations("panels.parcel.summary");
   // Each line is its labelled fields in the register's order; a field left out is not shown.
   const line = (fields: [string, string | null | undefined][], keep: (v: string) => boolean) =>
