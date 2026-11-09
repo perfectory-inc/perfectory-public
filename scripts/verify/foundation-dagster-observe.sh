@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the Dagster observer's tests (platforms/foundation-platform/orchestration/tests/test_dagster_*.py)
-# inside the image production runs it from (orchestration/dagster/Dockerfile, root ADR-0333 stage 0).
+# inside the image production runs it from (orchestration/dagster/Dockerfile, root ADR-0333 stage 0), then
+# the proxied run's Airflow side inside the release's Airflow image (orchestration/airflow/Dockerfile).
 #
 # The default CI runner has no Dagster, so those tests skip there ("requires dagster ..."). Here the
 # image is built from the locked, hashed requirements and the repository is mounted read-only, the way
@@ -35,6 +36,27 @@ if ((status)); then
 fi
 if grep -E "skipped '(requires|.*dagster)" "$log"; then
   echo "foundation-dagster-observe: FAILED: the tests above skipped for want of the runtime this lane provides" >&2
+  exit 1
+fi
+
+# The release's Airflow image (orchestration/airflow/Dockerfile, root ADR-0431 §5): a proxied job's `run`
+# task against apache/airflow and the dagster-airlift wheel it installs, and the DAG file against Airflow
+# itself (test_job_dags.py WithAirflow), which the default runner, having no Airflow, skips.
+SECONDS=0
+docker build --quiet --tag foundation-platform-airflow:local --file platforms/foundation-platform/orchestration/airflow/Dockerfile ./platforms/foundation-platform
+echo "foundation-dagster-observe: Airflow image ready in ${SECONDS}s"
+airflow_log="$work/airflow-tests.log"
+status=0
+docker run --rm --network none -v "$ROOT:/repo:ro" -w /repo/platforms/foundation-platform/orchestration/tests \
+  -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python foundation-platform-airflow:local \
+  -m unittest -v test_airflow_proxied_run test_job_dags >"$airflow_log" 2>&1 || status=$?
+grep -v -E '^\s*$' "$airflow_log" || true
+if ((status)); then
+  echo "foundation-dagster-observe: Airflow FAILED (exit $status)" >&2
+  exit "$status"
+fi
+if grep -E "skipped '(requires|Airflow is not installed)" "$airflow_log"; then
+  echo "foundation-dagster-observe: FAILED: the Airflow tests above skipped in the Airflow image" >&2
   exit 1
 fi
 echo "foundation-dagster-observe: OK"

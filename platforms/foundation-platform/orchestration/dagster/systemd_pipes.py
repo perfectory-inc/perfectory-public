@@ -100,11 +100,12 @@ def outcome_of(outcome_line, exit_status):
 
 
 class SystemdRun:
-    """One finished run: its outcome and the Pipes messages its journal carried."""
+    """One finished run: its outcome, the Pipes messages its journal carried, and for the asset
+    reconciler the runs it found owed (job_specs.owed_runs, what Airflow's `select` reads)."""
 
-    def __init__(self, context, job_id, outcome, reason, messages, extras):
+    def __init__(self, context, job_id, outcome, reason, messages, extras, owed=()):
         self.context, self.job_id, self.outcome, self.reason = context, job_id, outcome, reason
-        self.messages, self.extras = messages, extras
+        self.messages, self.extras, self.owed = messages, extras, list(owed)
 
     def get_results(self):
         """What the asset yields. A run that withholds its events (`unchanged`, `waiting`, `skipped`)
@@ -120,34 +121,81 @@ class SystemdRun:
         return list(session.get_results(implicit_materializations=True,
                                         metadata={"outcome": self.outcome, "job": self.job_id}))
 
+    def materializations(self, asset_keys):
+        """What an op that runs the job logs (run_jobs.py): one AssetMaterialization per output of a
+        `changed` run, none for a run that withholds its events, as get_results does for an asset.
 
-class SystemdUnitPipesClient(PipesClient):
-    """Starts a job through the host's forced command and reads its run.
+        An op is not an asset, so no Pipes session frames these: a job's outputs may be another job's
+        too (a collector and its Silver refresh), which no asset definition can share. A materialization
+        the journal reported for one of the outputs keeps its metadata (raw values, as Dagster infers
+        them); a report for any other key is refused, so a run never speaks for a dataset it does not write.
+        """
+        from dagster import AssetKey, AssetMaterialization
 
-    `command` is the argv that reaches the forced command (`ssh -i <key> foundation-scheduler@<host>`);
-    the job id and its kind are its last argument, as Airflow's SSHOperator sends them. Every line is
-    the step's log as it arrives; a Pipes message line is kept for the session.
-    """
+        if self.outcome in job_specs.WITHHOLDS_EVENTS:
+            return []
+        keys = {AssetKey(list(key.path)): {} for key in asset_keys}
+        for message in self.messages:
+            params = message.get("params") or {}
+            if message.get("method") == "report_asset_materialization":
+                key = AssetKey.from_user_string(params.get("asset_key") or "")
+                if key not in keys:
+                    raise Failure(f"{self.job_id} reported a materialization of {key.to_user_string()}, which it does not write")
+                keys[key].update({name: (entry or {}).get("raw_value") for name, entry in (params.get("metadata") or {}).items()})
+            elif message.get("method") == "log":
+                self.context.log.info(str(params.get("message", "")))
+        return [AssetMaterialization(key, metadata={**reported, "outcome": self.outcome, "job": self.job_id})
+                for key, reported in keys.items()]
+
+
+class SubprocessForcedCommand:
+    """The forced command as a local argv, its request the last argument: the tests' stand-in for
+    the host (run_jobs.ForcedCommand reaches the real one over SSH)."""
 
     def __init__(self, command: Sequence[str]):
         self.command = list(command)
 
-    def run(self, *, context, job_id, triggered=True, extras=None) -> SystemdRun:
-        if job_id not in {job["id"] for job in observe_assets.contracts()[0]["jobs"]}:
+    def start(self, request):
+        """(the run's output lines, a function that waits for it and returns its exit status)."""
+        process = subprocess.Popen([*self.command, request], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace")
+        return process.stdout, process.wait
+
+
+class SystemdUnitPipesClient(PipesClient):
+    """Starts a job through the host's forced command and reads its run.
+
+    The forced command is reached through `transport` (its `start(request)`), or a local argv
+    `command` that receives the request as its last argument. The request is the job id and its
+    kind, as Airflow's SSHOperator sends them: nothing for a clock start, `triggered`, or
+    `requested <id>` (job_specs.RUN_KIND). Every line is the step's log as it arrives; a Pipes
+    message line is kept for the session, and the reconciler's owed lines for SystemdRun.owed.
+    """
+
+    def __init__(self, command: Sequence[str] | None = None, *, transport=None):
+        self.transport = transport if transport is not None else SubprocessForcedCommand(command)
+
+    def run(self, *, context, job_id, triggered=True, extras=None, kind=None) -> SystemdRun:
+        listed = {job["id"]: job for job in observe_assets.contracts()[0]["jobs"]}
+        if job_id not in listed:
             raise Failure(f"{job_id} is not a job of jobs.v1.json")
-        messages, outcome_line = [], None
-        process = subprocess.Popen([*self.command, job_id + (" triggered" if triggered else "")],
-                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                   encoding="utf-8", errors="replace")
-        for line in process.stdout:
+        kind = ("triggered" if triggered else "") if kind is None else kind
+        if not job_specs.RUN_KIND.fullmatch(kind):
+            raise Failure(f"{job_id}: {kind[:40]!r} is not a run kind the forced command reads")
+        messages, outcome_line, owed = [], None, []
+        lines, wait = self.transport.start(job_id + (f" {kind}" if kind else ""))
+        for line in lines:
             message = pipes_message(line)
             if message is not None:
                 messages.append(message)
                 continue
             outcome_line = job_specs.outcome_line(line) or outcome_line
+            if job_specs.OWED_LINE.match(line.rstrip("\n")):
+                owed.append(line)
             context.log.info(line.rstrip("\n"))
-        word, reason = outcome_of(outcome_line, process.wait())
+        word, reason = outcome_of(outcome_line, wait())
         if word == "failed":
             raise Failure(f"{job_id} failed: {reason}", metadata={"outcome": word, "reason": reason})
         context.log.info(f"{job_id} ended {word}{(': ' + reason) if reason else ''}")
-        return SystemdRun(context, job_id, word, reason, messages, extras)
+        return SystemdRun(context, job_id, word, reason, messages, extras,
+                          job_specs.owed_runs("".join(owed), tuple(listed[job_id].get("reconciles", ()))))

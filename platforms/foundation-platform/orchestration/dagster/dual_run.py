@@ -292,9 +292,11 @@ def compare(spec, job, runs, input_events, start, end, out=(), paused=()):
 
 
 def shadow_jobs(jobs, graph):
-    """(spec, job) of every job in the dual run, from the job list."""
+    """(spec, job) of every job in the dual run, from the job list: at `shadow`, and at `proxied`, where
+    Airflow still decides and the move to `dagster` counts the same decisions (root ADR-0458 §4)."""
     by_id = {job["id"]: job for job in jobs["jobs"]}
-    return [(spec, by_id[spec.job_id]) for spec in job_specs.load_specs(jobs, graph) if spec.dagster_stage == "shadow"]
+    return [(spec, by_id[spec.job_id]) for spec in job_specs.load_specs(jobs, graph)
+            if spec.dagster_stage in job_specs.COMPARED]
 
 
 def dag_key(spec):

@@ -12,13 +12,28 @@ storage:
       password:
         env: DAGSTER_PG_PASSWORD
 
-# Only asset-check runs exist in this stage (airlift's sensor asks for them); one at a time, so a
-# check run's process never doubles the daemon's memory.
+# Two kinds of run (root ADR-0431 §5, ADR-0435): the observer's asset-check runs (airlift's sensor asks
+# for them) and the runs of jobs Dagster runs (run_jobs.py, tagged foundation/run=job by
+# job_specs.JobSpec.dagster_tags). While Airflow decides, Airflow holds the pools and its parallelism
+# (compose.orchestration.yml AIRFLOW__CORE__PARALLELISM, 4) bounds the job runs it can have open at once;
+# this queue admits that many job runs and keeps one place free for a check run, so a check never waits
+# behind an hours-long job run and a job run never waits behind checks. A pool's runs never outnumber its
+# slots (jobs.v1.json pools: spark 3); the host's start (job_units.py pool-full) still decides by
+# priority class and slots, whoever starts. The queue starts higher `dagster/priority` first (the job's
+# priority class value). test_dagster_observe.py holds these numbers to the job list and compose.
+# Every run's process is a child of the daemon: its cap counts them (compose.orchestration.yml).
 run_coordinator:
   module: dagster._core.run_coordinator
   class: QueuedRunCoordinator
   config:
-    max_concurrent_runs: 1
+    max_concurrent_runs: 5
+    tag_concurrency_limits:
+      - key: foundation/run
+        value: job
+        limit: 4
+      - key: foundation/pool
+        value: spark
+        limit: 3
 
 run_monitoring:
   enabled: true

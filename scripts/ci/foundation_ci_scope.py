@@ -155,6 +155,10 @@ RULES = {
             "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_document.py",
             "platforms/foundation-platform/infra/lakehouse/spark/jobs/platform_contracts.py",
             "platforms/foundation-platform/orchestration/dags/job_specs.py",
+            # A proxied job's `run` task, run in the release's Airflow image (root ADR-0431 §5).
+            "platforms/foundation-platform/orchestration/dags/foundation_jobs.py",
+            "platforms/foundation-platform/orchestration/tests/test_airflow_proxied_run.py",
+            "platforms/foundation-platform/orchestration/tests/test_job_dags.py",
             "platforms/foundation-platform/orchestration/jobs.v1.json",
             "platforms/foundation-platform/orchestration/tests/test_dagster_observe.py",
             "platforms/foundation-platform/orchestration/tests/test_dagster_dual_run.py",
@@ -166,6 +170,7 @@ RULES = {
             # The definitions themselves: the asset groups and checks are read from them in place.
             "platforms/foundation-platform/definitions/",
             "platforms/foundation-platform/orchestration/dagster/",
+            "platforms/foundation-platform/orchestration/airflow/",
             "platforms/foundation-platform/orchestration/tests/fixtures/",
         ],
     },

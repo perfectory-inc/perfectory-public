@@ -1,0 +1,6 @@
+# What the release's Airflow image adds to apache/airflow (root ADR-0431 §5): dagster-airlift's in-airflow
+# part, the proxied task of a job Dagster runs (foundation_jobs.py). Its own requirements (click,
+# structlog, requests, PyYAML) are the base image's and stay as Airflow pins them, so the lock holds this
+# wheel alone and the Dockerfile installs it without dependencies, then `pip check`s the result:
+#   uv pip compile requirements.in --no-deps --generate-hashes --python-version 3.13 --python-platform x86_64-manylinux_2_28 -o requirements.txt
+dagster-airlift[in-airflow]==0.29.27

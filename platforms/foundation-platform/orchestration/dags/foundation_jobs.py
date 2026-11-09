@@ -18,7 +18,17 @@ The asset reconciler (a job that names `reconciles`, root ADR-0333 §7) runs lik
 says each reconciled job is owed (`foundation-asset-owed <job> <key>`) goes to task `select`, which
 keeps the jobs with no run queued or running, and task `start` triggers each once per key: the run id
 is the key, so a repeated tick is a no-op. A triggered run waits for its pool like any other.
+
+A job at `dagster_stage: proxied` (root ADR-0431 §5) keeps this DAG, its schedule, pool and the tasks
+around `run`; only `run` changes hands. It is dagster-airlift's proxied task (`dagster-airlift[in-airflow]`,
+in this release's Airflow image): it asks Dagster's webserver to launch the job's Dagster job, waits for it,
+and reads the run's outcome (and the reconciler's owed runs) from the run's tags, so `publish_outputs` and
+`select` read the same XComs as before. Dagster runs the unit through the same forced command (root
+ADR-0417). Nothing imports dagster-airlift while no job is proxied.
 """
+
+import json
+import os
 
 import pendulum
 from airflow.providers.openlineage.api.emission_policy import extend_global_openlineage_emission_policy
@@ -30,6 +40,8 @@ from openlineage.client.event_v2 import Dataset
 
 from job_specs import (
     DEFAULT_POOL,
+    OUTCOME_TAG,
+    OWED_TAG,
     PUBLISH_TASK_ID,
     RETRY_DELAY_MINUTES,
     RUN_TASK_ID,
@@ -63,6 +75,19 @@ CHECK_TIMEOUT_MINUTES = 6
 OWED_KEY = "owed"
 # A run of a reconciled job that is queued or running already covers what it is owed.
 ACTIVE_STATES = ("queued", "running")
+# Where a proxied `run` reaches Dagster (compose.orchestration.yml): the webserver on the project's network.
+DAGSTER_URL = os.environ.get("FOUNDATION_DAGSTER_URL", "http://dagster-webserver:3000")
+# The code location and the repository a `@definitions` function makes (orchestration/dagster/workspace.yaml).
+DAGSTER_LOCATION = "foundation"
+DAGSTER_REPOSITORY = "__repository__"
+# How often a proxied `run` asks whether its Dagster run ended: a run lasts minutes to hours and the
+# webserver answers every DAG's polls (its cap is 304m); the next task starts at most this much later.
+DAGSTER_POLL_SECONDS = 10
+TERMINATE_RUN = """
+mutation TerminateRun($runId: String!) {
+  terminateRun(runId: $runId) { __typename }
+}
+"""
 
 
 class RunJob(SSHOperator):
@@ -147,6 +172,62 @@ class SelectOwed(BaseOperator):
         return starts
 
 
+def proxy_operator():
+    """The `run` task of a proxied job: dagster-airlift's proxied task, launching the job's own Dagster job.
+
+    airlift's default proxy selects the assets mapped to the task and launches the implicit asset job;
+    a job here may write a dataset another job writes too (the collectors and their Silver refreshes) or
+    no dataset at all, so its run is a Dagster job of its own (orchestration/dagster/run_jobs.py) launched
+    by name. airlift's run tags (DAG, DAG run and task ids) stay, so its sensor knows the run was Dagster's.
+    """
+    import requests
+    from dagster_airlift.in_airflow import BaseProxyTaskToDagsterOperator
+
+    class ProxyRunJob(BaseProxyTaskToDagsterOperator):
+        def __init__(self, *, spec, **kwargs):
+            super().__init__(dagster_run_status_poll_interval=DAGSTER_POLL_SECONDS, **kwargs)
+            self.spec = spec
+            self.dagster_run_id = None
+
+        def get_dagster_session(self, context):
+            return requests.Session()
+
+        def get_dagster_url(self, context):
+            return DAGSTER_URL
+
+        def execute(self, context):
+            session = self._get_validated_session(context)
+            kind = self.render_template(RUN_KIND, context).strip()
+            tags = {**self.default_dagster_run_tags(context), **self.spec.dagster_tags(kind)}
+            self.dagster_run_id = self.launch_dagster_run(context, session, DAGSTER_URL, {
+                "mode": "default",
+                "executionMetadata": {"tags": [{"key": key, "value": value} for key, value in tags.items()]},
+                "runConfigData": "{}",
+                "selector": {"repositoryLocationName": DAGSTER_LOCATION, "repositoryName": DAGSTER_REPOSITORY,
+                             "pipelineName": self.spec.dagster_job},
+            })
+            self.log.info("Dagster run %s of %s launched", self.dagster_run_id, self.spec.dagster_job)
+            result = self.wait_for_run_to_complete(session, DAGSTER_URL, self.dagster_run_id)
+            outcome = result.tags.get(OUTCOME_TAG)
+            if not result.succeeded:
+                raise RuntimeError(f"Dagster run {self.dagster_run_id} ended {result.status}: {outcome or 'no outcome'}")
+            context["ti"].xcom_push(key=OUTCOME_KEY, value=outcome)
+            if self.spec.reconciles:
+                context["ti"].xcom_push(key=OWED_KEY, value=json.loads(result.tags.get(OWED_TAG) or "[]"))
+            if outcome in ("waiting", "skipped"):
+                raise AirflowSkipException(f"the run ended {outcome}; its Dagster run {self.dagster_run_id} says why")
+            return None
+
+        def on_kill(self):
+            # The unit belongs to systemd and runs on (root ADR-0270 §3), as when an SSH run's connection
+            # drops; the Dagster run streaming it ends, so it holds no place in the run queue.
+            if self.dagster_run_id:
+                requests.post(f"{DAGSTER_URL}/graphql", timeout=10,
+                              json={"query": TERMINATE_RUN, "variables": {"runId": self.dagster_run_id}})
+
+    return ProxyRunJob
+
+
 def asset(dataset):
     return Asset(uri=asset_uri(dataset), name=asset_uri(dataset))
 
@@ -160,7 +241,11 @@ def schedule_of(spec):
     )
 
 
-for spec in load_specs():
+SPECS = load_specs()
+# dagster-airlift is imported only once a job is proxied, so a release with no proxied job parses as before.
+ProxyRunJob = proxy_operator() if any(spec.dagster_stage == "proxied" for spec in SPECS) else None
+
+for spec in SPECS:
     started = (
         f"Starts at `{spec.schedule}` (UTC)."
         if spec.started_by == "schedule"
@@ -176,20 +261,27 @@ for spec in load_specs():
         tags=["foundation", "scheduled-job"],
         doc_md=f"{spec.description}\n\nRuns systemd service `{spec.systemd_service}` on the host. {started}",
     ) as dag:
-        run = RunJob(
+        if spec.dagster_stage == "proxied":
+            # Dagster runs the unit; the forced command, the run kind and the outcome are the same.
+            run_job, executes = ProxyRunJob, {"spec": spec}
+        else:
+            run_job, executes = RunJob, {
+                "ssh_conn_id": CONNECTION,
+                # The host's forced command reads this as the job id, and `triggered` when the run was
+                # not started by the clock: a run its inputs started, or one an operator triggered, is
+                # never deferred by takes_turns (root ADR-0179); `requested <id>` when an operator's
+                # run-now started it (conf `operator_request`, root ADR-0282 §4), which the host checks
+                # and uses once. Rendered by Airflow per run.
+                "command": spec.job_id + RUN_KIND,
+                "reconciles": spec.reconciles,
+                # Seconds without output before the run counts as hung; the journal prints as it goes.
+                "cmd_timeout": spec.timeout_minutes * 60,
+                # The journal is not kept as an XCom; the outcome is (RunJob).
+                "do_xcom_push": False,
+            }
+        run = run_job(
             task_id=RUN_TASK_ID,
-            ssh_conn_id=CONNECTION,
-            # The host's forced command reads this as the job id, and `triggered` when the run was
-            # not started by the clock: a run its inputs started, or one an operator triggered, is
-            # never deferred by takes_turns (root ADR-0179); `requested <id>` when an operator's
-            # run-now started it (conf `operator_request`, root ADR-0282 §4), which the host checks
-            # and uses once. Rendered by Airflow per run.
-            command=spec.job_id + RUN_KIND,
-            reconciles=spec.reconciles,
-            # Seconds without output before the run counts as hung; the journal prints as it goes.
-            cmd_timeout=spec.timeout_minutes * 60,
-            # The journal is not kept as an XCom; the outcome is (RunJob).
-            do_xcom_push=False,
+            **executes,
             pool=spec.pool,
             pool_slots=spec.pool_slots,
             # Airflow starts the heaviest waiting task that fits when slots free; absolute, so the

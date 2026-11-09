@@ -23,6 +23,11 @@ def bake(jobs):
     return next(job for job in jobs["jobs"] if job["id"] == "by_pnu_serving_bake")
 
 
+def enabled(jobs):
+    """The first switched-on job of the list: a stage past `airflow` is only a switched-on job's."""
+    return next(job for job in jobs["jobs"] if job["enabled"])
+
+
 def entry_script(spec):
     """The release path of the program a job's service runs: its ExecStart, through FLOOR's launcher."""
     unit = job_specs.service_unit_text(spec.systemd_service)
@@ -866,6 +871,21 @@ class TheRunOutcome(unittest.TestCase):
 class ThePoolsTheSchedulerHas(unittest.TestCase):
     """jobs.v1.json `pools` is the one list: the runtime creates them, compose leaves room for them."""
 
+    def test_the_dagster_run_queue_admits_what_airflow_hands_it_and_keeps_a_place_for_checks(self):
+        # A proxied job's run is a Dagster run (root ADR-0431 §5): Airflow's parallelism bounds how many it
+        # opens at once, so the queue admits that many job runs, one place more for the observer's check
+        # runs, and no more of a pool's runs than its slots (orchestration/dagster/dagster.yaml).
+        compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
+        [parallelism] = re.findall(r'AIRFLOW__CORE__PARALLELISM: "(\d+)"', compose)
+        queue = (job_specs.PLATFORM_ROOT / "orchestration/dagster/dagster.yaml").read_text(encoding="utf-8")
+        [most] = re.findall(r"max_concurrent_runs: (\d+)", queue)
+        limits = {(key, value): int(limit) for key, value, limit in
+                  re.findall(r"- key: (\S+)\n\s+value: (\S+)\n\s+limit: (\d+)", queue)}
+        self.assertEqual(limits.pop((job_specs.JOB_RUN_TAG, "job")), int(parallelism))
+        self.assertEqual(int(most), int(parallelism) + 1)
+        pools = job_specs.declared_pools(real_inputs()[0])
+        self.assertEqual(limits, {(job_specs.POOL_TAG, name): slots for name, slots in pools.items()})
+
     def test_parallelism_leaves_a_slot_for_default_pool_jobs(self):
         compose = (job_specs.PLATFORM_ROOT / "compose.orchestration.yml").read_text(encoding="utf-8")
         [parallelism] = re.findall(r'AIRFLOW__CORE__PARALLELISM: "(\d+)"', compose)
@@ -1299,7 +1319,30 @@ class TheDagsterStage(unittest.TestCase):
 
     def test_an_unknown_or_unimplemented_stage(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="both"), "must be one of")
-        self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="proxied"), "no implementation yet")
+        self.refused(lambda jobs: enabled(jobs).update(dagster_stage="dagster"), "no implementation yet")
+
+    def test_a_proxied_job_runs_in_dagster_by_its_name_with_its_queue_tags(self):
+        jobs, graph = (copy.deepcopy(value) for value in real_inputs())
+        job = enabled(jobs)
+        job["dagster_stage"] = "proxied"
+        spec = next(spec for spec in job_specs.load_specs(jobs, graph) if spec.job_id == job["id"])
+        self.assertEqual(spec.dagster_stage, "proxied")
+        self.assertEqual(spec.dagster_job, f"foundation_job__{job['id']}")
+        value = jobs["priority_classes"][job.get("priority_class", "default")]["value"]
+        self.assertEqual(spec.dagster_tags("triggered"), {"foundation/run-kind": "triggered", "foundation/run": "job",
+                                                          "foundation/pool": job["pool"], "dagster/priority": str(value)})
+        for kind in ("", "triggered", "requested 11111111-1111-4111-8111-111111111111"):
+            self.assertTrue(job_specs.RUN_KIND.fullmatch(kind), kind)
+        for kind in (" triggered", "triggered; reboot", "requested x", "check"):
+            self.assertFalse(job_specs.RUN_KIND.fullmatch(kind), kind)
+
+    def test_a_job_past_shadow_needs_the_dagster_that_runs_it(self):
+        # 2026-11-06..09 the code location did not load while the deploy said "observing" (#1204); with
+        # the observer off nothing would launch a proxied job's run at all.
+        def proxied_without_dagster(jobs):
+            enabled(jobs).update(dagster_stage="proxied")
+            jobs["observers"]["dagster"]["enabled"] = False
+        self.refused(proxied_without_dagster, "observers.dagster.enabled leaves off")
 
     def test_a_switched_off_job_stays_with_airflow(self):
         self.refused(lambda jobs: switch_off(bake(jobs), dagster_stage="shadow", disabled_reason="off"),

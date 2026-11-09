@@ -6,6 +6,9 @@ dagster==1.13.27
 dagster-webserver==1.13.27
 dagster-postgres==0.29.27
 dagster-airlift[core]==0.29.27
+# A proxied job's run reaches the host's forced command with the SSH client Airflow's SSH provider uses
+# (apache-airflow-providers-ssh 6.0.1 on apache/airflow 3.3.2 holds paramiko 5.0.0), run_jobs.py.
+paramiko==5.0.0
 # The unit-price checks read the lakehouse through Trino's own client.
 trino==0.340.0
 # SQLAlchemy 2.1 made psycopg (3) the driver of a bare postgresql:// URL, which dagster-postgres

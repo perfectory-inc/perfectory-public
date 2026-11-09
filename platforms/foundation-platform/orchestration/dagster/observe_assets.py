@@ -72,10 +72,15 @@ def node_keys(graph):
 
 
 def writers(jobs, graph):
-    """Pipeline-graph node id -> the DAG ids whose publish task records its events, in job-list order."""
+    """Pipeline-graph node id -> the DAG ids whose publish task records its events, in job-list order.
+
+    A job Dagster runs (`proxied`) is not among them: its Dagster run logs its outputs' materializations
+    itself (run_jobs.py), and airlift would otherwise add one more for the same run."""
     specs = {spec.job_id: spec for spec in job_specs.load_specs(jobs, graph)}
     found = {}
     for job_id, (_, outputs) in job_specs.job_nodes(jobs, graph).items():
+        if specs[job_id].dagster_stage in job_specs.DAGSTER_RUNS:
+            continue
         for node_id in outputs:
             found.setdefault(node_id, []).append(specs[job_id].dag_id)
     return found
