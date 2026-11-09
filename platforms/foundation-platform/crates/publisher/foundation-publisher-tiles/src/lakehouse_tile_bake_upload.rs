@@ -43,7 +43,14 @@ pub(super) async fn bake_and_gate(
             config.served_handoff.clone(),
         );
         let mut collector = SampleCollector::new(samples, &config.unit_key);
+        let budget = config.tile_bytes_budget;
         tokio::task::spawn_blocking(move || {
+            let largest = gate::tile_bytes_gate(&archive, budget)?;
+            let largest: Vec<String> = largest
+                .iter()
+                .map(|(zoom, (bytes, _))| format!("z{zoom}:{bytes}"))
+                .collect();
+            println!("lakehouse-tile-bake-largest-tiles {}", largest.join(" "));
             let render_max_zoom = layer.render_max_zoom;
             let gate = gate_archive(
                 &archive,

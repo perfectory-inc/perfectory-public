@@ -97,7 +97,7 @@ pub use birth::NewbornUnit;
 use birth::{bear, unit_exists};
 use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
-pub use min_zoom::FeatureMinZoom;
+pub use min_zoom::{FeatureMinZoom, LowZoomGeneralization};
 pub use partitions::{
     bake_partitions, partition_archive, tile_join_args, CsvOut, CsvPart, PartitionedCsv,
 };
@@ -140,6 +140,13 @@ pub struct BakeContract {
     /// Root ADR-0375 §3: a unit listed here starts some features at a deeper zoom, by a property.
     #[serde(default)]
     pub feature_min_zoom: std::collections::BTreeMap<String, FeatureMinZoom>,
+    /// W42: a unit listed here carries fewer properties and merged, simplified features below its
+    /// maxzoom.
+    #[serde(default)]
+    pub low_zoom_generalization: std::collections::BTreeMap<String, LowZoomGeneralization>,
+    /// W42: a unit listed here is refused when any stored (compressed) tile exceeds these bytes.
+    #[serde(default)]
+    pub tile_bytes_budget: std::collections::BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,6 +214,16 @@ impl BakeContract {
                 min_zoom.validate_for(unit, &newborn.served_layer())?;
             }
         }
+        for (unit, generalization) in &contract.low_zoom_generalization {
+            generalization.validate(unit)?;
+            if let Some(newborn) = contract.units_born_from_a_lakehouse_bake.get(unit) {
+                generalization.validate_for(unit, &newborn.served_layer())?;
+            }
+        }
+        ensure!(
+            contract.tile_bytes_budget.values().all(|bytes| *bytes > 0),
+            "a tile_bytes_budget is positive"
+        );
         Ok(contract)
     }
 
@@ -659,6 +676,10 @@ struct Config {
     partition_prefix: Option<usize>,
     /// ADR-0375 §3: the contract's per-feature first zooms for this unit, if it sets them.
     feature_min_zoom: Option<FeatureMinZoom>,
+    /// W42: the contract's below-maxzoom generalization for this unit, if it sets one.
+    low_zoom_generalization: Option<LowZoomGeneralization>,
+    /// W42: the contract's largest stored tile for this unit, if it sets one.
+    tile_bytes_budget: Option<u64>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -724,6 +745,8 @@ impl Config {
             maxzoom_detail: None,
             partition_prefix: None,
             feature_min_zoom: None,
+            low_zoom_generalization: None,
+            tile_bytes_budget: None,
         })
     }
 }
@@ -885,6 +908,7 @@ pub fn tippecanoe_args(
     columns: &[String],
     maxzoom_detail: Option<u8>,
     feature_min_zoom: Option<&FeatureMinZoom>,
+    low_zoom_generalization: Option<&LowZoomGeneralization>,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = [
         "-o".to_owned(),
@@ -910,7 +934,12 @@ pub fn tippecanoe_args(
     if let Some(detail) = maxzoom_detail {
         args.push(format!("--full-detail={detail}").into());
     }
-    if let Some(filter) = feature_min_zoom.and_then(|min_zoom| min_zoom.filter(layer)) {
+    if let Some(generalization) = low_zoom_generalization {
+        args.extend(generalization.args().map(OsString::from));
+    }
+    if let Some(filter) =
+        min_zoom::feature_filter(layer, columns, feature_min_zoom, low_zoom_generalization)
+    {
         args.push("-j".into());
         args.push(filter.into());
     }
@@ -1003,6 +1032,7 @@ fn bake_inputs(
         columns,
         config.maxzoom_detail,
         config.feature_min_zoom.as_ref(),
+        config.low_zoom_generalization.as_ref(),
     );
     let banner = &images.tippecanoe.version_banner;
     format!("{:?}", (&images.gdal.image, banner, srid, args))
@@ -1076,6 +1106,7 @@ async fn bake_unit(
         columns,
         config.maxzoom_detail,
         config.feature_min_zoom.as_ref(),
+        config.low_zoom_generalization.as_ref(),
     ));
     docker(tippecanoe, config.tool_timeout, "tippecanoe").await?;
     // The GeoJSON sequence is the largest file in the work directory; the gate reads the archive.
@@ -1126,6 +1157,11 @@ pub async fn run() -> anyhow::Result<()> {
         .get(&config.unit_key)
         .copied();
     config.feature_min_zoom = contract.feature_min_zoom.get(&config.unit_key).cloned();
+    config.low_zoom_generalization = contract
+        .low_zoom_generalization
+        .get(&config.unit_key)
+        .cloned();
+    config.tile_bytes_budget = contract.tile_bytes_budget.get(&config.unit_key).copied();
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)

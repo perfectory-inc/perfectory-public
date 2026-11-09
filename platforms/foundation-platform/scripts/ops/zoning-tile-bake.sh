@@ -29,6 +29,10 @@ journal="${STATE_ROOT}/journal.log"
 # 마지막으로 타일에 나간 Silver 스냅숏과 그때의 타일 색인 스냅숏. 굽기가 승격까지 끝난 뒤에만 쓴다.
 baked_file="${STATE_ROOT}/baked-snapshot"
 baked_by_tile_file="${STATE_ROOT}/baked-by-tile-snapshot"
+# 그때 굽기를 정한 tile-bake 계약(이미지·줌별 인자)의 sha256. 계약이 바뀌면 Silver 가 그대로여도 전부 다시
+# 넘겨 굽는다: 코드가 바꾼 타일도 데이터처럼 따라간다(W42, 2026-11-09 저배율 일반화가 Silver 변경 전까지 안 나갈 뻔).
+baked_contract_file="${STATE_ROOT}/baked-bake-contract"
+contract_digest="$(sha256sum "$(dirname "${BASH_SOURCE[0]}")/../../config/tile-bake-containers.contract.json" | cut -d' ' -f1)"
 mkdir -p "${STATE_ROOT}"
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
@@ -55,6 +59,11 @@ served=""
 [[ -s "${baked_file}" ]] && served="$(cat "${baked_file}")"
 served_by_tile=""
 [[ -s "${baked_by_tile_file}" ]] && served_by_tile="$(cat "${baked_by_tile_file}")"
+if [[ -n "${served}" && "$(cat "${baked_contract_file}" 2>/dev/null)" != "${contract_digest}" ]]; then
+  # 넘김이 unchanged 로 끝나지 않게 서빙 스냅숏을 비운다: 넘김은 전량이 되고 새 기본판이 된다(선언된 전량 예외).
+  job_journal "${journal}" "the tile-bake contract changed since Silver snapshot ${served} was baked: handing every zone"
+  served=""
+fi
 
 # 넘김 한 번: $1 은 파일 이름 앞부분, 나머지는 넘김 인자. 이미 나간 스냅숏이면 3 으로 끝난다.
 handoff() {
@@ -130,7 +139,9 @@ fi
 result="$(grep -oE 'lakehouse-tile-bake-(ok|patch-[a-z]+) .*' "${run_log}" | tail -1)"
 printf '%s\n' "${snapshot}" > "${baked_file}.tmp"
 printf '%s\n' "${by_tile}" > "${baked_by_tile_file}.tmp"
+printf '%s\n' "${contract_digest}" > "${baked_contract_file}.tmp"
 mv "${baked_by_tile_file}.tmp" "${baked_by_tile_file}"
+mv "${baked_contract_file}.tmp" "${baked_contract_file}"
 mv "${baked_file}.tmp" "${baked_file}"
 rm -f "${work}/${name}.jsonl"
 job_journal "${journal}" "baked Silver snapshot ${snapshot} (${scope} handoff, by-tile ${by_tile}) in $((SECONDS - step))s pending_layers=${pending} ${read_line}: ${result}"
