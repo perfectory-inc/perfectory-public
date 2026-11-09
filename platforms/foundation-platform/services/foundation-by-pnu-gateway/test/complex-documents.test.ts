@@ -80,6 +80,15 @@ describe("the parcel edge serves the industrial-complex documents", () => {
 	});
 });
 
+it("the profile path rule is the profile gateway's key layout", () => {
+	// The Worker reads by the documents block's rule; the profile key's owner is profile_gateway.object_key.
+	const rule = new RegExp(`^(?:${DOCS.profile_path_pattern})$`);
+	expect(rule.test(PROFILE)).toBe(true);
+	expect(DOCS.profile_path_pattern.startsWith(`${PROFILES.root}/`)).toBe(true);
+	expect(DOCS.profile_path_pattern).toContain(PROFILES.artifact_id_pattern);
+	expect(rule.test(PROFILE.replace(PROFILES.suffix, ".jsonx"))).toBe(false);
+});
+
 it("the building lane does not serve the complex documents", async () => {
 	const runtime = await startGateway("building");
 	try {

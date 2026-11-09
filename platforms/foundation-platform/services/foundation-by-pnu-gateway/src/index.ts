@@ -32,10 +32,7 @@ const mediaPath = new RegExp(`^/(?:${mediaPolicy.path_pattern})$`);
 // The industrial-complex documents (root ADR-0456), on the same lane and bucket: the index, the one
 // replaced object, and the per-complex profiles, create-only and named by their artifact id.
 const complexPolicy = connectionContract.industrial_complex_documents;
-const profileKey = connectionContract.profile_gateway.object_key;
-const complexProfilePath = new RegExp(
-  `^/${profileKey.root}/(?:${profileKey.artifact_id_pattern})${profileKey.suffix.replace(".", "\\.")}$`,
-);
+const complexProfilePath = new RegExp(`^/(?:${complexPolicy.profile_path_pattern})$`);
 /// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, 3, the
 /// `section_packs` block a v2 envelope can carry (root ADR-0147), and the block whose sections name
 /// a parts index (root ADR-0163). The publisher asks for this list at `request_path.capabilities`

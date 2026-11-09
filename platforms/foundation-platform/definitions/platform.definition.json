@@ -401,6 +401,8 @@
         "r2_binding": "FOUNDATION_PLATFORM_LAKEHOUSE",
         "index_object": "gold/industrial-complex/index.json",
         "index_history_dir": "gold/industrial-complex/index-history",
+        "profile_path_pattern": "gold/industrial-complex/profiles/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.json",
+        "profile_path_pattern_reason": "Worker 가 키를 짓지 않고 경로 규칙 하나로 읽는다(ADR-0274, parcel_media.path_pattern 과 같은 꼴). profile_gateway.object_key(root·artifact_id_pattern·suffix)가 정본이고, 둘이 같은지는 게이트웨이 시험 complex-documents.test.ts 가 잡는다.",
         "index_cache_control": "no-cache, max-age=0",
         "index_cache_control_reason": "덮어쓰는 객체라 브라우저가 매번 ETag 로 다시 묻는다(바뀌지 않았으면 304). 프로필은 키가 내용마다 달라 profile_gateway.cache_control(immutable)이다."
       },
