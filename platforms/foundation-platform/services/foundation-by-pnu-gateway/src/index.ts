@@ -29,6 +29,10 @@ const pagesPolicy = packPolicy.read_path.request_cpu_budget.pages;
 // lakehouse bucket the lane already binds.
 const mediaPolicy = connectionContract.parcel_media;
 const mediaPath = new RegExp(`^/(?:${mediaPolicy.path_pattern})$`);
+// The industrial-complex documents (root ADR-0456), on the same lane and bucket: the index, the one
+// replaced object, and the per-complex profiles, create-only and named by their artifact id.
+const complexPolicy = connectionContract.industrial_complex_documents;
+const complexProfilePath = new RegExp(`^/(?:${complexPolicy.profile_path_pattern})$`);
 /// The manifest schemas this Worker resolves (root ADR-0141 §4): the v1 and v2 envelopes, 3, the
 /// `section_packs` block a v2 envelope can carry (root ADR-0147), and the block whose sections name
 /// a parts index (root ADR-0163). The publisher asks for this list at `request_path.capabilities`
@@ -507,6 +511,53 @@ async function serveMedia(request: Request, env: Env, ctx: ExecutionContext, url
   return response;
 }
 
+/// An industrial-complex document (root ADR-0456): the index, revalidated by ETag on every read
+/// because it is replaced, or a profile, immutable and kept in the edge cache. Read for the web
+/// across origins, so an origin outside the allowlist is refused as on the by-PNU paths. `null`
+/// when the path is not one of them.
+async function serveComplexDocument(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  url: URL,
+): Promise<Response | null> {
+  const isIndex = url.pathname === `/${complexPolicy.index_object}`;
+  if (LANE !== complexPolicy.lane || url.search !== "" || !(isIndex || complexProfilePath.test(url.pathname))) {
+    return null;
+  }
+  if (!["GET", "HEAD"].includes(request.method)) {
+    return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
+  const bucket = env[complexPolicy.r2_binding];
+  const rawAllowedOrigins = env[policy.allowed_origins_binding];
+  if (typeof rawAllowedOrigins !== "string" || typeof bucket !== "object" || bucket === null || !("get" in bucket)) {
+    return new Response(null, { status: 500 });
+  }
+  const allowed = parseAllowedOrigins(rawAllowedOrigins);
+  if (allowed === null) return new Response(null, { status: 500 });
+  const origin = request.headers.get("Origin");
+  if (origin !== null && !allowed.has(origin)) return new Response(null, { status: 403 });
+  const cacheRequest = new Request(url.toString());
+  if (!isIndex && request.method === "GET") {
+    const cached = await caches.default.match(cacheRequest);
+    if (cached !== undefined) return withCors(cached, origin, allowed);
+  }
+  const object = await bucket.get(url.pathname.slice(1), { onlyIf: request.headers });
+  if (object === null) return withCors(new Response(null, { status: 404 }), origin, allowed);
+  const headers = new Headers({
+    "Cache-Control": isIndex ? complexPolicy.index_cache_control : connectionContract.profile_gateway.cache_control,
+    "Content-Type": connectionContract.profile_gateway.content_type,
+    ETag: object.httpEtag,
+    "Access-Control-Expose-Headers": "ETag",
+    "X-Content-Type-Options": "nosniff",
+  });
+  if (!("body" in object)) return withCors(new Response(null, { status: 304, headers }), origin, allowed);
+  headers.set("Content-Length", object.size.toString());
+  const response = new Response(object.body, { status: 200, headers });
+  if (!isIndex && request.method === "GET") ctx.waitUntil(caches.default.put(cacheRequest, response.clone()));
+  return withCors(response, origin, allowed);
+}
+
 async function fetchByPnu(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   return withVersion(await answerByPnu(request, env, ctx), env);
 }
@@ -522,6 +573,8 @@ async function answerByPnu(
   // path that is not a media path falls through to them.
   const media = await serveMedia(request, env, ctx, url);
   if (media !== null) return media;
+  const complex = await serveComplexDocument(request, env, ctx, url);
+  if (complex !== null) return complex;
   // One Worker serves its own lane and the lanes derived from its block (root ADR-0193 §4).
   const lane = laneOfPath(url.pathname);
   if (lane === null) return new Response(null, { status: 404 });

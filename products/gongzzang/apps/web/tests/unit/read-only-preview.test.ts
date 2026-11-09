@@ -52,13 +52,17 @@ describe("read-only preview (root ADR-0249)", () => {
     for (const path of [
       "/profile",
       "/listings/new",
-      "/complexes",
       "/login",
       "/api/proxy/listings",
       "/api/auth/login",
     ]) {
       expect((await answer(path)).status, path).toBe(404);
     }
+  });
+
+  it("serves the industrial-complex list without a session (root ADR-0456)", async () => {
+    vi.stubEnv(FLAG, "1");
+    expect((await answer("/complexes")).status).toBe(200);
   });
 
   it("still sends the root to the map page", async () => {

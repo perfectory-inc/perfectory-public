@@ -11,6 +11,18 @@ const R2_CONNECTION_CONTRACT: &str =
 struct R2ConnectionContract {
     schema_version: u64,
     profile_gateway: ProfileGatewayPolicy,
+    industrial_complex_documents: ComplexDocumentsPolicy,
+}
+
+/// Where the industrial-complex index lives beside the profiles (root ADR-0456).
+#[derive(Debug, Deserialize)]
+pub struct ComplexDocumentsPolicy {
+    /// The one overwritten object: the current index.
+    pub index_object: String,
+    /// Each index generation, kept create-only before the index is replaced.
+    pub index_history_dir: String,
+    /// The index's `Cache-Control`; profiles keep the profile gateway's immutable one.
+    pub index_cache_control: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,10 +39,9 @@ pub struct ProfileObjectKeyPolicy {
     pub suffix: String,
 }
 
-/// Returns the immutable serving and storage policy shared by the uploader and gateway.
-pub fn profile_gateway_policy() -> anyhow::Result<&'static ProfileGatewayPolicy> {
-    static POLICY: OnceLock<Result<ProfileGatewayPolicy, String>> = OnceLock::new();
-    POLICY
+fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
+    static CONTRACT: OnceLock<Result<R2ConnectionContract, String>> = OnceLock::new();
+    CONTRACT
         .get_or_init(|| {
             let contract: R2ConnectionContract = serde_json::from_str(R2_CONNECTION_CONTRACT)
                 .map_err(|error| format!("invalid R2 connection contract: {error}"))?;
@@ -40,8 +51,18 @@ pub fn profile_gateway_policy() -> anyhow::Result<&'static ProfileGatewayPolicy>
                     contract.schema_version
                 ));
             }
-            Ok(contract.profile_gateway)
+            Ok(contract)
         })
         .as_ref()
         .map_err(|message| anyhow::anyhow!(message.clone()))
+}
+
+/// Returns the immutable serving and storage policy shared by the uploader and gateway.
+pub fn profile_gateway_policy() -> anyhow::Result<&'static ProfileGatewayPolicy> {
+    Ok(&contract()?.profile_gateway)
+}
+
+/// Returns where the industrial-complex index and its history live (root ADR-0456).
+pub fn complex_documents_policy() -> anyhow::Result<&'static ComplexDocumentsPolicy> {
+    Ok(&contract()?.industrial_complex_documents)
 }

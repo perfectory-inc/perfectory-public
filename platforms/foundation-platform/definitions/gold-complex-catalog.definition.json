@@ -33,5 +33,207 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/industrial_complex_silver_to_gold.py"
       ]
     }
+  ],
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.industrial_complex_index",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "surface": "industrial_complex_documents",
+        "producer": "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export.rs"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.industrial_complex_index.v1",
+          "decision": "docs/adr/0456-industrial-complexes-are-served-from-the-catalog-edge-as-one-index-and-per-complex-profiles.md",
+          "reason": "the first document: every complex's list fields and the key of its current profile, so the list and the panel read the parcel edge and not a product API's copy"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/complex-index.generated.ts",
+          "reason": "the 산업단지 list (search, 시도 and status filters, sort, pages run in the browser over this one document) and the panel's lookup of a complex's profile (root ADR-0456)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "generation",
+              "required": true
+            },
+            {
+              "path": "complexes",
+              "required": true
+            },
+            {
+              "path": "complexes[].complex_id",
+              "required": true
+            },
+            {
+              "path": "complexes[].official_complex_code",
+              "required": true
+            },
+            {
+              "path": "complexes[].name",
+              "required": true
+            },
+            {
+              "path": "complexes[].kind",
+              "required": true
+            },
+            {
+              "path": "complexes[].status",
+              "required": true
+            },
+            {
+              "path": "complexes[].profile_object_key",
+              "required": true
+            },
+            {
+              "path": "complexes[].sido_code",
+              "required": false
+            },
+            {
+              "path": "complexes[].sido_name",
+              "required": false
+            },
+            {
+              "path": "complexes[].address_text",
+              "required": false
+            },
+            {
+              "path": "complexes[].official_area_sqm",
+              "required": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "subject": "foundation-platform.industrial_complex_gold_profile",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "surface": "profile_gateway",
+        "producer": "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export.rs"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.industrial_complex_gold_profile.v1",
+          "decision": "docs/adr/0456-industrial-complexes-are-served-from-the-catalog-edge-as-one-index-and-per-complex-profiles.md",
+          "reason": "the profile written since root ADR-0036 (gold.complex_catalog's row verbatim), registered when the parcel edge starts serving it; from this revision on it carries schema_revision"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/complex-profile.generated.ts",
+          "reason": "the 산업단지 panel's summary (root ADR-0456)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "complex_id",
+              "required": true
+            },
+            {
+              "path": "attributes",
+              "required": true
+            },
+            {
+              "path": "attributes.complex_id",
+              "required": true
+            },
+            {
+              "path": "attributes.official_complex_code",
+              "required": true
+            },
+            {
+              "path": "attributes.name",
+              "required": true
+            },
+            {
+              "path": "attributes.kind",
+              "required": true
+            },
+            {
+              "path": "attributes.status",
+              "required": true
+            },
+            {
+              "path": "attributes.development_stage",
+              "required": false
+            },
+            {
+              "path": "attributes.address_text",
+              "required": false
+            },
+            {
+              "path": "attributes.official_area_sqm",
+              "required": false
+            },
+            {
+              "path": "attributes.management_agency_name",
+              "required": false
+            },
+            {
+              "path": "attributes.developer_name",
+              "required": false
+            },
+            {
+              "path": "attributes.designated_date",
+              "required": false
+            },
+            {
+              "path": "attributes.construction_start_date",
+              "required": false
+            },
+            {
+              "path": "attributes.completion_date",
+              "required": false
+            },
+            {
+              "path": "attributes.development_progress_percent",
+              "required": false
+            },
+            {
+              "path": "attributes.lot_sales_status",
+              "required": false
+            },
+            {
+              "path": "attributes.business_period_raw",
+              "required": false
+            },
+            {
+              "path": "attributes.designation_basis_law_raw",
+              "required": false
+            },
+            {
+              "path": "attributes.development_method_raw",
+              "required": false
+            },
+            {
+              "path": "attributes.development_purpose_raw",
+              "required": false
+            },
+            {
+              "path": "attributes.invited_industries_raw",
+              "required": false
+            }
+          ]
+        }
+      ]
+    }
   ]
 }

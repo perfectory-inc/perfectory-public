@@ -16,10 +16,11 @@
 //! The command does not publish pointers. Producing the object and pointing at it are separate
 //! failures, and were separated so a half-run cannot leave a pointer aimed at nothing.
 
+mod complex_index;
 mod profile_document;
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     env,
     path::{Path, PathBuf},
 };
@@ -40,7 +41,8 @@ use crate::industrial_complex_gold_profile_store::{
     local_root, ProfileObjectStore as ProfileOutput, ProfileStoreConfig as ProfileOutputConfig,
 };
 use crate::lakehouse_snapshot_scan::{scan_snapshot_rows, LakehouseObjectReader};
-use profile_document::{GoldSnapshotProvenance, ProfileArtifact, PROFILE_SCHEMA_VERSION};
+use complex_index::{IndexDocument, IndexEntry, IndexSource};
+use profile_document::{GoldSnapshotProvenance, ProfileArtifact};
 
 const SUMMARY_SCHEMA_VERSION: &str =
     "foundation-platform.industrial_complex_gold_profile_export_summary.v1";
@@ -99,6 +101,8 @@ pub async fn run() -> anyhow::Result<()> {
         artifact_count = summary.artifact_count,
         created_object_count = summary.created_object_count,
         reused_object_count = summary.reused_object_count,
+        unchanged_profile_count = summary.unchanged_profile_count,
+        index_generation = ?summary.index_generation,
         output_storage_driver = summary.output_storage_driver,
         "industrial-complex Gold profile export succeeded"
     );
@@ -117,7 +121,7 @@ struct ProfileExportConfig {
 #[derive(Debug, Serialize)]
 struct ProfileExportSummary {
     schema_version: &'static str,
-    profile_schema_version: &'static str,
+    profile_schema_version: String,
     generated_at_utc: String,
     export_run_id: Uuid,
     gold_table: String,
@@ -134,6 +138,12 @@ struct ProfileExportSummary {
     reused_object_count: u64,
     placeholder_parcel_count_row_count: u64,
     null_calculated_area_row_count: u64,
+    /// Complexes whose Gold content is the one the index already served: their profiles were not
+    /// written again, and their pointers stay where they were (root ADR-0456).
+    unchanged_profile_count: u64,
+    /// The index generation this run published, or `None` when every entry was unchanged.
+    index_generation: Option<u64>,
+    /// Profiles this run wrote (created, or found byte-identical), not the unchanged ones.
     artifacts: Vec<ProfileExportEntry>,
 }
 
@@ -237,20 +247,78 @@ async fn export(
         rows.live_record_count()
     );
 
-    let entries = write_artifacts(config, output, &provenance, &rows.rows).await?;
     let mut complex_ids = BTreeSet::new();
-    for entry in &entries {
+    for row in &rows.rows {
+        let complex_id = required_row_string(row, "complex_id")?;
         ensure!(
-            complex_ids.insert(entry.complex_id.clone()),
-            "Gold snapshot carries more than one row for complex {}",
-            entry.complex_id
+            complex_ids.insert(complex_id.clone()),
+            "Gold snapshot carries more than one row for complex {complex_id}"
         );
     }
+
+    // Partial (root ADR-0456): a complex whose content hash is the one the current index holds
+    // keeps its profile; only the others are built and written.
+    let previous = match output.read_index().await? {
+        Some(bytes) => Some(
+            serde_json::from_slice::<IndexDocument>(&bytes)
+                .context("the current industrial-complex index is not an index document")?,
+        ),
+        None => None,
+    };
+    let served: HashMap<&str, &IndexEntry> = previous
+        .iter()
+        .flat_map(|index| index.complexes.iter())
+        .map(|entry| (entry.complex_id.as_str(), entry))
+        .collect();
+    let mut index_entries = Vec::with_capacity(rows.rows.len());
+    let mut changed = Vec::new();
+    for row in &rows.rows {
+        let content = complex_index::content_sha256(row)?;
+        let complex_id = required_row_string(row, "complex_id")?;
+        match served.get(complex_id.as_str()) {
+            Some(entry) if entry.content_sha256 == content => {
+                index_entries.push(complex_index::entry(
+                    row,
+                    entry.profile_object_key.clone(),
+                    content,
+                )?);
+            }
+            _ => changed.push((row, content)),
+        }
+    }
+    let unchanged_profile_count =
+        u64::try_from(index_entries.len()).context("unchanged count overflow")?;
+    let changed_rows = changed
+        .iter()
+        .map(|(row, _)| (*row).clone())
+        .collect::<Vec<_>>();
+    let entries = write_artifacts(config, output, &provenance, &changed_rows).await?;
+    for ((row, content), written) in changed.into_iter().zip(&entries) {
+        index_entries.push(complex_index::entry(
+            row,
+            written.profile_object_key.clone(),
+            content,
+        )?);
+    }
+    let source = IndexSource {
+        table: provenance.table.clone(),
+        iceberg_snapshot_id: provenance.iceberg_snapshot_id.clone(),
+    };
+    let index_generation = match IndexDocument::next(previous.as_ref(), source, index_entries)? {
+        Some(index) => {
+            let (body, sha256) = index.body()?;
+            output
+                .publish_index(index.generation, &body, &sha256)
+                .await?;
+            Some(index.generation)
+        }
+        None => None,
+    };
 
     let created_object_count = entries.iter().filter(|entry| entry.created).count();
     Ok(ProfileExportSummary {
         schema_version: SUMMARY_SCHEMA_VERSION,
-        profile_schema_version: PROFILE_SCHEMA_VERSION,
+        profile_schema_version: profile_document::profile_schema()?.0,
         generated_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
         export_run_id: Uuid::now_v7(),
         gold_table: provenance.table.clone(),
@@ -277,6 +345,8 @@ async fn export(
             row.get("calculated_area_sqm")
                 .is_none_or(JsonValue::is_null)
         })?,
+        unchanged_profile_count,
+        index_generation,
         artifacts: entries,
     })
 }

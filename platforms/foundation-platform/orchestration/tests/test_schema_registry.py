@@ -48,8 +48,12 @@ class Fixture:
         for part in ("contracts/schema-registry", "contracts/by-pnu-documents"):
             shutil.copytree(PLATFORM / part, self.platform / part)
         (self.platform / "config").mkdir(parents=True)
-        lanes = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))["by_pnu_lanes"]
-        self.write("config/r2-connections.contract.json", {"by_pnu_lanes": lanes})
+        contract = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+        # The lane lines, and the serving blocks a subject not by PNU names as its owner (root ADR-0456).
+        self.write("config/r2-connections.contract.json", {
+            "by_pnu_lanes": contract["by_pnu_lanes"],
+            **{name: contract[name] for name in ("industrial_complex_documents", "profile_gateway")},
+        })
         git(self.tmp, "init", "-q")
         self.commit()
 
@@ -196,6 +200,15 @@ class Compatibility(unittest.TestCase):
         self.fixture.write("contracts/schema-registry/registry.json", registry)
         self.fixture.write(f"contracts/schema-registry/parcel_public_auction_by_pnu/1/{number}.schema.json", self.v2)
         self.assertRefused(self.fixture.check(), "legacy revision follows")
+
+    def test_an_owner_surface_is_a_serving_block_and_never_a_lane_too(self):
+        # Root ADR-0456: a document not by PNU is owned by a top-level block of the connection contract.
+        for owner in ({"surface": "no_such_block"}, {"surface": "by_pnu_lanes"},
+                      {"surface": "profile_gateway", "lane": "parcel-public-auction"}):
+            registry = self.fixture.registry()
+            registry["subjects"][0]["owner"] = owner
+            self.fixture.write("contracts/schema-registry/registry.json", registry)
+            self.assertRefused(self.fixture.check(), "owner.surface")
 
     def test_a_new_major_may_not_take_a_legacy_string(self):
         # Major 2 would be `...v2`, the string revision 2 of major 1 was served under.

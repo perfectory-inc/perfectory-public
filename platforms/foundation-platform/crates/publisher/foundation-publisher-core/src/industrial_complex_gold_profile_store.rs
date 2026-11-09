@@ -20,7 +20,7 @@ use foundation_outbox::{
     EvidenceByteReader, FileObjectStorage, ObjectStorageService, PublishError, R2ObjectStorage,
 };
 
-use crate::profile_gateway_contract::profile_gateway_policy;
+use crate::profile_gateway_contract::{complex_documents_policy, profile_gateway_policy};
 use crate::r2_layout::is_industrial_complex_gold_profile_key;
 
 const LOCAL_DRIVER: &str = "local";
@@ -162,6 +162,74 @@ impl ProfileObjectStore {
     }
 }
 
+impl ProfileObjectStore {
+    /// The current industrial-complex index's bytes, or `None` before the first one (root ADR-0456).
+    ///
+    /// # Errors
+    /// Returns an error when the provider rejects the probe or the read.
+    pub async fn read_index(&self) -> anyhow::Result<Option<Vec<u8>>> {
+        let key = complex_documents_policy()?.index_object.as_str();
+        let stored = match self {
+            Self::Local(storage) => storage.read_object_sha256(key).await,
+            Self::R2(storage, _) => storage.read_object_sha256(key).await,
+        }
+        .with_context(|| format!("failed to probe the complex index {key}"))?;
+        match stored {
+            None => Ok(None),
+            Some(_) => self.read_bytes(key).await.map(Some),
+        }
+    }
+
+    /// Publishes one index generation: its history object create-only first, then the index it
+    /// replaces. A run that dies between the two leaves the old index served and the history ahead,
+    /// which the next run's same generation reuses byte for byte.
+    ///
+    /// # Errors
+    /// Returns an error when either write is refused or the history object holds other bytes.
+    pub async fn publish_index(
+        &self,
+        generation: u64,
+        body: &[u8],
+        sha256: &str,
+    ) -> anyhow::Result<()> {
+        let policy = complex_documents_policy()?;
+        let history = format!("{}/{generation}.json", policy.index_history_dir);
+        for (key, write_mode) in [
+            (history.as_str(), ObjectWriteMode::CreateOnly),
+            (
+                policy.index_object.as_str(),
+                ObjectWriteMode::OverwriteAllowed,
+            ),
+        ] {
+            let request = PutObjectRequest {
+                key: key.to_owned(),
+                body: body.to_vec(),
+                content_type: profile_gateway_policy()?.content_type.clone(),
+                cache_control: policy.index_cache_control.clone(),
+                write_mode,
+                sha256: Some(sha256.to_owned()),
+            };
+            let outcome = match self {
+                Self::Local(storage) => storage.put_object(request).await,
+                Self::R2(storage, _) => storage.put_object(request).await,
+            };
+            match outcome {
+                Ok(()) => {}
+                Err(PublishError::ObjectAlreadyExists { key: existing }) if existing == key => {
+                    ensure!(
+                        self.read_bytes(key).await? == body,
+                        "complex index history {key} already exists with different bytes"
+                    );
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("failed to write {key}"));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn profile_put_request(key: &str, body: &[u8], sha256: &str) -> anyhow::Result<PutObjectRequest> {
     let policy = profile_gateway_policy()?;
     Ok(PutObjectRequest {
@@ -182,7 +250,7 @@ pub fn local_root(raw: Option<String>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{profile_put_request, ProfileObjectStore, ProfileStoreConfig};
-    use crate::profile_gateway_contract::profile_gateway_policy;
+    use crate::profile_gateway_contract::{complex_documents_policy, profile_gateway_policy};
     use foundation_outbox::object_storage::ObjectWriteMode;
     use std::path::PathBuf;
 
@@ -241,6 +309,71 @@ mod tests {
         std::fs::remove_dir_all(&root)?;
         assert!(refused, "a non-canonical key was written");
         assert!(!leaked, "a refused write still produced the object");
+        Ok(())
+    }
+
+    /// Root ADR-0456: each generation stays in the history, create-only, and only the index is
+    /// replaced; a re-run of the same generation with other bytes is refused.
+    #[tokio::test]
+    async fn an_index_generation_is_kept_in_the_history_and_replaces_the_index(
+    ) -> anyhow::Result<()> {
+        let root = temporary_root("index");
+        let store = ProfileObjectStore::open(&ProfileStoreConfig::Local { root: root.clone() })?;
+        let policy = complex_documents_policy()?;
+        let before = store.read_index().await?;
+        store
+            .publish_index(
+                1,
+                b"one
+",
+                &"1".repeat(64),
+            )
+            .await?;
+        store
+            .publish_index(
+                2,
+                b"two
+",
+                &"2".repeat(64),
+            )
+            .await?;
+        let again = store
+            .publish_index(
+                2,
+                b"two
+",
+                &"2".repeat(64),
+            )
+            .await;
+        let other = store
+            .publish_index(
+                1,
+                b"other
+",
+                &"3".repeat(64),
+            )
+            .await;
+        let index = store.read_index().await?;
+        let first = std::fs::read(root.join(format!("{}/1.json", policy.index_history_dir)))?;
+        std::fs::remove_dir_all(&root)?;
+        assert_eq!(before, None);
+        assert!(
+            again.is_ok(),
+            "the same generation's bytes are an idempotent re-run"
+        );
+        assert!(other.is_err(), "a generation's history never changes");
+        assert_eq!(
+            index.as_deref(),
+            Some(
+                &b"two
+"[..]
+            )
+        );
+        assert_eq!(
+            first,
+            b"one
+"
+        );
         Ok(())
     }
 }

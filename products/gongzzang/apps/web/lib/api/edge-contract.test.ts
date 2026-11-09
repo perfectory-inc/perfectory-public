@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { env } from "@/lib/env";
 import { PHOTO_RENDITIONS } from "@/lib/media/photo-ladder";
 import { EdgeBuildingProfileSchema } from "./building-edge";
+import { COMPLEX_INDEX_PATH } from "./complexes";
 import { CourtAuctionDocumentSchema } from "./court-auction";
 import { PublicAuctionDocumentSchema } from "./public-auction";
 import { UnitPriceDocumentSchema } from "./unit-price-edge";
@@ -33,6 +34,16 @@ const buildingVersion = readFileSync(
 ).match(/pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "([^"]+)";/)?.[1];
 
 describe("the web reads what the foundation publishes", () => {
+  // Root ADR-0456: the complex index is on the parcel edge, the host the web reads parcels from.
+  it("reads the industrial-complex index where the contract puts it, on the parcel edge", () => {
+    const documents = connections.industrial_complex_documents;
+    expect(COMPLEX_INDEX_PATH).toBe(documents.index_object);
+    expect(documents.lane).toBe("parcel");
+    expect(new URL(env.NEXT_PUBLIC_PARCEL_EDGE_BASE_URL).host).toBe(
+      connections.parcel_by_pnu_gateway.public_hostname,
+    );
+  });
+
   it("accepts the building document version the publisher writes", () => {
     expect(buildingVersion).toBeDefined();
     expect(EdgeBuildingProfileSchema.shape.schema_version.options).toContain(buildingVersion);

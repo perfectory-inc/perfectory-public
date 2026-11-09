@@ -127,7 +127,11 @@ export function ComplexSummaryCard({
         {progress !== undefined && (
           <Row label={t("progress")}>{t("progressPercent", { value: progress })}</Row>
         )}
-        <Row label={t("area")}>{t("areaM2", { value: data.area_m2.toLocaleString("ko-KR") })}</Row>
+        {data.area_m2 != null && (
+          <Row label={t("area")}>
+            {t("areaM2", { value: data.area_m2.toLocaleString("ko-KR") })}
+          </Row>
+        )}
       </dl>
 
       <FactGroup

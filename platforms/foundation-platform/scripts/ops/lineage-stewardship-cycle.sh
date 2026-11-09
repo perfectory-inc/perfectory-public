@@ -6,6 +6,10 @@
 #   0a'. 산업단지 — 0a 가 짝을 새로 썼으면(또는 아직 한 번도 따라가지 않았으면) 바뀐 짝의 코드 밑의 산업단지만
 #               시도·시군구·시도 이름을 다시 놓고 canonical 표에 올린다(root ADR-0426). 실패해도 계보는 돌고 단위는 끝에 실패한다.
 #
+#   0a''. 산업단지 엣지 — gold.complex_catalog 에서 내용이 바뀐 단지만 프로필을 쓰고, 목록(index)이 바뀌었으면
+#               새 세대를 낸다(export-industrial-complex-gold-profiles, root ADR-0456). 필지 엣지가 그 둘을 서빙한다.
+#               Gold 가 그대로면 아무것도 쓰지 않는다. 실패해도 계보는 돌고 단위는 끝에 실패한다.
+#
 #   0b. 도출   — 원천 계약의 필지 판 이웃 쌍마다, 시도 묶음마다 계보를 한 번 도출해 쌓는다
 #               (parcel_lineage_scheduled.py, root ADR-0113 §1). 쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
 #
@@ -137,6 +141,16 @@ if [ "${legal_dong_code_wrote}" != 0 ] || [ ! -f "${COMPLEX_REGION_STATE}" ]; th
   complex_region_wrote=1
 fi
 
+# 0a''. 산업단지 엣지 (root ADR-0456). 0a' 가 쓴 Gold 든 손으로 다시 지은 Gold 든, 매 회차 지금 Gold 를 읽어
+# 바뀐 단지만 내보낸다(바뀐 게 없으면 index_generation=null, 쓰기 0).
+complex_edge_rc=0
+complex_edge_generation=None
+FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_CONFIRM_EXPORT=true FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_OUTPUT_STORAGE_DRIVER=r2 FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_SUMMARY_PATH="${work}/complex-edge.json"   publisher export-industrial-complex-gold-profiles >> "${run_log}" 2>&1 || complex_edge_rc=$?
+if [ "${complex_edge_rc}" = 0 ]; then
+  complex_edge_generation="$(json_field "${work}/complex-edge.json" '["index_generation"]')"
+  job_journal "${journal}" "industrial-complex edge generation=${complex_edge_generation} written=$(json_field "${work}/complex-edge.json" '["artifact_count"]') unchanged=$(json_field "${work}/complex-edge.json" '["unchanged_profile_count"]') run=${run_id}"
+fi
+
 # 0b. 계보 도출 (root ADR-0113 §1). 원천 계약이 가진 필지 판의 이웃 쌍마다, 시도 묶음마다 한 번 도출해
 # silver.parcel_lineage 에 쌓는다. 이미 쌓은 묶음은 건너뛰고, 예산이 지나면 새 묶음을 시작하지 않는다 —
 # 남은 묶음은 다음 회차가 잇는다. 예산은 단위 상한(2h) 안에서 뒤 단계 몫을 남긴다.
@@ -213,6 +227,13 @@ if [ "${complex_region_rc}" != 0 ]; then
   printf 'foundation-job-outcome failed industrial-complex region codes\n'
   exit 1
 fi
+if [ "${complex_edge_rc}" != 0 ]; then
+  job_journal "${journal}" "stewardship FAILED: industrial-complex edge export rc=${complex_edge_rc} run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
+  printf 'foundation-job-outcome failed industrial-complex edge export
+'
+  exit 1
+fi
 if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
   # What a person acts on: which group, and which 동 codes the code change table does not pair.
@@ -223,7 +244,7 @@ fi
 # The run's last line (root ADR-0171, ADR-0260): `changed` only when a step wrote — the 법정동 load or
 # pairing, a derived group, a folded decision, a rebuilt queue (10-24..27 said `changed` daily on
 # derived=0, folded 0, queue unchanged).
-if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
+if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "${complex_edge_generation}" != None ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
   || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ]; then
   printf 'foundation-job-outcome changed\n'
 else

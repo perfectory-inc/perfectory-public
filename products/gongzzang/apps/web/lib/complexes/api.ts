@@ -1,9 +1,9 @@
 // apps/web/lib/complexes/api.ts
 import { z } from "zod";
-import { apiProxyClient } from "@/lib/api/api-proxy-client.generated";
+import { type ComplexIndex, fetchComplexIndex, wholeSquareMetres } from "@/lib/api/complexes";
 import type { ComplexFilters } from "@/lib/complexes/filters";
 
-/** Rows per page. Also the API default; stated here so the URL and the request cannot disagree. */
+/** Rows per page. */
 export const COMPLEX_PAGE_SIZE = 20;
 
 /**
@@ -46,25 +46,68 @@ export const ComplexesResponseSchema = z.object({
 
 export type ComplexesResponse = z.infer<typeof ComplexesResponseSchema>;
 
-export function toComplexSearchParams(filters: ComplexFilters): URLSearchParams {
-  const sp = new URLSearchParams();
-  const q = filters.q.trim();
-  if (q !== "") sp.set("q", q);
-  if (filters.sidoCode) sp.set("sido_code", filters.sidoCode);
-  if (filters.statuses.length > 0) sp.set("status", filters.statuses.join(","));
-  sp.set("sort", filters.sort);
-  sp.set("page", String(filters.page));
-  sp.set("size", String(COMPLEX_PAGE_SIZE));
-  return sp;
+type IndexRow = ComplexIndex["complexes"][number];
+
+const byName = new Intl.Collator("ko-KR");
+
+const SORTS: Record<ComplexFilters["sort"], (a: IndexRow, b: IndexRow) => number> = {
+  name_asc: (a, b) => byName.compare(a.name, b.name),
+  // A complex whose area the source did not state sorts last.
+  area_desc: (a, b) =>
+    (wholeSquareMetres(b.official_area_sqm) ?? -1) - (wholeSquareMetres(a.official_area_sqm) ?? -1),
+  official_complex_code_asc: (a, b) =>
+    a.official_complex_code.localeCompare(b.official_complex_code),
+};
+
+/**
+ * One page of the list, read from the index on the parcel edge (root ADR-0456): every complex is in
+ * the one document (1,442 on 2026-11-09), so the search, the filters, the 시도 facet and the pages
+ * run here. The facet counts the complexes the search and the status filter leave, before the 시도
+ * filter, so choosing a 시도 does not hide the others.
+ */
+export function pageOfComplexes(index: ComplexIndex, filters: ComplexFilters): ComplexesResponse {
+  const q = filters.q.trim().toLowerCase();
+  const matching = index.complexes.filter(
+    (row) =>
+      (q === "" || row.name.toLowerCase().includes(q) || row.official_complex_code.includes(q)) &&
+      (filters.statuses.length === 0 ||
+        (filters.statuses as readonly string[]).includes(row.status)),
+  );
+  const facet = new Map<string, SidoFacetEntry>();
+  for (const row of matching) {
+    if (!row.sido_code) continue;
+    const entry = facet.get(row.sido_code) ?? {
+      sido_code: row.sido_code,
+      sido_name: row.sido_name,
+      complex_count: 0,
+    };
+    entry.complex_count += 1;
+    facet.set(row.sido_code, entry);
+  }
+  const rows = matching
+    .filter((row) => filters.sidoCode === undefined || row.sido_code === filters.sidoCode)
+    .sort(SORTS[filters.sort]);
+  const start = filters.page * COMPLEX_PAGE_SIZE;
+  return {
+    complexes: rows.slice(start, start + COMPLEX_PAGE_SIZE).map((row) => ({
+      lakehouse_complex_id: row.complex_id,
+      official_complex_code: row.official_complex_code,
+      name: row.name,
+      kind: row.kind,
+      status: row.status,
+      address_text: row.address_text,
+    })),
+    sido_facet: [...facet.values()].sort((a, b) => a.sido_code.localeCompare(b.sido_code)),
+    total: rows.length,
+    page: filters.page,
+    size: COMPLEX_PAGE_SIZE,
+    has_next: start + COMPLEX_PAGE_SIZE < rows.length,
+  };
 }
 
 export async function fetchComplexes(
   filters: ComplexFilters,
   signal?: AbortSignal,
 ): Promise<ComplexesResponse> {
-  const json = await apiProxyClient.complexesCollectionRead.getJson<unknown>({
-    searchParams: toComplexSearchParams(filters),
-    signal,
-  });
-  return ComplexesResponseSchema.parse(json);
+  return pageOfComplexes(await fetchComplexIndex(signal), filters);
 }
