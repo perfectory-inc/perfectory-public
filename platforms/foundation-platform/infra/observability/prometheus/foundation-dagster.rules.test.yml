@@ -1,0 +1,166 @@
+# promtool unit tests for the foundation-dagster rules (root ADR-0431, ADR-0458): a code location that
+# does not load and a dual run that records no comparison are each said, a healthy or switched-off
+# Dagster says nothing, and a reconciler that stops writing dagster.prom is reported. Run by the guard
+# prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # 2026-11-06 21:16Z..11-09: the UI answered, the location failed every load, no check ran. Both say so.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x180'
+      - series: 'foundation_dagster_answered'
+        values: '1x180'
+      - series: 'foundation_dagster_code_location_loaded{location="definitions.py"}'
+        values: '0x180'
+      - series: 'foundation_dual_run_jobs'
+        values: '64x180'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0+60x180'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: FoundationDagsterCodeLocationDown
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: FoundationDagsterCodeLocationDown
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: dual-run
+            exp_annotations:
+              summary: 'Dagster 코드 위치가 15분 넘게 뜨지 않아요 — 이중 실행이 비교를 하나도 남기지 못하고 옮기는 문턱이 멈춰요. docker logs airflow-dagster-daemon-1 의 마지막 오류를 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+      - eval_time: 50m
+        alertname: FoundationDualRunSilent
+        exp_alerts: []
+      - eval_time: 1h10m
+        alertname: FoundationDualRunSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: dual-run
+            exp_annotations:
+              summary: '이중 실행의 작업 64개가 26시간 넘게 비교를 하나도 남기지 않았어요 — 원장(/var/lib/dagster/dual-run/comparisons.jsonl)이 자라지 않아 옮기는 문턱이 서 있어요. Dagster 의 dual_run_matches_airflow 검사 run 과 센서 틱을 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+      - eval_time: 1h10m
+        alertname: FoundationDagsterUnread
+        exp_alerts: []
+
+  # The webserver does not answer at all.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x60'
+      - series: 'foundation_dagster_answered'
+        values: '0x60'
+      - series: 'foundation_dual_run_jobs'
+        values: '64x60'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0+60x60'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: FoundationDagsterCodeLocationDown
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: dual-run
+            exp_annotations:
+              summary: 'Dagster 코드 위치가 15분 넘게 뜨지 않아요 — 이중 실행이 비교를 하나도 남기지 못하고 옮기는 문턱이 멈춰요. docker logs airflow-dagster-daemon-1 의 마지막 오류를 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+
+  # Healthy: the location loads and a job compared a minute ago, every minute. Nothing for two hours.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x180'
+      - series: 'foundation_dagster_answered'
+        values: '1x180'
+      - series: 'foundation_dagster_code_location_loaded{location="definitions.py"}'
+        values: '1x180'
+      - series: 'foundation_dual_run_jobs'
+        values: '64x180'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_hourly"}'
+        values: '0+60x180'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_daily"}'
+        values: '0x180'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0+60x180'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: FoundationDagsterCodeLocationDown
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: FoundationDualRunSilent
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: FoundationDagsterUnread
+        exp_alerts: []
+
+  # Only daily jobs are left: the last comparison was at 0. Quiet through 26 hours, said an hour after.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x1700'
+      - series: 'foundation_dagster_answered'
+        values: '1x1700'
+      - series: 'foundation_dagster_code_location_loaded{location="definitions.py"}'
+        values: '1x1700'
+      - series: 'foundation_dual_run_jobs'
+        values: '3x1700'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_daily"}'
+        values: '0x1700'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0+60x1700'
+    alert_rule_test:
+      - eval_time: 26h50m
+        alertname: FoundationDualRunSilent
+        exp_alerts: []
+      - eval_time: 27h20m
+        alertname: FoundationDualRunSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: dual-run
+            exp_annotations:
+              summary: '이중 실행의 작업 3개가 26시간 넘게 비교를 하나도 남기지 않았어요 — 원장(/var/lib/dagster/dual-run/comparisons.jsonl)이 자라지 않아 옮기는 문턱이 서 있어요. Dagster 의 dual_run_matches_airflow 검사 run 과 센서 틱을 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+
+  # Dagster switched off (observers.dagster.enabled false): the reconciler writes only that.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '0x180'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0+60x180'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: FoundationDagsterCodeLocationDown
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: FoundationDualRunSilent
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: FoundationDagsterUnread
+        exp_alerts: []
+
+  # The reconciler stopped: its file is an hour old.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x120'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/dagster.prom"}'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 1h
+        alertname: FoundationDagsterUnread
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: dual-run
+              file: /textfile-jobs/dagster.prom
+            exp_annotations:
+              summary: Dagster 상태(dagster.prom)를 30분 넘게 못 읽었어요 — 코드 위치가 죽어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
+              runbook: docs/runbooks/asset-reconcile.md

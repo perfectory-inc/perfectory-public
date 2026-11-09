@@ -97,3 +97,8 @@ journalctl -u foundation-outbox-publish.service -n 20 # Airflow 가 시작한 �
 - 보기: `ssh -L 19085:127.0.0.1:19085 ai-server` 뒤 `http://127.0.0.1:19085`. 자산 142개(그래프 노드), 센서
   `foundation_airflow__airflow_dag_status_sensor`(30초), 단가 검사 둘(WARN, 막지 않음).
 - 깨끗한지: 센서 틱에 오류가 없고, Airflow 의 그날 자산 사건 수와 Dagster 의 materialization 수가 같다.
+- 죽은 코드 위치: 자산 대조기가 5분마다 Dagster GraphQL 에 코드 위치의 로드 상태와 이중 실행 작업마다 마지막 비교 시각을 묻는다
+  (`/var/lib/foundation-jobs/metrics/dagster.prom`). 위치가 15분 넘게 안 뜨면 `FoundationDagsterCodeLocationDown`, 26시간 넘게 비교가
+  하나도 없으면 `FoundationDualRunSilent`, 파일이 30분 넘게 낡으면 `FoundationDagsterUnread`(모두 `service: dual-run`).
+  2026-11-06 21:16Z–11-09 위치가 매번 로드에 실패했는데 UI 는 답하고 배포는 "observing" 이라 했고, 원장은 한 줄도 없었다(#1204).
+  원인은 `docker logs airflow-dagster-daemon-1` 의 마지막 `DagsterUserCodeLoadError`.
