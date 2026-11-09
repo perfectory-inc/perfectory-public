@@ -230,15 +230,18 @@ async function fetchTile(request: Request, env: Env, ctx: ExecutionContext): Pro
 
   let key = `${objectRoot}/${tile.sourceId}${policy.object_key.suffix}`;
   const patched = patches.units.includes(tile.sourceId.slice(0, tile.sourceId.indexOf("-")));
-  let cacheUrl = request.url;
+  // The revision keys out entries stored under older response headers (contract cache_key_revision).
+  let cacheUrl = `${request.url}?v=${policy.cache_key_revision}`;
+  let patchedTile = false;
   if (patched) {
     const state = await patchState(bucket, tile.sourceId);
     if (state?.patchGeneration != null) {
       const patchKey = `${objectRoot}/${tile.sourceId}${patches.patch_infix}${state.patchGeneration}${policy.object_key.suffix}`;
       if (await patchHolds(new R2Source(bucket, patchKey), tile.z, tile.x, tile.y)) {
         key = patchKey;
+        patchedTile = true;
         // A patched tile is cached per patch generation; base tiles keep their cache entries.
-        cacheUrl = `${request.url}?patch=${state.patchGeneration}`;
+        cacheUrl = `${cacheUrl}&patch=${state.patchGeneration}`;
       }
     }
   }
@@ -254,7 +257,7 @@ async function fetchTile(request: Request, env: Env, ctx: ExecutionContext): Pro
     return new Response(null, { status: 500 });
   }
   let data = await archive.getZxy(tile.z, tile.x, tile.y);
-  if (data !== undefined && cacheUrl !== request.url && await isEmptyTile(data.data, header.tileCompression)) {
+  if (data !== undefined && patchedTile && await isEmptyTile(data.data, header.tileCompression)) {
     data = undefined;
   }
   const headers = new Headers({

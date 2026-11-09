@@ -41,14 +41,15 @@ describe("local workerd/R2/cache proof", () => {
       headers: { Origin: "https://app.example.test", "Accept-Encoding": "gzip" },
     });
     expect(cold.status).toBe(200);
-    // dispatchFetch moves Content-Encoding to MF-Content-Encoding and decodes once.
-    expect(cold.headers.get("MF-Content-Encoding")).toBe(tileCompression === 2 ? "gzip" : null);
+    // dispatchFetch moves Content-Encoding to MF-Content-Encoding and decodes once. The contract's
+    // content type is one the edge compresses, so an uncompressed archive's tile goes out gzip too.
+    expect(cold.headers.get("MF-Content-Encoding")).toBe("gzip");
     expect(new Uint8Array(await cold.arrayBuffer())).toEqual(TILE_BYTES[0]);
     const etag = cold.headers.get("ETag");
     expect(etag).not.toBeNull();
     const cache = (await runtime.getCaches()).default;
-    await expect.poll(async () => (await cache.match(TILE_URL))?.status).toBe(200);
-    const cached = await cache.match(TILE_URL);
+    await expect.poll(async () => (await cache.match(`${TILE_URL}?v=${policy.cache_key_revision}`))?.status).toBe(200);
+    const cached = await cache.match(`${TILE_URL}?v=${policy.cache_key_revision}`);
     expect(cached?.headers.get("Access-Control-Allow-Origin")).toBeNull();
     expect(cached?.headers.get("Vary")).toBeNull();
     await bucket.delete(KEY);
@@ -75,7 +76,7 @@ describe("local workerd/R2/cache proof", () => {
     expect(await cold.text()).toBe("");
     // dispatchFetch can finish before ctx.waitUntil's cache write, especially for a null body.
     const cache = (await runtime.getCaches()).default;
-    await expect.poll(async () => (await cache.match(url))?.headers.get("X-Foundation-Empty-Tile")).toBe("1");
+    await expect.poll(async () => (await cache.match(`${url}?v=${policy.cache_key_revision}`))?.headers.get("X-Foundation-Empty-Tile")).toBe("1");
     await bucket.delete(KEY);
     const warm = await runtime.dispatchFetch(url);
     expect(warm.status).toBe(204);
