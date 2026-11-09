@@ -120,3 +120,9 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
   않는다. `python orchestration/dagster/dual_run.py gate` 가 그것을 §4 의 문턱으로 읽는다: 작업마다 어제까지 연속으로 통과한 날 수
   (그날의 비교가 모두 같고 결정이 하나 이상)와 사람이 확인할 정지·멈춤 구간의 결정. 원장을 못 쓰면 검사 run 이 실패한다.
 - **관찰자 켜기.** 이중 실행은 관찰자가 켜져야 증거를 남긴다. `observers.dagster.enabled` 를 켠다(#946 에서 꺼 둔 스위치).
+
+## 개정 각주 — 2026-11-09, §4 대체
+
+§4 의 문턱(연속 7일 통과 + 사람이 정지 구간 결정을 확인)은 [ADR-0458](./0458-a-job-moves-from-airflow-to-dagster-on-agreeing-decisions-of-every-kind-it-makes-not-on-calendar-days.md)
+이 대체한다: 작업마다 서로 다른 일치 결정 3개와 그 작업의 모든 결정 종류(매일·매주·매달·사건)의 일치 하나, 차이 하나는 셈을 처음으로
+돌리고 호출한다. 이 날 잰 원장은 비어 있었다 — 코드 위치가 2026-11-06 21:16Z 부터 로드되지 않았다(#1204).
