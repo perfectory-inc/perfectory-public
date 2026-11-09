@@ -163,3 +163,26 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
   Airflow 로 직렬화한다(`test_job_dags.py WithAirflow` 가 처음으로 CI 에서 돈다).
 - **이 조각의 운영 영향은 0 이다.** 어느 작업도 `proxied` 가 아니다(ADR-0458 문턱이 정한다). `proxied` 작업이 없으면 DAG 파일은 airlift 를 import 하지 않는다.
   되돌리기는 그 작업의 `dagster_stage` 를 `shadow` 로 내리는 PR 하나다.
+
+## 개정 각주 — 2026-11-09, `dagster` 단계의 결정(§3)
+
+이 각주는 결정을 바꾸지 않는다. §3 과 11-07 각주가 `dagster` 조각에 남긴 결정 규칙을 채우고, 11-05 사고에 대한 답을 적는다.
+
+- **작업마다 센서 하나** (`orchestration/dagster/decide.py`, `foundation_decide__<id>`, 30초): Dagster 의 스케줄 정의가 아니라 센서다. 스케줄은
+  진행 중인 run 과 상관없이 틱마다 run 을 만들고(§Context), 접힌 틱을 run 이 끝난 뒤에 돌릴 수 없다. 센서는 비교기가 증명한 규칙을 그대로 쓴다:
+  틱은 Dagster 의 cron 반복(`dual_run.schedule_ticks`), 열린 run 동안의 틱은 기다렸다가 가장 늦은 하나만 돈다(`dual_run.due_ticks` 와 같은 결정 —
+  시험이 기록된 날의 공매 Silver 접힘으로 둘을 맞춘다), 입력 사건(시작 입력의 물질화, 이벤트 기록의 storage id 로 셈)은 열린 run 동안 쌓여 run 하나가
+  된다. run key 가 결정의 이름이라(`tick:<iso>`·`inputs:<iso>`) 같은 결정은 두 번 시작하지 않는다.
+- **11-05 에 대한 답 — 처음 보는 센서는 지난 틱을 돌리지 않는다.** 2026-11-05 23:46:32 배포가 새 DAG 를 켜자 Airflow 3.3 의 `CronTriggerTimetable`
+  이 그날 18:45 틱을 바로 돌렸다(ADR-0425). 센서의 첫 평가(작업이 `dagster` 로 막 옮겨졌거나 센서가 초기화됨)는 지금부터 센다. 시험이 그 순간을 재생한다:
+  다음 날 18:45 전에는 아무것도 돌지 않는다.
+- **평가가 멈춘 동안 놓친 틱(데몬 정지·센서 정지, 300초 넘는 틈)은 그 run 이 작업의 다음 틱 전에 끝날 때만 늦게 돈다**(작업 자신의
+  `time_limit_minutes + stop_grace_minutes`; Kubernetes CronJob `startingDeadlineSeconds` 와 같은 뜻, 손으로 적은 시각 없음). 아니면 다음 틱이 같은 일을 한다.
+  Airflow 는 시각과 상관없이 마지막 놓친 틱을 돌렸다(경매 수집기의 11-05 16:05 틱을 11-06 07:48 에). 그래서 11-07 각주의 `max_catchup_runs: 1` 대신 이것이다.
+- **놓친 입력 사건은 run 하나를 시작한다**: 데이터가 바뀌었고 그것을 읽는 것이 그 run 이다(바뀐 것만 처리). Airflow 는 버렸고(ADR-0179) 배포가 한 번
+  시작했다(ADR-0337). 의도된 차이다.
+- **시각이 아니라 용량이 시작을 정한다**(ADR-0435): 요청마다 우선순위 클래스 값이 `dagster/priority` 로 붙어 큐가 높은 클래스부터 시작하고, 호스트의
+  `job_units.py pool-full` 이 누가 시작하든 더 높은 claim 의 자리를 막는 시작을 `waiting` 으로 돌린다. 늦게 도는 낮은 클래스는 발행을 밀어내지 못한다.
+- **Airflow 는 `dagster` 작업의 DAG 를 만들지 않는다**(`foundation_jobs.py`). 그러나 `job_specs.py` 는 아직 `dagster` 를 거부한다: 배포의 드레인과
+  배포 뒤 한 번 시작(`foundation-deploy.sh`·`deploy-start-once.sh`), 운영자의 run-now(`run-now-dispatch.sh`), run 의 계보(OpenLineage, ADR-0118 §2), 운영 지도의
+  진행 중·실패 로그(`foundation-api` `data_catalog/facts.rs`)가 아직 작업을 Airflow DAG 로 찾는다. 그것들을 옮기는 조각이 단계를 연다.
