@@ -32,6 +32,8 @@
       "!apps/web/lib/api/factories.generated.ts",
       "!apps/web/lib/api/register-masters.generated.ts",
       "!apps/web/lib/api/building-permits.generated.ts",
+      "!apps/web/lib/api/complex-index.generated.ts",
+      "!apps/web/lib/api/complex-profile.generated.ts",
       "!services/gongzzang-api/openapi.json",
       "!packages/api-types/generated/schema.ts",
       "!pnpm-lock.yaml"
