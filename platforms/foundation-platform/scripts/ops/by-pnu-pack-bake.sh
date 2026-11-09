@@ -125,13 +125,15 @@ bake_shard() {
 # that holds no row, shards over the row cap split before they run, and the plan's snapshot pins
 # every shard from the first, so they run side by side at once. On 2026-10-13 a parcel kind lane's
 # generation ran 243 shards from the one-digit prefixes, 134 of them over prefixes with no row
-# (37% of the shard time) and the first one alone. A resumed generation keeps the shards it has;
-# a plan that cannot be made falls back to the one-digit prefixes and splitting on refusal.
-initial=("${BY_PNU_FIRST_SHARDS[@]}")
-if [[ -z "${pin}" ]]; then
-  plan="${SHARDS}/plan.json"
-  if env "${P}_PACK_SHARD_PLAN_PATH=${plan}" "${PUBLISHER_BIN}" "plan-${LANE}-by-pnu-pack-shards" \
-      >"${SHARDS}/plan.log" 2>&1 && mapfile -t planned < <(python3 -I - "${plan}" <<'PY'
+# (37% of the shard time) and the first one alone. A resumed generation runs the shards its plan
+# named, of the snapshot it pins: from the one-digit prefixes it would bake a prefix the plan had
+# split, whole, beside its children's summaries (2026-11-09 15:28Z: parcel-energy g1 baked shard 4,
+# 823,783 documents, beside 40..49, and its equality gate counted 2,269,930 of 1,446,147).
+# A plan that cannot be made falls back to the one-digit prefixes and splitting on refusal.
+plan="${SHARDS}/plan.json"
+# The plan's snapshot, then its shards, one per line; nothing for a plan that is not one.
+plan_shards() {
+  python3 -I - "${plan}" <<'PY'
 import json, re, sys
 plan = json.load(open(sys.argv[1]))
 snapshot = str(plan["gold_iceberg_snapshot_id"])
@@ -141,13 +143,22 @@ if not re.fullmatch(r"[0-9]+", snapshot) or not shards or not all(re.fullmatch(r
 print(snapshot)
 print("\n".join(shards))
 PY
-  ) && ((${#planned[@]} > 1)); then
+}
+initial=("${BY_PNU_FIRST_SHARDS[@]}")
+planned=()
+if [[ -z "${pin}" ]]; then
+  if env "${P}_PACK_SHARD_PLAN_PATH=${plan}" "${PUBLISHER_BIN}" "plan-${LANE}-by-pnu-pack-shards" \
+      >"${SHARDS}/plan.log" 2>&1 && mapfile -t planned < <(plan_shards) && ((${#planned[@]} > 1)); then
     pin="${planned[0]}"
     initial=("${planned[@]:1}")
     log "planned ${#initial[@]} shards of Gold snapshot ${pin} from its manifests; it pins every shard"
   else
     log "could not plan the shards from the manifests (${SHARDS}/plan.log); starting from the one-digit prefixes"
   fi
+elif [[ -s "${plan}" ]] && mapfile -t planned < <(plan_shards 2>/dev/null) && ((${#planned[@]} > 1)) &&
+    [[ "${planned[0]}" == "${pin}" ]]; then
+  initial=("${planned[@]:1}")
+  log "resuming the ${#initial[@]} shards its plan named"
 fi
 
 queue=("${initial[@]}"); done_shards=(); failed=()

@@ -225,6 +225,21 @@ class PackBake(unittest.TestCase):
         # The pin comes from the summaries already there, for the first shard of this run too.
         self.assertEqual({call["env"].get(PREFIX + "EXPECTED_GOLD_ICEBERG_SNAPSHOT_ID") for call in calls}, {"202"})
 
+    def test_a_rerun_of_a_planned_generation_resumes_the_plans_shards_not_the_one_digit_prefixes(self):
+        # 2026-11-09 15:28Z: parcel-energy g1 was resumed from the one-digit prefixes, baked shard 4
+        # whole beside the plan's 40..49, and its equality gate counted 2,269,930 of 1,446,147.
+        planned = ["999991" + digit for digit in "0123456789"]
+        result, calls = self.run_bake(FAKE_PLAN=json.dumps(planned), FAKE_FAIL=json.dumps({"9999913": 99}))
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.log.unlink()
+        result, calls = self.run_bake()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("resuming the 10 shards its plan named", result.stdout)
+        self.assertEqual([call["prefix"] for call in calls], ["9999913"])
+        self.assertEqual(self.summaries(), sorted(planned))
+        self.assertIn(f"complete: generation 2 holds {len(PNUS)} documents of Gold snapshot 202 in 10 shards",
+                      result.stdout)
+
     def test_a_shard_that_fails_transiently_is_retried(self):
         result, calls = self.run_bake(FAKE_FAIL=json.dumps({"3": 2}))
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
