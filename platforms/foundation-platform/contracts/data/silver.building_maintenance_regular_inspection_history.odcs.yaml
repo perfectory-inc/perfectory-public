@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "정기점검이 다룬 건물마다 한 행: 점검실시PK, 관리건축물대장PK, 점검기관, 점검시작일, 처리일자. 대지구분 칸이 없어 pnu 를 짓지 않는다; 읽는 쪽이 관리건축물대장PK 로 표제부(silver.building_register_titles) 현재 행에 이어 그 pnu 를 쓴다(루트 ADR-0404). 원문 11칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 그 표제부의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0404, ADR-0463)."
+  purpose: "정기점검이 다룬 건물마다 한 행: 점검실시PK, 관리건축물대장PK, 점검기관, 점검시작일, 처리일자. 대지구분 칸이 없어 pnu 를 짓지 않는다; 읽는 쪽이 관리건축물대장PK 로 표제부(silver.building_register_titles) 현재 행에 이어 그 pnu 를 쓴다(루트 ADR-0404). 원문 11칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 그 표제부의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0404, ADR-0464)."
 team:
   name: "foundation-platform"
 servers:

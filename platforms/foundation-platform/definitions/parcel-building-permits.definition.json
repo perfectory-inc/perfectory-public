@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요) and, by the same 관리허가대장PK, silver.building_permit_parking (root ADR-0452), and one list per other file of the permit family (동별개요, 층별개요, 대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장 by their own PNU, and 정기점검이력 through the 표제부 its 관리건축물대장PK names, root ADR-0404 §2, ADR-0463), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) of the permits whose parking rows changed (before and after), whose rows of another file of the family changed (before and after; a changed 표제부 counts as a change of the inspections it links), and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
+      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요) and, by the same 관리허가대장PK, silver.building_permit_parking (root ADR-0452), and one list per other file of the permit family (동별개요, 층별개요, 대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장 by their own PNU, and 정기점검이력 through the 표제부 its 관리건축물대장PK names, root ADR-0404 §2, ADR-0464), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) of the permits whose parking rows changed (before and after), whose rows of another file of the family changed (before and after; a changed 표제부 counts as a change of the inspections it links), and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
       "systemd_service": "foundation-gold-lane-rebuild@parcel-building-permits.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -88,7 +88,7 @@
       "id": "gold-parcel-building-permits",
       "type": "gold_table",
       "title": "필지 건축인허가 by-PNU 표",
-      "description": "PNU마다 그 필지의 건축인허가 기본개요(건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일, 그 허가의 주차장 대수)와 건축인허가의 다른 파일(동별개요·층별개요·대지위치·대수선·가설건축물·부설주차장·공작물관리대장)과 건축물 정기점검이력의 목록을 담는 데이터 종류 표(루트 ADR-0451). 계약의 종류 한 줄(parcel-building-permits)이 자기 생산자를 이름 짓고, silver.building_permit_basis_outline 의 현재 행과 같은 관리허가대장PK 의 silver.building_permit_parking 에서, 다른 파일은 행의 PNU 로(정기점검은 표제부의 PNU 로) 만든다(루트 ADR-0452, ADR-0463). 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
+      "description": "PNU마다 그 필지의 건축인허가 기본개요(건축구분·주용도, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일, 그 허가의 주차장 대수)와 건축인허가의 다른 파일(동별개요·층별개요·대지위치·대수선·가설건축물·부설주차장·공작물관리대장)과 건축물 정기점검이력의 목록을 담는 데이터 종류 표(루트 ADR-0451). 계약의 종류 한 줄(parcel-building-permits)이 자기 생산자를 이름 짓고, silver.building_permit_basis_outline 의 현재 행과 같은 관리허가대장PK 의 silver.building_permit_parking 에서, 다른 파일은 행의 PNU 로(정기점검은 표제부의 PNU 로) 만든다(루트 ADR-0452, ADR-0464). 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -146,7 +146,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "정기점검마다 그 관리건축물대장PK 가 가리키는 표제부 하나의 PNU 로 필지 문서의 정기점검 목록(점검기관·점검시작일·처리일자)에 싣는다(루트 ADR-0404 §2, ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "정기점검마다 그 관리건축물대장PK 가 가리키는 표제부 하나의 PNU 로 필지 문서의 정기점검 목록(점검기관·점검시작일·처리일자)에 싣는다(루트 ADR-0404 §2, ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-annex-parking",
@@ -156,7 +156,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-building-outline",
@@ -166,7 +166,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-floor-overview",
@@ -176,7 +176,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-major-repair",
@@ -186,7 +186,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-site-location",
@@ -196,7 +196,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-structure-ledger",
@@ -206,7 +206,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-permit-temporary-building",
@@ -216,7 +216,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0463). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+      "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
     },
     {
       "from": "silver-building-register-titles",
@@ -226,7 +226,7 @@
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
-      "description": "정기점검이력의 관리건축물대장PK 를 표제부 현재 행에 이어(ADR-0404 §2 의 규칙) 그 표제부의 PNU 를 읽는다. 적재 때 고정하지 않아 표제부의 PNU 가 바뀌면 다음 실행이 따라간다. 이어진 점검이 바뀐 PNU 만 다시 계산한다(루트 ADR-0463)."
+      "description": "정기점검이력의 관리건축물대장PK 를 표제부 현재 행에 이어(ADR-0404 §2 의 규칙) 그 표제부의 PNU 를 읽는다. 적재 때 고정하지 않아 표제부의 PNU 가 바뀌면 다음 실행이 따라간다. 이어진 점검이 바뀐 PNU 만 다시 계산한다(루트 ADR-0464)."
     },
     {
       "from": "reference-legal-dong-code-change",
@@ -309,7 +309,7 @@
           "major": 1,
           "revision": 3,
           "schema_version": "foundation-platform.parcel_building_permits_by_pnu.v1",
-          "decision": "docs/adr/0463-a-parcel-shows-every-file-of-the-building-permit-family-each-as-its-own-list.md",
+          "decision": "docs/adr/0464-a-parcel-shows-every-file-of-the-building-permit-family-each-as-its-own-list.md",
           "reason": "the document gains one optional list per other file of the permit family ({total, records}, null when the parcel has none): building_outlines (동별개요), floor_overviews (층별개요), site_locations (대지위치), major_repairs (대수선), temporary_buildings (가설건축물), annex_parkings (부설주차장), structures (공작물관리대장), regular_inspections (건축물 정기점검이력, through the 표제부)"
         }
       ],
@@ -348,7 +348,7 @@
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/building-permits.generated.ts",
-          "reason": "the parcel panel's 건축인허가 group (root ADR-0451, ADR-0452, ADR-0463): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reason": "the parcel panel's 건축인허가 group (root ADR-0451, ADR-0452, ADR-0464): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
           "reads": [
             {
               "path": "schema_version",

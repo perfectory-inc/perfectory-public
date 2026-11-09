@@ -14,7 +14,7 @@ What a PNU's document holds (`building_permits`), from the parcel's current rows
   `silver.building_permit_parking` by the same 관리허가대장PK (옥내자주식·옥외자주식·옥내기계식대수,
   root ADR-0402, ADR-0452; null when the parking file has no row for it). 건물명 and 대지위치 are not
   carried (ADR-0356).
-- one list per other file of the permit family (`DETAILS`, root ADR-0402, ADR-0463): 동별개요, 층별개요,
+- one list per other file of the permit family (`DETAILS`, root ADR-0402, ADR-0464): 동별개요, 층별개요,
   대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장, each row on the parcel its own PNU names, and
   the 건축물 정기점검이력, whose rows have no PNU and reach the parcel through the 표제부 at read (the
   ADR-0404 rule, `inspection_pnus`). Each is `{total, records}` in the provider's words, at most
@@ -55,7 +55,7 @@ RECORD_FIELDS = ("arch_kind_name", "main_purpose_name", "plot_area_m2", "buildin
 # Measured 2026-11-09: 2,835,072 parking rows, every 관리허가대장PK distinct (root ADR-0402).
 PARKING_FIELDS = ("indoor_self_parking_count", "outdoor_self_parking_count", "indoor_mechanical_parking_count")
 DOCUMENT_FIELDS = (*RECORD_FIELDS, *PARKING_FIELDS)
-# The permit family's other files (root ADR-0402, ADR-0463): source -> (document key, record fields in the
+# The permit family's other files (root ADR-0402, ADR-0464): source -> (document key, record fields in the
 # provider's words, the field the records are newest first by, or None for the fields' own order).
 # Not carried: the keys, 건물명·대지위치·특수지명 (people's names, ADR-0402), 동명 of the inspection.
 DETAILS = {

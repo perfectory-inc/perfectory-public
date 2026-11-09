@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "허가나 동이 선 필지마다 한 행: 대표 대지 여부, 지번, 지목, 주·부속 동 구분. 허가 하나가 여러 필지에 걸친 것을 말한다(기본개요는 대표 지번 하나뿐이다). 관리허가대장관리번호·관리동별개요관리번호로 기본개요·동별개요에 붙는다. 원문 20칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0463)."
+  purpose: "허가나 동이 선 필지마다 한 행: 대표 대지 여부, 지번, 지목, 주·부속 동 구분. 허가 하나가 여러 필지에 걸친 것을 말한다(기본개요는 대표 지번 하나뿐이다). 관리허가대장관리번호·관리동별개요관리번호로 기본개요·동별개요에 붙는다. 원문 20칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0464)."
 team:
   name: "foundation-platform"
 servers:
