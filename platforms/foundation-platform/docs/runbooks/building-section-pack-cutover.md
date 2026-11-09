@@ -164,11 +164,12 @@ sudo systemd-run --wait --collect --pipe -p User=foundation-platform \
   **서버 가용성**이 `availability_min`(99.95%) 이상이어야 한다(root ADR-0459): 클라이언트에 온 답 가운데 서버 실패(HTTP 상태,
   gzip 아님, 깨진 gzip)가 아닌 비율과, 그 창의 Workers analytics invocation 가운데 `success` 의 비율 중 작은 값.
 - 실패는 쪽·종류별(`pack:http-503`, `live:body-timeout` …)로 센다. 답을 받지 못한 실패(`request*`·`connect`·`body*`)는
-  클라이언트 망의 것이라 서버 가용성에 넣지 않고, 쪽마다 `client_transport_failure_max_share`(1%) 이하여야 한다.
+  클라이언트 망의 것이라 서버 가용성에 넣지 않고 보고만 한다(root ADR-0460). 대신 서버 판정이 충분한 읽기 위에 서야 한다:
+  분석이 기록한 invocation 이 보낸 미리보기 읽기의 `analytics_min_coverage`(90%) 이상, 시간을 잰 짝도 표본의 90% 이상.
   클라이언트가 본 200 비율(`availability`)과 답한 엣지(`edge_colos`, `CF-Ray` 끝자리)는 증거에 따로 남는다.
 - 짝 읽기 뒤 부하 단계(`cutover_gate.load_test`, 초당 25건 10분 = 15,000건, 동시 최대 64)가 미리보기만 읽는다.
   표본에서 시드 해시로 뽑아 법정동이 되풀이되므로 차가운 읽기와 따뜻한 읽기가 섞인다. 동시 한도에 걸려 시작하지
-  못한 요청(`shed`)은 클라이언트 몫으로 잃은 읽기와 함께 `client_transport_failure_max_share` 로 잰다. 그 구간의 Worker CPU·`exceededResources` 도 분석에서 읽어 같은 한도로 본다.
+  못한 요청(`shed`)은 클라이언트 몫이라 보고만 한다(root ADR-0460). 그 구간의 Worker CPU·`exceededResources` 도 분석에서 읽어 같은 한도로 본다.
 - 모든 읽기는 브라우저처럼 `Accept-Encoding: gzip` 을 보낸다. 미리보기 답이 `Content-Encoding: gzip` 이 아니면 저장된
   덩어리를 그대로 낸 것이 아니므로 실패(`pack:not-gzip`)다. 증거의 `encodings` 가 쪽마다 받은 인코딩을,
   `server_timing.outcomes` 가 미리보기가 간 경로(`document`·`document-decompressed`·…)를 센다.

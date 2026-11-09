@@ -1126,19 +1126,17 @@ async fn the_live_sample_is_seeded_and_shared_by_both_gates() -> anyhow::Result<
     let load = unavailable.load.as_mut().context("no load phase")?;
     load.failures.insert("http-503".to_owned(), 10);
     assert!(!unavailable.verdict()?, "a load phase's 503s passed");
-    // ADR-0459: client timeouts pass; a clientDisconnected invocation or lost reads over 1% fail.
-    let (lost, over) = (passing.sample_size / 500, passing.sample_size / 100 + 1);
-    for (class, count, cut, passes) in [
-        ("pack:request-timeout", lost, 0, true),
-        ("pack:request-timeout", lost, lost, false),
-        ("pack:connect", over, 0, false),
-    ] {
+    // ADR-0459/0460: client timeouts the Worker answered pass; a non-success invocation fails, and
+    // so does analytics covering under `analytics_min_coverage` of the reads.
+    let (n, lost) = (passing.sample_size, passing.sample_size / 50);
+    for (recorded, cut, passes) in [(n, 0, true), (n, lost, false), (n * 4 / 5, 0, false)] {
         let mut read = passing.clone();
-        read.answered -= count;
-        read.failures.insert(class.to_owned(), count);
+        read.answered -= lost;
+        read.failures.insert("pack:request-timeout".into(), lost);
         let cpu = read.worker_cpu.as_mut().context("no analytics")?;
-        cpu.statuses.insert("success".into(), cpu.requests - cut);
-        assert_eq!(read.verdict()?, passes, "{class} {count} {cut}");
+        cpu.requests = recorded;
+        cpu.statuses.insert("success".into(), recorded - cut);
+        assert_eq!(read.verdict()?, passes, "{recorded} {cut}");
     }
     let mut slow_tail = passing;
     slow_tail.increase_cold_ms.p99 = section_pack_policy()?

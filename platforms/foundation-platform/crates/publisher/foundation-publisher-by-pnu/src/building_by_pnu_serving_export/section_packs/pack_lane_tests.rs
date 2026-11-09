@@ -90,6 +90,7 @@ fn latency(
     let rest = json!({
         "concurrency": 8, "cold_answered": size, "warm_answered": 0,
         "worker_cpu": cpu, "availability": 1.0,
+        "server_timing": {"answers": size, "total_ms": timings, "r2_ms": timings, "sources": {}, "outcomes": {}},
         "load": {"requests_per_second": 25, "duration_seconds": 600, "max_in_flight": 64,
             "sent": size, "answered": size, "shed": 0, "achieved_requests_per_second": 25.0,
             "availability": 1.0, "failures": {}, "latency_ms": timings,
@@ -137,6 +138,7 @@ fn verdict_for(sample_size: u64, lane_documents: u64) -> anyhow::Result<bool> {
     let rest = json!({
         "concurrency": 8, "cold_answered": sample_size, "warm_answered": 0,
         "worker_cpu": cpu, "availability": 1.0,
+        "server_timing": {"answers": sample_size, "total_ms": timings, "r2_ms": timings, "sources": {}, "outcomes": {}},
         "increase_cold_ms": {"p50": 0.0, "p95": 0.0, "p99": 0.0},
         "load": {"requests_per_second": 25, "duration_seconds": 600, "max_in_flight": 64,
             "sent": sample_size, "answered": sample_size, "shed": 0,
@@ -343,7 +345,8 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         &dirs.work.join("baseline.json"),
     )?;
     // Its own p95 is also held to the contract's absolute bound: a slow baseline read cannot hide
-    // a slow lane inside the increase bound.
+    // a slow lane inside the increase bound. The bound is the Worker's own time (root ADR-0463):
+    // a client tail of the network's alone passes.
     let (mut slow, _) = gate::read::<LatencyEvidence>(&against)?;
     assert!(slow.verdict()?);
     let bound = lane
@@ -352,6 +355,8 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
         .latency_p95_max_ms;
     slow.live_ms.p95 = bound + 100.0;
     slow.pack_ms.p95 = bound + 100.0;
+    assert!(slow.verdict()?, "a client tail failed the Worker's bound");
+    slow.server_timing.total_ms.p95 = bound + 100.0;
     assert!(!slow.verdict()?);
     slow.lane = ByPnuLane::Building.unit().to_owned();
     assert!(

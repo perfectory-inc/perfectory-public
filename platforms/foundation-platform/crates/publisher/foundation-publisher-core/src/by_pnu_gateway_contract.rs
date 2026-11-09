@@ -820,9 +820,9 @@ pub struct ServingSlo {
     /// The least share of reads the server answered: what reached the client as 200 and what
     /// Workers analytics recorded as success, the lesser (root ADR-0459).
     pub availability_min: f64,
-    /// The most of each side's reads the client may lose without an answer (timeout, connect, a
-    /// stalled body): its network, held apart from the server's availability (root ADR-0459).
-    pub client_transport_failure_max_share: f64,
+    /// The least share of the preview reads sent that Workers analytics must have recorded, so the
+    /// server's availability is judged on enough of them (root ADR-0460).
+    pub analytics_min_coverage: f64,
     pub latency_max_increase_ms: ColdAndWarm,
     /// The most of the cold reads the preview may have answered without reading R2 (its edge copy,
     /// isolate memory, or no `Server-Timing` at all): above it the cold bound measured a cache.
@@ -1009,7 +1009,7 @@ fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
         || gate.worker_cpu_p99_max_increase_ms < 0.0
         || !(gate.slo.availability_min > 0.0 && gate.slo.availability_min <= 1.0)
         || !(0.0..1.0).contains(&gate.slo.cold_reads_not_from_r2_max_share)
-        || !(0.0..1.0).contains(&gate.slo.client_transport_failure_max_share)
+        || !(gate.slo.analytics_min_coverage > 0.0 && gate.slo.analytics_min_coverage <= 1.0)
         || [
             &gate.slo.latency_max_increase_ms.cold,
             &gate.slo.latency_max_increase_ms.warm,
