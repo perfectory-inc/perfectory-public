@@ -233,6 +233,14 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         warm_live_p50 = evidence.live_warm_ms.p50,
         warm_pack_p50 = evidence.pack_warm_ms.p50,
         failures = ?evidence.failures,
+        server = ?gate::served(
+            evidence.sample_size,
+            &evidence.failures,
+            Some("pack"),
+            evidence.worker_cpu.as_ref(),
+        ),
+        client_availability = evidence.availability,
+        edge_colos = ?evidence.edge_colos,
         worker_cpu = ?evidence.worker_cpu,
         passed = evidence.passed,
         lane = lane.unit(),
@@ -365,6 +373,8 @@ pub struct Answer {
     /// The Worker version that produced the answer, as it names it in the lane's
     /// `version_header` (root ADR-0157); `None` when it named none.
     pub version: Option<String>,
+    /// The edge data centre that answered (the `CF-Ray` suffix, `LAX`); `None` off Cloudflare.
+    pub colo: Option<String>,
 }
 
 impl Answer {
@@ -706,6 +716,7 @@ pub async fn probe(config: &LatencyConfig, pnus: &[String]) -> anyhow::Result<La
             outcomes: tally.outcomes,
         },
         encodings: tally.encodings,
+        edge_colos: tally.edge_colos,
         cold_read_paths: tally.cold_read_paths,
         cold_live_read_paths: tally.cold_live_read_paths,
         no_gzip,
@@ -743,6 +754,8 @@ struct Tally {
     sources: BTreeMap<String, u64>,
     outcomes: BTreeMap<String, u64>,
     encodings: BTreeMap<String, u64>,
+    /// The preview's answers by the edge data centre that served them.
+    edge_colos: BTreeMap<String, u64>,
     /// The cold reads by where the preview answered them from (`gate::cold_read_path`).
     cold_read_paths: BTreeMap<String, u64>,
     /// The same on the object side, which only the preview's object path says.
@@ -757,6 +770,9 @@ struct Tally {
 impl Tally {
     fn add(&mut self, pnu: &str, read: &Probed) -> anyhow::Result<()> {
         if let Ok(pack) = &read.pack {
+            if let Some(colo) = &pack.colo {
+                *self.edge_colos.entry(colo.clone()).or_default() += 1;
+            }
             if let Some(timing) = &pack.server_timing {
                 let parsed = parse_server_timing(timing);
                 if let Some(total) = parsed.total_ms {
@@ -894,6 +910,12 @@ pub async fn timed_get(
         })
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
+    let colo = response
+        .headers()
+        .get("cf-ray")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|ray| ray.rsplit_once('-'))
+        .map(|(_, colo)| colo.to_owned());
     let content_encoding = response
         .headers()
         .get(reqwest::header::CONTENT_ENCODING)
@@ -951,6 +973,7 @@ pub async fn timed_get(
         server_timing,
         content_encoding,
         version,
+        colo,
     })
 }
 

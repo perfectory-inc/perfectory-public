@@ -150,13 +150,87 @@ pub struct NoGzipEvidence {
 }
 
 impl NoGzipEvidence {
-    fn holds(&self) -> bool {
-        self.sent > 0
-            && self.answered == self.sent
-            && self.identity == self.sent
+    /// Every read the client got an answer to was 200, uncompressed and equal; a read lost on the
+    /// client's network (root ADR-0459) is held to `transport_max_share` instead.
+    fn holds(&self, transport_max_share: f64) -> bool {
+        let lost = served(self.sent, &self.failures, None, None).transport;
+        self.answered > 0
+            && self.answered + lost == self.sent
+            && within_share(lost, self.sent, transport_max_share)
+            && self.identity == self.answered
             && self.mismatched == 0
-            && self.not_compared < self.sent
+            && self.not_compared < self.answered
     }
+}
+
+/// Whether a failure class is the client's: no whole HTTP answer reached it (`request-timeout`,
+/// `connect`, a reset `request`, a stalled or reset `body`). The Worker's side of such a read is
+/// judged from Workers analytics instead (root ADR-0459).
+pub fn is_transport_class(class: &str) -> bool {
+    class == "connect" || class.starts_with("request") || class.starts_with("body")
+}
+
+/// One phase's reads split by whose failure each was (root ADR-0459).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Served {
+    /// The server's availability: the lesser of the share answered without a server failure (an
+    /// HTTP status, a broken body) and the share of invocations analytics records as `success`
+    /// (`clientDisconnected` counts against it, since only the probe reads a preview). 0 without
+    /// analytics.
+    pub server_availability: f64,
+    /// Reads the client lost without an answer.
+    pub transport: u64,
+}
+
+/// `failures` over `sent` reads, those of `side` only when named (`pack` for `pack:{class}`).
+pub fn served(
+    sent: u64,
+    failures: &BTreeMap<String, u64>,
+    side: Option<&str>,
+    cpu: Option<&WorkerCpu>,
+) -> Served {
+    let (mut server_failed, mut transport) = (0, 0);
+    for (key, count) in failures {
+        let class = match side {
+            None => key.as_str(),
+            Some(side) => match key
+                .strip_prefix(side)
+                .and_then(|rest| rest.strip_prefix(':'))
+            {
+                Some(class) => class,
+                None => continue,
+            },
+        };
+        if is_transport_class(class) {
+            transport += count;
+        } else {
+            server_failed += count;
+        }
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let share = |part: u64, whole: u64| {
+        if whole == 0 {
+            0.0
+        } else {
+            part as f64 / whole as f64
+        }
+    };
+    let recorded = cpu.map_or(0.0, |cpu| {
+        share(
+            cpu.statuses.get(SUCCESS).copied().unwrap_or(0),
+            cpu.requests,
+        )
+    });
+    Served {
+        server_availability: share(sent.saturating_sub(server_failed), sent).min(recorded),
+        transport,
+    }
+}
+
+/// Whether `part` is at most `max_share` of `whole`.
+#[allow(clippy::cast_precision_loss)]
+fn within_share(part: u64, whole: u64, max_share: f64) -> bool {
+    part as f64 <= whole as f64 * max_share
 }
 
 /// The preview Worker's CPU over the probe window, as Workers analytics records it.
@@ -188,6 +262,9 @@ impl WorkerCpu {
         self.statuses.get(EXCEEDED_RESOURCES).copied().unwrap_or(0)
     }
 }
+
+/// The Workers analytics status of an invocation that answered.
+pub const SUCCESS: &str = "success";
 
 /// The Workers analytics status of an invocation the platform cut off (CPU or memory).
 pub const EXCEEDED_RESOURCES: &str = "exceededResources";
@@ -242,10 +319,16 @@ pub struct LatencyEvidence {
     pub worker_cpu: Option<WorkerCpu>,
     #[serde(default)]
     pub bound_cpu_p99_ms: f64,
-    /// The share of preview reads that answered 200 (the live route's failures are the network's
-    /// or the object path's, not the pack path's, and are counted in `failures` only).
+    /// The share of preview reads that answered 200 as the client saw them, reported; the gate
+    /// judges the server's availability and the client's lost reads apart (`served`, root
+    /// ADR-0459). The live route's failures are counted in `failures` only.
     #[serde(default)]
     pub availability: f64,
+    /// The preview's answers by the edge data centre that served them (`CF-Ray` suffix): where the
+    /// probe's reads entered Cloudflare, which is where its client latency was measured (root
+    /// ADR-0459; 2026-11-09 every Korean client, the probe too, entered at LAX).
+    #[serde(default)]
+    pub edge_colos: BTreeMap<String, u64>,
     #[serde(default)]
     pub increase_cold_ms: Increase,
     #[serde(default)]
@@ -319,9 +402,23 @@ impl LatencyEvidence {
                     && cpu.cpu_p99_ms <= gate.worker_cpu_p99_max_ms
             })
         };
+        // The server is judged on what it answered and what analytics recorded; the client's lost
+        // reads on either side are its network, bounded apart (root ADR-0459: 2026-11-09 three
+        // lanes failed on 15 s client timeouts alone while analytics recorded every invocation as
+        // success).
+        let pack = served(
+            self.sample_size,
+            &self.failures,
+            Some("pack"),
+            self.worker_cpu.as_ref(),
+        );
+        let live_lost = served(self.sample_size, &self.failures, Some("live"), None).transport;
+        let transport_max = slo.client_transport_failure_max_share;
         #[allow(clippy::cast_precision_loss)]
-        let enough_answered =
-            self.answered as f64 >= self.sample_size as f64 * slo.availability_min;
+        let enough_answered = (self.answered + pack.transport + live_lost) as f64
+            >= self.sample_size as f64 * slo.availability_min
+            && within_share(pack.transport, self.sample_size, transport_max)
+            && within_share(live_lost, self.sample_size, transport_max);
         // A lane of fewer documents than the target is sampled whole (every PNU is a candidate,
         // `candidate_rate`), so its floor is the lane itself, not a target it can never reach
         // (2026-10-23: the public-auction lane, 4,821 documents). The full target holds for any lane
@@ -348,7 +445,7 @@ impl LatencyEvidence {
                 &self.cold_live_read_paths,
                 slo.cold_reads_not_from_r2_max_share,
             )
-            && self.availability >= slo.availability_min
+            && pack.server_availability >= slo.availability_min
             && self
                 .increase_cold_ms
                 .within(&slo.latency_max_increase_ms.cold)
@@ -357,10 +454,20 @@ impl LatencyEvidence {
                     .increase_warm_ms
                     .within(&slo.latency_max_increase_ms.warm))
             && cpu_within(&self.worker_cpu)
-            && self.no_gzip.as_ref().is_some_and(NoGzipEvidence::holds)
+            && self
+                .no_gzip
+                .as_ref()
+                .is_some_and(|no_gzip| no_gzip.holds(transport_max))
             && self.load.as_ref().is_some_and(|load| {
+                let served = served(load.sent, &load.failures, None, load.worker_cpu.as_ref());
                 load.sent > 0
-                    && load.availability >= slo.availability_min
+                    && served.server_availability >= slo.availability_min
+                    // A shed read is the client's: its pacing found `max_in_flight` outstanding.
+                    && within_share(
+                        served.transport + load.shed,
+                        load.sent + load.shed,
+                        transport_max,
+                    )
                     && cpu_within(&load.worker_cpu)
             }))
     }
