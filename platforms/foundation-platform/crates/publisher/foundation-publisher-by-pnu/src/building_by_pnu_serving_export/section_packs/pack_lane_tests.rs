@@ -356,6 +356,24 @@ async fn a_pack_only_lane_is_cut_over_without_objects() -> anyhow::Result<()> {
     slow.live_ms.p95 = bound + 100.0;
     slow.pack_ms.p95 = bound + 100.0;
     assert!(slow.verdict()?, "a client tail failed the Worker's bound");
+    // Its CPU p99 is the load phase's: the paired window also holds the baseline's reads (ADR-0466).
+    let cpu_bound = section_pack_policy()?.cutover_gate.worker_cpu_p99_max_ms;
+    let mut costly = slow.clone();
+    if let Some(cpu) = costly.worker_cpu.as_mut() {
+        cpu.cpu_p99_ms = cpu_bound + 1.0;
+    }
+    assert!(
+        costly.verdict()?,
+        "the baseline's CPU in the paired window failed the lane"
+    );
+    if let Some(cpu) = costly
+        .load
+        .as_mut()
+        .and_then(|load| load.worker_cpu.as_mut())
+    {
+        cpu.cpu_p99_ms = cpu_bound + 1.0;
+    }
+    assert!(!costly.verdict()?, "a pack path over the CPU bound passed");
     slow.server_timing.total_ms.p95 = bound + 100.0;
     assert!(!slow.verdict()?);
     slow.lane = ByPnuLane::Building.unit().to_owned();

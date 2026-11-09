@@ -396,13 +396,17 @@ impl LatencyEvidence {
     pub fn verdict(&self) -> anyhow::Result<bool> {
         let gate = &section_pack_policy()?.cutover_gate;
         let slo = &gate.slo;
-        let cpu_within = |cpu: &Option<WorkerCpu>| {
+        let cpu_within = |cpu: &Option<WorkerCpu>, held: bool| {
             cpu.as_ref().is_some_and(|cpu| {
                 cpu.requests > 0
                     && cpu.exceeded_resources() == 0
-                    && cpu.cpu_p99_ms <= gate.worker_cpu_p99_max_ms
+                    && (!held || cpu.cpu_p99_ms <= gate.worker_cpu_p99_max_ms)
             })
         };
+        // A pack-only lane's paired window also holds its baseline lane's reads on the same Worker,
+        // so its CPU p99 is the load phase's, which reads the lane's packs alone (root ADR-0466:
+        // 2026-11-09 sub-parcels paired p99 10.89 ms, its load 5.45 ms).
+        let pack_only = self.baseline_lane.is_some();
         // The server is judged on what it answered and what analytics recorded, over enough of the
         // reads; the client's lost reads are its network and are reported (root ADR-0459, ADR-0460:
         // 2026-11-09 lanes failed on client timeouts alone while analytics recorded every
@@ -460,7 +464,7 @@ impl LatencyEvidence {
                 || self
                     .increase_warm_ms
                     .within(&slo.latency_max_increase_ms.warm))
-            && cpu_within(&self.worker_cpu)
+            && cpu_within(&self.worker_cpu, !pack_only)
             && self
                 .no_gzip
                 .as_ref()
@@ -470,7 +474,7 @@ impl LatencyEvidence {
                 load.sent > 0
                     && served.server_availability >= slo.availability_min
                     && covered(&served)
-                    && cpu_within(&load.worker_cpu)
+                    && cpu_within(&load.worker_cpu, true)
             }))
     }
 
