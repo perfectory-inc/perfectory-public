@@ -16,10 +16,6 @@
   },
   "routes": [
     {
-      "pattern": "catalog.perfectory.io",
-      "custom_domain": true
-    },
-    {
       "pattern": "catalog.gongzzang.app",
       "custom_domain": true
     },

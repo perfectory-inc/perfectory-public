@@ -29,7 +29,7 @@
     "catalog": {
       "gateway": "parcel_by_pnu_gateway",
       "origin_hostname": "catalog-origin.perfectory.io",
-      "answered_by": "cloudflare",
+      "answered_by": "cloudfront",
       "caching": "origin"
     },
     "web_preview": {
