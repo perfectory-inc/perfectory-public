@@ -5,7 +5,8 @@
   hostname of those three gateways in config/r2-connections.contract.json (the public hostname and
   its aliases; nothing is listed here) is asked for `/cdn-cgi/trace` SAMPLES times, each on a new
   connection as a first visit would be: p50/p95 of the full answer time and the Cloudflare colo it
-  entered at. Cloudflare answers that path at the edge, so no Worker runs and nothing is billed; it
+  entered at (CloudFront's PoP for a hostname the Seoul front door answers, root ADR-0461, which
+  passes the path through uncached). Cloudflare answers that path at the edge, so no Worker runs and nothing is billed; it
   measures the entry path (where a SEA entry costs seconds, 2026-10-12), not the Worker's or R2's
   time, which the by-PNU serving monitor holds. cloudflare.com's own colo is the reference: when
   it says ICN and ours say SEA, the plan's routing is why, not our code.
@@ -107,12 +108,15 @@ def colo_of(trace: str) -> str | None:
 
 
 def trace(host: str) -> tuple[float, str | None]:
-    """One answer of https://<host>/cdn-cgi/trace: (milliseconds, colo)."""
+    """One answer of https://<host>/cdn-cgi/trace: (milliseconds, entry). A hostname the Seoul front
+    door answers (root ADR-0461) is entered at CloudFront's PoP (x-amz-cf-pop, ICN57-P5); the trace's
+    colo would then be where CloudFront entered Cloudflare, not where the visitor entered."""
     started = time.perf_counter()
     request = urllib.request.Request(f"https://{host}/cdn-cgi/trace", headers={"User-Agent": "foundation-service-checks"})
     with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
         body = response.read().decode("utf-8", "replace")
-    return (time.perf_counter() - started) * 1000, colo_of(body)
+        pop = response.headers.get("x-amz-cf-pop")
+    return (time.perf_counter() - started) * 1000, pop or colo_of(body)
 
 
 def measure_host(host: str, ask=trace, samples: int = SAMPLES) -> dict:

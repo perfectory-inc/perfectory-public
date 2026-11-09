@@ -23,7 +23,7 @@
     "tiles": {
       "gateway": "vector_tile_gateway",
       "origin_hostname": "tiles-origin.perfectory.io",
-      "answered_by": "cloudflare",
+      "answered_by": "cloudfront",
       "caching": "origin"
     },
     "catalog": {
