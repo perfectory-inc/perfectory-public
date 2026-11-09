@@ -44,7 +44,16 @@ IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 KEY = ("dataset_slug", "deal_ym", "row_key")
 BUCKET = ("dataset_slug", "deal_ym")
 LOAD_COLUMNS = ("source_record_id", "source_line_number", "source_snapshot_id", "ingested_at_utc", "row_state")
-LOT = re.compile(r"^(산\s*)?(\d{1,4})(?:-(\d{1,4}))?$")
+LOT = re.compile(r"^(산\s*)?(\d{1,4})(?:\s*-\s*(\d{1,4}))?$")
+# Lots the provider wrote that are no 지번 (root ADR-0469): a development zone's block (`BL-A3`, `3BL`,
+# `지구BL B-1`, `블록`) and a land readjustment's provisional number (`가-12`, `가-`). 2026-11-09
+# (read-only Trino, every load so far): of 2,738 unparsed lots, 1,584 `가-…` and about 1,140 `…BL…`;
+# 분양권 rows are mostly such sites, and the bound read them as lots no parcel holds (2026-09 30.4%,
+# 2026-10 35.2% against 0.25), so every hourly load failed.
+BLOCK_LOT = re.compile(r"BL|블록")
+PROVISIONAL_LOT = re.compile(r"^가\s*-")
+# The reasons a row names no lot, so it is not a lot the link bound counts.
+NOT_A_LOT = ("jibun_masked", "no_jibun", "block_lot", "provisional_lot")
 EMPTY = ("", "-")
 
 # CSV column → (silver column, reader). Amounts are 만원 as the provider writes them.
@@ -320,11 +329,16 @@ def rejected_rows(entry: Mapping[str, Any], rejected: Sequence[Rejected], ingest
 
 
 def lot_of(row: Mapping[str, Any]) -> tuple[str, tuple[bool, int, int] | None]:
-    """(reason, (mountain, 본번, 부번)): `ok`, `jibun_masked`, `no_jibun` or `unparsed`."""
+    """(reason, (mountain, 본번, 부번)): `ok`, `jibun_masked`, `no_jibun`, `block_lot`, `provisional_lot`
+    or `unparsed`."""
 
     raw = (row.get("jibun_raw") or "").strip()
     if "*" in raw:
         return "jibun_masked", None
+    if BLOCK_LOT.search(raw):
+        return "block_lot", None
+    if PROVISIONAL_LOT.match(raw):
+        return "provisional_lot", None
     bonbun, bubun = (row.get("bonbun") or "").strip(), (row.get("bubun") or "").strip()
     if bonbun.isdigit() and int(bonbun) > 0:
         return "ok", (raw.startswith("산"), int(bonbun), int(bubun) if bubun.isdigit() else 0)
@@ -386,7 +400,7 @@ def link_report(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def unmasked_lots(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    return [r for r in rows if r.get("pnu_unresolved_reason") not in ("jibun_masked", "no_jibun")]
+    return [r for r in rows if r.get("pnu_unresolved_reason") not in NOT_A_LOT]
 
 
 def unmasked_unresolved_share(rows: Sequence[Mapping[str, Any]]) -> float:
@@ -401,6 +415,13 @@ MIN_UNMASKED_LOTS = 50
 
 def below_link_bound(rows: Sequence[Mapping[str, Any]], bound: float) -> bool:
     return len(unmasked_lots(rows)) >= MIN_UNMASKED_LOTS and unmasked_unresolved_share(rows) > bound
+
+
+def link_bound(silver_load: Mapping[str, Any], dataset: str) -> float:
+    """The dataset's own bound when the contract measured one (root ADR-0469), else the load's."""
+
+    own = (silver_load.get("max_unmasked_unresolved_share_by_dataset") or {}).get(dataset)
+    return float(silver_load["max_unmasked_unresolved_share"] if own is None else own)
 
 
 def dataset_of(source_slug: str, contract: Mapping[str, Any]) -> str:
@@ -624,7 +645,7 @@ def _load(argv: Sequence[str]) -> int:
                     "unrepresented_fields": unknown}
             line["appended"] = append_source_object(spark, changes, columns, table, entry["object_key"],
                                                      contract_table=TABLE)
-            if below_link_bound(linked, float(source["silver_load"]["max_unmasked_unresolved_share"])):
+            if below_link_bound(linked, link_bound(source["silver_load"], entry["dataset"])):
                 below_bound.append(entry["object_key"])
             changes.unpersist()
             staged.unpersist()

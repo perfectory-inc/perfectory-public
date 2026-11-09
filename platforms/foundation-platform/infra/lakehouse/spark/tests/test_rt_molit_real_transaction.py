@@ -187,7 +187,9 @@ class LinksPlaces(unittest.TestCase):
         self.assertEqual(job.lot_of({"jibun_raw": "산 7"}), ("ok", (True, 7, 0)))
         self.assertEqual(job.lot_of({"jibun_raw": "3**"}), ("jibun_masked", None))
         self.assertEqual(job.lot_of({}), ("no_jibun", None))
-        self.assertEqual(job.lot_of({"jibun_raw": "가-1"}), ("unparsed", None))
+        self.assertEqual(job.lot_of({"jibun_raw": "가-1"}), ("provisional_lot", None))
+        self.assertEqual(job.lot_of({"jibun_raw": "12 -3"}), ("ok", (False, 12, 3)))
+        self.assertEqual(job.lot_of({"jibun_raw": "1-가"}), ("unparsed", None))
         self.assertEqual(job.lot_of({"jibun_raw": "686", "bonbun": "0686", "bubun": "0000"}), ("ok", (False, 686, 0)))
         self.assertEqual(job.candidate_pnu("9999933021", (False, 12, 3)), "9999933021100120003")
         self.assertEqual(job.candidate_pnu("9999933021", (True, 7, 0)), "9999933021200070000")
@@ -203,6 +205,27 @@ class LinksPlaces(unittest.TestCase):
         report = job.link_report(rows)[DATASET]
         self.assertEqual((report["rows"], report["pnu"], report["legal_dong_only"]), (3, 1, 2))
         self.assertEqual(job.unmasked_unresolved_share(rows), 0.5)
+
+    def test_a_block_or_a_provisional_number_is_no_lot_the_bound_counts(self):
+        # Root ADR-0469, 2026-11-09: 분양권 months failed every hourly load at 30.4% and 35.2% unresolved,
+        # most of it `BL-A3`-like blocks and `가-` numbers of development zones, no 지번 at all.
+        for raw in ("BL-A3", "BL-3", "3BL", "지구BL B-1", "A1블록", "가-", "가-12"):
+            with self.subTest(raw=raw):
+                reason, lot = job.lot_of({"jibun_raw": raw})
+                self.assertIn(reason, job.NOT_A_LOT)
+                self.assertIsNone(lot)
+        lot = {"dataset_slug": DATASET, "pnu": "9999933021100120003", "legal_dong_code": "9999933021",
+               "pnu_unresolved_reason": None}
+        block = {**lot, "pnu": None, "pnu_unresolved_reason": "block_lot"}
+        self.assertFalse(job.below_link_bound([lot] * 60 + [block] * 400, 0.25))
+
+    def test_a_dataset_the_contract_measured_has_its_own_bound(self):
+        silver_load = job.load_source_contract()["silver_load"]
+        self.assertEqual(job.link_bound(silver_load, "real_transaction_apartment_presale"), 0.5)
+        self.assertEqual(job.link_bound(silver_load, "real_transaction_apartment_trade"),
+                         silver_load["max_unmasked_unresolved_share"])
+        for dataset in silver_load["max_unmasked_unresolved_share_by_dataset"]:
+            self.assertIn(dataset, job.load_source_contract()["datasets"])
 
     def test_the_bound_reads_a_share_of_enough_unmasked_lots_not_of_all_rows(self):
         masked = {"dataset_slug": DATASET, "pnu": None, "legal_dong_code": "9999933021",
