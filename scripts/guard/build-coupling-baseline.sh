@@ -337,7 +337,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (root ADR-0402).
 # 166 -> 165: the Bronze-lane write guard leaves its Rust test (which embedded the two lane sources)
 # for the Semgrep rule tools/semgrep/rules/bronze-lane-writes.yml (root ADR-0422).
-COMPILE_TIME_READ_BASELINE="${3:-165}"
+# 165 -> 166: the by-PNU publisher embeds the Seoul front door contract once, so a version-pinned
+# read goes to the door's origin hostname instead of CloudFront's cached public one (root ADR-0461).
+COMPILE_TIME_READ_BASELINE="${3:-166}"
 
 cd "$repo_root"
 

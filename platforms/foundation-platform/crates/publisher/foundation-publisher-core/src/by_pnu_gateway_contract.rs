@@ -23,6 +23,8 @@ const R2_CONNECTION_CONTRACT: &str =
     include_str!("../../../../config/r2-connections.contract.json");
 const RUNTIME_SECRETS_CONTRACT: &str =
     include_str!("../../../../config/runtime-secrets.contract.json");
+const CDN_FRONT_DOOR_CONTRACT: &str =
+    include_str!("../../../../config/cdn-front-door.contract.json");
 /// The runtime-secrets group that holds the Cloudflare analytics variables.
 const CLOUDFLARE_ANALYTICS_GROUP: &str = "cloudflare-analytics";
 
@@ -128,6 +130,20 @@ impl ByPnuLane {
             Self::Building => &contract.building_by_pnu_gateway,
             Self::Pack(lane) => &lane.gateway,
         })
+    }
+
+    /// The hostname that reaches the lane's Worker itself: a door's origin hostname when the
+    /// Seoul front door stands before its public one (root ADR-0461), else the public one. A read
+    /// that judges a version (a pinned canary read, a publish's capabilities check) goes here,
+    /// because CloudFront answers the public name from its cache and passes no version pin.
+    ///
+    /// # Errors
+    /// Returns an error when a contract cannot be read.
+    pub fn worker_hostname(self) -> anyhow::Result<&'static str> {
+        let public = self.policy()?.public_hostname.as_str();
+        Ok(front_door_origins()?
+            .get(public)
+            .map_or(public, String::as_str))
     }
 
     /// The lane's section packs block (root ADR-0147).
@@ -986,6 +1002,36 @@ fn contract() -> anyhow::Result<&'static R2ConnectionContract> {
         .map_err(|message| anyhow::anyhow!(message.clone()))
 }
 
+/// Each front door's origin hostname by the public hostname it stands before
+/// (`config/cdn-front-door.contract.json`; the public one is the gateway block's).
+fn front_door_origins() -> anyhow::Result<&'static BTreeMap<String, String>> {
+    static ORIGINS: OnceLock<Result<BTreeMap<String, String>, String>> = OnceLock::new();
+    ORIGINS
+        .get_or_init(|| {
+            let doors: serde_json::Value = serde_json::from_str(CDN_FRONT_DOOR_CONTRACT)
+                .map_err(|error| format!("invalid front door contract: {error}"))?;
+            let written: serde_json::Value = serde_json::from_str(R2_CONNECTION_CONTRACT)
+                .map_err(|error| format!("invalid R2 connection contract: {error}"))?;
+            let mut origins = BTreeMap::new();
+            for (name, door) in doors["doors"].as_object().into_iter().flatten() {
+                let Some(gateway) = door.get("gateway").and_then(serde_json::Value::as_str) else {
+                    continue;
+                };
+                let public = written[gateway]["public_hostname"].as_str();
+                let origin = door["origin_hostname"].as_str();
+                let (Some(public), Some(origin)) = (public, origin) else {
+                    return Err(format!(
+                        "front door {name}: {gateway} names no public_hostname, or the door no origin_hostname"
+                    ));
+                };
+                origins.insert(public.to_owned(), origin.to_owned());
+            }
+            Ok(origins)
+        })
+        .as_ref()
+        .map_err(|message| anyhow::anyhow!(message.clone()))
+}
+
 /// Refuses a pack block whose parts cannot all hold: the format is read by two languages, so a
 /// value either side cannot honour is a contract error, not a runtime surprise.
 fn check_section_packs(contract: &R2ConnectionContract) -> Result<(), String> {
@@ -1162,6 +1208,22 @@ mod tests {
 
     fn written() -> anyhow::Result<Value> {
         Ok(serde_json::from_str(R2_CONNECTION_CONTRACT)?)
+    }
+
+    #[test]
+    fn a_lane_behind_a_front_door_is_read_on_its_origin_hostname() -> anyhow::Result<()> {
+        let doors: Value = serde_json::from_str(CDN_FRONT_DOOR_CONTRACT)?;
+        let catalog = doors["doors"]["catalog"]["origin_hostname"]
+            .as_str()
+            .context("the catalog door names its origin")?;
+        assert_eq!(ByPnuLane::Parcel.worker_hostname()?, catalog);
+        assert_ne!(catalog, ByPnuLane::Parcel.policy()?.public_hostname);
+        // A lane no door stands before is read where the public reads it.
+        assert_eq!(
+            ByPnuLane::Building.worker_hostname()?,
+            ByPnuLane::Building.policy()?.public_hostname
+        );
+        Ok(())
     }
 
     /// The contract's patch block with `change` applied.

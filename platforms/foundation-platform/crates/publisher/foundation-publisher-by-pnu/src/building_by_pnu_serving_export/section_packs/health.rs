@@ -1,7 +1,8 @@
 //! `check-building-gateway-version-health`: one canary step's verdict (root ADR-0151 §7, contract
 //! `section_packs.canary`), read from pinned synthetic reads and Cloudflare analytics.
 //!
-//! A step first reads `canary.synthetic_load` gate-sample PNUs from the live hostname at each of
+//! A step first reads `canary.synthetic_load` gate-sample PNUs from the live Worker (its front
+//! door's origin hostname when one stands before it, root ADR-0461) at each of
 //! its two versions, pinned with Cloudflare's `Cloudflare-Workers-Version-Overrides` header: before
 //! launch the live hostname carries almost no traffic, so a 1% step would never count enough real
 //! requests on the new version. Both versions read the same PNUs, drawn by the new version
@@ -140,7 +141,7 @@ pub async fn run(lane: ByPnuLane) -> anyhow::Result<()> {
         gate::read::<EqualityEvidence>(&PathBuf::from(required("MONITOR_SAMPLE_PATH")?))?;
     let base_url = match env("CANARY_BASE_URL")? {
         Some(url) => url,
-        None => format!("https://{}", lane.policy()?.public_hostname),
+        None => format!("https://{}", lane.worker_hostname()?),
     };
     let new_version = required("CANARY_NEW_VERSION")?;
     let old_version = env("CANARY_OLD_VERSION")?;
@@ -314,15 +315,19 @@ pub async fn check(
         }
         None => None,
     };
-    let host_statuses = analytics::responses_by_status(
-        client,
-        analytics,
-        zone_id,
-        &policy.public_hostname,
-        from,
-        to,
-    )
-    .await?;
+    // Behind the Seoul front door (root ADR-0461) the zone sees the public name until the switch
+    // and the origin name after it (CloudFront's fetches and the pinned reads land there), so both
+    // are counted.
+    let mut host_statuses = BTreeMap::new();
+    let mut hosts = vec![policy.public_hostname.as_str(), lane.worker_hostname()?];
+    hosts.dedup();
+    for host in hosts {
+        for (status, count) in
+            analytics::responses_by_status(client, analytics, zone_id, host, from, to).await?
+        {
+            *host_statuses.entry(status).or_insert(0) += count;
+        }
+    }
     let breaches = breaches(
         &new,
         old.as_ref(),

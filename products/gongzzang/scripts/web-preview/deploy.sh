@@ -34,9 +34,12 @@ trap 'rm -rf "$work" "$SCRATCH"' EXIT
 
 CF_TOKEN=$(cf_token)
 CF_ACCOUNT=$(cf_account)
-origin=$(preview_origin)
+# Visitors open the front door's name (CloudFront in Seoul, root ADR-0461); the app is built for it.
+# The workers.dev name stays the door's origin and is checked too.
+origin=$(front_door_origin)
+workers_dev=$(preview_origin)
 commit=$(git -C "$repo" rev-parse --verify "${ref}^{commit}")
-echo "preview ${origin} from ${ref} (${commit})"
+echo "preview ${origin} (origin ${workers_dev}) from ${ref} (${commit})"
 
 # The preview has no identity, no session store and no Rust API (lib/preview.ts). These values only
 # satisfy apps/web/lib/env.ts: reserved .invalid hosts and throwaway random strings, never production.
@@ -131,4 +134,5 @@ expect 200 "${origin}/catalog/v1/vector-tiles/runtime-manifest"
 expect 200 "${origin}/edge/map-edits/overlay/admin"
 expect 404 "${origin}/profile"
 expect 404 "${origin}/api/proxy/listings"
+expect 200 "${workers_dev}/listings"
 echo "preview is live: ${origin}/listings"

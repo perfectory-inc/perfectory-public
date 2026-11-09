@@ -28,6 +28,13 @@ ROOT = PLATFORM.parents[1]
 SCRIPT = PLATFORM / "scripts/deploy/worker_autodeploy.py"
 CONTRACT = json.loads((PLATFORM / "config/worker-deploys.contract.json").read_text(encoding="utf-8"))
 GATEWAYS = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+# A gateway behind the Seoul front door is deployed and read on its origin hostname (root ADR-0461).
+ORIGINS = {door["gateway"]: door["origin_hostname"] for door in json.loads(
+    (PLATFORM / "config/cdn-front-door.contract.json").read_text(encoding="utf-8"))["doors"].values() if "gateway" in door}
+
+
+def production_hostname(gateway):
+    return ORIGINS.get(gateway) or GATEWAYS[gateway]["public_hostname"]
 COMMIT = "a" * 40
 UNLISTED = "someone-elses-script"
 OLD = "00000000-0000-4000-8000-{:012d}"
@@ -237,7 +244,8 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         for number, entry in enumerate(CONTRACT["workers"]):
             # A gateway is a top-level block or a dotted path into one (`by_pnu_lanes.<lane>`).
             block = functools.reduce(lambda value, key: value[key], entry["gateway"].split("."), GATEWAYS)
-            names = [(block["worker_name"], block.get("public_hostname") or entry["smoke"]["hostname"])]
+            names = [(block["worker_name"], ORIGINS.get(entry["gateway"]) or block.get("public_hostname")
+                      or entry["smoke"]["hostname"])]
             if entry.get("preview"):
                 preview = block["section_packs"]["preview_worker"]
                 names.insert(0, (preview["worker_name"], preview["public_hostname"]))
@@ -354,7 +362,16 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         parcel = [line for line in monitors if line.endswith(" parcel")]
         self.assertEqual(len(parcel), 2)
         self.assertIn("MONITOR_BASE_URL=https://catalog-preview.perfectory.io", parcel[0])
-        self.assertIn(f"MONITOR_BASE_URL=https://{GATEWAYS['parcel_by_pnu_gateway']['public_hostname']}", parcel[1])
+        self.assertIn(f"MONITOR_BASE_URL=https://{production_hostname('parcel_by_pnu_gateway')}", parcel[1])
+
+    def test_a_front_door_gateway_is_read_on_its_origin_hostname_never_on_its_public_one(self):
+        # Root ADR-0461: a switched public name is CloudFront, which answers from its cache and drops
+        # the version pin, so a smoke there would judge a copy instead of the version just deployed.
+        self.assertEqual(self.tick(), 0)
+        reads = "\n".join((self.root / name).read_text() for name in ("curl.log", "monitor.log", "probe.log"))
+        for gateway, origin in ORIGINS.items():
+            self.assertIn(f"https://{origin}", reads)
+            self.assertNotIn(f"https://{GATEWAYS[gateway]['public_hostname']}", reads)
 
     def set_capabilities(self, hostname, answer):
         hosts = json.loads((self.root / "hosts.json").read_text())
@@ -365,21 +382,22 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         # Root ADR-0336: the parcel Worker serves the public auction subject; its serving version
         # names the majors it reads, and the new one (this tree's registry) reads the same.
         subject = "foundation-platform.parcel_public_auction_by_pnu"
-        production = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        production = production_hostname("parcel_by_pnu_gateway")
         self.set_capabilities(production, {"document_schemas": {subject: [1]}})
         self.assertEqual(self.tick(), 0)
         self.assertIn("parcel-gateway: can-i-deploy: the new version reads every major", self.output.getvalue())
 
     def test_can_i_deploy_does_not_compare_a_serving_version_built_before_the_registry(self):
         self.assertEqual(self.tick(), 0)
-        self.assertIn("parcel-gateway: catalog.perfectory.io names no document schemas it reads", self.output.getvalue())
+        self.assertIn(f"parcel-gateway: {production_hostname('parcel_by_pnu_gateway')} names no document schemas it reads",
+                      self.output.getvalue())
 
     def test_can_i_deploy_refuses_a_version_that_drops_a_major_still_served_before_any_upload(self):
         # 2026-10-29: a reader built against one version list was put in front of documents of
         # another (the web preview refused the public auction's v2). Here the serving version reads a
         # major this tree's registry does not list: the new version could not read what is served.
         subject = "foundation-platform.parcel_public_auction_by_pnu"
-        production = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        production = production_hostname("parcel_by_pnu_gateway")
         self.set_capabilities(production, {"document_schemas": {subject: [1, 7]}})
         self.assertEqual(self.tick(), 1)
         preview, live = self.names["parcel-gateway"]
@@ -414,7 +432,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     def test_each_by_pnu_hostname_is_probed_with_get_before_its_monitor(self):
         # Root ADR-0327: 2026-10-29 every cached photo answered 500 while a HEAD check passed.
         self.assertEqual(self.tick(), 0)
-        parcel = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        parcel = production_hostname("parcel_by_pnu_gateway")
         smoke = (self.root / "smoke.log").read_text().splitlines()
         for host in ("catalog-preview.perfectory.io", parcel):
             self.assertLess(smoke.index(f"probe {host}"), smoke.index(f"monitor {host}"))
@@ -433,7 +451,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         self.assertIn("the edge probe of catalog-preview.perfectory.io failed", failed["error"])
 
     def test_a_production_probe_that_fails_rolls_production_back(self):
-        parcel = GATEWAYS["parcel_by_pnu_gateway"]["public_hostname"]
+        parcel = production_hostname("parcel_by_pnu_gateway")
         self.assertEqual(self.tick(FIXTURE_PROBE_FAILS=parcel), 1)
         self.assertTrue(self.cloud()["foundation-parcel-gateway"]["serving"].startswith("00000000-"), "not rolled back")
 
@@ -509,7 +527,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
     # -- what a failure does --
 
     def test_a_production_smoke_that_fails_rolls_production_back(self):
-        hostname = GATEWAYS["vector_tile_gateway"]["public_hostname"]
+        hostname = production_hostname("vector_tile_gateway")
         self.assertEqual(self.tick(FIXTURE_BROKEN=hostname), 1)
         cloud = self.cloud()
         self.assertTrue(cloud["foundation-tile-gateway"]["serving"].startswith("00000000-"), "not rolled back")

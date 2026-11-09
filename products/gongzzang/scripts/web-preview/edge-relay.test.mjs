@@ -77,7 +77,7 @@ test("the real-user beacon is the one write relayed, with the browser's country 
   }
 });
 
-test("the relayed hosts are the contract's public hostnames", () => {
+test("the relayed hosts are the contract's hostnames", () => {
   const contract = JSON.parse(
     readFileSync(
       new URL(
@@ -87,9 +87,24 @@ test("the relayed hosts are the contract's public hostnames", () => {
       "utf8",
     ),
   );
+  const doors = Object.values(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          "../../../../platforms/foundation-platform/config/cdn-front-door.contract.json",
+          import.meta.url,
+        ),
+        "utf8",
+      ),
+    ).doors,
+  );
+  // A gateway behind the Seoul front door is asked on its origin hostname (root ADR-0461).
+  const host = (gateway) =>
+    doors.find((door) => door.gateway === gateway)?.origin_hostname ??
+    contract[gateway].public_hostname;
   assert.deepEqual(EDGES, {
-    tiles: contract.vector_tile_gateway.public_hostname,
-    parcels: contract.parcel_by_pnu_gateway.public_hostname,
+    tiles: host("vector_tile_gateway"),
+    parcels: host("parcel_by_pnu_gateway"),
     buildings: contract.building_by_pnu_gateway.public_hostname,
     "unit-prices": contract.by_pnu_lanes["unit-price"].public_hostname,
     "map-edits": contract.map_edit_gateway.public_hostname,
