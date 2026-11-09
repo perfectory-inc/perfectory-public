@@ -272,8 +272,8 @@ class TheForcedCommandOverSshTest(unittest.TestCase):
             connection, _ = self.listener.accept()
         except OSError:
             return
+        # The client's close ends the transport; closing it from here races its own reader thread.
         transport = paramiko.Transport(connection)
-        self.addCleanup(transport.close)
         transport.add_server_key(self.host_key)
         try:
             transport.start_server(server=Host())

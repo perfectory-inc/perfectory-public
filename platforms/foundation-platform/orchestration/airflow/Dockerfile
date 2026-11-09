@@ -10,7 +10,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # The wheel, checked against the lock's hash, without dependencies: what it needs is Airflow's and keeps
 # Airflow's pins, which `pip check` then holds to the wheel's requirements. The import is the proxy's.
-COPY orchestration/airflow/requirements.txt /tmp/airlift-requirements.txt
+# Owned by the image's user (airflow), who installs into its own site and removes the lock after.
+COPY --chown=airflow:0 orchestration/airflow/requirements.txt /tmp/airlift-requirements.txt
 RUN pip install --no-cache-dir --require-hashes --only-binary=:all: --no-deps -r /tmp/airlift-requirements.txt \
     && pip check \
     && python -c "from dagster_airlift.in_airflow import BaseProxyTaskToDagsterOperator" \

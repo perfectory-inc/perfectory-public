@@ -148,7 +148,7 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
 - **호스트 연결은 스케줄러의 것.** ADR-0417 의 귀결은 "Dagster 용 키를 운영자가 1회" 였지만, 사람 단계는 두지 않는다(소유자 11-07). Dagster 데몬은
   runtime.env 의 같은 연결(`AIRFLOW_CONN_FOUNDATION_HOST` → `FOUNDATION_HOST_CONNECTION`)을 compose 로 받는다. 그 키는 강제 명령 하나만,
   오케스트레이션 프로젝트 네트워크(`airflow_default`)에서만 쓸 수 있다(`authorized_keys` 의 `restrict,from=,command=`). 데몬은 네트워크 셋에 붙어
-  있으므로 `default` 에 `gw_priority: 1` 을 주어 호스트로 가는 길이 그 네트워크다(11-09 잰 값: 이미 eth0=172.28.0.0/16 이 기본 경로, 이제는 선언).
+  있으므로 `default` 에 `gw_priority: 1` 을 주어 호스트로 가는 길이 그 네트워크다(11-09 잰 값: 이미 `airflow_default` 쪽 eth0 이 기본 경로였다, 이제는 선언).
   클라이언트는 Airflow SSH 공급자와 같은 paramiko 5.0.0, 호스트 키는 연결에 박힌 것만 받고(RejectPolicy), 개인 키는 디스크에 쓰지 않는다.
 - **실행 큐.** Airflow 가 결정하는 동안 동시 job run 은 Airflow 병렬도(4)를 넘지 못한다. `dagster.yaml` 은 job run 4, 전체 5(검사 run 자리 하나),
   `spark` 풀 run 3(슬롯 수)을 허용하고, 우선순위 클래스 값을 `dagster/priority` 로 단다(ADR-0435). 호스트의 `job_units.py pool-full` 이 여전히
