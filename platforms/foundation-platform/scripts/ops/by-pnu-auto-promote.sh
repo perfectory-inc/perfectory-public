@@ -21,6 +21,10 @@
 #     Gold rebuild's time bound (orchestration/jobs.v1.json gold_panel_rebuild) does not double it: the
 #     rebuild resumes from the stages it kept (root ADR-0438, ADR-0440), so the next attempt goes on
 #     where it stopped (2026-11-07: parcel-regulation-zones' first national build, longer than the bound).
+#     An attempt that ended `waiting` (its history or its Gold's inputs not loaded yet, root ADR-0471)
+#     claimed nothing and is asked again at the next run, without a backoff: the readiness it reads
+#     comes from loads that run on their own, and a doubled wait would hold the lane hours after its
+#     last input landed (2026-11-09: parcel-nearby, whose seven Silver tables wait for one load).
 #     Only attempts by the release that runs now count toward the backoff (the order counts them all):
 #     a new release is new evidence, the way Argo Rollouts analyses a new revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold
 #     step in 1 s left each lane three attempts, and the release that fixed it would have waited 4 hours).
@@ -86,7 +90,7 @@ fi
 
 # The lane to start and its generation, or nothing while every pending lane waits out its backoff.
 choice="$(python3 -I - "${marks}" "${bake_root}" "${now}" "${release_root}/orchestration/jobs.v1.json" "${release}" "${pending[@]}" <<'PY'
-import glob, json, os, re, sys
+import datetime, glob, json, os, re, sys
 marks, bake_root, now, jobs, release, *lanes = sys.argv[1:]
 now = int(now)
 HOUR, CAP = 3600, 86400
@@ -115,6 +119,23 @@ def evidence(lane, generation):
             return mine
     return []
 
+def waited(lane, attempt):
+    """The attempt's run ended `waiting`: a readiness step found something not loaded yet. Only a run
+    that began at or after the attempt's mark is its own (a run id is its start, %Y%m%dT%H%M%SZ)."""
+    runs = sorted(glob.glob(os.path.join(bake_root, "cutover", "*.jsonl")), reverse=True)
+    for run in runs:
+        try:
+            began = int(datetime.datetime.strptime(os.path.basename(run)[:-6], "%Y%m%dT%H%M%SZ")
+                        .replace(tzinfo=datetime.timezone.utc).timestamp())
+            with open(run, encoding="utf-8") as handle:
+                steps = [json.loads(line) for line in handle if line.strip()]
+        except (OSError, ValueError):
+            continue
+        mine = [step for step in steps if step.get("lane") == lane and step.get("generation") == attempt.get("generation")]
+        if mine:
+            return began >= attempt["at"] and mine[-1].get("outcome") == "waiting"
+    return False
+
 def stopped_by_its_bound(lane, attempt):
     """The attempt's gold step ran to the rebuild's time bound: stopped, with its stages kept."""
     return any(step.get("step") == "gold" and step.get("outcome") == "failed" and step.get("seconds", 0) >= GOLD_LIMIT
@@ -126,7 +147,12 @@ def stopped_by_its_bound(lane, attempt):
 for lane in sorted(lanes, key=lambda lane: len(attempts(lane, any_release=True))):  # stable: contract order among equals
     tried = attempts(lane)
     if tried:
-        wait = HOUR if stopped_by_its_bound(lane, tried[-1]) else min(CAP, HOUR * 2 ** (len(tried) - 1))
+        if waited(lane, tried[-1]):
+            wait = 0
+        elif stopped_by_its_bound(lane, tried[-1]):
+            wait = HOUR
+        else:
+            wait = min(CAP, HOUR * 2 ** (len(tried) - 1))
         if now < tried[-1]["at"] + wait:
             print(f"wait {lane} {tried[-1]['at'] + wait}")
             continue

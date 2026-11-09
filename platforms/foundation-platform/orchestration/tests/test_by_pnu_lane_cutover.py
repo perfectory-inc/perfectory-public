@@ -57,6 +57,20 @@ print("by-pnu-edge-probe: every lane served")
 '''
 
 
+# The inputs step's readiness check (root ADR-0471) reads the catalog; the stand-in records the Gold
+# table it was asked about and answers `waiting` (exit 75) while WAITING sits beside it.
+FAKE_INPUT_READINESS = r'''#!/usr/bin/env python3
+import pathlib, sys
+here = pathlib.Path(__file__).resolve().parent
+with open(here / "inputs.log", "a", encoding="utf-8") as log:
+    log.write(sys.argv[1] + "\n")
+if (here / "WAITING").exists():
+    print(f"waiting {sys.argv[1]}: 1 of the 2 inputs its planner requires not loaded yet: silver.x")
+    sys.exit(75)
+print(f"ready {sys.argv[1]}: the 2 inputs its planner requires exist")
+'''
+
+
 class LaneCutover(OperatorHarness):
     def setUp(self):
         super().setUp()
@@ -66,6 +80,8 @@ class LaneCutover(OperatorHarness):
         (self.probe / "by-pnu-edge-probe.py").write_text(FAKE_PROBE)
         self.env["FOUNDATION_CUTOVER_EDGE_PROBE"] = str(self.probe / "by-pnu-edge-probe.py")
         self.env["FOUNDATION_CUTOVER_VERIFY_PAUSE_SECONDS"] = "0"
+        (self.probe / "gold_input_readiness.py").write_text(FAKE_INPUT_READINESS)
+        self.env["FOUNDATION_CUTOVER_INPUT_READINESS"] = str(self.probe / "gold_input_readiness.py")
 
     def probes(self):
         path = self.probe / "probe.jsonl"
@@ -167,7 +183,7 @@ class LaneCutover(OperatorHarness):
         self.assertIn(str(work / "equality.json"), (self.etc / f"{LANE}-serving-monitor.env").read_text())
         steps = self.evidence()
         self.assertEqual([step["step"] for step in steps],
-                         ["history", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
+                         ["history", "inputs", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
                           "monitor-sample", "verify"])
         # The publish is checked the way a user reads it: the lane's Worker at its production hostname,
         # given only this lane's sample (root ADR-0435).
@@ -406,6 +422,33 @@ class LaneCutover(OperatorHarness):
         self.assertEqual((step["step"], step["outcome"]), ("history", "failed"))
         self.assertIn("cannot tell", step["reason"])
 
+    def test_a_lane_whose_gold_inputs_are_not_loaded_waits_and_claims_nothing(self):
+        # Root ADR-0471: 2026-11-09 parcel-building-permits (16:58Z) and parcel-nearby (17:42Z) claimed the
+        # spark pool for a gold step whose planner refused in under 75 s, their Silver tables not loaded
+        # yet, and parcel-nearby's 18:42Z claim held the pool for more than 18 minutes ahead of the load
+        # that makes them. The check comes before the claim: a lane not ready waits (exit 75, no page).
+        (self.probe / "WAITING").write_text("")
+        result, calls = self.runner(LANE, "1")
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
+        self.assertFalse((self.root / "capacity").exists() and any((self.root / "capacity").iterdir()),
+                         "a lane not ready claims nothing")
+        self.assertEqual([(step["step"], step["outcome"]) for step in self.evidence()],
+                         [("history", "not-declared"), ("inputs", "waiting")])
+        self.assertIn("silver.x", self.evidence()[-1]["reason"])
+        self.assertEqual((self.probe / "inputs.log").read_text().split(), [by_pnu_kinds.lane_fields(LANE)["gold_table"]])
+
+    def test_the_inputs_step_fails_when_the_catalog_cannot_tell(self):
+        # The real check with no catalog settings: it cannot tell, so the run stops and pages, as history.
+        del self.env["FOUNDATION_CUTOVER_INPUT_READINESS"]
+        lane = "parcel-nearby"
+        result, calls = self.runner(lane, "1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "curl")])
+        self.assertEqual([(step["step"], step["outcome"]) for step in self.evidence()],
+                         [("history", "not-declared"), ("inputs", "failed")])
+        self.assertIn("cannot tell", self.evidence()[-1]["reason"])
+
     def test_the_operator_takes_lanes_listed_in_the_order_to_cut_them_over(self):
         # 2026-11-06: five lanes waited for their first publish, and contract order put the untimed
         # regulation-zones Gold second; the operator orders them so the light Gold builds go first.
@@ -448,8 +491,8 @@ class LaneCutover(OperatorHarness):
     def test_a_dry_run_says_every_step_and_starts_nothing(self):
         result, calls = self.run_operator(LANE, "cutover", "1", "--dry-run", FOUNDATION_CUTOVER_NOW=NIGHT)
         self.assertEqual(result.returncode, 0, result.stderr)
-        for step in ("history", "preview", "gold", "parity", "bake", "equality", "latency", "publish", "monitor-sample",
-                     "verify"):
+        for step in ("history", "inputs", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
+                     "monitor-sample", "verify"):
             self.assertIn(f"dry run {LANE} {step}:", result.stderr)
         self.assertFalse([call for call in calls if call["tool"] in ("systemd-run", "systemctl")])
         self.assertFalse((self.bake / "cutover").exists())
