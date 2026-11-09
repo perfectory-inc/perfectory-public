@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1800,
+          "estimated_from": "computed from the lane's own full build measured in its cut-over's gold step (the operator's copy of this unit, gold-panel-rebuild.sh parcel-building-permits): 203 s on 2026-11-09 for 6,527,521 permits from the three permit Silver tables then loaded (gold.parcel_building_permits 3,416,149 rows, committed 03:01:40Z), and 27-39 s for its no-change runs; root ADR-0464 adds eight more files of the same family, each its own list, so the first build with them reads about four times the rows: 4 x 203 s plus the Spark start, rounded up to 1,800 s"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -42,8 +45,8 @@
         "silver-building-register-titles-to-gold-parcel-building-permits",
         "reference-legal-dong-code-change-to-gold-parcel-building-permits"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0451). Off until its first full build (6,527,521 permits on 3,742,220 PNUs in the 202610 vintage, measured 2026-11-09) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-building-permits, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4), or the auto-promotion of root ADR-0435 once measured."
+      "enabled": true,
+      "enabled_since": "2026-11-09T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_building_permits_bake",
@@ -69,7 +72,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-building-permits bake, the same by-pnu-serving-bake.sh): 163 s, 68 s and 159 s on 2026-11-09 for 3,416,149 documents; the eight lists of root ADR-0464 make each document longer, not more of them, so 900 s, about five times the longest"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -79,8 +85,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-building-permits-to-parcel-building-permits-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0451). Off with gold_parcel_building_permits_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the lane is cut over (by-pnu-pack-operator.sh parcel-building-permits cutover 1, root ADR-0190, or the auto-promotion of root ADR-0435); switching both on is one separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-09T18:00:00Z"
     }
   ],
   "assets": [

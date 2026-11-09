@@ -115,9 +115,43 @@ def real_jobs():
     return json.loads((PLATFORM / "orchestration" / "jobs.v1.json").read_text(encoding="utf-8"))
 
 
+def real_graph():
+    return json.loads((PLATFORM / "docs" / "catalog" / "pipeline-graph.v1.json").read_text(encoding="utf-8"))
+
+
+def idle_readers(jobs, graph):
+    """The jobs switched off that read what an enabled job takes its first run to make (root ADR-0468).
+
+    A job turned on through ADR-0457 is turned on so its data is seen: a reader left off keeps it from the
+    screen however well the first run goes. 2026-11-09: the eight building-permit Silver lanes and
+    data_go_kr_file_data were switched on to load unattended, and gold_parcel_building_permits_rebuild,
+    gold_parcel_nearby_rebuild and their bakes stayed off, so nothing would have refreshed what they
+    load. A reader turned on takes its own first run through the same gate (first_run_problems), so the
+    rule reaches down the chain to the bake."""
+    edges = {edge["id"]: edge for edge in graph["edges"]}
+
+    def reads(job):
+        return {edges[edge]["from"] for edge in job["pipeline_graph_edges"] if edge in edges}
+
+    def makes(job):
+        return {edges[edge]["to"] for edge in job["pipeline_graph_edges"] if edge in edges}
+
+    found = []
+    for job in jobs["jobs"]:
+        if not (job["enabled"] and (job.get("per_run_cap") or {}).get("first_run")):
+            continue
+        for reader in jobs["jobs"]:
+            if reader is not job and not reader["enabled"] and makes(job) & (reads(reader) - makes(reader)):
+                found.append(f"{reader['id']}: off, but it reads what {job['id']} takes its first run to make")
+    return found
+
+
 class EveryJobFitsItsUnit(unittest.TestCase):
     def test_the_job_list_has_no_problems(self):
         self.assertEqual(problems(real_jobs()), [])
+
+    def test_no_reader_of_a_first_run_is_left_off(self):
+        self.assertEqual(idle_readers(real_jobs(), real_graph()), [])
 
     def test_every_open_exception_is_on_the_roadmap(self):
         roadmap = ROADMAP.read_text(encoding="utf-8")
@@ -178,6 +212,18 @@ class TheGuardRefuses(unittest.TestCase):
 
     def test_a_first_run_left_after_its_runs_are_measured(self):
         self.assertRegex(" ".join(self.one(first_run={"estimate_seconds": 1, "estimated_from": "x"})), "stale")
+
+    def test_a_reader_left_off_behind_a_first_run(self):
+        # 2026-11-09: data_go_kr_file_data on to load unattended, gold_parcel_nearby_rebuild off.
+        jobs = copy.deepcopy(real_jobs())
+        gold = next(job for job in jobs["jobs"] if job["id"] == "gold_parcel_nearby_rebuild")
+        gold.update(enabled=False)
+        self.assertIn("gold_parcel_nearby_rebuild: off, but it reads what data_go_kr_file_data takes its first run to make",
+                      idle_readers(jobs, real_graph()))
+        loader = next(job for job in jobs["jobs"] if job["id"] == "data_go_kr_file_data")
+        loader["per_run_cap"].pop("first_run", None)
+        self.assertNotIn("data_go_kr_file_data", " ".join(idle_readers(jobs, real_graph())),
+                         "a measured loader is past the gate; what reads it is decided elsewhere")
 
     def test_a_count_that_names_nothing(self):
         self.assertRegex(" ".join(self.one(unit="object", limits=["config/none.json#/max_objects"])), "names nothing")
