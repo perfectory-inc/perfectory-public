@@ -433,8 +433,11 @@ COMPOSE_IMAGES = ("foundation-platform-runtime", "foundation-postgres-recovery")
 # Compose images a release may carry or not: a release built before one existed is still admitted
 # (a rollback), and what it does not carry is not tagged. The Dagster observer's (root ADR-0333 stage
 # 0) starts only when its image is there (airflow-runtime.sh); nothing else waits on it. So does the
-# Dawneer console's (root ADR-0434, foundation-release.sh `migrate`).
-OPTIONAL_COMPOSE_IMAGES = ("foundation-platform-dagster", "dawneer-console")
+# Dawneer console's (root ADR-0434, foundation-release.sh `migrate`). The release's Airflow image (root
+# ADR-0431 §5) is in every release since it: a release before it runs the stock apache/airflow its
+# own compose file names, so a rollback needs none (airflow-runtime.sh refuses a compose file that
+# names the image the release did not carry).
+OPTIONAL_COMPOSE_IMAGES = ("foundation-platform-dagster", "dawneer-console", "foundation-platform-airflow")
 
 
 def require_release_images(release_id: str, artifacts: Path) -> None:

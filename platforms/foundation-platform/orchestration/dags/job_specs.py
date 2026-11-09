@@ -61,7 +61,31 @@ STARTED_BY = ("schedule", "inputs")
 # beside it and compares; `proxied` Airflow decides, Dagster runs; `dagster` Dagster decides and runs.
 DAGSTER_STAGES = ("airflow", "shadow", "proxied", "dagster")
 # The stages something implements today; a later stage is refused until its slice lands (ADR-0431 §5).
-IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow")
+IMPLEMENTED_DAGSTER_STAGES = ("airflow", "shadow", "proxied")
+# The stages in which Dagster runs the job's unit, and Dagster's decisions are compared with Airflow's
+# while Airflow still decides (root ADR-0458 §4).
+DAGSTER_RUNS = ("proxied", "dagster")
+COMPARED = ("shadow", "proxied")
+# A `proxied` job's run (root ADR-0431 §5): Airflow's `run` task asks Dagster's webserver to launch the
+# job's Dagster job, named after it, and Dagster runs the unit through the host's forced command
+# (orchestration/dagster/run_jobs.py, root ADR-0417). Both sides read these names from here, so the
+# Airflow image and the Dagster code location cannot drift apart.
+DAGSTER_JOB_PREFIX = "foundation_job__"
+# Run tags. Airflow sends how the run was started (the forced command's words after the job id: empty for
+# a clock start, `triggered`, or `requested <id>`); Dagster's run answers with its outcome word and, for
+# the asset reconciler, the runs it found owed, which Airflow's `run` task pushes as today's XComs.
+RUN_KIND_TAG = "foundation/run-kind"
+OUTCOME_TAG = "foundation/job-outcome"
+OWED_TAG = "foundation/asset-owed"
+# The run queue's view of a job run (orchestration/dagster/dagster.yaml): every job run is counted under
+# JOB_RUN_TAG apart from the observer's check runs, its pool under POOL_TAG, and its priority class's value
+# is Dagster's own `dagster/priority`, the order the queue starts runs in (root ADR-0435).
+JOB_RUN_TAG = "foundation/run"
+# What may follow the job id in a start: nothing (the clock), `triggered`, or `requested <id>` (an
+# operator's run-now, root ADR-0282 §4); the host's forced command reads the same words.
+RUN_KIND = re.compile(r"(?:triggered|requested [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?")
+POOL_TAG = "foundation/pool"
+PRIORITY_TAG = "dagster/priority"
 # The line a job's unit prints last to say how its run ended (root ADR-0171 §3, ADR-0260):
 # `changed`, `unchanged`, `waiting <reason>` or `failed <reason>`. Only `changed` records the run's
 # output events; a run that does not say counts as changed, and the jobs it starts find nothing to
@@ -106,6 +130,16 @@ class JobSpec:
     enabled_since: str | None = None  # jobs.v1.json `enabled_since` (root ADR-0239)
     reconciles: tuple = ()  # the jobs this one starts by state, not by event (root ADR-0333 §7)
     dagster_stage: str = "airflow"  # DAGSTER_STAGES
+    priority: int = 100  # the value of its priority class (root ADR-0435)
+
+    @property
+    def dagster_job(self):
+        """The Dagster job that runs this job once it is past `shadow` (DAGSTER_JOB_PREFIX)."""
+        return DAGSTER_JOB_PREFIX + self.job_id
+
+    def dagster_tags(self, run_kind=""):
+        """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
+        return {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: self.pool, PRIORITY_TAG: str(self.priority)}
 
     @property
     def starting_inputs(self):
@@ -531,8 +565,13 @@ def longest_wait_minutes(starved, others, slots):
     return total + combined, [job["id"] for job in ahead] + combined_ids
 
 
-def dagster_stage(job):
-    """Which orchestrator decides and runs a job (jobs.v1.json `dagster_stage`, root ADR-0431)."""
+def dagster_stage(job, jobs=None):
+    """Which orchestrator decides and runs a job (jobs.v1.json `dagster_stage`, root ADR-0431).
+
+    A job past `shadow` runs in Dagster, so it needs the Dagster that observers.dagster switches on:
+    with it off, every run of a `proxied` job would fail to launch (2026-11-06..09 the code location
+    did not load for three days while the deploy said "observing", #1204).
+    """
     value = job.get("dagster_stage", "airflow")
     if value not in DAGSTER_STAGES:
         raise JobListError(f"{job['id']}: dagster_stage must be one of {list(DAGSTER_STAGES)}")
@@ -540,6 +579,8 @@ def dagster_stage(job):
         raise JobListError(f"{job['id']}: dagster_stage {value} has no implementation yet (root ADR-0431 §5)")
     if value != "airflow" and not job["enabled"]:
         raise JobListError(f"{job['id']}: a switched-off job runs nowhere; it stays at dagster_stage airflow")
+    if value in ("proxied", "dagster") and jobs is not None and             ((jobs.get("observers") or {}).get("dagster") or {}).get("enabled") is not True:
+        raise JobListError(f"{job['id']}: dagster_stage {value} runs in Dagster, which observers.dagster.enabled leaves off")
     return value
 
 
@@ -934,7 +975,8 @@ def load_specs(jobs=None, graph=None):
                 check_service=check,
                 enabled_since=since,
                 reconciles=reconciles,
-                dagster_stage=dagster_stage(job),
+                dagster_stage=dagster_stage(job, jobs),
+                priority=jobs["priority_classes"][priority_class(jobs, job, job_id)]["value"],
             )
         )
     problems = pool_starvation(jobs, graph) + dagster_order(jobs, feeders)

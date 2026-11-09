@@ -35,6 +35,9 @@ x-airflow-environment: &airflow-environment
   # Every run reports to the data catalog (root ADR-0118 §2), on the network DataHub's GMS joins.
   AIRFLOW__OPENLINEAGE__NAMESPACE: perfectory
   AIRFLOW__OPENLINEAGE__TRANSPORT: '{"type": "http", "url": "http://datahub-gms:8080", "endpoint": "openapi/openlineage/api/v1/lineage"}'
+  # Where a proxied job's `run` task launches its Dagster run (root ADR-0431 §5): the webserver, on this
+  # project's network.
+  FOUNDATION_DAGSTER_URL: http://dagster-webserver:3000
 
 # The Dagster observer's settings (root ADR-0333 stage 0); the two secrets are made by
 # airflow-runtime.sh before any compose call, so the file loads whether the profile is on or not.
@@ -69,7 +72,14 @@ services:
 
   airflow-migrate:
     logging: *log-cap
-    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    # The release's Airflow image: the pinned apache/airflow with dagster-airlift's in-airflow part
+    # (orchestration/airflow/Dockerfile, root ADR-0431 §5), built by the release build and tagged by
+    # release admission like the Dagster image; the host builds none (root ADR-0276 §13).
+    image: foundation-platform-airflow:local
+    build:
+      context: .
+      dockerfile: orchestration/airflow/Dockerfile
+    pull_policy: never
     mem_limit: 1g
     restart: "no"
     command: ["db", "migrate"]
@@ -81,7 +91,8 @@ services:
 
   airflow-apiserver:
     logging: *log-cap
-    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    image: foundation-platform-airflow:local
+    pull_policy: never
     mem_limit: 768m
     restart: unless-stopped
     command: ["api-server"]
@@ -125,7 +136,8 @@ services:
 
   airflow-scheduler:
     logging: *log-cap
-    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    image: foundation-platform-airflow:local
+    pull_policy: never
     mem_limit: 1g
     restart: unless-stopped
     command: ["scheduler"]
@@ -147,7 +159,8 @@ services:
 
   airflow-dag-processor:
     logging: *log-cap
-    image: "apache/airflow:3.3.2@sha256:e9982ad3f49a60418622e1baf80c34b0daf3fa5091a336cb5ee61f0cdd189371"
+    image: foundation-platform-airflow:local
+    pull_policy: never
     mem_limit: 512m
     restart: unless-stopped
     command: ["dag-processor"]
@@ -197,22 +210,35 @@ services:
     image: foundation-platform-dagster:local
     pull_policy: never
     profiles: ["dagster-observe"]
-    # Anonymous memory peaked at 410 MiB during a check run (memory.peak 539 MiB counts page cache the
-    # kernel reclaims before it kills); about x1.17, inside the host budget beside the webserver.
-    mem_limit: 480m
+    # Every run is a process of this container (the default run launcher): the daemon, the code server
+    # (two while a release reloads it) and up to dagster.yaml's 5 runs, each loading the code location.
+    # Measured 2026-11-09 on the host (VmHWM, 64 jobs in the dual run): daemon 190 MiB, code server
+    # 169 MiB, so 190 + 2 x 169 + 5 x 169 = 1,373 MiB of anonymous memory with every run open, a run
+    # counted at the code server's size; x1.17 as before. The 480m cap was reached 1,240 times in the
+    # 20 minutes after its 04:31Z start that day (memory.events max), with no job run at all.
+    mem_limit: 1600m
     restart: unless-stopped
     command: ["dagster-daemon", "run", "-w", "/opt/dagster/home/workspace.yaml"]
     environment:
       <<: *dagster-environment
+      # A proxied job's run reaches the host as Airflow's `run` task did (run_jobs.py, root ADR-0417): the
+      # scheduler's connection from runtime.env, whose key can only run the forced command, and only from
+      # this project's network.
+      FOUNDATION_HOST_CONNECTION: "${AIRFLOW_CONN_FOUNDATION_HOST:?run airflow-runtime.sh init-secrets}"
+    extra_hosts:
+      - "foundation-host:host-gateway"
     volumes:
       - /opt/foundation-platform:/opt/foundation-platform:ro
       - dagster-state:/var/lib/dagster
     # The asset checks' runs read the lakehouse through Trino, on the compute project's network, and
-    # the dual run pages through Alertmanager, on the runtime project's.
+    # the dual run pages through Alertmanager, on the runtime project's. The host sees a job run come
+    # from this project's network (`default`, the gateway every other route loses to): the scheduler's
+    # key is accepted only from there (foundation-release.sh `timers`, authorized_keys `from=`).
     networks:
-      - default
-      - lakehouse-compute
-      - foundation-runtime
+      default:
+        gw_priority: 1
+      lakehouse-compute: {}
+      foundation-runtime: {}
     depends_on:
       airflow-apiserver:
         condition: service_healthy

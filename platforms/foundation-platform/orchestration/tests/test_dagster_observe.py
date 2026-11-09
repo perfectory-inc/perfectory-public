@@ -251,6 +251,36 @@ class AirliftParityTest(unittest.TestCase):
         self.assertEqual(checked, shadow)
         self.assertTrue(all(key in graph.get_all_asset_keys() for key in shadow))
 
+    def test_a_proxied_job_is_a_dagster_job_and_airlift_no_longer_speaks_for_its_outputs(self):
+        # Root ADR-0431 §5: the collector's Dagster run logs its outputs itself (run_jobs.py); its Silver
+        # refresh, still Airflow's, keeps its mapping to the same tables.
+        import copy
+
+        import definitions
+        import observe_assets
+        from dagster_airlift.constants import TASK_MAPPING_METADATA_KEY
+
+        jobs, graph = (copy.deepcopy(value) for value in observe_assets.contracts())
+        by_id = {job["id"]: job for job in jobs["jobs"]}
+        by_id["onbid_public_auction_collect"]["dagster_stage"] = "proxied"
+        prefix = jobs["dag_id_prefix"]
+        defs = definitions.build(self.instance, jobs, graph)
+        repository = defs.get_repository_def()
+        self.assertTrue(repository.has_job("foundation_job__onbid_public_auction_collect"))
+        self.assertFalse(repository.has_job("foundation_job__onbid_public_auction_silver"))
+        mapped = {}
+        for spec in observe_assets.observed_assets(jobs, graph):
+            for handle in spec.metadata.get(TASK_MAPPING_METADATA_KEY, []):
+                mapped.setdefault(handle["dag_id"], set()).add(spec.key)
+        self.assertNotIn(prefix + "onbid_public_auction_collect", mapped)
+        (collector,) = [spec for spec in observe_assets.job_specs.load_specs(jobs, graph)
+                        if spec.job_id == "onbid_public_auction_collect"]
+        collected = {observe_assets.asset_key(dataset) for dataset in collector.outputs}
+        self.assertTrue(collected & mapped[prefix + "onbid_public_auction_silver"])
+        # Its decisions are still compared: Airflow decides a proxied job (root ADR-0458 §4).
+        checked = {key.asset_key for key in defs.resolve_asset_graph().asset_check_keys}
+        self.assertIn(definitions.dual_run.dag_key(collector), checked)
+
     def test_dagster_materializes_what_airflow_recorded(self):
         recorded, outputs = recorded_events(), contract_outputs()
         keep, drifted = comparable(recorded, outputs)

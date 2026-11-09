@@ -174,16 +174,18 @@ class FromTheRegistry(unittest.TestCase):
         # before it existed (a rollback) is admitted without it.
         image = {name: "sha256:" + str(n) * 64 for n, name in enumerate(
             ("publisher", "tippecanoe", "foundation-platform-runtime", "foundation-postgres-recovery",
-             "foundation-platform-dagster"), start=1)}
+             "foundation-platform-dagster", "foundation-platform-airflow"), start=1)}
         target = self.artifacts / COMMIT
         (target / "jars").mkdir(parents=True)
         (target / "jars/engine.jar").write_bytes(b"PK engine")
         (target / "foundation-outbox-publisher").write_bytes(b"publisher")
         self.module.seal_artifacts(COMMIT, target, image)
         with mock.patch.object(self.module, "verify_artifacts"):
-            self.assertEqual(self.module.tag_compose_images(COMMIT), 3)
+            self.assertEqual(self.module.tag_compose_images(COMMIT), 4)
         tags = [call[2:] for call in self.calls if call[:2] == ["/usr/bin/docker", "tag"]]
         self.assertIn([image["foundation-platform-dagster"], "foundation-platform-dagster:local"], tags)
+        # The release's Airflow (root ADR-0431 §5), tagged as compose names it.
+        self.assertIn([image["foundation-platform-airflow"], "foundation-platform-airflow:local"], tags)
         self.assertNotIn("foundation-platform-dagster", self.registry.images)
         output = self.artifacts / "out"
         output.mkdir()

@@ -126,3 +126,40 @@ Dagster 의 기본 스케줄은 진행 중인 run 과 상관없이 틱마다 run
 §4 의 문턱(연속 7일 통과 + 사람이 정지 구간 결정을 확인)은 [ADR-0458](./0458-a-job-moves-from-airflow-to-dagster-on-agreeing-decisions-of-every-kind-it-makes-not-on-calendar-days.md)
 이 대체한다: 작업마다 서로 다른 일치 결정 3개와 그 작업의 모든 결정 종류(매일·매주·매달·사건)의 일치 하나, 차이 하나는 셈을 처음으로
 돌리고 호출한다. 이 날 잰 원장은 비어 있었다 — 코드 위치가 2026-11-06 21:16Z 부터 로드되지 않았다(#1204).
+
+## 개정 각주 — 2026-11-09, `proxied` 단계 구현(§5)
+
+이 각주는 결정을 바꾸지 않는다. §5 가 남긴 `proxied` 조각을 채운다. `job_specs.py` 는 이제 `proxied` 를 받고, `dagster` 는 여전히 거부한다.
+
+- **Airflow 이미지.** 릴리스가 `orchestration/airflow/Dockerfile` 로 `apache/airflow:3.3.2`(같은 digest)에 `dagster-airlift[in-airflow]==0.29.27`
+  휠 하나를 해시로 얹는다(Apache Airflow 의 운영 권고: 기준 이미지를 확장하고 시작 때 설치하지 않는다). 휠의 의존(click·structlog·requests·PyYAML)은
+  Airflow 의 핀 그대로 두고 `pip check` 로 확인한다. 이미지는 릴리스 빌드가 만들고 릴리스 승인이 `foundation-platform-airflow:local` 로 태그한다
+  (`OPTIONAL_COMPOSE_IMAGES`: 이 이미지 이전 릴리스는 자기 compose 의 기본 이미지를 쓰므로 되돌리기에 필요 없다). 호스트는 만들지 않는다:
+  compose 가 이 이미지를 부르는데 없으면 `airflow-runtime.sh` 가 거부한다. 3.3.2 에서 `airflow.models.BaseOperator` 는
+  `airflow.sdk.bases.operator.BaseOperator` 그 자체다(운영 스케줄러에서 확인) — airlift 의 프록시 과제가 Airflow 3 에서 그대로 서는 근거.
+- **`run` 과제만 넘긴다.** `proxied` 작업의 DAG·스케줄·풀·`check`·`publish_outputs`·`select` 는 그대로다. `run` 은 airlift 의
+  `BaseProxyTaskToDagsterOperator` 를 이은 과제로, Dagster 웹서버에 그 작업의 Dagster 작업 `foundation_job__<id>` 를 이름으로 띄우고 끝을 기다린다
+  (10초마다). airlift 의 기본 프록시는 과제에 매핑된 자산을 고르지만, 여기서는 수집기와 그 Silver 갱신이 같은 Silver 표 16개를 쓰고 작업 5개는
+  쓰는 데이터셋이 없어 자산 정의 하나로 묶을 수 없다. 그래서 작업마다 op 하나짜리 Dagster 작업이 유닛을 돌리고 출력의 물질화를 기록한다
+  (`orchestration/dagster/run_jobs.py`). 출력 자산은 관찰 자산 그대로이고, airlift 는 `proxied` DAG 를 출력에 매핑하지 않는다(물질화가 두 번 되지 않게).
+- **답은 run 태그로.** 어떻게 시작됐는지(시계·`triggered`·`requested <id>`, `job_specs.RUN_KIND`)를 Airflow 가 태그로 보내고, Dagster run 은 끝나기 전에
+  결과 단어와(조정자는 빚진 run 목록도) 태그로 남긴다. `run` 과제는 그것을 오늘과 같은 XCom 으로 넣는다: `waiting`·`skipped` 는 건너뜀, 실패는 실패
+  (Airflow 재시도는 같은 유닛 run 에 다시 붙는다, ADR-0270 §3). 과제가 죽으면 Dagster run 을 끝내고, 유닛은 systemd 의 것이라 계속 돈다.
+- **호스트 연결은 스케줄러의 것.** ADR-0417 의 귀결은 "Dagster 용 키를 운영자가 1회" 였지만, 사람 단계는 두지 않는다(소유자 11-07). Dagster 데몬은
+  runtime.env 의 같은 연결(`AIRFLOW_CONN_FOUNDATION_HOST` → `FOUNDATION_HOST_CONNECTION`)을 compose 로 받는다. 그 키는 강제 명령 하나만,
+  오케스트레이션 프로젝트 네트워크(`airflow_default`)에서만 쓸 수 있다(`authorized_keys` 의 `restrict,from=,command=`). 데몬은 네트워크 셋에 붙어
+  있으므로 `default` 에 `gw_priority: 1` 을 주어 호스트로 가는 길이 그 네트워크다(11-09 잰 값: 이미 `airflow_default` 쪽 eth0 이 기본 경로였다, 이제는 선언).
+  클라이언트는 Airflow SSH 공급자와 같은 paramiko 5.0.0, 호스트 키는 연결에 박힌 것만 받고(RejectPolicy), 개인 키는 디스크에 쓰지 않는다.
+- **실행 큐.** Airflow 가 결정하는 동안 동시 job run 은 Airflow 병렬도(4)를 넘지 못한다. `dagster.yaml` 은 job run 4, 전체 5(검사 run 자리 하나),
+  `spark` 풀 run 3(슬롯 수)을 허용하고, 우선순위 클래스 값을 `dagster/priority` 로 단다(ADR-0435). 호스트의 `job_units.py pool-full` 이 여전히
+  누가 시작하든 클래스와 슬롯으로 막는다. 숫자는 `test_job_specs.py` 가 compose·작업 목록과 맞춘다.
+- **메모리.** run 은 데몬 컨테이너의 자식 프로세스다. 11-09 운영 측정(VmHWM): 데몬 190 MiB, 코드 서버 169 MiB(재적재 중 둘). run 하나를 코드 서버
+  크기로 보면 190 + 2×169 + 5×169 = 1,373 MiB, ×1.17 → 상한 480m → **1600m**. 그날 480m 상한은 04:31Z 시작 뒤 20분 동안 1,240번 닿았다
+  (`memory.events max`, job run 없이). 호스트 예산 57.75g → 58.84g / 62g(`every-container-has-a-memory-cap.sh`). 첫 `proxied` 가족 뒤 실측으로 다시 잰다.
+- **시험.** 기본 CI: `test_job_dags.py`(대역으로 프록시 과제의 풀·태그·XCom·건너뜀·실패·조정자), `test_job_specs.py`(단계·태그·관찰자 꺼짐 거부·큐 숫자).
+  CI `dagster-observe`: Dagster 이미지에서 op 작업(바뀜→출력 물질화와 태그, 보류→없음, 실패→실패 태그, 실행 종류 전달과 이상한 종류 거부, 남의
+  데이터셋 보고 거부, 조정자의 빚), paramiko 강제 명령(대역 SSH 서버: 요청은 한 명령, 다른 호스트 키 거부), 정의(프록시 작업은 Dagster 작업이고
+  airlift 매핑이 빠지며 비교 검사는 남음); **Airflow 이미지에서** 실제 Airflow 3.3.2·airlift 휠로 프록시 과제를 GraphQL 대역에 대고 돌리고, DAG 파일을
+  Airflow 로 직렬화한다(`test_job_dags.py WithAirflow` 가 처음으로 CI 에서 돈다).
+- **이 조각의 운영 영향은 0 이다.** 어느 작업도 `proxied` 가 아니다(ADR-0458 문턱이 정한다). `proxied` 작업이 없으면 DAG 파일은 airlift 를 import 하지 않는다.
+  되돌리기는 그 작업의 `dagster_stage` 를 `shadow` 로 내리는 PR 하나다.

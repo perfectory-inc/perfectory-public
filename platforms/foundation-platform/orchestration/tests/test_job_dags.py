@@ -6,7 +6,9 @@ classes do not take; whether Airflow itself accepts the result (the asset-or-tim
 assets, the serialized DAG) is `WithAirflow`, which runs where Airflow is installed.
 """
 
+import dataclasses
 import importlib.util
+import json
 import pathlib
 import sys
 import types
@@ -387,6 +389,141 @@ class TheCheckBeforeThePool(unittest.TestCase):
             check.error = None
 
 
+def proxied(spec_ids):
+    """job_specs.load_specs with the jobs `spec_ids` at `dagster_stage: proxied`, as their definitions would say."""
+    real = job_specs.load_specs
+
+    def load(*args, **kwargs):
+        return [dataclasses.replace(spec, dagster_stage="proxied") if spec.job_id in spec_ids else spec
+                for spec in real(*args, **kwargs)]
+    return mock.patch.object(job_specs, "load_specs", load)
+
+
+def airlift_stand_in(launched):
+    """dagster_airlift.in_airflow as the proxied task uses it: launch a run, read its end and tags."""
+    in_airflow = types.ModuleType("dagster_airlift.in_airflow")
+
+    class Result:
+        def __init__(self, status, tags):
+            self.status, self.tags = status, tags
+
+        @property
+        def succeeded(self):
+            return self.status == "SUCCESS"
+
+    def make(base):
+        class BaseProxyTaskToDagsterOperator(base):
+            allowed = OPERATOR_ARGUMENTS | {"dagster_run_status_poll_interval"}
+            ended = ("SUCCESS", {})
+
+            def _get_validated_session(self, context):
+                return "session"
+
+            def default_dagster_run_tags(self, context):
+                return {"dagster-airlift/airflow-dag-id": context["dag_run"].dag_id,
+                        "dagster-airlift/airflow-dag-run-id": "run-1", "dagster-airlift/airflow-task-id": "run"}
+
+            def render_template(self, content, context):
+                return jinja2.Template(content).render(**context)
+
+            def launch_dagster_run(self, context, session, dagster_url, execution_params):
+                launched.append((dagster_url, execution_params))
+                return "dagster-run-1"
+
+            def wait_for_run_to_complete(self, session, dagster_url, run_id):
+                return Result(*self.ended)
+        return BaseProxyTaskToDagsterOperator
+
+    in_airflow.make = make
+    return in_airflow
+
+
+class AProxiedJobsRunIsDagsters(unittest.TestCase):
+    """`dagster_stage: proxied` (root ADR-0431 §5): Airflow decides, and its `run` task hands the run to
+    the job's Dagster job, keeping the DAG's pool and the XComs the tasks after it read."""
+
+    @classmethod
+    def setUpClass(cls):
+        modules, built = stand_ins()
+        cls.launched = []
+        stand_in = airlift_stand_in(cls.launched)
+        stand_in.BaseProxyTaskToDagsterOperator = stand_in.make(modules["airflow.sdk"].BaseOperator)
+        modules.update({"dagster_airlift": types.ModuleType("dagster_airlift"), "dagster_airlift.in_airflow": stand_in,
+                        "requests": types.SimpleNamespace(Session=lambda: "session", post=mock.Mock())})
+        everything = job_specs.load_specs()
+        cls.reconciler = next(spec for spec in everything if spec.reconciles)
+        cls.job = next(spec for spec in everything if spec.outputs and not spec.reconciles and spec.check_service)
+        with proxied({cls.job.job_id, cls.reconciler.job_id}):
+            cls.module = load_dag_file(modules)
+        cls.dags = {dag.dag_id: dag for dag in built["dags"]}
+        cls.skip = modules["airflow.sdk.exceptions"].AirflowSkipException
+
+    def run_of(self, spec):
+        return next(task for task in self.dags[spec.dag_id].tasks if task.task_id == "run")
+
+    def execute(self, spec, ended, run_type="scheduled", conf=None):
+        run = self.run_of(spec)
+        run.ended = ended
+        ti = mock.Mock()
+        self.launched.clear()
+        context = {"ti": ti, "dag_run": types.SimpleNamespace(dag_id=spec.dag_id, run_type=run_type, conf=conf)}
+        return run, ti, context
+
+    def test_the_run_task_keeps_its_pool_and_limits_and_the_tasks_around_it(self):
+        run = self.run_of(self.job)
+        self.assertIsInstance(run, self.module.ProxyRunJob)
+        for name, expected in (("pool", self.job.pool), ("pool_slots", self.job.pool_slots),
+                               ("priority_weight", self.job.priority_weight), ("retries", self.job.retries)):
+            self.assertEqual(run.kwargs[name], expected, name)
+        tasks = {task.task_id for task in self.dags[self.job.dag_id].tasks}
+        self.assertEqual(tasks, {"check", "run", "publish_outputs"})
+        others = [spec for spec in job_specs.load_specs() if spec.job_id not in (self.job.job_id, self.reconciler.job_id)]
+        self.assertFalse(any(isinstance(self.run_of(spec), self.module.ProxyRunJob) for spec in others))
+
+    def test_it_launches_the_jobs_dagster_job_with_how_it_was_started(self):
+        for run_type, conf, kind in (("scheduled", None, ""), ("asset_triggered", None, "triggered"),
+                                     ("manual", {"operator_request": "1" * 8 + "-1111-4111-8111-" + "1" * 12},
+                                      "requested 11111111-1111-4111-8111-111111111111")):
+            with self.subTest(run_type):
+                run, ti, context = self.execute(self.job, ("SUCCESS", {"foundation/job-outcome": "changed"}), run_type, conf)
+                run.execute(context)
+                ((url, params),) = self.launched
+                self.assertEqual(url, "http://dagster-webserver:3000")
+                self.assertEqual(params["selector"], {"repositoryLocationName": "foundation", "repositoryName": "__repository__",
+                                                      "pipelineName": f"foundation_job__{self.job.job_id}"})
+                tags = {tag["key"]: tag["value"] for tag in params["executionMetadata"]["tags"]}
+                self.assertEqual(tags["foundation/run-kind"], kind)
+                self.assertEqual(tags["foundation/run"], "job")
+                self.assertEqual(tags["dagster-airlift/airflow-task-id"], "run")
+                ti.xcom_push.assert_called_once_with(key="outcome", value="changed")
+
+    def test_the_outcome_comes_back_as_the_xcom_publish_outputs_reads(self):
+        for outcome, skipped in (("unchanged", False), ("waiting a release build is running", True), ("skipped", True)):
+            with self.subTest(outcome):
+                word = outcome.split()[0]
+                run, ti, context = self.execute(self.job, ("SUCCESS", {"foundation/job-outcome": word}))
+                if skipped:
+                    with self.assertRaises(self.skip):
+                        run.execute(context)
+                else:
+                    run.execute(context)
+                ti.xcom_push.assert_called_once_with(key="outcome", value=word)
+
+    def test_a_failed_dagster_run_fails_the_task_so_airflow_retries_it(self):
+        run, ti, context = self.execute(self.job, ("FAILURE", {"foundation/job-outcome": "failed"}))
+        with self.assertRaisesRegex(RuntimeError, "ended FAILURE: failed"):
+            run.execute(context)
+        ti.xcom_push.assert_not_called()
+
+    def test_the_reconcilers_owed_runs_come_back_for_select(self):
+        owed = [["gold_unit_price_rebuild", "0123456789abcdef"]]
+        run, ti, context = self.execute(self.reconciler, ("SUCCESS", {"foundation/job-outcome": "unchanged",
+                                                                     "foundation/asset-owed": json.dumps(owed)}))
+        run.execute(context)
+        ti.xcom_push.assert_any_call(key="outcome", value="unchanged")
+        ti.xcom_push.assert_any_call(key="owed", value=owed)
+
+
 def airflow_installed():
     try:
         import airflow.providers.openlineage.api.emission_policy  # noqa: F401
@@ -416,7 +553,8 @@ class WithAirflow(unittest.TestCase):
                 if spec.started_by == "inputs":
                     self.assertEqual(type(restored.timetable).__name__, "AssetOrTimeSchedule")
                     uris = {asset.uri.rstrip("/") for asset in dag.timetable.asset_condition.objects}
-                    self.assertEqual(uris, {job_specs.asset_uri(dataset) for dataset in spec.inputs})
+                    # Its starting inputs: a dataset it writes and reads itself never starts it (root ADR-0182).
+                    self.assertEqual(uris, {job_specs.asset_uri(dataset) for dataset in spec.starting_inputs})
                 else:
                     self.assertEqual(type(restored.timetable).__name__, "CronTriggerTimetable")
                 if spec.outputs:

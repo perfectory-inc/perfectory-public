@@ -3,11 +3,13 @@
 Following dagster-airlift's migration guide (peer -> observe -> migrate): the assets are generated
 from jobs.v1.json and the pipeline graph (observe_assets.py), each mapped to the Airflow task that
 records it, and airlift's sensor turns every successful mapped task into a materialization. Airflow
-keeps running everything; this location starts no job. The asset checks are the definitions'
+decides every job; this location starts a job's unit only when Airflow's `run` task of a proxied job
+asks it to (below). The asset checks are the definitions'
 `asset_checks` (asset_checks.py): the unit-price ones report only; the publish checks
 (publish_checks.py, root ADR-0432) block, from the day their lane's job moves here. A job at
 `dagster_stage: shadow` gets a check that compares Dagster's decisions with Airflow's (dual_run.py,
-root ADR-0431).
+root ADR-0431). A job at `proxied` is one Dagster job of its own that runs its unit through the host's
+forced command (run_jobs.py); Airflow's `run` task launches it.
 
 Settings (compose.orchestration.yml, profile `dagster-observe`):
   FOUNDATION_DAGSTER_AIRFLOW_URL       Airflow's API, as the scheduler's API base (http://127.0.0.1:19080)
@@ -31,6 +33,7 @@ from dagster_airlift.core.filter import AirflowFilter  # noqa: E402
 import asset_checks  # noqa: E402
 import dual_run  # noqa: E402
 import observe_assets  # noqa: E402
+import run_jobs  # noqa: E402
 from airflow3 import Airflow3Instance, AirflowTokenAuthBackend  # noqa: E402
 
 # The prefix of every asset key airlift makes for a DAG itself (`foundation_airflow/dag/<dag id>`).
@@ -59,6 +62,7 @@ def build(instance, jobs=None, graph=None):
         defs=Definitions(
             assets=observe_assets.observed_assets(jobs, graph),
             asset_checks=[*asset_checks.build(graph), *dual_run.checks(instance, jobs, graph)],
+            jobs=run_jobs.run_jobs(jobs, graph),
             # A check run's steps run in its own process, not one more process per step: the
             # multiprocess default took the daemon container from 257 MiB to a 664 MiB peak
             # (measured 2026-10-29 against Airflow 3.3.2 with these definitions).

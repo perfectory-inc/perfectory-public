@@ -74,6 +74,10 @@ dagster_networks=(foundation-platform-compute_default foundation-platform-runtim
 # Tagged by release admission from the signed release (OPTIONAL_COMPOSE_IMAGES), as compose names it.
 dagster_image=foundation-platform-dagster:local
 dagster_services=(dagster-webserver dagster-daemon)
+# The release's Airflow (orchestration/airflow/Dockerfile, root ADR-0431 §5), tagged by release admission
+# like Dagster's. Unlike Dagster's, Airflow cannot stay off without it, and the host builds no image (root
+# ADR-0276 §13): a compose file that names it with no such image is refused before compose would build it.
+airflow_image=foundation-platform-airflow:local
 
 init_secrets() {
   mkdir -p "${runtime_dir}"
@@ -124,6 +128,9 @@ compose() {
   docker network inspect metadata-shared >/dev/null 2>&1 ||
     docker network create metadata-shared >/dev/null
   ensure_dagster_secrets
+  if grep -q "image: ${airflow_image}" "${compose_file}" && ! docker image inspect "${airflow_image}" >/dev/null 2>&1; then
+    fail "the release carries no ${airflow_image}; release admission tags it from the signed release"
+  fi
   # The Dagster profile is on only when the contract says so, the release carried its image (a
   # release from before it, or one the host built, does not) and its external networks exist: a missing
   # image or external network would stop `up` for Airflow too.

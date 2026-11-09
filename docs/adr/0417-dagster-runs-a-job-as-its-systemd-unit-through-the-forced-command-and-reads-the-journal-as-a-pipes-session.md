@@ -60,3 +60,14 @@ dagster 1.13.27 로 확인한 제약: Pipes 세션을 열면 그 단계는 선�
 - **`PipesSubprocessClient` 를 그대로 쓰기**: 컨텍스트를 환경 변수로 넣는데, 강제 명령은 작업 id 말고는 아무것도 받지 않는다. 받게 하면 보안 경계가 넓어진다.
 - **Dagster 가 `systemctl` 을 직접 부르기(sudo 또는 D-Bus)**: ADR-0122 §2 의 경계를 깬다.
 - **세션을 항상 열고 보류 결과에 빈 물질화를 내기**: 하류가 "바뀌었다"로 읽고 시작한다. 바뀐 것만 처리하는 원칙([ADR-0314](./0314-partial-processing-is-the-default-and-full-is-a-contract-exception.md))에 어긋난다.
+
+## 개정 각주 — 2026-11-09, 키와 op 실행([ADR-0431](./0431-scheduled-jobs-move-from-airflow-to-dagster-one-family-at-a-time-after-a-dual-run-in-which-both-decide.md) `proxied` 조각)
+
+- 귀결의 "Dagster 용 SSH 키는 운영자가 1회" 는 따르지 않는다(소유자 11-07: 사람 단계 금지). Dagster 데몬은 스케줄러의 연결을 runtime.env 에서 받는다:
+  키의 권한은 강제 명령 하나, 출발지는 오케스트레이션 프로젝트 네트워크뿐이라 경계는 그대로다. 연결은 paramiko 로(Airflow SSH 공급자와 같은 판),
+  호스트 키는 고정이고 개인 키는 디스크에 쓰지 않는다(`orchestration/dagster/run_jobs.py` `ForcedCommand`).
+- 클라이언트의 통로는 `transport.start(request)` 하나다(시험의 argv 대역도 같다). 요청은 작업 id 와 `job_specs.RUN_KIND`(`triggered`·`requested <id>`)뿐이고,
+  그 밖의 말은 보내기 전에 거부한다.
+- 작업은 자산이 아니라 op 로 돈다: 출력 데이터셋을 다른 작업과 나누거나 출력이 없는 작업이 있어서다. `SystemdRun.materializations` 가 `changed` 일 때
+  출력마다 물질화를 내고, 저널이 보고한 물질화는 그 메타데이터를 남긴다. 자기가 쓰지 않는 데이터셋의 보고는 실패다. 조정자의 `foundation-asset-owed`
+  줄은 `SystemdRun.owed` 로 모인다.
