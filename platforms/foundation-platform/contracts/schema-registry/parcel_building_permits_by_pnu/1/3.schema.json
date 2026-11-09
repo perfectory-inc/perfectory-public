@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "foundation-platform.parcel_building_permits_by_pnu",
-  "description": "A parcel's 건축인허가 기본개요 as 건축HUB lists them (root ADR-0356, ADR-0451): the current permit rows (one per 관리허가대장PK) on the parcel, newest first by the latest of its dates, each in the provider's words with its parking counts from the same 관리허가대장PK (ADR-0452), at most 50; building_permit_total counts them all (0 for a parcel with none). Each other file of the permit family is one optional list (ADR-0462): its rows on the parcel in the provider's words, at most 50, and their total; null when the parcel has none.",
+  "description": "A parcel's 건축인허가 기본개요 as 건축HUB lists them (root ADR-0356, ADR-0451): the current permit rows (one per 관리허가대장PK) on the parcel, newest first by the latest of its dates, each in the provider's words with its parking counts from the same 관리허가대장PK (ADR-0452), at most 50; building_permit_total counts them all (0 for a parcel with none). Each other file of the permit family is one optional list (ADR-0463): its rows on the parcel in the provider's words, at most 50, and their total; null when the parcel has none.",
   "type": "object",
   "properties": {
     "schema_version": {

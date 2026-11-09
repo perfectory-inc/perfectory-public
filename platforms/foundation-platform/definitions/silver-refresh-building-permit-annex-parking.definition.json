@@ -47,7 +47,7 @@
       "id": "silver-building-permit-annex-parking",
       "type": "silver_table",
       "title": "건축인허가 부설주차장",
-      "description": "허가가 확보한 부설주차장 지번마다 한 행: 지번, 지목, 관련지번, 관리허가대장PK. 허가 하나에 행이 여럿이라 행 글자의 SHA-256 이 키다. 원문 12칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0462).",
+      "description": "허가가 확보한 부설주차장 지번마다 한 행: 지번, 지목, 관련지번, 관리허가대장PK. 허가 하나에 행이 여럿이라 행 글자의 SHA-256 이 키다. 원문 12칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0463).",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [

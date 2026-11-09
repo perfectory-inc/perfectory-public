@@ -47,7 +47,7 @@
       "id": "silver-building-permit-major-repair",
       "type": "silver_table",
       "title": "건축인허가 대수선",
-      "description": "대수선 항목마다 한 행: 대수선구분(내력벽·기둥·보·방화구획 등)·변경구분(증설·해체·수선·변경)과 허가 키(관리허가대장PK). 건물 수명 사건열의 중간이다. 한 허가에 여러 행이라 행 글자의 SHA-256 이 키다. 원문 16칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0462).",
+      "description": "대수선 항목마다 한 행: 대수선구분(내력벽·기둥·보·방화구획 등)·변경구분(증설·해체·수선·변경)과 허가 키(관리허가대장PK). 건물 수명 사건열의 중간이다. 한 허가에 여러 행이라 행 글자의 SHA-256 이 키다. 원문 16칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나로 싣는다(루트 ADR-0402, ADR-0463).",
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [

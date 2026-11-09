@@ -6,7 +6,7 @@ empty provider value is null; a row without a PNU and an unserved parcel have no
 a renumbered code lands on the served code (root ADR-0329 §3); the written JSON's paths are exactly
 the registry's (root ADR-0336); a run recomputes only the PNUs whose current rows changed (both
 directions) and of parcels that entered or left. Each other file of the permit family is one list on
-the parcel its row names, `{total, records}`, null without rows (root ADR-0462); an inspection reaches
+the parcel its row names, `{total, records}`, null without rows (root ADR-0463); an inspection reaches
 the parcel of the one 표제부 its 관리건축물대장PK names (root ADR-0404 §2).
 """
 

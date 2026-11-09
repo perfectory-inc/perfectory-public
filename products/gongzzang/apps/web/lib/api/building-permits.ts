@@ -6,7 +6,7 @@ import { ParcelBuildingPermitsByPnuSchema as Generated } from "./building-permit
 // A parcel's 건축인허가 기본개요 (one per permit) is its own by-PNU document on the parcel edge
 // (`parcel-building-permits` lane, root ADR-0451): each permit in the provider's words (건축구분명,
 // 주용도명, 대지·건축·연면적, 건축허가·착공예정·착공연기·실제착공·사용승인일), and one list per other
-// file of the permit family (ADR-0462). The document's shape is the schema registry's (ADR-0336).
+// file of the permit family (ADR-0463). The document's shape is the schema registry's (ADR-0336).
 export const BuildingPermitsDocumentSchema = Generated.extend({ pnu: PnuSchema });
 
 export type BuildingPermits = z.infer<typeof BuildingPermitsDocumentSchema>["building_permits"] & {
@@ -38,7 +38,7 @@ export async function fetchBuildingPermits(
 }
 
 /**
- * The permit family's other files (root ADR-0462), in the order the panel lists them: each a list of the
+ * The permit family's other files (root ADR-0463), in the order the panel lists them: each a list of the
  * parcel's rows `{total, records}`, null when it has none. `head` are the record's unlabelled heading
  * fields, `fields` its labelled ones, each in the provider's order; `dates` are YYYYMMDD.
  */

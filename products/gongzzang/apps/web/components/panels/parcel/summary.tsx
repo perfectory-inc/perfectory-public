@@ -926,7 +926,7 @@ function BuildingPermitsSection({ permits }: { permits: BuildingPermits }) {
 }
 
 /**
- * One other file of the permit family on the parcel (root ADR-0462): its rows in the register's own
+ * One other file of the permit family on the parcel (root ADR-0463): its rows in the register's own
  * words, the heading fields unlabelled and the rest labelled. A figure left empty or 0 is not shown.
  */
 function PermitDetailGroup({
