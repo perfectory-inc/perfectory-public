@@ -598,6 +598,62 @@ class Reconciler(unittest.TestCase):
         self.assertTrue(re.search(r"absent\(foundation_asset_reconcile_timestamp_seconds\)", rules))
 
 
+class QueuedStarts(unittest.TestCase):
+    """Root ADR-0462, the 2026-11-09 07:00Z replay: ten first Silver loads were refused by the spark pool
+    behind a lane cut-over's claim, nothing recorded them, and their next try was the next day's 07:00Z.
+    A refused start is queued (job_units.py queue) and the reconciler starts it again."""
+
+    JOB = "silver_refresh_building_permit_site_location"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+
+    def owed(self, record, running=False, full="", now=T0):
+        return asset_reconcile.queued_starts(now, self.jobs, {self.JOB: record}, {}, lambda service: running,
+                                             lambda job: full)
+
+    def test_a_refused_start_is_started_again_once_its_backoff_passed_and_its_pool_has_room(self):
+        record = {"since": T0 - 7200, "attempts": 1, "last_at": T0 - 60, "reason": "kept for claims"}
+        owed, metrics = self.owed(record)
+        self.assertEqual(owed, [], "asked again before its backoff passed")
+        owed, _ = self.owed(record, now=T0 + 300)
+        (line,) = owed
+        self.assertTrue(line.startswith(f"foundation-asset-owed {self.JOB} "))
+        self.assertEqual(job_specs.owed_runs(line, (self.JOB,)), [(self.JOB, line.split()[2])])
+        # Each refusal is a new key, so the DAG starts each retry once.
+        again, _ = self.owed({**record, "attempts": 2, "last_at": T0 - 600}, now=T0 + 300)
+        self.assertNotEqual(again, owed)
+        for case in ({"running": True}, {"full": "the spark pool is kept for claims queued before it"}):
+            with self.subTest(**case):
+                self.assertEqual(self.owed(record, now=T0 + 300, **case)[0], [])
+        wait = next(line for line in metrics if line.startswith("foundation_job_queue_wait_seconds{"))
+        self.assertIn(f'job="{self.JOB}",pool="spark",priority_class="default"', wait)
+        self.assertTrue(wait.endswith(" 7200"))
+        self.assertIn(f'foundation_job_queue_wait_budget_seconds{{job="{self.JOB}",pool="spark",priority_class="default"}} 21600',
+                      metrics)
+
+    def test_the_backoff_doubles_to_an_hour(self):
+        self.assertEqual([asset_reconcile.queue_backoff(n) for n in (1, 2, 3, 5, 9)], [300, 600, 1200, 3600, 3600])
+
+    def test_the_reconciler_may_start_every_enabled_spark_job_airflow_starts(self):
+        # The DAG starts only what the reconciler is allowed to: its reconciled jobs and the queued ones.
+        (spec,) = [spec for spec in job_specs.load_specs() if spec.reconciles]
+        self.assertIn(self.JOB, spec.requeues)
+        self.assertIn("data_go_kr_file_data", spec.requeues)
+        self.assertFalse(set(spec.requeues) & set(spec.reconciles))
+        self.assertFalse([job["id"] for job in self.jobs["jobs"]
+                          if job["id"] in spec.requeues and (not job["enabled"] or job["pool"] != "spark")])
+
+    def test_the_wait_alert_compares_each_job_to_its_budget(self):
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn("alert: FoundationJobQueueWaitOverBudget", rules)
+        self.assertRegex(rules, r"foundation_job_queue_wait_seconds > on\(job, pool, priority_class\) "
+                                r"foundation_job_queue_wait_budget_seconds")
+        for name, entry in self.jobs["priority_classes"].items():
+            self.assertIsInstance(entry.get("queue_wait_budget_minutes"), int, name)
+
+
 class FollowGate(unittest.TestCase):
     """scripts/ops/lane_follow_gate.py: the unit price lane bakes only a Gold built from the registers
     the building Gold the building lane serves was built from (root ADR-0190, ADR-0333)."""

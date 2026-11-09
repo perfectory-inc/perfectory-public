@@ -158,6 +158,14 @@ while :; do
       printf 'foundation-job-outcome waiting a release build is running; this job starts after it finishes\n'
     else
       printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${full}"
+      # The refusal is queued, not dropped (root ADR-0462): the asset reconciler starts the job again
+      # once its pool has room, and its wait ages its priority. An operator's run-now is used once and
+      # is not queued.
+      if [[ -z "${requested}" ]]; then
+        queued="$(python3 -I -B "${job_units}" queue "${job}" "${full}")" \
+          && printf 'start-scheduled-job: %s %s; started again when its pool has room\n' "${job}" "${queued}" \
+          || printf 'start-scheduled-job: cannot queue the refused start of %s\n' "${job}" >&2
+      fi
       printf 'foundation-job-outcome waiting %s\n' "${full}"
     fi
     exit 0
@@ -226,6 +234,10 @@ done
 if [[ "${checking}" == false ]]; then
   date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
   rm -f "${deferred}/${job}" # it runs now: nothing is owed to it
+  # Off the start queue, with how long it waited there (root ADR-0462).
+  waited_queued="$(python3 -I -B "${job_units}" dequeue "${job}")" \
+    || printf 'start-scheduled-job: cannot take %s off the start queue\n' "${job}" >&2
+  [[ -z "${waited_queued:-}" ]] || printf 'start-scheduled-job: %s waited %s seconds in the start queue\n' "${job}" "${waited_queued}"
 fi
 printf 'start-scheduled-job: %s invocation=%s\n' "${service}" "${invocation}"
 
@@ -256,6 +268,9 @@ if [[ "${checking}" == true ]]; then
   # by-PNU bake deferred every clock start to twelve Silver lanes with nothing to load).
   if [[ "${answer}" == "foundation-job-check unchanged" ]]; then
     date +%s >"${starts}/${job}.next" && mv "${starts}/${job}.next" "${starts}/${job}"
+    # Nothing to do is what a queued start would have found: it is served (root ADR-0462).
+    python3 -I -B "${job_units}" dequeue "${job}" >/dev/null \
+      || printf 'start-scheduled-job: cannot take %s off the start queue\n' "${job}" >&2
     # Nothing to do means the job's outputs hold its newest inputs: the run that failed before is no
     # longer the job's state, and a failed state means broken now (root ADR-0445 §5). The run is
     # skipped, so nothing else would clear it (2026-11-08: seven Silver lanes failed on 11-07 07:00Z when

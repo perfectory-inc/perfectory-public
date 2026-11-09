@@ -86,6 +86,9 @@ FAILURE_BACKOFF_CAP = 4 * 3600.0
 # A Gold run stopped at its unit's time limit is started again after this, whatever its attempt: a
 # whole build resumes from the shards it staged (root ADR-0440), as a cut-over's gold step does (ADR-0435 b).
 TIME_LIMIT_RETRY = 3600.0
+# A start its pool refused is asked again after this, doubling per refusal up to the cap (queue_backoff).
+QUEUE_RETRY_BASE = 300.0
+QUEUE_RETRY_CAP = 3600.0
 
 
 @dataclass(frozen=True)
@@ -431,6 +434,50 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
     return owed_lines, metrics, next_state, errors
 
 
+def queue_backoff(attempts: int) -> float:
+    """Seconds after its n-th refusal before a queued start is asked again: doubling from five minutes
+    to an hour (root ADR-0462), as a Kubernetes workqueue requeues; the pool having room comes first."""
+    return min(QUEUE_RETRY_BASE * 2 ** (attempts - 1), QUEUE_RETRY_CAP)
+
+
+def queued_starts(now: float, jobs: dict, queued: dict, last_started: dict, running, pool_full):
+    """(owed lines, metric lines): each start a pool refused (job_units.py queue, root ADR-0462), owed a
+    new start once its backoff has passed and its pool has room, keyed by its refusals so each retry
+    starts once; and how long each job waits in the queue against its class's budget.
+
+    Until 2026-11-09 a refused start was dropped: the ten first Silver loads refused at 07:00Z behind a
+    lane cut-over's claim had their next try at the next day's 07:00Z."""
+    listing = {job["id"]: job for job in jobs["jobs"]}
+    owed, metrics = [], []
+    for job_id, record in sorted(queued.items()):
+        job = listing.get(job_id)
+        if job is None or not job["enabled"]:
+            continue  # no longer a job that runs: nothing starts it, its next start takes the record off
+        labels = f'job="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
+        budget = job_units.priority_class(jobs, job).get("queue_wait_budget_minutes")
+        metrics.append(f"foundation_job_queue_wait_seconds{{{labels}}} {max(now - record['since'], 0):.0f}")
+        metrics.append(f"foundation_job_queue_refusals{{{labels}}} {record.get('attempts', 1)}")
+        if budget is not None:
+            metrics.append(f"foundation_job_queue_wait_budget_seconds{{{labels}}} {budget * 60}")
+        busy = running(job["systemd_service"])
+        retry_at = record.get("last_at", record["since"]) + queue_backoff(record.get("attempts", 1))
+        full = "" if busy or now < retry_at else pool_full(job_id)
+        if not busy and now >= retry_at and not full:
+            key = hashlib.sha256(json.dumps({"queued": job_id, "since": record["since"],
+                                             "attempts": record.get("attempts", 1)}).encode()).hexdigest()[:16]
+            owed.append(f"foundation-asset-owed {job_id} {key}")
+        print(f"queued start {job_id}: waiting {now - record['since']:.0f}s, refused {record.get('attempts', 1)} times"
+              f"{', running' if busy else ''}{f', next try from {retry_at:.0f}' if now < retry_at else ''}"
+              f"{f'; {full}' if full else ''}")
+    for job_id, started in sorted(last_started.items()):
+        job = listing.get(job_id)
+        if job is None:
+            continue
+        labels = f'job="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
+        metrics.append(f"foundation_job_queue_last_wait_seconds{{{labels}}} {started['waited_seconds']}")
+    return owed, metrics
+
+
 def versions_key(owed: dict) -> str:
     """The key of a job's owed versions: one asset's versions alone, several by asset."""
     keyed = next(iter(owed.values())) if len(owed) == 1 else owed
@@ -447,6 +494,14 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_asset_reconcile_error gauge
 # HELP foundation_by_pnu_lane_behind_seconds How long the lane has served data behind its inputs: since the oldest Gold, Silver or reference change it does not serve (root ADR-0444); 0 when it serves every change.
 # TYPE foundation_by_pnu_lane_behind_seconds gauge
+# HELP foundation_job_queue_wait_seconds How long a job's start has waited in the start queue since its pool first refused it (root ADR-0462).
+# TYPE foundation_job_queue_wait_seconds gauge
+# HELP foundation_job_queue_refusals How many times its pool refused the queued start.
+# TYPE foundation_job_queue_refusals gauge
+# HELP foundation_job_queue_wait_budget_seconds How long the job's priority class may wait in the start queue before it alerts.
+# TYPE foundation_job_queue_wait_budget_seconds gauge
+# HELP foundation_job_queue_last_wait_seconds How long the job's last start that had been queued waited.
+# TYPE foundation_job_queue_last_wait_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
 """
@@ -702,8 +757,17 @@ def main() -> int:
             return False  # unknown: the doubling backoff stands
         return shown.stdout.strip() == "timeout"
 
-    owed, metrics, state, errors = tick(time.time(), found, table, last_read(bake_root), running, pool_full, state,
+    now = time.time()
+    owed, metrics, state, errors = tick(now, found, table, last_read(bake_root), running, pool_full, state,
                                         timed_out)
+    try:
+        queued_owed, queued_metrics = queued_starts(now, jobs, job_units.queued(), job_units.last_started(),
+                                                    running, pool_full)
+    except (OSError, ValueError, KeyError) as error:
+        errors.append(f"the start queue: {type(error).__name__}: {error}")
+        queued_owed, queued_metrics = [], []
+    owed = [line for line in owed if line.split()[1] not in {queued.split()[1] for queued in queued_owed}] + queued_owed
+    metrics += queued_metrics
     write_replacing(state_dir / STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
     # The pools every job's Compose project draws from; a probe that fails stops nothing, and the

@@ -48,7 +48,9 @@ import json, os, pathlib, sys
 here = pathlib.Path(__file__).resolve().parent
 samples = {name: value for name, value in os.environ.items() if name.endswith("_MONITOR_SAMPLE_PATH")}
 with open(here / "probe.jsonl", "a", encoding="utf-8") as log:
-    log.write(json.dumps({"args": sys.argv[1:], "samples": samples}) + "\n")
+    claims = here.parent / "capacity"
+    log.write(json.dumps({"args": sys.argv[1:], "samples": samples,
+                          "claims": sorted(os.listdir(claims)) if claims.is_dir() else []}) + "\n")
 if (here / "FAIL").exists():
     sys.exit("by-pnu-edge-probe: 1 failures (root ADR-0327): GET answered 404")
 print("by-pnu-edge-probe: every lane served")
@@ -364,6 +366,16 @@ class LaneCutover(OperatorHarness):
         self.assertIn("with the pool claimed", last["reason"])
         self.assertIn(migration, last["reason"])
         self.assertEqual(sorted(claims.iterdir()) if claims.exists() else [], [], "the claim is taken off at the end")
+
+    def test_a_step_that_uses_no_spark_holds_no_claim(self):
+        # Root ADR-0462, 2026-11-09 06:13Z..07:10Z: a run's claim held the spark pool through a latency
+        # step and refused ten Silver loads at 07:00Z. The claim covers the gold and bake steps only.
+        self.gates_ready()
+        result, _ = self.runner(LANE, "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.evidence()[-1]["step"], "verify")
+        self.assertTrue(self.probes())
+        self.assertEqual([probe["claims"] for probe in self.probes()], [[]] * len(self.probes()))
 
     def test_a_step_starts_at_any_hour_even_inside_the_old_scheduled_window(self):
         # 2026-11-06 03:46:38Z: "would run into the scheduled window 04:30-21:50 UTC (budget 60 min)"
