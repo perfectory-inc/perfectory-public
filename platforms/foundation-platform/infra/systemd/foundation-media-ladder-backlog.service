@@ -13,6 +13,7 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/media-ladder-backlog.sh
 # The job list's time_limit_minutes (jobs.v1.json): the ladder budget (1,500 s) and the index read.
 TimeoutStartSec=40m

@@ -275,7 +275,8 @@ pub(crate) async fn last_reads_from_lakehouse(
         SILVER_COURT_AUCTION_ITEM_DETAIL.table_name
     );
     let catalog = IcebergRestCatalog::new(
-        LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
+        LakehouseCatalogConfig::reader_from_env()
+            .context("failed to configure the Iceberg catalog")?,
     )
     .context("failed to build the Iceberg catalog client")?;
     let Some(snapshot) = catalog

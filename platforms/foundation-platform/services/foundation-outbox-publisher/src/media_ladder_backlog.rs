@@ -151,7 +151,8 @@ pub async fn run() -> anyhow::Result<()> {
     let mut state = load_state(&state_path)?.for_version(&spec.version);
 
     let catalog = IcebergRestCatalog::new(
-        LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
+        LakehouseCatalogConfig::reader_from_env()
+            .context("failed to configure the Iceberg catalog")?,
     )
     .context("failed to build the Iceberg catalog client")?;
     let lakehouse = LakehouseObjectReader::from_env()?;
