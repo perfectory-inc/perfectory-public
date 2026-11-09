@@ -310,14 +310,17 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
         run = self.tasks["run"]
         run.output = (b"asset iceberg://gold.unit_price: owed\n"
                       b"foundation-asset-owed gold_unit_price_rebuild 0123456789abcdef\n"
-                      b"foundation-asset-owed building_register_floor 0123456789abcdef\n"
+                      b"foundation-asset-owed outbox_publish 0123456789abcdef\n"
                       b"foundation-asset-owed by_pnu_public_auction_bake fedcba9876543210\n"
+                      b"foundation-asset-owed building_register_floor 00112233aabbccdd\n"
                       b"foundation-job-outcome unchanged\n")
         ti = mock.Mock()
         run.run_ssh_client_command(None, self.spec.job_id, context={"ti": ti})
         ti.xcom_push.assert_any_call(key="outcome", value="unchanged")
+        # A spark-pool job is owed a start again from the start queue (root ADR-0462); a default_pool job is not.
         ti.xcom_push.assert_any_call(key="owed", value=[["gold_unit_price_rebuild", "0123456789abcdef"],
-                                                       ["by_pnu_public_auction_bake", "fedcba9876543210"]])
+                                                       ["by_pnu_public_auction_bake", "fedcba9876543210"],
+                                                       ["building_register_floor", "00112233aabbccdd"]])
 
     def test_select_starts_a_job_once_per_key_unless_a_run_of_it_is_queued_or_running(self):
         select = self.tasks["select"]
