@@ -42,7 +42,7 @@
         "points_per_hour": 100,
         "max_points": 900
       },
-      "queue_aging_means": "The host's start queue (root ADR-0462; Slurm's multifactor age factor, Dagster's run queue): a start its pool refused is recorded under /var/lib/foundation-jobs/queue (scripts/deploy/job_units.py queue, by the scheduler's runner start-scheduled-job.sh) with since when it waits and how many times it was refused, and the asset reconciler starts it again (`requeues_refused_starts_in`) once its pool has room, after a backoff of five minutes doubling to an hour; its next start takes it off (job_units.py dequeue) and appends its wait to the queue's history.jsonl. While it waits its priority rises by points_per_hour for every hour, up to max_points, and so does a capacity claim's from when it was queued; at equal priority what was queued first goes first. A `default` start refused at 07:00 ties a `first_publish` claim after four hours, and goes first since every claim is queued anew before each Spark step; after nine it ties `publish`. Each class's queue_wait_budget_minutes is how long a start of it may wait before FoundationJobQueueWaitOverBudget alerts (the reconciler's foundation_job_queue_wait_seconds against foundation_job_queue_wait_budget_seconds). 2026-11-09 07:00Z: the ten first Silver loads were refused behind a lane cut-over's claim held through a latency step, nothing recorded them, and their next try was the next day's 07:00Z.",
+      "queue_aging_means": "The host's start queue (root ADR-0462; Slurm's multifactor age factor, Dagster's run queue): a start its pool refused is recorded under /var/lib/foundation-jobs/queue (the scheduler account's, 0755, made with it by foundation-release.sh install_scheduler_access; scripts/deploy/job_units.py queue, by the scheduler's runner start-scheduled-job.sh) with since when it waits and how many times it was refused, and the asset reconciler starts it again (`requeues_refused_starts_in`) once its pool has room, after a backoff of five minutes doubling to an hour; its next start takes it off (job_units.py dequeue) and appends its wait to the queue's history.jsonl. While it waits its priority rises by points_per_hour for every hour, up to max_points, and so does a capacity claim's from when it was queued; at equal priority what was queued first goes first. A `default` start refused at 07:00 ties a `first_publish` claim after four hours, and goes first since every claim is queued anew before each Spark step; after nine it ties `publish`. Each class's queue_wait_budget_minutes is how long a start of it may wait before FoundationJobQueueWaitOverBudget alerts (the reconciler's foundation_job_queue_wait_seconds against foundation_job_queue_wait_budget_seconds). 2026-11-09 07:00Z: the ten first Silver loads were refused behind a lane cut-over's claim held through a latency step, nothing recorded them, and their next try was the next day's 07:00Z.",
       "capacity_claimants": {
         "by_pnu_lane_cutover": {
           "pool": "spark",
@@ -156,12 +156,6 @@
           "path": "/var/lib/foundation-jobs/releases",
           "mode": "0755",
           "written_by": "the run-now dispatcher, the operator script and the cut-over runner, one progress line at a time per approved cut-over (root ADR-0433 §6; scripts/ops/release-progress.py); foundation-api reads it, mounted read-only"
-        },
-        {
-          "path": "/var/lib/foundation-jobs/queue",
-          "mode": "0755",
-          "owner": "foundation-scheduler",
-          "written_by": "the scheduler's runner (start-scheduled-job.sh, through job_units.py queue and dequeue), one record per job whose start its pool refused, and history.jsonl, one line per start that had waited (root ADR-0462); the asset reconciler reads it"
         },
         {
           "path": "/var/lib/foundation-platform/vworld-parcel-edition",

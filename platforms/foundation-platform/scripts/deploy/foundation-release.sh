@@ -73,6 +73,8 @@ release_path() {
 # it is rebuilt from the release on every `timers`, so a job switched on or off changes it too.
 scheduler_account=foundation-scheduler
 scheduler_home=/var/lib/foundation-scheduler
+# job_units.py QUEUE_DIR (orchestration/tests/test_job_units.py holds them equal).
+scheduler_queue=/var/lib/foundation-jobs/queue
 
 install_scheduler_access() {
   local jobs_file="$1" public_key_file="$2" key subnet sudoers staged
@@ -83,6 +85,10 @@ install_scheduler_access() {
     usermod -p '*' "${scheduler_account}"
   fi
   install -d -o "${scheduler_account}" -g "${scheduler_account}" -m 0700 "${scheduler_home}/.ssh"
+  # The host's start queue (root ADR-0462): the scheduler's runner records the starts a pool refused
+  # there, and the asset reconciler (foundation-platform) reads them, so it lies outside the 0750 home.
+  # Made here, with the account; tmpfiles runs before an account it does not make exists.
+  install -d -o "${scheduler_account}" -g "${scheduler_account}" -m 0755 "${scheduler_queue}"
   if [[ -n "${public_key_file}" ]]; then
     key="$(cat "${public_key_file}")"
     [[ "${key}" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+(\ [A-Za-z0-9@._-]+)?$ ]] || {

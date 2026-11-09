@@ -238,6 +238,14 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
                                 queue=queue)
         self.assertIn("has no room", result.stdout)
 
+    def test_the_release_makes_the_queue_the_runner_writes(self):
+        # Root ADR-0462: the scheduler account owns it, and tmpfiles cannot (it runs before that account exists).
+        release = (JOB_UNITS.parent / "foundation-release.sh").read_text(encoding="utf-8")
+        source = JOB_UNITS.read_text(encoding="utf-8")
+        (made,) = re.findall(r"^scheduler_queue=(\S+)$", release, re.MULTILINE)
+        self.assertIn(f'QUEUE_DIR = "{made}"', source)
+        self.assertIn('-m 0755 "${scheduler_queue}"', release)
+
     def test_the_queue_keeps_its_first_refusal_and_a_start_takes_it_off(self):
         queue = self.root / "queue"
         for attempt in (1, 2):

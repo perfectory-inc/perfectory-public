@@ -44,7 +44,7 @@
 
 1. **거절된 시작은 대기열에 남는다.** `start-scheduled-job.sh` 는 풀이 거절한 시작(운영자 run-now 제외)을
    `job_units.py queue <job> <이유>` 로 `/var/lib/foundation-jobs/queue/<job>.json` 에 적는다(첫 거절 시각 `since`, 거절 횟수, 마지막 이유).
-   상태 디렉터리는 `jobs.v1.json` `state_directories`(소유 foundation-scheduler, 0755, 조정기가 읽음)다. 그 작업의 시작이 실제로 일어나면
+   디렉터리는 배포의 `foundation-release.sh timers`(install_scheduler_access)가 scheduler 계정과 함께 만든다(소유 foundation-scheduler, 0755, 조정기가 읽음). 그 작업의 시작이 실제로 일어나면
    (또는 그 check 가 `unchanged` 면) `dequeue` 가 기록을 지우고, 얼마 기다렸는지를 `<job>.started.json` 과 `history.jsonl`(append-only)에 남긴다.
 2. **자산 조정기가 다시 시작한다.** `asset_reconcile.py` 는 5분마다 대기열을 읽고, 작업이 돌지 않고 백오프(5분에서 두 배씩, 1시간 상한)가
    지났고 `pool-full` 이 자리를 주면 `foundation-asset-owed <job> <key>` 를 찍는다. 키는 (job, since, 거절 횟수)라 재시도마다 한 번만 뜬다.
