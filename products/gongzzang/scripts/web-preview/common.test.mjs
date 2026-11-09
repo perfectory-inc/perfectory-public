@@ -37,9 +37,13 @@ test("CLOUDFLARE_API_TOKEN wins over the login", () => {
 });
 
 test("the preview opens on the front door's name from the contract", () => {
-  const r = spawnSync("bash", ["-c", 'source "$1"; front_door_origin', "front_door_origin", common], {
-    encoding: "utf8",
-  });
+  const r = spawnSync(
+    "bash",
+    ["-c", 'source "$1"; front_door_origin', "front_door_origin", common],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^https:\/\/[a-z0-9.-]+$/);
   assert.doesNotMatch(r.stdout, /workers\.dev/);
