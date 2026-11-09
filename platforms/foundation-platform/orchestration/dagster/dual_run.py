@@ -362,7 +362,7 @@ def ledger_line(spec, comparison, start, end, run_id, release):
             "matches": comparison.matches, "decisions": comparison.decisions,
             **{name: stamped(getattr(comparison, name))
                for name in ("agreed", "only_dagster", "only_airflow", "airflow_out", "paused")},
-            "dagster_run_id": run_id, "release": release}
+            "dagster_run_id": run_id, "release": release, "stage": spec.dagster_stage}
 
 
 def append(ledger, line):
@@ -492,7 +492,11 @@ def gate(lines, specs, need=GATE_AGREEING):
     """job id -> how far each job in the dual run is from moving past `shadow` (root ADR-0458), from the
     ledger's lines: the distinct decisions both made since its last difference (a check's window is a
     day, so one decision is in many lines), whether every kind of decision it makes is among them, and
-    the decisions made while Airflow was out or the DAG paused, which count neither way (reported)."""
+    the decisions made while Airflow was out or the DAG paused, which count neither way (reported).
+
+    A job counts the lines of its own stage only: one that moved to `proxied` starts counting again from
+    the first comparison made there, so what moves it to `dagster` is evidence from Dagster running it
+    (root ADR-0458 §4). A line from before stages were recorded is a `shadow` line."""
     by_job = {}
     for line in sorted(lines, key=lambda line: _at(line["evaluated_at"])):
         by_job.setdefault(line["job"], []).append(line)
@@ -500,6 +504,8 @@ def gate(lines, specs, need=GATE_AGREEING):
     for spec in specs:
         agreed, apart, since = set(), set(), None
         for line in by_job.get(spec.job_id, []):
+            if line.get("stage", "shadow") != spec.dagster_stage:
+                continue
             if not line["matches"]:
                 # Nothing up to the latest difference is evidence, not even a decision a later window agrees on.
                 since = max(_at(at) for _, at in line["only_dagster"] + line["only_airflow"])

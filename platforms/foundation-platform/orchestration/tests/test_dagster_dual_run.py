@@ -86,7 +86,7 @@ class RulesTest(unittest.TestCase):
         values = {"job_id": "synthetic", "dag_id": "foundation_synthetic", "description": "", "schedule": "50 * * * *",
                   "timeout_minutes": 30, "pool": "default_pool", "pool_slots": 1, "retries": 0, "priority_weight": 1,
                   "systemd_service": "foundation-synthetic.service", "systemd_timer": None, "enabled": True,
-                  "inputs": [], "outputs": [], **fields}
+                  "inputs": [], "outputs": [], "dagster_stage": "shadow", **fields}
         return dual_run.job_specs.JobSpec(**values)
 
     def test_ticks_while_a_run_is_in_progress_fold_into_the_latest(self):
@@ -247,6 +247,7 @@ class LiveCheckTest(unittest.TestCase):
         self.assertEqual(lines[0]["only_dagster"], [["schedule", "1970-01-01T02:00:00+00:00"]])
         self.assertEqual(lines[0]["agreed"], [["schedule", "1970-01-01T01:00:00+00:00"]])
         self.assertEqual([line["matches"] for line in lines], [False, True])
+        self.assertEqual({line["stage"] for line in lines}, {"shadow"})
 
     def test_the_gate_counts_distinct_agreeing_decisions_of_every_kind_since_the_last_difference(self):
         import dual_run
@@ -282,6 +283,12 @@ class LiveCheckTest(unittest.TestCase):
         # Three decisions of one kind do not move a job that makes another kind it never showed.
         only_ticks = dual_run.gate([line(30, [("schedule", 7), ("schedule", 31), ("schedule", 55)], job="both")], [both])
         self.assertEqual((only_ticks["both"]["missing_kinds"], only_ticks["both"]["ready"]), (["event"], False))
+        # Moved to `proxied`, the job counts again from its first comparison there (root ADR-0458 §4): the
+        # shadow lines that made it ready are not evidence of Dagster running it.
+        proxied = synthetic_spec(schedule="0 * * * *", dagster_stage="proxied")
+        moved = lines[:3] + [{**line(40, [("schedule", 39)]), "stage": "proxied"}]
+        self.assertEqual((dual_run.gate(moved, [proxied])["synthetic"]["agreeing"],
+                          dual_run.gate(moved, [hourly])["synthetic"]["agreeing"]), (1, 3))
 
     def test_a_schedules_cadence_is_its_kind(self):
         import dual_run
