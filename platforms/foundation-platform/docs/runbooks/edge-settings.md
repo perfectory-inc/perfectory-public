@@ -67,4 +67,10 @@ Worker 배포와 같은 계정 토큰(`cloudflare-deploy` 그룹)이다. 교체�
   `python platforms/foundation-platform/scripts/ops/korea-edge-measure.py --sample <샘플.json> --cloudfront tiles=<배포이름> --cloudfront catalog=<배포이름> --globalping 12`
   샘플은 저장소 밖 로컬 파일(`{"tiles": ["/<source>/<z>/<x>/<y>"], "catalog": ["/parcels/by-pnu/<pnu>"]}`). 전환된 문은
   `--cloudfront` 가 필요 없다.
+- **캐시 수명**: 불변 URL(`immutable`)은 1년, 매니페스트·색인(`no-cache`)은 매번, 같은 주소의 답이 바뀌는 by-PNU 문서·패치 타일은
+  브라우저 1시간·CloudFront `s-maxage=60`(루트 ADR-0470, 가드 `orchestration/tests/test_cdn_shared_cache_lifetime.py`). 무효화는 쓰지
+  않는다. 발행 직후 문 뒤의 옛 답은 최대 약 2분(CloudFront 60 s + Worker 매니페스트 60 s).
+- **압축 확인은 `Accept-Encoding` 을 붙여서**: `curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' https://tiles.perfectory.io/<타일>`
+  을 두 번(Miss → Hit), 둘 다 `Content-Encoding: br|gzip` 이어야 한다. 헤더 없이 보낸 `curl` 은 압축을 원하지 않는다는 뜻이라 identity
+  로 답하는 것이 옳다(2026-11-09 의 "압축 없음 539,454 B" 오판, ADR-0470 Context).
 - **비용 알림**: 예산 `perfectory-cdn-free-tier` 가 실제 지출 $0.01 을 넘으면 직원 메일로 온다. 오면 콘솔 Billing → Bills 에서 서비스별로 본다.
