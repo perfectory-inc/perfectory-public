@@ -24,7 +24,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1800,
+          "estimated_from": "computed from the description's 2026-11-04 measurement: all eight files new about 365 MB (the 349 MB zip in 59 s), staging 2,753,778 rows 62 s and their keys and raw columns 77 s on a 4-core laptop, and the three standard datasets about 35 s (2026-11-09); 1,800 s leaves the Spark start and the place linking about ten times that"
+        }
       },
       "pool": "spark",
       "retries": 0,
@@ -42,10 +45,11 @@
         "source-data-go-kr-file-data-to-silver-university",
         "source-data-go-kr-file-data-to-silver-subway-station"
       ],
-      "enabled": false,
-      "disabled_reason": "New, never run as its unit: off until its first attended run has been timed within its time_limit_minutes and written to per_run_cap (root ADR-0386 §3); switching it on is a separate deploy step (ADR-0122 §4).",
+      "enabled": true,
       "pool_slots": 3,
-      "priority_weight": 1
+      "priority_weight": 1,
+      "enabled_since": "2026-11-09T03:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [

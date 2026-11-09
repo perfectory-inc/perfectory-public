@@ -56,6 +56,22 @@ def fits(job, root):
     return reasons
 
 
+def first_run_problems(job):
+    """Why an enabled job with no measured runs may not take its first run unattended (root ADR-0457)."""
+    first, limit = job["per_run_cap"].get("first_run") or {}, job["time_limit_minutes"] * 60
+    estimate = first.get("estimate_seconds")
+    if not (isinstance(estimate, int) and not isinstance(estimate, bool) and estimate > 0 and first.get("estimated_from")):
+        return ["no measured runs; an enabled one states first_run (estimate_seconds, estimated_from)"]
+    reasons = []
+    if estimate > HEADROOM * limit:
+        reasons.append(f"its first run's estimate, {estimate} s, is above {HEADROOM:.0%} of its {limit} s limit")
+    if job.get("commits") != "as_it_goes":
+        reasons.append("a first run stopped at its limit would lose its work: only an as_it_goes job runs unmeasured")
+    if job.get("retries"):
+        reasons.append("an unmeasured run that times out must not be started again at once: retries 0")
+    return reasons
+
+
 def problems(jobs, root=PLATFORM):
     """Everything the job list's per_run_cap entries get wrong, one line each."""
     found = []
@@ -78,10 +94,15 @@ def problems(jobs, root=PLATFORM):
                 found.append(f"{name}: {pointer} is {value!r}, not a positive count")
         if found and found[-1].startswith(f"{name}:"):
             continue
+        first = cap.get("first_run")
         if cap.get("measured_run_seconds") is None:
-            if job["enabled"] or not cap.get("unmeasured_reason"):
-                found.append(f"{name}: no measured runs; only a job not enabled may, saying why (unmeasured_reason)")
+            if job["enabled"]:
+                found.extend(f"{name}: {why}" for why in first_run_problems(job))
+            elif not cap.get("unmeasured_reason"):
+                found.append(f"{name}: no measured runs; a job not enabled says why (unmeasured_reason)")
             continue
+        if first:
+            found.append(f"{name}: its runs are measured; its first_run is stale")
         reasons, exception = fits(job, root), cap.get("open_exception")
         if reasons and not (exception and exception.get("why") and exception.get("tracked_by")):
             found.append(f"{name}: does not fit its unit and declares no open_exception: " + "; ".join(reasons))
@@ -133,6 +154,30 @@ class TheGuardRefuses(unittest.TestCase):
 
     def test_an_enabled_job_never_measured(self):
         self.assertRegex(" ".join(self.one(measured_run_seconds=None, unmeasured_reason="new")), "no measured runs")
+
+    def first_run(self, estimate, **job):
+        jobs = copy.deepcopy(real_jobs())
+        one = next(j for j in jobs["jobs"] if j["id"] == "outbox_publish")  # 15-minute limit, as_it_goes
+        one.update({"commits": "as_it_goes", "retries": 0, **job})
+        one["per_run_cap"].update(measured_run_seconds=None,
+                                  first_run={"estimate_seconds": estimate, "estimated_from": "a neighbour's run"})
+        return problems({"jobs": [one]})
+
+    def test_an_enabled_first_run_bounded_and_estimated_inside_its_limit_passes(self):
+        self.assertEqual(self.first_run(600), [])
+
+    def test_a_first_run_estimated_past_its_limit(self):
+        self.assertRegex(" ".join(self.first_run(850)), "estimate, 850 s, is above 90% of its 900 s limit")
+
+    def test_a_first_run_that_commits_at_the_end(self):
+        # The onbid collector (2026-10-22..26): a run stopped at its limit kept nothing.
+        self.assertRegex(" ".join(self.first_run(600, commits="at_end")), "lose its work")
+
+    def test_a_first_run_that_retries(self):
+        self.assertRegex(" ".join(self.first_run(600, retries=2)), "retries 0")
+
+    def test_a_first_run_left_after_its_runs_are_measured(self):
+        self.assertRegex(" ".join(self.one(first_run={"estimate_seconds": 1, "estimated_from": "x"})), "stale")
 
     def test_a_count_that_names_nothing(self):
         self.assertRegex(" ".join(self.one(unit="object", limits=["config/none.json#/max_objects"])), "names nothing")

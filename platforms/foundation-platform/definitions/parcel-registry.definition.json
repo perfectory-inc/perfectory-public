@@ -40,8 +40,9 @@
       "pipeline_graph_edges": [
         "silver-parcel-boundaries-to-silver-parcel-registry"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0243). Off until its first supervised run on the data host (runbook parcel-registry.md) has registered the first regions within the unit's 150-minute limit and its time and memory per region are recorded; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-09T03:00:00Z",
+      "dagster_stage": "shadow"
     }
   ],
   "assets": [
