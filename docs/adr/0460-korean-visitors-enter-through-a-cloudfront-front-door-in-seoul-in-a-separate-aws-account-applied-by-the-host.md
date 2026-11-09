@@ -79,7 +79,7 @@ Organizations 의 "작업마다 계정을 나눈다"(blast radius) 권고 그대
    - **되돌리기 = 그 줄을 `cloudflare` 로.** 다음 Worker 배포가 공개 이름을 custom domain 으로 되찾고(비대화식 Wrangler 는
      `override_existing_dns_record` 로 CNAME 을 덮는다), 엣지 적용은 사라진 레코드를 상태에서 잊는다. 급할 때는 대시보드 Workers → 그
      Worker → Domains → Add 한 번이 같은 일을 1분 안에 한다(사고 대응).
-   - 전환 PR 은 문 하나씩, 이 ADR 이 Accepted 된 뒤. 전환 전에 바꿀 것(아래 Consequences): by-PNU 카나리·지연 관문이 버전 고정 헤더로
+   - 전환 PR 은 문 하나씩, 계정·키가 생기고 첫 적용·실측이 끝난 뒤. 전환 전에 바꿀 것(아래 Consequences): by-PNU 카나리·지연 관문이 버전 고정 헤더로
      읽는 주소를 원점 이름으로.
 7. **비용 알림.** AWS Budgets 하나(`perfectory-cdn-free-tier`, 월 $1.00): **실제 지출 $0.01 초과**(AWS 의 zero-spend 템플릿)와 예측
    100% 초과에 메일. 받는 사람은 콘솔 허용 목록과 같은 신원 플랫폼 직원 목록(역할 있는 사람, 최대 10)이다 — 메일 주소를 저장소에 두지 않는다.
