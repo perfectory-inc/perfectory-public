@@ -423,6 +423,19 @@ def shortest_interval_minutes(schedule):
     return min(gaps + [starts[0] + 24 * 60 - starts[-1]])
 
 
+def previous_slot(schedule, at):
+    """The newest start of a daily-repeating `M H * * *` schedule at or before `at` (UTC epoch seconds),
+    as Kubernetes' CronJob controller finds the most recent schedule it missed (root ADR-0467)."""
+    fields = schedule.split()
+    if len(fields) != 5 or fields[2:] != ["*", "*", "*"]:
+        raise JobListError(f"schedule {schedule!r} is not of the form 'M H * * *' this check reads")
+    day = int(at) - int(at) % 86400
+    starts = sorted(hour * 3600 + minute * 60 for hour in _cron_field(fields[1], 0, 23)
+                    for minute in _cron_field(fields[0], 0, 59))
+    today = [day + start for start in starts if day + start <= at]
+    return today[-1] if today else day - 86400 + starts[-1]
+
+
 def pool_slots(job):
     """Slots a job takes in its pool (Airflow pool_slots); 1 when the job list does not say."""
     slots = job.get("pool_slots", 1)

@@ -66,6 +66,15 @@ QUEUE_DIR = "/var/lib/foundation-jobs/queue"
 # also appended to the history.
 STARTED_SUFFIX = ".started.json"
 QUEUE_HISTORY = "history.jsonl"
+# When each job last started (start-scheduled-job.sh writes it, one file per job id holding the epoch
+# second; a check that found nothing to do counts as its start, root ADR-0305). Beside the queue, so the
+# asset reconciler (foundation-platform) reads what the takes_turns rule reads (root ADR-0467): it was
+# under the scheduler's 0750 home, which only the scheduler could read, and a refusal made before the
+# queue existed (2026-11-09 11:40Z, data_go_kr_file_data's first run) had no record anything could see.
+STARTS_DIR = "/var/lib/foundation-jobs/queue/starts"
+# Written by the deploy once it has copied the start records of the home's old directory over, so a
+# job with no record here is one that never started, not one whose record was not copied yet.
+STARTS_SEEDED = ".seeded"
 
 
 def deferred_dir() -> str:
@@ -195,6 +204,27 @@ def claims_dir() -> str:
 
 def queue_dir() -> str:
     return os.environ.get("FOUNDATION_START_QUEUE_DIR") or QUEUE_DIR
+
+
+def starts_dir() -> str:
+    return os.environ.get("FOUNDATION_SCHEDULED_STARTS_DIR") or STARTS_DIR
+
+
+def last_starts() -> dict[str, int] | None:
+    """{job id: when it last started, epoch seconds}, or None until the deploy has seeded the records
+    (STARTS_SEEDED): before that a job with no record may only have one the deploy has not copied yet."""
+    if not os.path.exists(os.path.join(starts_dir(), STARTS_SEEDED)):
+        return None
+    found = {}
+    for name in sorted(os.listdir(starts_dir())):
+        if not JOB_ID.fullmatch(name):
+            continue  # the marker, or a partial write (`.next`)
+        try:
+            with open(os.path.join(starts_dir(), name), encoding="utf-8") as handle:
+                found[name] = int(handle.read().strip())
+        except (OSError, ValueError):
+            continue
+    return found
 
 
 def _replace_json(path: str, record: dict) -> None:

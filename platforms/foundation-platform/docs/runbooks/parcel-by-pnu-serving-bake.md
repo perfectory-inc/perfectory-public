@@ -412,7 +412,7 @@ land_right_total) × 3필지 = 21검사 전부 일치했다. 대조는 양쪽 �
 - 무게(`priority_weight`): FLOOR·계보 10 > 접기 5 > 굽기 1. 슬롯이 비면 Airflow 는 들어가는 작업 중 무거운 것부터 시작한다.
 - 굽기는 재시도하지 않는다(`retries: 0`). 시간 상한에 걸리면 다음 차례에 이어 굽는다.
 - 차례(`takes_turns`): 굽기는 FLOOR 와 계보가 자기 마지막 시작 뒤에 한 번씩 시작하기 전에는 다시 시작하지 않는다.
-  `start-scheduled-job.sh` 가 시작을 `/var/lib/foundation-scheduler/starts/` 에 적고, 차례가 아니면
+  `start-scheduled-job.sh` 가 시작을 `/var/lib/foundation-jobs/queue/starts/` 에 적고(root ADR-0467), 차례가 아니면
   `deferred: ...` 를 남기고 아무것도 시작하지 않는다(Airflow 에는 성공). 확인(`check_service`)이 할 일이 없다고
   답한 작업도 그때 차례를 가진 것으로 적힌다(root ADR-0305).
 

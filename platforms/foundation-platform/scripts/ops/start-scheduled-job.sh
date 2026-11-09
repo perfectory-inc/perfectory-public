@@ -24,7 +24,9 @@
 set -uo pipefail
 
 jobs_file="${FOUNDATION_SCHEDULED_JOBS_FILE:-/opt/foundation-platform/current/orchestration/jobs.v1.json}"
-starts="${FOUNDATION_SCHEDULED_STARTS_DIR:-/var/lib/foundation-scheduler/starts}"
+# job_units.py STARTS_DIR (orchestration/tests/test_job_units.py holds them equal): beside the start
+# queue, where the asset reconciler reads it too (root ADR-0467).
+starts="${FOUNDATION_SCHEDULED_STARTS_DIR:-/var/lib/foundation-jobs/queue/starts}"
 request="${SSH_ORIGINAL_COMMAND:-}"
 # `<job> check` starts the job's check service instead (jobs.v1.json `check_service`, root
 # ADR-0277): it only decides whether the run has work, so it is never deferred, and its last

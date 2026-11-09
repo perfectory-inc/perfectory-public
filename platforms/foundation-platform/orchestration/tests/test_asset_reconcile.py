@@ -654,6 +654,68 @@ class QueuedStarts(unittest.TestCase):
             self.assertIsInstance(entry.get("queue_wait_budget_minutes"), int, name)
 
 
+class MissedStarts(unittest.TestCase):
+    """Root ADR-0467, the 2026-11-09 11:40Z replay: data_go_kr_file_data's first run was refused by the
+    spark pool before the start queue was deployed (14:42Z), nothing held the refusal, and its next try
+    was the next day's 11:40Z. A slot no start followed is owed one start, whatever kept it away."""
+
+    JOB = "data_go_kr_file_data"
+    # 2026-11-09 16:20Z, the measurement of W30f; the job's slot is 11:40Z daily.
+    NOW = 1794241200
+    SLOT = 1794224400
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        cls.reconciler = next(job for job in cls.jobs["jobs"] if job["id"] == asset_reconcile.RECONCILER)
+
+    def owed(self, starts, now=NOW, queued=(), paused=(), running=False):
+        owed, metrics = asset_reconcile.missed_starts(now, self.jobs, self.reconciler, starts, dict.fromkeys(queued, {}),
+                                                      lambda job: job in paused, lambda service: running)
+        return [line for line in owed if line.split()[1] == self.JOB], metrics
+
+    def test_the_slot_is_the_newest_daily_start_before_the_grace(self):
+        self.assertEqual(job_specs.previous_slot("40 11 * * *", self.NOW), self.SLOT)
+        self.assertEqual(job_specs.previous_slot("40 11 * * *", self.SLOT - 1), self.SLOT - 86400)
+        self.assertEqual(job_specs.previous_slot("55 * * * *", self.NOW), self.NOW - 25 * 60)
+        self.assertEqual(job_specs.previous_slot("0,30 * * * *", 86400 * 10 + 10), 86400 * 10)
+        self.assertEqual(job_specs.previous_slot("0 7 * * *", 86400 * 10 + 10), 86400 * 9 + 7 * 3600)
+
+    def test_a_job_never_started_since_its_slot_is_started_once_for_that_slot(self):
+        (line,), metrics = self.owed({})
+        self.assertEqual(job_specs.owed_runs(line, (self.JOB,)), [(self.JOB, line.split()[2])])
+        self.assertIn(f'foundation_job_missed_start_seconds{{job="{self.JOB}",pool="spark",priority_class="default"}} '
+                      f'{self.NOW - self.SLOT}', metrics)
+        # The same slot is the same key on every tick, so the DAG starts it once; the next slot is a new one.
+        self.assertEqual(self.owed({})[0], [line])
+        self.assertNotEqual(self.owed({}, now=self.NOW + 86400)[0], [line])
+
+    def test_a_start_after_the_slot_owes_nothing(self):
+        self.assertEqual(self.owed({self.JOB: self.SLOT + 30})[0], [])
+        self.assertEqual(len(self.owed({self.JOB: self.SLOT - 60})[0]), 1, "a start before the slot is the last one's")
+
+    def test_what_another_rule_owns_or_that_runs_is_left_alone(self):
+        for case in ({"queued": [self.JOB]}, {"paused": [self.JOB]}, {"running": True}):
+            with self.subTest(**{key: str(value) for key, value in case.items()}):
+                self.assertEqual(self.owed({}, **case)[0], [])
+
+    def test_a_slot_within_the_grace_or_before_it_was_switched_on_is_not_missed(self):
+        self.assertEqual(self.owed({}, now=self.SLOT + 60)[0], [], "Airflow may not have asked yet")
+        since = job_specs._instant(next(job for job in self.jobs["jobs"] if job["id"] == self.JOB)["enabled_since"])
+        before = job_specs.previous_slot("40 11 * * *", since.timestamp()) + asset_reconcile.MISSED_START_GRACE
+        self.assertEqual(self.owed({}, now=before)[0], [])
+
+    def test_no_slot_is_judged_before_the_records_are_seeded(self):
+        self.assertEqual(asset_reconcile.missed_starts(self.NOW, self.jobs, self.reconciler, None, {},
+                                                       lambda job: False, lambda service: False), ([], []))
+
+    def test_a_takes_turns_job_is_never_started_for_a_slot(self):
+        turns = [job["id"] for job in self.jobs["jobs"] if job.get("takes_turns")]
+        owed, _ = asset_reconcile.missed_starts(self.NOW, self.jobs, self.reconciler, {}, {}, lambda job: False,
+                                                lambda service: False)
+        self.assertFalse({line.split()[1] for line in owed} & set(turns))
+
+
 class FollowGate(unittest.TestCase):
     """scripts/ops/lane_follow_gate.py: the unit price lane bakes only a Gold built from the registers
     the building Gold the building lane serves was built from (root ADR-0190, ADR-0333)."""

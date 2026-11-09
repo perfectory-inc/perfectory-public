@@ -405,6 +405,18 @@ groups:
         annotations:
           summary: '{{ $labels.job }} 의 시작이 {{ $labels.pool }} 풀 대기열에서 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). journalctl -u foundation-asset-reconcile.service 의 queued start 줄과 무엇이 풀을 잡고 있는지 보세요'
           runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationJobMissedStartNotTaken
+        # Root ADR-0467: the reconciler starts a slot no start followed once, keyed by the slot; still
+        # missed two hours later, the start it asked for did not run (2026-11-09 11:40Z
+        # data_go_kr_file_data was refused before the start queue existed, and nothing asked again).
+        expr: foundation_job_missed_start_seconds > 7200
+        for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.job }} 의 지난 일정 뒤로 {{ humanizeDuration $value }} 동안 시작이 없어요. journalctl -u foundation-asset-reconcile.service 의 missed start 줄과 그 작업 DAG 의 reconcile__ run 을 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
       - alert: FoundationAssetReconcilerStopped
         # Six periods: a deploy pauses every DAG for up to about 15 minutes (root ADR-0321 §5
         # measurements), and the unscheduled series above stop moving when the reconciler does.

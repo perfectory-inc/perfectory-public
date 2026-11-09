@@ -41,6 +41,7 @@ DAG 실행이 없는 작업만 고르고, `start` 가 실행 id `reconcile__<작
 | `FoundationAssetUnscheduled` | 입력이 바뀌었고 풀에 자리가 있는데 실행이 없음 (`asset_unscheduled_seconds`) | 15분(조정 주기 3번), 배포가 DAG 을 멈춘 동안은 제외 |
 | `FoundationAssetReconcilerStopped` | 조정기가 돌지 않음 | 30분 |
 | `FoundationJobQueueWaitOverBudget` | 풀이 거절한 시작이 대기열(`/var/lib/foundation-jobs/queue`)에서 클래스의 `queue_wait_budget_minutes` 를 넘게 기다림 (root ADR-0462) | 10분 |
+| `FoundationJobMissedStartNotTaken` | 작업의 지난 일정 뒤로 시작이 없고(`/var/lib/foundation-jobs/queue/starts`), 조정기가 그 일정 몫으로 시작을 청한 지 2시간이 지나도 시작되지 않음 (root ADR-0467) | 15분 |
 | `FoundationAssetUnreadable` | 조정기가 자산의 판을 못 읽음(카탈로그 REST, reads.jsonl) | 30분 |
 
 `asset_lag_seconds` 는 읽지 않은 가장 새 입력 변경 시각에서 읽은 판의 커밋 시각을 뺀 값이다(따라잡았으면 0).
@@ -59,7 +60,10 @@ DAG 실행이 없는 작업만 고르고, `start` 가 실행 id `reconcile__<작
 4. `FoundationJobQueueWaitOverBudget`: 조정기 journal 의 `queued start <job>` 줄이 기다린 시간·거절 횟수·다음 시도·풀을 잡은 것을 말한다.
    풀을 잡은 것이 끝없이 바뀌면(claim 이 계속 새로 서면) 나이가 4시간 안에 그 시작을 앞세운다. 그 뒤에도 기다리면 무엇이 슬롯을
    잡고 있는지(`job_units.py pool-full <jobs.v1.json> <job>`) 본다. 기록을 손으로 지우지 않는다: 다음 시작이 지운다.
-5. 단가 레인이 `waiting` 이면 정상이다: 건물 레인이 단가 Gold 와 같은 표제부·전유부 판의 건물 Gold 를 서빙할 때까지 기다린다
+5. `FoundationJobMissedStartNotTaken`: 조정기 journal 의 `missed start <job>` 줄이 놓친 일정(epoch)과 마지막 시작을 말한다.
+   조정기는 그 일정마다 한 번만 청한다(키=작업·일정). 그 작업 DAG 의 `reconcile__<job>__<key>` 실행이 무엇으로 끝났는지 본다:
+   풀이 거절했으면 대기열로 넘어가 4번이 된다. 배포가 아직 `queue/starts/.seeded` 를 쓰지 않았으면 조정기는 일정을 판정하지 않는다.
+6. 단가 레인이 `waiting` 이면 정상이다: 건물 레인이 단가 Gold 와 같은 표제부·전유부 판의 건물 Gold 를 서빙할 때까지 기다린다
    (`scripts/ops/lane_follow_gate.py`). 건물 레인이 그 판을 굽고 나면 조정기가 다음 주기에 시작한다.
 
 ## Docker 주소 풀 (`FoundationDockerAddressPoolNearlyFull`, `FoundationDockerNetworksUnread`)

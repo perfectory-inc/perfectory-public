@@ -246,6 +246,29 @@ class CapacityGoesByPriorityNotByClock(unittest.TestCase):
         self.assertIn(f'QUEUE_DIR = "{made}"', source)
         self.assertIn('-m 0755 "${scheduler_queue}"', release)
 
+    def test_the_start_records_lie_beside_the_queue_where_the_reconciler_reads_them(self):
+        # Root ADR-0467: under the scheduler's 0750 home the reconciler could not see that a slot had no start.
+        release = (JOB_UNITS.parent / "foundation-release.sh").read_text(encoding="utf-8")
+        runner = (JOB_UNITS.parents[1] / "ops/start-scheduled-job.sh").read_text(encoding="utf-8")
+        (made,) = re.findall(r"^scheduler_starts=(\S+)$", release, re.MULTILINE)
+        self.assertIn(f'STARTS_DIR = "{made}"', JOB_UNITS.read_text(encoding="utf-8"))
+        self.assertIn(f'starts="${{FOUNDATION_SCHEDULED_STARTS_DIR:-{made}}}"', runner)
+        self.assertIn('-m 0755 "${scheduler_starts}"', release)
+        self.assertIn('cp -n --preserve=timestamps "${scheduler_home}/starts/"*', release)
+
+    def test_no_start_record_is_read_before_the_deploy_seeded_them(self):
+        starts = self.root / "starts"
+        starts.mkdir()
+        (starts / "floor").write_text("1000\n")
+        (starts / "floor.next").write_text("2000\n")
+        read = [sys.executable, "-I", "-B", "-c", "import json, sys; sys.path.insert(0, sys.argv[1]); import job_units;"
+                " print(json.dumps(job_units.last_starts()))", str(JOB_UNITS.parent)]
+        env = {**os.environ, "FOUNDATION_SCHEDULED_STARTS_DIR": str(starts)}
+        self.assertEqual(subprocess.run(read, env=env, capture_output=True, text=True, check=True).stdout.strip(), "null")
+        (starts / ".seeded").write_text("")
+        self.assertEqual(json.loads(subprocess.run(read, env=env, capture_output=True, text=True, check=True).stdout),
+                         {"floor": 1000})
+
     def test_the_queue_keeps_its_first_refusal_and_a_start_takes_it_off(self):
         queue = self.root / "queue"
         for attempt in (1, 2):
