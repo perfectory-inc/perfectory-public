@@ -77,6 +77,8 @@ STATE_FILE = "idle.json"
 METRICS_NAME = "asset-reconcile.prom"
 # The scheduled jobs' textfile directory node-exporter reads (jobs.v1.json state_directories, root ADR-0330 §4).
 METRICS_DIR = "/var/lib/foundation-jobs/metrics"
+# An operator's pause of a job (start-scheduled-job.sh `switches`, root ADR-0282 §3): one file per job id.
+SWITCHES_DIR = "/var/lib/foundation-jobs/switches"
 READS = "reads.jsonl"
 # The by-PNU serving surface of a lane is this node of the pipeline graph (`<lane>-by-pnu-section-packs`).
 PACKS_SUFFIX = "-by-pnu-section-packs"
@@ -89,6 +91,10 @@ TIME_LIMIT_RETRY = 3600.0
 # A start its pool refused is asked again after this, doubling per refusal up to the cap (queue_backoff).
 QUEUE_RETRY_BASE = 300.0
 QUEUE_RETRY_CAP = 3600.0
+# A scheduled slot with no start after it is owed one this long after the slot: Airflow starts a job
+# within seconds of its slot, and a start waiting in Airflow's own pool is a queued DAG run, which
+# `select` already skips (root ADR-0467).
+MISSED_START_GRACE = 900.0
 
 
 @dataclass(frozen=True)
@@ -478,6 +484,45 @@ def queued_starts(now: float, jobs: dict, queued: dict, last_started: dict, runn
     return owed, metrics
 
 
+def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None, queued: dict, paused, running):
+    """(owed lines, metric lines): each job the reconciler starts again (job_specs.requeued) whose newest
+    scheduled slot, at least MISSED_START_GRACE old and after it was switched on, no start followed, owed
+    one start keyed by that slot. Level-triggered on the record of starts rather than on a refusal being
+    queued, as Kubernetes' CronJob controller starts the newest schedule it missed and systemd's
+    Persistent= timers catch up a missed one: whatever kept the start away (a refusal from before the
+    queue existed, a queue write that failed, Airflow down) leaves the same trace, a slot with no start.
+
+    2026-11-09 11:40Z: data_go_kr_file_data's first run was refused by the spark pool 3 hours before the
+    start queue (root ADR-0462) was deployed, so nothing held the refusal and its next try was the next
+    day's 11:40Z. A job in the queue is the queue's (queued_starts); a takes_turns job's deferral is its
+    rule's (root ADR-0138); a paused job starts nothing (root ADR-0282 §3). None until the deploy has
+    seeded the records (job_units.last_starts): no slot is judged without them."""
+    if starts is None:
+        print("missed starts: the start records are not seeded yet; no slot is judged")
+        return [], []
+    listing = {job["id"]: job for job in jobs["jobs"]}
+    owed, metrics = [], []
+    for job_id in job_specs.requeued(jobs, reconciler):
+        job = listing[job_id]
+        if job.get("takes_turns") or job_id in queued or paused(job_id):
+            continue
+        slot = job_specs.previous_slot(job["schedule"], now - MISSED_START_GRACE)
+        since = job_specs._instant(job.get("enabled_since"))
+        if since is None or slot < since.timestamp() or starts.get(job_id, 0) >= slot:
+            continue
+        labels = f'job="{job_id}",pool="{job["pool"]}",priority_class="{job.get("priority_class", "default")}"'
+        metrics.append(f"foundation_job_missed_start_seconds{{{labels}}} {now - slot:.0f}")
+        if any(running(service) for service in filter(None, (job["systemd_service"], job.get("check_service")))):
+            print(f"missed start {job_id}: no start after its {slot:.0f} slot, but it runs")
+            continue
+        key = hashlib.sha256(json.dumps({"missed": job_id, "slot": slot}).encode()).hexdigest()[:16]
+        owed.append(f"foundation-asset-owed {job_id} {key}")
+        last = starts.get(job_id)
+        print(f"missed start {job_id}: no start after its {slot:.0f} slot"
+              f" (last {'never' if last is None else f'at {last}'}); started once for it")
+    return owed, metrics
+
+
 def versions_key(owed: dict) -> str:
     """The key of a job's owed versions: one asset's versions alone, several by asset."""
     keyed = next(iter(owed.values())) if len(owed) == 1 else owed
@@ -502,6 +547,8 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_job_queue_wait_budget_seconds gauge
 # HELP foundation_job_queue_last_wait_seconds How long the job's last start that had been queued waited.
 # TYPE foundation_job_queue_last_wait_seconds gauge
+# HELP foundation_job_missed_start_seconds How long ago the job's newest scheduled slot passed with no start after it (root ADR-0467); absent once one starts.
+# TYPE foundation_job_missed_start_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
 """
@@ -723,7 +770,7 @@ def main() -> int:
     jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
     graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
     found = assets(jobs, graph, gold_rebuild.load_contract())
-    services = {job["systemd_service"] for job in jobs["jobs"]}
+    services = {service for job in jobs["jobs"] for service in (job["systemd_service"], job.get("check_service")) if service}
     state_dir = Path(os.environ.get("FOUNDATION_ASSET_RECONCILE_STATE_DIR")
                      or job_specs.job_state_root(RECONCILER, jobs))
     metrics_file = Path(os.environ.get("FOUNDATION_ASSET_RECONCILE_METRICS_DIR") or METRICS_DIR) / METRICS_NAME
@@ -768,6 +815,16 @@ def main() -> int:
         queued_owed, queued_metrics = [], []
     owed = [line for line in owed if line.split()[1] not in {queued.split()[1] for queued in queued_owed}] + queued_owed
     metrics += queued_metrics
+    switches = Path(os.environ.get("FOUNDATION_JOB_SWITCHES_DIR") or SWITCHES_DIR)
+    try:
+        missed_owed, missed_metrics = missed_starts(
+            now, jobs, next(job for job in jobs["jobs"] if job["id"] == RECONCILER), job_units.last_starts(),
+            job_units.queued(), lambda job_id: (switches / job_id).exists(), running)
+    except (OSError, ValueError, KeyError, job_specs.JobListError) as error:
+        errors.append(f"the start records: {type(error).__name__}: {error}")
+        missed_owed, missed_metrics = [], []
+    owed += [line for line in missed_owed if line.split()[1] not in {held.split()[1] for held in owed}]
+    metrics += missed_metrics
     write_replacing(state_dir / STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
     # The pools every job's Compose project draws from; a probe that fails stops nothing, and the

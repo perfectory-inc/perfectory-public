@@ -75,6 +75,8 @@ scheduler_account=foundation-scheduler
 scheduler_home=/var/lib/foundation-scheduler
 # job_units.py QUEUE_DIR (orchestration/tests/test_job_units.py holds them equal).
 scheduler_queue=/var/lib/foundation-jobs/queue
+# job_units.py STARTS_DIR (the same test).
+scheduler_starts=/var/lib/foundation-jobs/queue/starts
 
 install_scheduler_access() {
   local jobs_file="$1" public_key_file="$2" key subnet sudoers staged
@@ -89,6 +91,18 @@ install_scheduler_access() {
   # there, and the asset reconciler (foundation-platform) reads them, so it lies outside the 0750 home.
   # Made here, with the account; tmpfiles runs before an account it does not make exists.
   install -d -o "${scheduler_account}" -g "${scheduler_account}" -m 0755 "${scheduler_queue}"
+  # When each job last started (root ADR-0467), beside the queue so the reconciler can tell a slot no
+  # start followed. The records the home kept before are copied once, never over a newer one the runner
+  # wrote here since; the marker says the copy is whole, and until it exists the reconciler judges no
+  # slot (a job missing here could be one not copied yet).
+  install -d -o "${scheduler_account}" -g "${scheduler_account}" -m 0755 "${scheduler_starts}"
+  if [[ ! -e "${scheduler_starts}/.seeded" ]]; then
+    if [[ -d "${scheduler_home}/starts" ]]; then
+      cp -n --preserve=timestamps "${scheduler_home}/starts/"* "${scheduler_starts}/" 2>/dev/null || true
+      chown "${scheduler_account}:${scheduler_account}" "${scheduler_starts}/"* 2>/dev/null || true
+    fi
+    install -o "${scheduler_account}" -g "${scheduler_account}" -m 0644 /dev/null "${scheduler_starts}/.seeded"
+  fi
   if [[ -n "${public_key_file}" ]]; then
     key="$(cat "${public_key_file}")"
     [[ "${key}" =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+(\ [A-Za-z0-9@._-]+)?$ ]] || {
