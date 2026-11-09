@@ -154,6 +154,7 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(found.only_airflow, [("inputs", 5 * HOUR)], "the second run had no input event")
         self.assertEqual(found.only_dagster, [("inputs", 8 * HOUR)], "the last event started no run")
         self.assertEqual(found.decisions, 2)
+        self.assertEqual(found.agreed, [("inputs", 2 * HOUR)])
 
     def test_an_outage_pushes_an_events_deadline_and_holds_its_ticks_apart(self):
         import dual_run
@@ -237,32 +238,73 @@ class LiveCheckTest(unittest.TestCase):
         spec = synthetic_spec(schedule="0 * * * *")
         with tempfile.TemporaryDirectory() as directory:
             ledger = pathlib.Path(directory) / "dual-run" / "comparisons.jsonl"
-            differs = dual_run.Comparison(decisions=3, only_dagster=[("schedule", 2 * HOUR)])
+            differs = dual_run.Comparison(decisions=3, agreed=[("schedule", HOUR)], only_dagster=[("schedule", 2 * HOUR)])
             dual_run.append(ledger, dual_run.ledger_line(spec, differs, 0.0, 24 * HOUR, "run-1", "release-a"))
             dual_run.append(ledger, dual_run.ledger_line(spec, dual_run.Comparison(decisions=1), HOUR, 25 * HOUR,
                                                          "run-2", "release-a"))
             lines = [json.loads(text) for text in ledger.read_text(encoding="utf-8").splitlines()]
         self.assertEqual([line["dagster_run_id"] for line in lines], ["run-1", "run-2"])
         self.assertEqual(lines[0]["only_dagster"], [["schedule", "1970-01-01T02:00:00+00:00"]])
+        self.assertEqual(lines[0]["agreed"], [["schedule", "1970-01-01T01:00:00+00:00"]])
         self.assertEqual([line["matches"] for line in lines], [False, True])
 
-    def test_the_gate_counts_consecutive_passing_days_ending_yesterday(self):
+    def test_the_gate_counts_distinct_agreeing_decisions_of_every_kind_since_the_last_difference(self):
         import dual_run
 
-        def line(day, matches=True, decisions=1, job="synthetic", paused=()):
-            return {"evaluated_at": f"2099-11-{day:02d}T12:00:00+00:00", "job": job, "matches": matches,
-                    "decisions": decisions, "airflow_out": [], "paused": [list(item) for item in paused]}
+        def line(hour, agreed=(), job="synthetic", differs=(), paused=()):
+            def stamped(items):
+                return [[kind, f"2099-11-{1 + at // 24:02d}T{at % 24:02d}:00:00+00:00"] for kind, at in items]
 
-        lines = [line(day) for day in range(1, 15)] + [line(9, matches=False)]
-        lines += [line(day, job="quiet", decisions=0) for day in range(1, 15)]
-        lines += [line(day, job="steady", paused=[("schedule", "2099-11-10T03:00:00+00:00")]) for day in range(5, 15)]
-        found = dual_run.gate(lines, ["synthetic", "quiet", "steady", "absent"], datetime.date(2099, 11, 15))
-        self.assertEqual(found["synthetic"]["passing_days"], 5, "11-09 failed once")
-        self.assertFalse(found["synthetic"]["ready"])
-        self.assertEqual(found["quiet"]["passing_days"], 0, "a day without a decision proves nothing")
-        self.assertTrue(found["steady"]["ready"])
-        self.assertEqual(found["steady"]["to_review"], [("schedule", "2099-11-10T03:00:00+00:00")])
-        self.assertEqual(found["absent"], {"passing_days": 0, "ready": False, "to_review": []})
+            return {"evaluated_at": stamped([("", hour)])[0][1], "job": job, "matches": not differs,
+                    "decisions": len(agreed) + len(differs), "agreed": stamped(agreed), "only_dagster": stamped(differs),
+                    "only_airflow": [], "airflow_out": [], "paused": stamped(paused)}
+
+        hourly = synthetic_spec(schedule="0 * * * *")
+        both = synthetic_spec(job_id="both", schedule="0 7 * * *", started_by="inputs")
+        weekly = synthetic_spec(job_id="weekly", schedule="0 3 * * 1")
+        # Each check's window repeats the decisions before it: three lines, three distinct ticks.
+        lines = [line(1, [("schedule", 0)]), line(2, [("schedule", 0), ("schedule", 1)]),
+                 line(3, [("schedule", 1), ("schedule", 2)], paused=[("schedule", 3)])]
+        lines += [line(30, [("schedule", 7), ("inputs", 8), ("inputs", 9)], job="both")]
+        lines += [line(10, [("schedule", 5)], job="weekly"), line(11, job="weekly", differs=[("schedule", 6)]),
+                  line(12, [("schedule", 5), ("schedule", 7)], job="weekly")]
+        found = dual_run.gate(lines, [hourly, both, weekly, synthetic_spec(job_id="absent")])
+        self.assertEqual(found["synthetic"], {"agreeing": 3, "kinds": ["daily"], "missing_kinds": [], "ready": True,
+                                              "reset_at": None, "apart": [("schedule", "2099-11-01T03:00:00+00:00")]})
+        self.assertEqual((found["both"]["agreeing"], found["both"]["kinds"], found["both"]["ready"]),
+                         (3, ["daily", "event"], True))
+        # The difference at 06:00 resets the count: 05:00, agreed again by a later window, is not evidence.
+        self.assertEqual((found["weekly"]["agreeing"], found["weekly"]["kinds"], found["weekly"]["reset_at"]),
+                         (1, ["weekly"], "2099-11-01T06:00:00+00:00"))
+        self.assertFalse(found["weekly"]["ready"])
+        self.assertEqual((found["absent"]["agreeing"], found["absent"]["missing_kinds"], found["absent"]["ready"]),
+                         (0, ["daily"], False))
+        # Three decisions of one kind do not move a job that makes another kind it never showed.
+        only_ticks = dual_run.gate([line(30, [("schedule", 7), ("schedule", 31), ("schedule", 55)], job="both")], [both])
+        self.assertEqual((only_ticks["both"]["missing_kinds"], only_ticks["both"]["ready"]), (["event"], False))
+
+    def test_a_schedules_cadence_is_its_kind(self):
+        import dual_run
+
+        self.assertEqual([dual_run.schedule_kind(cron) for cron in ("5 * * * *", "0 7 * * *", "0 3 * * 1", "0 3 1 * *")],
+                         ["daily", "daily", "weekly", "monthly"])
+
+    def test_a_difference_pages_through_alertmanager(self):
+        from alertmanager_stub import AlertmanagerStub
+
+        import dual_run
+
+        stub = AlertmanagerStub()
+        try:
+            differs = dual_run.Comparison(decisions=2, only_airflow=[("schedule", 2 * HOUR)])
+            self.assertTrue(dual_run.page(synthetic_spec(), differs, f"http://127.0.0.1:{stub.port}"))
+        finally:
+            stub.close()
+        (alert,) = stub.named("FoundationDualRunDisagreed")
+        self.assertEqual((alert["labels"]["service"], alert["labels"]["job"]), ("dual-run", "synthetic"))
+        self.assertIn("1970-01-01T02:00:00+00:00", alert["annotations"]["summary"])
+        # No Alertmanager: said, not raised (the ledger line is already written).
+        self.assertFalse(dual_run.page(synthetic_spec(), differs, "http://127.0.0.1:9"))
 
     def test_a_check_compares_appends_and_reports(self):
         from dagster import DagsterInstance, build_asset_check_context

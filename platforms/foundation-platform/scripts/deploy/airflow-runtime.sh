@@ -68,7 +68,9 @@ sys.exit(0 if json.load(open(sys.argv[1])).get("observers", {}).get("dagster", {
 ' "${jobs_file}"
 }
 
-dagster_network=foundation-platform-compute_default
+# Trino's (the lakehouse project's) and Alertmanager's (the runtime project's, where the dual run pages,
+# root ADR-0458).
+dagster_networks=(foundation-platform-compute_default foundation-platform-runtime_default)
 # Tagged by release admission from the signed release (OPTIONAL_COMPOSE_IMAGES), as compose names it.
 dagster_image=foundation-platform-dagster:local
 dagster_services=(dagster-webserver dagster-daemon)
@@ -123,14 +125,14 @@ compose() {
     docker network create metadata-shared >/dev/null
   ensure_dagster_secrets
   # The Dagster profile is on only when the contract says so, the release carried its image (a
-  # release from before it, or one the host built, does not) and Trino's network exists: a missing
+  # release from before it, or one the host built, does not) and its external networks exist: a missing
   # image or external network would stop `up` for Airflow too.
   unset COMPOSE_PROFILES
   if dagster_enabled; then
     if ! docker image inspect "${dagster_image}" >/dev/null 2>&1; then
       printf 'airflow-runtime: Dagster stays off: the release carries no %s\n' "${dagster_image}" >&2
-    elif ! docker network inspect "${dagster_network}" >/dev/null 2>&1; then
-      printf 'airflow-runtime: Dagster stays off: the lakehouse network %s is missing\n' "${dagster_network}" >&2
+    elif ! docker network inspect "${dagster_networks[@]}" >/dev/null 2>&1; then
+      printf 'airflow-runtime: Dagster stays off: a network of %s is missing\n' "${dagster_networks[*]}" >&2
     else
       export COMPOSE_PROFILES=dagster-observe
     fi

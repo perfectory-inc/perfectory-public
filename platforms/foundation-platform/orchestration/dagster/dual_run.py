@@ -30,9 +30,12 @@ job's DAG asset runs after every Airflow run airlift observes and reports (WARN,
 decisions that differ. Every check is generated from the job list: a job enters or leaves the dual run
 by its `dagster_stage`.
 
-Every comparison is also appended to a ledger (`LEDGER`, one JSON line each, never rewritten), and
-`python dual_run.py gate` reads it into the move gate of ADR-0431 §4: per job in the dual run, the
-consecutive passing days and the decisions a person confirms before the job moves past `shadow`.
+Every comparison is also appended to a ledger (`LEDGER`, one JSON line each, never rewritten), with
+the decisions both made (`agreed`), and `python dual_run.py gate` reads it into the move gate of root
+ADR-0458 (superseding ADR-0431 §4): a job moves past `shadow` once the ledger holds `GATE_AGREEING`
+distinct agreeing decisions of it since its last difference, and one of every kind it makes
+(`decision_kinds`: its schedule's cadence, and `event` when its inputs start it). A difference resets
+that count and pages (`page`, through Alertmanager).
 Replayed over the production Airflow's 2026-10-29..11-05 (54 jobs, 4,074 decisions, read-only), these
 rules differ on none; the rules of the first slice differed on 200 (pauses and folds at a resume).
 """
@@ -45,6 +48,7 @@ import os
 import pathlib
 import sys
 import time
+import urllib.request
 from dataclasses import dataclass, field
 
 import observe_assets
@@ -64,8 +68,14 @@ DAY_SECONDS = 86400.0
 # (compose.orchestration.yml `dagster-state`), beside its artifacts and compute logs, so it outlives
 # a release switch and the instance's database.
 LEDGER = pathlib.Path("/var/lib/dagster/dual-run/comparisons.jsonl")
-# The run of consecutive passing days a job needs before it moves past `shadow` (ADR-0431 §4).
-GATE_DAYS = 7
+# The distinct decisions both orchestrators made alike, since the job's last difference, that move it
+# past `shadow` (root ADR-0458): more than one, so one tick is not the whole proof, and few, so an
+# hourly and a daily job alike move within days; the kinds (`decision_kinds`) carry the rest.
+GATE_AGREEING = 3
+# Where a difference pages (compose.orchestration.yml): the runtime project's Alertmanager.
+ALERTMANAGER_URL = os.environ.get("FOUNDATION_DAGSTER_ALERTMANAGER_URL", "http://alertmanager:9093")
+# A page lasts a day past the last difference (the unit-failure alerts' hold), then resolves itself.
+PAGE_HOLD_HOURS = 26
 
 
 @dataclass(frozen=True)
@@ -81,6 +91,7 @@ class Run:
 @dataclass
 class Comparison:
     decisions: int = 0
+    agreed: list = field(default_factory=list)  # what both decided: (kind, its tick or run start)
     only_dagster: list = field(default_factory=list)  # what Dagster would start and Airflow did not
     only_airflow: list = field(default_factory=list)  # what Airflow started and Dagster would not
     airflow_out: list = field(default_factory=list)  # Dagster's decisions while Airflow started nothing
@@ -254,6 +265,7 @@ def compare(spec, job, runs, input_events, start, end, out=(), paused=()):
         found.paused += [("schedule", tick) for tick in ticks
                          if tick < settled and tick not in dagster and _inside(tick, paused)]
         found.decisions += len(dagster)
+        found.agreed += [("schedule", tick) for tick in sorted(dagster & airflow)]
         for tick in sorted(dagster - airflow):
             (found.airflow_out if _inside(tick, out) else found.only_dagster).append(("schedule", tick))
         found.only_airflow += [("schedule", tick) for tick in sorted(airflow - dagster) if start <= tick < settled]
@@ -266,6 +278,8 @@ def compare(spec, job, runs, input_events, start, end, out=(), paused=()):
                 found.decisions += 1
                 if not any((previous is None or previous < event) and event <= run_start for event in events):
                     found.only_airflow.append(("inputs", run_start))
+                else:
+                    found.agreed.append(("inputs", run_start))
             previous = run_start
         for event in events:
             if start <= event < settled and not any(event <= run_start <= _deadline(event, settle, out)
@@ -344,7 +358,8 @@ def ledger_line(spec, comparison, start, end, run_id, release):
 
     return {"evaluated_at": _iso(end), "job": spec.job_id, "dag_id": spec.dag_id, "window": [_iso(start), _iso(end)],
             "matches": comparison.matches, "decisions": comparison.decisions,
-            **{name: stamped(getattr(comparison, name)) for name in ("only_dagster", "only_airflow", "airflow_out", "paused")},
+            **{name: stamped(getattr(comparison, name))
+               for name in ("agreed", "only_dagster", "only_airflow", "airflow_out", "paused")},
             "dagster_run_id": run_id, "release": release}
 
 
@@ -358,7 +373,29 @@ def append(ledger, line):
         os.fsync(handle.fileno())
 
 
-def result(spec, comparison):
+def page(spec, comparison, url=ALERTMANAGER_URL):
+    """Pages a difference through Alertmanager (root ADR-0458): one alert per job, held a day past its
+    last difference. A page that cannot be sent is said in the check's metadata; the comparison is not
+    lost, its ledger line is already written."""
+    now = datetime.datetime.now(datetime.UTC)
+    differs = [[kind, _iso(at)] for kind, at in comparison.only_dagster + comparison.only_airflow]
+    alert = {"labels": {"alertname": "FoundationDualRunDisagreed", "service": "dual-run", "environment": "prelaunch",
+                        "job": spec.job_id},
+             "annotations": {"summary": f"🟠 {spec.job_id}: Dagster 와 Airflow 의 결정이 달라요 — 이 작업의 이중 실행 증거를 "
+                                        f"처음부터 다시 셉니다 (Dagster 만 {len(comparison.only_dagster)}, Airflow 만 "
+                                        f"{len(comparison.only_airflow)}: {differs[:3]})"},
+             "startsAt": now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+             "endsAt": (now + datetime.timedelta(hours=PAGE_HOLD_HOURS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")}
+    request = urllib.request.Request(f"{url}/api/v2/alerts", data=json.dumps([alert]).encode(), method="POST",
+                                     headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return 200 <= response.status < 300
+    except OSError:
+        return False
+
+
+def result(spec, comparison, paged=None):
     from dagster import AssetCheckResult, AssetCheckSeverity, MetadataValue
 
     def stamped(items):
@@ -371,7 +408,8 @@ def result(spec, comparison):
                   "only_dagster": MetadataValue.json(stamped(comparison.only_dagster)),
                   "only_airflow": MetadataValue.json(stamped(comparison.only_airflow)),
                   "airflow_out": MetadataValue.json(stamped(comparison.airflow_out)),
-                  "paused": MetadataValue.json(stamped(comparison.paused))},
+                  "paused": MetadataValue.json(stamped(comparison.paused)),
+                  **({} if paged is None else {"paged": paged})},
     )
 
 
@@ -422,48 +460,78 @@ def _evaluator(airflow, spec, job, every_dag, gap, ledger):
         comparison = compare(spec, job, runs.get(spec.dag_id, []), events, start, end,
                              outages(starts, gap, start, end), airflow_pauses(airflow, spec.dag_id, after, end))
         append(ledger, ledger_line(spec, comparison, start, end, _run_id(context), RELEASE))
-        return result(spec, comparison)
+        return result(spec, comparison, None if comparison.matches else page(spec, comparison))
 
     return evaluate
 
 
-def gate(lines, jobs, today, days=GATE_DAYS):
-    """job id -> how far each job in the dual run is from moving past `shadow` (ADR-0431 §4), from
-    the ledger's lines: the run of consecutive UTC days, ending the day before `today`, on which every
-    comparison of the job matched and at least one compared a decision; and the decisions made while
-    Airflow was out or the DAG paused in those days, which a person confirms before the move."""
-    by_day = {}
-    for line in lines:
-        day = datetime.datetime.fromisoformat(line["evaluated_at"]).date()
-        by_day.setdefault((line["job"], day), []).append(line)
+def schedule_kind(schedule):
+    """The cadence of a cron's ticks: `monthly` on given days of the month, `weekly` on given weekdays,
+    else `daily` (an hourly job's ticks are daily decisions too)."""
+    _, _, day_of_month, _, day_of_week = schedule.split()
+    return "monthly" if day_of_month != "*" else "weekly" if day_of_week != "*" else "daily"
+
+
+def decision_kinds(spec):
+    """The ledger's decision kind -> the gate's, for every kind of decision the job makes."""
     found = {}
-    for job in jobs:
-        streak, review, day = 0, set(), today - datetime.timedelta(days=1)
-        while True:
-            of_day = by_day.get((job, day), [])
-            if not (of_day and all(line["matches"] for line in of_day) and any(line["decisions"] for line in of_day)):
-                break
-            streak += 1
-            review |= {tuple(item) for line in of_day for item in line["airflow_out"] + line["paused"]}
-            day -= datetime.timedelta(days=1)
-        found[job] = {"passing_days": streak, "ready": streak >= days, "to_review": sorted(review)}
+    if spec.schedule:
+        found["schedule"] = schedule_kind(spec.schedule)
+    if spec.started_by == "inputs":
+        found["inputs"] = "event"
+    return found
+
+
+def _at(text):
+    return datetime.datetime.fromisoformat(text)
+
+
+def gate(lines, specs, need=GATE_AGREEING):
+    """job id -> how far each job in the dual run is from moving past `shadow` (root ADR-0458), from the
+    ledger's lines: the distinct decisions both made since its last difference (a check's window is a
+    day, so one decision is in many lines), whether every kind of decision it makes is among them, and
+    the decisions made while Airflow was out or the DAG paused, which count neither way (reported)."""
+    by_job = {}
+    for line in sorted(lines, key=lambda line: _at(line["evaluated_at"])):
+        by_job.setdefault(line["job"], []).append(line)
+    found = {}
+    for spec in specs:
+        agreed, apart, since = set(), set(), None
+        for line in by_job.get(spec.job_id, []):
+            if not line["matches"]:
+                # Nothing up to the latest difference is evidence, not even a decision a later window agrees on.
+                since = max(_at(at) for _, at in line["only_dagster"] + line["only_airflow"])
+                agreed = {item for item in agreed if _at(item[1]) > since}
+            agreed |= {tuple(item) for item in line.get("agreed", []) if since is None or _at(item[1]) > since}
+            apart |= {tuple(item) for item in line["airflow_out"] + line["paused"] if since is None or _at(item[1]) > since}
+        kinds = decision_kinds(spec)
+        missing = sorted(set(kinds.values()) - {kinds[kind] for kind, _ in agreed if kind in kinds})
+        found[spec.job_id] = {"agreeing": len(agreed), "kinds": sorted(set(kinds.values())), "missing_kinds": missing,
+                              "ready": len(agreed) >= need and not missing,
+                              "reset_at": None if since is None else since.isoformat(), "apart": sorted(apart)}
     return found
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="The dual run's move gate (root ADR-0431 §4), read from its ledger.")
+    parser = argparse.ArgumentParser(description="The dual run's move gate (root ADR-0458), read from its ledger.")
     parser.add_argument("command", choices=["gate"])
     parser.add_argument("--ledger", type=pathlib.Path, default=LEDGER)
-    parser.add_argument("--today", type=datetime.date.fromisoformat,
-                        default=datetime.datetime.now(datetime.UTC).date())
+    parser.add_argument("--family", action="append", default=[], metavar="NAME=JOB,JOB",
+                        help="also say whether these jobs, which move together (root ADR-0431 §7), are all ready")
     arguments = parser.parse_args(argv)
     lines = []
     if arguments.ledger.exists():
         with open(arguments.ledger, encoding="utf-8") as handle:
             lines = [json.loads(text) for text in handle if text.strip()]
-    jobs = [spec.job_id for spec, _ in shadow_jobs(*observe_assets.contracts())]
-    for job, state in gate(lines, jobs, arguments.today).items():
+    found = gate(lines, [spec for spec, _ in shadow_jobs(*observe_assets.contracts())])
+    for job, state in found.items():
         print(json.dumps({"job": job, **state}, ensure_ascii=False))
+    for family in arguments.family:
+        name, _, jobs = family.partition("=")
+        # A job no longer in the dual run (moved on, or never in it) is not evidence for its family.
+        states = {job: found.get(job, {"ready": False, "agreeing": 0}) for job in jobs.split(",")}
+        print(json.dumps({"family": name, "ready": all(state["ready"] for state in states.values()),
+                          "agreeing": {job: state["agreeing"] for job, state in states.items()}}, ensure_ascii=False))
     return 0
 
 
