@@ -1,0 +1,50 @@
+{
+  "$comment": "Root ADR-0461. The Seoul front door: an Amazon CloudFront distribution in front of each Cloudflare Worker that Korean visitors read, because the Free zone's Cloudflare addresses send KT visitors to LAX and SK Broadband and LG U+ visitors to HKG (W43, measured 2026-11-09), while CloudFront answered at ICN on 12 of 12 Korean probes. infra/cdn/main.tf reads this file, scripts/deploy/edge_settings.py applies it on the data host once the runtime-secrets group aws-cdn exists, and the Workers' wrangler renderers attach origin_hostname as a Worker custom domain. answered_by is the switch: cloudflare keeps the public hostname a Worker custom domain (the Worker deploy attaches it); cloudfront drops it from the Worker and the edge apply makes it a DNS-only CNAME to the distribution. Rollback is setting it back to cloudflare: the next Worker deploy takes the hostname back (Wrangler replaces the CNAME) and the edge apply forgets the record.",
+  "schema_version": "foundation-platform.cdn_front_door.v1",
+  "decision": "docs/adr/0461-korean-visitors-enter-through-a-cloudfront-front-door-in-seoul-in-a-separate-aws-account-applied-by-the-host.md",
+  "zone": "perfectory.io",
+  "price_class": "PriceClass_200",
+  "price_class_reason": "The cheapest class whose edges include South Korea (PriceClass_100 is North America, Europe and Israel only). Korean visitors pay the Korean rate in every class; the class only decides which edges may answer.",
+  "origin": {
+    "protocol": "https-only",
+    "tls": "TLSv1.2",
+    "keepalive_timeout_seconds": 60,
+    "read_timeout_seconds": 30,
+    "reason": "60 s is CloudFront's largest keep-alive without a quota request: the regional edge cache reuses one TLS connection to the Cloudflare edge instead of a handshake per miss. 30 s is CloudFront's default read timeout and above every Worker's answer (the by-PNU latency gate bounds them in seconds)."
+  },
+  "cache": {
+    "min_ttl_seconds": 0,
+    "default_ttl_seconds": 0,
+    "max_ttl_seconds": 31536000,
+    "key_headers": ["Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"],
+    "reason": "The origin's Cache-Control decides, and nothing here copies it: the immutable release URLs (tiles, by-PNU generations, media, profiles: public, max-age=31536000, immutable) stay a year, the manifests and the index (no-cache, max-age=0) are asked again every time, the patched tiles and the by-PNU latest documents keep their hour, and an answer without Cache-Control is not stored (default 0). The Workers answer Vary: Origin and refuse an origin they do not list, so Origin and the preflight's two request headers are in the key; no cookie and no query string reaches them (the tile Worker answers 404 to any query, the by-PNU Worker accepts none)."
+  },
+  "doors": {
+    "tiles": {
+      "gateway": "vector_tile_gateway",
+      "origin_hostname": "tiles-origin.perfectory.io",
+      "answered_by": "cloudflare",
+      "caching": "origin"
+    },
+    "catalog": {
+      "gateway": "parcel_by_pnu_gateway",
+      "origin_hostname": "catalog-origin.perfectory.io",
+      "answered_by": "cloudflare",
+      "caching": "origin"
+    },
+    "web_preview": {
+      "public_hostname": "web-preview.perfectory.io",
+      "workers_dev_worker": "gongzzang-web-preview",
+      "answered_by": "cloudfront",
+      "caching": "pass-through",
+      "caching_reason": "The temporary preview (root ADR-0249) is a Next.js app: its answers vary by RSC headers and query strings CloudFront would have to know. It passes every request through uncached (Managed-CachingDisabled with Managed-AllViewerExceptHostHeader) and caches only /_next/static/*, whose names are content hashes. It still gains the Seoul edge and AWS's network to the Cloudflare origin. Its hostname is new, so it never was a Worker custom domain and starts on CloudFront."
+    }
+  },
+  "budget": {
+    "name": "perfectory-cdn-free-tier",
+    "limit_usd": "1.00",
+    "actual_over_usd": "0.01",
+    "forecast_over_percent": 100,
+    "reason": "AWS's zero-spend template: the always-free tier (1 TB out and 10 million requests a month) is the whole plan, so the first cent of actual spend mails the identity platform's staff, and a forecast above the limit mails them before the month ends. Email subscribers need no confirmation."
+  }
+}

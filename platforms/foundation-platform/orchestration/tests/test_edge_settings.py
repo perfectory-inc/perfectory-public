@@ -3,7 +3,8 @@ ADR-0436).
 
 A fixture host holds a control checkout (the real contracts and module inputs), the release it runs
 and the token's file. Stand-ins answer for the rest: the staff list, the Cloudflare API, OpenTofu,
-the runtime-secrets writer (a plain file here) and the console start.
+the runtime-secrets writer (a plain file here) and the console start. The front door (infra/cdn,
+root ADR-0461) applies after the console under its own records once the aws-cdn group holds a key.
 """
 
 import contextlib
@@ -35,7 +36,9 @@ class EdgeSettingsTest(unittest.TestCase):
         self.root = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
         self.tree = self.root / "control"
-        for relative in (*edge.INPUTS, *edge.TOOL_FILES, f"{edge.PLATFORM}/config/runtime-secrets.contract.json",
+        for relative in (*edge.INPUTS, *edge.TOOL_FILES, *edge.FRONT_DOOR_INPUTS,
+                         f"{edge.PLATFORM}/config/r2-connections.contract.json",
+                         f"{edge.PLATFORM}/config/runtime-secrets.contract.json",
                          f"{edge.PLATFORM}/config/worker-deploys.contract.json",
                          f"{edge.PLATFORM}/scripts/deploy/runtime_secrets.py"):
             source, target = ROOT / relative, self.tree / relative
@@ -60,6 +63,8 @@ class EdgeSettingsTest(unittest.TestCase):
         self.tofu_calls = []
         self.tofu_fails = False
         self.console_starts = 0
+        self.front_calls = []
+        self.front_fails = False
 
     # --- stand-ins ------------------------------------------------------------------------------
 
@@ -67,18 +72,31 @@ class EdgeSettingsTest(unittest.TestCase):
         self.assertEqual(token, "token-value")
         if path == "/user/tokens/verify":
             return 200, {"result": {"id": "token-id"}}
+        if path == "/accounts/acct/workers/subdomain":
+            return 200, {"result": {"subdomain": "example"}}
         bucket = path.rsplit("/", 1)[-1]
         if method == "GET":
             return (200, {}) if bucket in self.buckets else (404, {})
         self.buckets.add(body["name"])
         return 200, {}
 
-    def tofu(self, host, tree, env, *args):
+    def tofu(self, host, tree, env, *args, module=edge.MODULE, work="work"):
         self.assertNotIn("token-value", " ".join(args), "a value never reaches a command line")
+        self.assertNotIn("aws-secret", " ".join(args), "a value never reaches a command line")
+        if module == edge.FRONT_DOOR_MODULE:
+            self.assertEqual(work, "work-cdn")
+            self.front_calls.append((args[0], env))
+            if self.front_fails and args[0] == "apply":
+                raise RuntimeError("front door apply failed")
+            return '{"tiles": "d111.cloudfront.net"}' if args[0] == "output" else ""
         self.tofu_calls.append((args[0], env))
         if self.tofu_fails and args[0] == "apply":
             raise RuntimeError("apply failed")
         return "tunnel-token\n" if args[0] == "output" else ""
+
+    def place_aws_key(self):
+        path = edge.on_host(self.host, edge.group_path(self.tree, edge.FRONT_DOOR_GROUP))
+        path.write_text(f"{edge.FRONT_DOOR_KEY_NAMES[0]}=AKIAEXAMPLE\n{edge.FRONT_DOOR_KEY_NAMES[1]}=aws-secret\n")
 
     def set_group(self, host, tree, group, values):
         path = edge.on_host(host, edge.group_path(tree, group))
@@ -171,6 +189,39 @@ class EdgeSettingsTest(unittest.TestCase):
         (self.tree / ".perfectory-control-commit").write_text("b" * 40 + "\n")
         self.assertIn("waiting for the host deploy", self.run_edge()[1])
         self.assertEqual(self.tofu_calls, [])
+
+    def test_the_front_door_is_off_until_the_aws_key_is_placed(self):
+        status, out = self.run_edge()
+        self.assertEqual(status, 0, out)
+        self.assertIn("front door off", out)
+        self.assertEqual(self.front_calls, [])
+
+    def test_with_the_aws_key_the_front_door_applies_with_it_and_the_account_token(self):
+        self.place_aws_key()
+        status, out = self.run_edge()
+        self.assertEqual(status, 0, out)
+        self.assertEqual([call for call, _ in self.front_calls], ["init", "apply", "output"])
+        env = self.front_calls[1][1]
+        self.assertEqual((env["TF_VAR_aws_access_key_id"], env["TF_VAR_aws_secret_access_key"]),
+                         ("AKIAEXAMPLE", "aws-secret"))
+        self.assertEqual(env["CLOUDFLARE_API_TOKEN"], "token-value")
+        self.assertEqual(env["AWS_ACCESS_KEY_ID"], "token-id", "the AWS_ names stay the R2 state bucket's")
+        self.assertEqual(env["TF_VAR_workers_subdomain"], "example")
+        self.assertEqual(json.loads(env["TF_VAR_alert_emails"]), self.staff)
+        self.assertIn('key = "cdn/terraform.tfstate"', (self.host.state / "work-cdn/backend.hcl").read_text())
+        self.assertIn("front door tiles: d111.cloudfront.net", out)
+        self.assertNotIn("aws-secret", out)
+        self.front_calls.clear()
+        self.assertEqual(self.run_edge()[0], 0)
+        self.assertEqual(self.front_calls, [], "nothing changed, nothing runs")
+
+    def test_a_failed_front_door_reports_and_does_not_hold_the_console_back(self):
+        self.place_aws_key()
+        self.front_fails = True
+        self.assertEqual(self.run_edge()[0], 1)
+        self.assertEqual(self.applies(), ["apply"])
+        self.assertTrue((self.host.state / "applied.json").exists())
+        self.assertTrue((self.host.state / "cdn/failed.json").exists())
 
 
 if __name__ == "__main__":

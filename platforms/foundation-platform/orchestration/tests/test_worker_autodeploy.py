@@ -199,7 +199,7 @@ class TheHostDeploysTheWorkers(unittest.TestCase):
         tree = self.tree = root / "control" / "releases" / COMMIT
         platform = tree / "platforms/foundation-platform"
         (platform / "config").mkdir(parents=True)
-        for name in ("worker-deploys.contract.json", "r2-connections.contract.json"):
+        for name in ("worker-deploys.contract.json", "r2-connections.contract.json", "cdn-front-door.contract.json"):
             shutil.copy(PLATFORM / "config" / name, platform / "config" / name)
         shutil.copytree(PLATFORM / "contracts/schema-registry", platform / "contracts/schema-registry")
         (platform / "scripts/deploy").mkdir(parents=True)

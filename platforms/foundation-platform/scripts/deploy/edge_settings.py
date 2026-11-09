@@ -17,7 +17,11 @@ Worker deploy, on every tick that finds the host on main's head. Each run:
   edge-settings); its S3 key pair is derived from the account token (Cloudflare: the token's id and
   the SHA-256 of its value), so no second credential exists;
 - writes the tunnel token OpenTofu read back into the runtime-secrets group console-tunnel, and starts
-  the console (foundation-release.sh console) when that token changed. Nobody copies it.
+  the console (foundation-release.sh console) when that token changed. Nobody copies it;
+- then applies the Seoul front door, infra/cdn (root ADR-0461), the same way under its own records,
+  once the runtime-secrets group aws-cdn holds the separate AWS account's apply key: CloudFront, its
+  certificates and the budget with that key, the zone's records with the account token, the state in
+  the same bucket under its own key with the same passphrase. Without that key it does nothing.
 
 A failure exits 1 so the unit's OnFailure reports it, at most ATTEMPTS times for the same inputs and
 the same deployer files; then it waits for a change to either. Names and counts only; never a value
@@ -52,6 +56,12 @@ INPUTS = (f"{PLATFORM}/{MODULE}", f"{PLATFORM}/compose.console.yml",
 TOOL_FILES = (f"{PLATFORM}/scripts/deploy/edge_settings.py", "tools/container-images.env")
 STATE_BUCKET = "foundation-platform-edge-settings-state-prod"
 STATE_KEY = "edge/terraform.tfstate"
+FRONT_DOOR_MODULE = "infra/cdn"
+FRONT_DOOR_CONTRACT = f"{PLATFORM}/config/cdn-front-door.contract.json"
+FRONT_DOOR_INPUTS = (f"{PLATFORM}/{FRONT_DOOR_MODULE}", FRONT_DOOR_CONTRACT)
+FRONT_DOOR_STATE_KEY = "cdn/terraform.tfstate"
+FRONT_DOOR_GROUP = "aws-cdn"
+FRONT_DOOR_KEY_NAMES = ("FOUNDATION_PLATFORM_AWS_CDN_ACCESS_KEY_ID", "FOUNDATION_PLATFORM_AWS_CDN_SECRET_ACCESS_KEY")
 TOKEN_NAME = "FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN"
 PASSPHRASE_NAME = "FOUNDATION_PLATFORM_EDGE_STATE_PASSPHRASE"
 DRIFT_SECONDS = 24 * 3600
@@ -153,16 +163,17 @@ def image(tree: pathlib.Path) -> str:
     return pins["EDGE_SETTINGS_IMAGE"]
 
 
-def tofu(host: Host, tree: pathlib.Path, env: dict[str, str], *args: str) -> str:
-    """One OpenTofu command in its pinned image: the checkout read-only, the work directory the only
-    place it writes. Values pass by name from the environment, never on a command line."""
+def tofu(host: Host, tree: pathlib.Path, env: dict[str, str], *args: str, module: str = MODULE,
+         work: str = "work") -> str:
+    """One OpenTofu command in its pinned image: the checkout read-only, the module's work directory the
+    only place it writes. Values pass by name from the environment, never on a command line."""
 
     names = sorted(env)
     memory = json.loads((tree / PLATFORM / "config/worker-deploys.contract.json").read_text(encoding="utf-8"))[
         "containers"]["edge_settings"]["memory_limit"]
     command = ["docker", "run", "--rm", "--init", "--memory", memory, "--memory-swap", memory, "--pids-limit", "512",
-               "--read-only", "--tmpfs", "/tmp", "-v", f"{tree}:/src:ro", "-v", f"{host.state / 'work'}:/work",
-               "-w", f"/src/{PLATFORM}/{MODULE}", "-e", "HOME=/tmp", "-e", "TF_DATA_DIR=/work/data", "-e", "TF_IN_AUTOMATION=1",
+               "--read-only", "--tmpfs", "/tmp", "-v", f"{tree}:/src:ro", "-v", f"{host.state / work}:/work",
+               "-w", f"/src/{PLATFORM}/{module}", "-e", "HOME=/tmp", "-e", "TF_DATA_DIR=/work/data", "-e", "TF_IN_AUTOMATION=1",
                "-e", "TF_INPUT=0", *[item for name in names for item in ("-e", name)], image(tree), *args]
     result = subprocess.run(command, env={**os.environ, **env}, capture_output=True, text=True)
     if result.returncode != 0:
@@ -221,33 +232,50 @@ def run_locked(host: Host, tree: pathlib.Path, commit: str) -> int:
     emails = staff_emails()
     if not emails:
         raise Refused(78, "the identity platform lists no staff with a role; the edge would let nobody in")
-    digest = hashlib.sha256("\0".join([fingerprint(tree, INPUTS), account, *emails]).encode()).hexdigest()
     tool = fingerprint(tree, TOOL_FILES)
     tunnel_file = on_host(host, group_path(tree, "console-tunnel"))
-    done = read_json(host.state / "applied.json") or {}
-    if (done.get("digest") == digest and time.time() - done.get("at", 0) < DRIFT_SECONDS
-            and values_in(tunnel_file).get("TUNNEL_TOKEN")):
+    digest = hashlib.sha256("\0".join([fingerprint(tree, INPUTS), account, *emails]).encode()).hexdigest()
+    console = converge(host.state, digest, tool, commit, bool(values_in(tunnel_file).get("TUNNEL_TOKEN")),
+                       lambda: apply(host, tree, token, account, emails, tunnel_file),
+                       f"{len(emails)} staff on the allowlist")
+    # The front door is its own apply: a console failure does not hold it back, nor the reverse.
+    keys = values_in(on_host(host, group_path(tree, FRONT_DOOR_GROUP)))
+    if not all(keys.get(name) for name in FRONT_DOOR_KEY_NAMES):
+        log(f"front door off: {group_path(tree, FRONT_DOOR_GROUP)} holds no AWS apply key (root ADR-0461)")
+        return console
+    digest = hashlib.sha256("\0".join([
+        fingerprint(tree, FRONT_DOOR_INPUTS), json.dumps(front_door_hostnames(tree), sort_keys=True), account,
+        hashlib.sha256(keys[FRONT_DOOR_KEY_NAMES[0]].encode()).hexdigest(), *emails]).encode()).hexdigest()
+    front = converge(host.state / "cdn", digest, tool, commit, True,
+                     lambda: apply_front_door(host, tree, token, account, emails, keys), "front door")
+    return max(console, front)
+
+
+def converge(records: pathlib.Path, digest: str, tool: str, commit: str, fresh: bool, apply_inputs,
+             applied: str) -> int:
+    """Applies when the inputs changed, a day has passed (drift) or fresh is false, at most ATTEMPTS
+    times for the same inputs and the same deployer files; then waits for a change to either."""
+
+    records.mkdir(mode=0o700, exist_ok=True)
+    done = read_json(records / "applied.json") or {}
+    if done.get("digest") == digest and time.time() - done.get("at", 0) < DRIFT_SECONDS and fresh:
         return 0
-    failed = read_json(host.state / "failed.json") or {}
+    failed = read_json(records / "failed.json") or {}
     if failed.get("digest") == digest and failed.get("tool") == tool and failed.get("attempts", 0) >= ATTEMPTS:
         log(f"gave up on these inputs after {failed['attempts']} attempts with this deployer; waiting for a "
-            f"change to either (or remove {host.state / 'failed.json'})")
+            f"change to either (or remove {records / 'failed.json'})")
         return 0
     try:
-        changed = apply(host, tree, token, account, emails, tunnel_file)
+        apply_inputs()
     except Exception as failure:  # noqa: BLE001 (any failure counts as an attempt and is reported)
         attempts = failed.get("attempts", 0) + 1 if failed.get("digest") == digest and failed.get("tool") == tool else 1
-        write_json(host.state / "failed.json", {"digest": digest, "tool": tool, "commit": commit,
-                                                "attempts": attempts, "error": str(failure)[:2000]})
+        write_json(records / "failed.json", {"digest": digest, "tool": tool, "commit": commit,
+                                             "attempts": attempts, "error": str(failure)[:2000]})
         log(f"the apply of {commit} failed (attempt {attempts}): {failure}")
         return 1
-    write_json(host.state / "applied.json", {"digest": digest, "commit": commit, "at": int(time.time()),
-                                             "staff": len(emails)})
-    (host.state / "failed.json").unlink(missing_ok=True)
-    log(f"applied {commit} ({len(emails)} staff on the allowlist)")
-    if changed:
-        console = host.control_root / PLATFORM / "scripts/deploy/foundation-release.sh"
-        subprocess.run(["/bin/bash", str(console), "console"], check=False)
+    write_json(records / "applied.json", {"digest": digest, "commit": commit, "at": int(time.time())})
+    (records / "failed.json").unlink(missing_ok=True)
+    log(f"applied {commit} ({applied})")
     return 0
 
 
@@ -265,9 +293,8 @@ def fingerprint(tree: pathlib.Path, inputs: tuple[str, ...]) -> str:
     return digest.hexdigest()
 
 
-def apply(host: Host, tree: pathlib.Path, token: str, account: str, emails: list[str],
-          tunnel_file: pathlib.Path) -> bool:
-    """Plans and applies the module; returns whether the tunnel token on the host changed."""
+def account_state(host: Host, tree: pathlib.Path, token: str, account: str) -> tuple[str, str, str]:
+    """The state bucket (made when missing), its S3 key pair and the state passphrase (made once)."""
 
     status, verified = cloudflare(token, "GET", "/user/tokens/verify")
     if status != 200:
@@ -288,24 +315,70 @@ def apply(host: Host, tree: pathlib.Path, token: str, account: str, emails: list
         passphrase = values_in(passphrase_file)[PASSPHRASE_NAME]
         log(f"made the state passphrase in {passphrase_file}")
     key_id, key_secret = s3_key_pair(token, verified["result"]["id"])
-    work = host.state / "work"
-    work.mkdir(mode=0o700, exist_ok=True)
-    (work / "backend.hcl").write_text(
-        f'bucket = "{STATE_BUCKET}"\nkey = "{STATE_KEY}"\n'
+    return key_id, key_secret, passphrase
+
+
+def init(host: Host, tree: pathlib.Path, env: dict[str, str], account: str, key: str, module: str,
+         work: str) -> None:
+    directory = host.state / work
+    directory.mkdir(mode=0o700, exist_ok=True)
+    (directory / "backend.hcl").write_text(
+        f'bucket = "{STATE_BUCKET}"\nkey = "{key}"\n'
         f'endpoints = {{ s3 = "https://{account}.r2.cloudflarestorage.com" }}\n', encoding="utf-8")
+    tofu(host, tree, env, "init", "-no-color", "-lockfile=readonly", "-reconfigure",
+         "-backend-config=/work/backend.hcl", module=module, work=work)
+
+
+def apply(host: Host, tree: pathlib.Path, token: str, account: str, emails: list[str],
+          tunnel_file: pathlib.Path) -> None:
+    """Plans and applies the console's module; starts the console when the tunnel token changed."""
+
+    key_id, key_secret, passphrase = account_state(host, tree, token, account)
     env = {"CLOUDFLARE_API_TOKEN": token, "AWS_ACCESS_KEY_ID": key_id, "AWS_SECRET_ACCESS_KEY": key_secret,
            "TF_VAR_account_id": account, "TF_VAR_staff_emails": json.dumps(emails),
            "TF_VAR_state_passphrase": passphrase}
-    tofu(host, tree, env, "init", "-no-color", "-lockfile=readonly", "-reconfigure", "-backend-config=/work/backend.hcl")
+    init(host, tree, env, account, STATE_KEY, MODULE, "work")
     tofu(host, tree, env, "apply", "-no-color", "-auto-approve")
     tunnel = tofu(host, tree, env, "output", "-raw", "tunnel_token").strip()
     if not tunnel:
         raise RuntimeError("the module gave no tunnel token")
     if values_in(tunnel_file).get("TUNNEL_TOKEN") == tunnel:
-        return False
+        return
     set_group(host, tree, "console-tunnel", {"TUNNEL_TOKEN": tunnel})
     log(f"wrote the tunnel token into {tunnel_file}")
-    return True
+    console = host.control_root / PLATFORM / "scripts/deploy/foundation-release.sh"
+    subprocess.run(["/bin/bash", str(console), "console"], check=False)
+
+
+def front_door_hostnames(tree: pathlib.Path) -> dict[str, str]:
+    """The public hostnames the module reads from the R2 connection contract, by door: of that
+    generated, often changing file only these are the front door's input."""
+
+    doors = json.loads((tree / FRONT_DOOR_CONTRACT).read_text(encoding="utf-8"))["doors"]
+    r2 = json.loads((tree / PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+    return {name: door.get("public_hostname") or r2[door["gateway"]]["public_hostname"]
+            for name, door in doors.items()}
+
+
+def apply_front_door(host: Host, tree: pathlib.Path, token: str, account: str, emails: list[str],
+                     keys: dict[str, str]) -> None:
+    """Plans and applies infra/cdn: AWS with the separate account's key, the zone with the account token."""
+
+    key_id, key_secret, passphrase = account_state(host, tree, token, account)
+    status, subdomain = cloudflare(token, "GET", f"/accounts/{account}/workers/subdomain")
+    if status != 200:
+        raise RuntimeError(f"reading the workers.dev subdomain answered HTTP {status}")
+    env = {"CLOUDFLARE_API_TOKEN": token, "AWS_ACCESS_KEY_ID": key_id, "AWS_SECRET_ACCESS_KEY": key_secret,
+           "TF_VAR_aws_access_key_id": keys[FRONT_DOOR_KEY_NAMES[0]],
+           "TF_VAR_aws_secret_access_key": keys[FRONT_DOOR_KEY_NAMES[1]],
+           "TF_VAR_workers_subdomain": subdomain["result"]["subdomain"], "TF_VAR_alert_emails": json.dumps(emails),
+           "TF_VAR_state_passphrase": passphrase}
+    init(host, tree, env, account, FRONT_DOOR_STATE_KEY, FRONT_DOOR_MODULE, "work-cdn")
+    tofu(host, tree, env, "apply", "-no-color", "-auto-approve", module=FRONT_DOOR_MODULE, work="work-cdn")
+    distributions = json.loads(tofu(host, tree, env, "output", "-json", "distributions",
+                                    module=FRONT_DOOR_MODULE, work="work-cdn") or "{}")
+    for name, domain in sorted(distributions.items()):
+        log(f"front door {name}: {domain}")
 
 
 def main() -> int:

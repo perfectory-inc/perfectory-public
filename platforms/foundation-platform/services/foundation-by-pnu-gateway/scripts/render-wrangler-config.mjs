@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 /// (`src/lane.ts`). Deploy one with `wrangler deploy -c <file>`. A lane written as a host and a kind
 /// (root ADR-0193 §4) has no Worker of its own: its host's Worker serves it by path.
 const contractUrl = new URL("../../../config/r2-connections.contract.json", import.meta.url);
+const frontDoorUrl = new URL("../../../config/cdn-front-door.contract.json", import.meta.url);
 
 export const LANES = [
   "building",
@@ -20,7 +21,7 @@ export function outputUrl(lane) {
   return new URL(`../wrangler.${lane}.jsonc`, import.meta.url);
 }
 
-export function render(contract, lane) {
+export function render(contract, lane, frontDoor = { doors: {} }) {
   const block = contract.by_pnu_lanes?.[lane] === undefined ? `${lane}_by_pnu_gateway` : `by_pnu_lanes.${lane}`;
   const gateway = contract[`${lane}_by_pnu_gateway`] ?? contract.by_pnu_lanes?.[lane];
   if (gateway === undefined) throw new Error(`the contract has no ${block}`);
@@ -34,7 +35,19 @@ export function render(contract, lane) {
   }
   // The public hostname lives in the contract, nowhere else: the deploy attaches exactly the
   // domains the contract names, so moving the serving address is a one-line contract change.
-  const hostnames = [gateway.public_hostname, ...(gateway.public_hostname_aliases ?? [])];
+  // The Seoul front door (root ADR-0461): the Worker also answers the door's origin hostname, which
+  // CloudFront reads; once the door is switched to CloudFront the public hostname is its CNAME and no
+  // longer this Worker's custom domain (Wrangler drops a domain the config no longer names).
+  const door = Object.values(frontDoor.doors ?? {}).find((entry) => entry.gateway === block);
+  if (door !== undefined && (!["cloudflare", "cloudfront"].includes(door.answered_by) ||
+    typeof door.origin_hostname !== "string" || door.origin_hostname === gateway.public_hostname)) {
+    throw new Error(`the ${block} front door needs answered_by cloudflare|cloudfront and its own origin_hostname`);
+  }
+  const hostnames = [
+    ...(door?.answered_by === "cloudfront" ? [] : [gateway.public_hostname]),
+    ...(gateway.public_hostname_aliases ?? []),
+    ...(door === undefined ? [] : [door.origin_hostname]),
+  ];
   if (hostnames.some((hostname) => typeof hostname !== "string" || hostname === "")) {
     throw new Error(`${block}.public_hostname(_aliases) must be non-empty strings`);
   }
@@ -111,8 +124,9 @@ async function main() {
     throw new Error("usage: render-wrangler-config.mjs <--write|--check>");
   }
   const contract = JSON.parse(await readFile(contractUrl, "utf8"));
+  const frontDoor = JSON.parse(await readFile(frontDoorUrl, "utf8"));
   for (const lane of LANES) {
-    const expected = render(contract, lane);
+    const expected = render(contract, lane, frontDoor);
     if (mode === "--write") {
       await writeFile(outputUrl(lane), expected, "utf8");
       continue;
