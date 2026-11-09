@@ -526,11 +526,16 @@ fn the_contract_bakes_parcels_at_maxzoom_detail_14_and_refuses_another_range() -
     // 2026-11-03 to 11-07: zoning at z14 and the default 12 lost 642 zones wider than a pixel at
     // zoom 22, and the gate refused every bake; at 16 one unit is one pixel there, as for parcels.
     assert_eq!(contract.maxzoom_detail.get("zoning"), Some(&16));
-    let args: Vec<String> =
-        tippecanoe_args(&parcel_layer(14, 16), &["pnu".to_owned()], Some(14), None)
-            .into_iter()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
+    let args: Vec<String> = tippecanoe_args(
+        &parcel_layer(14, 16),
+        &["pnu".to_owned()],
+        Some(14),
+        None,
+        None,
+    )
+    .into_iter()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect();
     assert!(args.contains(&"--full-detail=14".to_owned()), "{args:?}");
     for bad in [11, 17] {
         let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
@@ -687,11 +692,16 @@ fn a_container_profile_without_a_memory_cap_is_refused() -> anyhow::Result<()> {
 
 #[test]
 fn tippecanoe_keeps_the_measured_flags_and_adds_only_temp_and_parallel_read() {
-    let args: Vec<String> =
-        tippecanoe_args(&complex_layer(), &complex_layer().properties, None, None)
-            .into_iter()
-            .map(|arg| arg.to_string_lossy().into_owned())
-            .collect();
+    let args: Vec<String> = tippecanoe_args(
+        &complex_layer(),
+        &complex_layer().properties,
+        None,
+        None,
+        None,
+    )
+    .into_iter()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect();
     assert_eq!(
         args,
         [
@@ -982,6 +992,7 @@ fn args_of(unit: &str, layer: &ServedLayer, contract: &BakeContract) -> Vec<Stri
         &layer.properties,
         contract.maxzoom_detail.get(unit).copied(),
         contract.feature_min_zoom.get(unit),
+        contract.low_zoom_generalization.get(unit),
     )
     .into_iter()
     .map(|arg| arg.to_string_lossy().into_owned())
@@ -992,7 +1003,16 @@ fn args_of(unit: &str, layer: &ServedLayer, contract: &BakeContract) -> Vec<Stri
 fn zoning_starts_the_urban_facility_layers_at_z11_by_a_zoom_filter() -> anyhow::Result<()> {
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     let layer = contract.units_born_from_a_lakehouse_bake["zoning"].served_layer();
-    let args = args_of("zoning", &layer, &contract);
+    let args: Vec<String> = tippecanoe_args(
+        &layer,
+        &layer.properties,
+        None,
+        contract.feature_min_zoom.get("zoning"),
+        None,
+    )
+    .into_iter()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect();
     let at = args
         .iter()
         .position(|arg| arg == "-j")
@@ -1011,7 +1031,7 @@ fn zoning_starts_the_urban_facility_layers_at_z11_by_a_zoom_filter() -> anyhow::
     without.remove("zoning");
     assert_ne!(
         args,
-        tippecanoe_args(&layer, &layer.properties, None, without.get("zoning"))
+        tippecanoe_args(&layer, &layer.properties, None, without.get("zoning"), None)
             .into_iter()
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect::<Vec<_>>()
@@ -1037,6 +1057,7 @@ fn only_zoning_has_a_feature_filter_and_other_units_bake_as_before() -> anyhow::
             &layer,
             &layer.properties,
             contract.maxzoom_detail.get(unit).copied(),
+            None,
             None,
         )
         .into_iter()
@@ -1068,7 +1089,10 @@ fn a_feature_min_zoom_outside_the_layer_or_on_another_property_is_refused() -> a
     let layer = BakeContract::parse(CONTRACT_JSON)?.units_born_from_a_lakehouse_bake["zoning"]
         .served_layer();
     assert_eq!(
-        serde_json::from_str::<Value>(&min_zoom.filter(&layer).context("a filter")?)?,
+        serde_json::from_str::<Value>(
+            &min_zoom::feature_filter(&layer, &layer.properties, Some(&min_zoom), None)
+                .context("a filter")?
+        )?,
         json!({"zoning": ["all", ["any", ["in", "layer_code", "D998"], [">=", "$zoom", 12]]]})
     );
     Ok(())
@@ -1109,5 +1133,111 @@ async fn a_changed_zone_rebakes_only_its_layers_archive() -> anyhow::Result<()> 
     let (second, baked) = stub_bake(work.path(), &root, month_2, "inputs").await?;
     assert_eq!(baked, ["partition-D999"]);
     assert_eq!(second[0], ("D998".to_owned(), first[0].1.clone(), false));
+    Ok(())
+}
+
+#[test]
+fn zoning_keeps_only_its_drawn_properties_and_merges_them_below_maxzoom() -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let layer = contract.units_born_from_a_lakehouse_bake["zoning"].served_layer();
+    let args = args_of("zoning", &layer, &contract);
+    for flag in [
+        "--simplification=4",
+        "--simplification-at-maximum-zoom=1",
+        "--coalesce",
+        "--reorder",
+    ] {
+        assert!(args.contains(&flag.to_owned()), "{flag}: {args:?}");
+    }
+    let at = args
+        .iter()
+        .position(|arg| arg == "-j")
+        .context("a -j filter")?;
+    let filter: Value = serde_json::from_str(&args[at + 1])?;
+    let clauses = filter["zoning"].as_array().context("an all clause")?;
+    // The urban facility clause of root ADR-0375 §3 is still first.
+    assert_eq!(clauses[0], json!("all"));
+    assert_eq!(clauses[1][0], json!("any"));
+    let dropped: Vec<&Value> = clauses[2..].iter().map(|clause| &clause[1]).collect();
+    let expected: Vec<Value> = layer
+        .properties
+        .iter()
+        .filter(|property| !["layer_code", "zone_code"].contains(&property.as_str()))
+        .map(|property| json!(property))
+        .collect();
+    assert_eq!(dropped, expected.iter().collect::<Vec<_>>());
+    assert!(expected.contains(&json!(layer.feature_id_property)));
+    for clause in &clauses[2..] {
+        assert_eq!(clause[0], json!("attribute-filter"));
+        assert_eq!(clause[2], json!([">=", "$zoom", layer.tile_max_zoom]));
+    }
+    // Every other unit bakes without it.
+    assert_eq!(
+        contract.low_zoom_generalization.keys().collect::<Vec<_>>(),
+        ["zoning"]
+    );
+    Ok(())
+}
+
+#[test]
+fn a_generalization_that_keeps_the_id_or_an_unknown_property_is_refused() -> anyhow::Result<()> {
+    for (path, bad) in [
+        (
+            "/low_zoom_generalization/zoning/properties",
+            json!(["layer_code", "zone_id"]),
+        ),
+        (
+            "/low_zoom_generalization/zoning/properties",
+            json!(["sigungu_code"]),
+        ),
+        ("/low_zoom_generalization/zoning/properties", json!([])),
+        ("/low_zoom_generalization/zoning/simplification", json!(0)),
+        ("/low_zoom_generalization/zoning/simplification", json!(11)),
+        ("/tile_bytes_budget/zoning", json!(0)),
+    ] {
+        let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+        *value.pointer_mut(path).context("contract path")? = bad.clone();
+        assert!(
+            BakeContract::parse(&value.to_string()).is_err(),
+            "{path} = {bad}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn the_tile_bytes_gate_names_the_largest_tile_of_each_zoom_and_refuses_over_budget(
+) -> anyhow::Result<()> {
+    let small = tile("parcels", &["9999900001"]);
+    let large = tile("parcels", &["9999900001", "9999900002", "9999900003"]);
+    let file = written(&archive(
+        1,
+        2,
+        &[
+            (pmtiles_feature_ids::tile_id(1, 0, 0), small.clone()),
+            (pmtiles_feature_ids::tile_id(2, 0, 0), small.clone()),
+            (pmtiles_feature_ids::tile_id(2, 1, 0), large.clone()),
+        ],
+    ))?;
+    let largest = gate::tile_bytes_gate(file.path(), None)?;
+    assert_eq!(
+        largest,
+        [
+            (
+                1,
+                (small.len() as u64, pmtiles_feature_ids::tile_id(1, 0, 0))
+            ),
+            (
+                2,
+                (large.len() as u64, pmtiles_feature_ids::tile_id(2, 1, 0))
+            ),
+        ]
+        .into()
+    );
+    assert!(gate::tile_bytes_gate(file.path(), Some(large.len() as u64)).is_ok());
+    let refused = gate::tile_bytes_gate(file.path(), Some(large.len() as u64 - 1))
+        .err()
+        .context("one byte under the largest tile is refused")?;
+    assert!(refused.to_string().contains("(2, 1, 0)"), "{refused}");
     Ok(())
 }

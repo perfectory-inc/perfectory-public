@@ -58,9 +58,9 @@ impl FeatureMinZoom {
         Ok(())
     }
 
-    /// tippecanoe's `-j` filter for the layer: a feature whose first zoom is past the layer's
-    /// minzoom passes only from that zoom on. `None` when every feature starts at the minzoom.
-    pub fn filter(&self, layer: &ServedLayer) -> Option<String> {
+    /// The `-j` clauses for the layer: a feature whose first zoom is past the layer's minzoom
+    /// passes only from that zoom on. Empty when every feature starts at the minzoom.
+    fn clauses(&self, layer: &ServedLayer) -> Vec<serde_json::Value> {
         let mut by_zoom: BTreeMap<u8, Vec<&str>> = BTreeMap::new();
         for (value, zoom) in &self.min_zoom {
             by_zoom.entry(*zoom).or_default().push(value);
@@ -83,11 +83,93 @@ impl FeatureMinZoom {
                 [">=", "$zoom", self.default]
             ]));
         }
-        if clauses.is_empty() {
-            return None;
-        }
-        let mut all = vec![serde_json::json!("all")];
-        all.extend(clauses);
-        Some(serde_json::json!({ layer.source_layer.as_str(): all }).to_string())
+        clauses
     }
+}
+
+/// `config/tile-bake-containers.contract.json` `low_zoom_generalization.<unit>` (W42): below the
+/// layer's maxzoom a tile carries only `properties`, features left with equal properties are merged
+/// into one (tippecanoe's polygon cleaning unions them), and lines and polygons are simplified at
+/// `simplification` tile units. The maxzoom tiles, which the id gate reads, keep every property and
+/// tippecanoe's standard tolerance.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LowZoomGeneralization {
+    pub properties: Vec<String>,
+    pub simplification: u8,
+}
+
+impl LowZoomGeneralization {
+    pub(super) fn validate(&self, unit: &str) -> anyhow::Result<()> {
+        ensure!(
+            !self.properties.is_empty(),
+            "the {unit} low_zoom_generalization keeps at least one property"
+        );
+        // tippecanoe's README: "You can probably go up to about 10 without too much visible difference".
+        ensure!(
+            (1..=10).contains(&self.simplification),
+            "the {unit} low_zoom_generalization simplification is between 1 and 10"
+        );
+        Ok(())
+    }
+
+    pub(super) fn validate_for(&self, unit: &str, layer: &ServedLayer) -> anyhow::Result<()> {
+        ensure!(
+            self.properties
+                .iter()
+                .all(|property| layer.properties.contains(property)),
+            "the {unit} low_zoom_generalization keeps a property that is not a tile property"
+        );
+        ensure!(
+            !self.properties.contains(&layer.feature_id_property),
+            "the {unit} low_zoom_generalization keeps the feature id, so no two features could merge"
+        );
+        Ok(())
+    }
+
+    /// tippecanoe's flags besides the `-j` clauses.
+    pub fn args(&self) -> [String; 4] {
+        [
+            format!("--simplification={}", self.simplification),
+            "--simplification-at-maximum-zoom=1".to_owned(),
+            "--coalesce".to_owned(),
+            "--reorder".to_owned(),
+        ]
+    }
+
+    /// An `attribute-filter` clause per tile column not kept: present only from the maxzoom on.
+    fn clauses(&self, layer: &ServedLayer, columns: &[String]) -> Vec<serde_json::Value> {
+        columns
+            .iter()
+            .filter(|column| !self.properties.contains(column))
+            .map(|column| {
+                serde_json::json!([
+                    "attribute-filter",
+                    column,
+                    [">=", "$zoom", layer.tile_max_zoom]
+                ])
+            })
+            .collect()
+    }
+}
+
+/// tippecanoe's `-j` filter for the layer from both zoom rules; `None` when neither adds a clause.
+pub fn feature_filter(
+    layer: &ServedLayer,
+    columns: &[String],
+    min_zoom: Option<&FeatureMinZoom>,
+    generalization: Option<&LowZoomGeneralization>,
+) -> Option<String> {
+    let mut all = vec![serde_json::json!("all")];
+    all.extend(
+        min_zoom
+            .map(|min_zoom| min_zoom.clauses(layer))
+            .unwrap_or_default(),
+    );
+    all.extend(
+        generalization
+            .map(|generalization| generalization.clauses(layer, columns))
+            .unwrap_or_default(),
+    );
+    (all.len() > 1).then(|| serde_json::json!({ layer.source_layer.as_str(): all }).to_string())
 }

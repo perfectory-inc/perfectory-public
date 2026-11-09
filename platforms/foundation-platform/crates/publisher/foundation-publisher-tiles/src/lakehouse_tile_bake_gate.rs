@@ -135,6 +135,34 @@ pub fn gate_archive(
     })
 }
 
+/// The largest stored (compressed) tile of each zoom, as `(bytes, tile id)`, read from the
+/// directories only. W42: refused when one exceeds `budget`, naming the zoom and tile.
+pub fn tile_bytes_gate(
+    archive: &Path,
+    budget: Option<u64>,
+) -> anyhow::Result<std::collections::BTreeMap<u8, (u64, u64)>> {
+    let mut archive = pmtiles_feature_ids::Archive::open(File::open(archive)?)?;
+    let mut largest = std::collections::BTreeMap::<u8, (u64, u64)>::new();
+    archive.for_each_entry((0, u64::MAX), &mut |_, entry| {
+        let (zoom, _, _) = pmtiles_feature_ids::tile_zxy(entry.tile_id)?;
+        let slot = largest.entry(zoom).or_default();
+        if entry.length > slot.0 {
+            *slot = (entry.length, entry.tile_id);
+        }
+        Ok(())
+    })?;
+    if let Some(budget) = budget {
+        for (zoom, (bytes, tile)) in &largest {
+            ensure!(
+                bytes <= &budget,
+                "tile {:?} (z{zoom}) stores {bytes} bytes, over the unit's tile_bytes_budget of {budget}",
+                pmtiles_feature_ids::tile_zxy(*tile)?
+            );
+        }
+    }
+    Ok(largest)
+}
+
 /// The served ids the maxzoom tiles miss, by whether their own geometry explains it (ADR-0262).
 #[derive(Debug, Default)]
 pub struct Missing {
