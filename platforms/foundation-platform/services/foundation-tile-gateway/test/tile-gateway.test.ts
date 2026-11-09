@@ -75,7 +75,7 @@ describe("foundation tile gateway", () => {
       expect(response.status).toBe(204);
       expect(await response.text()).toBe("");
       expect(response.headers.get("Cache-Control")).toBe(policy.cache_control);
-      expect(cached.has(url)).toBe(true);
+      expect(cached.has(`${url}?v=${policy.cache_key_revision}`)).toBe(true);
       const warm = await request(url);
       expect(warm.status).toBe(204);
       expect(warm.headers.has("X-Foundation-Empty-Tile")).toBe(false);
@@ -116,8 +116,8 @@ describe("foundation tile gateway", () => {
 
   it("keeps cache entries origin-neutral and checks Origin even on cache hits", async () => {
     await request(TILE_URL, { headers: { Origin: ORIGIN } });
-    expect(cached.get(TILE_URL)?.headers.has("Access-Control-Allow-Origin")).toBe(false);
-    expect(cached.get(TILE_URL)?.headers.has("Vary")).toBe(false);
+    expect(cached.get(`${TILE_URL}?v=${policy.cache_key_revision}`)?.headers.has("Access-Control-Allow-Origin")).toBe(false);
+    expect(cached.get(`${TILE_URL}?v=${policy.cache_key_revision}`)?.headers.has("Vary")).toBe(false);
     bucket.failure = new Error("must use edge cache");
     const hit = await request(TILE_URL, { headers: { Origin: OTHER_ORIGIN } });
     expect(hit.status).toBe(200);

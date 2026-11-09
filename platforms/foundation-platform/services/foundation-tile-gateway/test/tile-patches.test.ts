@@ -6,6 +6,7 @@ import { archiveOf, FakeBucket, TILE_BYTES } from "./helpers/pmtiles";
 // Root ADR-0323: a patched unit serves patch, tombstone or base under one immutable base URL.
 const policy = connectionContract.vector_tile_gateway;
 const patches = policy.patches;
+const REVISION = policy.cache_key_revision;
 const root = connectionContract.connections.tile_derivatives.expected_values.FOUNDATION_PLATFORM_R2_TILE_DERIVATIVES_PREFIX;
 const UNIT = patches.units[0]!;
 const SOURCE = `${UNIT}-00000000-0000-4000-8000-000000000004`;
@@ -81,12 +82,12 @@ describe("foundation tile gateway patches", () => {
     const patched = await request("1/0/0");
     expect(patched.status).toBe(200);
     expect(await body(patched)).toEqual(PATCHED);
-    expect(cached.has(`${URL_ROOT}/1/0/0?patch=2`)).toBe(true);
+    expect(cached.has(`${URL_ROOT}/1/0/0?v=${REVISION}&patch=2`)).toBe(true);
     const gone = await request("1/0/1");
     expect(gone.status).toBe(204);
     const base = await request("0/0/0");
     expect(await body(base)).toEqual(TILE_BYTES[0]);
-    expect(cached.has(`${URL_ROOT}/0/0/0`)).toBe(true);
+    expect(cached.has(`${URL_ROOT}/0/0/0?v=${REVISION}`)).toBe(true);
     // A tile in neither archive stays empty.
     expect((await request("1/1/1")).status).toBe(204);
   });

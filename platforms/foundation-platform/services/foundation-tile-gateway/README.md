@@ -29,8 +29,12 @@ ADR-0111의 A1 범위이며, 전국 base release를 서빙한다. changed-tile p
 - 압축: 디렉터리는 라이브러리가 해제하고, gzip 타일은 압축된 바이트와 `Content-Encoding: gzip`을
   그대로 보낸다. 무압축 타일은 원본 바이트를 보낸다. `encodeBody: manual`을 응답과 캐시 복사에
   모두 지정해 workerd의 `Response.clone()` 이후 이중 압축을 막는다.
-- 캐시: 불변 release이므로 계약의 1년 immutable 정책을 적용한다. 성공한 GET만 canonical URL로
-  `caches.default`에 저장한다. 204 저장을 지원하지 않는 캐시 구현에서도 빈 타일을 재사용하도록
+  `Content-Type`은 계약의 `application/x-protobuf`다. Cloudflare는 압축 목록에 있는 유형만 방문자에게
+  다시 인코딩하므로, 목록에 없는 `application/vnd.mapbox-vector-tile`이던 때에는 캐시 히트마다 gzip을 풀어
+  1.8~2.4배 크기로 보냈다(2026-11-09 측정, `content_type_reason`).
+- 캐시: 불변 release이므로 계약의 1년 immutable 정책을 적용한다. 성공한 GET만 canonical URL에
+  계약의 `cache_key_revision`(`?v=`)을 붙인 키로 `caches.default`에 저장한다. 저장되는 응답 헤더가 바뀌면
+  revision을 올려 옛 항목을 다시 쓰지 않는다. 204 저장을 지원하지 않는 캐시 구현에서도 빈 타일을 재사용하도록
   내부에는 표식이 있는 빈 200을 저장하며, 클라이언트에는 표식을 제거하고 204로 복원한다.
 - 조건부 요청: 객체 ETag와 z/x/y로 만든 ETag를 사용한다. GET/HEAD의 `If-None-Match`는
   단일 값·목록·weak tag·`*`를 지원하며 일치하면 본문 없는 304다. HEAD는 항상 본문이 없다.

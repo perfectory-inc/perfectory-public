@@ -760,7 +760,10 @@
           "suffix": ".pmtiles"
         },
         "max_zoom": 24,
-        "content_type": "application/vnd.mapbox-vector-tile",
+        "content_type": "application/x-protobuf",
+        "content_type_reason": "Root ADR-0111 (W42, 2026-11-09). Cloudflare re-encodes a response for the visitor only when its Content-Type is on its compressible list, which has application/x-protobuf (the type the Protomaps PMTiles Worker serves MVT as) and not application/vnd.mapbox-vector-tile. Measured 2026-11-09 on a probe Worker with the same manual gzip body and caches.default: under vnd.mapbox-vector-tile the miss went out gzip (10,482 B) and every cache hit went out decoded (200,000 B, weak ETag); under x-protobuf the hit went out brotli (9,242 B). Production zoning and parcels tiles were 1.8 to 2.4 times their gzip size on every cache hit.",
+        "cache_key_revision": 2,
+        "cache_key_revision_reason": "Root ADR-0111 (W42, 2026-11-09). Part of every caches.default key, so entries stored under the old Content-Type (decoded on each hit) are never served again. Raise it only when the stored response headers change; a raise costs one R2 read per tile per colo.",
         "cache_control": "public, max-age=31536000, immutable",
         "cors": {
           "grammar": "comma-separated-serialized-http-origins-v1",
