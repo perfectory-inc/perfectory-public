@@ -201,7 +201,16 @@ if physical is None or reserved is None:
     print(f"FAIL {NAME}: {CONTRACT} host sizes must look like 62g or 512m", file=sys.stderr)
     sys.exit(1)
 
-outside = [entry["path_prefix"] for entry in contract.get("outside_scope", [])]
+# An entry names its prefix from the repository root (path_prefix), or a path inside an area by the area's
+# slug (area + path), read from tools/areas.contract.json: a file listing areas by hand is refused
+# (area-registry.sh), and the host's one-shot images live in more than one area.
+def area_dir(slug: str) -> str:
+    areas = json.loads((ROOT / "tools/areas.contract.json").read_text(encoding="utf-8"))["areas"]
+    return next(area["dir"] for area in areas if area["slug"] == slug)
+
+
+outside = [entry["path_prefix"] if "path_prefix" in entry else f"{area_dir(entry['area'])}/{entry['path']}"
+           for entry in contract.get("outside_scope", [])]
 placed: set[str] = set()
 report: list[str] = []
 standing_total = 0

@@ -373,6 +373,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_ITEM_BID_INFO.table_name
             || contract.table_name == SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
             || contract.table_name == SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT.table_name
+            || contract.layer == LakehouseLayer::Intelligence
         {
             // Root ADR-0340: an Onbid announcement, detail or bid-info row is appended when its
             // content changed; the newest is current, and none vanishes (the provider's windowed
@@ -383,7 +384,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // vanishes (root ADR-0384).
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
             // photo reference never vanishes (root ADR-0298). A notice read and its attachments
-            // likewise (root ADR-0484).
+            // likewise (root ADR-0484). A document's text, pages and facts are read once per
+            // extractor version; a repeated run's append is the newest run (root ADR-0477 §3).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()
