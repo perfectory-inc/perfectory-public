@@ -14,8 +14,8 @@ import unittest.mock
 from pathlib import Path
 
 from document_text import fact_run
-from document_text.facts import land_use_facts, load_ksic, parcel_lot_facts, rule_facts, sale_price_facts
-from document_text.model_facts import checked_land_use
+from document_text.facts import Fact, land_use_facts, load_ksic, parcel_lot_facts, rule_facts, sale_price_facts
+from document_text.model_facts import checked_land_use, land_use_by_model, vision_confirms
 from document_text.pages import assemble, citation_holds
 from document_text.run import load_contract
 
@@ -157,6 +157,38 @@ class ModelCheckTest(unittest.TestCase):
         self.assertEqual(len(checked_land_use(rows, self.by_number, "m")), 3)
         rows[2] = self.row("공공시설용지432,619.0 47.9", "공공시설용지", "432,610.0", "category")  # area not in its line
         self.assertEqual(checked_land_use(rows, self.by_number, "m"), [])
+
+
+class RecordingPort:
+    """A model port that answers nothing and keeps every message it was sent."""
+
+    model = "m"
+
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    def chat(self, messages, **_options):
+        for message in messages:
+            parts = message["content"] if isinstance(message["content"], list) else [{"type": "text", "text": message["content"]}]
+            self.sent.extend(part["text"] for part in parts if part["type"] == "text")
+        return "{}", 0.0
+
+
+class ControlCharacterTest(unittest.TestCase):
+    """A NUL in a PDF text layer ended the prompt there: ILIS notice 20117 (2026-11-11, root
+    ADR-0478) reached the model as 255 of its ~9,060 tokens. Nothing sent may carry one."""
+
+    CONTROL = {chr(c) for c in (*range(0x00, 0x09), 0x0b, *range(0x0e, 0x20))}
+
+    def test_no_prompt_carries_a_control_character_and_the_text_after_it_still_arrives(self) -> None:
+        pages = pages_of("토지이용계획\x00 합계 1,000.0\x07\n산업시설용지 1,000.0\x1f 끝말")
+        port = RecordingPort()
+        land_use_by_model(port, pages, [1], {})
+        vision_confirms(port, "v", b"png", Fact("land_use", {}, 1, 0, 4, "1,0\x0000.0", "rule", None, "none"))
+        self.assertEqual(len(port.sent), 3)
+        for text in port.sent:
+            self.assertFalse(self.CONTROL & set(text), repr(text))
+        self.assertIn("끝말", port.sent[1])
 
 
 class FactRunTest(unittest.TestCase):
