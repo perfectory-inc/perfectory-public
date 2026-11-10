@@ -168,6 +168,29 @@ def admin_release(
     return registry, sorted(bridge, key=lambda b: (b.place_id, b.valid_from)), changes
 
 
+def release_changes(
+    published: tuple[Iterable[RegistryEntry], Iterable[BridgeEntry]] | None,
+    registry: Sequence[RegistryEntry],
+    bridge: Sequence[BridgeEntry],
+) -> tuple[bool, bool]:
+    """(registry changed, bridge changed) against the release (unit, scope) already serves.
+
+    A release is published only when one of them differs: the job runs again whenever the code-change
+    pairs may have moved (root ADR-0288 §3; a 분구's old codes reach the bridge only from the pairs),
+    and an unchanged release is not rewritten. The changelog says what the registry changed, so it is
+    appended only when the registry did; a bridge-only release (a pair added or superseded) appends none.
+    `published` is None when nothing is published yet. An empty release (no snapshot read) is never
+    published: it would erase the served ids.
+    """
+
+    if not registry:
+        return False, False
+    if published is None:
+        return True, bool(bridge)
+    served_registry, served_bridge = published
+    return set(served_registry) != set(registry), set(served_bridge) != set(bridge)
+
+
 def resolve(code: str, bridge: Sequence[BridgeEntry], registry: Sequence[RegistryEntry]) -> str | None:
     """What a consumer does with an old reference: code -> the id that held it -> follow redirects
     -> the id's current code (None when the place no longer exists on the map)."""

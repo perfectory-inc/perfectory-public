@@ -87,6 +87,32 @@ class AdminReleaseTest(unittest.TestCase):
         self.assertEqual(rel.resolve("9999910100", bridge, registry), "9999910100")  # still b's current code
 
 
+class ReleaseChangesTest(unittest.TestCase):
+    # Root ADR-0288 §3: the release runs again whenever the code-change pairs may have moved; it is
+    # published only when it differs from the one served, and the changelog only when the registry did.
+    REGISTRY = [rel.RegistryEntry("a", "current", "9999920100", None)]
+    BRIDGE = [rel.BridgeEntry("a", "9999920100", "202606", None)]
+    PAIRED = BRIDGE + [rel.BridgeEntry("a", "9999910100", rel.PAIR_SOURCE, rel.PAIR_SOURCE)]
+
+    def test_a_release_equal_to_the_served_one_is_not_published(self):
+        self.assertEqual(rel.release_changes((self.REGISTRY, list(reversed(self.BRIDGE))), self.REGISTRY, self.BRIDGE),
+                         (False, False))
+
+    def test_a_new_pair_republishes_the_bridge_without_a_changelog(self):
+        self.assertEqual(rel.release_changes((self.REGISTRY, self.BRIDGE), self.REGISTRY, self.PAIRED), (False, True))
+
+    def test_a_superseded_pair_leaving_the_bridge_republishes_it(self):
+        self.assertEqual(rel.release_changes((self.REGISTRY, self.PAIRED), self.REGISTRY, self.BRIDGE), (False, True))
+
+    def test_a_registry_change_is_published_with_its_changelog(self):
+        moved = [rel.RegistryEntry("a", "current", "9999930100", None)]
+        self.assertEqual(rel.release_changes((self.REGISTRY, self.BRIDGE), moved, self.BRIDGE), (True, False))
+
+    def test_the_first_release_is_published_and_an_empty_one_never_is(self):
+        self.assertEqual(rel.release_changes(None, self.REGISTRY, self.BRIDGE), (True, True))
+        self.assertEqual(rel.release_changes((self.REGISTRY, self.BRIDGE), [], []), (False, False))
+
+
 class ReleaseJobArgsTest(unittest.TestCase):
     def test_parcel_releases_need_their_scope_and_dates(self):
         from place_id_release_to_gold import parse_args, validate_args

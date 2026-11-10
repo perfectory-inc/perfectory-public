@@ -3,8 +3,10 @@
 
   --unit admin   reads the snapshots of `silver.administrative_boundaries` (scope `national`);
   --unit parcel  reads `silver.parcel_registry` for the named sido prefixes (scope = the prefixes).
-The registry and the bridge are rewritten for (unit, scope); the changelog is appended once per
-release id. Consumers holding an old reference resolve it through the bridge and follow redirects.
+The registry and the bridge are rewritten for (unit, scope) only when either differs from the release
+already served (`place_id_release.release_changes`); the changelog is appended once per release id, and
+only when the registry changed. Consumers holding an old reference resolve it through the bridge and
+follow redirects.
 """
 
 from __future__ import annotations
@@ -87,6 +89,23 @@ def rows_for(
     }
 
 
+def published_release(spark: Any, catalog: str, namespace: str, unit: str, scope: str
+                      ) -> tuple[list[rel.RegistryEntry], list[rel.BridgeEntry]] | None:
+    """The registry and bridge (unit, scope) serves now, or None when nothing is published yet."""
+
+    names = {name: f"{catalog}.{namespace}.place_id_{name}" for name in ("registry", "bridge")}
+    if not all(spark.catalog.tableExists(name) for name in names.values()):
+        return None
+    where = f"WHERE unit = '{unit}' AND scope = '{scope}'"
+    registry = [rel.RegistryEntry(r["place_id"], r["status"], r["current_code"], r["redirect_to"]) for r in spark.sql(
+        f"SELECT place_id, status, current_code, redirect_to FROM `{catalog}`.`{namespace}`.`place_id_registry` {where}"
+    ).collect()]
+    bridge = [rel.BridgeEntry(r["place_id"], r["code"], r["valid_from"], r["valid_to"]) for r in spark.sql(
+        f"SELECT place_id, code, valid_from, valid_to FROM `{catalog}`.`{namespace}`.`place_id_bridge` {where}"
+    ).collect()]
+    return (registry, bridge) if registry or bridge else None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
@@ -137,8 +156,12 @@ def main(argv: list[str] | None = None) -> int:
             ]
             registry, bridge = rel.parcel_registry(rows), rel.parcel_bridge(rows)
             changes = rel.parcel_changelog(rows, args.previous_as_of, args.as_of)
+        registry_changed, bridge_changed = rel.release_changes(
+            published_release(spark, args.iceberg_catalog_name, args.gold_namespace, args.unit, scope), registry, bridge)
+        summary.update(registry_changed=registry_changed, bridge_changed=bridge_changed,
+                       published=registry_changed or bridge_changed)
         out = rows_for(args.unit, scope, args.release_id, args.previous_release_id, now, registry, bridge, changes)
-        for name, contract in CONTRACTS.items():
+        for name, contract in CONTRACTS.items() if summary["published"] else ():
             table = f"{cat}.`{args.gold_namespace}`.`place_id_{name}`"
             spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {cat}.`{args.gold_namespace}`")
             spark.sql(
@@ -156,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             schema = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
             frame = spark.createDataFrame(out[name], schema=schema).select(*columns)
             if name == "changelog":
-                if out[name]:
+                if out[name] and registry_changed:
                     summary["changelog_appended"] = append_batch_once(spark, frame, columns, table, contract["table_name"])["appended"]
             else:
                 frame.createOrReplaceTempView(f"release_{name}")

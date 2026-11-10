@@ -60,7 +60,7 @@ elif job == "merge.py":
 elif job == "administrative_boundaries_handoff_to_silver.py":
     host(flag("--summary-output")).write_text(json.dumps({"row_count": 3}))
 elif job == "place_id_release_to_gold.py":
-    host(flag("--summary-output")).write_text("{}")
+    host(flag("--summary-output")).write_text(json.dumps({"published": os.environ.get("FAKE_PUBLISHED") == "1"}))
 else:
     sys.exit("unexpected job " + job)
 '''
@@ -172,13 +172,28 @@ class AdminBoundaryRelease(unittest.TestCase):
         self.two_rounds()
         result, calls = self.run_job(FAKE_HELD="true")
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual(self.jobs(calls), ["administrative_boundaries_handoff_to_silver.py"])
+        # The place ids are still looked at: the code-change pairs may have moved (root ADR-0288 §3).
+        self.assertEqual(self.jobs(calls), ["administrative_boundaries_handoff_to_silver.py", "place_id_release_to_gold.py"])
         self.assertFalse([c for c in calls if c["tool"] == "gdal"])
         self.assertEqual(result.stdout.strip().splitlines()[-2:], [
             "admin-boundary-release-outcome outcome=unchanged reason=already_loaded round=209902",
             "foundation-job-outcome unchanged"])
         (run,) = self.runs()
         self.assertFalse((run / "zips").exists())
+
+    def test_a_held_round_republishes_the_place_ids_when_the_code_change_pairs_moved(self):
+        # Root ADR-0288 §3: a 분구's old dong codes reach the bridge only from the code-change pairs, and
+        # the pairs change without a new boundary round. The release published on 2026-10-16, before the
+        # bridge read the pairs (#821), and no round came after it: 0 of the 23 old 화성시 41590 dong codes
+        # were ever bridged. The held round republishes; the boundaries and the tiles are not touched.
+        self.two_rounds()
+        result, calls = self.run_job(FAKE_HELD="true", FAKE_PUBLISHED="1")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.jobs(calls), ["administrative_boundaries_handoff_to_silver.py", "place_id_release_to_gold.py"])
+        self.assertFalse([c for c in calls if c["tool"] == "gdal"])
+        self.assertEqual(result.stdout.strip().splitlines()[-2:], [
+            "admin-boundary-release-outcome outcome=changed reason=place_ids_republished round=209902",
+            "foundation-job-outcome changed"])
 
     def test_a_round_missing_a_sido_waits(self):
         self.two_rounds()
