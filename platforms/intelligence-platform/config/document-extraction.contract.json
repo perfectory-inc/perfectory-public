@@ -36,13 +36,43 @@
       "methods": ["text_layer", "ocr"]
     },
     "document_fact": {
-      "$comment": "사실 한 줄 = 값 하나와 그 인용 하나. rule 이 먼저, 나머지만 local_llm. accuracy_gate 를 넘기 전에는 foundation 이 화면에 싣지 않는다(루트 ADR-0477 §4). 아직 쓰는 작업이 없다.",
+      "$comment": "사실 한 줄 = 값 하나와 그 인용 하나(jobs/document_text/document_text/fact_run.py). rule 이 먼저, 규칙이 못 닫은 토지이용계획 표만 local_llm. 쓰인 사실은 모두 check 하나를 통과했다: table_total(표의 용지 행 합이 합계와 같고 구성비가 면적/합계와 같다), ksic_name(코드가 KSIC 중분류이고 적힌 이름이 그 이름이다), row_sequence(토지조서 행 번호가 빠짐없이 이어지고 편입면적 ≤ 공부면적), unit_and_label(분양가 이름과 원/㎡ 단위가 한 줄에). OCR 쪽의 값은 table_total 이 아니면 '+vision' 이 붙어야 한다(쪽 그림을 읽은 비전 모델이 같은 숫자를 읽었다). text_extractor_version 은 인용이 가리키는 쪽 텍스트의 판이다. accuracy_gate.measured 에서 문을 넘긴 (fact_kind, method, page_method) 만 foundation 이 화면에 싣는다(루트 ADR-0477 §5).",
       "table": "intelligence.document_fact",
       "key": ["sha256", "extractor_version", "fact_kind", "fact_index"],
-      "columns": ["sha256", "extractor_version", "fact_kind", "fact_index", "value_json", "page_number", "char_start", "char_end", "quote", "method", "model", "extracted_at_utc"],
+      "columns": ["sha256", "extractor_version", "text_extractor_version", "fact_kind", "fact_index", "value_json", "page_number", "char_start", "char_end", "quote", "method", "model", "check", "extracted_at_utc"],
+      "fact_kinds": ["land_use_area", "invited_industry", "parcel_lot", "sale_price"],
       "methods": ["rule", "local_llm"],
-      "accuracy_gate": {"hand_checked_sample_min": 30, "min_precision": 0.98}
+      "checks": ["table_total", "ksic_name", "row_sequence", "unit_and_label", "ksic_name+vision", "row_sequence+vision", "unit_and_label+vision"],
+      "accuracy_gate": {
+        "$comment": "손 확인: 사실이 가리키는 쪽을 그림으로 그려 값·구분·열(기정/변경)을 사람이 대조한다. measured 의 한 줄은 (fact_kind, method, page_method) 하나의 마지막 측정이다. checked 가 hand_checked_sample_min 이상이고 correct/checked 가 min_precision 이상인 줄만 화면에 실린다. 규칙을 고치면 고친 뒤 새로 뽑은 표본으로 다시 잰다.",
+        "hand_checked_sample_min": 30,
+        "min_precision": 0.98,
+        "measured": [
+          {"fact_kind": "land_use_area", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"},
+          {"fact_kind": "invited_industry", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"},
+          {"fact_kind": "parcel_lot", "method": "rule", "page_method": "text_layer", "checked": 30, "correct": 30, "measured_on": "2026-11-11"}
+        ]
+      }
+    },
+    "document_fact_outcome": {
+      "$comment": "문서·사실 판마다 한 줄. 이 줄이 있는 해시는 이 판으로 다시 읽지 않는다. 모델이 필요했는데 없었거나 오류였거나 run 의 모델 예산이 다 된 문서는 사실도 이 줄도 쓰지 않아 다음 run 이 통째로 다시 읽는다(규칙은 밀리초다).",
+      "table": "intelligence.document_fact_outcome",
+      "key": ["sha256", "extractor_version"],
+      "columns": ["sha256", "extractor_version", "text_extractor_version", "fact_counts_json", "unsolved_pages_json", "dropped_json", "model_calls", "elapsed_ms", "extracted_at_utc"]
     }
+  },
+  "document_fact": {
+    "$comment": "사실 run 의 값. 입력은 text_extractor_version 의 document_text_page 이고, 이 판의 결과가 없는 해시만 읽는다. 모델은 MODEL_RUNTIME_*(config/model-runtime.contract.json 의 serving)로만 부른다. model_pages_per_run 은 run 하나가 모델에 묻는 쪽의 상한이다(표본 97 문서에서 규칙이 못 닫은 토지이용계획 쪽은 26). vision_model 은 OCR 쪽의 값을 쪽 그림으로 다시 읽는 모델이고(루트 ADR-0477 §5) 그림은 PDF 바이트에서 그리므로 vision_formats 의 형식만 확인된다 — 인쇄된 HWP 의 OCR 값은 확인되지 않은 채 버려지고 dropped 에 센다.",
+    "extractor_version": "document-fact.v1",
+    "text_extractor_version": "document-text.v1",
+    "ksic_divisions": "config/ksic-divisions.json",
+    "per_run_limit": 2000,
+    "run_time_budget_seconds": 3300,
+    "model_pages_per_run": 60,
+    "model_timeout_seconds": 600,
+    "vision_model": "qwen2.5vl:7b",
+    "vision_formats": ["pdf"],
+    "render_timeout_seconds": 60
   },
   "document_text": {
     "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --skip-text, Tesseract kor). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다). run 은 per_run_limit 건 또는 run_time_budget_seconds 가 지나면 새 문서를 시작하지 않는다: 실측(2026-11-11, 표본 97 개) 문서당 평균 65 초·최대 727 초(60 쪽 스캔)라 건수만으로는 run 시간이 묶이지 않는다. 못 읽은 문서는 결과가 없으므로 다음 run 이 고른다.",
