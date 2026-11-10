@@ -1322,6 +1322,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     done < <(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" unretried-failed || true)
     # Like the backup, the root disk's retention (root ADR-0198) and the by-PNU edge probe (ADR-0327) are host infrastructure.
     systemctl enable --now foundation-host-retention.timer foundation-by-pnu-edge-probe.timer
+    # The weekly synthetic screen (root ADR-0480): a host check too.
+    systemctl enable --now foundation-by-pnu-screen-probe.timer
     # The operations map's service checks (root ADR-0209): a host check too.
     systemctl enable --now foundation-service-checks.timer
     # The daily readiness report (root ADR-0442): a host check too.

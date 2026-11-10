@@ -43,7 +43,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-10T22:13:25Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 10224,
+        "basis": "land characteristics are released yearly (expected_cadence yearly, 10,200 h) plus one daily fallback."
+      }
     }
   ],
   "assets": [

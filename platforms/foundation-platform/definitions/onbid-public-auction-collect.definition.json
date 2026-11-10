@@ -57,7 +57,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-20T01:26:10Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 6,
+        "basis": "onbid lists change continuously (expected_cadence continuous, 6..24 h); measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed in all 437 runs. Six hourly runs that wrote nothing are a collector that stopped collecting."
+      }
     }
   ],
   "assets": [

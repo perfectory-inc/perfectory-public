@@ -43,7 +43,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-04T00:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "building HUB files are released monthly (expected_cadence monthly, 1080 h, in the endpoint catalog) plus one daily fallback; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed 6 times, longest gap 20.7 h."
+      }
     }
   ],
   "assets": [

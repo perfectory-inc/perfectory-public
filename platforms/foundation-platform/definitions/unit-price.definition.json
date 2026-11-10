@@ -46,7 +46,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
     }
   ],
   "assets": [

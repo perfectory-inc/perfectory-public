@@ -42,7 +42,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T15:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 30,
+        "basis": "MOLIT publishes real transactions every day (expected_cadence daily, 72 h); measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed 34 of 262 runs, longest gap 22.6 h."
+      }
     }
   ],
   "assets": [

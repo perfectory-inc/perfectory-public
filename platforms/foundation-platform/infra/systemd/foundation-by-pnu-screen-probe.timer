@@ -1,0 +1,13 @@
+[Unit]
+Description=Read every section of a parcel's screen for real PNUs once a week (root ADR-0480)
+
+[Timer]
+# A host check, not a data job: like the edge probe it stays a systemd timer (root ADR-0118 §1).
+# Monday 23:23 UTC (Tuesday 08:23 in Seoul): after the week's daily bakes, off every quarter hour.
+OnCalendar=Mon *-*-* 23:23:00
+Persistent=true
+RandomizedDelaySec=5m
+Unit=foundation-by-pnu-screen-probe.service
+
+[Install]
+WantedBy=timers.target

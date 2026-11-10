@@ -7,7 +7,10 @@ Every row comes from a definition the repository already keeps, never from a lis
   systemd's own journal (the events scripts/ops/job-run-times.py reads), the last error line of its
   last failed run, and whether the last success is inside the budget its schedule declares (one
   schedule period plus its time limit); the operations map's problem for it (failed, or blocked by a
-  failed input: foundation-api's foundation_scheduled_job_problem, root ADR-0195);
+  failed input: foundation-api's foundation_scheduled_job_problem, root ADR-0195); and the outcomes
+  its definition expects that it missed (jobs.v1.json expected_outcome, folded from the outcome ledger
+  by the asset reconciler, root ADR-0480): a job whose unit succeeds and that produces nothing is
+  `silent`;
 - every by-PNU lane of config/by-pnu-lane-index.v1.json: the served manifest's age against its
   freshness budget, how long it has been behind its inputs (asset-reconcile.prom, root ADR-0444: a
   lane serving every change there is is not stale however old its manifest) and the hourly serving
@@ -39,8 +42,14 @@ from pathlib import Path
 sys.dont_write_bytecode = True
 PLATFORM = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PLATFORM / "scripts" / "deploy"))
+sys.path.insert(0, str(PLATFORM / "scripts" / "ops"))
 
+import job_outcomes  # noqa: E402
 import job_units  # noqa: E402
+from job_outcomes import cron_period_seconds  # noqa: E402
+# What the asset reconciler folded from the outcome ledger (root ADR-0480), read instead of the ledger.
+OUTCOMES_SUMMARY = Path(os.environ.get("FOUNDATION_READINESS_OUTCOMES_SUMMARY",
+                                       f"/var/lib/foundation-platform/asset-reconcile/{job_outcomes.SUMMARY_FILE}"))
 JOBS = PLATFORM / "orchestration" / "jobs.v1.json"
 LANES = PLATFORM / "config" / "by-pnu-lane-index.v1.json"
 METRICS_DIR = Path(os.environ.get("FOUNDATION_READINESS_METRICS_DIR", "/var/lib/foundation-jobs/metrics"))
@@ -68,21 +77,6 @@ def samples(text: str) -> list[tuple[str, dict, float]]:
     return out
 
 
-def cron_period_seconds(schedule: str) -> int | None:
-    """The longest gap between fires of a `<minutes> <hour|*> * * *` schedule, or None for any other form."""
-    fields = schedule.split()
-    if len(fields) != 5 or fields[2:] != ["*", "*", "*"]:
-        return None
-    try:
-        minutes = [int(m) for m in fields[0].split(",")]
-        hours = list(range(24)) if fields[1] == "*" else [int(h) for h in fields[1].split(",")]
-    except ValueError:
-        return None
-    fires = sorted(h * 60 + m for h in hours for m in minutes)
-    gaps = [b - a for a, b in zip(fires, fires[1:])] + [fires[0] + 1440 - fires[-1]]
-    return max(gaps) * 60
-
-
 def unit_runs(events: list[dict]) -> dict:
     """The last success and last failure, as (UTC seconds, systemd's words), from the unit's PID-1 journal events."""
     last = {"success": None, "failure": None, "start": None}
@@ -98,7 +92,10 @@ def unit_runs(events: list[dict]) -> dict:
     return last
 
 
-def job_row(job: dict, runs: dict, reason: str | None, problems: list[dict], now: float) -> dict:
+def job_row(job: dict, runs: dict, reason: str | None, problems: list[dict], now: float,
+            missed: list[dict] | None = None) -> dict:
+    """`missed`: the expected outcomes the job missed (job_outcomes.overdue): a unit that succeeded and
+    produced nothing is `silent`, not ok (root ADR-0480)."""
     period = cron_period_seconds(job["schedule"])
     budget = None if period is None else period + 60 * int(job.get("time_limit_minutes") or 0)
     success = runs["success"][0] if runs["success"] else None
@@ -112,6 +109,9 @@ def job_row(job: dict, runs: dict, reason: str | None, problems: list[dict], now
         state = "stale"
     if any(p["kind"] == "blocked" for p in problems) and state == "ok":
         state = "blocked"
+    missed = missed or []
+    if missed and state == "ok":
+        state = "silent"
     return {
         "kind": "job", "id": job["id"], "unit": job["systemd_service"], "impact": impact_of(job["id"]),
         "state": state, "last_success_utc": iso(success), "last_failure_utc": iso(failure),
@@ -120,6 +120,8 @@ def job_row(job: dict, runs: dict, reason: str | None, problems: list[dict], now
         "result": result_of(runs["failure"][1]) if failing else None,
         "reason": reason if failing else None,
         "problems": sorted({f'{p["kind"]}: {p["summary"]}' for p in problems}),
+        "outcome_missed": [f'{m["expectation"]}: none in {round((m["expected_seconds"] + m["overdue_seconds"]) / 3600, 1)} h'
+                           f' (bound {round(m["expected_seconds"] / 3600, 1)} h)' for m in missed],
     }
 
 
@@ -255,6 +257,14 @@ def main(argv: list[str]) -> int:
     for name, labels, value in api:
         if name == "foundation_scheduled_job_problem" and value == 1:
             problems.setdefault(labels.get("job_id", ""), []).append(labels)
+    try:
+        summary = json.loads(OUTCOMES_SUMMARY.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"readiness_report: the job outcomes are unread ({error})", file=sys.stderr)
+        summary = {}
+    missed: dict[str, list[dict]] = {}
+    for found in job_outcomes.overdue(jobs, summary, now) if summary else []:
+        missed.setdefault(found["job"], []).append(found)
     rows = []
     for job in jobs:
         if not job.get("enabled"):
@@ -265,7 +275,7 @@ def main(argv: list[str]) -> int:
         runs = unit_runs(sorted((e for unit in units for e in events[unit]), key=lambda e: int(e["__REALTIME_TIMESTAMP"])))
         failed_unit = next((unit for unit in units if unit_runs(events[unit])["failure"] == runs["failure"]), units[0])
         reason = failure_reason(failed_unit, runs["failure"][0]) if runs["failure"] else None
-        rows.append(job_row(job, runs, reason, problems.get(job["id"], []), now))
+        rows.append(job_row(job, runs, reason, problems.get(job["id"], []), now, missed.get(job["id"])))
     textfiles = []
     for path in sorted(METRICS_DIR.glob("*.prom")):
         try:

@@ -55,7 +55,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-20T01:26:10Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 24,
+        "basis": "its collector changes every hour; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed 198 of 341 runs, longest gap 93.8 h, which this bound reports."
+      }
     }
   ],
   "host_memory": {

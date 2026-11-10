@@ -6,6 +6,10 @@
                                                  timer, foundation-by-pnu-edge-probe.timer)
     by-pnu-edge-probe.py --base-url URL LANE     the Worker of LANE on one hostname (the Worker
                                                  deploy's smoke, scripts/deploy/worker_autodeploy.py)
+    by-pnu-edge-probe.py --screen                the weekly synthetic screen (root ADR-0480,
+                                                 foundation-by-pnu-screen-probe.timer): for real PNUs,
+                                                 every section the screen shows, against each lane's
+                                                 freshness budget (`screen` below)
 
 For each lane the Worker serves (its own and the kind lanes it hosts, root ADR-0193 §4) it reads the
 lane's gate sample (the file FOUNDATION_PLATFORM_<LANE>_BY_PNU_SERVING_MONITOR_SAMPLE_PATH names,
@@ -235,12 +239,135 @@ def production_workers(contract: dict[str, Any]) -> list[tuple[str, str]]:
             for entry in load(DEPLOYS)["workers"] if entry["smoke"]["kind"] == "by-pnu"]
 
 
+SCREEN_METRICS = "screen-probe.prom"
+SAMPLE_LINE = re.compile(r'^(\w+)\{[^}]*lane="([^"]+)"[^}]*\} (\S+)$')
+FRESHNESS = ("foundation_by_pnu_served_manifest_age_seconds", "foundation_by_pnu_lane_behind_seconds",
+             "foundation_by_pnu_serving_freshness_budget_seconds")
+
+
+def lane_freshness(textfiles: str) -> dict[str, str]:
+    """Each lane's freshness, from the hourly serving monitor's and the reconciler's series (root ADR-0306,
+    ADR-0444): `stale` when it is behind its inputs (or, unmeasured, its manifest is older) by more than
+    its budget, `unmeasured` without a manifest age, else `fresh`."""
+
+    found: dict[tuple[str, str], float] = {}
+    for line in textfiles.splitlines():
+        match = SAMPLE_LINE.match(line.strip())
+        if match and match[1] in FRESHNESS:
+            found[(match[1], match[2])] = float(match[3])
+    verdicts = {}
+    for lane in {lane for _, lane in found}:
+        age, behind, budget = (found.get((name, lane)) for name in FRESHNESS)
+        if age is None or budget is None:
+            verdicts[lane] = "unmeasured"
+        else:
+            verdicts[lane] = "stale" if (behind if behind is not None else age) > budget else "fresh"
+    return verdicts
+
+
+def screen(contract: dict[str, Any], workers: list[tuple[str, str]], textfiles: str) -> tuple[list[dict], list[str]]:
+    """The weekly synthetic screen (root ADR-0480): every section a parcel's screen shows, for real PNUs.
+
+    The PNUs are the first entry each cut-over lane's gate sample serves (read on the host, never in the
+    repository), so each has at least one section that must show. For every PNU every lane any by-PNU
+    Worker serves is read once: `shown` (200, the lane's content type, a JSON object), `absent` (404: the
+    parcel has none of it), else `error`. The PNU's own lane answering 404 is `missing`. Each lane's
+    freshness is held to its budget. (rows, failures): a failure is an error, a missing section, or a
+    stale lane that shows."""
+
+    probes = {base_url: Probe(contract, base_url) for _, base_url in workers}
+    lanes = [(name, prefix, content_type, base_url) for lane, base_url in workers
+             for name, prefix, content_type in served_lanes(contract, lane)]
+    picked: dict[str, tuple[str, str]] = {}
+    for name, prefix, _, base_url in lanes:
+        variable = sample_variable(name)
+        if not os.environ.get(variable):
+            continue
+        try:
+            sample = list(load(pathlib.Path(os.environ[variable]))["sample"])
+        except (OSError, ValueError, KeyError, TypeError):
+            continue  # the edge probe and the lane's monitor report an unreadable sample
+        for key in sample[: probes[base_url].policy["scan_documents"]]:
+            if key[:PNU_DIGITS] not in picked and probes[base_url].get(f"{prefix}{request_path_of(key)}")[0] != 404:
+                picked[key[:PNU_DIGITS]] = (name, key)
+                break
+    fresh = lane_freshness(textfiles)
+    rows, failures = [], []
+    for pnu, (origin, key) in sorted(picked.items()):
+        for name, prefix, content_type, base_url in lanes:
+            status, headers, body = probes[base_url].get(f"{prefix}{request_path_of(key if name == origin else pnu)}")
+            if status == 404:
+                verdict = "missing" if name == origin else "absent"
+            elif status == 200 and headers.get("content-type") == content_type and json_document((status, headers, body))[1] is None:
+                verdict = "shown"
+            else:
+                verdict = "error"
+            rows.append({"pnu": pnu, "lane": name, "verdict": verdict, "status": status, "freshness": fresh.get(name, "unmeasured")})
+            if verdict in ("missing", "error"):
+                failures.append(f"{name} for a sample PNU of {origin}: {verdict} (HTTP {status or body.decode(errors='replace')[:80]})")
+    for name in sorted({row["lane"] for row in rows if row["verdict"] == "shown" and row["freshness"] == "stale"}):
+        failures.append(f"{name} shows data older than its freshness budget")
+    return rows, failures
+
+
+def screen_textfile(rows: list[dict], now: float) -> str:
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        counts[(row["lane"], row["verdict"])] = counts.get((row["lane"], row["verdict"]), 0) + 1
+    lines = ["# HELP foundation_screen_probe_sections Sections the weekly synthetic screen read, by lane and verdict (root ADR-0480).",
+             "# TYPE foundation_screen_probe_sections gauge"]
+    lines += [f'foundation_screen_probe_sections{{lane="{lane}",verdict="{verdict}"}} {count}' for (lane, verdict), count in sorted(counts.items())]
+    stale = {row["lane"] for row in rows if row["verdict"] == "shown" and row["freshness"] == "stale"}
+    lines += ["# HELP foundation_screen_probe_stale_lanes Lanes that showed data older than their freshness budget.",
+              "# TYPE foundation_screen_probe_stale_lanes gauge", f"foundation_screen_probe_stale_lanes {len(stale)}",
+              "# HELP foundation_screen_probe_pnus The real PNUs the screen was read for.",
+              "# TYPE foundation_screen_probe_pnus gauge", f"foundation_screen_probe_pnus {len({row['pnu'] for row in rows})}",
+              "# HELP foundation_screen_probe_timestamp_seconds When the weekly synthetic screen last finished.",
+              "# TYPE foundation_screen_probe_timestamp_seconds gauge", f"foundation_screen_probe_timestamp_seconds {now:.0f}"]
+    return "\n".join(lines) + "\n"
+
+
+def run_screen(contract: dict[str, Any]) -> int:
+    import time  # noqa: PLC0415
+
+    metrics_dir = pathlib.Path(os.environ.get("FOUNDATION_SCREEN_PROBE_METRICS_DIR", "/var/lib/foundation-jobs/metrics"))
+    textfiles = ""
+    for path in sorted(metrics_dir.glob("*.prom")):
+        try:
+            textfiles += path.read_text(encoding="utf-8") + "\n"
+        except OSError:
+            continue
+    workers = [(lane, f"https://{hostname}") for lane, hostname in production_workers(contract)]
+    rows, failures = screen(contract, workers, textfiles)
+    if rows:
+        target = metrics_dir / SCREEN_METRICS
+        temporary = target.with_name(f".{SCREEN_METRICS}.next")
+        temporary.write_text(screen_textfile(rows, time.time()), encoding="utf-8")
+        temporary.chmod(0o644)
+        temporary.replace(target)
+    shown = sum(row["verdict"] == "shown" for row in rows)
+    print(f"by-pnu-edge-probe --screen: {len({row['pnu'] for row in rows})} PNUs, {len(rows)} sections read, {shown} shown", flush=True)
+    if failures:
+        print(f"by-pnu-edge-probe --screen: {len(failures)} failures (root ADR-0480): {'; '.join(failures)}", file=sys.stderr)
+        return 1
+    if not rows:
+        print("by-pnu-edge-probe --screen: no PNU was read (no gate sample is set): nothing shows the screen works", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base-url", help="one hostname, e.g. https://catalog-preview.perfectory.io")
     parser.add_argument("lane", nargs="?", help="with --base-url: the lane of the Worker answering there")
+    parser.add_argument("--screen", action="store_true",
+                        help="the weekly synthetic screen: every section for real PNUs, against each lane's freshness")
     args = parser.parse_args(argv)
     contract = load(CONTRACT)
+    if args.screen:
+        if args.base_url:
+            parser.error("--screen reads the production hostnames")
+        return run_screen(contract)
     if bool(args.base_url) != bool(args.lane):
         parser.error("name both --base-url and the lane, or neither")
     targets = [(args.lane, args.base_url)] if args.base_url else [

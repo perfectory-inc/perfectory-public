@@ -39,7 +39,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-10T14:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 54,
+        "basis": "the juso electronic map's daily change linkage publishes every day (root ADR-0475); two daily turns. Until the approval key is placed the job waits, and the done bound reports that wait."
+      }
     }
   ],
   "assets": [

@@ -573,5 +573,52 @@ class AJobDueDuringAReleaseBuild(HostFixture):
         self.assertEqual(list(self.deferred.iterdir()), [])
 
 
+
+class EveryOutcomeIsKept(HostFixture):
+    """Root ADR-0480: every outcome the runner says, a run's or a start's that ran nothing, is appended to
+    the outcome ledger beside the queue, where the asset reconciler holds each job to what it expects.
+    2026-11-09 a refused first load said `waiting` once and nothing kept it."""
+
+    def ledger(self):
+        path = self.root / "queue" / "outcomes.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def test_a_run_a_refusal_and_a_pause_are_each_one_line(self):
+        result, _ = self.start("fold")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        result, _ = self.start("floor", FIXTURE_HELD="foundation-paused.service")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        (self.root / "switches" / "fold").write_text("paused\nactor=staff\nreason=a stop for the night\n")
+        result, _ = self.start("fold")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        kept = self.ledger()
+        self.assertEqual([(line["job"], line["outcome"], line["via"]) for line in kept],
+                         [("fold", "changed", "run"), ("floor", "waiting", "run"), ("fold", "skipped", "run")])
+        self.assertEqual(kept[0]["invocation"], "new")
+        self.assertIn("the spark pool has no room", kept[1]["reason"])
+
+    def test_a_turn_deferred_tells_the_dag_unchanged_and_the_ledger_skipped(self):
+        # Nothing ran: no output events for the DAG (ADR-0171), and not the job's work done.
+        self.record("bake", 2000)
+        self.record("floor", 1000)
+        result, _ = self.start("bake")
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome unchanged")
+        self.assertEqual([(line["job"], line["outcome"]) for line in self.ledger()], [("bake", "skipped")])
+        self.assertIn("deferred: floor", self.ledger()[0]["reason"])
+
+    def test_a_run_that_said_nothing_is_kept_as_failed(self):
+        result, _ = self.start("fold", FIXTURE_JOURNAL="loaded\n")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual([(line["outcome"], line["reason"]) for line in self.ledger()], [("failed", "no outcome reported")])
+
+    def test_a_check_that_found_nothing_to_do_is_kept_as_unchanged(self):
+        listing = json.loads((self.root / "jobs.json").read_text())
+        listing["jobs"][1]["check_service"] = "foundation-fold-check.service"
+        (self.root / "jobs.json").write_text(json.dumps(listing))
+        result, _ = self.start("fold check", FIXTURE_JOURNAL="foundation-job-check unchanged\n")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([(line["job"], line["outcome"], line["via"]) for line in self.ledger()], [("fold", "unchanged", "check")])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -69,6 +69,7 @@ import by_pnu_kinds  # noqa: E402
 import gold_rebuild  # noqa: E402
 import iceberg_metadata  # noqa: E402
 import job_specs  # noqa: E402
+import job_outcomes  # noqa: E402
 import job_units  # noqa: E402
 import lane_follow_gate  # noqa: E402
 
@@ -884,6 +885,21 @@ def main() -> int:
         write_replacing(metrics_file.with_name(DAGSTER_METRICS_NAME), dagster_state(jobs, dag_ids, dagster_post(ui)))
     except (OSError, ValueError, job_specs.JobListError) as error:
         print(f"asset_reconcile: could not ask Dagster: {error}", file=sys.stderr)
+    # Each job held to the outcomes its definition expects (root ADR-0480): the ledger lines appended
+    # since the last tick, folded into the newest time of each outcome; a ledger that cannot be read
+    # leaves the textfile to go stale, which FoundationJobOutcomesUnread reports.
+    try:
+        try:
+            summary = json.loads((state_dir / job_outcomes.SUMMARY_FILE).read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            summary = {}
+        records, summary["offset"] = job_units.outcomes_after(int(summary.get("offset", 0)))
+        summary = job_outcomes.fold(summary, records)
+        write_replacing(metrics_file.with_name(job_outcomes.METRICS_NAME),
+                        job_outcomes.textfile(jobs["jobs"], summary, job_specs.service_unit_text))
+        write_replacing(state_dir / job_outcomes.SUMMARY_FILE, json.dumps(summary, sort_keys=True) + "\n")
+    except (OSError, ValueError, KeyError) as error:
+        print(f"asset_reconcile: could not read the job outcomes: {error}", file=sys.stderr)
     for line in owed:
         print(line)
     for error in errors:

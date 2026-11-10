@@ -43,7 +43,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-14T02:51:17Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "the land use zone code table is released monthly (expected_cadence monthly, 1080 h) plus one daily fallback."
+      }
     }
   ],
   "assets": [

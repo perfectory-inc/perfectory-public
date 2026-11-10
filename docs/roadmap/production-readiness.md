@@ -283,6 +283,19 @@ last_reviewed: 2026-11-07
 
 <!-- END GENERATED showing-inventory -->
 
+### 11. 대기업 수준과의 간극 (2026-11-11)
+
+운영을 대기업 기준(관측·가용성·환경 분리·비밀 보관)에 대 본 간극. 근거는 링크한 ADR 이 정본이고, 여기는 행마다 주인·상태·다음 단계만 둔다.
+
+| # | 간극 | 주인 | 상태 | 다음 단계 |
+| --- | --- | --- | --- | --- |
+| 1 | 조용한 실패: 유닛은 성공했는데 결과가 없다(Dagster 코드 위치 3 일, 법원경매 물건상세 0 건, 원장 사슬 미설치, 적재 10 개 거절, data_go_kr 미적재) | W56 | 결정·구현 draft PR — [ADR-0480](../adr/0480-every-job-is-held-to-the-outcome-its-definition-expects-not-to-its-units-exit.md)(작업 90 개 결과 기대 선언, 러너 결과 원장, 주인·런북 경보, 주간 합성 화면 탐침) | 배포 뒤 첫 기한이 지나면 울린 알림을 원장과 대조. 법원경매 물건상세는 오늘도 Bronze 0 건(사건 2 열림) — 수집 경로 brief |
+| 2 | 운영 호스트 하나: 신원(Zitadel)·운영 DB·서빙 제어에 HA 없음. 서빙 자체는 Cloudflare Worker·서울 CloudFront 앞문([ADR-0461](../adr/0461-korean-visitors-enter-through-a-cloudfront-front-door-in-seoul-in-a-separate-aws-account-applied-by-the-host.md))이라 호스트가 죽어도 살아남는다 | platform | 미착수. 백업·주 1 회 복원 리허설만 있음 | 대기 호스트와 DB 복제(스트리밍 복제 + 자동 승격) 설계 ADR, 비용 계산 후 사장 보고 |
+| 3 | 표본 데이터가 있는 스테이징 없음: 검증이 운영에서 일어난다 | platform | 미착수 | 합성 표본(PNU 99999 대역)으로 같은 compose·같은 정의를 띄우는 스테이징 brief; 배포 전 합성 화면 탐침([ADR-0480](../adr/0480-every-job-is-held-to-the-outcome-its-definition-expects-not-to-its-units-exit.md) §6)을 그 위에서 |
+| 4 | 오케스트레이터 둘(Airflow·Dagster) | lakehouse | 이행 중 — [ADR-0431](../adr/0431-scheduled-jobs-move-from-airflow-to-dagster-one-family-at-a-time-after-a-dual-run-in-which-both-decide.md)·[ADR-0458](../adr/0458-a-job-moves-from-airflow-to-dagster-on-agreeing-decisions-of-every-kind-it-makes-not-on-calendar-days.md), 작업별 `dagster_stage` | 가족마다 일치 결정 문턱을 넘으면 `proxied` → `dagster`; 두 쪽 모두 같은 결과 원장(ADR-0480 §2)에 쌓인다 |
+| 5 | 오프사이트 키 보관: Zitadel masterkey·백업 암호 키 | 사장 | 보류(사장 "나중에") | 사장이 꺼낼 때 착수 |
+| 6 | 남은 손 가드: 도구 규칙(Semgrep·cargo-deny·check-jsonschema 등)으로 바꿀 셸 가드 | W16 | 진행 중 — [ADR-0410](../adr/0410-the-repository-is-held-to-five-testable-cleanup-rules-and-every-artifact-comes-from-one-declared-definition.md), 2026-11-08 실물 대조 38 개 중 끝남 12·절반 3·남음 23 | [하이엔드 정리 인벤토리](./high-end-cleanup-inventory.md) A-3 표의 순서대로; 행 상태는 그 표가 정본 |
+
 ## 우선순위 0 — 출시 전 필수 게이트
 
 ### Kafka 이벤트 전달

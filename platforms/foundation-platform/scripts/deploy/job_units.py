@@ -75,6 +75,15 @@ STARTS_DIR = "/var/lib/foundation-jobs/queue/starts"
 # Written by the deploy once it has copied the start records of the home's old directory over, so a
 # job with no record here is one that never started, not one whose record was not copied yet.
 STARTS_SEEDED = ".seeded"
+# Every outcome the scheduler's runner said for a job (root ADR-0480): one appended line per run, check
+# answer or start it did not make, beside the queue, read by the asset reconciler and the readiness
+# report. A run used to leave its outcome only in its own journal and a start the runner refused left
+# it nowhere, so "succeeded and produced nothing" was never a state anything kept (2026-11-09: the
+# data_go_kr file data's first start skipped, 2026-11-06..: the shape ledger check waiting for a chain
+# never provisioned).
+OUTCOMES = "outcomes.jsonl"
+# The outcome words of root ADR-0260 §1, and `skipped` (paused, or an operator's run-now not used).
+OUTCOME_WORDS = ("changed", "unchanged", "waiting", "failed", "skipped")
 
 
 def deferred_dir() -> str:
@@ -294,6 +303,63 @@ def dequeue(job_id, now) -> int | None:
     except FileNotFoundError:
         pass
     return waited
+
+
+def outcomes_path() -> str:
+    return os.path.join(queue_dir(), OUTCOMES)
+
+
+def record_outcome(job_id, line, now, via="run", invocation="") -> dict:
+    """Appends what a run of `job_id` said, its `foundation-job-outcome <word> [reason]` line, or a
+    check's `foundation-job-check <answer>` (via `check`). One line, never rewritten (append-only)."""
+    if not JOB_ID.fullmatch(job_id):
+        raise KeyError(f"{job_id} is not a job id")
+    words = str(line).strip().split(" ", 2)
+    if via == "check":
+        if words[:1] != ["foundation-job-check"] or len(words) < 2:
+            raise ValueError(f"not a check answer: {line!r}")
+        # A check that found nothing to do was the job's turn and its outputs hold its inputs (root ADR-0305).
+        outcome = "unchanged" if words[1] == "unchanged" else "checked"
+    elif words[:1] == ["foundation-job-outcome"] and len(words) >= 2 and words[1] in OUTCOME_WORDS:
+        outcome = words[1]
+    else:
+        raise ValueError(f"not an outcome line: {line!r}")
+    record = {"job": job_id, "at": int(now), "outcome": outcome, "via": via,
+              "reason": (words[2] if len(words) > 2 else "")[:300]}
+    if invocation:
+        record["invocation"] = str(invocation)
+    os.makedirs(queue_dir(), mode=0o755, exist_ok=True)
+    new = not os.path.exists(outcomes_path())
+    with open(outcomes_path(), "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+    if new:
+        os.chmod(outcomes_path(), 0o644)  # the reconciler (foundation-platform) reads it
+    return record
+
+
+def outcomes_after(offset=0) -> tuple[list[dict], int]:
+    """The outcome records appended after byte `offset`, and the offset to read from next. A ledger
+    shorter than `offset` (replaced) is read from its start; a line still being written is left for
+    the next read."""
+    try:
+        with open(outcomes_path(), "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            if size < offset:
+                offset = 0
+            handle.seek(offset)
+            data = handle.read()
+    except FileNotFoundError:
+        return [], 0
+    complete = data[: data.rfind(b"\n") + 1]
+    records = []
+    for raw in complete.splitlines():
+        try:
+            record = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(record, dict) and JOB_ID.fullmatch(str(record.get("job", ""))):
+            records.append(record)
+    return records, offset + len(complete)
 
 
 def priority_class(listing, entry) -> dict:
@@ -541,6 +607,13 @@ def main(argv) -> int:
             print(f"job_units: systemd cannot report the failed units: {error}", file=sys.stderr)
             return 2
         return 0
+    if len(argv) in (3, 4, 5) and argv[0] == "record-outcome":
+        try:
+            record_outcome(argv[1], argv[2], time.time(), *argv[3:])
+        except (OSError, ValueError, KeyError) as error:
+            print(f"job_units: {error.args[0] if isinstance(error, KeyError) else error}", file=sys.stderr)
+            return 64
+        return 0
     if argv == ["deferred-dir"]:
         print(deferred_dir())
         return 0
@@ -550,7 +623,7 @@ def main(argv) -> int:
     print("usage: job_units.py services <jobs.v1.json> | running <unit|pattern>... | deferred-dir | deferred"
           " | pool-full <jobs.v1.json> <job id|service> | claim <jobs.v1.json> <claimant> <unit>"
           " | release <claimant> | queue <job id> <reason> | dequeue <job id> | preempted <jobs.v1.json> <job id> | leftover-failed <jobs.v1.json>"
-          " | unretried-failed",
+          " | unretried-failed | record-outcome <job id> <outcome line> [run|check] [invocation]",
           file=sys.stderr)
     return 64
 

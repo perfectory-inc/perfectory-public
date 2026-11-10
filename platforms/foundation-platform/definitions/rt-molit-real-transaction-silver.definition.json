@@ -47,7 +47,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T15:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 30,
+        "basis": "it loads what the collector changed, hourly; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): longest gap 107.0 h, the 11-05..07 run of 51 hours without a success (root ADR-0442), which this bound reports."
+      }
     }
   ],
   "assets": [

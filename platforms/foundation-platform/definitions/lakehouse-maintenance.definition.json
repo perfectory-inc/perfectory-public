@@ -41,7 +41,11 @@
       "reads_data_contracts": true,
       "enabled": true,
       "enabled_since": "2026-10-14T19:37:57Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "An operation, not a data producer: `unchanged` is its normal outcome. That it keeps finishing is the done bound."
+      }
     }
   ],
   "host_memory": {

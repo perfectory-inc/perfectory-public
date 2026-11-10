@@ -47,7 +47,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:30:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 54,
+        "basis": "court sale notices change every day (expected_cadence daily, 30 h); two daily turns. measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): longest gap 479.1 h, the 10-19..11-07 refusal (root ADR-0446), which this bound reports on its third day."
+      }
     }
   ],
   "assets": [

@@ -68,7 +68,9 @@ class Edge(http.server.BaseHTTPRequestHandler):
         pass
 
 
-class TheProbe(unittest.TestCase):
+class EdgeFixture(unittest.TestCase):
+    """A local edge, two lanes' gate samples, and the probe run against them."""
+
     def setUp(self):
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Edge)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -104,6 +106,8 @@ class TheProbe(unittest.TestCase):
     def reads(self, path):
         return sum(1 for seen, _ in Edge.seen if seen == path)
 
+
+class TheProbe(EdgeFixture):
     def test_a_healthy_edge_passes_and_every_document_and_blob_is_read_twice(self):
         self.assertEqual(self.run_probe(), 0, self.output)
         self.assertEqual(self.reads(f"{prefix('parcel')}{PNU}"), 1 + POLICY["reads"])
@@ -206,3 +210,61 @@ class TheUnits(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheWeeklyScreen(EdgeFixture):
+    """The weekly synthetic screen (root ADR-0480): for the sample PNUs, every section of the screen."""
+
+    FRESH = ('foundation_by_pnu_served_manifest_age_seconds{lane="parcel"} 3600\n'
+             'foundation_by_pnu_serving_freshness_budget_seconds{lane="parcel"} 172800\n'
+             f'foundation_by_pnu_served_manifest_age_seconds{{lane="{MEDIA_LANE}"}} 3600\n'
+             f'foundation_by_pnu_serving_freshness_budget_seconds{{lane="{MEDIA_LANE}"}} 172800\n')
+
+    def read_screen(self, textfiles=FRESH, env=None):
+        with mock.patch.dict(os.environ, env if env is not None else self.env, clear=True):
+            return probe.screen(CONTRACT, [("parcel", self.base)], textfiles)
+
+    def test_every_section_is_read_once_for_each_sample_pnu_and_a_healthy_screen_passes(self):
+        rows, failures = self.read_screen()
+        self.assertEqual(failures, [])
+        lanes = [name for name, _, _ in probe.served_lanes(CONTRACT, "parcel")]
+        self.assertEqual({row["pnu"] for row in rows}, {PNU})
+        self.assertEqual(sorted(row["lane"] for row in rows), sorted(lanes))
+        verdicts = {row["lane"]: row["verdict"] for row in rows}
+        self.assertEqual((verdicts["parcel"], verdicts[MEDIA_LANE]), ("shown", "shown"))
+        self.assertEqual({verdicts[lane] for lane in lanes if lane not in ("parcel", MEDIA_LANE)}, {"absent"})
+
+    def test_a_section_the_edge_fails_and_the_pnus_own_section_gone_fail_the_screen(self):
+        other = next(name for name, _, _ in probe.served_lanes(CONTRACT, "parcel") if name not in ("parcel", MEDIA_LANE))
+        Edge.routes[f"{prefix(other)}{PNU}"] = [SERVER_ERROR]
+        rows, failures = self.read_screen()
+        self.assertTrue(any(failure.startswith(f"{other} for a sample PNU of parcel: error") for failure in failures), failures)
+        # The parcel lane served the PNU when it was picked, then answers 404: its own section is missing.
+        Edge.routes[f"{prefix('parcel')}{PNU}"] = [DOCUMENT, (404, {}, b"")]
+        rows, failures = self.read_screen()
+        self.assertIn("missing", {row["verdict"] for row in rows if row["lane"] == "parcel"})
+
+    def test_a_lane_that_shows_data_past_its_budget_fails_and_one_behind_nothing_does_not(self):
+        stale = self.FRESH.replace('age_seconds{lane="parcel"} 3600', 'age_seconds{lane="parcel"} 900000')
+        self.assertIn("parcel shows data older than its freshness budget", self.read_screen(stale)[1])
+        # Root ADR-0444: an old manifest that is behind none of its inputs is not stale.
+        behind_nothing = stale + 'foundation_by_pnu_lane_behind_seconds{lane="parcel"} 0\n'
+        self.assertEqual(self.read_screen(behind_nothing)[1], [])
+
+    def test_the_textfile_counts_sections_by_lane_and_verdict(self):
+        rows, _ = self.read_screen()
+        text = probe.screen_textfile(rows, 1_800_000_000)
+        self.assertIn('foundation_screen_probe_sections{lane="parcel",verdict="shown"} 1', text)
+        self.assertIn("foundation_screen_probe_pnus 1", text)
+        self.assertIn("foundation_screen_probe_timestamp_seconds 1800000000", text)
+
+    def test_the_weekly_timer_runs_the_screen_and_a_failure_reaches_its_owner(self):
+        systemd = PLATFORM / "infra/systemd"
+        timer = (systemd / "foundation-by-pnu-screen-probe.timer").read_text(encoding="utf-8")
+        unit = (systemd / "foundation-by-pnu-screen-probe.service").read_text(encoding="utf-8")
+        self.assertIn("OnCalendar=Mon *-*-* 23:23:00\n", timer)
+        self.assertIn("by-pnu-edge-probe.py --screen\n", unit)
+        self.assertIn("OnFailure=foundation-unit-failed@%n.service\n", unit)
+        self.assertIn("X-Foundation-Owner=serving\n", unit)
+        release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
+        self.assertRegex(release, r"(?m)^\s*systemctl enable --now foundation-by-pnu-screen-probe\.timer$")
