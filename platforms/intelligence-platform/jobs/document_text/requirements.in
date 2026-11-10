@@ -1,0 +1,4 @@
+# The document text job's Python dependencies (root ADR-0477). Each pin equals
+# tools/technology-versions.contract.json python_requirement_pins; requirements.txt is compiled from
+# this file with hashes: uv pip compile requirements.in --generate-hashes --python-version 3.14 --python-platform x86_64-unknown-linux-gnu -o requirements.txt
+pdfplumber==0.11.10

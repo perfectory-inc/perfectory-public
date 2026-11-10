@@ -1,0 +1,58 @@
+{
+  "$comment": "Foundation 이 intelligence platform 에 넘기는 문서와, intelligence 가 돌려주는 텍스트·사실의 계약 하나(루트 ADR-0477). 문서 텍스트 작업(jobs/document_text)이 이 파일을 읽는다. 각 표는 쓰는 쪽이 하나다: inputs 는 foundation 만 쓰고 intelligence 는 읽기만, outputs 는 intelligence 만 쓰고 foundation 은 읽기만 한다. 두 쪽이 함께 쓰는 표는 없다.",
+  "schema_version": "intelligence-platform.document-extraction.v1",
+  "inputs": {
+    "attachment_index": {
+      "$comment": "산업단지 고시 첨부의 Silver 색인(루트 ADR-0456 §4). 고시·해시마다 한 줄, append-only. 이 작업은 sha256·media_format·notice_sequence 만 읽는다.",
+      "owner": "foundation-platform",
+      "table": "silver.industrial_complex_notice_attachment",
+      "columns": ["notice_sequence", "sha256", "media_format", "size_bytes"]
+    },
+    "media_store": {
+      "$comment": "첨부 바이트는 공용 내용주소 저장소의 sha256/<해시>.<media_format> 에 한 번만 있다(루트 ADR-0298·ADR-0429 §1). 접두사는 foundation 계약이 정본이다.",
+      "owner": "foundation-platform",
+      "object_prefix_from": "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/media/object_prefix",
+      "object_key_pattern": "{object_prefix}/sha256/{sha256}.{media_format}"
+    },
+    "place_identity": {
+      "$comment": "필지는 안정 place_id 로만 조인한다(루트 ADR-0288 §5). intelligence 는 PNU 를 스스로 만들지 않는다: 문서에서 읽은 지번은 원문 그대로 사실로 돌려주고, place_id 해석은 foundation 의 유일한 해석기가 법정동 코드 변경(ADR-0329 §3)을 따라 한다.",
+      "owner": "foundation-platform",
+      "tables": ["gold.place_id_registry", "gold.place_id_bridge"]
+    }
+  },
+  "outputs": {
+    "$comment": "intelligence 가 쓰는 append-only 표. 이름공간 intelligence 는 intelligence 작업만 쓴다. 열쇠는 (sha256, extractor_version): 같은 바이트는 같은 추출기 판으로 한 번만 읽힌다. 판을 올리는 것은 전량 재처리이므로 ADR 에 이유와 측정 비용을 적는 선언된 예외다.",
+    "document_text_outcome": {
+      "table": "intelligence.document_text_outcome",
+      "key": ["sha256", "extractor_version"],
+      "columns": ["sha256", "extractor_version", "media_format", "outcome", "page_count", "ocr_page_count", "char_count", "error", "elapsed_ms", "extracted_at_utc"],
+      "outcomes": ["text", "partial_ocr", "ocr", "empty", "unsupported_format", "failed"]
+    },
+    "document_text_page": {
+      "$comment": "쪽마다 한 줄. char_start·char_end 는 문서 전체 텍스트(쪽을 \\f 로 이은 것)의 위치다. 인용은 (sha256, page_number, char_start, char_end) 이고 그 구간의 글자가 인용문과 같아야 유효하다.",
+      "table": "intelligence.document_text_page",
+      "key": ["sha256", "extractor_version", "page_number"],
+      "columns": ["sha256", "extractor_version", "page_number", "char_start", "char_end", "method", "text"],
+      "methods": ["text_layer", "ocr"]
+    },
+    "document_fact": {
+      "$comment": "사실 한 줄 = 값 하나와 그 인용 하나. rule 이 먼저, 나머지만 local_llm. accuracy_gate 를 넘기 전에는 foundation 이 화면에 싣지 않는다(루트 ADR-0477 §4). 아직 쓰는 작업이 없다.",
+      "table": "intelligence.document_fact",
+      "key": ["sha256", "extractor_version", "fact_kind", "fact_index"],
+      "columns": ["sha256", "extractor_version", "fact_kind", "fact_index", "value_json", "page_number", "char_start", "char_end", "quote", "method", "model", "extracted_at_utc"],
+      "methods": ["rule", "local_llm"],
+      "accuracy_gate": {"hand_checked_sample_min": 30, "min_precision": 0.98}
+    }
+  },
+  "document_text": {
+    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --skip-text, Tesseract kor). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다).",
+    "extractor_version": "document-text.v1",
+    "pdf_formats": ["pdf"],
+    "converted_formats": ["hwp", "hwpx"],
+    "ocr_below_chars": 20,
+    "ocr_languages": "kor+eng",
+    "convert_timeout_seconds": 180,
+    "ocr_timeout_seconds": 900,
+    "per_run_limit": 400
+  }
+}

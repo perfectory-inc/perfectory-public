@@ -884,7 +884,22 @@ const AREAS: &[Area] = &[
             "libcurl4-openssl-dev",
             "zlib1g-dev",
         ],
-        python_tests: &[],
+        // The document text job (root ADR-0477): its own logic, stdlib only; the tools it
+        // drives are measured in its image.
+        python_tests: &[PythonTests {
+            dir: "jobs/document_text",
+            python_path: Some("."),
+            args: &[
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests",
+                "-p",
+                "test_*.py",
+            ],
+            covers: &["jobs/document_text/tests"],
+        }],
         node_tests: &[],
 
         live_lanes: &[
