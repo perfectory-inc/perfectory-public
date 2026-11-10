@@ -938,7 +938,11 @@
         "uncapped": [
           {
             "what": "ollama.service",
-            "why": "A systemd service, not a container, with MemoryMax=infinity. Models larger than the 8GB GPU spill into host memory; the largest pulled model is 23GB. Left uncapped by decision on 2026-10-01: loading a large model while Spark loads can exhaust the host, and nothing here prevents it."
+            "why": "A systemd service an operator installed by hand (2026-09-11), MemoryMax=infinity, listening on 0.0.0.0:11434; its cgroup peaked at 29.7 GiB. Replaced by intelligence-model-runtime-ollama.service (systemd_units, 24G, batch class, started only under a spark-pool job): foundation-release.sh timers disables it when it holds no loaded model, and a later deploy retries when it does (root ADR-0478 §2). Until then a large model loaded beside a Spark load can exhaust the host."
+          },
+          {
+            "what": "ollama serve on *:11435 (perfectory's login session)",
+            "why": "A second Ollama an operator started by hand in a login session on 2026-09-19 to try qwen3.8 (ITP-ADR-0006), with its models on the HDD (/data/ollama-models, 99 GB, gpt-oss:120b among them). No unit, so no cap; idle on 2026-11-11 (22 MB). It is not part of any release; stopping it and removing its models is an operator's step (root ADR-0478 §2)."
           },
           {
             "what": "martin-static, martin-complex",
@@ -1410,6 +1414,13 @@
             "memory_max": "5G",
             "measured_peak": "3175M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 7 runs, highest 2026-11-06 (foundation-zoning-tile-bake)"
+          },
+          "intelligence-model-runtime-ollama.service": {
+            "class": "batch",
+            "memory_max": "24G",
+            "measured_peak": "29655M",
+            "measured": "the hand-installed ollama.service this unit replaces, cgroup MemoryPeak 2026-09-11..11-11 (31,842,312,192 bytes, page cache of the model files included, with up to three models loaded at once); the 35B-A3B Q4 run of 2026-11-11 (16 ILIS notices, root ADR-0478) held 21.4 GB with 5.5 GB of the model on the GPU",
+            "headroom_why": "A decided bound, not 1.5 x the old peak: one model at a time (OLLAMA_MAX_LOADED_MODELS=1) and the largest is 23 GB, of which about 5.5 GB sits in VRAM; the model files are mapped, so under MemoryHigh the kernel drops their pages and reads them again instead of killing. 24G is the most one unit may hold beside every standing service and host_reserved, and the unit runs only under a job that holds the whole spark pool (root ADR-0478 §2)"
           }
         }
       },

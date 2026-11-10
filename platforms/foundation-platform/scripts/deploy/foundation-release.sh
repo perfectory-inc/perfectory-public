@@ -1023,6 +1023,30 @@ prepare_job_state_directories() {
   systemd-tmpfiles --create /etc/tmpfiles.d/foundation-job-state.conf
 }
 
+retire_hand_installed_ollama() {
+  # The Ollama an operator installed on 2026-09-11 runs all day with no memory cap on 0.0.0.0:11434
+  # (cgroup peak 29.7 GiB); intelligence-model-runtime-ollama.service replaces it under a cap and only
+  # while a spark-pool job needs it (root ADR-0478 §2). A model it holds is someone's request in
+  # progress, so that deploy leaves it and the next one retires it. The unit file stays, disabled.
+  local loaded running
+  # The host's one answer to whether a unit runs (job_units.py); no answer retires nothing.
+  running="$(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" running ollama.service)" || return 0
+  systemctl is-enabled --quiet ollama.service 2>/dev/null || [[ -n "${running}" ]] || return 0
+  if [[ -n "${running}" ]]; then
+    if ! loaded="$(curl -fsS --max-time 5 http://127.0.0.1:11434/api/ps 2>/dev/null \
+      | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin).get("models") or []))')"; then
+      printf 'foundation-release: ollama.service does not answer; it is retired by a later deploy\n' >&2
+      return 0
+    fi
+    if [[ "${loaded}" != 0 ]]; then
+      printf 'foundation-release: ollama.service holds %s model(s); it is retired by a later deploy\n' "${loaded}" >&2
+      return 0
+    fi
+  fi
+  systemctl disable --now ollama.service || return 0
+  printf 'foundation-release: retired the hand-installed ollama.service; the model runtime is intelligence-model-runtime-ollama.service\n'
+}
+
 install_lakehouse_migration_unit() {
   install -o root -g root -m 0644 -t /etc/systemd/system \
     "${release_root}/current/infra/systemd/foundation-lakehouse-migrate.service"
@@ -1328,6 +1352,8 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     systemctl enable --now foundation-service-checks.timer
     # The daily readiness report (root ADR-0442): a host check too.
     systemctl enable --now foundation-readiness-report.timer
+    # The model runtime is the release's capped unit, started only under a spark-pool job (root ADR-0478 §2).
+    retire_hand_installed_ollama
     # An operator's run-now request is started when foundation-api writes it (root ADR-0282 §4).
     systemctl enable --now foundation-run-now.path
     # A by-PNU lane whose Gold is ready publishes itself (root ADR-0435): a host controller, not a data job.
