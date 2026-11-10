@@ -28,6 +28,7 @@ from typing import Any, Mapping, Sequence
 
 import address_pnu
 import code_change_follow as follow
+import place_identity_resolver
 
 JOB_NAME = "data_go_kr_registered_factory"
 TABLE = "silver.registered_factory"
@@ -218,7 +219,8 @@ def follow_code_changes(spark: Any, catalog: str, table: str, prefixes: Mapping[
             [(n, r["source_record_id"], r["source_snapshot_id"]) for n, r in enumerate(rows)],
             schema="row_id int, source_record_id string, source_snapshot_id string")
         offered = spark.createDataFrame(relinked_offers(rows, prefixes, dongs), schema=OFFERED_SCHEMA)
-        staged = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, catalog))
+        staged = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, catalog),
+                                          place_identity_resolver.pairs_from_lakehouse(spark, catalog)[0])
                   .join(kept, "row_id")
                   .withColumn("ingested_at_utc", instant)
                   .select(*columns))
@@ -304,12 +306,15 @@ def _load(argv: Sequence[str]) -> int:
                   "'write.parquet.compression-codec' = 'zstd')")
         evolve_iceberg_table_to_contract(spark, table, contract)
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+        # Root ADR-0480 §1: a jibun the served edition holds under an earlier form of its code.
+        remap, _ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         for entry in objects:
             snapshot, rows = read_member(entry["path"].read_bytes(), source)
             check_bounds(len(rows), latest_edition_rows(spark, table), source)
             offered = spark.createDataFrame(factory_rows(rows, prefixes, dongs), schema=OFFERED_SCHEMA)
-            resolved = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name))
+            resolved = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name),
+                                               remap)
                         .withColumn("source_record_id", F.lit(entry["object_key"]))
                         .withColumn("source_snapshot_id", F.lit(snapshot))
                         .withColumn("ingested_at_utc", F.lit(now).cast("timestamp"))

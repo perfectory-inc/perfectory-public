@@ -200,12 +200,103 @@ def under_changed_codes(frames: Sequence[Any], before: Iterable[Mapping[str, Any
     return reduce(lambda a, b: a.unionByName(b), [frame.where(under).select(*key) for frame in frames])
 
 
+def served_forms(remap: Mapping[str, str]) -> list[tuple[str, str, int]]:
+    """(code, an earlier form of it, rank) for every code a recorded pair touches (root ADR-0480 §1).
+
+    The served cadastral edition can predate a code change: on 2026-11-11 it was 202606 while the
+    2026-07-01 전남광주·인천 pairs were in force, so a parcel the map serves still carried the old
+    code (4611010100…) while the resolver asked only for the current one (1211010100…) and left
+    6,020 경매 items and 4,122 공매 rounds unplaced. A code's earlier forms are the ones a
+    reader may find the served parcel under once its current form is not served: rank 1 is the
+    code itself when it is superseded (the source gave an old code), rank 2 every other code the
+    pairs carry to the same current code (the source gave the new code, or one sibling of a merge).
+    The current form, rank 0, is not listed: every reader tries it first.
+    """
+
+    earlier: dict[str, set[str]] = {}
+    for old, current in remap.items():
+        earlier.setdefault(current, set()).add(old)
+    out: list[tuple[str, str, int]] = []
+    for code in sorted(set(remap) | set(earlier)):
+        current = remap.get(code, code)
+        if current != code:
+            out.append((code, code, 1))
+        out.extend((code, old, 2) for old in sorted(earlier.get(current, ())) if old != code)
+    return out
+
+
 def candidate_pnus(pnus: Iterable[str | None], remap: Mapping[str, str], ambiguous: Iterable[str]) -> set[str]:
     """Every pnu ``resolve`` asks the parcel set about for these source codes: each code carried to its
-    current legal-dong code; a code that splits asks about nothing."""
+    current legal-dong code, and its earlier forms (``served_forms``); a code that splits asks about
+    nothing."""
 
     split = set(ambiguous)
-    return {with_current_code(pnu, remap.get(pnu[:10], pnu[:10])) for pnu in pnus if pnu and pnu[:10] not in split}
+    forms: dict[str, list[str]] = {}
+    for code, form, _rank in served_forms(remap):
+        forms.setdefault(code, []).append(form)
+    asked: set[str] = set()
+    for pnu in pnus:
+        if not pnu or pnu[:10] in split:
+            continue
+        asked.add(with_current_code(pnu, remap.get(pnu[:10], pnu[:10])))
+        asked.update(with_current_code(pnu, form) for form in forms.get(pnu[:10], ()))
+    return asked
+
+
+# The grade of a pnu found under an earlier form of its code because the served edition predates the
+# change (root ADR-0480 §1). It is exact about the land: the pair says the two codes are one place.
+SERVED_EDITION_GRADE = "code_served_edition"
+
+
+def held_forms(frame: Any, column: str, remap: Mapping[str, str], parcels: Any) -> Any:
+    """``frame`` with ``_served_form``: the served parcel ``column``'s pnu names under an earlier form
+    of its legal-dong code (``served_forms``), the lowest rank first, and ``_served_ambiguous`` when
+    that rank holds more than one (a merge whose two old dongs both had the lot). Null for a row
+    whose code has no earlier form or none is served; the caller tries the current form first.
+    Keyed by the pnu itself, so the result does not depend on how ``frame`` is partitioned."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    spark = frame.sparkSession
+    forms = F.broadcast(spark.createDataFrame(served_forms(remap), "_code10 string, _form10 string, _rank int"))
+    held = parcels.select(F.col("pnu").alias("_form")).distinct()
+    asked = frame.select(F.col(column).alias("_asked")).where(F.col("_asked").isNotNull()).distinct()
+    found = (asked.join(forms, F.substring("_asked", 1, 10) == F.col("_code10"))
+             .withColumn("_form", F.concat(F.col("_form10"), F.substring("_asked", 11, 9)))
+             .join(held, "_form", "left_semi")
+             .groupBy("_asked", "_rank").agg(F.count("*").alias("_n"), F.min("_form").alias("_form"))
+             .groupBy("_asked").agg(F.min(F.struct("_rank", "_n", "_form")).alias("_best"))
+             .select("_asked", F.col("_best._form").alias("_served_form"),
+                     (F.col("_best._n") > 1).alias("_served_ambiguous")))
+    return (frame.join(found, F.col(column) == F.col("_asked"), "left").drop("_asked")
+            .withColumn("_served_ambiguous", F.coalesce(F.col("_served_ambiguous"), F.lit(False)))
+            .withColumn("_served_form", F.when(~F.col("_served_ambiguous"), F.col("_served_form"))))
+
+
+def served_form_candidates(spark: Any, sources: Iterable[str], remap: Mapping[str, str], served: Any,
+                           lineage: Any | None = None) -> Any:
+    """The lineage-candidate rows (``successor_pnu, source_pnu, hop, path``) that place a Gold source
+    pnu its current form is not served under on the served parcel an earlier form of its code names
+    (``held_forms``; path ``SERVED_EDITION_GRADE``), for the sources ``lineage`` gives no candidate.
+    A Gold build carries every pnu to the current code (``located``) and places it on the served
+    edition (root ADR-0291 §5); this is the step between the two when the edition is older than the
+    pair (root ADR-0480 §1). The rows are few: the sources whose code a pair touches."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    touched = {code for code, _form, _rank in served_forms(remap)}
+    asked = sorted({pnu for pnu in sources if pnu and pnu[:10] in touched})
+    schema = "successor_pnu string, source_pnu string, hop int, path string"
+    if not asked:
+        return F.broadcast(spark.createDataFrame([], schema))
+    frame = spark.createDataFrame([(pnu,) for pnu in asked], "source_pnu string")
+    if lineage is not None:
+        frame = frame.join(lineage.select("source_pnu").distinct(), "source_pnu", "left_anti")
+    current = served.select(F.col("pnu").alias("source_pnu")).distinct()
+    frame = frame.join(current, "source_pnu", "left_anti")
+    found = held_forms(frame, "source_pnu", remap, served).where(F.col("_served_form").isNotNull())
+    return F.broadcast(found.select(F.col("_served_form").alias("successor_pnu"), "source_pnu",
+                                    F.lit(0).alias("hop"), F.lit(SERVED_EDITION_GRADE).alias("path")).cache())
 
 
 def served_parcels_among(spark: Any, catalog: str, pnus: Iterable[str]) -> Any:
@@ -252,21 +343,28 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
     out = out.join(parcels.select(F.col("pnu").alias("_candidate")).distinct().withColumn("_held", F.lit(True)),
                    "_candidate", "left")
     held = F.coalesce(F.col("_held"), F.lit(False))
+    # The current form not served: the served edition may hold the parcel under an earlier form of
+    # the code (root ADR-0480 §1). Asked by the source pnu, whose code `served_forms` is keyed by.
+    out = held_forms(out.withColumn("_source", F.when(~held & ~is_ambiguous, F.col("pnu"))), "_source", remap, parcels)
+    served = ~held & F.col("_served_form").isNotNull()
+    placed = held | served
     return (out
             .withColumn("place_identity_grade",
-                        F.when(~held & superseded & ~is_ambiguous, F.lit("code_superseded_parcel_absent"))
+                        F.when(served, F.lit(SERVED_EDITION_GRADE))
+                        .when(~held & superseded & ~is_ambiguous, F.lit("code_superseded_parcel_absent"))
                         .when(held & superseded, F.lit("code_superseded"))
                         .when(held, F.lit("code_exact"))
                         .otherwise(F.lit("unresolved")))
             .withColumn("pnu_unresolved_reason",
-                        F.when(held, F.lit(None).cast("string"))
+                        F.when(placed, F.lit(None).cast("string"))
                         .when(F.col("pnu").isNull(), F.lit("no_source_code"))
-                        .when(is_ambiguous, F.lit("code_subdivision_ambiguous"))
+                        .when(is_ambiguous | F.col("_served_ambiguous"), F.lit("code_subdivision_ambiguous"))
                         .otherwise(F.lit("parcel_absent")))
-            .withColumn("pnu", F.when(held, F.col("_candidate")))
-            .transform(lambda frame: frame.withColumn("pnu_candidate", F.when(~held, F.col("_candidate")))
+            .withColumn("pnu", F.when(held, F.col("_candidate")).when(served, F.col("_served_form")))
+            .transform(lambda frame: frame.withColumn("pnu_candidate", F.when(~placed, F.col("_candidate")))
                        if keep_candidate else frame)
-            .drop("_code10", "current_code", "_amb", "_candidate", "_held"))
+            .drop("_code10", "current_code", "_amb", "_candidate", "_held", "_source", "_served_form",
+                  "_served_ambiguous"))
 
 
 # --- masked lots: inference by evidence (root ADR-0351) -------------------------------------------

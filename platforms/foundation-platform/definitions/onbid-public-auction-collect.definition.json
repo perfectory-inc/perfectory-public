@@ -225,12 +225,13 @@
         "platforms/foundation-platform/scripts/ops/onbid-collect.sh",
         "platforms/foundation-platform/scripts/ops/onbid-silver-load.sh",
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
       ],
       "source_slugs": [
         "datagokr__onbid_real_estate_item"
       ],
-      "description": "3시간마다 열린 물건 전수를 Bronze 에 받고, 내용이 바뀐 회차와(전수가 완전할 때만) 빠진 회차의 삭제 표지를 쌓는다."
+      "description": "3시간마다 열린 물건 전수를 Bronze 에 받고, 내용이 바뀐 회차와(전수가 완전할 때만) 빠진 회차의 삭제 표지를 쌓는다. 필지는 원천 코드(ltnoPnu)로 먼저, 없거나 못 이으면 물건명의 주소(지번, 도로명)로 놓는다(ADR-0480)."
     },
     {
       "from": "source-data-go-kr-onbid",

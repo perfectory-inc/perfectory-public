@@ -399,7 +399,7 @@ def link(frame: Any, entry: Mapping[str, Any], inputs: LinkInputs) -> Any:
         offers = spark.createDataFrame(offered, "row_id int, row_key string, jibun_pnu string, legal_dong_code string, "
                                                 "reason string, road_sido string, road_sigungu string, road_name string, "
                                                 "road_main_no int, road_sub_no int")
-        resolved = address_pnu.resolve(offers, *inputs.lakehouse).select(
+        resolved = address_pnu.resolve(offers, *inputs.lakehouse, inputs.pairs[0]).select(
             "row_key", "pnu", "pnu_basis", "pnu_unresolved_reason",
             F.coalesce(F.col("legal_dong_code"), F.substring("pnu", 1, 10)).alias("legal_dong_code"))
         return frame.join(resolved, "row_key", "left")

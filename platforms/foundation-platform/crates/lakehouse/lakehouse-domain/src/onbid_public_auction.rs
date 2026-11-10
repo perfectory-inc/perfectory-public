@@ -93,6 +93,11 @@ const SILVER_ONBID_REAL_ESTATE_ITEM_COLUMNS: &[LakehouseColumn] = &[
     column("subt_bid_psbl_yn", "string", false),
     column("evc_rsby_trgt_cont", "string", false),
     column("fee_rate", "double", false),
+    // Root ADR-0480 §2: the step that placed the item (`legal_dong_code`, `legal_dong_code_superseded`,
+    // `legal_dong_code_served_edition` on the provider's ltnoPnu; `jibun_address`, `road_address` on
+    // the address its item name gives when the provider gives no code), or why none did.
+    column("pnu_basis", "string", false),
+    column("pnu_unresolved_reason", "string", false),
 ];
 
 /// Every open item condition of every real-estate list pass, as its content changes.
@@ -116,6 +121,7 @@ pub const SILVER_ONBID_REAL_ESTATE_ITEM: LakehouseTableContract = LakehouseTable
     quality_gates: &[
         "append_only",
         "pnu is null or passes Pnu::parse",
+        "pnu is set exactly when pnu_basis is set and pnu_unresolved_reason is not",
         "(cltr_mng_no, pbct_cdtn_no, source_snapshot_id) unique",
         "removal markers only from a complete pass",
     ],

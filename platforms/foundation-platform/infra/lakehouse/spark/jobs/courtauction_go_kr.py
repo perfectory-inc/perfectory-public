@@ -355,11 +355,11 @@ def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
+    remap, ambiguous = crosswalk
     resolved = address_pnu.resolve(
         offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
-        parcels, titles)
+        parcels, titles, remap)
     if "source_code_pnu_raw" in names:
-        remap, ambiguous = crosswalk
         by_code = place_identity_resolver.resolve(
             offered.select("row_id", F.col("source_code_pnu_raw").alias("pnu")), remap, ambiguous, parcels
         ).select("row_id", F.col("pnu").alias("_code_pnu"), F.col("place_identity_grade").alias("_grade"))
@@ -369,6 +369,8 @@ def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
                     .withColumn("pnu", F.coalesce(F.col("_code_pnu"), F.col("pnu")))
                     .withColumn("pnu_basis", F.when(by_code_ok & (F.col("_grade") == F.lit("code_superseded")),
                                                     F.lit("legal_dong_code_superseded"))
+                                .when(by_code_ok & (F.col("_grade") == F.lit(place_identity_resolver.SERVED_EDITION_GRADE)),
+                                      F.lit("legal_dong_code_served_edition"))
                                 .when(by_code_ok, F.lit("legal_dong_code")).otherwise(F.col("pnu_basis")))
                     .withColumn("pnu_candidate_count", F.when(by_code_ok, F.lit(1)).otherwise(F.col("pnu_candidate_count")))
                     .withColumn("pnu_unresolved_reason",

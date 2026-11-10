@@ -271,19 +271,30 @@ def lakehouse_inputs(spark: Any, catalog: str) -> tuple[Any, Any]:
     return parcels, titles
 
 
-def resolve(frame: Any, parcels: Any, titles: Any) -> Any:
+def resolve(frame: Any, parcels: Any, titles: Any, remap: Mapping[str, str] | None = None) -> Any:
     """Adds pnu, pnu_basis, pnu_unresolved_reason and pnu_candidate_count to ``frame``.
 
     ``frame`` carries ``row_id`` and the output of ``candidates`` flattened: ``jibun_pnu``,
     ``road_sido``, ``road_sigungu``, ``road_name``, ``road_main_no``, ``road_sub_no``, ``reason``.
     ``parcels`` holds the current parcels' ``pnu``; ``titles`` the register's ``pnu`` and
-    ``road_address_raw`` (``lakehouse_inputs``).
+    ``road_address_raw`` (``lakehouse_inputs``). ``remap`` (old -> current legal-dong code) lets a
+    jibun whose current form the served edition does not hold be found under an earlier form of its
+    code (`place_identity_resolver.held_forms`, root ADR-0480 §1): the names are read against the
+    current codes, the served edition may still carry the old ones.
     """
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     jibun = (frame.where(F.col("jibun_pnu").isNotNull()).select("row_id", "jibun_pnu")
              .join(parcels.withColumnRenamed("pnu", "jibun_pnu").withColumn("_held", F.lit(True)), "jibun_pnu", "left"))
+    if remap:
+        import place_identity_resolver  # noqa: PLC0415 - the one resolver's form search, not restated
+
+        jibun = (place_identity_resolver.held_forms(
+            jibun.withColumn("_absent", F.when(F.col("_held").isNull(), F.col("jibun_pnu"))), "_absent", remap, parcels)
+            .withColumn("_held", F.when(F.col("_served_form").isNotNull(), F.lit(True)).otherwise(F.col("_held")))
+            .withColumn("jibun_pnu", F.coalesce(F.col("_served_form"), F.col("jibun_pnu")))
+            .drop("_absent", "_served_form", "_served_ambiguous"))
     titles = (titles
               .where(F.col("pnu").isNotNull() & (F.col("road_address_raw") != ""))
               .select(F.substring("pnu", 1, 2).alias("road_sido"),
@@ -296,7 +307,7 @@ def resolve(frame: Any, parcels: Any, titles: Any) -> Any:
               .agg(F.countDistinct("pnu").alias("_pnus"), F.first("pnu").alias("_road_pnu")))
     keys = ["road_sido", "road_sigungu", "road_name", "road_main_no", "road_sub_no"]
     road = frame.where(F.col("road_name").isNotNull()).select("row_id", *keys).join(titles, keys, "left")
-    out = (frame.join(jibun.select("row_id", "_held"), "row_id", "left")
+    out = (frame.drop("jibun_pnu").join(jibun.select("row_id", "jibun_pnu", "_held"), "row_id", "left")
            .join(road.select("row_id", "_pnus", "_road_pnu"), "row_id", "left"))
     jibun_ok = F.col("jibun_pnu").isNotNull() & F.col("_held")
     road_ok = F.col("_pnus") == 1

@@ -293,11 +293,21 @@ schema:
         physicalType: "double"
         logicalType: "number"
         required: false
+      - name: "pnu_basis"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "pnu_unresolved_reason"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
     quality:
       - type: "text"
         description: "append_only"
       - type: "text"
         description: "pnu is null or passes Pnu::parse"
+      - type: "text"
+        description: "pnu is set exactly when pnu_basis is set and pnu_unresolved_reason is not"
       - type: "text"
         description: "(cltr_mng_no, pbct_cdtn_no, source_snapshot_id) unique"
       - type: "text"

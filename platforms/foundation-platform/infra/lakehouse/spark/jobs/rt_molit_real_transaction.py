@@ -293,17 +293,19 @@ def read_export(entry: Mapping[str, Any], csv_contract: Mapping[str, Any], inges
 
 def candidate_pnus(rows: Iterable[Mapping[str, Any]], dongs: Mapping[str, str], remap: Mapping[str, str]) -> set[str]:
     """Every PNU the resolver can ask the parcel set about for these rows: each unmasked lot's
-    candidate under its source code and under the current code the crosswalk carries it to."""
+    candidate under its source code, under the current code the crosswalk carries it to, and under
+    the earlier forms of that code the served edition may still hold (root ADR-0480 §1)."""
 
-    found: set[str] = set()
+    import place_identity_resolver  # noqa: PLC0415
+
+    lots: set[str] = set()
     for row in rows:
         code, _ = legal_dong_code(row, dongs)
         _, lot = lot_of(row)
         pnu = candidate_pnu(code, lot)
         if pnu:
-            found.add(pnu)
-            found.add(remap.get(pnu[:10], pnu[:10]) + pnu[10:])
-    return found
+            lots.add(pnu)
+    return lots | place_identity_resolver.candidate_pnus(lots, remap, ())
 
 
 def rejected_share(rows: int, rejected: int) -> float:

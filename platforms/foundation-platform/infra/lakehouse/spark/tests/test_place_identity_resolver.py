@@ -87,11 +87,39 @@ class ReconstructPnu(unittest.TestCase):
 
 
 class CandidatePnus(unittest.TestCase):
-    def test_the_parcel_set_is_asked_only_about_the_current_form_of_each_code(self) -> None:
-        # Root ADR-0390: the run reads only these PNUs of the ~40M current parcels.
+    def test_the_parcel_set_is_asked_about_the_current_form_and_the_earlier_forms_of_each_code(self) -> None:
+        # Root ADR-0390: the run reads only these PNUs of the ~40M current parcels. Root ADR-0480 §1:
+        # the served edition may predate the pair, so the source's own old form is asked too.
         asked = r.candidate_pnus(["9999900100109120008", "9999900300100010000", "9999902000100020000", None, ""],
                                  {"9999900100": "9999900200"}, {"9999902000"})
-        self.assertEqual(asked, {"9999900200109120008", "9999900300100010000"})
+        self.assertEqual(asked, {"9999900200109120008", "9999900100109120008", "9999900300100010000"})
+
+    def test_a_new_code_asks_about_the_old_codes_that_carry_to_it(self) -> None:
+        # Synthetic merge: 97·98 dongs became one 96 dong. A source giving the new code asks the old forms.
+        remap = {"9700010100": "9600010100", "9800010100": "9600010100"}
+        self.assertEqual(r.candidate_pnus(["9600010100100070000"], remap, set()),
+                         {"9600010100100070000", "9700010100100070000", "9800010100100070000"})
+
+
+class ServedForms(unittest.TestCase):
+    """Root ADR-0480 §1: a code's earlier forms, the source's own old code before its siblings."""
+
+    def test_an_old_code_is_its_own_first_earlier_form_and_a_sibling_comes_second(self) -> None:
+        remap = {"9700010100": "9600010100", "9800010100": "9600010100"}
+        self.assertEqual(r.served_forms(remap), [
+            ("9600010100", "9700010100", 2), ("9600010100", "9800010100", 2),
+            ("9700010100", "9700010100", 1), ("9700010100", "9800010100", 2),
+            ("9800010100", "9800010100", 1), ("9800010100", "9700010100", 2),
+        ])
+
+    def test_a_chain_lists_every_code_that_carries_to_the_current_one(self) -> None:
+        remap = {"9999900100": "9999900300", "9999900200": "9999900300"}  # 100 -> 200 -> 300, flattened
+        forms = {(code, form) for code, form, _ in r.served_forms(remap)}
+        self.assertIn(("9999900300", "9999900100"), forms)
+        self.assertIn(("9999900300", "9999900200"), forms)
+
+    def test_no_pair_no_form(self) -> None:
+        self.assertEqual(r.served_forms({}), [])
 
 
 class CodeLotPnu(unittest.TestCase):
