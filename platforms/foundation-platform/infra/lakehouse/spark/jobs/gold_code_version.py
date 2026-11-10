@@ -36,7 +36,7 @@ The rebuild contract's `code_version` (contracts/gold-panel-rebuild.contract.jso
 - `scoped_contracts`: a registry many tables share (every table's columns, every by-PNU lane) counts
   only at the entries this table reads: the parts it `keep`s, and under each `entries` path the
   entries its selector picks: `tables` (the Gold table and its inputs) or `lanes` (the by-PNU lanes
-  whose Gold or host panel is the table). An edit to another table's entry is not this table's code.
+  whose Gold is the table, or whose host panel is and which have no producer of their own). An edit to another table's entry is not this table's code.
 
 The value is JSON `{"sha256": <of the whole>, "parts": {<path>[::<symbol>]: <sha256 prefix>}}`: the
 planner names the symbols and contracts that changed.
@@ -205,7 +205,11 @@ def _picks(selector: str, key: str, entry: Any, table: str, tables: set[str]) ->
         return key in tables
     from by_pnu_kinds import HOST_PANELS
     entry = entry if isinstance(entry, dict) else {}
-    return table in {entry.get("gold_table"), "gold." + key.replace("-", "_"), HOST_PANELS.get(entry.get("host"))}
+    # A kind with its own producer shares its host panel's lane but is no section of it (root ADR-0287):
+    # the panel never reads its line (2026-11-09 18:49Z: adding parcel-nearby rebuilt gold.parcel_panel
+    # whole, 8,679 s, and every lane's cut-over waited for the rebuild lock).
+    host_panel = HOST_PANELS.get(entry.get("host")) if entry.get("producer") is None else None
+    return table in {entry.get("gold_table"), "gold." + key.replace("-", "_"), host_panel}
 
 
 def _scoped(document: Any, rule: dict[str, Any], table: str, tables: set[str]) -> dict[str, Any]:

@@ -196,6 +196,14 @@ class Version(unittest.TestCase):
         panel = tree.version(scoped=scoped, table="gold.parcel_panel")
         tree.write("contracts/lanes.json", json.dumps({"by_pnu_lanes": {**lanes["by_pnu_lanes"], "u": {"host": "parcel_by_pnu_gateway"}}}))
         self.assertFalse(code.same(panel, tree.version(scoped=scoped, table="gold.parcel_panel")))
+        # A kind with its own producer is not: 2026-11-09 18:49Z, adding parcel-nearby rebuilt gold.parcel_panel whole.
+        tree.write("contracts/lanes.json", json.dumps(lanes))
+        own = {**lanes["by_pnu_lanes"], "v": {"host": "parcel_by_pnu_gateway", "producer": "v_silver_to_gold", "x": 3}}
+        tree.write("contracts/lanes.json", json.dumps({"by_pnu_lanes": own}))
+        self.assertTrue(code.same(panel, tree.version(scoped=scoped, table="gold.parcel_panel")))
+        kind = tree.version(scoped=scoped, table="gold.v")
+        tree.write("contracts/lanes.json", json.dumps({"by_pnu_lanes": {**own, "v": {**own["v"], "x": 4}}}))
+        self.assertFalse(code.same(kind, tree.version(scoped=scoped, table="gold.v")))
 
     def test_the_contract_names_only_existing_plumbing_modules_and_known_selectors_with_reasons(self):
         declared = code.settings(rebuild.load_contract())
