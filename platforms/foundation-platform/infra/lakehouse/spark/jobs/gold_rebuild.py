@@ -459,6 +459,11 @@ def plan(table: str, entry: dict[str, Any], inputs: tuple, gold: dict[str, Any] 
     missing = [name for name in required if silver.get(name) is None]
     if missing:
         raise PlanError(f"{table}: required Silver inputs do not exist: {missing}")
+    # A table created but never committed to has no snapshot to pin; the producer refused its null pin
+    # under Spark (2026-11-10 parcel-nearby, six Silver tables a failed data.go.kr load left empty).
+    uncommitted = [name for name in required if silver[name].get("head") is None]
+    if uncommitted:
+        raise PlanError(f"{table}: required Silver inputs exist but were never loaded (no snapshot): {uncommitted}")
     accepted = entry.get("absent_inputs_accepted", {})
     # An optional input no run was measured with is not read by a real rebuild: the Gold is built
     # without it, as if it were absent, and the plan says so. Only a dry run reads it, which is how
