@@ -949,6 +949,16 @@ fn data_go_kr_file_data_collect_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The 주소정보 전자지도 daily-change collector (root ADR-0475).
+#[test]
+fn juso_electronic_map_collect_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "collect-juso-electronic-map"])?,
+        Command::CollectJusoElectronicMap
+    );
+    Ok(())
+}
+
 /// The Silver load plan: what a table still owes from its Bronze sources, read from R2 (ADR-0280).
 #[test]
 fn plan_silver_load_objects_command_is_explicit() -> anyhow::Result<()> {

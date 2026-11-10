@@ -1,0 +1,359 @@
+use chrono::{NaiveDate, TimeZone, Utc};
+use uuid::Uuid;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+use super::{
+    answer_code, ask, check_file, classify, last_day, plan, provider_file_id, read_cursor,
+    read_header, source_contract, take_records, windows, Outcome, Received,
+};
+use foundation_shared_kernel::ids::IngestionRunId;
+
+// Synthetic only: made-up file names and zip-looking bytes with no real rows (public repository).
+const KEY: &str = "SYNTHETIC-KEY-0000";
+
+fn day(text: &str) -> anyhow::Result<NaiveDate> {
+    Ok(NaiveDate::parse_from_str(text, "%Y-%m-%d")?)
+}
+
+fn zip(tag: &str) -> Vec<u8> {
+    let mut bytes = b"PK\x03\x04".to_vec();
+    bytes.extend_from_slice(tag.as_bytes());
+    bytes
+}
+
+/// One record as the guide lays it out (§3.2): 100 bytes of fixed-width header, then the file.
+fn record(sequence: u8, base: &str, name: &str, code: &str, retry: char, file: &[u8]) -> Vec<u8> {
+    let mut header = format!(
+        "{sequence:02}{base}{name:<50}{size:010}P0000{code}{retry}{base}",
+        size = file.len()
+    )
+    .into_bytes();
+    header.resize(100, b' ');
+    header.extend_from_slice(file);
+    header
+}
+
+#[test]
+fn the_contract_reads_and_every_request_code_serves_a_kind() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let kinds: usize = contract
+        .request_codes
+        .keys()
+        .map(|code| contract.kinds_of(code).map(|kinds| kinds.len()))
+        .sum::<anyhow::Result<usize>>()?;
+    assert_eq!(kinds, 11, "the catalog's 11 kinds");
+    assert_eq!(contract.kinds_of("300003")?.len(), 3);
+    assert_eq!(contract.kinds_of("300006")?.len(), 5);
+    Ok(())
+}
+
+#[test]
+fn a_header_is_read_at_the_guides_offsets() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let bytes = record(
+        1,
+        "20990101",
+        "AlterD.JUSURB.20990101.ZIP",
+        "300001",
+        'N',
+        &zip("a"),
+    );
+    let (received, size) = read_header(&contract.answer, &bytes[..100])?;
+    assert_eq!(size, 5);
+    assert_eq!(received.sequence, "01");
+    assert_eq!(received.base_date, "20990101");
+    assert_eq!(received.file_name, "AlterD.JUSURB.20990101.ZIP");
+    assert_eq!(received.result_code, "P0000");
+    assert_eq!(received.request_code, "300001");
+    assert!(!received.retry);
+    assert_eq!(received.created_date, "20990101");
+    Ok(())
+}
+
+#[test]
+fn records_split_only_where_whole_and_keep_the_rest() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let mut body = record(
+        1,
+        "20990101",
+        "AlterD.JUSURB.20990101.ZIP",
+        "300001",
+        'N',
+        &zip("one"),
+    );
+    body.extend(record(
+        2,
+        "20990102",
+        "AlterD.JUSURB.20990102.ZIP",
+        "300001",
+        'Y',
+        &zip("two"),
+    ));
+    let cut = body.len() - 3;
+    let (files, used) = take_records(&contract.answer, &body[..cut])?;
+    assert_eq!(files.len(), 1, "the second record is not whole yet");
+    assert_eq!(files[0].bytes, zip("one"));
+    let (rest, _) = take_records(&contract.answer, &body[used..])?;
+    assert_eq!(rest.len(), 1);
+    assert!(rest[0].retry);
+    assert_eq!(rest[0].bytes, zip("two"));
+    Ok(())
+}
+
+#[test]
+fn a_header_that_announces_more_than_the_provider_limit_is_refused() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let mut header = format!(
+        "01{d}{n:<50}{s:010}P0000300001N{d}",
+        d = "20990101",
+        n = "AlterD.JUSURB.20990101.ZIP",
+        s = 9_999_999_999_u64
+    )
+    .into_bytes();
+    header.resize(100, b' ');
+    assert!(read_header(&contract.answer, &header).is_err());
+    Ok(())
+}
+
+#[test]
+fn result_codes_mean_what_the_contract_says() -> anyhow::Result<()> {
+    let codes = source_contract()?.result_codes;
+    assert_eq!(classify(&codes, "P0000"), Outcome::Ok);
+    assert_eq!(classify(&codes, "E1001"), Outcome::NoFiles);
+    for refused in ["E0001", "E0002", "E0003", "E0004", "E1008"] {
+        assert_eq!(classify(&codes, refused), Outcome::Refused, "{refused}");
+    }
+    assert_eq!(classify(&codes, "E1999"), Outcome::Provider);
+    assert_eq!(classify(&codes, "P1000"), Outcome::Ours);
+    assert_eq!(
+        classify(&codes, "Z9999"),
+        Outcome::Ours,
+        "an unknown code fails the run"
+    );
+    Ok(())
+}
+
+#[test]
+fn windows_run_from_the_cursor_to_yesterday_and_stop_at_the_cap() -> anyhow::Result<()> {
+    let all = windows(day("2099-01-01")?, day("2099-01-25")?, 10, 30);
+    assert_eq!(
+        all,
+        vec![
+            (day("2099-01-01")?, day("2099-01-10")?),
+            (day("2099-01-11")?, day("2099-01-20")?),
+            (day("2099-01-21")?, day("2099-01-25")?),
+        ]
+    );
+    assert_eq!(
+        windows(day("2099-01-01")?, day("2099-01-25")?, 10, 2).len(),
+        2
+    );
+    assert!(windows(day("2099-01-26")?, day("2099-01-25")?, 10, 30).is_empty());
+    Ok(())
+}
+
+#[test]
+fn yesterday_is_counted_in_kst() -> anyhow::Result<()> {
+    // 2099-01-01 16:00 UTC is 2099-01-02 01:00 KST: yesterday is 2099-01-01.
+    let now = Utc
+        .with_ymd_and_hms(2099, 1, 1, 16, 0, 0)
+        .single()
+        .ok_or_else(|| anyhow::anyhow!("a fixed instant"))?;
+    assert_eq!(last_day(now), day("2099-01-01")?);
+    Ok(())
+}
+
+#[test]
+fn a_missing_cursor_starts_at_the_first_day() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let first = source_contract()?.backfill.first_day;
+    assert_eq!(read_cursor(dir.path(), "300001", first)?, first);
+    Ok(())
+}
+
+#[test]
+fn the_bronze_leaf_is_the_file_its_retry_flag_and_its_making_date() -> anyhow::Result<()> {
+    let received = Received {
+        sequence: "01".to_owned(),
+        base_date: "20990101".to_owned(),
+        file_name: "AlterD.JUSURB.20990101.ZIP".to_owned(),
+        result_code: "P0000".to_owned(),
+        request_code: "300001".to_owned(),
+        retry: false,
+        created_date: "20990102".to_owned(),
+        bytes: zip("a"),
+    };
+    assert_eq!(
+        provider_file_id(&received),
+        "alterd-jusurb-20990101-daily-20990102"
+    );
+    let retry = Received {
+        retry: true,
+        ..received.clone()
+    };
+    assert_ne!(provider_file_id(&retry), provider_file_id(&received));
+    let at = Utc::now();
+    let first = plan(
+        "building",
+        &received,
+        IngestionRunId::new(Uuid::new_v4()),
+        at,
+    )?;
+    let again = plan(
+        "building",
+        &received,
+        IngestionRunId::new(Uuid::new_v4()),
+        at,
+    )?;
+    assert_eq!(
+        first.object_key.as_str(),
+        again.object_key.as_str(),
+        "landing the same file twice is the same object"
+    );
+    assert!(first.object_key.as_str().contains("jusogokr__building/"));
+    let entrance = plan(
+        "building_entrance",
+        &received,
+        IngestionRunId::new(Uuid::new_v4()),
+        at,
+    )?;
+    assert_eq!(
+        entrance.checksum_sha256, first.checksum_sha256,
+        "the same bytes in each kind"
+    );
+    assert_ne!(entrance.object_key.as_str(), first.object_key.as_str());
+    Ok(())
+}
+
+#[test]
+fn a_file_of_another_code_or_not_a_zip_is_refused() {
+    let received = Received {
+        sequence: "01".to_owned(),
+        base_date: "20990101".to_owned(),
+        file_name: "AlterD.JUSURB.20990101.ZIP".to_owned(),
+        result_code: "P0000".to_owned(),
+        request_code: "300001".to_owned(),
+        retry: false,
+        created_date: "20990101".to_owned(),
+        bytes: b"<html>".to_vec(),
+    };
+    assert!(check_file(&received, "300001").is_err());
+    let other = Received {
+        bytes: zip("a"),
+        ..received
+    };
+    assert!(check_file(&other, "300003").is_err());
+    assert!(check_file(&other, "300001").is_ok());
+}
+
+#[tokio::test]
+async fn an_ask_names_its_window_and_reads_the_files() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = MockServer::start().await;
+    let mut body = record(
+        1,
+        "20990101",
+        "AlterD.JUSURB.20990101.ZIP",
+        "300001",
+        'N',
+        &zip("one"),
+    );
+    body.extend(record(
+        2,
+        "20990102",
+        "AlterD.JUSURB.20990102.ZIP",
+        "300001",
+        'N',
+        &zip("two"),
+    ));
+    Mock::given(method("GET"))
+        .and(path(contract.path.clone()))
+        .and(query_param("app_key", KEY))
+        .and(query_param("cntc_cd", "300001"))
+        .and(query_param("date_gb", "D"))
+        .and(query_param("retry_in", "Y"))
+        .and(query_param("req_dt", "20990101"))
+        .and(query_param("req_dt2", "20990110"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("err_code", "P0000")
+                .set_body_bytes(body),
+        )
+        .mount(&server)
+        .await;
+    let http = reqwest::Client::new();
+    let asked = ask(
+        &contract,
+        &http,
+        &server.uri(),
+        KEY,
+        "300001",
+        (day("2099-01-01")?, day("2099-01-10")?),
+    )
+    .await?;
+    assert_eq!(asked.files.len(), 2);
+    assert_eq!(answer_code(&asked)?, "P0000");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refusal_comes_in_the_error_header_with_no_body() -> anyhow::Result<()> {
+    // Measured 2026-11-10 without a key: HTTP 200, err_code E0001, approval_yn N, an empty body.
+    let contract = source_contract()?;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(contract.path.clone()))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("err_code", "E0001")
+                .insert_header("approval_yn", "N"),
+        )
+        .mount(&server)
+        .await;
+    let http = reqwest::Client::new();
+    let asked = ask(
+        &contract,
+        &http,
+        &server.uri(),
+        KEY,
+        "300001",
+        (day("2099-01-01")?, day("2099-01-10")?),
+    )
+    .await?;
+    let code = answer_code(&asked)?;
+    assert_eq!(classify(&contract.result_codes, &code), Outcome::Refused);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_body_that_ends_inside_a_record_fails() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let server = MockServer::start().await;
+    let mut body = record(
+        1,
+        "20990101",
+        "AlterD.JUSURB.20990101.ZIP",
+        "300001",
+        'N',
+        &zip("one"),
+    );
+    body.truncate(body.len() - 2);
+    Mock::given(method("GET"))
+        .and(path(contract.path.clone()))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+        .mount(&server)
+        .await;
+    let http = reqwest::Client::new();
+    let asked = ask(
+        &contract,
+        &http,
+        &server.uri(),
+        KEY,
+        "300001",
+        (day("2099-01-01")?, day("2099-01-10")?),
+    )
+    .await;
+    assert!(asked.is_err());
+    Ok(())
+}

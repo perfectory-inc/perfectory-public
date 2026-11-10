@@ -124,7 +124,7 @@ class ApprovedCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = self.progress()
         self.assertEqual([line["step"] for line in lines if line["state"] == "step"],
-                         ["history", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
+                         ["history", "inputs", "preview", "gold", "parity", "bake", "equality", "latency", "publish",
                           "monitor-sample", "verify"])
         self.assertEqual((lines[-1]["state"], lines[-1]["outcome"]), ("finished", "passed"))
         self.assertEqual(len({line["run"] for line in lines}), 1)
