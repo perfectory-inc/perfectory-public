@@ -51,8 +51,9 @@
     "converted_formats": ["hwp", "hwpx"],
     "ocr_below_chars": 20,
     "ocr_languages": "kor+eng",
+    "ocr_jobs": 4,
     "convert_timeout_seconds": 180,
-    "ocr_timeout_seconds": 900,
+    "ocr_timeout_seconds_per_page": 60,
     "per_run_limit": 400
   }
 }

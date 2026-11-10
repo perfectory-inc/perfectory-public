@@ -64,7 +64,7 @@ def pdf_page_texts(path: Path) -> list[str]:
         return texts
 
 
-def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, timeout: int) -> None:
+def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, jobs: int, timeout: int) -> None:
     subprocess.run(
         [
             "ocrmypdf",
@@ -74,7 +74,7 @@ def ocr_pages(src: Path, dst: Path, pages: list[int], languages: str, timeout: i
             "-l",
             languages,
             "--jobs",
-            "1",
+            str(jobs),
             "--output-type",
             "pdf",
             "--quiet",
@@ -126,7 +126,7 @@ def extract(path: Path, media_format: str, settings: dict) -> Result:
             thin = pages_needing_ocr(texts, settings["ocr_below_chars"])
             if thin:
                 ocred = workdir / "ocr.pdf"
-                ocr_pages(pdf, ocred, thin, settings["ocr_languages"], settings["ocr_timeout_seconds"])
+                ocr_pages(pdf, ocred, thin, settings["ocr_languages"], settings["ocr_jobs"], settings["ocr_timeout_seconds_per_page"] * len(thin))
                 ocr_texts = pdf_page_texts(ocred)
                 for number in thin:
                     texts[number - 1] = ocr_texts[number - 1]
