@@ -337,6 +337,21 @@ class TheHost(unittest.TestCase):
         self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.findings(), [])
 
+    def test_set_keeps_a_file_that_is_not_an_env_file_beside_it_and_writes_it_fresh(self):
+        # 2026-11-10: a hand `tee` left /etc/foundation-platform/juso.env non-UTF-8, and every
+        # `foundation-release.sh env-set juso` stopped on a UnicodeDecodeError only sudo could clear.
+        for broken in (b"\xff\xfeplanted\x00\n", b"not an env line\n"):
+            with self.subTest(broken=broken):
+                self.reader.write_bytes(broken)
+                before = set(self.reader.parent.iterdir())
+                runtime_secrets.set_names(self.area, "lakehouse-reader", self.source(f"{READER}=planted-new\n"), self.root)
+                self.assertEqual(self.reader.read_text(encoding="utf-8"), f"{READER}=planted-new\n")
+                self.assertEqual(self.reader.stat().st_mode & 0o777, 0o600)
+                (copy,) = set(self.reader.parent.iterdir()) - before
+                self.assertTrue(copy.name.startswith("lakehouse-reader.env.unreadable-"))
+                self.assertEqual(copy.read_bytes(), broken)
+                self.assertEqual(copy.stat().st_mode & 0o777, 0o600)
+
     def test_set_refuses_a_name_the_group_does_not_hold(self):
         """The operations map never gets a write credential (root ADR-0247)."""
         writer = "FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN"
