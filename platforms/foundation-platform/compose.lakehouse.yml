@@ -67,7 +67,7 @@ services:
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2:${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}
       # Spark's default spill, Python's tempfile and the JVM's temp files: on the data disk
       # (config/host-layout.contract.json spark_tmp), never in the container's layer on the system disk.
-      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/data/foundation-platform/spark-tmp}:/tmp
+      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/srv/scratch/foundation-platform/spark-tmp}:/tmp
 
   spark:
     logging: *log-cap
@@ -103,7 +103,7 @@ services:
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2:${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}
       # Spark's default spill, Python's tempfile and the JVM's temp files: on the data disk
       # (config/host-layout.contract.json spark_tmp), never in the container's layer on the system disk.
-      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/data/foundation-platform/spark-tmp}:/tmp
+      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/srv/scratch/foundation-platform/spark-tmp}:/tmp
     environment:
       PATH: /opt/spark/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       PYSPARK_PYTHON: python3
@@ -149,7 +149,7 @@ services:
       - ${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE:-./target/lakehouse-ivy}:/home/spark/.ivy2:${FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE:-rw}
       # Spark's default spill, Python's tempfile and the JVM's temp files: on the data disk
       # (config/host-layout.contract.json spark_tmp), never in the container's layer on the system disk.
-      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/data/foundation-platform/spark-tmp}:/tmp
+      - ${FOUNDATION_PLATFORM_SPARK_TMP:-/srv/scratch/foundation-platform/spark-tmp}:/tmp
     environment:
       PATH: /opt/spark/bin:/opt/java/openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       PYSPARK_PYTHON: python3
