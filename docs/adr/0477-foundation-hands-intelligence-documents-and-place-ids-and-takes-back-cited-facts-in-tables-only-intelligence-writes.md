@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-11
-- Builds on: [ADR-0456](./0456-industrial-complex-notice-attachments-are-collected-whole-by-foundation-and-read-later-by-intelligence-on-ai-server.md)(고시 첨부 수집과 그 Silver 색인),
+- Builds on: ADR-0456(고시 첨부 수집과 그 Silver 색인 — W40 의 PR 로 들어온다),
   [ADR-0298](./0298-content-addressed-media-is-a-write-once-store-not-a-per-object-bronze-ledger.md)(내용주소 저장소),
   [ADR-0288](./0288-every-parcel-source-converges-on-one-place-identity.md) §5(place_id 가 유일한 조인 열쇠),
   ADR-0329 §3(법정동 코드 변경 따라가기), [ADR-0455](./0455-one-job-cannot-take-the-host-every-unit-declares-its-memory-and-batch-is-killed-first.md)(유닛 메모리 상한),

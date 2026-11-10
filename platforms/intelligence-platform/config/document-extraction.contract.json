@@ -9,7 +9,7 @@
       "columns": ["notice_sequence", "sha256", "media_format", "size_bytes"]
     },
     "media_store": {
-      "$comment": "첨부 바이트는 공용 내용주소 저장소의 sha256/<해시>.<media_format> 에 한 번만 있다(루트 ADR-0298·ADR-0429 §1). 접두사는 foundation 계약이 정본이다.",
+      "$comment": "첨부 바이트는 공용 내용주소 저장소의 sha256/<해시>.<media_format> 에 한 번만 있다(루트 ADR-0298, ADR-0429 §1). 접두사는 foundation 계약이 정본이다.",
       "owner": "foundation-platform",
       "object_prefix_from": "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-onbid.contract.json#/media/object_prefix",
       "object_key_pattern": "{object_prefix}/sha256/{sha256}.{media_format}"
