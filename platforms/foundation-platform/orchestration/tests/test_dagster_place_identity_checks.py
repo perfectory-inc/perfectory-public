@@ -83,7 +83,13 @@ class PlaceIdentityChecksTest(unittest.TestCase):
         import place_identity_checks as c
 
         self.assertIn("pnu_unresolved_reason", c.resolution_sql("silver.court_auction_item"))
-        self.assertNotIn("pnu_unresolved_reason", c.resolution_sql("silver.onbid_real_estate_item"))
+        # Root ADR-0480 §2: 공매 names why a round is unplaced too.
+        self.assertIn("pnu_unresolved_reason", c.resolution_sql("silver.onbid_real_estate_item"))
+        # A parcel source whose contract has no reason column is counted without one.
+        from unittest import mock
+
+        with mock.patch.object(c.platform_contracts, "column_names", return_value=("cltr_mng_no", "pnu")):
+            self.assertNotIn("pnu_unresolved_reason", c.resolution_sql("silver.onbid_real_estate_item"))
         # One scan of the current rows: three exceeded Trino's 8GB a node on 13.4M 실거래 rows.
         self.assertEqual(c.resolution_sql("silver.real_transaction").count("rank() OVER"), 1)
 

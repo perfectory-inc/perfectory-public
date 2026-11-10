@@ -62,20 +62,20 @@ class ResolveTest(unittest.TestCase):
             self.assertEqual(row.pnu is None, row.pnu_basis is None)
             self.assertEqual(row.pnu is None, row.pnu_unresolved_reason is not None)
 
-    # Root ADR-0480 §1. Synthetic: 99102 dongs became 98102 on a pair the served edition predates, so
-    # the served parcel still carries the old code. 99103 and 99104 merged into 98103; both had lot 7.
-    REMAP = {"9910210100": "9810210100", "9910310100": "9810310100", "9910410100": "9810310100"}
+    # Root ADR-0480 §1. Synthetic: 99999102 dongs became 99999202 on a pair the served edition predates, so
+    # the served parcel still carries the old code. 99999103 and 99999104 merged into 99999203; both had lot 7.
+    REMAP = {"9999910200": "9999920200", "9999910300": "9999920300", "9999910400": "9999920300"}
 
     def test_a_jibun_the_served_edition_holds_under_its_old_code_is_placed_there(self):
         offered = self.spark.createDataFrame([
-            (1, "9810210100100070000", None, None, None, None, None, None),   # current names, served old
-            (2, "9810310100100070000", None, None, None, None, None, None),   # merged: two old forms hold it
+            (1, "9999920200100070000", None, None, None, None, None, None),   # current names, served old
+            (2, "9999920300100070000", None, None, None, None, None, None),   # merged: two old forms hold it
         ], OFFERED)
-        parcels = self.spark.createDataFrame([("9910210100100070000",), ("9910310100100070000",),
-                                              ("9910410100100070000",)], "pnu string")
+        parcels = self.spark.createDataFrame([("9999910200100070000",), ("9999910300100070000",),
+                                              ("9999910400100070000",)], "pnu string")
         titles = self.spark.createDataFrame([], "pnu string, road_address_raw string")
         rows = {row.row_id: row for row in self.address_pnu.resolve(offered, parcels, titles, self.REMAP).collect()}
-        self.assertEqual((rows[1].pnu, rows[1].pnu_basis), ("9910210100100070000", "jibun_address"))
+        self.assertEqual((rows[1].pnu, rows[1].pnu_basis), ("9999910200100070000", "jibun_address"))
         self.assertEqual((rows[2].pnu, rows[2].pnu_unresolved_reason), (None, "parcel_absent"))
         # Without the pairs the served form is never asked: the old behaviour.
         plain = {row.row_id: row for row in self.address_pnu.resolve(offered, parcels, titles).collect()}
@@ -85,40 +85,40 @@ class ResolveTest(unittest.TestCase):
         import place_identity_resolver as resolver
 
         staged = self.spark.createDataFrame([
-            ("a", "9910210100100070000"),   # the source gave the old code: served verbatim
-            ("b", "9810210100100070000"),   # the source gave the new code: served under the old
-            ("c", "9810210100100080000"),   # no form served
-            ("d", "9810310100100070000"),   # two old forms served: a steward's
-            ("e", "9700010100100010000"),   # no pair, served as it is
+            ("a", "9999910200100070000"),   # the source gave the old code: served verbatim
+            ("b", "9999920200100070000"),   # the source gave the new code: served under the old
+            ("c", "9999920200100080000"),   # no form served
+            ("d", "9999920300100070000"),   # two old forms served: a steward's
+            ("e", "9999930100100010000"),   # no pair, served as it is
         ], "k string, pnu string")
-        parcels = self.spark.createDataFrame([("9910210100100070000",), ("9910310100100070000",),
-                                              ("9910410100100070000",), ("9700010100100010000",)], "pnu string")
+        parcels = self.spark.createDataFrame([("9999910200100070000",), ("9999910300100070000",),
+                                              ("9999910400100070000",), ("9999930100100010000",)], "pnu string")
         rows = {row.k: row for row in resolver.resolve(staged, self.REMAP, set(), parcels).collect()}
-        self.assertEqual((rows["a"].pnu, rows["a"].place_identity_grade), ("9910210100100070000", "code_served_edition"))
-        self.assertEqual((rows["b"].pnu, rows["b"].place_identity_grade), ("9910210100100070000", "code_served_edition"))
+        self.assertEqual((rows["a"].pnu, rows["a"].place_identity_grade), ("9999910200100070000", "code_served_edition"))
+        self.assertEqual((rows["b"].pnu, rows["b"].place_identity_grade), ("9999910200100070000", "code_served_edition"))
         self.assertEqual((rows["c"].pnu, rows["c"].pnu_unresolved_reason), (None, "parcel_absent"))
         self.assertEqual((rows["d"].pnu, rows["d"].pnu_unresolved_reason), (None, "code_subdivision_ambiguous"))
-        self.assertEqual((rows["e"].pnu, rows["e"].place_identity_grade), ("9700010100100010000", "code_exact"))
+        self.assertEqual((rows["e"].pnu, rows["e"].place_identity_grade), ("9999930100100010000", "code_exact"))
 
     def test_the_current_form_wins_once_the_served_edition_holds_it(self):
         import place_identity_resolver as resolver
 
-        staged = self.spark.createDataFrame([("a", "9910210100100070000")], "k string, pnu string")
-        parcels = self.spark.createDataFrame([("9910210100100070000",), ("9810210100100070000",)], "pnu string")
+        staged = self.spark.createDataFrame([("a", "9999910200100070000")], "k string, pnu string")
+        parcels = self.spark.createDataFrame([("9999910200100070000",), ("9999920200100070000",)], "pnu string")
         row = resolver.resolve(staged, self.REMAP, set(), parcels).collect()[0]
-        self.assertEqual((row.pnu, row.place_identity_grade), ("9810210100100070000", "code_superseded"))
+        self.assertEqual((row.pnu, row.place_identity_grade), ("9999920200100070000", "code_superseded"))
 
     def test_a_gold_source_not_served_gets_its_served_form_as_a_candidate(self):
         import place_identity_resolver as resolver
 
-        served = self.spark.createDataFrame([("9910210100100070000",), ("9700010100100010000",)], "pnu string")
-        lineage = self.spark.createDataFrame([("9999999999100010000", "9810210100100090000", 1, "split:x")],
+        served = self.spark.createDataFrame([("9999910200100070000",), ("9999930100100010000",)], "pnu string")
+        lineage = self.spark.createDataFrame([("9999999999100010000", "9999920200100090000", 1, "split:x")],
                                              "successor_pnu string, source_pnu string, hop int, path string")
         rows = resolver.served_form_candidates(
-            self.spark, ["9810210100100070000", "9700010100100010000", "9810210100100090000", None],
+            self.spark, ["9999920200100070000", "9999930100100010000", "9999920200100090000", None],
             self.REMAP, served, lineage).collect()
         self.assertEqual([(r.source_pnu, r.successor_pnu, r.path) for r in rows],
-                         [("9810210100100070000", "9910210100100070000", "code_served_edition")])
+                         [("9999920200100070000", "9999910200100070000", "code_served_edition")])
 
 
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
