@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# 필지 ID 원장의 첫 등록을 시도마다 이어 간다 (root ADR-0243). 예약 작업 parcel_registry.
+# 필지 ID 원장의 첫 등록을 시도마다 이어 가고, 그 ID 를 지역마다 발행한다 (root ADR-0243, ADR-0481). 예약 작업 parcel_registry.
 #
 #   1. 확인 — 지도가 쓰는 필지 판의 시도 중 silver.parcel_registry 에 아무것도 없는 곳을 작은 것부터 묻는다
 #             (parcel_registry_to_silver.py --probe-missing). 없으면 할 일 없음(unchanged).
 #   2. 등록 — 그 시도마다 bootstrap 한 번(시도 하나 = Spark 한 번). 시도마다 걸린 시간을 journal 에 남긴다.
 #             시작한 지 START_BUDGET 분이 지나면 새 시도를 시작하지 않는다: 유닛의 시간 상한 안에서 끝나고, 남은
 #             시도는 다음 실행이 잇는다(이미 등록된 시도는 1 이 고르지 않는다).
+#   3. 발행 — 원장이나 법정동 코드 변경표가 지난 발행 뒤에 바뀐 지역만 묻고(place_id_release_to_gold.py --unit parcel
+#             --probe-stale), 작은 것부터 그 지역 하나씩 gold.place_id_registry·bridge·changelog 로 낸다(unit=parcel).
+#             같은 예산 안에서만 시작한다. 바뀐 것이 없으면 아무 지역도 읽지 않는다.
 #
 # 판이 바뀐 뒤의 이어 붙이기(advance)는 계보 표(silver.parcel_lineage, lineage_stewardship 0b)를 읽는 별도 변경이고, 이 작업이 하지 않는다.
 # 마지막 줄은 `foundation-job-outcome changed|unchanged` 다(root ADR-0171).
@@ -69,10 +72,6 @@ missing="$(grep -a '^parcel-registry-probe ' "${run_log}" | tail -1 | cut -d' ' 
 [[ -n "${missing}" ]]
 # One line per region and none when nothing is missing (a lone empty line would be a region named "").
 mapfile -t regions < <(python3 -I -c 'import json, sys; sys.stdout.write("".join(f"{s} {n}\n" for s, n in json.loads(sys.argv[1])["missing"]))' "${missing}")
-if ((${#regions[@]} == 0)); then
-  finish unchanged "reason=all_registered edition=${edition}"
-  exit 0
-fi
 
 # 2. 시도마다 bootstrap. 끝낸 시도와 남은 시도를 센다.
 done_regions=()
@@ -88,8 +87,38 @@ for entry in "${regions[@]}"; do
   done_regions+=("${sido}")
 done
 remaining=$((${#regions[@]} - ${#done_regions[@]}))
-if ((${#done_regions[@]} == 0)); then
-  finish unchanged "reason=budget_spent edition=${edition} remaining=${remaining}"
+
+# 3. 바뀐 지역의 place_id 발행. 등록이 예산을 다 썼으면 다음 실행이 잇는다.
+released=()
+stale_regions=()
+probed=0
+if (((SECONDS - started) / 60 < START_BUDGET_MINUTES)); then
+  probed=1
+  spark place_id_release_to_gold.py --unit parcel --probe-stale
+  stale="$(grep -a '^place-id-parcel-probe ' "${run_log}" | tail -1 | cut -d' ' -f2-)"
+  [[ -n "${stale}" ]]
+  mapfile -t stale_regions < <(python3 -I -c 'import json, sys; sys.stdout.write("".join(f"{s} {n}\n" for s, n in json.loads(sys.argv[1])["stale"]))' "${stale}")
+  for entry in "${stale_regions[@]}"; do
+    read -r sido ids <<<"${entry}"
+    if (((SECONDS - started) / 60 >= START_BUDGET_MINUTES)); then
+      break
+    fi
+    region_started="${SECONDS}"
+    spark place_id_release_to_gold.py --unit parcel --sido "${sido}" --release-id "parcel-${run_id}" --allow-non-smoke-write \
+      --summary-output "${container_work}/place-id-${sido}.json"
+    job_journal "${journal}" "parcel place-id release region=${sido} ids=${ids} seconds=$((SECONDS - region_started)) run=${run_id}"
+    released+=("${sido}")
+  done
+fi
+unreleased=$((${#stale_regions[@]} - ${#released[@]}))
+
+detail="edition=${edition} registered=$(IFS=,; echo "${done_regions[*]}") remaining=${remaining} released=$(IFS=,; echo "${released[*]}") unreleased=${unreleased}"
+if ((${#done_regions[@]} == 0 && ${#released[@]} == 0)); then
+  if ((remaining > 0 || unreleased > 0 || probed == 0)); then
+    finish unchanged "reason=budget_spent ${detail}"
+  else
+    finish unchanged "reason=all_registered_and_released ${detail}"
+  fi
   exit 0
 fi
-finish changed "edition=${edition} registered=$(IFS=,; echo "${done_regions[*]}") remaining=${remaining}"
+finish changed "${detail}"

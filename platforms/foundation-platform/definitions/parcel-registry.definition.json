@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": false,
       "commits": "at_end",
-      "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
+      "description": "Register the served cadastral edition's regions in silver.parcel_registry (root ADR-0243; scripts/ops/parcel-registry-cycle.sh): ask which sido prefixes of the edition the registry holds nothing for, smallest first, and bootstrap them one region at a time, starting no new region after 100 minutes so the run ends inside the unit's limit; the next run takes the rest (`unchanged` once every region is registered). Carrying ids across a new edition (advance) reads silver.parcel_lineage, which lineage_stewardship derives, and is a separate change. Then, inside the same budget, publish the parcel unit's place ids (root ADR-0481): ask which regions' inputs moved since their last release (registry rows recorded after it, or a 법정동 code change under the region's open PNUs by views.changed_codes), smallest first, and write each one's gold.place_id_registry and gold.place_id_bridge partitions (unit parcel, scope its sido) and its changelog, one Spark run a region; a region that did not move is not read. Daily; it holds every spark slot (the largest region needs the 20g Spark).",
       "systemd_service": "foundation-parcel-registry.service",
       "systemd_timer": null,
       "state_paths": [
@@ -38,7 +38,10 @@
       "priority_weight": 1,
       "retries": 0,
       "pipeline_graph_edges": [
-        "silver-parcel-boundaries-to-silver-parcel-registry"
+        "silver-parcel-boundaries-to-silver-parcel-registry",
+        "silver-parcel-registry-to-gold-place-id-registry",
+        "silver-parcel-registry-to-gold-place-id-bridge",
+        "silver-parcel-registry-to-gold-place-id-changelog"
       ],
       "enabled": true,
       "enabled_since": "2026-11-09T03:00:00Z",
@@ -82,6 +85,39 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_registry_to_silver.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-registry",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_place_id_release.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-bridge",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_place_id_release.py"
+      ]
+    },
+    {
+      "from": "silver-parcel-registry",
+      "to": "gold-place-id-changelog",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/parcel-registry-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_place_id_release.py"
       ]
     }
   ],

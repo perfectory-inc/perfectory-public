@@ -1,7 +1,8 @@
-"""The parcel id registry's first registration (scripts/ops/parcel-registry-cycle.sh, root ADR-0243) on a fake docker.
+"""The parcel id registry's first registration and its regions' place-id release
+(scripts/ops/parcel-registry-cycle.sh, root ADR-0243, ADR-0481) on a fake docker.
 
-The Spark stand-in answers the probe with the regions the registry lacks and records each region's
-bootstrap. The real script reads the served edition and its date from the release's source contract. The
+The Spark stand-in answers the probes with the regions the registry lacks and the regions whose
+release is stale, and records each region's bootstrap and release. The real script reads the served edition and its date from the release's source contract. The
 release layout is the host's (root ADR-0134). Region codes are synthetic.
 """
 
@@ -33,6 +34,8 @@ with open(os.environ["FAKE_LOG"], "a") as log:
                           "memory": submit[submit.index("--driver-memory") + 1]}) + "\n")
 if "--probe-missing" in job_args:
     print("parcel-registry-probe " + json.dumps({"to_snapshot_id": "x", "missing": json.loads(os.environ["FAKE_MISSING"])}))
+elif "--probe-stale" in job_args:
+    print("place-id-parcel-probe " + json.dumps({"stale": json.loads(os.environ.get("FAKE_STALE", "[]"))}))
 elif os.environ.get("FAKE_FAIL_REGION") and os.environ["FAKE_FAIL_REGION"] in job_args:
     sys.exit("refusing to register")
 '''
@@ -84,7 +87,7 @@ class ParcelRegistryCycle(unittest.TestCase):
         result, calls = self.run_job([["98", 10], ["99", 20]])
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         self.assertIn("--probe-missing", calls[0]["args"])
-        boots = calls[1:]
+        boots = [c for c in calls[1:] if c["job"] == "parcel_registry_to_silver.py"]
         self.assertEqual([c["args"][c["args"].index("--to-sido") + 1] for c in boots], ["98", "99"])
         cli = [sys.executable, str(PLATFORM / "infra/lakehouse/spark/jobs/vworld_parcel_editions.py")]
         served = subprocess.run([*cli, "served"], capture_output=True, text=True, check=True).stdout.strip()
@@ -113,11 +116,27 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.assertTrue((self.root / "lakehouse" / "parcel-registry").is_dir())
         self.assertFalse(list((self.root / "fold-only").iterdir()))
 
-    def test_nothing_missing_is_unchanged(self):
+    def test_nothing_missing_and_nothing_stale_is_unchanged(self):
         result, calls = self.run_job([])
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
-        self.assertEqual(len(calls), 1)
-        self.assertIn("outcome=unchanged reason=all_registered", result.stdout)
+        self.assertEqual([c["job"] for c in calls], ["parcel_registry_to_silver.py", "place_id_release_to_gold.py"])
+        self.assertIn("--probe-stale", calls[1]["args"])
+        self.assertIn("outcome=unchanged reason=all_registered_and_released", result.stdout)
+
+    def test_each_stale_region_is_released_alone_in_the_order_given(self):
+        # Root ADR-0481: only the regions whose inputs moved, one Spark run each, smallest first.
+        result, calls = self.run_job([], FAKE_STALE=json.dumps([["98", 10], ["99", 20]]))
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        releases = [c["args"] for c in calls if c["job"] == "place_id_release_to_gold.py" and "--sido" in c["args"]]
+        self.assertEqual([a[a.index("--sido") + 1] for a in releases], ["98", "99"])
+        for args in releases:
+            self.assertEqual(args[args.index("--unit") + 1], "parcel")
+            self.assertTrue(args[args.index("--release-id") + 1].startswith("parcel-"))
+            self.assertIn("--allow-non-smoke-write", args)
+        lines = result.stdout.strip().splitlines()
+        self.assertEqual(lines[-1], "foundation-job-outcome changed")
+        self.assertIn("released=98,99 unreleased=0", lines[-2])
+        self.assertIn("parcel place-id release region=98 ids=10 seconds=", (self.state / "journal.log").read_text())
 
     def test_no_region_starts_after_the_budget(self):
         result, calls = self.run_job([["98", 10]], FOUNDATION_PARCEL_REGISTRY_START_BUDGET_MINUTES="0")
@@ -125,6 +144,13 @@ class ParcelRegistryCycle(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("outcome=unchanged reason=budget_spent", result.stdout)
         self.assertIn("remaining=1", result.stdout)
+
+    def test_no_release_starts_after_the_budget(self):
+        result, calls = self.run_job([], FAKE_STALE=json.dumps([["98", 10]]),
+                                     FOUNDATION_PARCEL_REGISTRY_START_BUDGET_MINUTES="0")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("outcome=unchanged reason=budget_spent", result.stdout)
 
     def test_a_refused_region_fails_the_run_and_starts_no_later_one(self):
         result, calls = self.run_job([["98", 10], ["99", 20]], FAKE_FAIL_REGION="98")
