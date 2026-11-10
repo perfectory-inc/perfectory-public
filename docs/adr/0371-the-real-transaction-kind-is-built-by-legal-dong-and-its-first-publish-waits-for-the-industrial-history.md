@@ -1,6 +1,6 @@
 # ADR 0371: 실거래 종류는 법정동 단위로 다시 짓고, 첫 발행은 산업용 이력이 다 찬 뒤다
 
-- Status: Accepted
+- Status: Accepted; §5(첫 발행 조건) Superseded by ADR-0479 (첫 발행은 창의 최근 이력만 기다리고, 문서가 범주별 수록 시작 달을 싣는다)
 - Date: 2026-11-04
 - Implements: [ADR-0350](./0350-a-parcel-shows-its-own-transactions-and-the-factory-deals-of-its-legal-dong.md)
   §1–§3·§6, [ADR-0351](./0351-a-masked-lot-is-inferred-only-from-measured-evidence-and-every-link-follows-code-changes.md) §3

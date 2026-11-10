@@ -505,7 +505,8 @@
         "mainLotGroupAlone": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 지금 이 본번의 필지는 이 필지뿐이에요",
         "mainLotGroupSize": "같은 본번 {count}필지",
         "omitted": "오래된 거래 {count}건은 싣지 않았어요",
-        "source": "국토교통부 실거래가 공개시스템 · 거래금액은 만원 단위 원천값",
+        "coverage": "{datasets} {month} 이후",
+        "coverageNone": "{datasets} 아직 없음",
         "fields": {
           "dealDate": "계약일",
           "dealAmount": "거래금액",

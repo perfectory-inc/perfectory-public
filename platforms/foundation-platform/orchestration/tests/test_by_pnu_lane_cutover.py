@@ -199,7 +199,7 @@ class LaneCutover(OperatorHarness):
                              .read_text(encoding="utf-8"))["tables"][table]
         declared = (rebuild.get("pins_from") or {}).get("parity_argument")
         self.assertEqual(parity["outcome"], "passed" if declared else "not-declared")
-        # The lane waits for no history (root ADR-0371 §5): never reported as a passed history.
+        # The lane waits for no history (root ADR-0479): never reported as a passed history.
         self.assertEqual(next(step for step in steps if step["step"] == "history")["outcome"], "not-declared")
         self.assertEqual({step["outcome"] for step in steps if step["step"] not in ("parity", "history")}, {"passed"})
         # `lanes` now finds nothing left to cut over and starts nothing.
@@ -409,10 +409,10 @@ class LaneCutover(OperatorHarness):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.evidence()[-1]["step"], "verify")
 
-    def test_a_lane_waiting_for_history_starts_nothing_until_the_history_is_whole(self):
-        # Root ADR-0350 §6, ADR-0371 §5: a half-filled 실거래 history reads as "no deal" on the screen,
-        # so a lane whose line names first_publish_waits_for_history is not cut over while the check
-        # cannot say the history is whole (here no catalog answers it, exit 65 "cannot tell").
+    def test_a_lane_waiting_for_history_starts_nothing_until_the_history_is_loaded(self):
+        # Root ADR-0479: a 실거래 window short of months shows wrong counts and medians, so a lane whose
+        # line names first_publish_waits_for_history is not cut over while the check cannot say the
+        # recent history is loaded (here no catalog answers it, exit 65 "cannot tell").
         lane = "parcel-real-transaction"
         self.assertTrue(CONTRACT["by_pnu_lanes"][lane]["first_publish_waits_for_history"])
         result, calls = self.runner(lane, "1")

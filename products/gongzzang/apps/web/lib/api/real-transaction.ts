@@ -78,6 +78,23 @@ export function formatManwon(value: number): string {
   return text === "" ? "0원" : man > 0 ? text : `${text}원`;
 }
 
+/**
+ * The datasets whose history the lane does not hold whole yet, grouped by the month each is held
+ * from, oldest month first; `null` for those it holds no month of yet (root ADR-0479). A dataset the
+ * document leaves out is whole, and the screen says nothing about it.
+ */
+export function coverageGroups(
+  transaction: RealTransaction,
+): { fromMonth: string | null; datasets: string[] }[] {
+  const groups = new Map<string | null, string[]>();
+  for (const { dataset_slug, from_month } of transaction.coverage ?? []) {
+    groups.set(from_month, [...(groups.get(from_month) ?? []), dataset_slug]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a.localeCompare(b)))
+    .map(([fromMonth, datasets]) => ({ fromMonth, datasets }));
+}
+
 /** The 공장창고 row of the 법정동's 12 months, if the document carries one. */
 export function industrialRegion(transaction: RealTransaction) {
   return transaction.region.datasets.find(

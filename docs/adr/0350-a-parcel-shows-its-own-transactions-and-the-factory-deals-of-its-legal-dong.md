@@ -1,6 +1,6 @@
 # ADR 0350: 필지 화면은 그 필지의 실거래와 같은 법정동의 공장·창고 거래를 보인다
 
-- Status: Accepted
+- Status: Accepted; §6 의 마지막 문장(산업용 세 종 완료 전 서빙 금지) Superseded by ADR-0479
 - Date: 2026-10-30
 - Builds on: [ADR-0349](./0349-a-real-transaction-row-is-named-by-its-content-and-a-cancellation-is-a-new-version.md)
   (`silver.real_transaction`, 법정동·PNU 연결), [ADR-0193](./0193-each-data-kind-is-its-own-gold-table-and-by-pnu-lane.md)

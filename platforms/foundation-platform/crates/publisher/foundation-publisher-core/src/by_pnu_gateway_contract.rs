@@ -175,7 +175,7 @@ pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gat
 
 /// The only fields a lane with a `host` writes by hand (root ADR-0193 §4): the kind line. A kind
 /// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
-/// A lane whose first cut-over waits for a whole history names it (root ADR-0371 §5): the cut-over
+/// A lane whose first cut-over waits for a recent history names it (root ADR-0479): the cut-over
 /// reads it (by-pnu-lane-cutover.sh, serving_history_readiness.py), the bake does not.
 const DERIVED_LANE_HAND_FIELDS: [&str; 15] = [
     "decision",

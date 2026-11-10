@@ -1,6 +1,6 @@
 # ADR 0348: 실거래가는 rt.molit.go.kr 벌크 내보내기로 받고, 최근 달은 계약해제가 들어오는 동안 다시 받는다
 
-- Status: Accepted
+- Status: Accepted; §5(처음 받는 달의 순서) Superseded by ADR-0479 (모든 범주의 최근 36개월이 먼저)
 - Date: 2026-10-30
 - Builds on: [FP-ADR-0020](../../platforms/foundation-platform/docs/adr/0020-real-transaction-bronze-source-strategy.md)
   (실거래 원천의 기본 채널은 `rt.molit.go.kr` CSV export, API 는 동등성 확인용),

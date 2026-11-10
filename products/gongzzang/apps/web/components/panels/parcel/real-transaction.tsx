@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import {
   type Comparable,
+  coverageGroups,
   type Deal,
   formatManwon,
   industrialRegion,
@@ -36,7 +37,12 @@ const LAND_AREA: Record<string, string> = {
 export function ParcelRealTransactionsCard({ data }: { data: RealTransaction }) {
   const t = useTranslations("panels.parcel.realTransaction");
   if (data.transactions.length === 0) {
-    return <div className="p-6 text-center text-[var(--color-muted)]">{t("none")}</div>;
+    return (
+      <div className="flex flex-col gap-2 p-6 text-center text-[var(--color-muted)]">
+        {t("none")}
+        <CoverageNote t={t} data={data} />
+      </div>
+    );
   }
   return (
     <div className="flex flex-col gap-3 p-6">
@@ -70,8 +76,28 @@ export function ParcelRealTransactionsCard({ data }: { data: RealTransaction }) 
           {t("omitted", { count: data.transactions_omitted })}
         </p>
       )}
-      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">{t("source")}</p>
+      <CoverageNote t={t} data={data} />
     </div>
+  );
+}
+
+/** From when each category not held whole yet is held: "<categories> YYYY-MM 이후" (root ADR-0479). */
+function CoverageNote({ t, data }: { t: T; data: RealTransaction }) {
+  const groups = coverageGroups(data);
+  if (groups.length === 0) return null;
+  return (
+    <ul className="flex flex-col gap-0.5 text-[length:var(--text-caption)] text-[var(--color-muted)]">
+      {groups.map(({ fromMonth, datasets }) => {
+        const names = datasets.map((slug) => t(`datasets.${slug}`)).join(", ");
+        return (
+          <li key={fromMonth ?? "none"}>
+            {fromMonth === null
+              ? t("coverageNone", { datasets: names })
+              : t("coverage", { datasets: names, month: fromMonth })}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

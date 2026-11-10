@@ -4,8 +4,9 @@
 //! export and answers every row of it (95,786 for 2025-09 아파트 전월세, measured). A run plans the
 //! months it owes from its state and the contract (`plan_work`): the recent months first (age 0-2,
 //! asked again daily), then the older refresh tiers (3-12 weekly, 13-24 monthly: cancellations
-//! arrive up to 442 days after a contract), then the history never asked, newest month first, the
-//! industrial datasets first. Any hour, at normal speed (사장 결정 2026-10-31): `concurrency` exports
+//! arrive up to 442 days after a contract), then the history never asked: first the newest
+//! `recent_history_months` of every dataset, newest month first across them all, then the older rest,
+//! the industrial datasets first, each newest month first (root ADR-0479). Any hour, at normal speed (사장 결정 2026-10-31): `concurrency` exports
 //! in flight on one session, at most `max_downloads_per_run` a run and `daily_download_limit` a KST
 //! day (the provider's own limit is 100 downloads a day).
 //!
@@ -94,6 +95,9 @@ pub struct SourceContract {
     /// Words of the provider's count-check error that mean its daily download limit is spent.
     pub daily_limit_messages: Vec<String>,
     pub refresh_tiers: Vec<Tier>,
+    /// How many whole months before the current one every dataset fills first, month by month
+    /// across them all, before the older history goes by `priority` (root ADR-0479).
+    pub recent_history_months: u32,
     pub priority: Vec<String>,
     pub datasets: BTreeMap<String, Dataset>,
 }
@@ -317,7 +321,11 @@ pub enum Stage {
     Recheck,
     /// A later refresh tier (`tier` is its index in the contract).
     Refresh { tier: usize },
-    /// A month never read whole: the history.
+    /// A month never read whole within `recent_history_months` of the current one: every dataset's,
+    /// newest month first across them all (`newest_first` is the negated month), so each fills its
+    /// recent years before any dataset's older ones (root ADR-0479).
+    RecentHistory { newest_first: Month },
+    /// A month never read whole, older than that: the history.
     Backfill,
 }
 
@@ -356,9 +364,14 @@ pub fn plan_work(
             let completed = mark.and_then(|mark| mark.completed_utc);
             let tier = tier_of(contract, current - month);
             let unchecked = completed.is_some() && !mark.is_some_and(|mark| mark.verified);
+            let recent_history = u32::try_from(current - month)
+                .is_ok_and(|age| age <= contract.recent_history_months);
             let stage = match (completed, tier) {
                 _ if unchecked => Stage::Recheck,
                 (None, Some(0)) => Stage::Recent,
+                (None, _) if recent_history => Stage::RecentHistory {
+                    newest_first: -month,
+                },
                 (None, _) => Stage::Backfill,
                 (Some(at), Some(tier)) => {
                     if now - at < chrono::Duration::days(contract.refresh_tiers[tier].every_days) {
@@ -536,6 +549,7 @@ fn stage_name(stage: Stage) -> String {
         Stage::Recent => "recent".to_owned(),
         Stage::Recheck => "recheck".to_owned(),
         Stage::Refresh { tier } => format!("refresh_tier_{tier}"),
+        Stage::RecentHistory { .. } => "recent_history".to_owned(),
         Stage::Backfill => "backfill".to_owned(),
     }
 }

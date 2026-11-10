@@ -16,8 +16,8 @@
 #
 # For each lane, in order, each step only after the one before passed:
 #
-#   history    the lane line's first_publish_waits_for_history (root ADR-0350 §6, ADR-0371 §5): every
-#              month of those 실거래 datasets is loaded (scripts/ops/serving_history_readiness.py,
+#   history    the lane line's first_publish_waits_for_history (root ADR-0479): the recent history
+#              of those 실거래 datasets is loaded (scripts/ops/serving_history_readiness.py,
 #              read with the operations map's reader token); a lane without it is `not-declared`
 #   inputs     every input the Gold's planner refuses to build without exists in the catalog
 #              (scripts/ops/gold_input_readiness.py <gold table>, root ADR-0471): read before the gold
@@ -237,7 +237,7 @@ if [[ -n "${DRY_RUN}" ]]; then
     done
     for step in "${STEPS[@]}"; do
       case "${step}" in
-        history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: every month of ${history} is loaded" ;;
+        history) [[ "${history}" == - ]] && what="not-declared: the lane waits for no history"                    || what="serving_history_readiness.py ${lane}: the recent history of ${history} is loaded" ;;
         inputs) what="gold_input_readiness.py ${table}: every input its planner requires exists" ;;
         preview) what="GET the two capabilities paths above" ;;
         gold) what="by-pnu-pack-operator.sh ${lane} gold-rebuild (gold-panel-rebuild.sh ${unit}, ${table}; bounded by ${gold_budget} min)" ;;
