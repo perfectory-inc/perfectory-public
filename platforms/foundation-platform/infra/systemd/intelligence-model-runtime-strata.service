@@ -1,0 +1,33 @@
+[Unit]
+Description=Intelligence Platform: the local model runtime (Strata, Qwen3.8-Flash-Next Q2_0) while a spark-pool job needs it (root ADR-0478)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/model-runtime.md
+X-Foundation-Owner=intelligence
+OnFailure=foundation-unit-failed@%n.service
+# Never started on its own: a job that calls the model names it in Requires= and After=, holds the
+# whole spark pool, and the runtime stops with the last job that needs it (root ADR-0478 §2, §3).
+StopWhenUnneeded=yes
+# The weights and Strata's own expert pack live on the NVMe (model-runtime.contract.json model_root).
+RequiresMountsFor=/srv/intelligence-models
+
+[Service]
+Type=exec
+User=intelligence-model
+Group=intelligence-model
+WorkingDirectory=/srv/intelligence-models/strata/control
+# The release's packages pinned in model-runtime.contract.json, unpacked by the runbook's day-one
+# step; the run config is the one setup.py wrote (--no-start --low-ram resident --port 11437).
+Environment=STRATA_UPDATE_CHECK=0
+Environment=STRATA_NO_ACQUIRE=1
+Environment=STRATA_BIND=127.0.0.1
+ExecStart=/srv/intelligence-models/strata/control/python/bin/python3.12 /srv/intelligence-models/strata/control/serve/server.py --engine strata --config /srv/intelligence-models/strata/control/strata-q2_0.json --port 11437
+# Active only once it answers: the 2026-11-11 trial took about 40 s to fill the card's expert cache.
+ExecStartPost=/bin/bash -c 'for _ in $(seq 1 600); do (exec 3<>/dev/tcp/127.0.0.1/11437) 2>/dev/null && exit 0; sleep 0.5; done; exit 1'
+TimeoutStartSec=6min
+TimeoutStopSec=1min
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=40550M
+MemoryMax=44G
+OOMScoreAdjust=500
