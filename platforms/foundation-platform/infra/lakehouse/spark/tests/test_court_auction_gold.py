@@ -42,8 +42,9 @@ class InputsTest(unittest.TestCase):
         required, optional, anchor, whole = job.lane_inputs("parcel-court-auction")
         self.assertEqual(anchor, job.PARCEL_SOURCE)
         # The code change table is read so every PNU follows a code change (root ADR-0382 §2).
+        # Root ADR-0483: every row carries its parcel's place id, and a moved id recomputes its PNUs.
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE,
-                                         job.CODE_CHANGE_SOURCE})
+                                         job.CODE_CHANGE_SOURCE, *job.place_id_join.INPUTS})
         # The case photos are optional, like 공매's media (root ADR-0384).
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
         # The item table maps its changed keys to PNUs; a parcel edition or lineage change moves
@@ -52,7 +53,8 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(set(job.declared_sources("parcel-court-auction", True, True)), set(required) | set(optional),
                          "the harness pins every required input and every present optional")
         self.assertEqual(job.declared_sources("parcel-court-auction", False, False),
-                         (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE, job.CODE_CHANGE_SOURCE))
+                         (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE, job.CODE_CHANGE_SOURCE,
+                          *job.place_id_join.INPUTS))
 
     def test_a_sale_result_carries_what_the_screen_reads_and_its_bound_fits_its_share(self):
         # Root ADR-0454: the 매각결과 the parcel's 경매 card shows, in the source's values; the bound's

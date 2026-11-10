@@ -203,6 +203,26 @@
         "not_measured_reason": "real_transaction_land_trade: bare land has no building register to measure the group against (root ADR-0370 §토지)"
       }
     ],
+    "below_bar": {
+      "$comment": "Root ADR-0483 §4: the one switch for a dataset whose 본번 group measurement is under precision_bar. `shown` false (the default, until the owner decides) leaves its masked deals unlinked (jibun_masked); true links them by the inferred_same_main_lot_group level's evidence under the grade inferred_same_main_lot_group_below_bar, and the screen says label_ko (place_identity_resolver.below_bar_level). Only a dataset `measured` here, at or above `floor` on at least min_measured_rows, can be shown. Switching changes every masked deal of the dataset, so the 실거래 Gold rebuilds whole once (a declared exception, root ADR-0312).",
+      "shown": false,
+      "decision": "pending: the owner's decision, relayed by the coordinator (2026-11-11, W53c)",
+      "floor": 0.95,
+      "label_ko": "추정 · 정확도 약 95%",
+      "measured": {
+        "real_transaction_land_trade": {
+          "precision": 0.9546,
+          "precision_wilson_low": 0.9503,
+          "rows": 9824,
+          "right": 9378,
+          "deals": 49311,
+          "coverage": 0.557,
+          "ambiguous": 0.01,
+          "method": "independent_registers on rt.molit exports 2024-01..2024-02 (49,311 masked deals, 지분 excluded; the inferred_ownership_change level's not_measured_reason): the ownership evidence without area (본번 range, 용도지역, 지목, 소유권이전 in the window) and the land register's area each narrow to one parcel, the share where the two are the same parcel. The same parcel lies in its 본번 group, so this is a lower bound on the group level's precision. Both come from the 토지대장 office, so it is not recorded as a level's measurement and does not reach precision_bar.",
+          "measured_on": "2026-11-03"
+        }
+      }
+    },
     "evidence_checks": {
       "$comment": "Root ADR-0370 §4 (2026-11-04, read-only): other evidence weighed for the ownership level, measured as the level is (agreement with the building register's one parcel on masked deals, 지분 excluded). None is used by enabled_levels: a check, not a level. `lot_group` scores a disagreement whose two parcels share the 본번 (300 and 300-1: one plant over two lots) as agreement, i.e. the precision of linking a deal to the 본번 필지 묶음 instead of one PNU; the owner turned it on as its own level, inferred_same_main_lot_group (root ADR-0405, 2026-11-04).",
       "real_transaction_industrial_trade": {

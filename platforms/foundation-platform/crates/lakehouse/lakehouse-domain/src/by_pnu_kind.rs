@@ -4,7 +4,10 @@
 //! its section of the host's panel and the content columns that section yields. Its Gold table is
 //! `gold.<lane with - as _>`: `pnu`, those columns, `attached_via` for a parcel kind (the lineage
 //! path a carried section came through, root ADR-0113 §6), then the content fingerprint and
-//! lineage every by-PNU panel has. Nothing of a kind's table is written by hand.
+//! lineage every by-PNU panel has. A parcel kind whose line names `place_identity` also carries those
+//! join columns after `attached_via` (root ADR-0483): the parcel's stable `place_id` (ADR-0288 §5) and,
+//! for a kind that links rows to a 본번 group, the group's `main_lot_group_place_ids`. They are Gold's
+//! join keys, not served content. Nothing of a kind's table is written by hand.
 
 use std::sync::OnceLock;
 
@@ -19,6 +22,9 @@ const R2_CONNECTION_CONTRACT: &str =
     include_str!("../../../../config/r2-connections.contract.json");
 /// The host whose kinds carry their sections through the parcel lineage.
 const PARCEL_HOST: &str = "parcel_by_pnu_gateway";
+/// The join columns a parcel kind line may name in `place_identity`, in the order they are added
+/// (root ADR-0483). Each is a string: a place id, or a JSON array of them.
+pub const PLACE_IDENTITY_COLUMNS: [&str; 2] = ["place_id", "main_lot_group_place_ids"];
 
 #[derive(Deserialize)]
 struct Contract {
@@ -31,6 +37,8 @@ struct Lane {
     host: Option<String>,
     #[serde(default)]
     columns: Vec<String>,
+    #[serde(default)]
+    place_identity: Vec<String>,
 }
 
 /// The Gold tables of the contract's kinds, in lane name order; empty when the contract's lane
@@ -62,8 +70,11 @@ pub fn derive(contract: &str) -> Result<Vec<LakehouseTableContract>, String> {
     contract
         .by_pnu_lanes
         .into_iter()
-        .filter_map(|(name, lane)| lane.host.map(|host| (name, host, lane.columns)))
-        .map(|(name, host, columns)| table(&name, &host, &columns))
+        .filter_map(|(name, lane)| {
+            lane.host
+                .map(|host| (name, host, lane.columns, lane.place_identity))
+        })
+        .map(|(name, host, columns, joins)| table(&name, &host, &columns, &joins))
         .collect()
 }
 
@@ -79,7 +90,12 @@ const fn column(name: &'static str, logical_type: &'static str, required: bool) 
     }
 }
 
-fn table(lane: &str, host: &str, content: &[String]) -> Result<LakehouseTableContract, String> {
+fn table(
+    lane: &str,
+    host: &str,
+    content: &[String],
+    joins: &[String],
+) -> Result<LakehouseTableContract, String> {
     if content.is_empty() || !content.iter().any(|name| name.ends_with("_json")) {
         return Err(format!(
             "by_pnu_lanes.{lane}.columns must name the section's content columns, a *_json field first"
@@ -101,6 +117,25 @@ fn table(lane: &str, host: &str, content: &[String]) -> Result<LakehouseTableCon
     }
     if host == PARCEL_HOST {
         columns.push(column("attached_via", "string", false));
+    }
+    if !joins.is_empty() {
+        let ordered = PLACE_IDENTITY_COLUMNS
+            .iter()
+            .filter(|name| joins.iter().any(|join| join == *name))
+            .count();
+        if host != PARCEL_HOST
+            || ordered != joins.len()
+            || !joins.iter().any(|join| join == "place_id")
+        {
+            return Err(format!(
+                "by_pnu_lanes.{lane}.place_identity must name place_id and only {PLACE_IDENTITY_COLUMNS:?}, on a parcel kind"
+            ));
+        }
+        for name in PLACE_IDENTITY_COLUMNS {
+            if joins.iter().any(|join| join == name) {
+                columns.push(column(name, "string", false));
+            }
+        }
     }
     columns.extend([
         column("row_digest", "string", true),
@@ -141,6 +176,9 @@ mod tests {
             r#"{"by_pnu_lanes": {
                 "parcel-example": {"host": "parcel_by_pnu_gateway", "kind": "example",
                                    "columns": ["things_json", "thing_total:long"]},
+                "parcel-placed": {"host": "parcel_by_pnu_gateway", "kind": "placed",
+                                  "columns": ["deals_json"],
+                                  "place_identity": ["main_lot_group_place_ids", "place_id"]},
                 "building-example": {"host": "building_by_pnu_gateway", "kind": "example",
                                      "columns": ["units_json"]},
                 "whole": {"pack_only": true}}}"#,
@@ -187,9 +225,38 @@ mod tests {
                     ]
                     .concat()
                 ),
+                (
+                    "gold.parcel_placed",
+                    [
+                        vec![
+                            ("pnu", "string", true),
+                            ("deals_json", "string", true),
+                            ("attached_via", "string", false),
+                            ("place_id", "string", false),
+                            ("main_lot_group_place_ids", "string", false)
+                        ],
+                        lineage.to_vec()
+                    ]
+                    .concat()
+                ),
             ]
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_place_identity_names_place_id_on_a_parcel_kind_only() {
+        // Root ADR-0483: the join columns are the parcel's, and a group without its parcel is no key.
+        for (host, joins) in [
+            ("building_by_pnu_gateway", r#"["place_id"]"#),
+            ("parcel_by_pnu_gateway", r#"["main_lot_group_place_ids"]"#),
+            ("parcel_by_pnu_gateway", r#"["place_id", "pnu_group"]"#),
+        ] {
+            let contract = format!(
+                r#"{{"by_pnu_lanes": {{"x-y": {{"host": "{host}", "columns": ["a_json"], "place_identity": {joins}}}}}}}"#
+            );
+            assert!(derive(&contract).is_err(), "{host} {joins}");
+        }
     }
 
     #[test]

@@ -10634,6 +10634,11 @@
           "required": false
         },
         {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "row_digest",
           "logical_type": "string",
           "required": true
@@ -10692,6 +10697,11 @@
         },
         {
           "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "place_id",
           "logical_type": "string",
           "required": false
         },
@@ -11083,6 +11093,11 @@
           "required": false
         },
         {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "row_digest",
           "logical_type": "string",
           "required": true
@@ -11217,6 +11232,11 @@
           "required": false
         },
         {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
           "name": "row_digest",
           "logical_type": "string",
           "required": true
@@ -11347,6 +11367,16 @@
         },
         {
           "name": "attached_via",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "place_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_lot_group_place_ids",
           "logical_type": "string",
           "required": false
         },

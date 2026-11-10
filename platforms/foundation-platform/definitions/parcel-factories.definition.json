@@ -33,7 +33,9 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-registered-factory-to-gold-parcel-factories",
-        "reference-legal-dong-code-change-to-gold-parcel-factories"
+        "reference-legal-dong-code-change-to-gold-parcel-factories",
+        "gold-place-id-bridge-to-gold-parcel-factories",
+        "gold-place-id-changelog-to-gold-parcel-factories"
       ],
       "enabled": true,
       "enabled_since": "2026-11-10T18:00:00Z",
@@ -151,6 +153,28 @@
       "via": [
         "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
       ]
+    },
+    {
+      "from": "gold-place-id-bridge",
+      "to": "gold-parcel-factories",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/registered_factory_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
+      ],
+      "description": "행마다 그 필지의 안정 place_id 를 싣는다(루트 ADR-0483, ADR-0288 §5): 다리의 필지 단위 열린 기간(없으면 마지막 기간)의 id. 짓는 PNU 의 다리 행만 읽는다."
+    },
+    {
+      "from": "gold-place-id-changelog",
+      "to": "gold-parcel-factories",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/registered_factory_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
+      ],
+      "description": "발행이 덧붙인 변경 이력 행의 코드(옛·새)만 다시 계산한다(루트 ADR-0483): 이력은 append-only 라 고정한 스냅숏 뒤에 붙은 행만 읽는다."
     }
   ],
   "by_pnu_lanes": {
@@ -161,6 +185,9 @@
       "columns": [
         "factories_json",
         "factory_total:long"
+      ],
+      "place_identity": [
+        "place_id"
       ],
       "producer": "registered_factory_silver_to_gold",
       "decision": "docs/adr/0449-a-parcel-shows-the-registered-factories-on-it-as-its-own-by-pnu-kind.md",

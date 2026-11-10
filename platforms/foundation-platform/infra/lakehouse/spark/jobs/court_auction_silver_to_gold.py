@@ -39,6 +39,9 @@ and merged (`affected_pnus`), plus those whose items' sale date passed since the
 those under a code a change of the code change table reaches (`views.changed_codes`). A
 change to the served parcels or the lineage moves placements the item rows do not name, so those
 two are whole-table inputs and rebuild the kind whole.
+
+Each row carries its parcel's stable `place_id` (`place_id_join`, root ADR-0483): a run also recomputes
+the PNUs whose place id a release moved.
 """
 from __future__ import annotations
 
@@ -51,6 +54,7 @@ from typing import Any
 
 import legal_dong_code_change_views as views
 import onbid_public_auction_silver_to_gold as onbid
+import place_id_join
 import place_identity_resolver
 
 JOB_NAME = "court_auction_silver_to_gold"
@@ -118,7 +122,7 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     whole: `affected_pnus` maps their changed keys and codes to PNUs. The parcels and the lineage
     are: a new edition or link moves items the item rows do not name."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE, SALE_RESULT_SOURCE, CODE_CHANGE_SOURCE),
+    return ((PARCEL_SOURCE, ITEM_SOURCE, SALE_RESULT_SOURCE, CODE_CHANGE_SOURCE, *place_id_join.INPUTS),
             {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
             (PARCEL_SOURCE, LINEAGE_SOURCE))
 
@@ -328,7 +332,10 @@ def restrict_inputs(frames: dict[str, Any], keys: Any, how: Placement) -> dict[s
     on them."""
     on = [placed.join(keys, "pnu", "left_semi").select(*KEY) for placed in (placement(frames, how),
                                                                             sale_placement(frames, how))]
-    return items_of(frames, on[0].unionByName(on[1]).distinct())
+    restricted = items_of(frames, on[0].unionByName(on[1]).distinct())
+    if place_id_join.BRIDGE_SOURCE in restricted:
+        restricted[place_id_join.BRIDGE_SOURCE] = restricted[place_id_join.BRIDGE_SOURCE].join(keys, "pnu", "left_semi")
+    return restricted
 
 
 def document_round_keys(gold: Any) -> Any:
@@ -343,13 +350,14 @@ def document_round_keys(gold: Any) -> Any:
 
 
 def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, current_gold: Any,
-                  previous_as_of: str | None, changed: list[str]) -> Any:
+                  previous_as_of: str | None, changed: list[str], place_change: Any = None) -> Any:
     """The PNUs whose document can differ from the current Gold's (root ADR-0312 §2).
 
     An item is touched when a row of it changed in the item or the sale-result table, or when its
     sale date passed since the current Gold was built (`previous_as_of`: it left the served items with
     no input change). Its PNUs are those the current Gold serves it under and those it or its result
-    is placed on now, so an item or result that moved, closed or appeared reaches both ends."""
+    is placed on now, so an item or result that moved, closed or appeared reaches both ends.
+    ``place_change``: the PNUs whose place id moved (`place_id_join.changed_pnus`), or None."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     import gold_incremental as incremental  # noqa: PLC0415
@@ -374,7 +382,8 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
     cut = items_of(new, keys)
     now = placement(cut, how).select("pnu").unionByName(sale_placement(cut, how).select("pnu"))
     before = document_round_keys(current_gold).join(keys, list(KEY), "left_semi").select("pnu")
-    return now.unionByName(before).distinct()
+    moved = [] if place_change is None else [place_change.select("pnu")]
+    return reduce(lambda a, b: a.unionByName(b), [now, before, *moved]).distinct()
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -475,6 +484,9 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     forms = place_identity_resolver.served_form_candidates(spark, sources, remap, served, candidates)
     candidates = forms if candidates is None else candidates.unionByName(forms)
     frames[PARCEL_SOURCE] = onbid.parcels_named(served, placed_pnus, candidates, merges).cache()
+    frames[place_id_join.BRIDGE_SOURCE] = place_id_join.read(spark, args, pins)
+    if old is not None and place_id_join.BRIDGE_SOURCE in previous:
+        old[place_id_join.BRIDGE_SOURCE] = place_id_join.read(spark, args, previous)
     return frames, old, Placement(args.published_at_utc, candidates, merges)
 
 
@@ -510,6 +522,10 @@ def main(argv=None) -> int:
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = tuple(column_names(contract))
+    if columns != place_id_join.gold_columns(kind):
+        raise ValueError(f"{kind.gold_table} columns {columns} are not the kind line's {kind.columns}")
+    content = place_id_join.gold_content(kind)
+    built = place_id_join.built(columns)
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
     assert_catalog_env(args.iceberg_catalog_name)
     spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
@@ -522,14 +538,18 @@ def main(argv=None) -> int:
             located, located_sales = placement(inputs, how).cache(), sale_placement(inputs, how).cache()
             if inputs is frames:
                 count_placement(located, located_sales, counters)
-            return gold_rows(located, located_sales, args.published_at_utc, pins[PARCEL_SOURCE], columns)
+            rows = gold_rows(located, located_sales, args.published_at_utc, pins[PARCEL_SOURCE], built)
+            return place_id_join.with_place_ids(rows, inputs[place_id_join.BRIDGE_SOURCE], content, columns)
 
+        place_change = place_id_join.lane_change(spark, args, previous or {}, pins, lambda: old or {}, frames)
         lane = incremental.Lane(
             build=build, restrict=lambda inputs, keys: restrict_inputs(inputs, keys, how),
-            affected=lambda changed, _appended: affected_pnus(
-                old or {}, frames, how, spark.table(table), onbid.previous_build_time(spark, table), changed),
-            validate=onbid.validate_gold, content_columns=GOLD_CONTENT, gold_columns=columns,
-            whole_table_inputs=whole)
+            affected=lambda changed, appended: affected_pnus(
+                old or {}, frames, how, spark.table(table), onbid.previous_build_time(spark, table), changed,
+                place_change(changed, appended)),
+            validate=onbid.validate_gold, content_columns=content[1:], gold_columns=columns,
+            whole_table_inputs=whole,
+            append_inputs={place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
         outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table, onbid.validate_gold,
                                              assert_minimum_row_count)
         # Held to the whole-table row-loss floor (gold-panel-rebuild.contract.json kind_tables

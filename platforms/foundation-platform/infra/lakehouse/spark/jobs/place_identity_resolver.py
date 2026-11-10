@@ -383,6 +383,11 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
 MASKED_LOT = re.compile(r"^(산\s*)?(\d+)(\*+)$")
 MAIN_LOT_GROUP = "inferred_same_main_lot_group"
 INFERRED_GRADES = ("inferred_ownership_change", "inferred_attributes", MAIN_LOT_GROUP)
+# The 본번 group level linking a dataset whose measurement is under the bar, only while the owner's one
+# switch (`place_inference.below_bar.shown`, root ADR-0483 §4) shows it: the screen says its label
+# (`below_bar.label_ko`, 추정 · 정확도 약 95%) instead of 추정 · 같은 본번.
+MAIN_LOT_GROUP_BELOW_BAR = "inferred_same_main_lot_group_below_bar"
+GROUP_GRADES = (MAIN_LOT_GROUP, MAIN_LOT_GROUP_BELOW_BAR)
 # A PNU's 법정동 (10), 산 flag (1) and 본번 (4): the key of its 본번 필지 묶음.
 MAIN_LOT_KEY_LENGTH = 15
 # The evidence each level may name (the contract's `place_inference.levels[].evidence`).
@@ -427,7 +432,30 @@ def enabled_levels(inference: Mapping[str, Any], dataset: str) -> list[dict[str,
         measured = (level.get("measured") or {}).get(dataset)
         if measured and float(measured["precision_wilson_low"]) >= bar and int(measured["rows"]) >= minimum:
             levels.append(level)
+    shown = below_bar_level(inference, dataset)
+    if shown is not None and not any(level["grade"] == MAIN_LOT_GROUP for level in levels):
+        levels.append(shown)
     return levels
+
+
+def below_bar_level(inference: Mapping[str, Any], dataset: str) -> dict[str, Any] | None:
+    """The 본번 group level for a dataset measured under the bar, as `MAIN_LOT_GROUP_BELOW_BAR`, when the
+    owner's switch shows it (root ADR-0483 §4); None while it does not, or the dataset has no such
+    measurement on at least the minimum sample at or above the switch's `floor`.
+
+    The switch is one value, `place_inference.below_bar.shown`: false is "not shown" (the deals stay
+    unlinked, `jibun_masked`), true is "shown as `label_ko`". Nothing else changes between the two."""
+
+    below = inference.get("below_bar") or {}
+    measured = (below.get("measured") or {}).get(dataset)
+    if not below.get("shown") or not measured:
+        return None
+    if float(measured["precision_wilson_low"]) < float(below["floor"]) or int(measured["rows"]) < int(inference["min_measured_rows"]):
+        return None
+    level = next((level for level in inference["levels"] if level["grade"] == MAIN_LOT_GROUP), None)
+    if level is None:
+        raise ValueError(f"place_inference.below_bar shows {MAIN_LOT_GROUP}, which no level names")
+    return {**level, "grade": MAIN_LOT_GROUP_BELOW_BAR}
 
 
 def unique_pick(candidates: Iterable[str]) -> tuple[str | None, str | None, int]:
@@ -538,7 +566,7 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     # A group level's one parcel stands for its 본번 group: every current parcel with its key. The
     # parcels are the caller's share (a Gold build hands only the 법정동s its change reaches), and
     # the groups are not narrowed by `linked` so its plan is not read twice.
-    grouped = F.col("_grade") == F.lit(MAIN_LOT_GROUP)
+    grouped = F.col("_grade").isin(*GROUP_GRADES)
     linked = linked.withColumn("_key", F.when(grouped, F.substring("_pnu", 1, MAIN_LOT_KEY_LENGTH)))
     members = ((parcels if group_parcels is None else group_parcels).select("pnu").distinct()
                .withColumn("_key", F.substring("pnu", 1, MAIN_LOT_KEY_LENGTH))

@@ -24,6 +24,11 @@ RESOLVER_VIA = {
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py",
     "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
 }
+# ADR-0483 (ADR-0288 §5): the stable place id is the join key of every parcel source. A PNU-keyed Gold
+# that a resolver-placed Silver feeds carries `place_id`, read from the place-id bridge by a feeds edge.
+# 2026-11-11 (read-only): no Gold carried one, so a join across a 법정동 code change fell back to the PNU.
+PLACE_ID_COLUMN = "place_id"
+PLACE_ID_BRIDGE = "gold.place_id_bridge"
 # Root ADR-0400: why an endpoint is not collected. A deliberate verdict is a decision not to collect;
 # a waiting verdict is a collection blocked on someone outside the pipeline (the owner's application).
 COLLECTION_VERDICTS = {
@@ -291,10 +296,34 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
                 problems.append(f"dataset has no consumer edge: {node['id']}")
         elif node["type"] == "source_group" and node.get("status") not in {"disabled", "planned", "collection_available"} and node["id"] not in consumed:
             problems.append(f"source group has no consumer edge: {node['id']}")
+    problems.extend(place_id_problems(nodes, edges, columns_by_table))
     if problems:
         raise ValueError("\n".join(problems))
     return {"source_groups": len(expected_groups), "lakehouse_tables": len(expected_contracts),
             "serving_tables": len(expected_serving), "nodes": len(nodes), "edges": len(edges)}
+
+
+def place_id_problems(nodes: list[dict], edges: list[dict], columns_by_table: dict[str, set[str]]) -> list[str]:
+    """ADR-0483: every PNU-keyed Gold a resolver-placed parcel source feeds carries `place_id` and reads it
+    from the place-id bridge. A parcel source is a Silver whose source edge goes through the resolver
+    (RESOLVER_VIA), the set ADR-0288 §1 holds; a Gold without `pnu` (a region's statistics) is keyed by
+    something else and is not held here."""
+    by_id = {n["id"]: n for n in nodes}
+    live = [e for e in edges if e.get("relation") == DATA_RELATION and e["from"] in by_id and e["to"] in by_id]
+    placed = {e["to"] for e in live if by_id[e["from"]]["type"] == "source_group"
+              and isinstance(e.get("via"), list) and set(e["via"]) & RESOLVER_VIA}
+    bridge = {n["id"] for n in nodes if n.get("table_name") == PLACE_ID_BRIDGE}
+    problems = []
+    for gold_id in sorted({e["to"] for e in live if e["from"] in placed and by_id[e["to"]]["type"] == "gold_table"}):
+        table = by_id[gold_id].get("table_name", "")
+        columns = columns_by_table.get(table, set())
+        if "pnu" not in columns:
+            continue
+        if PLACE_ID_COLUMN not in columns:
+            problems.append(f"parcel source Gold carries no {PLACE_ID_COLUMN}: {table}")
+        if not any(e["from"] in bridge and e["to"] == gold_id for e in live):
+            problems.append(f"parcel source Gold does not read {PLACE_ID_BRIDGE}: {table}")
+    return problems
 
 
 def main() -> int:

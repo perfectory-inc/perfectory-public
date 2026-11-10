@@ -18,7 +18,7 @@ use anyhow::{ensure, Context};
 use serde::Serialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
-use crate::by_pnu_gateway_contract::{PackLane, PACK_LANE_NON_CONTENT_COLUMNS};
+use crate::by_pnu_gateway_contract::{pack_lane_content_column, PackLane};
 
 /// Where a document was read from: the Gold table and its snapshot.
 #[derive(Serialize)]
@@ -34,7 +34,7 @@ pub fn fields(lane: &PackLane) -> Vec<(&'static str, &'static str)> {
         .columns
         .iter()
         .map(|column| column.name)
-        .filter(|name| !PACK_LANE_NON_CONTENT_COLUMNS.contains(name))
+        .filter(|name| pack_lane_content_column(name))
         .map(|name| (name.strip_suffix("_json").unwrap_or(name), name))
         .collect()
 }

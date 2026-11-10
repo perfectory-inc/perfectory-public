@@ -22,7 +22,9 @@ Which PNU a sale belongs to:
 - the PNU a round is placed by is carried to the CURRENT legal-dong code on every build
   (`place_identity_resolver.located`: the load's resolved PNU, else the source's `ltno_pnu_raw`),
   never the one fixed at load time; a change of the code change table rebuilds only the rounds under
-  the codes it reaches (`views.changed_codes`, root ADR-0329 §3, ADR-0383).
+  the codes it reaches (`views.changed_codes`, root ADR-0329 §3, ADR-0383);
+- each row carries its parcel's stable `place_id` (`place_id_join`, root ADR-0483), and a run also
+  recomputes the PNUs whose place id a release moved.
 
 What a PNU's document holds (root ADR-0287 §7): the rounds open as of the build, soonest-closing
 first, each with its codes and the names the provider gives them (root ADR-0340 §8), its money
@@ -42,6 +44,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import onbid_public_auction_document as document
+import place_id_join
 import place_identity_resolver
 
 JOB_NAME = "onbid_public_auction_silver_to_gold"
@@ -105,7 +108,7 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     every version to pick the current one per key, so any change to it rebuilds the kind. The code
     change table is not: `affected_pnus` maps its changed codes to the rounds under them (root ADR-0383)."""
     del lane
-    return ((PARCEL_SOURCE, ITEM_SOURCE, CODE_CHANGE_SOURCE, *DOCUMENT_SOURCES),
+    return ((PARCEL_SOURCE, ITEM_SOURCE, CODE_CHANGE_SOURCE, *DOCUMENT_SOURCES, *place_id_join.INPUTS),
             {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
             (ITEM_SOURCE, PHOTO_SOURCE, *DOCUMENT_SOURCES))
 
@@ -421,8 +424,12 @@ def rounds_of(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
 
 
 def restrict_inputs(frames: dict[str, Any], keys: Any, how: Placement) -> dict[str, Any]:
-    """The input rows the Gold rows of the PNUs `keys` are built from: every round placed on them."""
-    return rounds_of(frames, placement(frames, how).join(keys, "pnu", "left_semi").select(*KEY).distinct())
+    """The input rows the Gold rows of the PNUs `keys` are built from: every round placed on them,
+    and the place ids of those PNUs."""
+    restricted = rounds_of(frames, placement(frames, how).join(keys, "pnu", "left_semi").select(*KEY).distinct())
+    if place_id_join.BRIDGE_SOURCE in restricted:
+        restricted[place_id_join.BRIDGE_SOURCE] = restricted[place_id_join.BRIDGE_SOURCE].join(keys, "pnu", "left_semi")
+    return restricted
 
 
 def document_round_keys(gold: Any) -> Any:
@@ -435,14 +442,15 @@ def document_round_keys(gold: Any) -> Any:
 
 
 def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, current_gold: Any,
-                  previous_as_of: str | None, changed: list[str]) -> Any:
+                  previous_as_of: str | None, changed: list[str], place_change: Any = None) -> Any:
     """The PNUs whose document can differ from the current Gold's (root ADR-0312 §2).
 
     A round is touched when a row of it changed in the item table, when a media row of its item
     changed in the photo table (every round of the item carries the media, root ADR-0339), or when
     its close time passed since the current Gold was built (`previous_as_of`: it left the served
     rounds with no input change). Its PNUs are those the current Gold serves it under and those it
-    is placed on now, so a round that moved, closed or appeared reaches both ends."""
+    is placed on now, so a round that moved, closed or appeared reaches both ends. ``place_change``:
+    the PNUs whose place id moved (`place_id_join.changed_pnus`), or None."""
     from functools import reduce  # noqa: PLC0415
 
     from pyspark.sql import functions as F  # noqa: PLC0415
@@ -478,7 +486,8 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
     keys = reduce(lambda a, b: a.unionByName(b), [t.select(*KEY) for t in touched]).distinct()
     now = placement(rounds_of(new, keys), how).select("pnu")
     before = document_round_keys(current_gold).join(keys, list(KEY), "left_semi").select("pnu")
-    return now.unionByName(before).distinct()
+    moved = [] if place_change is None else [place_change.select("pnu")]
+    return reduce(lambda a, b: a.unionByName(b), [now, before, *moved]).distinct()
 
 
 def validate_gold(gold: Any, expected: int | None = None) -> tuple[int, dict[str, int]]:
@@ -557,6 +566,9 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     if USAGE_CODE_SOURCE in pins:
         usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
     frames[PARCEL_SOURCE] = parcels_named(served, frames[ITEM_SOURCE], candidates, merges).cache()
+    frames[place_id_join.BRIDGE_SOURCE] = place_id_join.read(spark, args, pins)
+    if old is not None and place_id_join.BRIDGE_SOURCE in previous:
+        old[place_id_join.BRIDGE_SOURCE] = place_id_join.read(spark, args, previous)
     return frames, old, Placement(args.published_at_utc, candidates, merges, usage)
 
 
@@ -600,6 +612,10 @@ def main(argv=None) -> int:
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = tuple(column_names(contract))
+    if columns != place_id_join.gold_columns(kind):
+        raise ValueError(f"{kind.gold_table} columns {columns} are not the kind line's {kind.columns}")
+    content = place_id_join.gold_content(kind)
+    built = place_id_join.built(columns)
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
     assert_catalog_env(args.iceberg_catalog_name)
     spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
@@ -612,13 +628,17 @@ def main(argv=None) -> int:
             located = placement(inputs, how).cache()
             if inputs is frames:
                 count_placement(located, counters)
-            return gold_rows(located, args.published_at_utc, pins[PARCEL_SOURCE], columns, inputs)
+            rows = gold_rows(located, args.published_at_utc, pins[PARCEL_SOURCE], built, inputs)
+            return place_id_join.with_place_ids(rows, inputs[place_id_join.BRIDGE_SOURCE], content, columns)
 
+        place_change = place_id_join.lane_change(spark, args, previous or {}, pins, lambda: old or {}, frames)
         lane = incremental.Lane(
             build=build, restrict=lambda inputs, keys: restrict_inputs(inputs, keys, how),
-            affected=lambda changed, _appended: affected_pnus(
-                old or {}, frames, how, spark.table(table), previous_build_time(spark, table), changed),
-            validate=validate_gold, content_columns=GOLD_CONTENT, gold_columns=columns, whole_table_inputs=whole)
+            affected=lambda changed, appended: affected_pnus(
+                old or {}, frames, how, spark.table(table), previous_build_time(spark, table), changed,
+                place_change(changed, appended)),
+            validate=validate_gold, content_columns=content[1:], gold_columns=columns, whole_table_inputs=whole,
+            append_inputs={place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
         outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table, validate_gold,
                                              assert_minimum_row_count)
         # This open-auction kind is held to the whole-table row-loss floor (contract

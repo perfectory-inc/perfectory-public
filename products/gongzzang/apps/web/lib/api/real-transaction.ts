@@ -44,9 +44,20 @@ export async function fetchRealTransaction(
 /** The grade of a deal linked to every parcel of its 본번 group, not to one parcel (root ADR-0405). */
 export const MAIN_LOT_GROUP_GRADE = "inferred_same_main_lot_group";
 
+/**
+ * The same 본번 group link for a dataset measured under the 99% bar, shown only while the owner's one
+ * switch shows it (the 실거래 contract's `place_inference.below_bar`, root ADR-0483 §4).
+ */
+export const MAIN_LOT_GROUP_BELOW_BAR_GRADE = "inferred_same_main_lot_group_below_bar";
+
 /** Whether the deal reached this parcel as one of its 본번 group: the screen says 추정 · 같은 본번. */
 export function isMainLotGroup(grade: string | null | undefined): boolean {
-  return grade === MAIN_LOT_GROUP_GRADE;
+  return grade === MAIN_LOT_GROUP_GRADE || grade === MAIN_LOT_GROUP_BELOW_BAR_GRADE;
+}
+
+/** Whether the link is under the bar: the screen says its measured precision (추정 · 정확도 약 95%). */
+export function isBelowBar(grade: string | null | undefined): boolean {
+  return grade === MAIN_LOT_GROUP_BELOW_BAR_GRADE;
 }
 
 /** A PNU's lot as a 지번: 산 flag, 본번 and 부번 (9999900000203000001 → "산 300-1"). */

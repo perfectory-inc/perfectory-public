@@ -28,10 +28,11 @@ class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_facility_files_rebuild_whole(self):
         required, optional, anchor, whole = job.lane_inputs(LANE)
         self.assertEqual(set(required), {job.PARCEL_SOURCE, *job.POINTS, job.UNIVERSITY_SOURCE, job.STORE_SOURCE,
-                                         job.HIGHWAY_SOURCE, job.CODE_CHANGE_SOURCE})
+                                         job.HIGHWAY_SOURCE, job.CODE_CHANGE_SOURCE, *job.place_id_join.INPUTS})
         self.assertEqual((optional, anchor), ({}, job.PARCEL_SOURCE))
-        # Only a parcel or a store maps to the PNUs it changes; every other input rebuilds whole.
-        self.assertEqual(set(required) - set(whole), {job.PARCEL_SOURCE, job.STORE_SOURCE})
+        # Only a parcel, a store or a moved place id maps to the PNUs it changes; every other input
+        # rebuilds whole.
+        self.assertEqual(set(required) - set(whole), {job.PARCEL_SOURCE, job.STORE_SOURCE, *job.place_id_join.INPUTS})
 
     def test_the_kind_line_names_this_producer(self):
         import by_pnu_kinds
