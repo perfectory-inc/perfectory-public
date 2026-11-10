@@ -125,6 +125,24 @@ class TheContract(unittest.TestCase):
             with self.assertRaises(ValueError):
                 layout.load_layout(path)
 
+    def test_a_spark_tmp_on_the_data_disk_is_refused_once_a_scratch_disk_is_declared(self):
+        shipped = layout.load_layout()
+        shipped["spark_tmp"] = shipped["data_mount"] + "/foundation-platform/spark-tmp"
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "layout.json"
+            path.write_text(json.dumps(shipped), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                layout.load_layout(path)
+
+    def test_without_a_scratch_disk_the_spark_tmp_stays_on_the_data_disk(self):
+        shipped = layout.load_layout()
+        shipped.pop("scratch_mount")
+        shipped["spark_tmp"] = shipped["data_mount"] + "/foundation-platform/spark-tmp"
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "layout.json"
+            path.write_text(json.dumps(shipped), encoding="utf-8")
+            self.assertEqual(layout.load_layout(path)["spark_tmp"], shipped["spark_tmp"])
+
     def test_the_script_parses_and_refuses_an_unknown_mode(self):
         script = PLATFORM / "scripts/ops/host-docker-data-root.sh"
         self.assertEqual(subprocess.run(["bash", "-n", script.as_posix()]).returncode, 0)
