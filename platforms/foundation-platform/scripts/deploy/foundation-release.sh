@@ -1028,10 +1028,11 @@ retire_hand_installed_ollama() {
   # (cgroup peak 29.7 GiB); intelligence-model-runtime-ollama.service replaces it under a cap and only
   # while a spark-pool job needs it (root ADR-0478 §2). A model it holds is someone's request in
   # progress, so that deploy leaves it and the next one retires it. The unit file stays, disabled.
-  local loaded
-  systemctl is-enabled --quiet ollama.service 2>/dev/null || systemctl is-active --quiet ollama.service 2>/dev/null \
-    || return 0
-  if systemctl is-active --quiet ollama.service; then
+  local loaded running
+  # The host's one answer to whether a unit runs (job_units.py); no answer retires nothing.
+  running="$(python3 -I -B "${release_root}/current/scripts/deploy/job_units.py" running ollama.service)" || return 0
+  systemctl is-enabled --quiet ollama.service 2>/dev/null || [[ -n "${running}" ]] || return 0
+  if [[ -n "${running}" ]]; then
     if ! loaded="$(curl -fsS --max-time 5 http://127.0.0.1:11434/api/ps 2>/dev/null \
       | python3 -I -c 'import json, sys; print(len(json.load(sys.stdin).get("models") or []))')"; then
       printf 'foundation-release: ollama.service does not answer; it is retired by a later deploy\n' >&2
