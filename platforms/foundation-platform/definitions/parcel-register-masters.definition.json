@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed from the lane's own full build measured in its cut-over's gold step (the operator's copy of this unit, gold-panel-rebuild.sh parcel-register-masters): 129 s on 2026-11-09 for 581,357 rows (gold-kind mode=full 93 s). A new Silver release can change every row, so the first run as its unit is taken as a full build again: about five times it, 600 s, inside the 8,100 s share of the 150-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -32,8 +35,8 @@
         "silver-building-register-master-to-gold-parcel-register-masters",
         "reference-legal-dong-code-change-to-gold-parcel-register-masters"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0450). Off until its first full build (621,193 sites on 617,386 PNUs in the 202610 vintage, measured 2026-11-09) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-register-masters, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4), or the auto-promotion of root ADR-0435 once measured."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_register_masters_bake",
@@ -59,7 +62,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-register-masters bake, the same by-pnu-serving-bake.sh): 277 s on 2026-11-09 for 581,357 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 900 s, inside the 6,210 s share of the 115-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -69,8 +75,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-register-masters-to-parcel-register-masters-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0450). Off with gold_parcel_register_masters_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the lane is cut over (by-pnu-pack-operator.sh parcel-register-masters cutover 1, root ADR-0190, or the auto-promotion of root ADR-0435); switching both on is one separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     }
   ],
   "assets": [

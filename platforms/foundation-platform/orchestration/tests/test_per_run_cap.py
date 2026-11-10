@@ -119,16 +119,30 @@ def real_graph():
     return json.loads((PLATFORM / "docs" / "catalog" / "pipeline-graph.v1.json").read_text(encoding="utf-8"))
 
 
-def idle_readers(jobs, graph):
-    """The jobs switched off that read what an enabled job takes its first run to make (root ADR-0468).
+# The readers of an enabled job held off on purpose, each with why; the list only shrinks
+# (root ADR-0468, revised 2026-11-10).
+# A held-off reader that is switched on is a stale entry: the change that turns it on deletes its line.
+HELD_OFF = {
+    "parcel_served_gold": "the owner moves served_edition after the supervised edition rehearsal (root ADR-0253)",
+    "gold_parcel_regulation_zones_rebuild": "its first national build ran 9,610 s, past the 150-minute limit "
+                                            "(2026-11-07, root ADR-0435 개정 ②)",
+    "gold_court_auction_rebuild": "the court-auction lane's own work (W18h, root ADR-0353)",
+}
 
-    A job turned on through ADR-0457 is turned on so its data is seen: a reader left off keeps it from the
-    screen however well the first run goes. 2026-11-09: the eight building-permit Silver lanes and
-    data_go_kr_file_data were switched on to load unattended, and gold_parcel_building_permits_rebuild,
-    gold_parcel_nearby_rebuild and their bakes stayed off, so nothing would have refreshed what they
-    load. A reader turned on takes its own first run through the same gate (first_run_problems), so the
-    rule reaches down the chain to the bake."""
+
+def idle_readers(jobs, graph, held_off=HELD_OFF):
+    """The jobs switched off that read what an enabled job makes (root ADR-0468 and its 2026-11-10 revision).
+
+    A job is turned on so its data is seen: a reader left off keeps it from the screen however well the
+    producer runs. 2026-11-09: the eight building-permit Silver lanes and data_go_kr_file_data were
+    switched on to load unattended, and gold_parcel_building_permits_rebuild, gold_parcel_nearby_rebuild
+    and their bakes stayed off (ADR-0468). 2026-11-10: six lanes the auto-promotion had published
+    (ownership, sub-parcels, energy, demolitions, factories, register masters) kept their first publish
+    while their Silver loaders ran, because their Gold and bake jobs were off (the 2026-11-10 revision).
+    A reader turned on takes its own first run through the same gate (first_run_problems), so the rule
+    reaches down the chain to the bake. A reader in `held_off` is the declared exception."""
     edges = {edge["id"]: edge for edge in graph["edges"]}
+    by_id = {job["id"]: job for job in jobs["jobs"]}
 
     def reads(job):
         return {edges[edge]["from"] for edge in job["pipeline_graph_edges"] if edge in edges}
@@ -136,13 +150,17 @@ def idle_readers(jobs, graph):
     def makes(job):
         return {edges[edge]["to"] for edge in job["pipeline_graph_edges"] if edge in edges}
 
-    found = []
+    found = [f"{name}: held off, but it is on; delete its HELD_OFF line" for name in held_off
+             if by_id.get(name, {}).get("enabled")]
     for job in jobs["jobs"]:
-        if not (job["enabled"] and (job.get("per_run_cap") or {}).get("first_run")):
+        if not job["enabled"]:
             continue
+        first = (job.get("per_run_cap") or {}).get("first_run")
         for reader in jobs["jobs"]:
-            if reader is not job and not reader["enabled"] and makes(job) & (reads(reader) - makes(reader)):
-                found.append(f"{reader['id']}: off, but it reads what {job['id']} takes its first run to make")
+            if (reader is not job and not reader["enabled"] and reader["id"] not in held_off
+                    and makes(job) & (reads(reader) - makes(reader))):
+                found.append(f"{reader['id']}: off, but it reads what {job['id']} "
+                             + ("takes its first run to make" if first else "makes"))
     return found
 
 
@@ -220,10 +238,22 @@ class TheGuardRefuses(unittest.TestCase):
         gold.update(enabled=False)
         self.assertIn("gold_parcel_nearby_rebuild: off, but it reads what data_go_kr_file_data takes its first run to make",
                       idle_readers(jobs, real_graph()))
-        loader = next(job for job in jobs["jobs"] if job["id"] == "data_go_kr_file_data")
-        loader["per_run_cap"].pop("first_run", None)
-        self.assertNotIn("data_go_kr_file_data", " ".join(idle_readers(jobs, real_graph())),
-                         "a measured loader is past the gate; what reads it is decided elsewhere")
+
+    def test_a_reader_left_off_behind_a_measured_loader(self):
+        # 2026-11-10: silver_refresh_land_ownership loads on schedule, gold_parcel_ownership_rebuild off, so
+        # the published ownership lane kept its first publish (root ADR-0468, revised 2026-11-10).
+        jobs = copy.deepcopy(real_jobs())
+        gold = next(job for job in jobs["jobs"] if job["id"] == "gold_parcel_ownership_rebuild")
+        gold.update(enabled=False)
+        self.assertIn("gold_parcel_ownership_rebuild: off, but it reads what silver_refresh_land_ownership makes",
+                      idle_readers(jobs, real_graph()))
+        self.assertEqual(idle_readers(jobs, real_graph(), {**HELD_OFF, gold["id"]: "synthetic"}), [])
+
+    def test_a_held_off_reader_switched_on_is_stale(self):
+        jobs = copy.deepcopy(real_jobs())
+        next(job for job in jobs["jobs"] if job["id"] == "gold_court_auction_rebuild").update(enabled=True)
+        self.assertIn("gold_court_auction_rebuild: held off, but it is on; delete its HELD_OFF line",
+                      idle_readers(jobs, real_graph()))
 
     def test_a_count_that_names_nothing(self):
         self.assertRegex(" ".join(self.one(unit="object", limits=["config/none.json#/max_objects"])), "names nothing")

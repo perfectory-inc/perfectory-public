@@ -67,3 +67,39 @@ ADR-0457 은 켜는 쪽만 말했다. 무엇을 위해 켜는가(화면에 보�
   `first_run` 을 `measured_run_seconds` 로 바꾼다(ADR-0457 §3).
 - 계산이 틀릴 수 있다: 주변 Gold 의 5,400 s 는 같은 모양의 잰 run 이 없다. 상한은 계산이 아니라 유닛이다.
 - 비용 0(시험은 파일 읽기). 켜진 작업의 계산은 그 작업이 원래 쓸 계산과 같다(spark 풀 안).
+
+---
+
+개정(2026-11-10, W52): **켜진 작업을 읽는 꺼진 작업은 모두 거부한다 — 명시한 예외만 빼고.** 위 "버린 대안" 첫 줄이 말한
+"그 결정을 바꾸는 PR" 이다.
+
+사고(잰 값, 호스트 `by-pnu-bake/cutover/*.jsonl`·Trino, 2026-11-10): 자동 승격(ADR-0435)이 11-07~09 에 여섯 레인을 첫 발행했다
+— 소유(11-07 09:12Z publish·edge 통과), 공장(11-09 17:58Z), 대장 총괄(21:27Z), 부속지번(22:42Z), 에너지(23:27Z), 멸실(15:42Z).
+그 Silver 적재(`silver_refresh_land_ownership`·`registered_factory`·`silver_refresh_building_*` 다섯)는 켜져 있고, Gold·굽기 12 개는
+"운영자 run 으로 먼저 잰다"(ADR-0386 §3) 이유로 꺼져 있었다. 화면은 첫 발행의 판에서 멈추고, 화면 표(로드맵 §10)는 그 Silver
+7 개를 "길 있음·꺼짐" 으로 보였다(46/68 = 68%). 실거래가는 Gold 를 아직 한 번도 안 지었다(Silver 13,476,265 행, cut-over 는
+역사 전체를 기다림, ADR-0350 §6).
+
+1. `test_per_run_cap.py::idle_readers` 는 `first_run` 작업만이 아니라 **켜진 모든 작업**이 만드는 노드를 읽는 꺼진 작업을 거부한다.
+   예외는 같은 파일의 `HELD_OFF`(작업 → 이유) 뿐이고, 목록은 줄기만 한다: 켜진 작업이 `HELD_OFF` 에 남아 있으면 그것도 거부한다
+   (낡음). 지금 셋: `parcel_served_gold`(사장이 `served_edition` 을 옮김, ADR-0253), `gold_parcel_regulation_zones_rebuild`(첫 전국
+   빌드 9,610 s, 150 분 제한 초과), `gold_court_auction_rebuild`(경매 레인 작업 W18h, ADR-0353). 줄기만 하는 허용 목록은 린터의
+   기준선 방식이다(mypy `--baseline`·RuboCop `.rubocop_todo.yml`·ESLint suppressions: 새 위반은 막고 남은 것은 지울 때만 바뀐다).
+2. 이 개정이 켜는 작업 14 개(ADR-0457 §1–2 의 같은 관문: 계산값 ≤ 제한 90%, `as_it_goes`, `retries: 0`). 계산의 출처는 각 레인
+   cut-over 의 gold·bake 단계가 잰 값(정의의 `estimated_from`):
+
+   | 레인 | Gold 잰 값 → 첫 run 계산 / 8,100 s | 굽기 잰 값 → 계산 / 6,210 s |
+   |---|---|---|
+   | parcel-ownership | 1,602·1,501 s → 2,400 s | 636·665 s → 1,200 s |
+   | parcel-sub-parcels | 138 s → 600 s | 146 s → 600 s |
+   | parcel-energy | 241 s → 900 s | 146·275·120 s → 900 s |
+   | parcel-demolitions | 115 s → 600 s | 213 s → 900 s |
+   | parcel-factories | 105 s → 600 s | 157 s → 600 s |
+   | parcel-register-masters | 129 s → 600 s | 277 s → 900 s |
+   | parcel-real-transaction | 안 돎: 소유 전량 1,602 s × 통과 약 2 번 → 3,600 s | 소유 굽기 636 s, 필지 수 상한 → 1,500 s |
+
+   일곱 굽기는 조정기의 `reconciles` 에 든다(위 §4). 실거래가 굽기는 cut-over 전까지 `not cut over yet` 이고 owed 가 아니다.
+3. 결과(계산값, `render-showing-inventory.py --summary`): 화면 46 → 54 / 68 (68% → 79%). 남은 "길 있음·꺼짐" 셋은 법원경매(W18h).
+4. 위험: 실거래가 Gold 의 3,600 s 는 같은 모양의 잰 run 이 없다. 넘으면 `TimeoutStartSec` 가 멈추고 다음 일정·자동 승격의 gold 단계가
+   잇는다. 여섯 발행 레인의 첫 굽기는 `reads.jsonl` 이 없어 새 세대를 통째로 구울 수 있다(11-10 parcel-building-permits gen3:
+   10 분, 3.1 GB peak, 잰 값). 비용: 돈 0, spark 풀 안의 계산.
