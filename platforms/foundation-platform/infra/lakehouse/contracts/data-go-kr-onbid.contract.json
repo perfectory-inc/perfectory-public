@@ -119,8 +119,8 @@
     "object_prefix": "onbid/media",
     "reconcile": {
       "$comment": "루트 ADR-0387. 미디어 대조기(scripts/ops/media_reconcile.py, 작업 media_reconcile)가 object_prefix 의 sha256/ 아래 객체 전부를 index_table 의 (sha256, media_format) 전부와 맞춘다. 색인이 이름 대는데 R2 에 없는 키 = 없음(깨진 사진), R2 에 있는데 어느 색인 줄도 이름 대지 않는 키 = 고아(10-26 수집 40분 한도에 걸려 Bronze 커밋 없이 사진만 남은 일). 고아는 orphan_min_age_hours 보다 오래된 것만 센다: 수집 run 이 끝나고 Silver 적재가 그 줄을 색인에 넣기까지의 여유.",
-      "$index_tables": "루트 ADR-0429: 이 저장소에 사진을 담는 원천마다 그 Silver 색인 하나. 경매 사진(ADR-0384)이 같은 sha256/ 에 쌓이므로 경매 색인이 없으면 경매 사진이 전부 고아로 세어진다. 한 질의(UNION ALL)에 워터마크 하나: 두 적재 모두 append 이고 대조 시각(06:15 UTC)과 겹치지 않는다.",
-      "index_tables": ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo"],
+      "$index_tables": "루트 ADR-0429: 이 저장소에 사진을 담는 원천마다 그 Silver 색인 하나. 경매 사진(ADR-0384)이 같은 sha256/ 에 쌓이므로 경매 색인이 없으면 경매 사진이 전부 고아로 세어진다. 산업단지 고시 첨부(ADR-0484)도 같은 sha256/ 에 담기므로 그 색인도 여기 있다. 한 질의(UNION ALL)에 워터마크 하나: 세 적재 모두 append 이고 대조 시각(06:15 UTC)과 겹치지 않는다.",
+      "index_tables": ["silver.onbid_real_estate_item_photo", "silver.court_auction_item_photo", "silver.industrial_complex_notice_attachment"],
       "orphan_min_age_hours": 48
     },
     "ladder_backlog": {

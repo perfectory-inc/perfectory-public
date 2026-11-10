@@ -44,13 +44,28 @@ pub(crate) async fn store_bytes(
     storage: &dyn ObjectStorageService,
     max_file_bytes: u64,
 ) -> anyhow::Result<Stored> {
+    let Some(format) = MediaFormat::sniff(bytes) else {
+        return Ok(Stored::UnknownFormat);
+    };
+    store_bytes_as(bytes, format, prefix, storage, max_file_bytes).await
+}
+
+/// [`store_bytes`] for bytes whose format the caller already named: a notice attachment is stored
+/// whatever it is (`MediaFormat::sniff_document`, root ADR-0484), a photo only when it is a picture.
+///
+/// # Errors
+/// The store refused the HEAD or the write (retried by a later run).
+pub(crate) async fn store_bytes_as(
+    bytes: &[u8],
+    format: MediaFormat,
+    prefix: &ObjectKeyPrefix,
+    storage: &dyn ObjectStorageService,
+    max_file_bytes: u64,
+) -> anyhow::Result<Stored> {
     // A chunked response carries no length; the same cap still holds once the bytes are in hand.
     if bytes.len() as u64 > max_file_bytes {
         return Ok(Stored::Oversize);
     }
-    let Some(format) = MediaFormat::sniff(bytes) else {
-        return Ok(Stored::UnknownFormat);
-    };
     let hash = Sha256Hex::of(bytes);
     let hash_hex = hash.as_str().to_owned();
     let key =

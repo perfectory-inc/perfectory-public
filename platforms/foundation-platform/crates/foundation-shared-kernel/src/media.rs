@@ -16,9 +16,10 @@ use crate::object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 
 /// A media format recognized from the leading bytes of a payload.
 ///
-/// Only the formats the providers actually serve for parcel sources are listed: KAMCO Onbid photos
-/// and appraisal attachments, and court-auction photos. A payload whose leading bytes match none of
-/// these is not stored as media.
+/// The photo formats ([`Self::sniff`]) are the ones the parcel sources serve: KAMCO Onbid photos and
+/// appraisal attachments, and court-auction photos; a photo payload matching none of them is not
+/// stored. The document formats ([`Self::sniff_document`], root ADR-0484) are what a notice may be
+/// attached as: every attachment is stored, [`Self::Binary`] when no signature names it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaFormat {
@@ -34,6 +35,16 @@ pub enum MediaFormat {
     Webp,
     /// AVIF image (an ISO-BMFF `ftyp` box of brand `avif`/`avis`): our display renditions.
     Avif,
+    /// 한글(HWP) document: HWP 5 (an OLE compound file carrying the `HWP Document File` header) or
+    /// HWP 3 (that header at the start). A notice attachment (root ADR-0484).
+    Hwp,
+    /// HWPX document: a ZIP whose first entry is `mimetype` = `application/hwp+zip` (KS X 6101).
+    Hwpx,
+    /// Any other ZIP archive (`PK\x03\x04`).
+    Zip,
+    /// Bytes no signature names. Only [`Self::sniff_document`] gives it: an attachment is kept
+    /// whatever it is, and a later reader decides what it holds.
+    Binary,
 }
 
 impl MediaFormat {
@@ -47,6 +58,10 @@ impl MediaFormat {
             Self::Pdf => "pdf",
             Self::Webp => "webp",
             Self::Avif => "avif",
+            Self::Hwp => "hwp",
+            Self::Hwpx => "hwpx",
+            Self::Zip => "zip",
+            Self::Binary => "bin",
         }
     }
 
@@ -60,6 +75,10 @@ impl MediaFormat {
             Self::Pdf => "application/pdf",
             Self::Webp => "image/webp",
             Self::Avif => "image/avif",
+            Self::Hwp => "application/x-hwp",
+            Self::Hwpx => "application/hwp+zip",
+            Self::Zip => "application/zip",
+            Self::Binary => "application/octet-stream",
         }
     }
 
@@ -73,15 +92,22 @@ impl MediaFormat {
             Self::Pdf,
             Self::Webp,
             Self::Avif,
+            Self::Hwp,
+            Self::Hwpx,
+            Self::Zip,
+            Self::Binary,
         ]
         .into_iter()
         .find(|format| format.extension() == extension)
     }
 
-    /// Whether it is a picture a display ladder can be made from (root ADR-0427): not a PDF.
+    /// Whether it is a picture a display ladder can be made from (root ADR-0427): not a document.
     #[must_use]
     pub const fn is_image(self) -> bool {
-        !matches!(self, Self::Pdf)
+        matches!(
+            self,
+            Self::Jpeg | Self::Png | Self::Gif | Self::Webp | Self::Avif
+        )
     }
 
     /// Detects the format from the payload's leading bytes.
@@ -109,6 +135,41 @@ impl MediaFormat {
             None
         }
     }
+
+    /// Detects a notice attachment's format (root ADR-0484); never fails, [`Self::Binary`] when no
+    /// signature names it. [`Self::sniff`] is unchanged by it, so a photo source still stores only
+    /// what it can show.
+    #[must_use]
+    pub fn sniff_document(bytes: &[u8]) -> Self {
+        const CFB: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        const HWP_HEADER: &[u8] = b"HWP Document File";
+        if let Some(format) = Self::sniff(bytes) {
+            format
+        } else if bytes.starts_with(HWP_HEADER)
+            || (bytes.starts_with(CFB) && contains(bytes, HWP_HEADER))
+        {
+            Self::Hwp
+        } else if bytes.starts_with(b"PK\x03\x04") {
+            // OCF packaging (as ODF and EPUB): a stored first entry `mimetype` holding the type.
+            if bytes.get(30..38) == Some(b"mimetype")
+                && bytes
+                    .get(38..)
+                    .is_some_and(|rest| rest.starts_with(b"application/hwp+zip"))
+            {
+                Self::Hwpx
+            } else {
+                Self::Zip
+            }
+        } else {
+            Self::Binary
+        }
+    }
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 /// A lowercase hex SHA-256 digest (exactly 64 characters, `0-9a-f`).
@@ -285,6 +346,40 @@ mod tests {
         }
         assert!(!MediaFormat::Pdf.is_image());
         Ok(())
+    }
+
+    #[test]
+    fn sniffs_every_notice_attachment_and_keeps_photo_sniffing_as_it_was() {
+        let mut hwp5 = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        hwp5.extend_from_slice(&[0; 600]);
+        hwp5.extend_from_slice(b"HWP Document File\0\0");
+        let mut hwpx = b"PK\x03\x04".to_vec();
+        hwpx.extend_from_slice(&[0; 26]);
+        hwpx.extend_from_slice(b"mimetypeapplication/hwp+zipPK");
+        let mut xls = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        xls.extend_from_slice(b"Workbook");
+        let cases: [(&[u8], MediaFormat); 7] = [
+            (&hwp5, MediaFormat::Hwp),
+            (b"HWP Document File V3.00 \x1a\x01\x02", MediaFormat::Hwp),
+            (&hwpx, MediaFormat::Hwpx),
+            (b"PK\x03\x04\x14\0\0\0word/document.xml", MediaFormat::Zip),
+            (b"%PDF-1.7", MediaFormat::Pdf),
+            (&xls, MediaFormat::Binary),
+            (b"", MediaFormat::Binary),
+        ];
+        for (bytes, expected) in cases {
+            assert_eq!(MediaFormat::sniff_document(bytes), expected);
+            // A photo source never stores a document it cannot show (the screens' schemas list
+            // jpg/png/gif/pdf only): the photo sniff does not see these formats.
+            if !matches!(expected, MediaFormat::Pdf) {
+                assert_eq!(MediaFormat::sniff(bytes), None);
+            }
+            assert_eq!(
+                MediaFormat::from_extension(expected.extension()),
+                Some(expected)
+            );
+            assert!(!expected.is_image());
+        }
     }
 
     #[test]

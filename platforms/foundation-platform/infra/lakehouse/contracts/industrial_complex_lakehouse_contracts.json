@@ -9751,6 +9751,258 @@
         "object_suffix_separator": null
       }
     },
+    "silver.industrial_complex_notice_detail": {
+      "table_name": "silver.industrial_complex_notice_detail",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "notice_sequence"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "notice_sequence",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "requested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "http_status",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "read_outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "notice_title",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "notice_number",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "notice_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "notice_type_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "notice_type_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "complex_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "complex_kind_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "file_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "files_stored",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "notice_sequence"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "one row per notice detail read, failed reads included (root ADR-0484 §3)",
+        "(notice_sequence, source_snapshot_id, source_line_number) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.industrial_complex_notice_attachment": {
+      "table_name": "silver.industrial_complex_notice_attachment",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "notice_sequence",
+          "sha256"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "notice_sequence",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "file_sequence",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "file_title",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "file_extension_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "provider_file_size",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "provider_file_path",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "provider_file_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_url",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "size_bytes",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "fetched_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "notice_sequence",
+        "file_sequence"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(notice_sequence, sha256, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.court_auction_sale_result": {
       "table_name": "silver.court_auction_sale_result",
       "physical_format": "Parquet",

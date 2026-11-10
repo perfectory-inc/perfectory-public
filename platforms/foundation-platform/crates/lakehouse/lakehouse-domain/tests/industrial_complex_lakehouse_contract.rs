@@ -370,6 +370,10 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL.table_name
             || contract.table_name == SILVER_ONBID_ITEM_BID_INFO.table_name
+            || contract.table_name
+                == lakehouse_domain::SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
+            || contract.table_name
+                == lakehouse_domain::SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT.table_name
         {
             // Root ADR-0340: an Onbid announcement, detail or bid-info row is appended when its
             // content changed; the newest is current, and none vanishes (the provider's windowed
@@ -379,7 +383,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
             // vanishes (root ADR-0384).
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
-            // photo reference never vanishes (root ADR-0298).
+            // photo reference never vanishes (root ADR-0298). A notice read and its attachments
+            // likewise (root ADR-0484).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()
