@@ -34,7 +34,10 @@ export function frontDoorRedirect(request) {
   const status = request.method === "GET" || request.method === "HEAD" ? 301 : 308;
   return new Response(null, {
     status,
-    headers: { location: `https://${FRONT_DOOR}${url.pathname}${url.search}`, "cache-control": "no-store" },
+    headers: {
+      location: `https://${FRONT_DOOR}${url.pathname}${url.search}`,
+      "cache-control": "no-store",
+    },
   });
 }
 

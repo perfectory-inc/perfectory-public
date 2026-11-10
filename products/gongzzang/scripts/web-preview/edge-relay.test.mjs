@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { EDGES, FRONT_DOOR, RUM, frontDoorRedirect, relayRequest } from "./edge-relay.mjs";
+import { EDGES, FRONT_DOOR, frontDoorRedirect, RUM, relayRequest } from "./edge-relay.mjs";
 
 const ORIGIN = "https://preview.example.test";
 
