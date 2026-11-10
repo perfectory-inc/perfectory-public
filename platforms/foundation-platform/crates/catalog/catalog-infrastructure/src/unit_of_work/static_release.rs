@@ -41,6 +41,8 @@ pub(super) struct LockedValidatedBuild {
     pub(super) pmtiles_sha256: String,
     pub(super) pmtiles_bytes: i64,
     pub(super) validation_evidence_sha256: String,
+    /// The recipe the archive was baked with: a lakehouse bake's own, a readdress's input's.
+    pub(super) bake_inputs_sha256: Option<String>,
 }
 
 pub(super) struct StaticPromotionPlan<'a> {
@@ -174,7 +176,9 @@ pub(super) async fn lock_validated_build_tx(
                 build.result_pmtiles_file_asset_id, build.result_pmtiles_object_key,
                 build.result_tiles_url_template, build.result_pmtiles_sha256,
                 build.result_pmtiles_bytes, build.result_evidence_sha256,
-                input.source_record_id, input.source_file_asset_ids, input.source_kind
+                input.source_record_id, input.source_file_asset_ids, input.source_kind,
+                CASE WHEN build.kind = 'readdress' THEN input.bake_inputs_sha256
+                     ELSE build.bake_inputs_sha256 END AS bake_inputs_sha256
          FROM catalog.vector_tile_build_job AS build
          JOIN catalog.vector_tile_publication_unit AS unit
            ON unit.id = build.publication_unit_id
@@ -242,6 +246,7 @@ pub(super) async fn lock_validated_build_tx(
             .map_err(map_sqlx)?
             .ok_or_else(|| invalid_runtime("validated build is missing result_pmtiles_bytes"))?,
         validation_evidence_sha256: required_text("result_evidence_sha256")?,
+        bake_inputs_sha256: row.try_get("bake_inputs_sha256").map_err(map_sqlx)?,
     })
 }
 
@@ -328,9 +333,9 @@ pub(super) async fn insert_static_release_tx(
           source_record_id, source_file_asset_ids, source_kind, martin_source_id,
           tiles_url_template, pmtiles_object_key, pmtiles_file_asset_id,
           pmtiles_sha256, pmtiles_bytes, validated_at, validation_evidence_sha256,
-          readdressed_from_release_id)
+          readdressed_from_release_id, bake_inputs_sha256)
          VALUES ($1, $2, $3, $4, $5, $6, 'static_pmtiles', $7, $8, $9, $10, $11, $12,
-                 now(), $13, $14)",
+                 now(), $13, $14, $15)",
     )
     .bind(build.release_id)
     .bind(publication_unit_id)
@@ -346,6 +351,7 @@ pub(super) async fn insert_static_release_tx(
     .bind(build.pmtiles_bytes)
     .bind(&build.validation_evidence_sha256)
     .bind((build.kind == VectorTileBuildKind::Readdress).then_some(build.input_release_id))
+    .bind(build.bake_inputs_sha256.as_deref())
     .execute(&mut **tx)
     .await
     .map_err(map_sqlx)?;

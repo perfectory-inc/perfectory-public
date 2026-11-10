@@ -31,6 +31,9 @@ baked_file="${STATE_ROOT}/baked-snapshot"
 baked_by_tile_file="${STATE_ROOT}/baked-by-tile-snapshot"
 # 그때 굽기를 정한 tile-bake 계약(이미지·줌별 인자)의 sha256. 계약이 바뀌면 Silver 가 그대로여도 전부 다시
 # 넘겨 굽는다: 코드가 바꾼 타일도 데이터처럼 따라간다(W42, 2026-11-09 저배율 일반화가 Silver 변경 전까지 안 나갈 뻔).
+# 이 파일은 넘김을 부르는 거친 방아쇠다. 굽기는 release 에 적힌 레시피 지문(bake_inputs_sha256)과 비교해,
+# 이 유닛의 레시피가 그대로면 lakehouse-tile-bake-unchanged 로 굽지 않고, 바뀌었으면 같은 스냅숏의 새 기본판을
+# 낸다(root ADR-0373; 2026-11-09·10 "already serve" 실패 두 번).
 baked_contract_file="${STATE_ROOT}/baked-bake-contract"
 contract_digest="$(sha256sum "$(dirname "${BASH_SOURCE[0]}")/../../config/tile-bake-containers.contract.json" | cut -d' ' -f1)"
 mkdir -p "${STATE_ROOT}"
@@ -136,7 +139,7 @@ if ((bake_status == 65)) && [[ "${scope}" == partial ]] && grep -q 'lakehouse-ti
   bake "${name}" || bake_status=$?
 fi
 ((bake_status == 0)) || { on_error "${LINENO}"; exit "${bake_status}"; }
-result="$(grep -oE 'lakehouse-tile-bake-(ok|patch-[a-z]+) .*' "${run_log}" | tail -1)"
+result="$(grep -oE 'lakehouse-tile-bake-(ok|unchanged|patch-[a-z]+) .*' "${run_log}" | tail -1)"
 printf '%s\n' "${snapshot}" > "${baked_file}.tmp"
 printf '%s\n' "${by_tile}" > "${baked_by_tile_file}.tmp"
 printf '%s\n' "${contract_digest}" > "${baked_contract_file}.tmp"
@@ -144,5 +147,10 @@ mv "${baked_by_tile_file}.tmp" "${baked_by_tile_file}"
 mv "${baked_contract_file}.tmp" "${baked_contract_file}"
 mv "${baked_file}.tmp" "${baked_file}"
 rm -f "${work}/${name}.jsonl"
+if [[ "${result}" == lakehouse-tile-bake-unchanged* ]]; then
+  # 계약 파일은 바뀌었어도 이 유닛의 굽기 레시피(bake_inputs)는 그대로였다: 굽지 않았다(root ADR-0373).
+  job_journal "${journal}" "nothing to bake: the zoning tiles already show Silver snapshot ${snapshot} under this bake recipe: ${result}"
+  echo "foundation-job-outcome unchanged"; exit 0
+fi
 job_journal "${journal}" "baked Silver snapshot ${snapshot} (${scope} handoff, by-tile ${by_tile}) in $((SECONDS - step))s pending_layers=${pending} ${read_line}: ${result}"
 echo "foundation-job-outcome changed"

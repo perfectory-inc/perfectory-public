@@ -171,6 +171,7 @@ pub(super) async fn bear(
             evidence,
             idempotency_key: config.promote_idempotency_key.clone(),
             operator_staff_id: config.operator_staff_id,
+            bake_inputs_sha256: Some(super::recipe_digest(&inputs)),
         })
         .await?;
     record_fold(config, summary.edits_through_change_seq, release_id).await?;

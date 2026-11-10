@@ -168,9 +168,9 @@ async fn insert_unit_and_first_release_tx(
          (id, publication_unit_id, data_revision, canonical_iceberg_snapshot_id,
           source_record_id, source_file_asset_ids, source_kind, martin_source_id,
           tiles_url_template, pmtiles_object_key, pmtiles_file_asset_id, pmtiles_sha256,
-          pmtiles_bytes, validated_at, validation_evidence_sha256)
+          pmtiles_bytes, validated_at, validation_evidence_sha256, bake_inputs_sha256)
          VALUES ($1, $2, $3, $4, $5, ARRAY[$13]::uuid[], 'static_pmtiles', $6, $7, $8, $9, $10,
-                 $11, now(), $12)",
+                 $11, now(), $12, $14)",
     )
     .bind(release_id)
     .bind(unit_id)
@@ -188,6 +188,7 @@ async fn insert_unit_and_first_release_tx(
     .bind(u64_to_i64(artifact.size_bytes)?)
     .bind(command.evidence.as_str())
     .bind(source_file_asset_id)
+    .bind(command.bake_inputs_sha256.as_deref())
     .execute(&mut **tx)
     .await
     .map_err(map_sqlx)?;

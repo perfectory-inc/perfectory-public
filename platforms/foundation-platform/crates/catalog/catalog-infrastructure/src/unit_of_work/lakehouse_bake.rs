@@ -50,7 +50,7 @@ pub(super) async fn start(
     let row = sqlx::query(
         "SELECT unit.id AS publication_unit_id, unit.active_release_id, unit.serving_generation,
                 release.data_revision, release.canonical_iceberg_snapshot_id,
-                release.source_kind, release.validated_at,
+                release.source_kind, release.validated_at, release.bake_inputs_sha256,
                 revision.source_record_id, revision.bronze_object_id
          FROM catalog.vector_tile_publication_unit AS unit
          JOIN catalog.vector_tile_release AS release
@@ -84,9 +84,15 @@ pub(super) async fn start(
     let input_snapshot: String = row
         .try_get("canonical_iceberg_snapshot_id")
         .map_err(map_sqlx)?;
-    if input_snapshot == command.canonical_iceberg_snapshot_id.as_str() {
+    // A rebake of the input's own snapshot is admitted only under a recorded recipe the input was
+    // not baked with (root ADR-0373: tiles follow code changes as they follow data).
+    let input_recipe: Option<String> = row.try_get("bake_inputs_sha256").map_err(map_sqlx)?;
+    if input_snapshot == command.canonical_iceberg_snapshot_id.as_str()
+        && (command.bake_inputs_sha256.is_none()
+            || command.bake_inputs_sha256.as_deref() == input_recipe.as_deref())
+    {
         return Err(invalid_runtime(
-            "lakehouse bake must freeze a snapshot other than the one its input already serves",
+            "lakehouse bake must freeze a snapshot other than the one its input already serves,              or bake it under a recipe its input was not baked with",
         ));
     }
     let publication_unit_id: Uuid = row.try_get("publication_unit_id").map_err(map_sqlx)?;
@@ -106,8 +112,8 @@ pub(super) async fn start(
          (id, publication_unit_id, input_release_id, input_data_revision,
           frozen_source_snapshot_id, status, idempotency_key, kind,
           input_serving_generation, output_data_revision, source_snapshot_id,
-          matching_verdict, matching_verdict_sha256, bound_source_record_id)
-         VALUES ($1, $2, $3, $4, $5, 'running', $6, 'lakehouse_bake', $7, $8, $9, $10, $11, $12)",
+          matching_verdict, matching_verdict_sha256, bound_source_record_id, bake_inputs_sha256)
+         VALUES ($1, $2, $3, $4, $5, 'running', $6, 'lakehouse_bake', $7, $8, $9, $10, $11, $12, $13)",
     )
     .bind(build_job_id.as_uuid())
     .bind(publication_unit_id)
@@ -124,6 +130,7 @@ pub(super) async fn start(
     .bind(silver.map(|source| &source.matching_verdict))
     .bind(silver.map(|source| source.matching_verdict_sha256.as_str()))
     .bind(bound_source_record_id)
+    .bind(command.bake_inputs_sha256.as_deref())
     .execute(&mut *tx)
     .await
     .map_err(map_sqlx)?;

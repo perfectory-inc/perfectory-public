@@ -347,7 +347,8 @@ pub struct StartLakehouseBakeCommand {
     pub unit_key: String,
     /// Expected active static release; the promotion replaces it.
     pub input_release_id: VectorTileReleaseId,
-    /// The lakehouse snapshot the archive is baked from; must differ from the input's.
+    /// The lakehouse snapshot the archive is baked from; must differ from the input's unless
+    /// `bake_inputs_sha256` names a recipe the input was not baked with.
     pub canonical_iceberg_snapshot_id: CanonicalIcebergSnapshotId,
     /// Caller-chosen retry identity.
     pub idempotency_key: String,
@@ -356,6 +357,10 @@ pub struct StartLakehouseBakeCommand {
     /// The Silver snapshot a v2 served summary names, with the matching verdict that passed it.
     /// `None` for a v1 summary (complex, admin).
     pub silver_source: Option<LakehouseBakeSilverSource>,
+    /// Lowercase hex SHA-256 of the recipe that bakes the archive (images, tippecanoe version,
+    /// SRID, arguments; root ADR-0316). Recorded on the release it promotes, so a recipe change
+    /// rebakes the snapshot the input already serves. `None`: the recipe is not recorded.
+    pub bake_inputs_sha256: Option<String>,
 }
 
 /// The Silver snapshot a lakehouse bake read and the ADR-0113 §7 verdict that let it be baked.
@@ -380,11 +385,14 @@ impl StartLakehouseBakeCommand {
             .text(self.canonical_iceberg_snapshot_id.as_str())
             .displayed(&self.operator_staff_id);
         // Appended only when present, so a v1 bake keeps the fingerprint it had before.
-        match &self.silver_source {
+        let builder = match &self.silver_source {
             Some(source) => builder
                 .text(&source.source_snapshot_id)
-                .text(&source.matching_verdict_sha256)
-                .finish(),
+                .text(&source.matching_verdict_sha256),
+            None => builder,
+        };
+        match &self.bake_inputs_sha256 {
+            Some(recipe) => builder.text(recipe).finish(),
             None => builder.finish(),
         }
     }
@@ -477,6 +485,8 @@ pub struct RegisterLakehouseTileUnitCommand {
     pub idempotency_key: String,
     /// Staff operator that requested the registration.
     pub operator_staff_id: StaffId,
+    /// Lowercase hex SHA-256 of the recipe that baked the archive, recorded on the release.
+    pub bake_inputs_sha256: Option<String>,
 }
 
 impl RegisterLakehouseTileUnitCommand {
