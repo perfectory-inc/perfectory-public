@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: README
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-11
 ---
 
 # 전역 아키텍처 문서
@@ -14,6 +14,7 @@ last_reviewed: 2026-11-05
 
 - [행정 경계 버전 관리](./administrative-boundary-versioning.md)
 - [단일 출처 공간 데이터 공개](./single-source-spatial-publication.md)
+- [전달 계층 — 사용자가 데이터를 받는 길](./edge-delivery.md): Worker 게이트웨이, 서울 CloudFront 앞문, 압축, 캐시 수명, 비용 가드
 
 결정의 이유는 [전역 ADR](../adr/README.md), 실행 절차는 [전역 가이드](../guides/README.md),
 출시 작업은 [로드맵](../roadmap/production-readiness.md)에 기록한다.

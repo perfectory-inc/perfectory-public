@@ -2,13 +2,14 @@
 status: current
 owner: gongzzang-제품
 doc_type: runbook
-last_reviewed: 2026-11-10
+last_reviewed: 2026-11-11
 ---
 
 # 임시 웹 미리보기 (읽기 전용)
 
 결정: 루트 [ADR-0249](../../../../docs/adr/0249-a-temporary-read-only-web-preview-lives-in-one-free-worker.md).
-Cloudflare 무료 플랜의 Worker `gongzzang-web-preview` 하나가 공짱 지도 페이지를 로그인 없이 보여 준다.
+Cloudflare 무료 플랜의 Worker `gongzzang-web-preview` 하나가 서울 CloudFront 앞문(`web_preview` 문) 뒤에서 공짱 지도 페이지를
+로그인 없이 보여 준다. 전달 경로 전체는 [전달 계층](../../../../docs/architecture/edge-delivery.md).
 데이터는 공개 엣지(타일·필지·건물·호 가격·지도 편집)에서 온다. 매물 목록·마커·로그인은 없다.
 
 ## 올리기

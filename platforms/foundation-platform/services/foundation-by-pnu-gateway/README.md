@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-10-08
+last_reviewed: 2026-11-11
 ---
 
 # Foundation By-PNU Gateway
@@ -12,6 +12,8 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
 
 **한 소스, 두 레인**(루트 ADR-0160): 필지 Worker(`foundation-parcel-gateway`, `catalog.perfectory.io`)와
 건물 Worker(`foundation-building-gateway`, `buildings.perfectory.io`)는 이 소스 하나를 레인만 바꿔 묶는다.
+필지 레인의 공개 이름은 서울 CloudFront 앞문 뒤에 있고 Worker 는 그 원점 이름(`catalog-origin.perfectory.io`)으로 답한다
+(루트 ADR-0461·0470, `config/cdn-front-door.contract.json`; 전달 경로 전체는 [전달 계층](../../../../docs/architecture/edge-delivery.md)).
 레인은 묶을 때 정해진다(`src/lane.ts`, Wrangler 의 `define`). 배포는 레인의 설정 파일로 한다:
 `wrangler deploy -c wrangler.parcel.jsonc` / `-c wrangler.building.jsonc`. 시험은 레인마다 따로 돈다
 (`vitest.config.ts` 의 두 project; `parcel-*.test.ts` 가 필지 레인). 레인의 차이는 코드가 아니라 계약
@@ -40,7 +42,7 @@ Worker다(루트 ADR-0096, ADR-0100). 브라우저는 PNU만 알고, 현재 서�
   객체 대신 묶음으로 서빙한다. 건물 레인의 항목은 `documents` 하나이고(계약 `section_packs.sections`), 한 PNU 의
   항목은 문서 바이트를 gzip 한 덩어리다. Worker 는 법정동 묶음의 머리에서 이분 탐색해 그 덩어리를
   풀지도 파싱하지도 않고 `Content-Encoding: gzip` 으로 낸다(gzip 을 받지 않는 클라이언트에게만 풀어 준다). 그래서
-  CPU 는 저장된 바이트를 내주는 일뿐이다 — 계정이 Workers Free(요청당 10ms)라 항목을 Worker 가 합치던 방식은 오류
+  CPU 는 저장된 바이트를 내주는 일뿐이다 — 2026-10-05 계정이 Workers Free(요청당 10ms)이던 때 항목을 Worker 가 합치던 방식은 오류
   1102(503)를 냈다(ADR-0151). gzip 여부는 엣지가 바꿔 쓴 `Accept-Encoding` 이 아니라 클라이언트 원래 값
   (`cf.clientAcceptEncoding`)으로 정한다. `ETag` 는 묶음의 R2 `etag` 와 덩어리 위치이고, 푼 답은 다른 표현이라
   `-identity` 를 붙인 다른 태그다. CPU 한도는 계약 `cpu_limit_ms` 를 `limits.cpu_ms` 로 투영한다(Workers Paid). 배치는 계약 `placement`(버킷 옆 Tokyo, ADR-0154)를

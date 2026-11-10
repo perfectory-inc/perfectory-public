@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-11
 ---
 
 # 더니어 엣지 설정 — Access·Tunnel·DNS 를 호스트가 코드로 맞춘다
@@ -53,6 +53,8 @@ Worker 배포와 같은 계정 토큰(`cloudflare-deploy` 그룹)이다. 교체�
 [루트 ADR-0461](../../../../docs/adr/0461-korean-visitors-enter-through-a-cloudfront-front-door-in-seoul-in-a-separate-aws-account-applied-by-the-host.md).
 
 같은 유닛이 콘솔 엣지 뒤에 `infra/cdn/main.tf` 를 적용한다. 정본은 `config/cdn-front-door.contract.json`.
+지금(2026-11-10) 문 셋 `tiles`·`catalog`·`web_preview` 가 모두 `answered_by: cloudfront` 다. 전달 경로·압축·캐시 수명의
+모양은 [전달 계층](../../../../docs/architecture/edge-delivery.md).
 
 - **꺼져 있음**: `/etc/foundation-platform/aws-cdn.env` 에 별도 AWS 계정의 적용 키가 없으면 로그에 `front door off` 한 줄뿐이다.
   키를 넣는 길은 ADR-0461 "소유자가 하는 일" 2.
