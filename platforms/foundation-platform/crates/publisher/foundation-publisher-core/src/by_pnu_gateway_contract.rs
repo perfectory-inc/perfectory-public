@@ -177,7 +177,7 @@ pub const LANE_HOSTS: [&str; 2] = ["parcel_by_pnu_gateway", "building_by_pnu_gat
 /// built from its own Silver names its Spark `producer` (root ADR-0287); the bake serves it alike.
 /// A lane whose first cut-over waits for a recent history names it (root ADR-0479): the cut-over
 /// reads it (by-pnu-lane-cutover.sh, serving_history_readiness.py), the bake does not.
-const DERIVED_LANE_HAND_FIELDS: [&str; 15] = [
+const DERIVED_LANE_HAND_FIELDS: [&str; 16] = [
     "decision",
     "host",
     "kind",
@@ -193,6 +193,8 @@ const DERIVED_LANE_HAND_FIELDS: [&str; 15] = [
     "spark_held_test",
     "first_publish_waits_for_history",
     "first_publish_waits_for_history_reason",
+    // The Gold join columns (root ADR-0483): the lakehouse contract's, not the gateway's.
+    "place_identity",
 ];
 
 /// The job capability every kind lane's scheduled bake shares: the bake reads the lanes from the
