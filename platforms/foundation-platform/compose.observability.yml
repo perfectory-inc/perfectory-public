@@ -28,13 +28,33 @@ services:
       - prometheus_data:/prometheus
       - ./infra/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infra/observability/prometheus/foundation-api.rules.yml:/etc/prometheus/foundation-api.rules.yml:ro
+    # What the container runs from: compose's own config hash covers these labels, so `up`
+    # recreates Prometheus when its files under infra/observability/prometheus change and leaves it
+    # running otherwise (foundation-runtime.sh computes the digest; the checksum annotation Helm
+    # documents for the same reason, "Automatically Roll Deployments"). The files bind through
+    # `current`, which Docker resolves when it creates the container, and a reload alone would read
+    # the old release's copy.
+    labels:
+      perfectory.config-digest: ${FOUNDATION_PROMETHEUS_CONFIG_DIGEST:-not-computed}
     tmpfs:
       - /tmp:size=16m,mode=1777
+    # 2026-11-10 (040dfe39): Prometheus took 140 s from start to /-/ready — 101 s before its first
+    # log line with ten of the host's 20 cores in iowait under a bake, then 10.8 s of WAL and
+    # m-mapped chunk replay on 237 MB of TSDB — and twelve failed probes at 10 s with no start
+    # period called it unhealthy at 122 s, which failed the deploy. The start period is a budget,
+    # not a wait (the probe runs every 5 s in it and the first success is healthy): the TSDB is
+    # capped at 1 GB (retention.size), 4.3 times the measured size, so replay scales to about 47 s,
+    # and with the measured 129 s that is not replay it is 176 s; 300 s leaves 1.7 times that.
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:9090/-/ready"]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 5m0s
+      start_interval: 5s
+    # Its head is written out on SIGTERM; the default 10 s and a SIGKILL left the m-mapped chunks
+    # out of order on 2026-11-10 ("discarding chunk files completely" on the next start).
+    stop_grace_period: 90s
     depends_on:
       foundation-api:
         condition: service_healthy
@@ -65,13 +85,21 @@ services:
       # with no destination, and that silence already cost six weeks. The runbook's Slack
       # section owns creating it.
       - ${FOUNDATION_ALERTMANAGER_SLACK_TOKEN_FILE:-/etc/foundation-platform/secrets/alertmanager-slack-bot-token}:/etc/alertmanager/secrets/slack-bot-token:ro
+    # The same as Prometheus's: recreated when infra/observability/alertmanager changes, not on
+    # every deploy. The token file is not in the digest: rotating it is the runbook's restart.
+    labels:
+      perfectory.config-digest: ${FOUNDATION_ALERTMANAGER_CONFIG_DIGEST:-not-computed}
     tmpfs:
       - /tmp:size=16m,mode=1777
+    # It starts on the same host as Prometheus, under the same IO, and has no WAL to replay: the
+    # same budget, which costs nothing when it is ready sooner.
     healthcheck:
       test: ["CMD", "wget", "--spider", "--quiet", "http://127.0.0.1:9093/-/ready"]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 5m0s
+      start_interval: 5s
 
   # The host's own state as series. The textfile collector serves the files a host script writes,
   # the way Prometheus documents for batch jobs (root ADR-0321 §5): the deploy writes what it is

@@ -379,7 +379,14 @@ if ! "${control_root}/current/scripts/deploy/foundation-release-admission.py" ve
   exit 1
 fi
 
-log "8. the data catalog's containers follow the release (only services whose config changed)"
+log "8. the monitoring containers follow the release (only those whose files changed)"
+# After the DAGs are back, as the catalog: 2026-11-10 Prometheus outlived its health check inside
+# `migrate` and left every held DAG paused; one that fails here fails the deploy and alerts, and
+# no job waits on it.
+deploy_metric_phase observability
+"${release}" observability
+
+log "9. the data catalog's containers follow the release (only services whose config changed)"
 # After the DAGs are back: a catalog that fails to come up fails the deploy and alerts, and no job
 # waits on it.
 deploy_metric_phase datahub
