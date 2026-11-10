@@ -210,6 +210,17 @@ else
   queue_rebuilt=1
 fi
 
+# 3b. 못 놓인 원천 행 (root ADR-0483 §5): 해석기가 놓은 모든 필지 원천의 미해결 현재 행을 같은 큐의
+# unit place_reference 에 (원천, 이유, 법정동) 항목으로 세운다. 지난 큐 뒤 스냅숏이 움직인 원천만 읽고,
+# 그 원천의 항목만 MERGE 한다. 실패해도 위 단계는 그대로 두고 회차 끝에 실패로 낸다.
+reference_rc=0
+spark place_reference_queue_to_gold.py --allow-non-smoke-write   --summary-output "${container_work}/place-reference.json" || reference_rc=$?
+reference_wrote=0
+if [ "${reference_rc}" = 0 ]; then
+  [ "$(json_field "${work}/place-reference.json" '["outcome"]')" = written ] && reference_wrote=1
+  job_journal "${journal}" "place-reference queue run=${run_id} read=$(json_field "${work}/place-reference.json" '["read"]') open=$(json_field "${work}/place-reference.json" '["open"]')"
+fi
+
 # 4. 요약
 summary="$(python3 - "${work}/queue-summary.json" "${folded}" <<'PY'
 import json, sys
@@ -234,6 +245,12 @@ if [ "${complex_edge_rc}" != 0 ]; then
 '
   exit 1
 fi
+if [ "${reference_rc}" != 0 ]; then
+  job_journal "${journal}" "stewardship FAILED: place-reference queue rc=${reference_rc} run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
+  printf 'foundation-job-outcome failed place-reference queue\n'
+  exit 1
+fi
 if [ "${derive_refused}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: ${derive_refused} lineage group(s) refused run=${run_id}" >&2
   # What a person acts on: which group, and which 동 codes the code change table does not pair.
@@ -245,7 +262,7 @@ fi
 # pairing, a derived group, a folded decision, a rebuilt queue (10-24..27 said `changed` daily on
 # derived=0, folded 0, queue unchanged).
 if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "${complex_edge_generation}" != None ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
-  || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ]; then
+  || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ] || [ "${reference_wrote}" != 0 ]; then
   printf 'foundation-job-outcome changed\n'
 else
   printf 'foundation-job-outcome unchanged\n'

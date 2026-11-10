@@ -52,7 +52,18 @@
         "silver-land-transfer-history-to-silver-parcel-lineage",
         "serving-lineage-stewardship-to-silver-parcel-lineage",
         "silver-parcel-lineage-to-gold-lineage-review-queue",
-        "gold-lineage-review-queue-to-serving-lineage-stewardship"
+        "gold-lineage-review-queue-to-serving-lineage-stewardship",
+        "silver-airport-to-gold-lineage-review-queue",
+        "silver-commercial-district-to-gold-lineage-review-queue",
+        "silver-court-auction-item-to-gold-lineage-review-queue",
+        "silver-court-auction-sale-result-to-gold-lineage-review-queue",
+        "silver-port-to-gold-lineage-review-queue",
+        "silver-railway-station-to-gold-lineage-review-queue",
+        "silver-real-transaction-to-gold-lineage-review-queue",
+        "silver-registered-factory-to-gold-lineage-review-queue",
+        "silver-school-location-to-gold-lineage-review-queue",
+        "silver-subway-station-to-gold-lineage-review-queue",
+        "silver-university-to-gold-lineage-review-queue"
       ],
       "enabled": true,
       "enabled_since": "2026-10-01T10:33:44Z",
@@ -364,6 +375,127 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
       ],
       "description": "sido_name: 단지의 현재 시도 코드가 가장 새 법정동 스냅숏에서 갖는 이름이다(루트 ADR-0426). 화면의 시도 필터는 손 목록 대신 이 이름을 API 로 읽는다."
+    },
+    {
+      "from": "silver-airport",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-commercial-district",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-court-auction-item",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-court-auction-sale-result",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-port",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다. 원천 표가 아직 적재되지 않아 계획이다(표가 생기면 같은 잡이 읽는다)."
+    },
+    {
+      "from": "silver-railway-station",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-real-transaction",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-registered-factory",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-school-location",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-subway-station",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-university",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
     }
   ],
   "host_memory": {
