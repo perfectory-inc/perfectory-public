@@ -1,0 +1,34 @@
+[Unit]
+Description=Intelligence Platform: the local model runtime (Ollama, Qwen3.6-35B-A3B) while a spark-pool job needs it (root ADR-0478)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/model-runtime.md
+X-Foundation-Owner=intelligence
+OnFailure=foundation-unit-failed@%n.service
+# Never started on its own: a job that calls the model names it in Requires= and After=, and the
+# runtime stops with the last job that needs it. The job holds the spark pool (all its slots), so
+# the model never holds memory beside Spark (root ADR-0455, ADR-0138). No [Install]: nothing boots it.
+StopWhenUnneeded=yes
+
+[Service]
+Type=exec
+User=ollama
+Group=ollama
+# Loopback only: the hand-installed ollama.service listened on 0.0.0.0:11434 with no key.
+Environment=OLLAMA_HOST=127.0.0.1:11434
+# One model, one request: the 23 GB model fills the cap alone (platform-core measurement in
+# tools/host-memory-budget.contract.json), and the runtimes answer one request at a time.
+Environment=OLLAMA_MAX_LOADED_MODELS=1
+Environment=OLLAMA_NUM_PARALLEL=1
+# Kept loaded while the job runs; the unit's stop frees it.
+Environment=OLLAMA_KEEP_ALIVE=-1
+ExecStart=/usr/local/bin/ollama serve
+# Active only once it answers, so a job ordered After= it never calls a closed port.
+ExecStartPost=/bin/bash -c 'for _ in $(seq 1 300); do (exec 3<>/dev/tcp/127.0.0.1/11434) 2>/dev/null && exit 0; sleep 0.2; done; exit 1'
+TimeoutStartSec=2min
+TimeoutStopSec=1min
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=22118M
+MemoryMax=24G
+OOMScoreAdjust=500

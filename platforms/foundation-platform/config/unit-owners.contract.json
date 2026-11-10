@@ -6,6 +6,7 @@
     "lakehouse": "적재: Bronze 에서 Silver·Gold 까지와 lakehouse 관리(정리, 계보, 품질)",
     "serving": "서빙: Gold 에서 by-PNU 문서·Worker·라이브 호스트까지",
     "tiles": "지도 타일: 필지·용도지역·경계 타일 굽기와 편집 반영",
-    "platform": "호스트와 배포: 배포·백업·복원 드릴·디스크·경보·운영 표"
+    "platform": "호스트와 배포: 배포·백업·복원 드릴·디스크·경보·운영 표",
+    "intelligence": "인텔리전스: 로컬 모델 런타임(Ollama·Strata)과 그것을 부르는 문서 추출(루트 ADR-0478)"
   }
 }

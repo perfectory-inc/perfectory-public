@@ -883,23 +883,33 @@ const AREAS: &[Area] = &[
             "libsasl2-dev",
             "libcurl4-openssl-dev",
             "zlib1g-dev",
+            "python3",
         ],
-        // The document text job (root ADR-0477): its own logic, stdlib only; the tools it
-        // drives are measured in its image.
-        python_tests: &[PythonTests {
-            dir: "jobs/document_text",
-            python_path: Some("."),
-            args: &[
-                "-m",
-                "unittest",
-                "discover",
-                "-s",
-                "tests",
-                "-p",
-                "test_*.py",
-            ],
-            covers: &["jobs/document_text/tests"],
-        }],
+        python_tests: &[
+            // The document text job (root ADR-0477): its own logic, stdlib only; the tools it
+            // drives are measured in its image.
+            PythonTests {
+                dir: "jobs/document_text",
+                python_path: Some("."),
+                args: &["-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"],
+                covers: &["jobs/document_text/tests"],
+            },
+            // The model runtime's weight fetcher and evaluation (root ADR-0478): standard library only.
+            PythonTests {
+                dir: ".",
+                python_path: None,
+                args: &[
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "jobs/model_runtime/tests",
+                    "-p",
+                    "test_*.py",
+                ],
+                covers: &["jobs/model_runtime/tests"],
+            },
+        ],
         node_tests: &[],
 
         live_lanes: &[

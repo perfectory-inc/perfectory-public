@@ -1,0 +1,86 @@
+{
+  "$comment": "Root ADR-0478. The local model runtimes the intelligence platform calls, one entry per runtime, and the one place their engine, weights, files, port and memory are stated. The application never names an engine: it reads MODEL_RUNTIME_BASE_URL, MODEL_RUNTIME_CHAT_PATH and MODEL_RUNTIME_DEFAULT_MODEL (config/local-ollama.env.example, crates/normalization/intelligence-normalization-infrastructure/src/openai_compatible.rs), and `serving` below is the runtime those values point at. Swapping engines = changing `serving` and the env values; extraction code does not change. jobs/model_runtime/fetch_weights.py downloads and verifies `weights`; jobs/model_runtime/eval_extraction.py measures a runtime against the hand-checked sample. A runtime runs only while a spark-pool job that needs it runs (its unit is StopWhenUnneeded and has no [Install]), so it never holds memory beside Spark (root ADR-0455, ADR-0138).",
+  "schema_version": "intelligence-platform.model-runtime.v1",
+  "serving": "ollama_qwen36_35b_a3b",
+  "runtimes": {
+    "ollama_qwen36_35b_a3b": {
+      "$comment": "Today's default (ITP-ADR-0006: 9.8 s per notice on ai-server, no date inversion). The host's Ollama binary, models in the ollama user's home on the root SSD. Its unit is platforms/foundation-platform/infra/systemd/intelligence-model-runtime-ollama.service.",
+      "status": "serving",
+      "engine": {
+        "kind": "ollama",
+        "binary": "/usr/local/bin/ollama",
+        "version_seen": "0.30.10"
+      },
+      "model": "hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M",
+      "listen": "127.0.0.1:11434",
+      "chat_path": "/v1/chat/completions",
+      "unit": "intelligence-model-runtime-ollama.service",
+      "concurrency": 1
+    },
+    "strata_qwen38_flash_next": {
+      "$comment": "The owner's choice (2026-11-11) for the intelligence platform's model (root ADR-0478 §3): Strata serving Qwen3.8-Flash-Next 125B MoE, ISTA-DASLab Q2_0. Tried on today's host on 2026-11-11 under a 22G cgroup with the experts mapped from the SATA SSD (ADR-0478 §2 has the numbers); it serves only once the host has the RAM and NVMe of §3. Strata runs natively: the host has no NVIDIA container runtime, so the release's own packages are pinned here by SHA-256 (GitHub release asset digests, the same as the release's SHA256SUMS.txt); this file is the one place they are stated.",
+      "status": "awaiting_hardware",
+      "engine": {
+        "kind": "strata",
+        "release": "v0.2.13",
+        "source": "https://github.com/Niko1221/Strata",
+        "license": "MIT",
+        "packages": [
+          {
+            "name": "strata-engine-0.1.59-linux-x86_64-cuda-cuda13.tar.gz",
+            "size": 723498702,
+            "sha256": "42ab04fa3201e41bef5fac28c05f5c35c909419ec937d879b505bf1516742610"
+          },
+          {
+            "name": "strata-control-0.1.59.1-linux-x86_64.tar.gz",
+            "size": 100087576,
+            "sha256": "73fb612848cf00fa1072623029b35405bbbb63e3f4c688fe6f38c78e3fc022ac"
+          }
+        ],
+        "engine_binary_sha256": "0ba914b28df1c8e09c0b5209c2ca6040c75fb650a7408ff3d9ef3ad159a13eb9",
+        "update_check": "off (STRATA_UPDATE_CHECK=0, STRATA_NO_ACQUIRE=1): a new engine arrives only as a new pin here"
+      },
+      "model": "qwen3.8-flash-next-q2_0",
+      "model_license": "Qwen Community License 1.0: internal extraction is allowed; serving inference to third parties (Model as a Service) is not, without a separate license",
+      "listen": "127.0.0.1:11437",
+      "listen_why": "Strata's own default 127.0.0.1:8080 is Open WebUI's port on ai-server (0.0.0.0:8080, measured 2026-11-11)",
+      "chat_path": "/v1/chat/completions",
+      "concurrency": 1,
+      "memory_needed": {
+        "$comment": "Strata docs/MODELS.md 'Pick by memory' (v0.2.13): the model's weights in RAM plus VRAM. The host must hold memory_ram_gib beside its standing services and host_reserved before the unit lands.",
+        "ram_plus_vram_gib": 37.6,
+        "ram_gib_with_12gb_card": 30
+      },
+      "weights": {
+        "repository": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+        "revision": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
+        "base_model": "Qwen/Qwen3.8-Flash-Next@812d96e10a0dd82b69d749e68693698cf6c36daa",
+        "files": [
+          {
+            "path": "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf",
+            "size": 37623740192,
+            "sha256": "69820c02ec7d0b45ef2ebb19d6620299db749fe2aded7f39f93c6b88b199b720"
+          },
+          {
+            "path": "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00002-of-00002.gguf",
+            "size": 28800138432,
+            "sha256": "316b46f3a2dbd68c900f43136ab9449f9dcc3725dfd8c794847c204bc161e113"
+          }
+        ]
+      }
+    }
+  },
+  "model_root": {
+    "$comment": "Where weights live: the NVMe the upgrade adds, mounted here, never the HDD (/data) and never the SATA root disk (Strata reads experts and its 28.8 GB n-gram table from disk per token). fetch_weights.py refuses any other device class.",
+    "path": "/srv/intelligence-models",
+    "device_class": "nvme",
+    "free_bytes_margin": 21474836480
+  },
+  "evaluation": {
+    "$comment": "What a runtime must show on the hand-checked sample before it serves (root ADR-0478 §5); the sample's shape is jobs/model_runtime/README.md. min_precision and the sample size are ADR-0477's accuracy gate (document-extraction.contract.json accuracy_gate) once that contract lands; until then these numbers are the gate.",
+    "sample_min_documents": 30,
+    "min_precision": 0.98,
+    "temperature": 0.1,
+    "max_output_tokens": 2048
+  }
+}
