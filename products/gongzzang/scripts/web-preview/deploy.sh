@@ -134,5 +134,8 @@ expect 200 "${origin}/catalog/v1/vector-tiles/runtime-manifest"
 expect 200 "${origin}/edge/map-edits/overlay/admin"
 expect 404 "${origin}/profile"
 expect 404 "${origin}/api/proxy/listings"
-expect 200 "${workers_dev}/listings"
+# The workers.dev name answers only CloudFront; a visitor there moves to the front door (edge-relay.mjs).
+expect 301 "${workers_dev}/listings"
+[[ "$(curl -s -o /dev/null -w '%{redirect_url}' "${workers_dev}/listings?p=x")" == "${origin}/listings?p=x" ]] ||
+  { echo "FAILED ${workers_dev}/listings does not move to ${origin}/listings" >&2; exit 1; }
 echo "preview is live: ${origin}/listings"

@@ -20,6 +20,27 @@ export const EDGES = {
 // country, so the browser's own goes along by name.
 export const RUM = { edge: "map-edits", path: "/rum", countryHeader: "x-rum-viewer-country" };
 
+// The preview's one public name: the Seoul front door's web_preview door (cdn-front-door.contract.json).
+// CloudFront adds X-Amz-Cf-Id to every request it sends its origin, so a request without it came to
+// the workers.dev name directly: an old link, which since 2026-11-09 serves a page built for the
+// door and fails its panel reads cross-origin. It is sent to the same path on the door instead.
+export const FRONT_DOOR = "web-preview.perfectory.io";
+
+/** The redirect to the front door for a request that did not come through it, else null. */
+export function frontDoorRedirect(request) {
+  if (request.headers.has("x-amz-cf-id")) return null;
+  const url = new URL(request.url);
+  // 308 keeps a POST (the real-user beacon) a POST; 301 is the permanent move for reads.
+  const status = request.method === "GET" || request.method === "HEAD" ? 301 : 308;
+  return new Response(null, {
+    status,
+    headers: {
+      location: `https://${FRONT_DOOR}${url.pathname}${url.search}`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
 const RELAY = /^\/edge\/([a-z-]+)(\/.*)$/;
 const FORWARDED_HEADERS = ["accept", "if-none-match"];
 
