@@ -43,6 +43,7 @@ usage:
   foundation-release.sh verify
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh datahub
+  foundation-release.sh observability
   foundation-release.sh console
   foundation-release.sh rollback
   foundation-release.sh prune
@@ -937,17 +938,28 @@ migrate_runtime() {
   # first identity bring-up as policy calls dying inside a healthy-looking container.
   "${runtime}" up -d --wait identity-zitadel-loopback identity-api-loopback
   start_console "${runtime}"
-  # Prometheus and Alertmanager bind their rule and route files through `current`, and Docker
-  # resolves that link when it creates a container: a release that changes an alert rule or a
-  # route is otherwise never read (the compose service itself did not change, so `up` keeps the
-  # old container on the old release's files). Their data and the notification log live in
-  # volumes, so a recreate loses neither, and a firing alert is restored, not sent again.
-  "${runtime}" up -d --wait --force-recreate prometheus alertmanager
-  # node-exporter serves the deploy's textfile (root ADR-0321 §5) and with cAdvisor the host's
-  # disk, memory, OOM and cap series (root ADR-0385).
-  "${runtime}" up -d --wait node-exporter cadvisor
   verify_runtime_schema
   migrate_lakehouse "${lakehouse}"
+}
+
+# The monitoring containers follow the release, after the deploy gave the jobs their schedule back
+# (foundation-deploy.sh): no job reads or writes through them, so one that does not come up fails
+# the deploy and alerts without holding a DAG. 2026-11-10 (040dfe39): Prometheus outlived its health
+# check's window inside `migrate`, and every held DAG stayed paused until the next deploy.
+#
+# Prometheus and Alertmanager bind their rule and route files through `current`, and Docker
+# resolves that link when it creates a container, so a release that changes them needs a new
+# container. Compose decides that from their config hash, which carries a digest of those files
+# (foundation-runtime.sh, compose.observability.yml): a release that changes neither leaves both
+# running, with no WAL replay and no restart. `--force-recreate` replaced both on every deploy and,
+# without --no-deps, ran the postgres chain's one-shot containers a second time. Their data and the
+# notification log live in volumes, so a recreate loses neither, and a firing alert is restored,
+# not sent again. node-exporter serves the deploy's textfile (root ADR-0321 §5) and with cAdvisor
+# the host's disk, memory, OOM and cap series (root ADR-0385).
+apply_observability() {
+  assert_current_release
+  local runtime="${release_root}/current/scripts/deploy/foundation-runtime.sh"
+  "${runtime}" up -d --wait --no-deps alertmanager prometheus node-exporter cadvisor
 }
 
 # The lakehouse half of `migrate` (root ADR-0124): every published lakehouse table is brought to
@@ -1211,6 +1223,10 @@ case "${command}" in
   datahub)
     [[ "$#" == 1 ]] || usage
     apply_datahub
+    ;;
+  observability)
+    [[ "$#" == 1 ]] || usage
+    apply_observability
     ;;
   console)
     # The console comes up as the deploy brings it up, once its files exist: edge_settings.py runs this

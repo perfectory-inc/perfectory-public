@@ -1387,7 +1387,7 @@ class TheWholeDeploy(unittest.TestCase):
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
                          ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
-                          "datahub"])
+                          "observability", "datahub"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
         # Nothing was deferred, so nothing is started out of its schedule (root ADR-0260).
@@ -1398,10 +1398,27 @@ class TheWholeDeploy(unittest.TestCase):
         # It runs last, so a catalog that fails alerts without holding any job.
         result = self.deploy(FIXTURE_FAIL_AT="datahub")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.released()[-2:], ["status", "datahub"])
+        self.assertEqual(self.released()[-2:], ["observability", "datahub"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
         self.assertNotIn("DONE: production runs", result.stdout)
+
+    def test_the_2026_11_10_prometheus_that_outlived_its_health_check_leaves_no_dag_paused(self):
+        # 040dfe39: `up --wait --force-recreate prometheus alertmanager` ran inside `migrate` and
+        # Prometheus, 140 s from start to ready under a bake's IO, was called unhealthy at 122 s; the
+        # deploy stopped while switching and every held DAG stayed paused until the next deploy.
+        # Monitoring now follows the release after the schedule is back: the deploy still fails and
+        # alerts, and no job is held for it.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        result = self.deploy(FIXTURE_FAIL_AT="observability")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released()[-2:], ["status", "observability"], "the catalog is not reached")
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertNotIn("STAY PAUSED", result.stderr)
+        self.assertNotIn("DONE: production runs", result.stdout)
+        self.assertLess(result.stdout.index("7. unpause the enabled DAGs"),
+                        result.stdout.index("the monitoring containers follow the release"))
 
     def test_a_failed_staging_smoke_refuses_the_release_and_leaves_the_schedule_as_it_was(self):
         # Root ADR-0177: the three incidents of 2026-10-09/10 each passed CI and failed on the first

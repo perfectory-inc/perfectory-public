@@ -55,6 +55,20 @@ identity_api_port="$(derive_port_from_env_url IDENTITY_API_BASE_URL)"
 [[ -z "${issuer_port}" ]] || export FOUNDATION_PLATFORM_IDENTITY_ISSUER_LOOPBACK_PORT="${issuer_port}"
 [[ -z "${identity_api_port}" ]] || export FOUNDATION_PLATFORM_IDENTITY_API_LOOPBACK_PORT="${identity_api_port}"
 
+# What Prometheus and Alertmanager run from, as compose labels (compose.observability.yml): their
+# config hash changes with these files and with nothing else, so `up` recreates each only when the
+# release changed its files. Every caller of this wrapper computes the same digest, so no other `up`
+# sees a change that is not there. Rule tests (*.test.yml) are promtool's, not the server's.
+config_digest() {
+  local file
+  for file in "${root_dir}/infra/observability/$1"/*.yml; do
+    [[ "${file}" == *.test.yml ]] || printf '%s\n' "${file##*/}" "$(sha256sum <"${file}")"
+  done | sha256sum | cut -c1-16
+}
+FOUNDATION_PROMETHEUS_CONFIG_DIGEST="$(config_digest prometheus)"
+FOUNDATION_ALERTMANAGER_CONFIG_DIGEST="$(config_digest alertmanager)"
+export FOUNDATION_PROMETHEUS_CONFIG_DIGEST FOUNDATION_ALERTMANAGER_CONFIG_DIGEST
+
 compose=(
   docker compose
   --project-directory "${root_dir}"
