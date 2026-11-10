@@ -95,5 +95,13 @@
       ],
       "description": "매시간 빚진 달만 받고(최근 0–2달 매일, 3–12달 매주, 13–24달 매달, 이력은 새 달부터), 바이트가 바뀐 달만 Bronze 에 내용 주소로 쌓고, 달마다 바뀐 행과 빠진 이름의 삭제 표지를 쌓는다."
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "silver-real-transaction",
+      "check": "parcel_source_resolution",
+      "blocking": false,
+      "reads": []
+    }
   ]
 }

@@ -344,5 +344,13 @@
       ],
       "description": "열린 물건마다 한 번(목록 행의 수정일시가 바뀌면 다시) 입찰정보를 묻고 바뀐 행만 쌓는다(루트 ADR-0340)."
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "silver-onbid-real-estate-item",
+      "check": "parcel_source_resolution",
+      "blocking": false,
+      "reads": []
+    }
   ]
 }
