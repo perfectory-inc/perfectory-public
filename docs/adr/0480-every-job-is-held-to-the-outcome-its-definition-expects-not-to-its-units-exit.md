@@ -104,3 +104,20 @@
 - 원천 쪽: 주기 선언 99개 중 완료 실행이 없는 원천 1개 — `courtauctiongokr__auction_item_detail`. 배포 하루 뒤 울린다(사건 2 가 아직 열려 있다).
 - 비용: 결과 한 줄당 Python 한 번(수십 ms), 원장은 하루 약 600줄(약 100 KB). 조정기는 새 줄만 읽는다. 주간 탐침은 약 450 GET. 돈은 들지 않는다.
 - 원장은 지우지 않는다(덧붙이기만). 크기가 문제가 되면 호스트 보존(ADR-0198)에 회전을 더한다 — 요약의 `offset` 은 짧아진 파일을 처음부터 읽는다.
+
+개정(2026-11-11, W59): **조정기가 다루는 작업은 출력이 입력만큼 새로우면 `done` 이다.** 위 재생의 `gold_kind_rebuild`·
+`by_pnu_serving_bake` 두 건은 할 일이 없던 작업이었다(잰 값, 호스트 Airflow 로그·Trino `$snapshots`·조정기 로그, 2026-11-10):
+
+- `by_pnu_serving_bake` 의 시계 시작은 11-09·11-10 두 번 모두 차례 미룸(ADR-0138)으로 아무것도 돌리지 않았다(11-09 미룸 상대 15개,
+  11-10 `gold_unit_price_rebuild`). 그동안 `gold.parcel_panel` 의 두 커밋(11-09 10:38·20:24)은 고정판만 새로 적었고 바뀐 PNU 는 0
+  (`changed_keys=0`)이라 굽기 몫이 없었다. `gold_kind_rebuild` 의 11-10 시작은 패널 재생성에 막혀 `waiting` 이었고 그 뒤 입력이 바뀌지 않았다.
+- 같은 시각 조정기(ADR-0333 §7)는 두 작업의 모든 자산을 `current, lag 0s` 로 보았다. 그러니 `done` 이 실행만 세면 입력이 조용한
+  날마다 이 두 작업과 조정기의 다른 열세 작업이 주인을 부른다(거짓 경보).
+
+결정: 조정기가 한 tick 에서 자기가 다루는 작업의 **모든** 자산을 읽었고 그 어느 것도 owed·실행 중·읽기 실패가 아니면, 그 작업을
+그 시각 `current` 로 요약에 적는다(`asset_reconcile.tick(current=…)` → `job_outcomes.fold_current`). `done` 은 `changed`·`unchanged`·
+`current` 중 가장 새것으로 잰다. `current` 는 원장 줄이 아니다(덧붙이지 않는다, 줄 수·처음·끝 시각 불변). `change` 기대에는 들지 않는다.
+owed 인데 시작되지 않는 자산은 이미 조정기 자신의 `FoundationAsset*` 경보(미스케줄·뒤처짐)가 부른다. Dagster 의 신선도도 같은 뜻이다:
+파생 자산은 "상류보다 늦지 않게 물질화됐는가"로 재고(freshness policy 의 `maximum_lag`, `AutomationCondition.any_deps_updated`),
+상류가 조용하면 늦은 것이 아니다. 시험: `test_job_outcomes.py::TheVerdicts::test_a_reconciled_job_whose_outputs_stay_current_is_done_though_nothing_ran`
+(위 재생 그대로), `test_asset_reconcile.py::Reconciler::test_a_job_is_current_only_when_every_asset_of_it_was_read_and_owes_nothing`.
