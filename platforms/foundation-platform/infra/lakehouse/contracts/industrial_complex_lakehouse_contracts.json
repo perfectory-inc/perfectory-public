@@ -8726,6 +8726,16 @@
           "name": "fee_rate",
           "logical_type": "double",
           "required": false
+        },
+        {
+          "name": "pnu_basis",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu_unresolved_reason",
+          "logical_type": "string",
+          "required": false
         }
       ],
       "partition_spec": [],
@@ -8738,6 +8748,7 @@
       "quality_gates": [
         "append_only",
         "pnu is null or passes Pnu::parse",
+        "pnu is set exactly when pnu_basis is set and pnu_unresolved_reason is not",
         "(cltr_mng_no, pbct_cdtn_no, source_snapshot_id) unique",
         "removal markers only from a complete pass"
       ],

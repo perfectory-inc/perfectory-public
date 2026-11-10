@@ -470,6 +470,10 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     # The served cadastral edition only (root ADR-0148), the one the host lane serves, cut to the
     # parcels an item or its lineage can reach (onbid.parcels_named).
     served = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
+    # An item whose current code the served edition predates sits on the parcel an earlier form of
+    # its code names (root ADR-0482 §1): 6,020 경매 items on 2026-11-11, as a lineage candidate does.
+    forms = place_identity_resolver.served_form_candidates(spark, sources, remap, served, candidates)
+    candidates = forms if candidates is None else candidates.unionByName(forms)
     frames[PARCEL_SOURCE] = onbid.parcels_named(served, placed_pnus, candidates, merges).cache()
     return frames, old, Placement(args.published_at_utc, candidates, merges)
 

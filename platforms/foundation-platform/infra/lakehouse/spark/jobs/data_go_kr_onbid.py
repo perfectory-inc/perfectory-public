@@ -29,8 +29,11 @@ An object with nothing to write still commits, empty, so the table records that 
 The provider's own PNU (`ltnoPnu`) is format-checked (`Pnu::parse`'s copy in the source contract,
 held equal by a Rust test) and then resolved to the CURRENT pnu by the one place-identity resolver
 (`place_identity_resolver`, root ADR-0288 §1): a superseded legal-dong code is carried old →
-current and kept only when it is a current parcel. The raw text stays in `ltno_pnu_raw`; a code
-that does not resolve leaves `pnu` null for the steward.
+current and kept only when it is a current parcel. The raw text stays in `ltno_pnu_raw`. A row the
+code path leaves unplaced — the provider gave no code (22,661 of 63,812 current rows on 2026-11-11,
+mostly 신탁 sales whose item name is the full address) or one no served parcel holds — is placed by
+the address its item name gives, through the same joins 경매 uses (`address_pnu`: 지번, then 도로명;
+root ADR-0482 §2). `pnu_basis` names the step that placed it; `pnu_unresolved_reason` why none did.
 
 `parse` reads the plan directories and prints what it would load without Spark; `load` writes. The
 last stdout line is `data-go-kr-onbid-summary-json {json}`.
@@ -309,8 +312,12 @@ def build_row(item: Mapping[str, Any], role: str, contract: Mapping[str, Any]) -
     return row
 
 
+# The placement columns no provider field fills: the load sets them (`placed_items`, root ADR-0482 §2).
+PLACEMENT_COLUMNS = ("pnu_basis", "pnu_unresolved_reason")
+
+
 def item_row(item: Mapping[str, Any], contract: Mapping[str, Any]) -> dict[str, Any]:
-    return build_row(item, "item_list", contract)
+    return {**build_row(item, "item_list", contract), **dict.fromkeys(PLACEMENT_COLUMNS)}
 
 
 def result_row(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -515,6 +522,103 @@ def _parse(argv: Sequence[str]) -> int:
     return 0
 
 
+# The code path's grade → the `pnu_basis` that names it (the 경매 words, root ADR-0482 §2).
+CODE_BASIS = {"code_exact": "legal_dong_code", "code_superseded": "legal_dong_code_superseded",
+              "code_served_edition": "legal_dong_code_served_edition"}
+# What an address that reads nothing says; it does not replace why the code path failed.
+ADDRESS_SAYS_NOTHING = ("no_address", "unparsed")
+
+
+def address_offer(row: Mapping[str, Any], prefixes: Mapping[str, str],
+                  dongs: Mapping[tuple[str, str], str]) -> dict[str, Any]:
+    """What an item's name offers the address joins (`address_pnu.candidates`): the provider writes
+    the full address first (`경기도 화성시 … 999-9, 999호 …`)."""
+
+    import address_pnu  # noqa: PLC0415
+
+    return address_pnu.candidates(str(row.get("item_name") or ""), prefixes, dongs)
+
+
+def address_offers(rows: Sequence[Mapping[str, Any]], indexes: Sequence[int], prefixes: Mapping[str, str],
+                   dongs: Mapping[tuple[str, str], str]) -> list[tuple[Any, ...]]:
+    """The `address_pnu.resolve` input rows (`row_id` = the row's index) of the rows at `indexes`."""
+
+    offers = []
+    for index in indexes:
+        offer = address_offer(rows[index], prefixes, dongs)
+        road = offer["road"]
+        offers.append((index, offer["jibun_pnu"], offer["reason"], road.sido_code if road else None,
+                       road.sigungu if road else None, road.road if road else None,
+                       road.main_no if road else None, road.sub_no if road else None))
+    return offers
+
+
+OFFER_SCHEMA = ("row_id int, jibun_pnu string, reason string, road_sido string, road_sigungu string, "
+                "road_name string, road_main_no int, road_sub_no int")
+
+
+def placed_items(frame: Any, rows: Sequence[Mapping[str, Any]], remap: Mapping[str, str], ambiguous: Any,
+                 parcels: Any, titles: Any, prefixes: Mapping[str, str],
+                 dongs: Mapping[tuple[str, str], str]) -> Any:
+    """``frame`` (with ``_row``, the index of each row in ``rows``) placed: the provider's code first
+    (`place_identity_resolver.resolve`), then, for what it leaves, the address the item name gives
+    (`address_pnu.resolve`, with the served edition's earlier code forms). Sets `pnu_basis` and
+    `pnu_unresolved_reason`; the code path's reason stands when the address reads nothing."""
+
+    import address_pnu  # noqa: PLC0415
+    import place_identity_resolver  # noqa: PLC0415
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    by_code = place_identity_resolver.resolve(frame.drop("pnu_basis", "pnu_unresolved_reason"),
+                                              remap, ambiguous, parcels)
+    basis = F.lit(None).cast("string")
+    for grade, word in CODE_BASIS.items():
+        basis = F.when(F.col("place_identity_grade") == grade, F.lit(word)).otherwise(basis)
+    by_code = by_code.withColumn("pnu_basis", F.when(F.col("pnu").isNotNull(), basis)).drop("place_identity_grade")
+    left = [row["_row"] for row in by_code.where(F.col("pnu").isNull()).select("_row").collect()]
+    if not left:
+        return by_code
+    offered = frame.sparkSession.createDataFrame(address_offers(rows, left, prefixes, dongs), OFFER_SCHEMA)
+    by_address = (address_pnu.resolve(offered, parcels, titles, remap)
+                  .select(F.col("row_id").alias("_row"), F.col("pnu").alias("_address_pnu"),
+                          F.col("pnu_basis").alias("_address_basis"),
+                          F.col("pnu_unresolved_reason").alias("_address_reason")))
+    said = F.col("_address_reason").isNotNull() & ~F.col("_address_reason").isin(*ADDRESS_SAYS_NOTHING)
+    return (by_code.join(by_address, "_row", "left")
+            .withColumn("pnu", F.coalesce(F.col("pnu"), F.col("_address_pnu")))
+            .withColumn("pnu_basis", F.coalesce(F.col("pnu_basis"), F.col("_address_basis")))
+            .withColumn("pnu_unresolved_reason",
+                        F.when(F.col("pnu").isNotNull(), F.lit(None).cast("string"))
+                        .when(said & (F.col("pnu_unresolved_reason") == F.lit("no_source_code")), F.col("_address_reason"))
+                        .otherwise(F.col("pnu_unresolved_reason")))
+            .drop("_address_pnu", "_address_basis", "_address_reason"))
+
+
+def address_inputs(spark: Any, catalog: str, rows: Sequence[Mapping[str, Any]], prefixes: Mapping[str, str],
+                   dongs: Mapping[tuple[str, str], str]) -> tuple[set[str], Any]:
+    """(the jibun PNUs the item names offer, the building register titles their road addresses can
+    name), read once for the run and cut to these rows (root ADR-0390: the whole register is not
+    carried past the scan)."""
+
+    import address_pnu  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    jibun: set[str] = set()
+    roads: set[str] = set()
+    for row in rows:
+        offer = address_offer(row, prefixes, dongs)
+        if offer["jibun_pnu"]:
+            jibun.add(offer["jibun_pnu"])
+        elif offer["road"]:
+            roads.add(offer["road"].road)
+    titles = current_rows(spark.table(f"`{catalog}`.`silver`.`building_register_titles`"),
+                          load_lakehouse_contract("silver.building_register_titles")).select("pnu", "road_address_raw")
+    named = F.regexp_extract("road_address_raw", address_pnu.REGISTER_ROAD, 2)
+    titles = titles.where(named.isin(sorted(roads)) if roads else F.lit(False)).cache()
+    return jibun, titles
+
+
 def ensure_table(spark: Any, args: argparse.Namespace, contract_table: str) -> tuple[str, dict[str, Any], list[str], str]:
     """Creates the table when it is new and evolves it to its contract; its name, contract, columns, schema."""
 
@@ -551,6 +655,7 @@ def _load(argv: Sequence[str]) -> int:
     if not args.table_suffix and not args.allow_non_smoke_write:
         parser.error("writing the Silver tables needs --allow-non-smoke-write")
 
+    import address_pnu  # noqa: PLC0415
     import place_identity_resolver  # noqa: PLC0415
     from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
     from lakehouse_ingest import Deadline, append_source_object  # noqa: PLC0415
@@ -577,9 +682,14 @@ def _load(argv: Sequence[str]) -> int:
             # copying the source code. The pairs and the current parcels are read once for the run, the
             # parcels cut to the PNUs these objects can ask about (root ADR-0390).
             remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
-            wanted = place_identity_resolver.candidate_pnus(
-                (row["pnu"] for entry in objects if entry["role"] == "item_list"
-                 for row in read_object(entry, source, now)["rows"]), remap, ambiguous)
+            items = [row for entry in objects if entry["role"] == "item_list"
+                     for row in read_object(entry, source, now)["rows"]]
+            # Root ADR-0482 §2: the address each item name gives, for what the code path leaves.
+            dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+            prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
+            jibun, titles = address_inputs(spark, args.iceberg_catalog_name, items, prefixes, dongs)
+            wanted = place_identity_resolver.candidate_pnus([*(row["pnu"] for row in items), *jibun], remap, ambiguous)
+            del items
             parcels = place_identity_resolver.served_parcels_among(spark, args.iceberg_catalog_name, wanted)
             summary["parcels_read"] = {"asked": len(wanted), "held": parcels.count()}
         for entry in objects:
@@ -595,10 +705,13 @@ def _load(argv: Sequence[str]) -> int:
                                     "unrepresented_fields": loads["unrepresented_fields"]}
             frame = spark.createDataFrame([tuple(r.get(c) for c in columns) for r in rows], schema=schema)
             if role == "item_list":
-                # The source code (ltnoPnu, kept in ltno_pnu_raw) becomes the CURRENT pnu, or null.
-                resolved = place_identity_resolver.resolve(frame, remap, ambiguous, parcels).cache()
-                graded = {row["place_identity_grade"]: row["count"]
-                          for row in resolved.groupBy("place_identity_grade").count().collect()}
+                # The source code (ltnoPnu, kept in ltno_pnu_raw) becomes the CURRENT pnu, else the
+                # address the item name gives does, or the row keeps null with why (ADR-0482 §2).
+                indexed = spark.createDataFrame([(*(r.get(c) for c in columns), n) for n, r in enumerate(rows)],
+                                                schema=f"{schema}, _row int")
+                resolved = placed_items(indexed, rows, remap, ambiguous, parcels, titles, prefixes, dongs).cache()
+                graded = {row["pnu_basis"] or f"unresolved:{row['pnu_unresolved_reason']}": row["count"]
+                          for row in resolved.groupBy("pnu_basis", "pnu_unresolved_reason").count().collect()}
                 staged = resolved.select(*columns)
                 current = current_rows(spark.table(table), table_contract)
                 changes = release_changes(

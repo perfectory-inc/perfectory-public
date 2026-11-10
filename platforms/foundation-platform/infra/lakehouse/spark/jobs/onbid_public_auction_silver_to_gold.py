@@ -541,9 +541,6 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         merges = (panel.read_source(spark, args, LINEAGE_SOURCE, pins).where(F.col("relation") == F.lit("merge"))
                   .select("predecessor_pnu", "successor_pnu", "grade")
                   .join(F.broadcast(named), "predecessor_pnu", "left_semi").cache())
-    usage = None
-    if USAGE_CODE_SOURCE in pins:
-        usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
     # The parcel universe is the SERVED edition only (root ADR-0148), the same one the panel, map and
     # catalog are built from — not every edition held side by side in silver.parcel_boundaries. Reading
     # all editions (the generic read_source) attached sales to parcels a newer, unpromoted edition
@@ -552,6 +549,13 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     # served-edition reader, so this kind sees exactly the parcels the host lane serves. It is read
     # once, cut to the parcels a sale can reach, and kept.
     served = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
+    # A round whose current code the served edition predates sits on the parcel an earlier form of
+    # its code names (root ADR-0482 §1), as a lineage candidate does.
+    forms = place_identity_resolver.served_form_candidates(spark, sources, remap, served, candidates)
+    candidates = forms if candidates is None else candidates.unionByName(forms)
+    usage = None
+    if USAGE_CODE_SOURCE in pins:
+        usage = panel.read_source(spark, args, USAGE_CODE_SOURCE, pins).select("code", "name")
     frames[PARCEL_SOURCE] = parcels_named(served, frames[ITEM_SOURCE], candidates, merges).cache()
     return frames, old, Placement(args.published_at_utc, candidates, merges, usage)
 
