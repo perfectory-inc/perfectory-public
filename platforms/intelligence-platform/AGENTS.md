@@ -19,7 +19,8 @@ Intelligence Platform에서 작업하는 AI 에이전트 공용 진입점. 모�
   (`/v1/chat/completions` · `/v1/models`)은 루트 ADR-0001 §6에 기록된 예외로
   생태계 표준 경로를 유지한다 — `/intelligence/v1` 밑으로 옮기지 말 것.
 - crates: normalization 3계층(intelligence-normalization-*) + knowledge 3계층 +
-  `messaging-infrastructure` + `intelligence-contracts`. services: `intelligence-api` ·
+  `messaging-infrastructure` + `intelligence-contracts`. jobs: `document_text`(Python 이미지 — 고시 첨부의 쪽·위치 텍스트, 계약은
+  `config/document-extraction.contract.json`, [루트 ADR-0477](../../docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md)). services: `intelligence-api` ·
   `intelligence-worker`(바이너리 4종 — drain worker, floor/unit normalization, knowledge consumer).
 - **C0-C1**(인바운드 인증·admission control·durable outbox) 구현 완료. **C2** 이벤트 백본은
   코드(Kafka/Karapace 어댑터, Avro 스키마, `foundation_knowledge_consumer`)가 있으나
@@ -77,6 +78,7 @@ cargo test -p messaging-infrastructure --test live_kafka_karapace -- --nocapture
 ## 문서 라우팅
 
 - [README.md](./README.md) — env 레퍼런스 전체 (C0-C1 fail-closed 규칙·엔드포인트·모델 런타임)
+- [docs/current-state.md](./docs/current-state.md) — **무엇이 돌고 있는가**(배포·Foundation 경계 현황표, 단일 출처)
 - [docs/architecture.md](./docs/architecture.md) — 모듈 경계 + Cross-Platform Contract
 - [docs/adr/](./docs/adr/README.md) — 영역 결정 기록 (0001 = Rust canonical)
 - [schemas/README.md](./schemas/README.md) — Avro 스키마 진화 규율 + C2 라이브 검증 절차

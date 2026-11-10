@@ -19,6 +19,8 @@ intelligence-platform/
 ├── crates/messaging/           Kafka·Avro·Karapace 어댑터
 ├── services/intelligence-api   HTTP API
 ├── services/intelligence-worker  비동기 워커
+├── jobs/document_text          문서 쪽·위치 텍스트 작업(루트 ADR-0477)
+├── config/                     계약(document-extraction.contract.json)·예시 env
 └── schemas/                    이벤트 스키마
 ```
 

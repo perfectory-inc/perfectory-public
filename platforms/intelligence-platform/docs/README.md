@@ -15,13 +15,15 @@ Foundation 원장과 제품 데이터는 이 영역이 직접 쓰지 않습니�
 ```text
 docs/
 ├── adr/             설계 결정
-└── architecture.md  모듈 경계·플랫폼 계약
+├── architecture.md  모듈 경계·플랫폼 계약
+└── current-state.md 무엇이 돌고 무엇을 주고받는가(단일 출처)
 schemas/
 └── README.md        Avro 이벤트·C2 검증
 ```
 
 ## 먼저 보는 문서
 
+- [현황 — 무엇이 코드로 있고 ai-server 에서 돌며 Foundation 과 무엇을 주고받는가](./current-state.md)
 - [모듈 경계와 플랫폼 계약](./architecture.md)
 - [Avro 이벤트 스키마와 C2 검증](../schemas/README.md)
 - [영역 ADR](./adr/README.md)
@@ -33,6 +35,7 @@ schemas/
 
 | 위치 | 책임 |
 |---|---|
+| `current-state.md` | 구성 요소·배포·Foundation 경계의 현황표(단일 출처) |
 | `architecture.md` | 모듈 경계와 Foundation 연동 규칙 |
 | `adr/` | Intelligence 고유 설계 결정 |
 | `../schemas/` | 이벤트 스키마와 호환성 규칙 |
