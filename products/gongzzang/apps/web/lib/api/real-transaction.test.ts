@@ -190,7 +190,10 @@ describe("real transaction edge", () => {
       { fromMonth: null, datasets: ["real_transaction_apartment_rent"] },
     ]);
     // A revision 1 document carries no coverage: every category is whole.
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(document()))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(document()))),
+    );
     const whole = await fetchRealTransaction(pnu);
     expect(whole && coverageGroups(whole)).toEqual([]);
   });
