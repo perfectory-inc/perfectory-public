@@ -2,7 +2,7 @@
 status: current
 owner: gongzzang-제품
 doc_type: runbook
-last_reviewed: 2026-11-09
+last_reviewed: 2026-11-10
 ---
 
 # 임시 웹 미리보기 (읽기 전용)
@@ -30,8 +30,13 @@ products/gongzzang/scripts/web-preview/deploy.sh <git-ref>   # 다른 커밋
 2. `git archive` 한 트리를 Docker(Linux) 안에서 빌드한다. OpenNext·wrangler 는 컨테이너 안에서만 설치한다.
 3. 데이터 호스트의 runtime-manifest 를 찍어 정적 자산으로 넣는다(타일 주소는 `/edge/tiles` 로).
 4. 압축 크기가 무료 한도 3 MiB 를 넘으면 배포하지 않고 멈춘다.
-5. 배포하고 앞문 주소로 `/listings` 200, 매니페스트 200, 엣지 중계 200, `/profile`·`/api/*` 404 를, workers.dev 주소로
-   `/listings` 200 을 확인한다.
+5. 배포하고 앞문 주소로 `/listings` 200, 매니페스트 200, 엣지 중계 200, `/profile`·`/api/*` 404 를, workers.dev 주소가
+   `/listings` 를 앞문의 같은 경로로 301 하는 것을 확인한다.
+
+**미리보기 주소는 `https://web-preview.perfectory.io` 하나다.** 옛 workers.dev 주소(`gongzzang-web-preview.<서브도메인>.workers.dev`)는
+앞문의 원점일 뿐이다: CloudFront 를 거치지 않은 요청(`X-Amz-Cf-Id` 없음)은 같은 경로·쿼리로 앞문에 301(POST 는 308) 한다
+(`worker.mjs`·`edge-relay.mjs`). 2026-11-10 사장이 옛 주소에서 "필지정보를 불러오지 못했다" 를 봤다: 앞문용으로 빌드된 페이지가
+다른 출처에서 열려 패널 읽기가 CORS 로 막혔다. 엣지 CORS 는 넓히지 않는다.
 
 지도가 옛 릴리스를 보이면(새 타일 발행 뒤) 같은 명령을 다시 돌린다.
 

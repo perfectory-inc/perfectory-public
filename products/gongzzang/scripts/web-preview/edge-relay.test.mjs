@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { EDGES, RUM, relayRequest } from "./edge-relay.mjs";
+import { EDGES, FRONT_DOOR, RUM, frontDoorRedirect, relayRequest } from "./edge-relay.mjs";
 
 const ORIGIN = "https://preview.example.test";
 
@@ -110,4 +110,30 @@ test("the relayed hosts are the contract's hostnames", () => {
     "map-edits": contract.map_edit_gateway.public_hostname,
   });
   assert.equal(RUM.path, contract.map_edit_gateway.real_user_metrics.path);
+});
+
+test("a request that did not come through the front door moves to the same path on it", () => {
+  const read = frontDoorRedirect(new Request(`${ORIGIN}/listings?p=parcel:x.summary`));
+  assert.equal(read.status, 301);
+  assert.equal(read.headers.get("location"), `https://${FRONT_DOOR}/listings?p=parcel:x.summary`);
+  const beacon = frontDoorRedirect(new Request(`${ORIGIN}/edge/map-edits/rum`, { method: "POST" }));
+  assert.equal(beacon.status, 308);
+  assert.equal(
+    frontDoorRedirect(new Request(`${ORIGIN}/listings`, { headers: { "x-amz-cf-id": "abc==" } })),
+    null,
+  );
+});
+
+test("the front door is the contract's web_preview door", () => {
+  const door = JSON.parse(
+    readFileSync(
+      new URL(
+        "../../../../platforms/foundation-platform/config/cdn-front-door.contract.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ).doors.web_preview;
+  assert.equal(FRONT_DOOR, door.public_hostname);
+  assert.equal(door.answered_by, "cloudfront");
 });
