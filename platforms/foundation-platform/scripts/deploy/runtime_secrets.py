@@ -513,10 +513,43 @@ def _replace_atomically(path: Path, text: str, uid: int, gid: int, mode: int) ->
         staged.unlink(missing_ok=True)
 
 
+# A line `set` can keep in a group file: blank, a comment, or NAME=value (optionally exported).
+ENV_LINE = re.compile(r"\s*(?:#.*|(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*=.*)?")
+
+
+def _kept_lines(path: Path, uid: int, gid: int) -> list[str] | None:
+    """The lines of the group file `path`, or None when it is not an env file: not UTF-8, or a line
+    ENV_LINE refuses. Such a file is first copied as it is beside itself (`<name>.unreadable-<UTC time>`,
+    `uid`:`gid`, 0600, never overwritten), so `set` can write the group file fresh. 2026-11-10 a hand
+    `tee` left /etc/foundation-platform/juso.env non-UTF-8, and every `foundation-release.sh env-set juso`
+    stopped on a UnicodeDecodeError that only a person with sudo could clear."""
+    raw = path.read_bytes()
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        lines = None
+    if lines is not None and all(ENV_LINE.fullmatch(line) for line in lines):
+        return lines
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    copy = path.with_name(f"{path.name}.unreadable-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}")
+    descriptor = os.open(copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+    if hasattr(os, "chown"):
+        os.chown(copy, uid, gid)
+    os.chmod(copy, 0o600)
+    print(f"set: {path} is not an env file; kept as {copy.name}, written fresh", file=sys.stderr)
+    return None
+
+
 def set_names(area: Path, group_name: str, source: Path, root: Path = Path("/")) -> list[str]:
     """Writes each `NAME=value` line of `source` into the group's file (root ADR-0247): that name's
     lines are replaced, every other line is kept, and the file ends up with the contract's owner,
-    group and mode. A name the group does not hold is refused. Returns the names; never a value."""
+    group and mode. A name the group does not hold is refused. An existing file that is not an env
+    file is kept beside it and written fresh (_kept_lines). Returns the names; never a value."""
 
     contract = load(area)
     group = contract.groups.get(group_name)
@@ -547,12 +580,13 @@ def set_names(area: Path, group_name: str, source: Path, root: Path = Path("/"))
     path = root / group.path.lstrip("/")
     if path.is_symlink():
         raise ContractError(f"set: {group.path} is a symlink")
+    uid, gid = pwd.getpwnam(group.owner).pw_uid, grp.getgrnam(group.group).gr_gid
     kept = []
     if path.exists():
-        kept = [line for line in path.read_text(encoding="utf-8").splitlines()
+        kept = [line for line in _kept_lines(path, uid, gid) or []
                 if not ((match := re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=", line)) and match.group(1) in values)]
     text = "".join(f"{line}\n" for line in kept) + "".join(f"{name}={value}\n" for name, value in values.items())
-    _replace_atomically(path, text, pwd.getpwnam(group.owner).pw_uid, grp.getgrnam(group.group).gr_gid, group.mode)
+    _replace_atomically(path, text, uid, gid, group.mode)
     return list(values)
 
 
