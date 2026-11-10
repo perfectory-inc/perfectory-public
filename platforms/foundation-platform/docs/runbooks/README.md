@@ -25,6 +25,7 @@ last_reviewed: 2026-07-29
 - [법정동 코드 변경 (code.go.kr) — 수집·적재·스튜어드](./legal-dong-code-changes.md)
 - [data.go.kr 파일 데이터 — 등록공장 수집·PNU·적재, 기타 공공 일괄 파일 수집](./data-go-kr-registered-factory.md)
 - [주소정보 전자지도 변동분 수집 — 승인키 놓기·커서·거부 알림](./juso-electronic-map.md)
+- [로컬 모델 런타임 — spark 풀 시간 나눔·평가·증설 첫날 순서](./model-runtime.md)
 - [법원경매정보 (courtauction.go.kr) — 정직한 수집·멈춤·적재](./court-auction.md)
 - [온비드 공매 (data.go.kr) — 수집·적재](./data-go-kr-onbid.md)
 - [VWorld 연속지적도 판 — 확인·수집·제안·Silver 적재](./vworld-parcel-editions.md)
