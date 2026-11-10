@@ -1,6 +1,6 @@
 """Every parcel source's Gold row carries its parcel's stable place id (root ADR-0483, ADR-0288 §5).
 
-A parcel source (a Silver the place-identity resolver placed, `scripts/catalog/pipeline_graph.py`) is
+A parcel source (a Silver the place-identity resolver placed, as the pipeline-graph guard reads it) is
 joined by `place_id`, not by the PNU, which a 법정동 code change renumbers. Its by-PNU kind's Gold names
 the join columns in its kind line (`place_identity`, `by_pnu_kinds.Kind.place_identity`):
 

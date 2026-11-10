@@ -5,8 +5,8 @@ Gold, and their Gold columns put the join columns after `attached_via`; a PNU ta
 bridge period, else its latest closed one, never a code-pair line's or an admin id; the digest covers the
 join columns; a 본번 group row carries its group's ids; a run recomputes the PNUs a release's appended
 changelog rows name, or the ids that differ when the span is not appends only; the 실거래 contract's one
-below-bar switch is off, and shown it links the land deals as their own grade with the label the screen
-says.
+below-bar switch is off, and shown it links the land deals as their own grade (the screen's label is
+held to the contract's by the web's own test).
 """
 
 import json
@@ -24,7 +24,6 @@ import place_identity_resolver as resolver  # noqa: E402
 DONG = "9999910100"
 SOURCES = {"parcel-public-auction", "parcel-court-auction", "parcel-factories", "parcel-nearby",
            "parcel-real-transaction"}
-WEB_MESSAGES = Path(__file__).resolve().parents[6] / "products/gongzzang/apps/web/lib/i18n/ko.json"
 
 
 def pnu(main, sub=0):
@@ -95,20 +94,6 @@ class BelowBarSwitchTest(unittest.TestCase):
         n, p, z = measured["rows"], measured["right"] / measured["rows"], 1.96
         low = (p + z * z / (2 * n) - z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / (1 + z * z / n)
         self.assertAlmostEqual(low, measured["precision_wilson_low"], places=4)
-
-    def test_the_screen_says_the_contract_s_label(self):
-        messages = json.loads(WEB_MESSAGES.read_text(encoding="utf-8"))
-
-        def find(node):
-            if isinstance(node, dict):
-                if "inferredBelowBar" in node:
-                    return node["inferredBelowBar"]
-                for value in node.values():
-                    if (found := find(value)) is not None:
-                        return found
-            return None
-
-        self.assertEqual(find(messages), self.contract()["below_bar"]["label_ko"])
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")

@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import ko from "@/lib/i18n/ko.json";
 import {
   coverageGroups,
   fetchRealTransaction,
@@ -160,6 +163,19 @@ describe("real transaction edge", () => {
     expect(isMainLotGroup("inferred_same_main_lot_group_below_bar")).toBe(true);
     expect(isBelowBar("inferred_same_main_lot_group_below_bar")).toBe(true);
     expect(isBelowBar("inferred_same_main_lot_group")).toBe(false);
+    // The screen's words are the 실거래 contract's label for the switch it shows (ADR-0483 §4).
+    const contract = JSON.parse(
+      readFileSync(
+        resolve(
+          __dirname,
+          "../../../../../../platforms/foundation-platform/infra/lakehouse/contracts/rt-molit-real-transaction.contract.json",
+        ),
+        "utf8",
+      ),
+    );
+    expect(JSON.stringify(ko)).toContain(
+      `"inferredBelowBar":"${contract.place_inference.below_bar.label_ko}"`,
+    );
     expect(lotOfPnu(neighbour)).toBe("5-1");
     expect(lotOfPnu("9999900000203000000")).toBe("산 300");
   });
