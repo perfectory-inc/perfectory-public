@@ -6,7 +6,7 @@
   [ADR-0243](./0243-the-parcel-registry-is-registered-region-by-region-by-a-scheduled-job.md)(원장은 지역마다 예약 작업이 등록),
   [ADR-0288](./0288-every-parcel-source-converges-on-one-place-identity.md) §5(place_id 가 조인 열쇠),
   [ADR-0329](./0329-official-evidence-supersedes-a-recorded-inference-automatically.md) §3(`views.changed_codes`)
-- 관련: ADR-0480(서빙판의 코드 형태), ADR-0171(작업 결과 줄), ADR-0001
+- 관련: ADR-0482(서빙판의 코드 형태), ADR-0171(작업 결과 줄), ADR-0001
 
 ## Context
 
@@ -22,7 +22,7 @@
 - 필지 id 가 없으니 원천들이 조인할 안정 열쇠도 없다(ADR-0288 §5).
 - 2026-07-01 전남광주·인천 개편 아래 열린 필지 약 648만 개가 문제다(29: 387,255 · 46: 5,925,255 ·
   28: 148,273 · 27: 22,719). 서빙판(202606)은 이것들을 옛 코드로만 들고 있다.
-  그래서 새 코드로 들어온 참조는 같은 땅을 찾지 못한다(ADR-0480).
+  그래서 새 코드로 들어온 참조는 같은 땅을 찾지 못한다(ADR-0482).
 
 ## Decision
 

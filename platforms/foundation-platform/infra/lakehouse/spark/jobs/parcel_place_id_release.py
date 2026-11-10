@@ -12,7 +12,7 @@ what consumers read about them to `gold.place_id_registry`, `gold.place_id_bridg
   one (open while the pair's newest row is current). A PNU whose legal-dong code a recorded pair
   supersedes is also bridged under its current code (valid_from = valid_to = the pair source), so a
   reference made with the new code (`1211010100…`) finds the id the served edition keeps under the
-  old one (`4611010100…`) until the registry itself carries the new PNU (root ADR-0288 §3, ADR-0480).
+  old one (`4611010100…`) until the registry itself carries the new PNU (root ADR-0288 §3, ADR-0482).
   A new code two ids would take is bridged to neither.
 - **Changelog**: what this release changed against the region's published registry.
 - **What runs**: only the regions whose inputs moved since their last release (`stale_scopes`):
