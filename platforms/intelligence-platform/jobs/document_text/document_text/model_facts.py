@@ -161,7 +161,7 @@ def digits(text: str) -> str:
 def vision_confirms(port: Port, vision_model: str, png: bytes, fact: Fact) -> bool:
     question = (
         "이 쪽 그림에서 아래 글과 같은 자리의 글을 그림에 보이는 그대로 옮겨라. 숫자와 코드는 그림의 것을 한 자씩 읽어라. "
-        f"그런 글이 없으면 빈 글자로 답하라.\n글: {fact.quote}"
+        f"그런 글이 없으면 빈 글자로 답하라.\n글: {clean(fact.quote)}"
     )
     content, _ = port.chat(
         [{"role": "user", "content": [{"type": "text", "text": question}, image_part(png)]}],
