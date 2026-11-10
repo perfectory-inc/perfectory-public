@@ -32,6 +32,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requ
  && useradd --uid 10001 --create-home --shell /usr/sbin/nologin intelligence
 
 COPY config/document-extraction.contract.json /opt/intelligence/config/document-extraction.contract.json
+COPY config/ksic-divisions.json /opt/intelligence/config/ksic-divisions.json
 COPY jobs/document_text/document_text /opt/intelligence/jobs/document_text/document_text
 
 USER intelligence
