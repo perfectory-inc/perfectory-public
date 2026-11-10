@@ -3,7 +3,9 @@
 #
 #   1. 받기   — Bronze 의 경계 ZIP 전부(매일 수집이 받는다, 몇십 MB)를 읽기 키로 받는다(convert.sh download).
 #   2. 회차   — ZIP 안 레이어 이름에서 가장 새 회차를 고른다(rounds.py). 없으면 할 일 없음.
-#   3. 확인   — silver.administrative_boundaries 가 그 회차를 이미 가졌으면 끝(unchanged). Spark 한 번.
+#   3. 확인   — silver.administrative_boundaries 가 그 회차를 이미 가졌으면 7 단계만 한다: 법정동 코드 변경 쌍이
+#              바뀌었을 수 있다(root ADR-0288 §3, 분구의 옛 동코드는 쌍으로만 다리에 들어간다). 발행 ID 가 지금 발행된
+#              것과 같으면 쓰지 않고 끝(unchanged), 다르면 다시 발행한다(changed). 경계는 그대로라 타일은 굽지 않는다.
 #   4. 변환   — 그 회차의 ZIP 만 GeoJSON 으로(convert.sh convert).
 #   5. 병합   — merge.py. 공식 코드 목록의 시도 하나라도 파일이 없으면 기다린다(unchanged, 다음 날 다시).
 #   6. 적재   — administrative_boundaries_handoff_to_silver.py: 회차를 덧붙이고, 코드가 바뀐 동은 옛 id 를 잇는다.
@@ -75,12 +77,27 @@ if [[ -z "${round}" ]]; then
 fi
 snapshot="${SNAPSHOT_PREFIX}${round}"
 
-# 3. 이미 가진 회차인가.
+# 7 단계. 지금 발행된 것과 같으면 쓰지 않는다(place_id_release.release_changes).
+publish_place_ids() {
+  spark infra/lakehouse/spark/jobs/place_id_release_to_gold.py --unit admin --release-id "admin-${run_id}" \
+    --summary-output "${container_work}/place-id-summary.json" --allow-non-smoke-write
+}
+place_ids_published() {
+  python3 -I -c 'import json, sys; print(str(json.load(open(sys.argv[1])).get("published", False)).lower())' \
+    "${work}/place-id-summary.json"
+}
+
+# 3. 이미 가진 회차인가. 가졌으면 코드 변경 쌍만 바뀌었을 수 있다: 발행 ID 만 다시 본다.
 spark infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py --probe-only \
   --source-snapshot-id "${snapshot}"
 if grep -q "^administrative-boundaries-silver-probe snapshot=${snapshot} held=true$" "${run_log}"; then
   drop_inputs
-  finish unchanged "reason=already_loaded round=${round}"
+  publish_place_ids
+  if [[ "$(place_ids_published)" == "true" ]]; then
+    finish changed "reason=place_ids_republished round=${round}"
+  else
+    finish unchanged "reason=already_loaded round=${round}"
+  fi
   exit 0
 fi
 grep -q "^administrative-boundaries-silver-probe snapshot=${snapshot} held=false$" "${run_log}"
@@ -113,8 +130,7 @@ spark infra/lakehouse/spark/jobs/administrative_boundaries_handoff_to_silver.py 
   --summary-output "${container_work}/silver-summary.json" --allow-non-smoke-write
 
 # 7. 발행 ID.
-spark infra/lakehouse/spark/jobs/place_id_release_to_gold.py --unit admin --release-id "admin-${run_id}" \
-  --summary-output "${container_work}/place-id-summary.json" --allow-non-smoke-write
+publish_place_ids
 drop_inputs
 
 # 8. 타일: 편집이 없어도 새 Silver 로 굽는다.
