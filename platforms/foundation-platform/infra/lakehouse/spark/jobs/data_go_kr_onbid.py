@@ -33,7 +33,7 @@ current and kept only when it is a current parcel. The raw text stays in `ltno_p
 code path leaves unplaced — the provider gave no code (22,661 of 63,812 current rows on 2026-11-11,
 mostly 신탁 sales whose item name is the full address) or one no served parcel holds — is placed by
 the address its item name gives, through the same joins 경매 uses (`address_pnu`: 지번, then 도로명;
-root ADR-0480 §2). `pnu_basis` names the step that placed it; `pnu_unresolved_reason` why none did.
+root ADR-0482 §2). `pnu_basis` names the step that placed it; `pnu_unresolved_reason` why none did.
 
 `parse` reads the plan directories and prints what it would load without Spark; `load` writes. The
 last stdout line is `data-go-kr-onbid-summary-json {json}`.
@@ -312,7 +312,7 @@ def build_row(item: Mapping[str, Any], role: str, contract: Mapping[str, Any]) -
     return row
 
 
-# The placement columns no provider field fills: the load sets them (`placed_items`, root ADR-0480 §2).
+# The placement columns no provider field fills: the load sets them (`placed_items`, root ADR-0482 §2).
 PLACEMENT_COLUMNS = ("pnu_basis", "pnu_unresolved_reason")
 
 
@@ -522,7 +522,7 @@ def _parse(argv: Sequence[str]) -> int:
     return 0
 
 
-# The code path's grade → the `pnu_basis` that names it (the 경매 words, root ADR-0480 §2).
+# The code path's grade → the `pnu_basis` that names it (the 경매 words, root ADR-0482 §2).
 CODE_BASIS = {"code_exact": "legal_dong_code", "code_superseded": "legal_dong_code_superseded",
               "code_served_edition": "legal_dong_code_served_edition"}
 # What an address that reads nothing says; it does not replace why the code path failed.
@@ -684,7 +684,7 @@ def _load(argv: Sequence[str]) -> int:
             remap, ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
             items = [row for entry in objects if entry["role"] == "item_list"
                      for row in read_object(entry, source, now)["rows"]]
-            # Root ADR-0480 §2: the address each item name gives, for what the code path leaves.
+            # Root ADR-0482 §2: the address each item name gives, for what the code path leaves.
             dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
             prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
             jibun, titles = address_inputs(spark, args.iceberg_catalog_name, items, prefixes, dongs)
@@ -706,7 +706,7 @@ def _load(argv: Sequence[str]) -> int:
             frame = spark.createDataFrame([tuple(r.get(c) for c in columns) for r in rows], schema=schema)
             if role == "item_list":
                 # The source code (ltnoPnu, kept in ltno_pnu_raw) becomes the CURRENT pnu, else the
-                # address the item name gives does, or the row keeps null with why (ADR-0480 §2).
+                # address the item name gives does, or the row keeps null with why (ADR-0482 §2).
                 indexed = spark.createDataFrame([(*(r.get(c) for c in columns), n) for n, r in enumerate(rows)],
                                                 schema=f"{schema}, _row int")
                 resolved = placed_items(indexed, rows, remap, ambiguous, parcels, titles, prefixes, dongs).cache()

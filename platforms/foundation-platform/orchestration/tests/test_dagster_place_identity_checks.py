@@ -83,7 +83,7 @@ class PlaceIdentityChecksTest(unittest.TestCase):
         import place_identity_checks as c
 
         self.assertIn("pnu_unresolved_reason", c.resolution_sql("silver.court_auction_item"))
-        # Root ADR-0480 §2: 공매 names why a round is unplaced too.
+        # Root ADR-0482 §2: 공매 names why a round is unplaced too.
         self.assertIn("pnu_unresolved_reason", c.resolution_sql("silver.onbid_real_estate_item"))
         # A parcel source whose contract has no reason column is counted without one.
         from unittest import mock

@@ -88,7 +88,7 @@ class ReconstructPnu(unittest.TestCase):
 
 class CandidatePnus(unittest.TestCase):
     def test_the_parcel_set_is_asked_about_the_current_form_and_the_earlier_forms_of_each_code(self) -> None:
-        # Root ADR-0390: the run reads only these PNUs of the ~40M current parcels. Root ADR-0480 §1:
+        # Root ADR-0390: the run reads only these PNUs of the ~40M current parcels. Root ADR-0482 §1:
         # the served edition may predate the pair, so the source's own old form is asked too.
         asked = r.candidate_pnus(["9999900100109120008", "9999900300100010000", "9999902000100020000", None, ""],
                                  {"9999900100": "9999900200"}, {"9999902000"})
@@ -102,7 +102,7 @@ class CandidatePnus(unittest.TestCase):
 
 
 class ServedForms(unittest.TestCase):
-    """Root ADR-0480 §1: a code's earlier forms, the source's own old code before its siblings."""
+    """Root ADR-0482 §1: a code's earlier forms, the source's own old code before its siblings."""
 
     def test_an_old_code_is_its_own_first_earlier_form_and_a_sibling_comes_second(self) -> None:
         remap = {"9999930100": "9999940100", "9999950100": "9999940100"}

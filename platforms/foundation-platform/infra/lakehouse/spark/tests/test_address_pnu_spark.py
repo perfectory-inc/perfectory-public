@@ -62,7 +62,7 @@ class ResolveTest(unittest.TestCase):
             self.assertEqual(row.pnu is None, row.pnu_basis is None)
             self.assertEqual(row.pnu is None, row.pnu_unresolved_reason is not None)
 
-    # Root ADR-0480 §1. Synthetic: 99999102 dongs became 99999202 on a pair the served edition predates, so
+    # Root ADR-0482 §1. Synthetic: 99999102 dongs became 99999202 on a pair the served edition predates, so
     # the served parcel still carries the old code. 99999103 and 99999104 merged into 99999203; both had lot 7.
     REMAP = {"9999910200": "9999920200", "9999910300": "9999920300", "9999910400": "9999920300"}
 
@@ -123,7 +123,7 @@ class ResolveTest(unittest.TestCase):
 
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class OnbidPlacementTest(unittest.TestCase):
-    """Root ADR-0480 §2: 공매 is placed by its code first, else by its item name's address."""
+    """Root ADR-0482 §2: 공매 is placed by its code first, else by its item name's address."""
 
     @classmethod
     def setUpClass(cls):

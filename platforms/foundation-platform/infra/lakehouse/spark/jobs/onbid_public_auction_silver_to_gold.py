@@ -550,7 +550,7 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
     # once, cut to the parcels a sale can reach, and kept.
     served = panel.read_served_parcels(spark, args, pins, region=False).select("pnu")
     # A round whose current code the served edition predates sits on the parcel an earlier form of
-    # its code names (root ADR-0480 §1), as a lineage candidate does.
+    # its code names (root ADR-0482 §1), as a lineage candidate does.
     forms = place_identity_resolver.served_form_candidates(spark, sources, remap, served, candidates)
     candidates = forms if candidates is None else candidates.unionByName(forms)
     usage = None

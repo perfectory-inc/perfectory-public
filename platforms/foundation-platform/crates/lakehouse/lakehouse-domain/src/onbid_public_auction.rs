@@ -93,7 +93,7 @@ const SILVER_ONBID_REAL_ESTATE_ITEM_COLUMNS: &[LakehouseColumn] = &[
     column("subt_bid_psbl_yn", "string", false),
     column("evc_rsby_trgt_cont", "string", false),
     column("fee_rate", "double", false),
-    // Root ADR-0480 §2: the step that placed the item (`legal_dong_code`, `legal_dong_code_superseded`,
+    // Root ADR-0482 §2: the step that placed the item (`legal_dong_code`, `legal_dong_code_superseded`,
     // `legal_dong_code_served_edition` on the provider's ltnoPnu; `jibun_address`, `road_address` on
     // the address its item name gives when the provider gives no code), or why none did.
     column("pnu_basis", "string", false),

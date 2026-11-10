@@ -201,7 +201,7 @@ def under_changed_codes(frames: Sequence[Any], before: Iterable[Mapping[str, Any
 
 
 def served_forms(remap: Mapping[str, str]) -> list[tuple[str, str, int]]:
-    """(code, an earlier form of it, rank) for every code a recorded pair touches (root ADR-0480 §1).
+    """(code, an earlier form of it, rank) for every code a recorded pair touches (root ADR-0482 §1).
 
     The served cadastral edition can predate a code change: on 2026-11-11 it was 202606 while the
     2026-07-01 전남광주·인천 pairs were in force, so a parcel the map serves still carried the old
@@ -244,7 +244,7 @@ def candidate_pnus(pnus: Iterable[str | None], remap: Mapping[str, str], ambiguo
 
 
 # The grade of a pnu found under an earlier form of its code because the served edition predates the
-# change (root ADR-0480 §1). It is exact about the land: the pair says the two codes are one place.
+# change (root ADR-0482 §1). It is exact about the land: the pair says the two codes are one place.
 SERVED_EDITION_GRADE = "code_served_edition"
 
 
@@ -280,7 +280,7 @@ def served_form_candidates(spark: Any, sources: Iterable[str], remap: Mapping[st
     (``held_forms``; path ``SERVED_EDITION_GRADE``), for the sources ``lineage`` gives no candidate.
     A Gold build carries every pnu to the current code (``located``) and places it on the served
     edition (root ADR-0291 §5); this is the step between the two when the edition is older than the
-    pair (root ADR-0480 §1). The rows are few: the sources whose code a pair touches."""
+    pair (root ADR-0482 §1). The rows are few: the sources whose code a pair touches."""
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
@@ -344,7 +344,7 @@ def resolve(staged: Any, remap: Mapping[str, str], ambiguous: Iterable[str], par
                    "_candidate", "left")
     held = F.coalesce(F.col("_held"), F.lit(False))
     # The current form not served: the served edition may hold the parcel under an earlier form of
-    # the code (root ADR-0480 §1). Asked by the source pnu, whose code `served_forms` is keyed by.
+    # the code (root ADR-0482 §1). Asked by the source pnu, whose code `served_forms` is keyed by.
     out = held_forms(out.withColumn("_source", F.when(~held & ~is_ambiguous, F.col("pnu"))), "_source", remap, parcels)
     served = ~held & F.col("_served_form").isNotNull()
     placed = held | served

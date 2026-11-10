@@ -279,7 +279,7 @@ def resolve(frame: Any, parcels: Any, titles: Any, remap: Mapping[str, str] | No
     ``parcels`` holds the current parcels' ``pnu``; ``titles`` the register's ``pnu`` and
     ``road_address_raw`` (``lakehouse_inputs``). ``remap`` (old -> current legal-dong code) lets a
     jibun whose current form the served edition does not hold be found under an earlier form of its
-    code (`place_identity_resolver.held_forms`, root ADR-0480 §1): the names are read against the
+    code (`place_identity_resolver.held_forms`, root ADR-0482 §1): the names are read against the
     current codes, the served edition may still carry the old ones.
     """
 

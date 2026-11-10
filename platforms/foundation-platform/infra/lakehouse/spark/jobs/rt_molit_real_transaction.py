@@ -294,7 +294,7 @@ def read_export(entry: Mapping[str, Any], csv_contract: Mapping[str, Any], inges
 def candidate_pnus(rows: Iterable[Mapping[str, Any]], dongs: Mapping[str, str], remap: Mapping[str, str]) -> set[str]:
     """Every PNU the resolver can ask the parcel set about for these rows: each unmasked lot's
     candidate under its source code, under the current code the crosswalk carries it to, and under
-    the earlier forms of that code the served edition may still hold (root ADR-0480 §1)."""
+    the earlier forms of that code the served edition may still hold (root ADR-0482 §1)."""
 
     import place_identity_resolver  # noqa: PLC0415
 

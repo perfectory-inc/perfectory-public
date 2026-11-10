@@ -306,7 +306,7 @@ def _load(argv: Sequence[str]) -> int:
                   "'write.parquet.compression-codec' = 'zstd')")
         evolve_iceberg_table_to_contract(spark, table, contract)
         dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
-        # Root ADR-0480 §1: a jibun the served edition holds under an earlier form of its code.
+        # Root ADR-0482 §1: a jibun the served edition holds under an earlier form of its code.
         remap, _ambiguous = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         for entry in objects:
