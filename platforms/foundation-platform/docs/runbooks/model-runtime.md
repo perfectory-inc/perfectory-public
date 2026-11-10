@@ -38,7 +38,7 @@ python3 platforms/intelligence-platform/jobs/model_runtime/eval_extraction.py \
   --sample <표본 디렉터리> --base-url http://127.0.0.1:<포트> --model <모델> --out report.json
 ```
 
-표본은 `<id>.txt`(쪽을 `\f` 로 이은 텍스트)와 `<id>.gold.json`(`{"facts": {...}}`)의 쌍이다. 기준은 계약의 `evaluation`.
+표본은 `<id>.txt`(쪽을 `\f` 로 이은 텍스트)와 `<id>.gold.json`(`{"facts": {...}}`)의 쌍이다. 질문의 조건은 계약의 `evaluation`, 통과 기준은 `document-extraction.contract.json` 의 `accuracy_gate`(ADR-0477).
 자동 점수가 틀렸다고 한 칸은 문서를 열어 손으로 확인한다: ILIS 의 단지 이름은 짧고 고시는 여러 블록을 함께 쓴다.
 
 ## 하드웨어 증설 첫날(Strata)
