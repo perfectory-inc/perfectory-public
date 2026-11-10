@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "jobs"))
 
 import onbid_public_auction_silver_to_gold as job  # noqa: E402
+import place_id_join  # noqa: E402
 
 DONG = "9999910100"
 
@@ -38,7 +39,8 @@ class InputsTest(unittest.TestCase):
         # required (the Silver load creates every Onbid table, empty or not).
         # Root ADR-0383: the code change table is read so every round follows a code change; it is
         # mapped to the rounds under the codes it reaches, not read whole.
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE, *job.DOCUMENT_SOURCES})
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.CODE_CHANGE_SOURCE, *job.DOCUMENT_SOURCES,
+                                         *place_id_join.INPUTS})
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
         self.assertEqual(set(whole), {job.ITEM_SOURCE, job.PHOTO_SOURCE, *job.DOCUMENT_SOURCES})
 
@@ -450,7 +452,7 @@ class BlocksSparkTest(unittest.TestCase):
         import json
         from platform_contracts import column_names, load_lakehouse_contract
 
-        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        columns = place_id_join.built(tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction"))))
         how = job.Placement("2099-01-02T00:00:00Z")
         [row] = job.gold_rows(job.placement(frames, how), how.as_of, "snap-p", columns, frames).collect()
         return json.loads(row.public_auction_json)
@@ -503,7 +505,7 @@ class BlocksSparkTest(unittest.TestCase):
         how = job.Placement("2099-01-02T00:00:00Z")
         from platform_contracts import column_names, load_lakehouse_contract
 
-        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        columns = place_id_join.built(tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction"))))
         gold = job.gold_rows(job.placement(old, how), how.as_of, "snap-p", columns, old)
         for source, row in ((document.BID_INFO_SOURCE, {"cltr_mng_no": "K", "pbct_tdps_cont": "changed",
                                                          "source_snapshot_id": "s2"}),
@@ -573,7 +575,7 @@ class IncrementalParitySparkTest(unittest.TestCase):
         parcels = self.spark.createDataFrame([(p,) for p in (a, b_old, b_new, c, s1, e, f, *quiet)], "pnu string")
         candidates = self.spark.createDataFrame([(s1, RETIRED, 1, "relot")],
                                                 "successor_pnu string, source_pnu string, hop int, path string")
-        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        columns = place_id_join.built(tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction"))))
         before = job.Placement("2099-01-02T00:00:00Z", candidates)
         after = job.Placement("2099-01-04T00:00:00Z", candidates)
         old = {job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, v1), job.PHOTO_SOURCE: photos, job.PARCEL_SOURCE: parcels}
@@ -618,7 +620,7 @@ class IncrementalParitySparkTest(unittest.TestCase):
         how = job.Placement("2099-01-02T00:00:00Z")
         from platform_contracts import column_names, load_lakehouse_contract
 
-        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        columns = place_id_join.built(tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction"))))
         old = {job.ITEM_SOURCE: self.table(job.ITEM_SOURCE, items), job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, []),
                job.PARCEL_SOURCE: parcels}
         new = {**old, job.PHOTO_SOURCE: self.table(job.PHOTO_SOURCE, [photo])}
@@ -657,7 +659,7 @@ class IncrementalParitySparkTest(unittest.TestCase):
         new = {**old, job.ITEM_SOURCE: place_identity_resolver.located(items, {old_code: DONG}, job.RAW_PNU),
                job.CODE_CHANGE_SOURCE: self.spark.createDataFrame([pair], changes_schema)}
         how = job.Placement("2099-01-04T00:00:00Z")
-        columns = tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction")))
+        columns = place_id_join.built(tuple(column_names(load_lakehouse_contract("gold.parcel_public_auction"))))
         gold_v1 = job.gold_rows(job.placement(old, how), how.as_of, "snap-p", columns).cache()
         self.assertEqual({r.pnu for r in gold_v1.collect()}, {kept}, "under the old code the round has no parcel")
         affected = job.affected_pnus(old, new, how, gold_v1, how.as_of, [job.CODE_CHANGE_SOURCE])

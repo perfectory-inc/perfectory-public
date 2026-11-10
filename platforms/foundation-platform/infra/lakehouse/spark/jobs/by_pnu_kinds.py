@@ -22,6 +22,8 @@ CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections
 RECORDS_PATH = Path(__file__).resolve().parents[4] / "contracts" / "by-pnu-documents"
 # The panel each host's kinds are sections of, and which the kinds follow while it is served.
 HOST_PANELS = {"parcel_by_pnu_gateway": "gold.parcel_panel", "building_by_pnu_gateway": "gold.building_panel"}
+# The join columns a parcel kind may carry, in their Gold order (lakehouse-domain by_pnu_kind.rs).
+PLACE_IDENTITY_COLUMNS = ("place_id", "main_lot_group_place_ids")
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,8 @@ class Kind:
     # The Spark job (a module under jobs/) that builds this kind from its own Silver, or None for a
     # section of the host panel (built by by_pnu_kind_silver_to_gold, root ADR-0193 §9).
     producer: str | None = None
+    # The join columns after `attached_via` (root ADR-0483, `place_id_join`): a parcel source's kind.
+    place_identity: tuple[str, ...] = ()
 
     @property
     def gold_table(self) -> str:
@@ -61,8 +65,15 @@ def kinds(path: Path = CONTRACT_PATH) -> dict[str, Kind]:
         producer = entry.get("producer")
         if producer is not None and not (isinstance(producer, str) and producer.isidentifier()):
             raise ValueError(f"by_pnu_lanes.{lane}.producer must name a Spark job module")
+        named = list(entry.get("place_identity") or ())
+        # In the Gold's order, whatever order the line names them in (as by_pnu_kind.rs adds them).
+        joins = tuple(c for c in PLACE_IDENTITY_COLUMNS if c in named)
+        if named and (entry["host"] != "parcel_by_pnu_gateway" or "place_id" not in named
+                      or len(joins) != len(named)):
+            raise ValueError(f"by_pnu_lanes.{lane}.place_identity must name place_id and only "
+                             f"{PLACE_IDENTITY_COLUMNS}, on a parcel kind")
         found[lane] = Kind(lane, entry["host"], entry["section"],
-                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]), producer)
+                           tuple(spec.split(":", 1)[0] for spec in entry["columns"]), producer, joins)
     return found
 
 

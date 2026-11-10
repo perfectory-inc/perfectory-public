@@ -19,12 +19,17 @@ change follow re-lands, is appended whole), so a run recomputes the PNUs whose r
 the pinned and the current edition (`changed_rows`, both directions: a factory that left the file
 loses its document) and of parcels that entered or left the served edition; a change of the code
 change table rebuilds whole (`WHOLE_TABLE_INPUTS`), as every own-producer parcel kind.
+
+Each row carries its parcel's stable `place_id` (`place_id_join`, root ADR-0483): a run recomputes the
+PNUs whose place id a release moved, too.
 """
 from __future__ import annotations
 
 import argparse
 import json
 from typing import Any
+
+import place_id_join
 
 JOB_NAME = "registered_factory_silver_to_gold"
 FACTORY_SOURCE = "silver.registered_factory"
@@ -48,7 +53,7 @@ WRITTEN = {"ignoreNullFields": "false"}
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
     """(required inputs, optional input -> flag without it, anchor input, whole-table inputs)."""
     del lane
-    return (PARCEL_SOURCE, FACTORY_SOURCE, CODE_CHANGE_SOURCE), {}, PARCEL_SOURCE, WHOLE_TABLE_INPUTS
+    return (PARCEL_SOURCE, FACTORY_SOURCE, CODE_CHANGE_SOURCE, *place_id_join.INPUTS), {}, PARCEL_SOURCE, WHOLE_TABLE_INPUTS
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -97,9 +102,10 @@ def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
     return {name: frame.join(keys, "pnu", "left_semi") for name, frame in frames.items()}
 
 
-def affected_pnus(changed: list[str], *, changed_rows: Any, parcel_change: Any) -> Any:
+def affected_pnus(changed: list[str], *, changed_rows: Any, parcel_change: Any, place_change: Any = None) -> Any:
     """As `land_ownership_silver_to_gold.affected_pnus`, for the one factory source. An editions table
-    is compared, never read as an append: a factory that left the newest edition must lose its row."""
+    is compared, never read as an append: a factory that left the newest edition must lose its row.
+    ``place_change``: the PNUs whose place id moved (`place_id_join.changed_pnus`), or None."""
     from functools import reduce  # noqa: PLC0415
 
     parts = []
@@ -107,6 +113,8 @@ def affected_pnus(changed: list[str], *, changed_rows: Any, parcel_change: Any) 
         parts.append(changed_rows())
     if PARCEL_SOURCE in changed:
         parts.append(parcel_change())
+    if place_change is not None:
+        parts.append(place_change)
     if not parts:
         raise ValueError(f"affected_pnus was asked about {changed} and none of them maps to PNUs")
     return reduce(lambda a, b: a.unionByName(b), [p.select("pnu") for p in parts]).distinct()
@@ -141,7 +149,8 @@ def read_inputs(spark: Any, args: argparse.Namespace, at: dict[str, str], counte
     rows = panel.renumbered(panel.read_source(spark, args, FACTORY_SOURCE, at), renumbering)
     parcels = panel.read_served_parcels(spark, args, at, region=False)
     return ({FACTORY_SOURCE: rows.select(*BUILD_COLUMNS[FACTORY_SOURCE]),
-             PARCEL_SOURCE: parcels.select(*BUILD_COLUMNS[PARCEL_SOURCE])}, changes)
+             PARCEL_SOURCE: parcels.select(*BUILD_COLUMNS[PARCEL_SOURCE]),
+             place_id_join.BRIDGE_SOURCE: place_id_join.read(spark, args, at)}, changes)
 
 
 def main(argv=None) -> int:
@@ -166,8 +175,10 @@ def main(argv=None) -> int:
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = tuple(column_names(contract))
-    if columns != ("pnu", *kind.columns, "attached_via", "row_digest", "source_snapshot_id", "published_at_utc"):
+    if columns != place_id_join.gold_columns(kind):
         raise ValueError(f"{kind.gold_table} columns {columns} are not the kind line's {kind.columns}")
+    content = place_id_join.gold_content(kind)
+    built = place_id_join.built(columns)
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
     assert_catalog_env(args.iceberg_catalog_name)
     spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
@@ -183,17 +194,22 @@ def main(argv=None) -> int:
                 older.update(read_inputs(spark, args, previous, {})[0])
             return older
 
+        place_change = place_id_join.lane_change(spark, args, previous or {}, pins, previous_frames, frames)
         lane = incremental.Lane(
-            build=lambda inputs: gold_rows(inputs, pins[PARCEL_SOURCE], args.published_at_utc, columns),
+            build=lambda inputs: place_id_join.with_place_ids(
+                gold_rows(inputs, pins[PARCEL_SOURCE], args.published_at_utc, built),
+                inputs[place_id_join.BRIDGE_SOURCE], content, columns),
             restrict=restrict_inputs,
-            affected=lambda changed, _appended: affected_pnus(
+            affected=lambda changed, appended: affected_pnus(
                 changed,
                 changed_rows=lambda: incremental.changed_rows(previous_frames()[FACTORY_SOURCE],
                                                               frames[FACTORY_SOURCE], ("pnu",)),
                 parcel_change=lambda: incremental.changed_rows(previous_frames()[PARCEL_SOURCE],
-                                                               frames[PARCEL_SOURCE], ("pnu",))),
-            validate=validate_gold, content_columns=("pnu", *kind.columns, "attached_via"), gold_columns=columns,
-            whole_table_inputs=whole)
+                                                               frames[PARCEL_SOURCE], ("pnu",)),
+                place_change=place_change(changed, appended)),
+            validate=validate_gold, content_columns=content, gold_columns=columns,
+            whole_table_inputs=whole,
+            append_inputs={place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
         # Root ADR-0272: the 등록공장 file is a register, so a 시도 that loses its documents refuses the build.
         coverage = section_coverage.guard_from_arguments(spark, args, table, {SECTION: kind.columns[0]}, changes,
                                                          shares=False)

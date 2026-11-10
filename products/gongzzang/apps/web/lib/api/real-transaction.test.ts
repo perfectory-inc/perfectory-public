@@ -4,6 +4,7 @@ import {
   fetchRealTransaction,
   formatManwon,
   industrialRegion,
+  isBelowBar,
   isInferred,
   isMainLotGroup,
   lotOfPnu,
@@ -155,6 +156,10 @@ describe("real transaction edge", () => {
     expect(isMainLotGroup("inferred_same_main_lot_group")).toBe(true);
     expect(isMainLotGroup("inferred_attributes")).toBe(false);
     expect(isInferred("inferred_same_main_lot_group")).toBe(true);
+    // Root ADR-0483 §4: the below-bar link is a 본번 group link the screen labels by its precision.
+    expect(isMainLotGroup("inferred_same_main_lot_group_below_bar")).toBe(true);
+    expect(isBelowBar("inferred_same_main_lot_group_below_bar")).toBe(true);
+    expect(isBelowBar("inferred_same_main_lot_group")).toBe(false);
     expect(lotOfPnu(neighbour)).toBe("5-1");
     expect(lotOfPnu("9999900000203000000")).toBe("산 300");
   });

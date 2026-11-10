@@ -498,6 +498,17 @@ pub const PACK_LANE_NON_CONTENT_COLUMNS: [&str; 4] = [
     "published_at_utc",
 ];
 
+/// The Gold join columns a kind may carry and its document does not (root ADR-0483): the parcel's
+/// stable place id and its 본번 group's, for the joins ADR-0288 §5 makes by place id. The lakehouse
+/// contract's `by_pnu_kind::PLACE_IDENTITY_COLUMNS` names the same.
+pub const PACK_LANE_JOIN_COLUMNS: [&str; 2] = ["place_id", "main_lot_group_place_ids"];
+
+/// Whether a Gold column is part of a pack lane's document.
+#[must_use]
+pub fn pack_lane_content_column(column: &str) -> bool {
+    !PACK_LANE_NON_CONTENT_COLUMNS.contains(&column) && !PACK_LANE_JOIN_COLUMNS.contains(&column)
+}
+
 /// Resolves one entry, refusing a name, a baseline, a Gold table or a document the pack-only
 /// machinery cannot serve.
 fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
@@ -537,7 +548,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
         .collect::<Vec<_>>();
     let content = columns
         .iter()
-        .filter(|column| !PACK_LANE_NON_CONTENT_COLUMNS.contains(column))
+        .filter(|column| pack_lane_content_column(column))
         .collect::<Vec<_>>();
     if !PACK_LANE_NON_CONTENT_COLUMNS
         .iter()
@@ -564,9 +575,7 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
                 .iter()
                 .map(|column| column.name)
                 .find(|column| *column == suffix.column)
-                .filter(|column| {
-                    !column.ends_with("_json") && !PACK_LANE_NON_CONTENT_COLUMNS.contains(column)
-                })
+                .filter(|column| !column.ends_with("_json") && pack_lane_content_column(column))
                 .ok_or_else(|| {
                     format!(
                         "by_pnu_lanes.{name}.document_key_suffix.column {:?} is no plain content \

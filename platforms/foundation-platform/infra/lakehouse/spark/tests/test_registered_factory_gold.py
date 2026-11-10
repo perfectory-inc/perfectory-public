@@ -33,7 +33,8 @@ GOLD_COLUMNS = ("pnu", "factories_json", "factory_total", "attached_via", "row_d
 class InputsTest(unittest.TestCase):
     def test_the_rebuild_reads_its_own_silver_and_no_lineage(self):
         required, optional, anchor, whole = job.lane_inputs(LANE)
-        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.FACTORY_SOURCE, job.CODE_CHANGE_SOURCE})
+        self.assertEqual(set(required), {job.PARCEL_SOURCE, job.FACTORY_SOURCE, job.CODE_CHANGE_SOURCE,
+                                         *job.place_id_join.INPUTS})
         self.assertEqual((optional, anchor, whole), ({}, job.PARCEL_SOURCE, (job.CODE_CHANGE_SOURCE,)))
 
     def test_the_kind_line_names_this_producer(self):
@@ -77,7 +78,9 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(run([job.PARCEL_SOURCE, job.FACTORY_SOURCE]), "changed+parcels")
         with self.assertRaises(ValueError):
             run([job.CODE_CHANGE_SOURCE])
-        self.assertNotIn("append_inputs", Path(job.__file__).read_text(encoding="utf-8"))
+        # The one append input is the place-id changelog (root ADR-0483), never the editions table.
+        self.assertIn("append_inputs={place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})",
+                      Path(job.__file__).read_text(encoding="utf-8"))
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")

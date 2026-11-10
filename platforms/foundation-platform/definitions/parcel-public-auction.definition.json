@@ -47,7 +47,9 @@
         "silver-onbid-announcement-detail-to-gold-parcel-public-auction",
         "silver-onbid-real-estate-item-detail-to-gold-parcel-public-auction",
         "silver-onbid-item-bid-info-to-gold-parcel-public-auction",
-        "reference-legal-dong-code-change-to-gold-parcel-public-auction"
+        "reference-legal-dong-code-change-to-gold-parcel-public-auction",
+        "gold-place-id-bridge-to-gold-parcel-public-auction",
+        "gold-place-id-changelog-to-gold-parcel-public-auction"
       ],
       "enabled": true,
       "enabled_since": "2026-10-20T16:12:59Z",
@@ -249,6 +251,28 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
       ],
       "description": "공매 회차의 PNU 를 짓기마다 정본 해석기의 쌍으로 현재 법정동 코드에 옮긴다. 이 표가 바뀌면 바뀐 코드(views.changed_codes) 아래 회차가 닿는 PNU 만 다시 만든다(루트 ADR-0383, ADR-0329 §3)."
+    },
+    {
+      "from": "gold-place-id-bridge",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
+      ],
+      "description": "행마다 그 필지의 안정 place_id 를 싣는다(루트 ADR-0483, ADR-0288 §5): 다리의 필지 단위 열린 기간(없으면 마지막 기간)의 id. 짓는 PNU 의 다리 행만 읽는다."
+    },
+    {
+      "from": "gold-place-id-changelog",
+      "to": "gold-parcel-public-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/onbid_public_auction_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
+      ],
+      "description": "발행이 덧붙인 변경 이력 행의 코드(옛·새)만 다시 계산한다(루트 ADR-0483): 이력은 append-only 라 고정한 스냅숏 뒤에 붙은 행만 읽는다."
     }
   ],
   "by_pnu_lanes": {
@@ -258,6 +282,9 @@
       "section": "public_auction",
       "columns": [
         "public_auction_json"
+      ],
+      "place_identity": [
+        "place_id"
       ],
       "producer": "onbid_public_auction_silver_to_gold",
       "decision": "docs/adr/0295-the-public-auction-kind-takes-its-official-english-name.md",

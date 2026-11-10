@@ -23,11 +23,16 @@ the rings of the cells it left or entered (`store_pnus`); a parcel that entered,
 boundary recomputes itself. A change of a facility file, whose nearest point any parcel may be, rebuilds
 whole and publishes only the documents whose digest changed (`WHOLE_TABLE_INPUTS`, root ADR-0321 §5):
 those files hold 14 to 12,004 rows and change a few times a year.
+
+Each row carries its parcel's stable `place_id` (`place_id_join`, root ADR-0483): a run also recomputes
+the parcels whose place id a release moved.
 """
 from __future__ import annotations
 
 import argparse
 import json
+
+import place_id_join
 from typing import Any
 
 JOB_NAME = "parcel_nearby_silver_to_gold"
@@ -69,7 +74,8 @@ WRITTEN = {"ignoreNullFields": "false"}
 def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[str, ...]]:
     """(required inputs, optional input -> flag without it, anchor input, whole-table inputs)."""
     del lane
-    return ((PARCEL_SOURCE, *POINTS, UNIVERSITY_SOURCE, STORE_SOURCE, HIGHWAY_SOURCE, CODE_CHANGE_SOURCE), {},
+    return ((PARCEL_SOURCE, *POINTS, UNIVERSITY_SOURCE, STORE_SOURCE, HIGHWAY_SOURCE, CODE_CHANGE_SOURCE,
+             *place_id_join.INPUTS), {},
             PARCEL_SOURCE, WHOLE_TABLE_INPUTS)
 
 
@@ -162,8 +168,9 @@ def gold_rows(frames: dict[str, Any], source_snapshot_id: str, published_at_utc:
 
 def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
     """The inputs the Gold rows of the PNUs `keys` are built from: their own parcels, and every
-    facility and store (any of them may be nearest, or in a parcel's rings)."""
-    return {name: frame.join(keys, "pnu", "left_semi") if name == PARCEL_SOURCE else frame
+    facility and store (any of them may be nearest, or in a parcel's rings), and their place ids."""
+    own = (PARCEL_SOURCE, place_id_join.BRIDGE_SOURCE)
+    return {name: frame.join(keys, "pnu", "left_semi") if name in own else frame
             for name, frame in frames.items()}
 
 
@@ -176,9 +183,10 @@ def store_pnus(changed_cells: Any, points: Any) -> Any:
     return points.join(touched, "cell", "left_semi").select("pnu").distinct()
 
 
-def affected_pnus(changed: list[str], *, parcel_change: Any, store_change: Any) -> Any:
+def affected_pnus(changed: list[str], *, parcel_change: Any, store_change: Any, place_change: Any = None) -> Any:
     """As `land_ownership_silver_to_gold.affected_pnus`: a changed parcel recomputes itself, a changed
-    store the parcels within its rings. Every other input rebuilds whole (WHOLE_TABLE_INPUTS)."""
+    store the parcels within its rings, a moved place id (``place_change``, `place_id_join.changed_pnus`)
+    its parcel. Every other input rebuilds whole (WHOLE_TABLE_INPUTS)."""
     from functools import reduce  # noqa: PLC0415
 
     parts = []
@@ -186,6 +194,8 @@ def affected_pnus(changed: list[str], *, parcel_change: Any, store_change: Any) 
         parts.append(parcel_change())
     if STORE_SOURCE in changed:
         parts.append(store_change())
+    if place_change is not None:
+        parts.append(place_change)
     if not parts:
         raise ValueError(f"affected_pnus was asked about {changed} and none of them maps to PNUs")
     return reduce(lambda a, b: a.unionByName(b), [p.select("pnu") for p in parts]).distinct()
@@ -243,6 +253,7 @@ def read_inputs(spark: Any, args: argparse.Namespace, at: dict[str, str], counte
     frames[HIGHWAY_SOURCE] = panel.renumbered(highway, renumbering).select(
         "row_key", F.substring("pnu", 1, 5).alias("sigungu"),
         *[files.field(header).alias(name) for name, header in HIGHWAY_FIELDS.items()])
+    frames[place_id_join.BRIDGE_SOURCE] = place_id_join.read(spark, args, at)
     return frames, changes
 
 
@@ -268,8 +279,10 @@ def main(argv=None) -> int:
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = tuple(column_names(contract))
-    if columns != ("pnu", *kind.columns, "attached_via", "row_digest", "source_snapshot_id", "published_at_utc"):
+    if columns != place_id_join.gold_columns(kind):
         raise ValueError(f"{kind.gold_table} columns {columns} are not the kind line's {kind.columns}")
+    content = place_id_join.gold_content(kind)
+    built = place_id_join.built(columns)
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
     assert_catalog_env(args.iceberg_catalog_name)
     builder = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
@@ -286,19 +299,24 @@ def main(argv=None) -> int:
                 older.update(read_inputs(spark, args, previous, {})[0])
             return older
 
+        place_change = place_id_join.lane_change(spark, args, previous or {}, pins, previous_frames, frames)
         lane = incremental.Lane(
-            build=lambda inputs: gold_rows(inputs, pins[PARCEL_SOURCE], args.published_at_utc, columns),
+            build=lambda inputs: place_id_join.with_place_ids(
+                gold_rows(inputs, pins[PARCEL_SOURCE], args.published_at_utc, built),
+                inputs[place_id_join.BRIDGE_SOURCE], content, columns),
             restrict=restrict_inputs,
-            affected=lambda changed, _appended: affected_pnus(
+            affected=lambda changed, appended: affected_pnus(
                 changed,
                 parcel_change=lambda: incremental.changed_rows(previous_frames()[PARCEL_SOURCE],
                                                                frames[PARCEL_SOURCE], ("pnu",)),
                 store_change=lambda: store_pnus(
                     incremental.changed_rows(store_cells(previous_frames()[STORE_SOURCE]),
                                              store_cells(frames[STORE_SOURCE]), ("cell",)),
-                    parcel_points(frames[PARCEL_SOURCE]))),
-            validate=validate_gold, content_columns=("pnu", *kind.columns, "attached_via"), gold_columns=columns,
-            whole_table_inputs=whole)
+                    parcel_points(frames[PARCEL_SOURCE])),
+                place_change=place_change(changed, appended)),
+            validate=validate_gold, content_columns=content, gold_columns=columns,
+            whole_table_inputs=whole,
+            append_inputs={place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
         # Root ADR-0272: every served parcel has the section, so a 시도 that loses documents refuses the build.
         coverage = section_coverage.guard_from_arguments(spark, args, table, {SECTION: kind.columns[0]}, changes,
                                                          shares=False)

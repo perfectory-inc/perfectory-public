@@ -39,6 +39,11 @@ def pnu_resolution_off_a_parcel_edge(graph: dict) -> None:
     next(e for e in graph["edges"] if e.get("relation") != "feeds")["pnu_resolution"] = "x"
 
 
+def drop_place_id_bridge_edge(graph: dict) -> None:
+    """A parcel source Gold stops reading the place-id bridge (root ADR-0483)."""
+    graph["edges"] = [e for e in graph["edges"] if e["id"] != "gold-place-id-bridge-to-gold-parcel-court-auction"]
+
+
 def main() -> None:
     baseline = load_json(ROOT / GRAPH)
     with tempfile.TemporaryDirectory(prefix="pipeline-graph-self-test-") as temporary:
@@ -72,6 +77,8 @@ def main() -> None:
             ("rust-resolved table loses its exemption", "skips the place-identity resolver", drop_pnu_resolution),
             ("empty pnu_resolution", "empty pnu_resolution", blank_pnu_resolution),
             ("pnu_resolution off a parcel edge", "non-parcel-source edge", pnu_resolution_off_a_parcel_edge),
+            ("parcel source Gold without the bridge", "does not read gold.place_id_bridge: gold.parcel_court_auction",
+             drop_place_id_bridge_edge),
             ("wrong source selector", "edge source selector", lambda g: next(e for e in g["edges"] if "source_slugs" in e).update(source_slugs=["nonexistent-source"])),
             ("(a) extra source group", "source groups", lambda g: next(n for n in g["nodes"] if n["type"] == "source_group").update(endpoint_catalog_group="nonexistent-group")),
             ("(a) duplicate source group", "source groups", lambda g: g["nodes"].append({**next(n for n in g["nodes"] if n["type"] == "source_group"), "id": "extra-group"})),
@@ -92,6 +99,14 @@ def main() -> None:
             write_json(root / GRAPH, graph)
             check(label, diagnostic)
         write_json(root / GRAPH, baseline)
+
+        # Root ADR-0483: a parcel source's Gold that loses its place_id column is refused.
+        contracts = load_json(root / CONTRACTS)
+        court = contracts["contracts"]["gold.parcel_court_auction"]
+        court["columns"] = [c for c in court["columns"] if c["name"] != "place_id"]
+        write_json(root / CONTRACTS, contracts)
+        check("parcel source Gold without place_id", "carries no place_id: gold.parcel_court_auction")
+        shutil.copyfile(ROOT / CONTRACTS, root / CONTRACTS)
 
         endpoints = load_json(root / ENDPOINTS)
         added = deepcopy(endpoints["endpoints"][0])

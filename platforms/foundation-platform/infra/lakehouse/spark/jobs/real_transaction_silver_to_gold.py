@@ -27,6 +27,9 @@ What a PNU's document holds (`real_transaction`, root ADR-0350 §2):
   the newest COMPARABLE_COUNT uncancelled 공장창고 deals of its current 법정동 contracted within
   COMPARABLE_MONTHS of the build month, masked lots included (that is what the list is for);
 - `region`: the 법정동's 공장창고 and 토지 deals of the last REGION_MONTHS: counts and the m² price quartiles;
+- the Gold row's join columns (`place_id_join`, root ADR-0483): the parcel's stable `place_id`, and
+  for a PNU that holds 본번 group deals, `main_lot_group_place_ids`: the group's parcels' place ids, the
+  group-level place id of a masked deal (root ADR-0405; not served, a join key);
 - `coverage`: the datasets whose history the Silver does not hold whole yet, each with the month the
   screen says `YYYY-MM 이후` from (`history_coverage`, root ADR-0479): the history fills newest first,
   and a dataset left out is whole.
@@ -36,7 +39,8 @@ inference candidate of a PNU lies in the PNU's own current 법정동 (or, throug
 predecessors'), so a run recomputes the PNUs of the 법정동s a change reaches (`affected_dongs`): the
 deals the load appended, both codes of every changed code pair (`views.changed_codes`, root ADR-0329
 §3), the codes whose names changed, the 법정동 of every changed parcel, 지목/면적, 건축물대장, 토지소유
-or lineage row, and the 법정동s whose window lost a month since the current Gold was built.
+or lineage row, the 법정동 of every PNU whose place id a release moved (`place_id_join.changed_pnus`),
+and the 법정동s whose window lost a month since the current Gold was built.
 """
 from __future__ import annotations
 
@@ -45,6 +49,8 @@ import json
 import os
 from datetime import date
 from typing import Any
+
+import place_id_join
 
 JOB_NAME = "real_transaction_silver_to_gold"
 RT_SOURCE = "silver.real_transaction"
@@ -110,7 +116,7 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     seam `gold_rebuild.producer_inputs` reads. No input rebuilds the kind whole: each maps to 법정동s."""
     del lane
     return ((PARCEL_SOURCE, RT_SOURCE, CODE_CHANGE_SOURCE, LEGAL_DONG_SOURCE, LAND_SOURCE, TITLE_SOURCE,
-             OWNERSHIP_SOURCE), {LINEAGE_SOURCE: "--no-carry-lineage"}, PARCEL_SOURCE, ())
+             OWNERSHIP_SOURCE, *place_id_join.INPUTS), {LINEAGE_SOURCE: "--no-carry-lineage"}, PARCEL_SOURCE, ())
 
 
 def declared_sources(carry_lineage: bool) -> tuple[str, ...]:
@@ -407,6 +413,15 @@ def gold_rows(frames: dict[str, Any], inference: dict[str, Any], as_of: date, so
         .withColumn("row_digest", F.sha2(F.to_json(F.struct(*content)), 256)).select(*columns))
 
 
+def with_place_ids(gold: Any, ids: Any, content: tuple[str, ...], columns: tuple[str, ...]) -> Any:
+    """`gold` with its parcels' place ids and, where its document names a 본번 group, the group's
+    (`place_id_join.with_place_ids`, root ADR-0483): the group is the document's `main_lot_group_pnus`."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    group = F.from_json(F.get_json_object("real_transaction_json", "$.main_lot_group_pnus"), "array<string>")
+    return place_id_join.with_place_ids(gold, ids, content, columns, group_pnus=group)
+
+
 def region_rows(deals: Any, as_of: date) -> Any:
     """The region statistics of `deals` (root ADR-0350 §4): per (dataset, 법정동 or 시군구, period) the
     deal count, the cancelled count and the m² price quartiles in 만원 of the uncancelled deals, by
@@ -512,7 +527,8 @@ def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
         sources = frames[LINEAGE_SOURCE].join(keys.withColumnRenamed("pnu", "successor_pnu"), "successor_pnu", "left_semi")
         dongs = dongs.unionByName(sources.select(F.substring("predecessor_pnu", 1, 10).alias("legal_dong")))
     dongs = dongs.distinct().cache()
-    out = {name: under(frames[name], "pnu", dongs) for name in PNU_INPUTS}
+    out = {name: under(frames[name], "pnu", dongs) for name in (*PNU_INPUTS, place_id_join.BRIDGE_SOURCE)
+           if name in frames}
     out[RT_SOURCE] = frames[RT_SOURCE].join(F.broadcast(dongs), "legal_dong", "left_semi")
     for name in (CODE_CHANGE_SOURCE, LEGAL_DONG_SOURCE, LINEAGE_SOURCE):
         if name in frames:
@@ -521,11 +537,13 @@ def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
 
 
 def affected_dongs(changed: list[str], appended: list[str], *, old: Any, new: dict[str, Any], appended_deals: Any,
-                   aged: list[tuple[date, date]]) -> tuple[Any | None, list[str]]:
+                   aged: list[tuple[date, date]], place_change: Any = None) -> tuple[Any | None, list[str]]:
     """(a frame of the `legal_dong`s a change reaches, the code prefixes a changed code pair reaches).
 
     `old` is a zero-argument callable returning the inputs at the previous pins; it is called only
-    when a difference is needed. `appended_deals` the deals the load appended, with their codes."""
+    when a difference is needed. `appended_deals` the deals the load appended, with their codes.
+    `place_change` the PNUs whose place id moved (`place_id_join.changed_pnus`), or None: a group's
+    place ids are its 법정동's, so the 법정동 is the unit of that change too."""
     from functools import reduce  # noqa: PLC0415
 
     from pyspark.sql import functions as F  # noqa: PLC0415
@@ -553,6 +571,8 @@ def affected_dongs(changed: list[str], appended: list[str], *, old: Any, new: di
     if LINEAGE_SOURCE in changed and LINEAGE_SOURCE in new:
         edges = incremental.changed_rows(old()[LINEAGE_SOURCE], new[LINEAGE_SOURCE], ("predecessor_pnu", "successor_pnu"))
         parts.extend(pick(edges, side) for side in ("predecessor_pnu", "successor_pnu"))
+    if place_change is not None:
+        parts.append(pick(place_change, "pnu"))
     for start, end in aged:
         parts.append(new[RT_SOURCE].where((F.col("deal_date") >= F.lit(start)) & (F.col("deal_date") < F.lit(end)))
                      .select("legal_dong"))
@@ -663,6 +683,8 @@ def read_inputs(spark: Any, args: argparse.Namespace, at: dict[str, str]) -> dic
     }
     if args.carry_lineage:
         frames[LINEAGE_SOURCE] = panel.read_source(spark, args, LINEAGE_SOURCE, at).select(*BUILD_COLUMNS[LINEAGE_SOURCE])
+    if place_id_join.BRIDGE_SOURCE in at:
+        frames[place_id_join.BRIDGE_SOURCE] = place_id_join.read(spark, args, at)
     return frames
 
 
@@ -699,8 +721,10 @@ def main(argv=None) -> int:
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
     columns = tuple(column_names(contract))
-    if columns != ("pnu", *kind.columns, "attached_via", "row_digest", "source_snapshot_id", "published_at_utc"):
+    if columns != place_id_join.gold_columns(kind):
         raise ValueError(f"{kind.gold_table} columns {columns} are not the kind line's {kind.columns}")
+    content = place_id_join.gold_content(kind)
+    built = place_id_join.built(columns)
     table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{kind.gold_table.split('.', 1)[1]}`"
     region_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{REGION_TABLE.split('.', 1)[1]}`"
     rt_table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{RT_SOURCE.split('.', 1)[1]}"
@@ -729,11 +753,13 @@ def main(argv=None) -> int:
             return with_codes(appended.select("address_raw"), code_frame(spark, rows))
 
         reached: dict[str, Any] = {}
+        place_change = place_id_join.lane_change(spark, args, previous or {}, pins, previous_frames, frames)
 
         def affected(changed: list[str], appended: list[str]) -> Any:
             dongs, prefixes = affected_dongs(changed, appended, old=previous_frames, new=frames,
                                              appended_deals=appended_deals,
-                                             aged=aged_out_months(previous_as_of(spark, table), as_of))
+                                             aged=aged_out_months(previous_as_of(spark, table), as_of),
+                                             place_change=place_change(changed, appended))
             # The same 법정동s bound the region statistics' rewrite, widened to their 시군구.
             reached["scope"] = region_scope(dongs, prefixes)
             return affected_pnus(dongs, prefixes, [frames[PARCEL_SOURCE], spark.table(table)])
@@ -745,11 +771,12 @@ def main(argv=None) -> int:
                                     frames[RT_SOURCE].select("dataset_slug", "deal_ym").distinct().collect()],
                                    source["datasets"], as_of, source["recent_history_months"])
         lane = incremental.Lane(
-            build=lambda inputs: gold_rows(inputs, inference, as_of, pins[PARCEL_SOURCE], args.published_at_utc, columns,
-                                           coverage=history),
+            build=lambda inputs: with_place_ids(
+                gold_rows(inputs, inference, as_of, pins[PARCEL_SOURCE], args.published_at_utc, built, coverage=history),
+                inputs[place_id_join.BRIDGE_SOURCE], content, columns),
             restrict=restrict_inputs, affected=affected, validate=validate_gold,
-            content_columns=("pnu", *kind.columns, "attached_via"), gold_columns=columns,
-            append_inputs={RT_SOURCE: rt_table})
+            content_columns=content, gold_columns=columns,
+            append_inputs={RT_SOURCE: rt_table, place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
         coverage = section_coverage.guard_from_arguments(spark, args, table, {SECTION: kind.columns[0]},
                                                          frames[CODE_CHANGE_SOURCE], shares=False)
         outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table, validate_gold,

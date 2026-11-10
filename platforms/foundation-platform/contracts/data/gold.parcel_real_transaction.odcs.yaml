@@ -37,6 +37,14 @@ schema:
         physicalType: "string"
         logicalType: "string"
         required: false
+      - name: "place_id"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
+      - name: "main_lot_group_place_ids"
+        physicalType: "string"
+        logicalType: "string"
+        required: false
       - name: "row_digest"
         physicalType: "string"
         logicalType: "string"
@@ -76,6 +84,8 @@ customProperties:
       - "pnu"
   - property: "upstreamDatasets"
     value:
+      - "gold.place_id_bridge"
+      - "gold.place_id_changelog"
       - "gold.real_transaction_region_stats"
       - "reference.legal_dong_code_change"
       - "reference.legal_dong_code_snapshot"
