@@ -23,8 +23,10 @@
     "max_window_days": 10
   },
   "answer": {
-    "$comment": "Guide §3.2. The body is a run of records, one per file: a 100-byte header, then the file (a zip) of the header's size. The header's fields are fixed-width ASCII at these byte offsets (start inclusive, end exclusive); the rest of the 100 bytes is padding. An answer without files is HTTP 200 with the response header err_code and an empty body.",
+    "$comment": "Guide §3.2 and the provider's own client (ADSClient-1.1.jar, kr.go.ads.client.ADSReceiver.makeReceiveData, read 2026-11-11). The body is a run of total_count records (the response header count_header). A record is a 100-byte header, then the file (a zip) of the header's size. The header's fields are fixed-width ASCII at these byte offsets (start inclusive, end exclusive); the rest of the 100 bytes is padding. A record whose file_name is blank holds no file: it is one day's own answer (its result_code, e.g. E1001 for a day without a file) and no bytes follow it, whatever its file_size says — the provider's client skips the body exactly so. The first run with the key (2026-11-10 21:14Z, windows from 2020-01-01) failed on all four codes on the first header, whose size read as a number and whose file_name was blank: such a record, read as a file (the raw answer was not kept; the next run keeps any it cannot read). A refused answer is HTTP 200 with the response header err_code and an empty body (measured 2026-11-10). An answer the collector cannot read is kept whole up to quarantine_bytes as a dead letter in the run directory before the run fails (W61).",
     "header_bytes": 100,
+    "count_header": "total_count",
+    "quarantine_bytes": 1048576,
     "fields": {
       "file_sequence": [0, 2],
       "base_date": [2, 10],
