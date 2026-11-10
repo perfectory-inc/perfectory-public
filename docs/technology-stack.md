@@ -2,7 +2,7 @@
 status: current
 owner: repository-maintainers
 doc_type: reference
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-11
 ---
 
 # perfectory 역할별 기술 스택·환경 기준표
@@ -49,6 +49,8 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | Spatial database | PostGIS on PostgreSQL — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Foundation/Gongzzang/tile proof Compose 통일 |
 | Static tile release toolchain | `martin-cp`, `mbtiles`, `pmtiles` | 버전·배포물·실행 파일·이미지 신원은 [`static-release-toolchain.contract.json`](../platforms/foundation-platform/config/static-release-toolchain.contract.json)만 소유 |
 | Cache | Valkey (Redis protocol) — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Gongzzang ADR 0007 및 모든 앱 Compose 통일 |
+| Edge 게이트웨이(데이터 전달) | Cloudflare Workers(module Worker, Wrangler) — 이름·호스트·캐시 헤더·CPU 한도는 [r2-connections.contract.json](../platforms/foundation-platform/config/r2-connections.contract.json) 만 소유 | 타일·by-PNU·프로필·지도 편집 Worker 가 비공개 R2 를 읽어 낸다. 모양과 결정은 [전달 계층](./architecture/edge-delivery.md). 실행 중 |
+| CDN 앞문 | Amazon CloudFront(별도 AWS 계정, OpenTofu `hashicorp/aws`) — 문·캐시 정책·예산은 [cdn-front-door.contract.json](../platforms/foundation-platform/config/cdn-front-door.contract.json) 만 소유 | 한국 방문자가 읽는 문(타일·카탈로그·미리보기)을 서울 엣지에서 받고 원점 Worker 의 `Cache-Control` 을 따른다. [전달 계층](./architecture/edge-delivery.md), 루트 ADR-0461·0470. 실행 중 |
 | Object storage | Cloudflare R2, S3 API | `aws-sdk-s3` adapter. 출시 전에는 private 설정으로 production R2 공유; 이후 dev R2 분리. MinIO 미채택 |
 | C2 broker | Redpanda — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Intelligence local/CI compose 전용 |
 | C2 schema registry | Karapace — 이미지 판은 [technology-versions.contract.json](../tools/technology-versions.contract.json) `container_images` 만 소유 | Intelligence local/CI compose 전용 |
@@ -123,6 +125,7 @@ es-toolkit의 `recommend`는 이 표가 노리는 행동 그 자체다 — 필�
 | Gold projection / Foundation | Spark `industrial_complex_silver_to_gold.py` | contract/fixture test | Spark + catalog credentials 필요 | Spark + catalog credentials 필요 | Spark Gold job은 있으나 dbt `models/gold/` 없음 |
 | Iceberg/Trino query / Foundation | Trino shell; R2 catalog 속성을 주입하면 실제 조회 | 자격증명 없는 shell 또는 보호된 R2 | R2 catalog + staging 자격증명 | R2 catalog + production 자격증명 | Compose만으로 backend 연결은 증명되지 않음 |
 | dbt models / Foundation | local Trino profile/template | 모델 계약 테스트 | dbt-trino target 필요 | dbt-trino target 필요 | 9개 모델, Gold tier 미구현 |
+| 데이터 전달(edge) / Foundation | `wrangler dev --local` + local R2(각 게이트웨이 `verify:local`) | workerd 시험·생성 구성 drift 검사(`config:check`), `tofu test` 모의 프로바이더 | 미리보기 Worker·레인(`*-preview`) | Cloudflare Worker custom domain, 문 셋은 서울 CloudFront 앞문 뒤 | 실행 중. 경로·압축·캐시 수명은 [전달 계층](./architecture/edge-delivery.md) |
 | Catalog publish / Foundation | 기준은 dev R2 + local Postgres지만 출시 전 private 설정은 production R2/catalog 공유 | logging/protected smoke | staging R2/Postgres | production R2/Postgres | code path 실행 중, production rollout gate 필요 |
 | normalization proposal / Intelligence | local PostgreSQL workflow + mock/provider gateway | mock or explicit protected LLM lane | LLM provider credentials 필요 | LLM provider/quotas/approval policy 필요 | proposal adapter/worker 존재, provider standard 미선정 |
 | normalization review/apply / Foundation | review/apply against local Postgres | fixture DB | staging approval gate | production approval gate | Foundation write authority; Intelligence write 권한 없음 |

@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-09-27
+last_reviewed: 2026-11-11
 ---
 
 # Foundation Tile Gateway
@@ -32,7 +32,8 @@ ADR-0111의 A1 범위이며, 전국 base release를 서빙한다. changed-tile p
   `Content-Type`은 계약의 `application/x-protobuf`다. Cloudflare는 압축 목록에 있는 유형만 방문자에게
   다시 인코딩하므로, 목록에 없는 `application/vnd.mapbox-vector-tile`이던 때에는 캐시 히트마다 gzip을 풀어
   1.8~2.4배 크기로 보냈다(2026-11-09 측정, `content_type_reason`).
-- 캐시: 불변 release이므로 계약의 1년 immutable 정책을 적용한다. 성공한 GET만 canonical URL에
+- 캐시: 불변 release이므로 계약의 1년 immutable 정책을 적용한다. 같은 주소의 답이 바뀌는 패치 타일은 계약
+  `patches.cache_control`(브라우저 1시간, 공유 캐시 `s-maxage` = 패치 매니페스트 초, 루트 ADR-0470)이다. 성공한 GET만 canonical URL에
   계약의 `cache_key_revision`(`?v=`)을 붙인 키로 `caches.default`에 저장한다. 저장되는 응답 헤더가 바뀌면
   revision을 올려 옛 항목을 다시 쓰지 않는다. 204 저장을 지원하지 않는 캐시 구현에서도 빈 타일을 재사용하도록
   내부에는 표식이 있는 빈 200을 저장하며, 클라이언트에는 표식을 제거하고 204로 복원한다.
@@ -70,8 +71,10 @@ test, build 검사를 실행한다. CI의 Node 검증 경로를 별도로 추가
 
 운영자가 CORS binding을 설정하고 release 객체 존재를 확인한 뒤, 이 서비스 디렉터리에서
 `pnpm run config:render`와 검증을 거쳐 `pnpm exec wrangler deploy`로 배포한다.
-생성 구성은 계약의 hostname과 alias를 custom domain으로 붙이고 `workers_dev: false`로
-닫는다. R2 bucket 이름은 `connections.tile_derivatives.expected_values`에서 읽는다.
+생성 구성은 계약의 alias와 서울 앞문(`config/cdn-front-door.contract.json` 의 `tiles` 문)의 원점 이름을 custom domain으로
+붙이고, 문이 `answered_by: cloudfront` 인 동안은 공개 hostname을 붙이지 않는다(그 이름은 CloudFront 배포를 가리키는
+DNS-only CNAME, 루트 ADR-0461). `workers_dev: false`로 닫는다. 전달 경로 전체는
+[전달 계층](../../../../docs/architecture/edge-delivery.md). R2 bucket 이름은 `connections.tile_derivatives.expected_values`에서 읽는다.
 `keep_vars: true`는 운영 CORS 값을 보존하며 저장소에 실제 허용 origin이나 자격증명을 넣지 않는다.
 
 배포와 Cloudflare/R2 계정 변경은 로컬 구현·검증에 포함하지 않는다.

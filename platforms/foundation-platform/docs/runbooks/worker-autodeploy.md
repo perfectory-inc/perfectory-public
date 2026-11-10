@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-29
+last_reviewed: 2026-11-11
 ---
 
 # Worker 자동 배포 — 토큰 한 번 두기·켜고 끄기·확인
@@ -12,6 +12,10 @@ last_reviewed: 2026-10-29
 어떤 Worker 를, 어떤 설정으로, 어떤 스모크로 배포하는지는
 [`config/worker-deploys.contract.json`](../../config/worker-deploys.contract.json) 한 곳에 있다. 목록에 없는 계정의
 스크립트는 건드리지 않는다.
+
+서울 앞문 뒤의 Worker(`config/cdn-front-door.contract.json` 의 문)는 배포 스모크·capabilities·카나리 읽기를 **원점 이름**으로
+한다 — CloudFront 가 버전 고정 헤더를 넘기지 않아 공개 이름으로는 캐시된 답을 받기 때문이다(루트 ADR-0461). 사용자 경험을 재는
+엣지 탐침(§4)은 공개 이름 그대로다. 전달 경로 전체는 [전달 계층](../../../../docs/architecture/edge-delivery.md).
 
 ## 1. 토큰 두기 (소유자, 한 번)
 

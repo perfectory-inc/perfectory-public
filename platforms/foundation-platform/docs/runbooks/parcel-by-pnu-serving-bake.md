@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-04
+last_reviewed: 2026-11-11
 ---
 
 # 필지 by-PNU R2 서빙 — 굽기·발행·검증 런북
@@ -141,14 +141,15 @@ npx wrangler deploy -c wrangler.parcel.jsonc --var "FOUNDATION_PLATFORM_CORS_ALL
 
 | 검사 | 기대 |
 |---|---|
-| `GET /parcels/by-pnu/{pnu}` | 200, 두 번째부터 `cf-cache-status: HIT` |
+| `GET /parcels/by-pnu/{pnu}` | 200, 두 번째부터 `X-Cache: Hit from cloudfront`(공개 이름은 서울 앞문 뒤, 루트 ADR-0461) |
 | 비정규 PNU·다른 경로 | 404 |
 | POST | 405 |
 | 미허용 Origin | 403 |
 | `If-None-Match` 재요청 | 304 |
 
 지연 실측(2026-09-09, 무료 플랜): PoP 가 LAX 로 잡혀 캐시 HIT TTFB ~0.47s(그중 TLS ~0.30s,
-연결 재사용 시 ~0.17s). 한국 PoP 라우팅은 유료 플랜 영역이다 — 코드 결함이 아니다.
+연결 재사용 시 ~0.17s). 원인은 Free 존의 주소 대역이었고, 2026-11-10 부터 공개 이름은 서울 CloudFront 앞문이 받는다
+(루트 ADR-0461·0470, [전달 계층](../../../../docs/architecture/edge-delivery.md)).
 
 ## 6. 값 대조 (postgres 와 전 필드)
 
