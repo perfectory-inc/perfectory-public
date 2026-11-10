@@ -932,7 +932,7 @@
       },
       "host": {
         "name": "ai-server",
-        "physical_memory": "62g",
+        "physical_memory": "125g",
         "host_reserved": "5g",
         "host_reserved_covers": "The OS, the Docker daemon and containerd, the publisher commands the default_pool jobs and the fold and lineage cycles run outside containers (the by-PNU bake, which holds gigabytes, is counted by its MemoryMax under scheduled_jobs instead), and the non-Docker AI services (Open WebUI, LiteLLM) at their measured size. Ollama is not covered: see uncapped.",
         "uncapped": [
@@ -1414,6 +1414,13 @@
             "memory_max": "5G",
             "measured_peak": "3175M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 7 runs, highest 2026-11-06 (foundation-zoning-tile-bake)"
+          },
+          "intelligence-model-runtime-strata.service": {
+            "class": "batch",
+            "memory_max": "44G",
+            "measured_peak": "20484M",
+            "measured": "the 2026-11-11 trial on the 62 GB host (root ADR-0478): 21,479,931,904 bytes under a 22G cgroup with the experts mapped from the SATA SSD, 2.8 GB of it anonymous; that run was bounded by its cap, so the peak here is the cap's, not the model's need",
+            "headroom_why": "Sized from Strata's own plan, not a run: Q2_0 needs 37.6 GB of RAM plus VRAM (docs/MODELS.md v0.2.13), about 30-34 GB in RAM beside an 8-16 GB card, plus the conversation cache and the prompt buffers; 44G holds that with the experts resident. Its first runs on the upgraded host log the real peak, and the cap is set from it then"
           },
           "intelligence-model-runtime-ollama.service": {
             "class": "batch",
