@@ -388,6 +388,11 @@ def page(spec, comparison, url=ALERTMANAGER_URL):
                                         f"{len(comparison.only_airflow)}: {differs[:3]})"},
              "startsAt": now.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
              "endsAt": (now + datetime.timedelta(hours=PAGE_HOLD_HOURS)).strftime("%Y-%m-%dT%H:%M:%S.000Z")}
+    return post_alert(alert, url)
+
+
+def post_alert(alert, url=ALERTMANAGER_URL):
+    """Posts one Alertmanager alert; True when it was taken. A check that pages says so in its metadata."""
     request = urllib.request.Request(f"{url}/api/v2/alerts", data=json.dumps([alert]).encode(), method="POST",
                                      headers={"Content-Type": "application/json"})
     try:

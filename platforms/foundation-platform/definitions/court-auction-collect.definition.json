@@ -206,5 +206,19 @@
       ],
       "description": "수집기가 매 실행 이 표의 마지막 읽음으로 물어볼 물건상세를 계산한다(진행 중 목록 행과 맞춰, 한 번도 읽지 않은 것 먼저, 재수집 규칙이 부르는 것을 매각기일 순으로; 루트 ADR-0352, ADR-0384)."
     }
+  ],
+  "asset_checks": [
+    {
+      "asset": "silver-court-auction-item",
+      "check": "parcel_source_resolution",
+      "blocking": false,
+      "reads": []
+    },
+    {
+      "asset": "silver-court-auction-sale-result",
+      "check": "parcel_source_resolution",
+      "blocking": false,
+      "reads": []
+    }
   ]
 }
