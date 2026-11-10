@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform shape ledger check: the committed production-shape ledgers still describe production (ADR-0259)
+Description=Foundation Platform shape ledger check: capture production's table shapes and publish them where CI reads them (ADR-0259, ADR-0476)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/shape-ledger-bucket.md
 X-Foundation-Owner=platform
 Requires=docker.service
@@ -13,8 +13,13 @@ User=foundation-platform
 Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=-/etc/foundation-platform/operations-map.env
-EnvironmentFile=-/etc/foundation-platform/shape-ledger.env
+# Root (+) and from the control checkout, like the edge settings: it reads the account token's file
+# itself and mints this run's 20-minute writer key, shape-ledger/ of the ledger bucket only, into the
+# RuntimeDirectory (root ADR-0476). The check never sees the token; it never fails the run.
+ExecStartPre=+/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/scripts/ops/shape-ledger-writer-key.py
 ExecStart=/opt/foundation-platform/current/scripts/ops/shape-ledger-check.py
+RuntimeDirectory=foundation-shape-ledger
+RuntimeDirectoryMode=0700
 StateDirectory=foundation-shape-ledger
 TimeoutStartSec=15m
 NoNewPrivileges=true

@@ -1,4 +1,4 @@
-"""The shape ledger check fails on every way production can leave a committed ledger (root ADR-0259)."""
+"""The shape ledger check captures production and publishes it where CI reads it (root ADR-0259, ADR-0476)."""
 
 import hashlib
 import importlib.util
@@ -7,7 +7,7 @@ import unittest.mock
 import json
 import pathlib
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("shape_ledger_check", PLATFORM / "scripts/ops/shape-ledger-check.py")
@@ -48,30 +48,55 @@ class Differences(unittest.TestCase):
 
 
 class WaitingThenFailed(unittest.TestCase):
-    """A stale ledger waits on its refresh pull request, and pages once it has waited 48 hours."""
+    """A run that cannot publish waits, and pages once nothing has been published for 48 hours."""
 
     NOW = check.datetime(2026, 10, 16, 12, 0, tzinfo=check.timezone.utc)
 
-    def test_within_48_hours_the_run_waits_and_names_the_pull_request(self):
-        first = self.NOW - check.timedelta(hours=47)
-        line, status = check.verdict(self.NOW, first, 2, "https://github.com/o/r/pull/9")
+    def test_within_48_hours_the_run_waits_and_says_why(self):
+        first = self.NOW - timedelta(hours=47)
+        line, status = check.verdict(self.NOW, first, "not published (connection reset)")
         self.assertEqual(status, 0)
-        self.assertTrue(line.startswith("foundation-job-outcome waiting shape ledgers stale for 2 tables"))
-        self.assertIn("pull/9", line)
+        self.assertTrue(line.startswith("foundation-job-outcome waiting shape ledgers unpublished since"))
+        self.assertIn("connection reset", line)
 
     def test_after_48_hours_the_run_fails(self):
-        line, status = check.verdict(self.NOW, self.NOW - check.timedelta(hours=48), 2, "pr")
+        line, status = check.verdict(self.NOW, self.NOW - timedelta(hours=48), "not published")
         self.assertEqual(status, 1)
         self.assertTrue(line.startswith("foundation-job-outcome failed"))
 
-    def test_first_seen_is_kept_across_runs_and_cleared_when_current(self):
+    def test_first_unpublished_is_kept_across_runs_and_cleared_by_a_publish(self):
         with tempfile.TemporaryDirectory() as state:
             with unittest.mock.patch.object(check, "STATE", pathlib.Path(state)):
-                first = check.first_seen_at(self.NOW, True)
-                later = check.first_seen_at(self.NOW + check.timedelta(hours=5), True)
+                first = check.first_unpublished_at(self.NOW, False)
+                later = check.first_unpublished_at(self.NOW + timedelta(hours=5), False)
                 self.assertEqual(first, later)
-                self.assertIsNone(check.first_seen_at(self.NOW, False))
-                self.assertFalse((pathlib.Path(state) / check.FIRST_SEEN).exists())
+                self.assertIsNone(check.first_unpublished_at(self.NOW, True))
+                self.assertFalse((pathlib.Path(state) / check.FIRST_UNPUBLISHED).exists())
+
+    def test_two_published_runs_48_hours_apart_both_pass_though_production_moved(self):
+        # W50, 2026-11-11: the committed ledger went stale and the check failed each day after 48 hours
+        # until someone copied the capture into a pull request. A published run waits on no copy.
+        with tempfile.TemporaryDirectory() as state:
+            with unittest.mock.patch.object(check, "STATE", pathlib.Path(state)):
+                first = check.outcome(self.NOW, True, True, "published", [])
+                second = check.outcome(self.NOW + timedelta(hours=48), True, True, "published", [])
+        self.assertEqual(first, ("foundation-job-outcome changed", 0))
+        self.assertEqual(second, ("foundation-job-outcome changed", 0))
+
+    def test_unpublished_for_48_hours_then_published_passes_again(self):
+        with tempfile.TemporaryDirectory() as state:
+            with unittest.mock.patch.object(check, "STATE", pathlib.Path(state)):
+                self.assertEqual(check.outcome(self.NOW, False, False, "not published", [])[1], 0)
+                self.assertEqual(check.outcome(self.NOW + timedelta(hours=48), False, False, "not published", [])[1], 1)
+                self.assertEqual(check.outcome(self.NOW + timedelta(hours=49), True, False, "published", []),
+                                 ("foundation-job-outcome unchanged", 0))
+
+    def test_a_layout_failure_fails_at_once_even_when_published(self):
+        with tempfile.TemporaryDirectory() as state:
+            with unittest.mock.patch.object(check, "STATE", pathlib.Path(state)):
+                line, status = check.outcome(self.NOW, True, False, "published", ["gold.t: misplaced"])
+        self.assertEqual(status, 1)
+        self.assertIn("1 tables are laid out", line)
 
 
 def key(region):
@@ -169,87 +194,124 @@ class Layout(unittest.TestCase):
         self.assertIn("element_at(lower_bounds, 7)", asked[0])
 
 
-class FakeGitHub:
-    """Answers the calls refresh_pull_request makes; a tree's sha is its content."""
-
-    def __init__(self, branch_tree=None, open_pr=False):
-        self.calls, self.branch_tree, self.open_pr = [], branch_tree, open_pr
-
-    def __call__(self, token, method, path, body=None):
-        self.calls.append((method, path.split("?")[0]))
-        if path.endswith("/git/ref/heads/main"):
-            return {"object": {"sha": "main"}}
-        if path.endswith(f"/git/ref/heads/{check.BRANCH}"):
-            return {"object": {"sha": "branch"}} if self.branch_tree else None
-        if "/git/commits/" in path:
-            return {"tree": {"sha": "base" if path.endswith("/main") else self.branch_tree}}
-        if path.endswith("/git/trees"):
-            return {"sha": json.dumps(body["tree"], sort_keys=True)}
-        if path.endswith("/git/commits"):
-            return {"sha": "new"}
-        if "/pulls" in path and method == "GET":
-            return [{"number": 7, "html_url": "https://github.com/o/r/pull/7"}] if self.open_pr else []
-        if path.endswith("/pulls"):
-            return {"html_url": "https://github.com/o/r/pull/8"}
-        return {}
-
-
-class TheRefreshPullRequest(unittest.TestCase):
-    FILES = {"platforms/foundation-platform/config/postgres-production-shape.json": "{}\n"}
-
-    def run_with(self, fake):
-        with unittest.mock.patch.object(check, "github", fake):
-            return check.refresh_pull_request("t", "o/r", self.FILES, ["postgres x: now holds rows"])
-
-    def test_a_first_stale_run_creates_the_branch_and_opens_the_pull_request(self):
-        fake = FakeGitHub()
-        self.assertEqual(self.run_with(fake), "https://github.com/o/r/pull/8")
-        self.assertIn(("POST", "/repos/o/r/git/refs"), fake.calls)
-        self.assertIn(("POST", "/repos/o/r/pulls"), fake.calls)
-
-    def test_the_same_capture_again_adds_no_commit_and_updates_the_open_pull_request(self):
-        tree = json.dumps([{"path": path, "mode": "100644", "type": "blob", "content": content}
-                           for path, content in self.FILES.items()], sort_keys=True)
-        fake = FakeGitHub(branch_tree=tree, open_pr=True)
-        self.assertEqual(self.run_with(fake), "https://github.com/o/r/pull/7")
-        self.assertNotIn(("POST", "/repos/o/r/git/commits"), fake.calls)
-        self.assertIn(("PATCH", "/repos/o/r/pulls/7"), fake.calls)
-
-    def test_a_new_capture_force_moves_the_one_branch(self):
-        fake = FakeGitHub(branch_tree="older", open_pr=True)
-        self.run_with(fake)
-        self.assertIn(("PATCH", f"/repos/o/r/git/refs/heads/{check.BRANCH}"), fake.calls)
-
-
 class Publish(unittest.TestCase):
-    """Root ADR-0279: the host puts its captures in the private ledger bucket; CI reads them there."""
+    """Root ADR-0476: each new shape once, the head every run, the history when the pair changed."""
 
-    KEY = dict(zip(check.PUBLISH_ENV, ("ledger-bucket", "account.example.invalid", "key-id", "key-secret")))
-    FILES = {"lakehouse-production-shape.json": "{}\n", "postgres-production-shape.json": "{}\n"}
+    KEY = {"endpoint": "https://account.example.invalid", "bucket": "ledger-bucket", "prefix": "shape-ledger/",
+           "access_key_id": "key-id", "secret_access_key": "key-secret", "session_token": "session"}
+    NOW = datetime(2026, 11, 11, 12, 30, tzinfo=timezone.utc)
 
-    def publish(self, environment, r2=None):
+    def files(self, captured="x"):
+        return {"lakehouse-production-shape.json": json.dumps({"captured_at": captured, "tables": {"t": {}}}),
+                "postgres-production-shape.json": json.dumps({"captured_at": captured, "tables_with_rows": []})}
+
+    def publish(self, files, previous=None, key=KEY, r2=None, now=NOW):
+        runtime = tempfile.TemporaryDirectory()
+        self.addCleanup(runtime.cleanup)
+        if key is not None:
+            (pathlib.Path(runtime.name) / check.WRITER_KEY).write_text(json.dumps(key), encoding="utf-8")
+        environment = {"RUNTIME_DIRECTORY": runtime.name}
         with unittest.mock.patch.dict(check.os.environ, environment, clear=True), \
                 unittest.mock.patch.object(check, "release_module", return_value=r2) as module:
-            return check.publish(self.FILES), module
+            return check.publish(files, now, previous), module
 
-    def test_without_the_key_nothing_is_sent_and_the_files_to_copy_are_named(self):
-        said, module = self.publish({})
+    def test_without_a_minted_key_nothing_is_sent(self):
+        (said, head, _), module = self.publish(self.files(), key=None)
         module.assert_not_called()
-        self.assertIn("no ledger bucket key", said)
+        self.assertIsNone(head)
+        self.assertIn("no writer key", said)
 
-    def test_each_capture_goes_under_the_prefix_by_its_ledger_file_name(self):
+    def test_shapes_go_by_their_hash_only_when_new_then_the_history_then_the_head(self):
         r2 = unittest.mock.Mock()
-        said, _ = self.publish(self.KEY, r2)
-        self.assertEqual([c.args[:3] for c in r2.put.call_args_list],
-                         [("https://account.example.invalid", "ledger-bucket", "shape-ledger/" + name)
-                          for name in self.FILES])
-        self.assertIn("published to ledger-bucket/shape-ledger/", said)
+        r2.put.return_value = True
+        (_, head, written), _ = self.publish(self.files(), r2=r2)
+        keys = [(c.args[2], c.kwargs["only_new"]) for c in r2.put.call_args_list]
+        digest = check.shape_digest(self.files()["lakehouse-production-shape.json"])
+        self.assertEqual(keys[0], (f"shape-ledger/objects/lakehouse-production-shape/{digest}.json", True))
+        self.assertEqual(keys[2], ("shape-ledger/history/2026-11-11T12:30:00Z.json", True))
+        self.assertEqual(keys[3], (check.HEAD, False))
+        self.assertTrue(all(c.kwargs["session_token"] == "session" for c in r2.put.call_args_list))
+        self.assertTrue(written)
+        self.assertEqual(head["checked_at"], "2026-11-11T12:30:00Z")
+        self.assertEqual(head["schema_version"], check.HEAD_SCHEMA)
 
-    def test_a_failed_upload_is_said_and_does_not_fail_the_run(self):
+    def test_the_same_shape_captured_48_hours_later_writes_only_the_head(self):
+        r2 = unittest.mock.Mock()
+        r2.put.return_value = True
+        (_, first, _), _ = self.publish(self.files(), r2=r2)
+        r2.reset_mock()
+        r2.put.return_value = False  # the object exists: If-None-Match refused it
+        (_, head, written), _ = self.publish(self.files("y"), previous=first, r2=r2, now=self.NOW + timedelta(hours=48))
+        self.assertEqual([c.args[2] for c in r2.put.call_args_list if not c.kwargs["only_new"]], [check.HEAD])
+        self.assertFalse(any("history" in c.args[2] for c in r2.put.call_args_list))
+        self.assertFalse(written)
+        self.assertEqual(head["ledgers"], first["ledgers"])
+        self.assertEqual(head["checked_at"], "2026-11-13T12:30:00Z")
+
+    def test_a_failed_upload_is_said_and_does_not_fail_the_run_by_itself(self):
         r2 = unittest.mock.Mock()
         r2.put.side_effect = OSError("connection reset")
-        said, _ = self.publish(self.KEY, r2)
+        (said, head, _), _ = self.publish(self.files(), r2=r2)
+        self.assertIsNone(head)
         self.assertIn("not published (connection reset)", said)
+
+    def test_the_shape_hash_ignores_the_capture_time_and_nothing_else(self):
+        one = json.dumps({"captured_at": "a", "tables": {"t": 1}})
+        self.assertEqual(check.shape_digest(one),
+                         check.shape_digest(json.dumps({"tables": {"t": 1}, "captured_at": "b"})))
+        self.assertNotEqual(check.shape_digest(one),
+                            check.shape_digest(json.dumps({"captured_at": "a", "tables": {"t": 2}})))
+
+
+writer_spec = importlib.util.spec_from_file_location("shape_ledger_writer_key",
+                                                     PLATFORM / "scripts/ops/shape-ledger-writer-key.py")
+writer = importlib.util.module_from_spec(writer_spec)
+writer_spec.loader.exec_module(writer)
+
+
+class WriterKey(unittest.TestCase):
+    """The unit's root ExecStartPre mints a 20-minute key for shape-ledger/ of the bucket only."""
+
+    def test_it_asks_for_object_read_write_on_the_prefix_for_twenty_minutes(self):
+        asked = []
+
+        def call(token, method, path, body=None):
+            asked.append((method, path, body))
+            if path == "/user/tokens/verify":
+                return 200, {"result": {"id": "token-id"}}
+            return 200, {"success": True, "result": {"accessKeyId": "a", "secretAccessKey": "s", "sessionToken": "t"}}
+
+        key = writer.mint("tok", "acct", "ledger-bucket", call)
+        body = asked[1][2]
+        self.assertEqual(asked[1][1], "/accounts/acct/r2/temp-access-credentials")
+        self.assertEqual((body["bucket"], body["parentAccessKeyId"], body["permission"], body["prefixes"]),
+                         ("ledger-bucket", "token-id", "object-read-write", ["shape-ledger/"]))
+        self.assertEqual(body["ttlSeconds"], 1200)
+        self.assertEqual(key["endpoint"], "https://acct.r2.cloudflarestorage.com")
+        self.assertTrue(check.OBJECTS.startswith(writer.PREFIX) and check.HEAD.startswith(writer.PREFIX))
+
+    def test_a_refusal_names_the_status_and_codes_never_a_value(self):
+        def call(token, method, path, body=None):
+            return (200, {"result": {"id": "token-id"}}) if "verify" in path else (403, {"errors": [{"code": 10000}]})
+
+        with self.assertRaisesRegex(RuntimeError, "HTTP 403, codes .10000."):
+            writer.mint("tok", "acct", "ledger-bucket", call)
+
+    def test_it_reads_the_token_from_the_cloudflare_deploy_group_and_the_bucket_from_the_contract(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertEqual(writer.account_token(PLATFORM, pathlib.Path(root)), ("", ""))
+            path = pathlib.Path(root) / "etc/foundation-platform/cloudflare-deploy.env"
+            path.parent.mkdir(parents=True)
+            path.write_text("CLOUDFLARE_ACCOUNT_ID=acct\nFOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN=tok\n", encoding="utf-8")
+            self.assertEqual(writer.account_token(PLATFORM, pathlib.Path(root)), ("tok", "acct"))
+        self.assertEqual(writer.bucket(), "foundation-platform-shape-ledger-prod")
+
+    def test_the_unit_mints_as_root_into_its_runtime_directory(self):
+        unit = (PLATFORM / "infra/systemd/foundation-shape-ledger-check.service").read_text(encoding="utf-8")
+        self.assertIn("ExecStartPre=+/usr/bin/python3 /opt/perfectory-control/current/platforms/foundation-platform/"
+                      "scripts/ops/shape-ledger-writer-key.py", unit)
+        self.assertIn("RuntimeDirectory=foundation-shape-ledger", unit)
+        self.assertNotIn("cloudflare-deploy.env", unit, "the check's own process never loads the account token")
 
 
 r2_spec = importlib.util.spec_from_file_location("r2_object", PLATFORM / "scripts/ops/r2_object.py")

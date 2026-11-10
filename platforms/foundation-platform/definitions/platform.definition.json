@@ -474,12 +474,11 @@
         "shape_ledger": {
           "required_env": [
             "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET",
-            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST",
-            "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_ACCESS_KEY_ID",
-            "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_SECRET_ACCESS_KEY"
+            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_PUBLIC_BASE_URL"
           ],
           "expected_values": {
-            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET": "foundation-platform-shape-ledger-prod"
+            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET": "foundation-platform-shape-ledger-prod",
+            "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_PUBLIC_BASE_URL": "https://shape-ledger.perfectory.io"
           }
         }
       },

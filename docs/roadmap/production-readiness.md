@@ -141,7 +141,6 @@ last_reviewed: 2026-11-07
 - [ ] 스냅숏 만료 #938 — 첫 예약 실행 전 `lakehouse-maintenance.sh --dry-run` 한 번.
 - [ ] 단가 vintage 2단계 실행 → 그 뒤 #919 병합.
 - [ ] `parcel_boundaries` rewrite-all 한 번, 약 ₩300(ADR-0316 §4).
-- [ ] shape-ledger R2 버킷·키(`platforms/foundation-platform/docs/runbooks/shape-ledger-bucket.md`).
 - [ ] #973 병합 뒤 토지소유 Gold 첫 재구축 시간 재기와 cutover(그 PR 본문의 운영자 명령).
 - [ ] RAON 레인 첫 감독 실행 — 큰 용도지역지구 3개·토지소유 도형 6개(ADR-0359 Consequences).
 - [ ] juso.go.kr 전자지도 이용 신청(ADR-0355 §3, 처리 10일).
@@ -186,7 +185,7 @@ last_reviewed: 2026-11-07
 | 9 | Silver | `silver_refresh_building_register_unit_areas` 실패 | `Error: the release has no source object`(11-07 07:00 첫 실패, 11-06 성공) | NEW — brief B4 |
 | 10 | 수집 | `court_auction_collect` 거부 | `courtauction.go.kr refused the run (ipcheck=false); stopped after 1528 requests`(11-06 17:31) | W8c |
 | 11 | 수집 | `legal_dong_code_changes` 11-04 10:01 이후 무성공 → `lineage_stewardship` 실패 | 파서 `row 1: 1 cells, expected 11`(code.go.kr 응답). 같은 날 다른 IP 에서는 53,403 코드가 보임. 계보는 `industrial-complex region codes did not follow` 로 실패, 지도가 경계 발행·공매 Gold·품질·유지보수·미디어 대조를 막힘으로 표시. 법정동 변경이 멈추면 ADR-0329 `views.changed_codes` 도 멈춘다 | NEW — brief B2 |
-| 12 | 운영 | `shape_ledger_check` 10-31 이후 매일 실패 | 원장 48 h+ 낡음(28 표), 호스트에 원장 버킷 열쇠 없음 | NEW — #1142 (열쇠는 §6 사장 할 일) |
+| 12 | 운영 | `shape_ledger_check` 10-31 이후 매일 실패 | 원장 48 h+ 낡음(28 표), 호스트에 원장 버킷 열쇠 없음 | W50 — ADR-0476: 호스트가 버킷을 코드로 만들고 실행마다 20분 열쇠로 올리며 CI 가 공개 주소에서 읽는다. 사장 할 일 없음 |
 | 13 | 운영 | 수집 경보 세 개가 울릴 수 없다 | foundation-api 쿼리가 없는 열 `bronze_object.payload_size_bytes`(실제 `size_bytes`)를 읽어 `foundation_platform_ingestion_run_*` 가 0 줄. 열만 고치면 24 h 규칙이 원천 약 85/105 개에 울린다 — 기대 주기가 105 개 중 11 개에만 있다. `catalog.lakehouse_batch_run` 도 규칙이 거르는 행 0 개 | NEW — brief B1 |
 | 14 | 호스트 | 실패 유닛 35 개 | 대부분 위 실패의 남은 상태, `foundation-by-pnu-public-auction-bake.service` 는 not-found | W21 |
 | 15 | 호스트 | 정상 | 메모리 가용 42.2/62.6 GiB, 스왑 3.0/4.0 GiB 사용, 부하 19; 디스크 `/` 33%·`/data` 54%; `MemoryMax` 90% 넘은 유닛 0 | — |

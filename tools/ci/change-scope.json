@@ -141,6 +141,8 @@
         "scripts/ci/foundation-spark-runtime-durations.json",
         "scripts/ci/foundation_postgres_production_shape.py",
         "scripts/ci/test_foundation_postgres_production_shape.py",
+        "scripts/ci/production-shape-fetch.py",
+        "scripts/ci/test_production_shape_fetch.py",
         "scripts/guard/foundation-kafka-contract.sh",
         "**/Cargo.lock",
         "**/pnpm-lock.yaml",

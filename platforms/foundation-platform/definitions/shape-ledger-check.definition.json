@@ -11,7 +11,7 @@
       "full_tracked_by": "justified permanently: a production shape is a whole-catalog fact, and metadata costs no row",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Capture the production lakehouse and Postgres shapes again, read-only, and fail when either differs from the ledger the release ships, the shape CI gates every pull request on (root ADR-0259). Runs after each deploy's migrate and daily after the loads.",
+      "description": "Capture the production lakehouse and Postgres shapes again, read-only, and publish them append-only to the shape ledger bucket, whose head CI reads to gate every pull request (root ADR-0259, ADR-0476); fails only when nothing has been published for 48 hours or a table is laid out against its cluster key. Runs after each deploy's migrate and daily after the loads.",
       "systemd_service": "foundation-shape-ledger-check.service",
       "systemd_timer": null,
       "state_paths": [],

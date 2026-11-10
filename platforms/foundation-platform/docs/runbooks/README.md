@@ -69,6 +69,6 @@ last_reviewed: 2026-07-29
 - [Canonical 릴리스 증명 — Silver·Gold·타일 manifest 계보 대조](./canonical-release-proof.md)
 - [저비용 운영 강화 — 부하 기준·백업·복구·알림](./foundation-platform-low-cost-production-hardening.md)
 - [SLO·알림 정책](./slo-alert-policy.md)
-- [모양 원장 버킷·준비된 PR 봇 설정](./shape-ledger-bucket.md)
+- [모양 원장 버킷 — 사람이 하는 일 없음](./shape-ledger-bucket.md)
 
 전체 목록은 [문서 색인 생성 안내](../../../../docs/README.md)에서 확인한다.

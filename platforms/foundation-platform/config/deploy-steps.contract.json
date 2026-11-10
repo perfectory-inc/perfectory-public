@@ -63,7 +63,8 @@
       "inputs": ["scripts/ops/data-quality-check.py", "infra/systemd/foundation-data-quality.service", "contracts/data"]
     },
     "start-once.shape_ledger_check": {
-      "inputs": ["scripts/ops/shape-ledger-check.py", "infra/systemd/foundation-shape-ledger-check.service",
+      "inputs": ["scripts/ops/shape-ledger-check.py", "scripts/ops/shape-ledger-writer-key.py", "scripts/ops/r2_object.py",
+                 "infra/systemd/foundation-shape-ledger-check.service",
                  "infra/lakehouse/contracts", "config/postgres-production-shape.json", "migrations"]
     },
     "start-once.parcel_edition_readiness": {

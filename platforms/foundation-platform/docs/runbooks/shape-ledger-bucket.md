@@ -2,85 +2,53 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-11
 ---
 
-# 모양 원장 버킷과 준비된 PR 봇 — 사장님이 한 번 하는 일
+# 모양 원장 버킷 — 사람이 하는 일은 없다
 
-[ADR-0279](../../../../docs/adr/0279-a-stale-shape-ledger-arrives-as-a-prepared-pull-request-from-ci.md) 의 자리입니다.
-서버가 매일 찍는 운영 표 모양 원장을 비공개 버킷에 올리고, 비공개 저장소 perfectory-ops 의 예약 작업이 읽어 비교하고
-갱신 PR 을 준비합니다. **비밀값(액세스 키·시크릿·App 키)은 사장님만 보고 아래 정한 자리에만 넣습니다.** 에이전트와
-코디네이터에게는 "만들었다"와 이름만 알려 주세요.
-
-하지 않아도 아무것도 깨지지 않습니다. 서버는 "올리지 못함, 손으로 복사"를, 예약 작업은 "비밀 없음, 건너뜀"을 말할
-뿐입니다.
+[루트 ADR-0476](../../../../docs/adr/0476-production-shape-ledgers-are-published-by-the-host-and-ci-reads-them-with-no-copy.md).
+운영 표 모양 원장(Iceberg 표의 열·행 유무, Postgres 의 행 있는 표)은 호스트가 찍어 R2 에 쌓고, CI 는 그것을 공개 읽기 주소에서
+받아 PR 을 판정한다. 원장을 PR 로 복사하는 단계도, GitHub 토큰도, App 도, 소유자 단계도 없다.
 
 ## 결론
 
-| 무엇 | 이름 | 넣는 곳 |
+| 무엇 | 어디 | 누가 만드나 |
 | --- | --- | --- |
-| 버킷 | `foundation-platform-shape-ledger-prod` (Public access 끔, 잠금 규칙 없음: 매일 같은 두 파일을 덮어씁니다) | Cloudflare R2 |
-| 서버 쓰기 열쇠 | `foundation-platform-shape-ledger-writer-prod` (Object Read & Write, 이 버킷만) | 서버 파일 `/etc/foundation-platform/shape-ledger.env` |
-| 비교 읽기 열쇠 | `foundation-platform-shape-ledger-reader-prod` (Object Read only, 이 버킷만) | perfectory-ops 의 보호 환경 `shape-ledger` |
-| 준비된 PR 봇 | GitHub App (아래 4) | 같은 환경 |
+| 버킷 `foundation-platform-shape-ledger-prod` | Cloudflare R2 | `foundation-edge-settings.service` 가 `infra/shape-ledger/main.tf` 를 적용 |
+| 공개 읽기 주소 `https://shape-ledger.perfectory.io` | 그 버킷의 사용자 도메인 | 같은 적용 |
+| 잠금 규칙(`shape-ledger/objects/`·`shape-ledger/history/` 무기한) | 그 버킷 | 같은 적용 |
+| 쓰기 열쇠 | 점검 유닛의 RuntimeDirectory `writer.json`, 실행마다 20분 | 유닛의 root `ExecStartPre` 가 계정 토큰으로 발급(`scripts/ops/shape-ledger-writer-key.py`) |
+| 읽기 열쇠 | 없다(공개 읽기). 원장 내용은 이 공개 저장소에 이미 있던 것이다 | — |
 
-## 1. 버킷
+## 버킷 안
 
-Cloudflare → R2 object storage → Create bucket → 이름 `foundation-platform-shape-ledger-prod`. Settings 의
-**Public access 는 꺼 둡니다**(r2.dev·사용자 도메인 연결하지 않음). 잠금 규칙은 걸지 않습니다.
+- `shape-ledger/objects/<원장 이름>/<모양 SHA-256>.json` — 모양마다 한 번만 쓴다(`If-None-Match: *`). 같은 모양을 다시 찍으면 아무것도
+  쓰지 않는다. 지우거나 덮을 수 없다(잠금 규칙).
+- `shape-ledger/latest.json` — 유일하게 바뀌는 머리. 지금의 두 원장 객체와 `checked_at`(운영이 마지막으로 확인해 준 때).
+- `shape-ledger/history/<시각>.json` — 머리가 가리키는 쌍이 바뀐 때의 머리 사본. 지우거나 덮을 수 없다.
 
-## 2. 열쇠 둘
+## 무엇이 언제 도나
 
-R2 object storage → API Tokens → **Create Account API token** 을 두 번:
+- 점검(`foundation-shape-ledger-check.service`)은 배포 뒤 한 번과 매일 12:30 UTC. 로그의
+  `captures published to foundation-platform-shape-ledger-prod/shape-ledger/latest.json` 이 성공이다.
+- CI(`foundation-ci.yml` 의 세 작업)는 `scripts/ci/production-shape-fetch.py` 로 머리와 두 객체를 받아 모양 해시를 확인하고 작업 트리의 원장
+  자리에 놓은 뒤 판정한다. 실행 요약에 머리의 `checked_at` 과 해시가 남는다.
+- 운영이 바뀌면(새 표, 열 추가, 행이 생김) 다음 점검이 새 객체와 머리를 쓰고, 그 뒤의 모든 CI 가 바뀐 운영으로 판정한다.
 
-| 이름 | Permissions | 버킷 범위 |
-| --- | --- | --- |
-| `foundation-platform-shape-ledger-writer-prod` | Object Read and Write | Apply to specific buckets only → 위 버킷 하나 |
-| `foundation-platform-shape-ledger-reader-prod` | Object Read | 같음 |
+## 실패와 경보
 
-각 토큰의 액세스 키 ID 와 시크릿은 만들 때 한 번만 보입니다.
+- `foundation-job-outcome waiting shape ledgers unpublished since …`: 이번 실행이 올리지 못했다(이유가 같은 줄에). 48시간 안이면
+  기다린다.
+- 48시간 넘게 한 번도 못 올렸으면 `failed … over 48h` 로 실패하고 경보가 간다. 그동안 CI 는 마지막으로 올라간 머리로 판정하며, 그
+  머리의 `checked_at` 이 72시간보다 오래면 CI 요약에 경고가 찍힌다.
+- 흔한 원인: `ExecStartPre` 줄이 `no key minted: …`(토큰 파일 없음·버킷 아직 없음·R2 거절). 버킷이 없으면 엣지 적용 로그
+  `journalctl -u foundation-edge-settings.service` 의 `shape ledger` 줄을 본다.
+- 표 배치 실패(`LAYOUT …`)는 원장과 무관하게 바로 실패다(루트 ADR-0314).
 
-## 3. 비교 읽기 열쇠 → perfectory-ops 보호 환경
+## 확인 (읽기만)
 
-perfectory-ops 저장소 Settings → Environments → New environment `shape-ledger` → Deployment branches 를 **main 만**.
-Environment secrets 에 셋:
-
-- `FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_ACCESS_KEY_ID`, `FOUNDATION_PLATFORM_SHAPE_LEDGER_READER_SECRET_ACCESS_KEY`
-  (비교 읽기 열쇠)
-- `FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST`: `<계정 ID>.r2.cloudflarestorage.com`
-
-공개 저장소(perfectory-public)에는 아무것도 넣지 않습니다. 공개 워크플로우는 비밀을 쓰지 않습니다(공개 저장소 안전 가드).
-
-## 4. 준비된 PR 봇 (GitHub App)
-
-갱신 PR 을 공개 저장소에 여는 데 씁니다. App 이 연 PR 은 필수 검사를 띄웁니다(`GITHUB_TOKEN` 이 연 PR 은 띄우지 않음,
-ADR-0158 평가 B). 권한은 ADR-0158 평가 C 그대로이며 npm 권고 PR 도 함께 씁니다.
-
-1. Organization settings → Developer settings → GitHub Apps → New GitHub App. 이름 예: `perfectory-prepared-pr`.
-   Webhook 끔. Repository permissions 는 Contents **Read and write**, Pull requests **Read and write**, Metadata Read-only
-   만. "Only on this account".
-2. Install App → Only select repositories → **perfectory-public 하나**.
-3. perfectory-ops 의 `shape-ledger` 환경 비밀에 `PREPARED_PR_APP_ID`, `PREPARED_PR_APP_PRIVATE_KEY`.
-
-## 5. 서버 쓰기 열쇠 → 서버 파일
-
-서버에 접속해 서버 셸에서:
-
-```text
-sudo install -m 0640 -o root -g foundation-platform /dev/null /etc/foundation-platform/shape-ledger.env
-sudo nano /etc/foundation-platform/shape-ledger.env
+```bash
+journalctl -u foundation-shape-ledger-check.service --since -2d --no-pager | grep -E 'captures|outcome|minted'
+curl -s https://shape-ledger.perfectory.io/shape-ledger/latest.json
 ```
-
-네 줄을 적고 저장합니다(값은 2 에서 받은 것):
-
-```text
-FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET=foundation-platform-shape-ledger-prod
-FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST=<계정 ID>.r2.cloudflarestorage.com
-FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_ACCESS_KEY_ID=<서버 쓰기 열쇠의 액세스 키 ID>
-FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_SECRET_ACCESS_KEY=<서버 쓰기 열쇠의 시크릿>
-```
-
-## 6. 알려 주실 것
-
-"버킷·열쇠 2개·perfectory-ops 환경·App·서버 파일 완료". 값은 알려 주지 않습니다. 다음 원장 점검(매일 12:30 UTC, 배포 뒤
-마다)의 로그에 `captures published to foundation-platform-shape-ledger-prod/shape-ledger/` 가 찍히면 끝입니다.

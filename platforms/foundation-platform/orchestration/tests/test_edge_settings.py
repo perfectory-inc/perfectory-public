@@ -3,8 +3,9 @@ ADR-0436).
 
 A fixture host holds a control checkout (the real contracts and module inputs), the release it runs
 and the token's file. Stand-ins answer for the rest: the staff list, the Cloudflare API, OpenTofu,
-the runtime-secrets writer (a plain file here) and the console start. The front door (infra/cdn,
-root ADR-0461) applies after the console under its own records once the aws-cdn group holds a key.
+the runtime-secrets writer (a plain file here) and the console start. The shape ledger's bucket
+(infra/shape-ledger, root ADR-0476) applies after the console under its own records, and the front
+door (infra/cdn, root ADR-0461) after it once the aws-cdn group holds a key.
 """
 
 import contextlib
@@ -36,7 +37,7 @@ class EdgeSettingsTest(unittest.TestCase):
         self.root = pathlib.Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
         self.tree = self.root / "control"
-        for relative in (*edge.INPUTS, *edge.TOOL_FILES, *edge.FRONT_DOOR_INPUTS,
+        for relative in (*edge.INPUTS, *edge.TOOL_FILES, *edge.FRONT_DOOR_INPUTS, *edge.SHAPE_LEDGER_INPUTS,
                          f"{edge.PLATFORM}/config/r2-connections.contract.json",
                          f"{edge.PLATFORM}/config/runtime-secrets.contract.json",
                          f"{edge.PLATFORM}/config/worker-deploys.contract.json",
@@ -65,6 +66,8 @@ class EdgeSettingsTest(unittest.TestCase):
         self.console_starts = 0
         self.front_calls = []
         self.front_fails = False
+        self.ledger_calls = []
+        self.ledger_fails = False
 
     # --- stand-ins ------------------------------------------------------------------------------
 
@@ -83,6 +86,12 @@ class EdgeSettingsTest(unittest.TestCase):
     def tofu(self, host, tree, env, *args, module=edge.MODULE, work="work"):
         self.assertNotIn("token-value", " ".join(args), "a value never reaches a command line")
         self.assertNotIn("aws-secret", " ".join(args), "a value never reaches a command line")
+        if module == edge.SHAPE_LEDGER_MODULE:
+            self.assertEqual(work, "work-shape-ledger")
+            self.ledger_calls.append((args[0], env))
+            if self.ledger_fails and args[0] == "apply":
+                raise RuntimeError("shape ledger apply failed")
+            return ""
         if module == edge.FRONT_DOOR_MODULE:
             self.assertEqual(work, "work-cdn")
             self.front_calls.append((args[0], env))
@@ -222,6 +231,29 @@ class EdgeSettingsTest(unittest.TestCase):
         self.assertEqual(self.applies(), ["apply"])
         self.assertTrue((self.host.state / "applied.json").exists())
         self.assertTrue((self.host.state / "cdn/failed.json").exists())
+
+    def test_the_shape_ledger_bucket_applies_with_the_account_token_and_the_contract_values(self):
+        status, out = self.run_edge()
+        self.assertEqual(status, 0, out)
+        self.assertEqual([call for call, _ in self.ledger_calls], ["init", "apply"])
+        env = self.ledger_calls[1][1]
+        r2 = json.loads((self.tree / edge.PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+        expected = r2["connections"]["shape_ledger"]["expected_values"]
+        self.assertEqual(env["TF_VAR_bucket"], expected["FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET"])
+        self.assertEqual(env["TF_VAR_public_base_url"], expected["FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_PUBLIC_BASE_URL"])
+        self.assertEqual(env["CLOUDFLARE_API_TOKEN"], "token-value")
+        self.assertIn("(shape ledger)", out)
+        self.ledger_calls.clear()
+        self.run_edge()
+        self.assertEqual(self.ledger_calls, [], "nothing changed, nothing runs")
+
+    def test_a_failed_shape_ledger_apply_reports_and_does_not_hold_the_console_back(self):
+        self.ledger_fails = True
+        status, out = self.run_edge()
+        self.assertEqual(status, 1)
+        self.assertEqual(self.applies(), ["apply"])
+        self.assertEqual(self.console_starts, 1)
+        self.assertIn("shape ledger apply failed", out)
 
 
 if __name__ == "__main__":

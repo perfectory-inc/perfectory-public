@@ -18,6 +18,9 @@ Worker deploy, on every tick that finds the host on main's head. Each run:
   the SHA-256 of its value), so no second credential exists;
 - writes the tunnel token OpenTofu read back into the runtime-secrets group console-tunnel, and starts
   the console (foundation-release.sh console) when that token changed. Nobody copies it;
+- then applies the production shape ledger's bucket, infra/shape-ledger (root ADR-0476), the same way
+  under its own records: the bucket, its lock rules and its public read domain, with the account token
+  alone, the bucket and domain read from the R2 connection contract;
 - then applies the Seoul front door, infra/cdn (root ADR-0461), the same way under its own records,
   once the runtime-secrets group aws-cdn holds the separate AWS account's apply key: CloudFront, its
   certificates and the budget with that key, the zone's records with the account token, the state in
@@ -60,6 +63,9 @@ FRONT_DOOR_MODULE = "infra/cdn"
 FRONT_DOOR_CONTRACT = f"{PLATFORM}/config/cdn-front-door.contract.json"
 FRONT_DOOR_INPUTS = (f"{PLATFORM}/{FRONT_DOOR_MODULE}", FRONT_DOOR_CONTRACT)
 FRONT_DOOR_STATE_KEY = "cdn/terraform.tfstate"
+SHAPE_LEDGER_MODULE = "infra/shape-ledger"
+SHAPE_LEDGER_INPUTS = (f"{PLATFORM}/{SHAPE_LEDGER_MODULE}",)
+SHAPE_LEDGER_STATE_KEY = "shape-ledger/terraform.tfstate"
 FRONT_DOOR_GROUP = "aws-cdn"
 FRONT_DOOR_KEY_NAMES = ("FOUNDATION_PLATFORM_AWS_CDN_ACCESS_KEY_ID", "FOUNDATION_PLATFORM_AWS_CDN_SECRET_ACCESS_KEY")
 TOKEN_NAME = "FOUNDATION_PLATFORM_WORKERS_WRITER_TOKEN"
@@ -238,17 +244,23 @@ def run_locked(host: Host, tree: pathlib.Path, commit: str) -> int:
     console = converge(host.state, digest, tool, commit, bool(values_in(tunnel_file).get("TUNNEL_TOKEN")),
                        lambda: apply(host, tree, token, account, emails, tunnel_file),
                        f"{len(emails)} staff on the allowlist")
-    # The front door is its own apply: a console failure does not hold it back, nor the reverse.
+    # The ledger bucket and the front door are each their own apply: a console failure holds neither
+    # back, nor the reverse.
+    ledger_values = shape_ledger_values(tree)
+    digest = hashlib.sha256("\0".join([fingerprint(tree, SHAPE_LEDGER_INPUTS), json.dumps(ledger_values, sort_keys=True),
+                                       account]).encode()).hexdigest()
+    ledger = converge(host.state / "shape-ledger", digest, tool, commit, True,
+                      lambda: apply_shape_ledger(host, tree, token, account, ledger_values), "shape ledger")
     keys = values_in(on_host(host, group_path(tree, FRONT_DOOR_GROUP)))
     if not all(keys.get(name) for name in FRONT_DOOR_KEY_NAMES):
         log(f"front door off: {group_path(tree, FRONT_DOOR_GROUP)} holds no AWS apply key (root ADR-0461)")
-        return console
+        return max(console, ledger)
     digest = hashlib.sha256("\0".join([
         fingerprint(tree, FRONT_DOOR_INPUTS), json.dumps(front_door_hostnames(tree), sort_keys=True), account,
         hashlib.sha256(keys[FRONT_DOOR_KEY_NAMES[0]].encode()).hexdigest(), *emails]).encode()).hexdigest()
     front = converge(host.state / "cdn", digest, tool, commit, True,
                      lambda: apply_front_door(host, tree, token, account, emails, keys), "front door")
-    return max(console, front)
+    return max(console, ledger, front)
 
 
 def converge(records: pathlib.Path, digest: str, tool: str, commit: str, fresh: bool, apply_inputs,
@@ -348,6 +360,28 @@ def apply(host: Host, tree: pathlib.Path, token: str, account: str, emails: list
     log(f"wrote the tunnel token into {tunnel_file}")
     console = host.control_root / PLATFORM / "scripts/deploy/foundation-release.sh"
     subprocess.run(["/bin/bash", str(console), "console"], check=False)
+
+
+def shape_ledger_values(tree: pathlib.Path) -> dict[str, str]:
+    """The ledger bucket and its public read origin, from the R2 connection contract (root ADR-0476):
+    of that generated, often changing file only these are the module's input."""
+
+    r2 = json.loads((tree / PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
+    values = r2["connections"]["shape_ledger"]["expected_values"]
+    return {"bucket": values["FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET"],
+            "public_base_url": values["FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_PUBLIC_BASE_URL"]}
+
+
+def apply_shape_ledger(host: Host, tree: pathlib.Path, token: str, account: str, values: dict[str, str]) -> None:
+    """Plans and applies infra/shape-ledger with the account token: the bucket, its lock rules, its
+    public read domain."""
+
+    key_id, key_secret, passphrase = account_state(host, tree, token, account)
+    env = {"CLOUDFLARE_API_TOKEN": token, "AWS_ACCESS_KEY_ID": key_id, "AWS_SECRET_ACCESS_KEY": key_secret,
+           "TF_VAR_account_id": account, "TF_VAR_bucket": values["bucket"],
+           "TF_VAR_public_base_url": values["public_base_url"], "TF_VAR_state_passphrase": passphrase}
+    init(host, tree, env, account, SHAPE_LEDGER_STATE_KEY, SHAPE_LEDGER_MODULE, "work-shape-ledger")
+    tofu(host, tree, env, "apply", "-no-color", "-auto-approve", module=SHAPE_LEDGER_MODULE, work="work-shape-ledger")
 
 
 def front_door_hostnames(tree: pathlib.Path) -> dict[str, str]:

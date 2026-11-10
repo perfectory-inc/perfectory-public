@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
-"""The committed production-shape ledgers still describe production (root ADR-0259 §5).
+"""Production's table shapes, captured and published where CI reads them (root ADR-0259 §5, ADR-0476).
 
-CI gates every pull request on two ledgers the release ships: the lakehouse's
-(infra/lakehouse/contracts/lakehouse-production-shape.json) and Postgres's
-(config/postgres-production-shape.json). Production moves away from them when a deploy migrates
-a table, a load creates a table or its first rows, or a rewrite retires a file shape. This job
-captures both again, read-only, right after each deploy (started_once_after_deploy) and daily
-after the loads, and names each table that differs from the release's. Only the shape is
-compared, not when it was captured. A stale ledger is a pull request to take, not a broken
-production: every run puts both captures in the private ledger bucket (shape-ledger/ in
-foundation-platform-shape-ledger-prod, with the shape-ledger group's write-only-there key), where
-the shape ledger refresh workflow reads and compares them and prepares the pull request; the host
-holds no GitHub token (root ADR-0279). A stale run says it is waiting (root ADR-0260); stale for
-more than 48 hours since first seen (first-stale.json), it fails and alerts. The fresh ledgers
-also stay in /var/lib/foundation-shape-ledger/ (the unit's StateDirectory).
+CI gates every pull request on two ledgers: the lakehouse's (lakehouse-production-shape.json) and
+Postgres's (postgres-production-shape.json). This job captures both, read-only, right after each
+deploy (started_once_after_deploy) and daily after the loads, and publishes them to the shape ledger
+bucket (foundation-platform-shape-ledger-prod), which CI reads anonymously through its public read
+domain: no copy into a pull request, no GitHub token, no App (root ADR-0476 supersedes ADR-0279).
+
+The bucket is append-only: each distinct shape is one object under shape-ledger/objects/, named by
+the SHA-256 of the shape (the capture without its time), written only when new (If-None-Match) and
+held by the bucket's lock rule; shape-ledger/latest.json is the one mutable head, naming the current
+pair and when production last confirmed it, and shape-ledger/history/ keeps every head whose pair
+changed. The writer key is minted per run by the unit's root ExecStartPre (shape-ledger-writer-key.py):
+read and write under shape-ledger/ of that bucket only, for 20 minutes.
+
+A run that cannot publish waits (root ADR-0260); with nothing published for 48 hours
+(first-unpublished.json) it fails and alerts, since CI is then judging against an older production.
+How production moved since the last capture is named, never failed: it is what CI reads next. The
+fresh captures also stay in /var/lib/foundation-shape-ledger/ (the unit's StateDirectory), which the
+deploy's lakehouse-migrate step reads (config/deploy-steps.contract.json reverify).
 
 It also reads, from the same metadata tables and no data file, how each table its readers prune by
 key is laid out and was last written (root ADR-0314): a one-region read that opens most of the
@@ -23,14 +28,13 @@ changed, fails the run at once. A rewrite that does not say what it changed is n
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
 import subprocess
 import sys
-import urllib.error
-import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 RELEASE = Path(os.environ.get("FOUNDATION_SHAPE_LEDGER_RELEASE", "/opt/foundation-platform/current"))
@@ -62,26 +66,72 @@ def load_capture():
     return release_module("lakehouse_production_shape", "lakehouse-production-shape.py")
 
 
-# The ledger bucket (root ADR-0279): its name, endpoint host and write-only-there key.
-PUBLISH_PREFIX = "shape-ledger/"
-PUBLISH_ENV = ("FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_BUCKET", "FOUNDATION_PLATFORM_R2_SHAPE_LEDGER_ENDPOINT_HOST",
-               "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_ACCESS_KEY_ID",
-               "FOUNDATION_PLATFORM_SHAPE_LEDGER_WRITER_SECRET_ACCESS_KEY")
+# The ledger bucket (root ADR-0476): each shape, the head and the heads' history.
+OBJECTS = "shape-ledger/objects/"
+HEAD = "shape-ledger/latest.json"
+HISTORY = "shape-ledger/history/"
+HEAD_SCHEMA = "foundation-platform.shape_ledger_head.v1"
+DECISION = "docs/adr/0476-production-shape-ledgers-are-published-by-the-host-and-ci-reads-them-with-no-copy.md"
+WRITER_KEY = "writer.json"  # in the unit's RuntimeDirectory, minted by shape-ledger-writer-key.py
+PUBLISHED = "published.json"
+# A capture's own time is not part of its shape: the same shape captured again is the same object.
+CAPTURE_TIME = ("captured_at",)
 
 
-def publish(files: dict[str, str]) -> str:
-    """Puts each capture in the ledger bucket under its ledger's file name; says what happened. A
-    failed or impossible upload never fails the run: the 48-hour escalation still stands."""
-    bucket, host, key, secret = (os.environ.get(name, "") for name in PUBLISH_ENV)
-    if not all((bucket, host, key, secret)):
-        return f"not published (no ledger bucket key on this host); copy {STATE}/*.json into a pull request"
-    r2 = release_module("r2_object", "r2_object.py")
+def shape_digest(text: str) -> str:
+    """The SHA-256 of a capture without its time, as canonical JSON: the name of its object."""
+    document = {key: value for key, value in json.loads(text).items() if key not in CAPTURE_TIME}
+    return hashlib.sha256(json.dumps(document, sort_keys=True, ensure_ascii=False,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def object_key(name: str, digest: str) -> str:
+    return f"{OBJECTS}{Path(name).stem}/{digest}.json"
+
+
+def writer_key() -> dict | None:
+    directory = os.environ.get("RUNTIME_DIRECTORY", "").split(":")[0]
+    if not directory:
+        return None
     try:
-        for name, text in files.items():
-            r2.put(f"https://{host}", bucket, PUBLISH_PREFIX + name, key, secret, text.encode("utf-8"))
+        return json.loads((Path(directory) / WRITER_KEY).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+
+
+def publish(files: dict[str, str], now: datetime, previous: dict | None) -> tuple[str, dict | None, bool]:
+    """(what happened, the head now published or None, whether a new shape object was written).
+
+    Each capture whose shape the bucket lacks is written once; the head is written every run, so CI
+    knows when production last confirmed it, and goes to the history too when its pair differs from
+    `previous`, the head this host last published. A failed or impossible upload never fails the run
+    by itself: the 48 hours of first-unpublished.json do."""
+    key = writer_key()
+    if key is None:
+        return "not published (no writer key was minted for this run; the unit's ExecStartPre says why)", None, False
+    r2 = release_module("r2_object", "r2_object.py")
+    stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    head = {"schema_version": HEAD_SCHEMA, "decision": DECISION, "checked_at": stamp,
+            "release": RELEASE.resolve().name, "ledgers": {}}
+
+    def put(name: str, body: bytes, only_new: bool) -> bool:
+        return r2.put(key["endpoint"], key["bucket"], name, key["access_key_id"], key["secret_access_key"], body,
+                      session_token=key["session_token"], only_new=only_new)
+
+    written = False
+    try:
+        for name, text in sorted(files.items()):
+            digest = shape_digest(text)
+            head["ledgers"][name] = {"key": object_key(name, digest), "shape_sha256": digest}
+            written = put(object_key(name, digest), text.encode("utf-8"), True) or written
+        body = (json.dumps(head, indent=1, sort_keys=True) + "\n").encode("utf-8")
+        if previous is None or previous.get("ledgers") != head["ledgers"]:
+            put(f"{HISTORY}{stamp}.json", body, True)
+        put(HEAD, body, False)
     except OSError as error:
-        return f"not published ({error}); copy {STATE}/*.json into a pull request"
-    return f"published to {bucket}/{PUBLISH_PREFIX}; the shape ledger refresh workflow prepares the pull request"
+        return f"not published ({error})", None, False
+    return (f"published to {key['bucket']}/{HEAD} ({'a new shape' if written else 'shapes it already held'})",
+            head, written)
 
 
 # Layout and write amplification (root ADR-0314 §3, §4). A table its readers prune by key is one
@@ -178,101 +228,76 @@ def layout(trino_rows, trino_url: str, contracts: dict, lakehouse: dict) -> tupl
     return failures, notes
 
 
-STALE_GRACE_HOURS = 48
-FIRST_SEEN = "first-stale.json"
-BRANCH = "shape-ledger/refresh"
+UNPUBLISHED_GRACE_HOURS = 48
+FIRST_UNPUBLISHED = "first-unpublished.json"
 
 
-def verdict(now: datetime, first_seen: datetime, stale: int, pull_request: str) -> tuple[str, int]:
-    """The run's outcome line and exit code for `stale` tables first seen stale at `first_seen`
-    (root ADR-0260): waiting on the refresh pull request, then failed once that has waited 48 hours."""
-    hours = (now - first_seen).total_seconds() / 3600
-    since = first_seen.strftime("%Y-%m-%dT%H:%MZ")
-    if hours < STALE_GRACE_HOURS:
-        return f"foundation-job-outcome waiting shape ledgers stale for {stale} tables since {since}; {pull_request}", 0
-    return (f"foundation-job-outcome failed shape ledgers stale for {stale} tables since {since}, "
-            f"over {STALE_GRACE_HOURS}h; {pull_request}", 1)
+def verdict(now: datetime, first_unpublished: datetime, why: str) -> tuple[str, int]:
+    """The outcome line and exit code of a run that could not publish, with none published since
+    `first_unpublished` (root ADR-0260): waiting, then failed once CI has judged pull requests
+    against an older production for 48 hours."""
+    hours = (now - first_unpublished).total_seconds() / 3600
+    since = first_unpublished.strftime("%Y-%m-%dT%H:%MZ")
+    if hours < UNPUBLISHED_GRACE_HOURS:
+        return f"foundation-job-outcome waiting shape ledgers unpublished since {since}; {why}", 0
+    return (f"foundation-job-outcome failed shape ledgers unpublished since {since}, "
+            f"over {UNPUBLISHED_GRACE_HOURS}h; {why}", 1)
 
 
-def first_seen_at(now: datetime, stale: bool) -> datetime | None:
-    """When the ledgers were first seen stale, recorded in the state directory; a run that finds
-    them current clears it."""
-    path = STATE / FIRST_SEEN
-    if not stale:
+def first_unpublished_at(now: datetime, published: bool) -> datetime | None:
+    """When runs first stopped publishing, recorded in the state directory; a run that publishes
+    clears it."""
+    path = STATE / FIRST_UNPUBLISHED
+    if published:
         path.unlink(missing_ok=True)
         return None
     if path.exists():
-        return datetime.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["first_seen"])
-    path.write_text(json.dumps({"first_seen": now.isoformat()}) + "\n", encoding="utf-8")
+        return datetime.fromisoformat(json.loads(path.read_text(encoding="utf-8"))["first_unpublished"])
+    path.write_text(json.dumps({"first_unpublished": now.isoformat()}) + "\n", encoding="utf-8")
     return now
 
 
-def github(token: str, method: str, path: str, body: dict | None = None) -> dict | list | None:
-    request = urllib.request.Request(
-        f"https://api.github.com{path}", method=method,
-        data=None if body is None else json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
-                 "User-Agent": "foundation-shape-ledger-check"})
+def read_state(name: str) -> dict | None:
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise RuntimeError(f"GitHub {method} {path}: {error.code} {error.read()[:300]!r}") from error
+        return json.loads((STATE / name).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
 
 
-def refresh_pull_request(token: str, repository: str, files: dict[str, str], found: list[str]) -> str:
-    """Opens, or brings up to date, the one pull request that carries the captured ledgers: branch
-    shape-ledger/refresh is main plus those files, rewritten only when their content changes. The
-    shape ledger refresh workflow calls it with its App's token (root ADR-0279); the host does not."""
-    repo = f"/repos/{repository}"
-    main_sha = github(token, "GET", f"{repo}/git/ref/heads/main")["object"]["sha"]
-    base_tree = github(token, "GET", f"{repo}/git/commits/{main_sha}")["tree"]["sha"]
-    tree = github(token, "POST", f"{repo}/git/trees", {"base_tree": base_tree, "tree": [
-        {"path": path, "mode": "100644", "type": "blob", "content": content} for path, content in files.items()]})
-    branch = github(token, "GET", f"{repo}/git/ref/heads/{BRANCH}")
-    current_tree = branch and github(token, "GET", f"{repo}/git/commits/{branch['object']['sha']}")["tree"]["sha"]
-    if current_tree != tree["sha"]:
-        commit = github(token, "POST", f"{repo}/git/commits", {
-            "message": "chore(foundation): refresh the production shape ledgers the shape-ledger check captured\n\n"
-                       + "\n".join(found), "tree": tree["sha"], "parents": [main_sha]})
-        if branch:
-            github(token, "PATCH", f"{repo}/git/refs/heads/{BRANCH}", {"sha": commit["sha"], "force": True})
-        else:
-            github(token, "POST", f"{repo}/git/refs", {"ref": f"refs/heads/{BRANCH}", "sha": commit["sha"]})
-    body = ("The shape ledger check (root ADR-0259 §5) found production's shape differs from the ledgers CI "
-            "gates on. This branch is main plus the job's own capture, unedited:\n\n"
-            + "\n".join(f"- {line}" for line in found)
-            + "\n\nA new Postgres table whose CHECKs tie columns together may need synthetic values in "
-              "config/postgres-seed-hints.json before CI passes; that part stays human.")
-    owner = repository.split("/", 1)[0]
-    open_prs = github(token, "GET", f"{repo}/pulls?state=open&head={owner}:{BRANCH}") or []
-    if open_prs:
-        github(token, "PATCH", f"{repo}/pulls/{open_prs[0]['number']}", {"body": body})
-        return open_prs[0]["html_url"]
-    created = github(token, "POST", f"{repo}/pulls", {
-        "title": "chore(foundation): refresh the production shape ledgers the shape-ledger check captured",
-        "head": BRANCH, "base": "main", "body": body})
-    return created["html_url"]
+def outcome(now: datetime, published: bool, written: bool, said: str, misplaced: list[str]) -> tuple[str, int]:
+    """The run's last line and exit code (root ADR-0260)."""
+    first_unpublished = first_unpublished_at(now, published)
+    if first_unpublished is None:
+        line, status = f"foundation-job-outcome {'changed' if written else 'unchanged'}", 0
+    else:
+        line, status = verdict(now, first_unpublished, said)
+    if misplaced:
+        # A layout finding fails the run at once; the 48 hours do not apply to it.
+        line = (f"foundation-job-outcome failed {len(misplaced)} tables are laid out or written against their "
+                f"cluster key (root ADR-0314)" + ("" if first_unpublished is None else f"; {said}"))
+        status = 1
+    return line, status
 
 
 def main() -> int:
     STATE.mkdir(parents=True, exist_ok=True)
     capture = load_capture()
     lakehouse = capture.capture()
-    lakehouse_text = capture.render(lakehouse)
-    (STATE / Path(LAKEHOUSE).name).write_text(lakehouse_text, encoding="utf-8")
-    postgres_text = subprocess.run(["bash", str(RELEASE / "scripts/ops/postgres-production-shape.sh")],
-                                   capture_output=True, text=True, check=True, timeout=600).stdout
-    (STATE / Path(POSTGRES).name).write_text(postgres_text, encoding="utf-8")
-    found = [f"lakehouse {line}" for line in differences(
-        json.loads((RELEASE / LAKEHOUSE).read_text(encoding="utf-8")), lakehouse, "tables")]
-    found += [f"postgres {line}" for line in differences(
-        json.loads((RELEASE / POSTGRES).read_text(encoding="utf-8")), json.loads(postgres_text), "tables_with_rows")]
-    # Current or not: CI compares what production holds now, and says so either way.
-    published = publish({Path(LAKEHOUSE).name: lakehouse_text, Path(POSTGRES).name: postgres_text})
-    print(f"shape-ledger-check: captures {published}")
+    files = {Path(LAKEHOUSE).name: capture.render(lakehouse),
+             Path(POSTGRES).name: subprocess.run(["bash", str(RELEASE / "scripts/ops/postgres-production-shape.sh")],
+                                                 capture_output=True, text=True, check=True, timeout=600).stdout}
+    # How production moved since this host's last capture: named, never failed (CI reads it next).
+    for name, key in ((Path(LAKEHOUSE).name, "tables"), (Path(POSTGRES).name, "tables_with_rows")):
+        last = read_state(name)
+        for line in differences(last, json.loads(files[name]), key) if last else []:
+            print(f"shape-ledger-check: MOVED {name}: {line}")
+        (STATE / name).write_text(files[name], encoding="utf-8")
+    now = datetime.now(timezone.utc)
+    previous = read_state(PUBLISHED)
+    said, head, written = publish(files, now, previous and previous.get("head"))
+    print(f"shape-ledger-check: captures {said}")
+    if head is not None:
+        (STATE / PUBLISHED).write_text(json.dumps({"at": now.isoformat(), "head": head}) + "\n", encoding="utf-8")
     trino_url = os.environ.get("FOUNDATION_PLATFORM_TRINO_URL", "http://127.0.0.1:18081").rstrip("/")
     misplaced, notes = layout(capture.trino_rows, trino_url,
                               json.loads((RELEASE / CONTRACTS).read_text(encoding="utf-8"))["contracts"], lakehouse)
@@ -280,24 +305,7 @@ def main() -> int:
         print(f"shape-ledger-check: NOTE {line}")
     for line in misplaced:
         print(f"shape-ledger-check: LAYOUT {line}")
-    now = datetime.now(timezone.utc)
-    first_seen = first_seen_at(now, bool(found))
-    if first_seen is None:
-        print("shape-ledger-check: production holds the shapes the release's ledgers record")
-        if misplaced:
-            print(f"foundation-job-outcome failed {len(misplaced)} tables are laid out or written against "
-                  "their cluster key (root ADR-0314)")
-            return 1
-        print("foundation-job-outcome unchanged")  # root ADR-0260: the run's last line
-        return 0
-    for line in found:
-        print(f"shape-ledger-check: STALE {line}")
-    line, status = verdict(now, first_seen, len(found), published)
-    if misplaced:
-        # A layout finding fails the run at once; the ledgers' 48 hours do not apply to it.
-        line = line.replace("foundation-job-outcome waiting", "foundation-job-outcome failed", 1)
-        line += f"; {len(misplaced)} tables are laid out or written against their cluster key (root ADR-0314)"
-        status = 1
+    line, status = outcome(now, head is not None, written, said, misplaced)
     print(line)
     return status
 
