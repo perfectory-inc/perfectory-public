@@ -4,10 +4,12 @@ Gold's planner requires exists (root ADR-0471). Incident it prevents: 2026-11-09
 75 s, 8 and 7 of their Silver tables not loaded yet, and parcel-nearby's 18:42Z claim held the pool for
 more than 18 minutes ahead of the load that makes its tables."""
 
+import io
 import os
 import subprocess
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 PLATFORM = Path(__file__).resolve().parents[2]
@@ -16,6 +18,7 @@ sys.path.insert(0, str(PLATFORM / "scripts/ops"))
 sys.path.insert(0, str(PLATFORM / "infra/lakehouse/spark/jobs"))
 import gold_input_readiness as readiness  # noqa: E402
 import gold_rebuild  # noqa: E402
+import iceberg_metadata  # noqa: E402
 
 
 class GoldInputReadiness(unittest.TestCase):
@@ -44,6 +47,24 @@ class GoldInputReadiness(unittest.TestCase):
         self.assertTrue(ready, line)
         # A producer that names its inputs only under Spark leaves the check to its planner.
         self.assertTrue(readiness.verdict("gold.x", None, None)[0])
+
+    def test_a_table_never_committed_to_is_not_loaded(self):
+        # 2026-11-10: parcel-nearby's six Silver tables existed with no snapshot; read as loaded, the
+        # cut-over claimed the pool and the producer refused their null pins under Spark.
+        class Catalog:
+            def __init__(self, *_):
+                pass
+
+            def table(self, name, absent_ok=False):
+                assert absent_ok
+                return {"head": 7 if name == "silver.parcel_boundaries" else None, "snapshots": []}
+
+        inputs = ("silver.parcel_boundaries", "silver.airport")
+        with (unittest.mock.patch.object(iceberg_metadata, "Catalog", Catalog),
+              unittest.mock.patch.object(readiness, "required_inputs", lambda _: inputs),
+              unittest.mock.patch("sys.stdout", new_callable=io.StringIO) as out):
+            self.assertEqual(readiness.main(["gold.x"]), 75)
+        self.assertIn("not loaded yet: silver.airport", out.getvalue())
 
     def test_no_catalog_is_cannot_tell(self):
         environment = {key: value for key, value in os.environ.items()

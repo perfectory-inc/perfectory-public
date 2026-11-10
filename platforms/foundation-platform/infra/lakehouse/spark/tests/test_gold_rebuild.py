@@ -225,7 +225,10 @@ class Plan(unittest.TestCase):
     def test_a_missing_required_input_or_a_vanished_pinned_input_is_refused(self):
         with self.assertRaisesRegex(rebuild.PlanError, "required Silver inputs do not exist"):
             rebuild.plan("gold.x", ENTRY, INPUTS, gold(), {"silver.a": table(A1), "silver.b": None})
-        inputs = (("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
+        # Created but never committed to: no snapshot to pin (2026-11-10 parcel-nearby, null pins).
+        with self.assertRaisesRegex(rebuild.PlanError, r"never loaded \(no snapshot\): \['silver.b'\]"):
+            rebuild.plan("gold.x", ENTRY, INPUTS, gold(), {"silver.a": table(A1), "silver.b": {"head": None, "snapshots": []}})
+        inputs =(("silver.a",), {"silver.lineage": "--no-carry-lineage"}, "silver.a")
         with self.assertRaisesRegex(rebuild.PlanError, "no longer exist"):
             rebuild.plan("gold.x", {**ENTRY, **ABSENT_LINEAGE}, inputs, gold({"silver.a": "11", "silver.lineage": "31"}),
                          {"silver.a": table(A1), "silver.lineage": None})

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Do the Silver tables a lane's Gold is built from exist yet? (root ADR-0471)
+"""Are the Silver tables a lane's Gold is built from loaded yet (created and committed to)? (root ADR-0471)
 
     gold_input_readiness.py <gold table>    `ready ...` (exit 0) or `waiting ...` (exit 75)
 
@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-import urllib.error
 from pathlib import Path
 
 PLATFORM = Path(__file__).resolve().parents[2]
@@ -53,11 +52,11 @@ def required_inputs(gold_table: str) -> tuple[str, ...] | None:
     return (*required, *(name for name in optional if name not in accepted))
 
 
-def verdict(gold_table: str, required: tuple[str, ...] | None, exists) -> tuple[bool, str]:
-    """`exists(name)`: True, False, or raises when the catalog cannot tell."""
+def verdict(gold_table: str, required: tuple[str, ...] | None, loaded) -> tuple[bool, str]:
+    """`loaded(name)`: True (it has a snapshot), False, or raises when the catalog cannot tell."""
     if required is None:
         return True, f"ready {gold_table}: its producer names its inputs only under Spark; the gold step's planner checks them"
-    missing = [name for name in required if not exists(name)]
+    missing = [name for name in required if not loaded(name)]
     if missing:
         return False, f"waiting {gold_table}: {len(missing)} of the {len(required)} inputs its planner requires not loaded yet: {', '.join(missing)}"
     return True, f"ready {gold_table}: the {len(required)} inputs its planner requires exist"
@@ -81,16 +80,13 @@ def main(argv: list[str]) -> int:
         catalog = iceberg_metadata.Catalog("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_READER_TOKEN",
                                            "foundation-gold-input-readiness")
 
-        def exists(name: str) -> bool:
-            try:
-                catalog.table(name)
-            except urllib.error.HTTPError as error:
-                if iceberg_metadata.table_absent(error):
-                    return False
-                raise
-            return True
+        def loaded(name: str) -> bool:
+            # A table created but never committed to is not loaded either: its pin would be null and the
+            # producer refuses it under Spark (2026-11-10 02:57Z..13:43Z: parcel-nearby, six Silver tables
+            # created empty by a data.go.kr load that then failed, three gold steps crashed).
+            return catalog.table(name, absent_ok=True)["head"] is not None
 
-        ready, line = verdict(argv[0], required, exists)
+        ready, line = verdict(argv[0], required, loaded)
     except Exception as error:  # noqa: BLE001 - any failure to read means "cannot tell"
         print(f"cannot tell: {argv[0]}'s inputs unreadable: {error}", file=sys.stderr)
         return 65
