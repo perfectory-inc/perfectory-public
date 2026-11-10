@@ -2,7 +2,9 @@
 """Publish a release's id registry, bridge file and changelog to Gold (root ADR-0113 §8).
 
   --unit admin   reads the snapshots of `silver.administrative_boundaries` (scope `national`);
-  --unit parcel  reads `silver.parcel_registry` for the named sido prefixes (scope = the prefixes).
+  --unit parcel  reads `silver.parcel_registry` for one region (`--sido`, the scope), in Spark
+                 (`parcel_place_id_release`, root ADR-0481); with `--probe-stale` it prints the regions
+                 whose inputs moved since their last release and writes nothing.
 The registry and the bridge are rewritten for (unit, scope) only when either differs from the release
 already served (`place_id_release.release_changes`); the changelog is appended once per release id, and
 only when the registry changed. Consumers holding an old reference resolve it through the bridge and
@@ -19,11 +21,12 @@ from pathlib import Path
 from typing import Any
 
 import parcel_identity as pi
+import parcel_place_id_release as parcel_release
 import place_id_release as rel
 import place_identity_resolver as pir
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
-from parcel_lineage_to_silver import DATE, IDENTIFIER, PREFIX, sql_prefixes
+from parcel_lineage_to_silver import IDENTIFIER, PREFIX
 from platform_contracts import (
     admit_write,
     column_names,
@@ -42,10 +45,10 @@ RELEASE_ID = re.compile(r"^[A-Za-z0-9._:-]{1,120}$")
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--unit", required=True, choices=["admin", "parcel"])
-    parser.add_argument("--release-id", required=True, help="The tile release or snapshot this publication belongs to")
-    parser.add_argument("--sido", help="parcel: comma-separated sido prefixes (the scope)")
-    parser.add_argument("--previous-as-of", help="parcel: YYYY-MM-DD of the previous release")
-    parser.add_argument("--as-of", help="parcel: YYYY-MM-DD of this release")
+    parser.add_argument("--release-id", help="The tile release or snapshot this publication belongs to")
+    parser.add_argument("--sido", help="parcel: the region's two-digit sido prefix (the scope)")
+    parser.add_argument("--probe-stale", action="store_true",
+                        help="parcel: print the regions whose inputs moved since their last release; write nothing")
     parser.add_argument("--previous-release-id", help="The release the changelog compares against")
     parser.add_argument("--summary-output")
     parser.add_argument("--iceberg-catalog-name", default="lakehouse")
@@ -62,11 +65,15 @@ def validate_args(args: argparse.Namespace) -> None:
     for value in (args.release_id, args.previous_release_id):
         if value is not None and not RELEASE_ID.fullmatch(value):
             raise ValueError(f"{value!r} is not a release id")
-    if args.unit == "parcel":
-        if not args.sido or not all(PREFIX.fullmatch(p) for p in args.sido.split(",")):
-            raise ValueError("--unit parcel needs --sido")
-        if not (args.as_of and DATE.fullmatch(args.as_of) and args.previous_as_of and DATE.fullmatch(args.previous_as_of)):
-            raise ValueError("--unit parcel needs --previous-as-of and --as-of as YYYY-MM-DD")
+    if args.probe_stale:
+        if args.unit != "parcel":
+            raise ValueError("--probe-stale is the parcel unit's")
+        assert_catalog_env()
+        return
+    if args.release_id is None:
+        raise ValueError("--release-id is required")
+    if args.unit == "parcel" and not (args.sido and PREFIX.fullmatch(args.sido)):
+        raise ValueError("--unit parcel needs --sido, one two-digit sido prefix")
     if args.gold_namespace == "gold" and not args.allow_non_smoke_write:
         raise ValueError("writing the gold namespace needs --allow-non-smoke-write")
     assert_catalog_env()
@@ -106,6 +113,147 @@ def published_release(spark: Any, catalog: str, namespace: str, unit: str, scope
     return (registry, bridge) if registry or bridge else None
 
 
+def ensure_release_table(spark: Any, cat: str, namespace: str, name: str) -> str:
+    """One release table, created and evolved to its contract; its qualified name."""
+
+    contract = CONTRACTS[name]
+    table = f"{cat}.`{namespace}`.`place_id_{name}`"
+    spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {cat}.`{namespace}`")
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {table} (
+{create_table_columns_sql(contract)}
+        )
+        USING iceberg
+        {partition_clause_sql(contract)}
+        TBLPROPERTIES ('format-version' = '2', 'write.parquet.compression-codec' = 'zstd')
+        """
+    )
+    evolve_iceberg_table_to_contract(spark, table, contract)
+    return table
+
+
+def registry_rows(spark: Any, cat: str) -> Any:
+    """`silver.parcel_registry` with each id's region (`parcel_place_id_release.with_scope`)."""
+
+    return parcel_release.with_scope(spark.table(f"{cat}.`silver`.`parcel_registry`").select(
+        "parcel_id", "pnu", "status", "valid_from", "valid_to", "redirect_to", "recorded_at_utc"))
+
+
+def code_moved_scopes(spark: Any, cat: str, rows: Any, published: Any) -> set[str]:
+    """The released regions a 법정동 code change reached since their release: the change table read
+    as of each release time against now (`code_change_follow.prefixes_from_changes`, the views every
+    reader uses, root ADR-0329 §3)."""
+
+    import code_change_follow as follow  # noqa: PLC0415
+
+    table = f"{cat}.`reference`.`legal_dong_code_change`"
+    columns = ", ".join(follow.CHANGE_COLUMNS)
+    try:
+        after = [row.asDict() for row in spark.sql(f"SELECT {columns} FROM {table}").collect()]
+    except Exception:  # noqa: BLE001 - no change table: no pair moves a region
+        return set()
+    moved: set[str] = set()
+    times = published.groupBy("scope").agg({"published_at_utc": "max"}).withColumnRenamed("max(published_at_utc)", "at")
+    by_time: dict[Any, list[str]] = {}
+    for row in times.collect():
+        by_time.setdefault(row["at"], []).append(row["scope"])
+    for at, scopes in sorted(by_time.items()):
+        try:
+            before = [row.asDict() for row in spark.sql(
+                f"SELECT {columns} FROM {table} TIMESTAMP AS OF '{at:%Y-%m-%d %H:%M:%S}'").collect()]
+            prefixes: set[str] | None = follow.prefixes_from_changes(before, after)
+        except Exception:  # noqa: BLE001 - an expired read is a region read again, never one skipped
+            prefixes = None
+        moved |= parcel_release.code_moved_scopes(rows.where(rows["scope"].isin(scopes)), prefixes)
+    return moved
+
+
+def published_parcel_rows(spark: Any, args: argparse.Namespace, name: str) -> Any | None:
+    """The parcel unit's published rows of one release table, or None while it does not exist."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    if not spark.catalog.tableExists(f"{args.iceberg_catalog_name}.{args.gold_namespace}.place_id_{name}"):
+        return None
+    return (spark.table(f"`{args.iceberg_catalog_name}`.`{args.gold_namespace}`.`place_id_{name}`")
+            .where(F.col("unit") == parcel_release.UNIT))
+
+
+def probe_stale(spark: Any, args: argparse.Namespace) -> list[list[Any]]:
+    """[[scope, ids]] of the regions to release, smallest first (`parcel_place_id_release.stale_scopes`)."""
+
+    cat = f"`{args.iceberg_catalog_name}`"
+    published = published_parcel_rows(spark, args, "registry")
+    if published is None:
+        published = spark.createDataFrame([], "scope string, published_at_utc timestamp")
+    published = published.select("scope", "published_at_utc").cache()
+    rows = registry_rows(spark, cat).cache()
+    stale = parcel_release.stale_scopes(rows, published, code_moved_scopes(spark, cat, rows, published))
+    return [[scope, ids] for scope, ids in stale]
+
+
+def publish_parcel_region(spark: Any, args: argparse.Namespace, now: datetime) -> dict[str, Any]:
+    """One region's release: its registry and bridge partitions replaced, and its changelog appended
+    when its registry differs from what was published."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    cat = f"`{args.iceberg_catalog_name}`"
+    scope = args.sido
+    rows = registry_rows(spark, cat).where(F.col("scope") == scope).cache()
+    remap, ambiguous = pir.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
+    registry = parcel_release.registry_of(rows).cache()
+    bridge = parcel_release.bridge_of(rows, remap).cache()
+    shapes = {"registry": ("scope", "place_id", "status", "current_code", "redirect_to"),
+              "bridge": ("scope", "place_id", "code", "valid_from", "valid_to")}
+    published = {name: published_parcel_rows(spark, args, name) for name in shapes}
+    published = {name: (frame.where(F.col("scope") == scope).select(*shapes[name]) if frame is not None
+                        else spark.createDataFrame([], registry.select(*shapes[name]).schema if name == "registry"
+                                                   else bridge.select(*shapes[name]).schema))
+                 for name, frame in published.items()}
+    fresh = {"registry": registry, "bridge": bridge}
+    differs = {name: not (fresh[name].select(*shapes[name]).exceptAll(published[name]).isEmpty()
+                          and published[name].exceptAll(fresh[name].select(*shapes[name])).isEmpty())
+               for name in shapes}
+    changes = parcel_release.changelog_of(published["registry"], registry).cache()
+    tail = {"unit": F.lit(parcel_release.UNIT), "release_id": F.lit(args.release_id),
+            "published_at_utc": F.lit(now).cast("timestamp")}
+    summary: dict[str, Any] = {"scope": scope, "code_pairs": len(remap), "code_pairs_ambiguous": len(ambiguous),
+                               "registry_changed": differs["registry"], "bridge_changed": differs["bridge"],
+                               # The probe asks only for a region whose inputs moved; writing it even when the
+                               # result is equal moves its release time, so the same change is not read again.
+                               "published": True}
+    if summary["published"]:
+        frames = {**fresh, "changelog": changes.withColumn("scope", F.lit(scope)).withColumn(
+            "previous_release_id", F.lit(args.previous_release_id).cast("string"))}
+        for name, frame in frames.items():
+            contract = CONTRACTS[name]
+            table = ensure_release_table(spark, cat, args.gold_namespace, name)
+            columns = column_names(contract)
+            for column, value in tail.items():
+                frame = frame.withColumn(column, value)
+            frame = frame.select(*columns)
+            if name == "changelog":
+                if differs["registry"] and not changes.isEmpty():
+                    summary["changelog_appended"] = append_batch_once(spark, frame, columns, table,
+                                                                      contract["table_name"])["appended"]
+                continue
+            frame.createOrReplaceTempView(f"parcel_release_{name}")
+            admit_write(contract["table_name"], "replace", target=table)
+            # Dynamic partition overwrite: only the (parcel, scope) partition is replaced.
+            spark.sql(f"INSERT OVERWRITE {table} SELECT {', '.join(columns)} FROM parcel_release_{name}")
+    summary.update({
+        "registry": registry.count(),
+        "current": registry.where(F.col("status") == pi.CURRENT).count(),
+        "bridge": bridge.count(),
+        "bridge_from_code_pairs": bridge.where(F.col("valid_from") == parcel_release.PAIR_SOURCE).count(),
+        "changes": {row["change"]: row["count"] for row in changes.groupBy("change").count().collect()},
+    })
+    rows.unpersist()
+    return summary
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     validate_args(args)
@@ -121,6 +269,12 @@ def main(argv: list[str] | None = None) -> int:
     cat = f"`{args.iceberg_catalog_name}`"
     summary: dict[str, Any] = {"job": JOB_NAME, "unit": args.unit, "release_id": args.release_id}
     try:
+        if args.probe_stale:
+            print("place-id-parcel-probe " + json.dumps({"stale": probe_stale(spark, args)}, sort_keys=True))
+            return 0
+        if args.unit == "parcel":
+            summary.update(publish_parcel_region(spark, args, now))
+            return emit(args, summary)
         if args.unit == "admin":
             scope = "national"
             order = spark.sql(
@@ -145,17 +299,6 @@ def main(argv: list[str] | None = None) -> int:
             summary["snapshots"] = [label for label, _ in snapshots]
             summary["code_pairs_bridged"] = len(remap)
             summary["code_pairs_ambiguous"] = len(ambiguous)
-        else:
-            scope = args.sido
-            rows = [
-                pi.RegistryRow(r["parcel_id"], r["pnu"], r["status"], r["valid_from"] or "", r["valid_to"], r["redirect_to"])
-                for r in spark.sql(
-                    f"SELECT parcel_id, pnu, status, valid_from, valid_to, redirect_to FROM {cat}.`silver`.`parcel_registry` "
-                    f"WHERE substr(pnu, 1, 2) IN ({sql_prefixes(args.sido)})"
-                ).collect()
-            ]
-            registry, bridge = rel.parcel_registry(rows), rel.parcel_bridge(rows)
-            changes = rel.parcel_changelog(rows, args.previous_as_of, args.as_of)
         registry_changed, bridge_changed = rel.release_changes(
             published_release(spark, args.iceberg_catalog_name, args.gold_namespace, args.unit, scope), registry, bridge)
         summary.update(registry_changed=registry_changed, bridge_changed=bridge_changed,
@@ -197,6 +340,12 @@ def main(argv: list[str] | None = None) -> int:
         })
     finally:
         spark.stop()
+    return emit(args, summary)
+
+
+def emit(args: argparse.Namespace, summary: dict[str, Any]) -> int:
+    """The run's summary: the file the caller asked for, and the last stdout line."""
+
     if args.summary_output:
         Path(args.summary_output).write_text(json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print("place-id-release-json " + json.dumps(summary, ensure_ascii=False, sort_keys=True))

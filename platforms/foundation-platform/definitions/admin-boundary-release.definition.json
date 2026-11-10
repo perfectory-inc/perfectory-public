@@ -154,15 +154,6 @@
       "description": "번호가 바뀐 읍면동이 옛 읍면동의 id 를 잇도록, 선행 코드를 변경표의 view 로 읽는다(루트 ADR-0113 §9, ADR-0145). 손으로 만든 선행 코드 파일은 없다."
     },
     {
-      "from": "silver-parcel-registry",
-      "to": "gold-place-id-registry",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
-      ]
-    },
-    {
       "from": "silver-administrative-boundaries",
       "to": "gold-place-id-registry",
       "relation": "feeds",
@@ -172,26 +163,8 @@
       ]
     },
     {
-      "from": "silver-parcel-registry",
-      "to": "gold-place-id-bridge",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
-      ]
-    },
-    {
       "from": "silver-administrative-boundaries",
       "to": "gold-place-id-bridge",
-      "relation": "feeds",
-      "status": "implemented",
-      "via": [
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_release_to_gold.py"
-      ]
-    },
-    {
-      "from": "silver-parcel-registry",
-      "to": "gold-place-id-changelog",
       "relation": "feeds",
       "status": "implemented",
       "via": [
