@@ -17,6 +17,9 @@ import subprocess
 import tempfile
 import unittest
 
+# The whole deploy against stand-ins, as its own tests run it: its methods, not its tests.
+import test_foundation_autodeploy as autodeploy
+
 PLATFORM = pathlib.Path(__file__).resolve().parents[2]
 COMPOSE = PLATFORM / "compose.observability.yml"
 RUNTIME = PLATFORM / "scripts/deploy/foundation-runtime.sh"
@@ -123,6 +126,30 @@ class TheyAreRecreatedOnlyWhenTheirFilesChange(unittest.TestCase):
         self.assertIn("up -d --wait --no-deps alertmanager prometheus node-exporter cadvisor", body)
         migrate = text[text.index("migrate_runtime() {"):]
         self.assertNotIn("prometheus", migrate[: migrate.index("\n}\n")])
+
+
+class AFailedObservabilityStepHoldsNoDag(unittest.TestCase):
+    setUp = autodeploy.TheWholeDeploy.setUp
+    deploy = autodeploy.TheWholeDeploy.deploy
+    dags = autodeploy.TheWholeDeploy.dags
+    released = autodeploy.TheWholeDeploy.released
+    commit_tells_what_it_changes = autodeploy.TheWholeDeploy.commit_tells_what_it_changes
+    ENABLED, DISABLED = autodeploy.TheWholeDeploy.ENABLED, autodeploy.TheWholeDeploy.DISABLED
+
+    def test_the_2026_11_10_prometheus_that_outlived_its_health_check_leaves_no_dag_paused(self):
+        # 040dfe39 replayed: the step that brings the monitoring containers up fails, with a table
+        # changed so the deploy holds its writers. It runs after the schedule is back, so the deploy
+        # fails and alerts and no DAG stays paused for it.
+        self.commit_tells_what_it_changes("silver.building_register_floors")
+        result = self.deploy(FIXTURE_FAIL_AT="observability")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released()[-2:], ["status", "observability"], "the catalog is not reached")
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertNotIn("STAY PAUSED", result.stderr)
+        self.assertNotIn("DONE: production runs", result.stdout)
+        self.assertLess(result.stdout.index("7. unpause the enabled DAGs"),
+                        result.stdout.index("the monitoring containers follow the release"))
 
 
 if __name__ == "__main__":
