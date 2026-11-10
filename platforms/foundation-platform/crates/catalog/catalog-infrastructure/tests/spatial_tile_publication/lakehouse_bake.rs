@@ -25,6 +25,7 @@ fn bake_command(
         idempotency_key: key.to_owned(),
         operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
         silver_source: None,
+        bake_inputs_sha256: None,
     })
 }
 
@@ -165,6 +166,87 @@ async fn a_lakehouse_bake_refuses_the_same_snapshot_a_stale_input_and_a_dynamic_
             counts,
             "a refused start writes nothing"
         );
+        Ok(())
+    })
+    .await
+}
+
+/// Root ADR-0373: on 2026-11-09 the zoning job rebaked its served snapshot after the tile-bake
+/// contract changed (#1210), and the ledger refused it as "already served" twice. A recipe the
+/// input was not baked with is a new release of the same snapshot; the same recipe is not.
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn a_lakehouse_bake_rebakes_the_served_snapshot_only_under_a_new_recipe() -> TestResult {
+    run_in_disposable_database("tile_lakehouse_bake_recipe", |pool| async move {
+        MIGRATOR.run(&pool).await?;
+        let (_dynamic, original) = seed_static_release(&pool).await?;
+        let input = published_unit(&original, "complex")?;
+        let uow = Arc::new(PgCatalogUnitOfWork::new(pool.clone()));
+        let lifecycle = VectorTileBuildLifecycle::new(uow.clone());
+        let first = StartLakehouseBakeCommand {
+            bake_inputs_sha256: Some("a".repeat(64)),
+            ..bake_command(input.active_release_id, GOLD_SNAPSHOT, "recipe-1")?
+        };
+        let build_job_id = lifecycle.start_lakehouse_bake(first).await?;
+        lifecycle
+            .record_result(validated_result(
+                build_job_id,
+                "https://tiles.example.test",
+            )?)
+            .await?;
+        let manifest = PromoteTileLayerStatic::new(uow.clone())
+            .execute(promotion_command(build_job_id, input, "promote-recipe-1"))
+            .await?;
+        let baked = published_unit(&manifest, "complex")?;
+        let row = release_json(&pool, baked.active_release_id).await?;
+        assert_eq!(row["bake_inputs_sha256"], "a".repeat(64));
+
+        let counts = ledger_counts(&pool).await?;
+        let same_recipe = StartLakehouseBakeCommand {
+            bake_inputs_sha256: Some("a".repeat(64)),
+            ..bake_command(baked.active_release_id, GOLD_SNAPSHOT, "recipe-same")?
+        };
+        assert!(
+            lifecycle.start_lakehouse_bake(same_recipe).await.is_err(),
+            "the served snapshot under its own recipe is not a new bake"
+        );
+        let unrecorded = bake_command(baked.active_release_id, GOLD_SNAPSHOT, "recipe-none")?;
+        assert!(
+            lifecycle.start_lakehouse_bake(unrecorded).await.is_err(),
+            "an unrecorded recipe cannot claim the served snapshot changed"
+        );
+        assert_eq!(
+            ledger_counts(&pool).await?,
+            counts,
+            "a refused start writes nothing"
+        );
+
+        let rebake = StartLakehouseBakeCommand {
+            bake_inputs_sha256: Some("b".repeat(64)),
+            ..bake_command(baked.active_release_id, GOLD_SNAPSHOT, "recipe-2")?
+        };
+        let rebake_job = lifecycle.start_lakehouse_bake(rebake).await?;
+        lifecycle
+            .record_result(validated_result(rebake_job, "https://tiles.example.test")?)
+            .await?;
+        let manifest = PromoteTileLayerStatic::new(uow)
+            .execute(promotion_command(rebake_job, baked, "promote-recipe-2"))
+            .await?;
+        let rebaked = published_unit(&manifest, "complex")?;
+        assert_eq!(
+            rebaked.active_release_id,
+            static_release_id_for_build(rebake_job)
+        );
+        assert_eq!(
+            rebaked.data_revision, baked.data_revision,
+            "the same snapshot keeps its revision"
+        );
+        assert_eq!(
+            rebaked.serving_generation.value(),
+            baked.serving_generation.value() + 1
+        );
+        let row = release_json(&pool, rebaked.active_release_id).await?;
+        assert_eq!(row["bake_inputs_sha256"], "b".repeat(64));
         Ok(())
     })
     .await

@@ -20,8 +20,8 @@ use super::patch::{self, Manifest, PatchObject, PatchPolicy, Record};
 use super::pmtiles_feature_ids::{Archive, Header, COMPRESSION_GZIP, HEADER_BYTES};
 use super::{
     bake_inputs, bake_unit, create_only_upload_and_rehash, gate::classify_missing, prepare_handoff,
-    read_active_static, record_fold, required_env_value, ActiveStatic, BakeContract, Config,
-    ServedIds, ServedSummary, TileDerivativeR2Config,
+    read_active_static, recipe_digest, record_fold, required_env_value, unchanged, ActiveStatic,
+    BakeContract, Config, ServedIds, ServedSummary, TileDerivativeR2Config,
 };
 
 /// Range reads of a base or patch archive: a directory or a few tiles per request.
@@ -145,10 +145,6 @@ pub async fn try_patch(
         .map_or(active.snapshot.as_str(), |(manifest, _)| {
             manifest.gold_snapshot.as_str()
         });
-    ensure!(
-        served != summary.canonical_iceberg_snapshot_id,
-        "the {unit} tiles already serve Gold snapshot {served}"
-    );
     let inputs = bake_inputs(
         &contract.images,
         summary.geometry_srid,
@@ -156,6 +152,19 @@ pub async fn try_patch(
         &indexed.columns,
         config,
     );
+    if served == summary.canonical_iceberg_snapshot_id {
+        // Root ADR-0373: the snapshot is served; only a recipe its base was not baked with moves
+        // it, and every tile a recipe draws may change, so that is a new base. Patches stack on a
+        // base under its own recipe (a recipe change goes full below, its old index absent).
+        if active.recipe.as_deref() == Some(recipe_digest(&inputs).as_str()) {
+            unchanged(unit, served);
+            return Ok(true);
+        }
+        return full(
+            unit,
+            &format!("snapshot {served} is served under another bake recipe"),
+        );
+    }
     let old_path = patch::index_path(&config.work_root, unit, served, &inputs)?;
     if !old_path.exists() {
         return full(

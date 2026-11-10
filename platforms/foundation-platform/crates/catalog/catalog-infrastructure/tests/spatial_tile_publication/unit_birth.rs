@@ -43,6 +43,7 @@ fn birth_command(key: &str, release_id: Uuid) -> TestResult<RegisterLakehouseTil
         evidence: BuildEvidenceDigest::new("f".repeat(64))?,
         idempotency_key: key.to_owned(),
         operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
+        bake_inputs_sha256: Some("f".repeat(64)),
     })
 }
 
@@ -103,6 +104,7 @@ async fn a_unit_is_born_static_beside_the_units_it_carries_and_then_bakes_like_a
                 idempotency_key: "zoning-bake-2".to_owned(),
                 operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
                 silver_source: None,
+                bake_inputs_sha256: None,
             })
             .await?;
         Ok(())

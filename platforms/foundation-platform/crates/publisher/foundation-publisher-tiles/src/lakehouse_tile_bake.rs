@@ -757,13 +757,24 @@ struct ActiveStatic {
     pmtiles_object_key: String,
     serving_generation: ServingGeneration,
     snapshot: String,
+    /// The recipe digest the release was baked under (`recipe_digest`); `None` before it was recorded.
+    recipe: Option<String>,
     layer: ServedLayer,
+}
+
+impl ActiveStatic {
+    /// Root ADR-0373: the tiles already show `snapshot` only when they were also baked by `recipe`;
+    /// a recipe change (images, tippecanoe, arguments) rebakes the snapshot they serve.
+    fn shows(&self, snapshot: &str, recipe: &str) -> bool {
+        self.snapshot == snapshot && self.recipe.as_deref() == Some(recipe)
+    }
 }
 
 async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<ActiveStatic> {
     let row = sqlx::query(
         "SELECT unit.active_release_id, unit.serving_generation, release.source_kind,
                 release.canonical_iceberg_snapshot_id, release.pmtiles_object_key,
+                release.bake_inputs_sha256,
                 EXISTS (SELECT 1 FROM catalog.vector_tile_build_job AS build
                         WHERE build.result_release_id = release.id
                           AND build.kind = 'lakehouse_bake') AS produced_by_lakehouse_bake,
@@ -813,6 +824,7 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
         )?)
         .map_err(anyhow::Error::msg)?,
         snapshot: row.try_get("canonical_iceberg_snapshot_id")?,
+        recipe: row.try_get("bake_inputs_sha256")?,
         layer: ServedLayer {
             source_layer: row.try_get("source_layer")?,
             feature_id_property,
@@ -1036,6 +1048,17 @@ fn bake_inputs(
     );
     let banner = &images.tippecanoe.version_banner;
     format!("{:?}", (&images.gdal.image, banner, srid, args))
+}
+
+/// The recipe a release records (`vector_tile_release.bake_inputs_sha256`): the SHA-256 of
+/// `bake_inputs`, the digest the feature indexes are already named by.
+fn recipe_digest(inputs: &str) -> String {
+    format!("{:x}", Sha256::digest(inputs.as_bytes()))
+}
+
+/// Root ADR-0373: nothing to bake, said on the line the job reads its outcome from.
+fn unchanged(unit: &str, snapshot: &str) {
+    println!("lakehouse-tile-bake-unchanged unit={unit} gold_snapshot={snapshot} reason=\"the tiles already show this snapshot under this bake recipe\"");
 }
 
 /// GDAL then tippecanoe in `work`: `served.csv` in, `unit.pmtiles` out.
@@ -1274,13 +1297,13 @@ async fn bake_in(
         .await;
     }
     let active = read_active_static(&pool, &config.unit_key).await?;
-    ensure!(
-        active.snapshot != summary.canonical_iceberg_snapshot_id,
-        "the active release already serves Gold snapshot {}",
-        active.snapshot
-    );
     let srid = summary.geometry_srid;
     let inputs = bake_inputs(&contract.images, srid, &active.layer, &prepared.0, config);
+    let recipe = recipe_digest(&inputs);
+    if active.shows(&summary.canonical_iceberg_snapshot_id, &recipe) {
+        unchanged(&config.unit_key, &active.snapshot);
+        return Ok(());
+    }
     if config.rehearsal {
         return rehearse(
             config,
@@ -1311,6 +1334,7 @@ async fn bake_in(
             silver_source: crate::lakehouse_bake_verdict::silver_source(
                 summary.bound_silver_snapshot(),
             )?,
+            bake_inputs_sha256: Some(recipe),
         })
         .await?;
 
