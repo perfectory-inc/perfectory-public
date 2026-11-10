@@ -951,15 +951,15 @@ migrate_runtime() {
 # resolves that link when it creates a container, so a release that changes them needs a new
 # container. Compose decides that from their config hash, which carries a digest of those files
 # (foundation-runtime.sh, compose.observability.yml): a release that changes neither leaves both
-# running, with no WAL replay and no restart. `--force-recreate` replaced both on every deploy and,
-# without --no-deps, ran the postgres chain's one-shot containers a second time. Their data and the
+# running, with no WAL replay and no restart; `--force-recreate` replaced both on every deploy. The
+# chain they depend on is compose's, already brought up by `migrate`. Their data and the
 # notification log live in volumes, so a recreate loses neither, and a firing alert is restored,
 # not sent again. node-exporter serves the deploy's textfile (root ADR-0321 §5) and with cAdvisor
 # the host's disk, memory, OOM and cap series (root ADR-0385).
 apply_observability() {
   assert_current_release
   local runtime="${release_root}/current/scripts/deploy/foundation-runtime.sh"
-  "${runtime}" up -d --wait --no-deps alertmanager prometheus node-exporter cadvisor
+  "${runtime}" up -d --wait alertmanager prometheus node-exporter cadvisor
 }
 
 # The lakehouse half of `migrate` (root ADR-0124): every published lakehouse table is brought to

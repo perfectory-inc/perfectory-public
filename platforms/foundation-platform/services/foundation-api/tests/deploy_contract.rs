@@ -369,9 +369,13 @@ fn observability_compose_scrapes_routes_and_persists_foundation_alerts() -> Test
         );
     }
     // Docker resolves `current` when it creates a container, so a changed rule is read only by a
-    // recreated Prometheus.
+    // recreated Prometheus: the digest of its files is a label, so compose recreates it when they
+    // change and only then (2026-11-10: a recreate on every deploy outlived its health check).
+    assert!(compose.contains("perfectory.config-digest: ${FOUNDATION_PROMETHEUS_CONFIG_DIGEST:"));
+    let runtime = read_area_file("scripts/deploy/foundation-runtime.sh")?;
+    assert!(runtime.contains("FOUNDATION_PROMETHEUS_CONFIG_DIGEST=\"$(config_digest prometheus)\""));
     let release = read_area_file("scripts/deploy/foundation-release.sh")?;
-    assert!(release.contains("up -d --wait --force-recreate prometheus alertmanager"));
+    assert!(release.contains("up -d --wait alertmanager prometheus node-exporter cadvisor"));
     Ok(())
 }
 

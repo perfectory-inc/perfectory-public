@@ -117,13 +117,13 @@ class TheyAreRecreatedOnlyWhenTheirFilesChange(unittest.TestCase):
         self.assertEqual(self.digests()[0], moved_prometheus)
         self.assertNotEqual(self.digests()[1], alertmanager)
 
-    def test_the_release_neither_forces_a_recreate_nor_runs_the_postgres_chain_again(self):
+    def test_the_release_does_not_force_a_recreate_and_migrate_leaves_monitoring_alone(self):
         text = RELEASE.read_text(encoding="utf-8")
         commands = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
         self.assertEqual([line for line in commands if "--force-recreate" in line], [])
         body = text[text.index("apply_observability() {"):]
         body = body[: body.index("\n}\n")]
-        self.assertIn("up -d --wait --no-deps alertmanager prometheus node-exporter cadvisor", body)
+        self.assertIn("up -d --wait alertmanager prometheus node-exporter cadvisor", body)
         migrate = text[text.index("migrate_runtime() {"):]
         self.assertNotIn("prometheus", migrate[: migrate.index("\n}\n")])
 
