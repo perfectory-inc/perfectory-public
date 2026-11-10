@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "ILIS 고시 상세를 읽을 때마다(실패 포함) 고시 하나에 한 행을 쌓는다: 고시 번호·단지 코드·제목·고시일·종류·첨부 수. 수집기가 다음 실행에 물을 고시를 이 표에서 계산한다(루트 ADR-0484). 아직 흐르지 않는다: 수집·적재 작업이 첫 attended run 을 잴 때까지 꺼져 있다(ADR-0386 §3)."
+  purpose: "ILIS 고시 상세를 읽을 때마다(실패 포함) 고시 하나에 한 행을 쌓는다: 고시 번호·단지 코드·제목·고시일·종류·첨부 수. 수집기가 다음 실행에 물을 고시를 이 표에서 계산한다(루트 ADR-0484)."
 team:
   name: "foundation-platform"
 servers:

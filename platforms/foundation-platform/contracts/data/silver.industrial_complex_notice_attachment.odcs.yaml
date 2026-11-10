@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "고시마다 그 첨부(PDF·HWP·HWPX·ZIP·그림, 그 밖은 bin)를 내용 해시로 한 번씩 쌓는다: 파일 이름·제공자 크기·출처 URL·받은 시각·형식·바이트 수. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0298, ADR-0484). 읽기·추출은 이 표로 저장소를 찾아 intelligence platform 이 ai-server 에서 나중에 한다 — 그 소비자는 아직 없고, 수집·적재 작업은 첫 attended run 을 잴 때까지 꺼져 있다(ADR-0386 §3)."
+  purpose: "고시마다 그 첨부(PDF·HWP·HWPX·ZIP·그림, 그 밖은 bin)를 내용 해시로 한 번씩 쌓는다: 파일 이름·제공자 크기·출처 URL·받은 시각·형식·바이트 수. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0298, ADR-0484). 읽기·추출은 이 표로 저장소를 찾아 intelligence platform 이 ai-server 에서 나중에 한다"
 team:
   name: "foundation-platform"
 servers:

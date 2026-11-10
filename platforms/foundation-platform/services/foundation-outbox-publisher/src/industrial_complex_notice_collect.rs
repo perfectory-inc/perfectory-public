@@ -463,33 +463,32 @@ async fn read_attachment(
     let Some(storage) = storage else {
         return Ok(StoreOutcome::DryRun);
     };
-    let outcome = match store_bytes_as(&bytes, format, prefix, storage, attachments.max_file_bytes)
-        .await
-    {
-        Ok(Stored::New(media)) => {
-            report.stored += 1;
-            report.bytes_stored += media.size_bytes;
-            StoreOutcome::Stored
-        }
-        Ok(Stored::Deduplicated(_)) => {
-            report.deduplicated += 1;
-            StoreOutcome::Deduplicated
-        }
-        Ok(Stored::Oversize) => {
-            report.oversize += 1;
-            return Ok(StoreOutcome::Oversize);
-        }
-        // `store_bytes_as` names the format itself, so neither comes back; counted if one ever does.
-        Ok(Stored::UnknownFormat | Stored::Gone) => {
-            report.failed += 1;
-            return Ok(StoreOutcome::Failed);
-        }
-        Err(error) => {
-            report.failed += 1;
-            file["error"] = json!(format!("{error:#}"));
-            return Ok(StoreOutcome::Failed);
-        }
-    };
+    let outcome =
+        match store_bytes_as(&bytes, format, prefix, storage, attachments.max_file_bytes).await {
+            Ok(Stored::New(media)) => {
+                report.stored += 1;
+                report.bytes_stored += media.size_bytes;
+                StoreOutcome::Stored
+            }
+            Ok(Stored::Deduplicated(_)) => {
+                report.deduplicated += 1;
+                StoreOutcome::Deduplicated
+            }
+            Ok(Stored::Oversize) => {
+                report.oversize += 1;
+                return Ok(StoreOutcome::Oversize);
+            }
+            // `store_bytes_as` names the format itself, so neither comes back; counted if one ever does.
+            Ok(Stored::UnknownFormat | Stored::Gone) => {
+                report.failed += 1;
+                return Ok(StoreOutcome::Failed);
+            }
+            Err(error) => {
+                report.failed += 1;
+                file["error"] = json!(format!("{error:#}"));
+                return Ok(StoreOutcome::Failed);
+            }
+        };
     let entry = report
         .by_format
         .entry(format.extension().to_owned())

@@ -26,7 +26,14 @@
         ],
         "deadline": "infra/lakehouse/contracts/industryland-or-kr.contract.json#/notice_detail/run_time_budget_seconds",
         "measured_run_seconds": null,
-        "unmeasured_reason": "New 2026-11-09 (root ADR-0484) and never run as its unit in the journal; enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1900,
+          "estimated_from": "computed from its own bounds: the list in one request (13.5 MB, measured 2026-11-09 in a few seconds) and then notices until notice_detail.run_time_budget_seconds (1,800 s) stops the loop, the last notice (one detail and about one attachment, two seconds between requests) finishing after it: about 1,900 s, inside the 2,160 s share of the 40-minute limit. Each 50 notices commit on their own (as_it_goes)."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider publishes notices on no fixed day (endpoint catalog expected_cadence irregular, ilis-industrial_complex_notice_detail); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
       },
       "pool": "default_pool",
       "retries": 0,
@@ -35,9 +42,10 @@
         "source-ilis-to-silver-industrial-complex-notice-attachment",
         "silver-industrial-complex-notice-detail-to-source-ilis"
       ],
-      "enabled": false,
-      "disabled_reason": "New 2026-11-09 (root ADR-0484) and never run: ADR-0386 §3 wants one attended run measured first (a dry run without _LIVE_WRITE, then one live run). Turned on by the pull request that records that run and sets enabled_since.",
-      "started_once_after_deploy": false
+      "enabled": true,
+      "enabled_since": "2026-11-10T21:00:00Z",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
     },
     {
       "id": "industrial_complex_notice_silver",
@@ -62,19 +70,27 @@
         ],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "New 2026-11-09 (root ADR-0484) and never run as its unit in the journal; it has nothing to load until industrial_complex_notice_collect runs, and enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed from court_auction_silver, the same plan-then-container Spark load (measured 278 s for one run); one collector run leaves at most eight objects (400 notices, 50 to an object), so about twice it, 600 s, inside the 2,160 s share of the 40-minute limit"
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its collector wrote a notice object; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
       },
       "pool": "spark",
-      "pool_slots": 3,
-      "priority_weight": 1,
+      "pool_slots": 1,
+      "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-ilis-to-silver-industrial-complex-notice-detail",
         "source-ilis-to-silver-industrial-complex-notice-attachment"
       ],
-      "enabled": false,
-      "disabled_reason": "New 2026-11-09 (root ADR-0484) and never run: nothing lands for it until industrial_complex_notice_collect is on, and ADR-0386 §3 wants one attended run measured first. Turned on with the collector by the pull request that records both runs.",
-      "started_once_after_deploy": false
+      "enabled": true,
+      "enabled_since": "2026-11-10T21:00:00Z",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
     }
   ],
   "host_memory": {
@@ -90,7 +106,7 @@
       "id": "silver-industrial-complex-notice-detail",
       "type": "silver_table",
       "title": "산업단지 고시 읽은 기록",
-      "description": "ILIS 고시 상세를 읽을 때마다(실패 포함) 고시 하나에 한 행을 쌓는다: 고시 번호·단지 코드·제목·고시일·종류·첨부 수. 수집기가 다음 실행에 물을 고시를 이 표에서 계산한다(루트 ADR-0484). 아직 흐르지 않는다: 수집·적재 작업이 첫 attended run 을 잴 때까지 꺼져 있다(ADR-0386 §3).",
+      "description": "ILIS 고시 상세를 읽을 때마다(실패 포함) 고시 하나에 한 행을 쌓는다: 고시 번호·단지 코드·제목·고시일·종류·첨부 수. 수집기가 다음 실행에 물을 고시를 이 표에서 계산한다(루트 ADR-0484).",
       "status": "contract_only",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -109,7 +125,7 @@
       "id": "silver-industrial-complex-notice-attachment",
       "type": "silver_table",
       "title": "산업단지 고시 첨부",
-      "description": "고시마다 그 첨부(PDF·HWP·HWPX·ZIP·그림, 그 밖은 bin)를 내용 해시로 한 번씩 쌓는다: 파일 이름·제공자 크기·출처 URL·받은 시각·형식·바이트 수. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0298, ADR-0484). 읽기·추출은 이 표로 저장소를 찾아 intelligence platform 이 ai-server 에서 나중에 한다 — 그 소비자는 아직 없고, 수집·적재 작업은 첫 attended run 을 잴 때까지 꺼져 있다(ADR-0386 §3).",
+      "description": "고시마다 그 첨부(PDF·HWP·HWPX·ZIP·그림, 그 밖은 bin)를 내용 해시로 한 번씩 쌓는다: 파일 이름·제공자 크기·출처 URL·받은 시각·형식·바이트 수. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0298, ADR-0484). 읽기·추출은 이 표로 저장소를 찾아 intelligence platform 이 ai-server 에서 나중에 한다",
       "status": "contract_only",
       "owner": "foundation-platform",
       "evidence_refs": [
@@ -140,7 +156,7 @@
       "source_slugs": [
         "industrylandorkr__industrial_complex_notice_detail"
       ],
-      "description": "아직 끝나지 않은 고시의 상세를 새 것부터 묻고 읽은 기록을 쌓는다(루트 ADR-0484). 두 작업이 꺼진 채라 아직 흐르지 않는다."
+      "description": "아직 끝나지 않은 고시의 상세를 새 것부터 묻고 읽은 기록을 쌓는다(루트 ADR-0484)."
     },
     {
       "from": "source-ilis",
@@ -156,7 +172,7 @@
       "source_slugs": [
         "industrylandorkr__industrial_complex_notice_detail"
       ],
-      "description": "고시의 첨부를 형식에 상관없이 받아 공용 미디어 저장소에 내용 해시로 한 번만 담고, 색인을 쌓는다(루트 ADR-0484). 두 작업이 꺼진 채라 아직 흐르지 않는다."
+      "description": "고시의 첨부를 형식에 상관없이 받아 공용 미디어 저장소에 내용 해시로 한 번만 담고, 색인을 쌓는다(루트 ADR-0484)."
     },
     {
       "from": "silver-industrial-complex-notice-detail",

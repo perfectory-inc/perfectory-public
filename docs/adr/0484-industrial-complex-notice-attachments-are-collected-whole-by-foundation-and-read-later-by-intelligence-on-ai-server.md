@@ -5,7 +5,8 @@
 - Builds on: [ADR-0298](./0298-content-addressed-media-is-a-write-once-store-not-a-per-object-bronze-ledger.md)(내용주소 저장소),
   [ADR-0429](./0429-a-photo-whose-collector-run-left-its-ladder-gets-it-from-the-silver-photo-index-hourly.md) §1(저장 하나),
   [ADR-0352](./0352-court-auction-recrawl-is-computed-each-run-from-the-lakehouse-not-a-stored-queue.md)(다음에 물을 것은 레이크하우스에서 계산),
-  [ADR-0386](./0386-every-job-states-its-per-run-bound-in-one-vocabulary-and-its-measured-runs-fit-its-unit.md) §3(새 작업은 꺼진 채),
+  [ADR-0457](./0457-a-job-never-run-takes-its-first-run-unattended-bounded-by-its-unit-and-the-run-is-the-measurement.md)(첫 run 은 사람 없이, 유닛의 상한 안에서),
+  [ADR-0480](./0480-every-job-is-held-to-the-outcome-its-definition-expects-not-to-its-units-exit.md)(정의가 기대하는 결과),
   ITP-ADR-0002(RAG 는 Foundation 이 낸 것을 읽는다)
 
 ## Context
@@ -59,8 +60,14 @@
 5. **대조기.** 첨부 색인은 미디어 대조기(ADR-0387)의 `media.reconcile.index_tables` 에 들어간다. 막는 사고: 첨부가
    같은 `sha256/` 에 쌓이는데 대조기가 사진 색인만 보면 첨부 ~2만 개가 전부 고아로 세어져 매일 경보한다(ADR-0429 의
    경매 사진과 같은 일).
-6. **꺼진 채로 들어온다**(ADR-0386 §3): 두 작업 모두 `measured_run_seconds` 가 없어 켤 수 없다. 운영자가 한 번
-   `_LIVE_WRITE` 없이(받기만, 저장 없음), 이어 한 번 실제로 돌려 run 시간을 잰 PR 이 켠다.
+6. **켜진 채로 들어온다**(ADR-0457): 두 작업 모두 `per_run_cap.first_run` 을 적고 사람 없이 첫 run 을 돈다. 수집기는
+   1,900 초(목록 한 번 + `run_time_budget_seconds` 1,800 초 + 마지막 고시), Silver 적재는 같은 꼴의 경매 Silver 적재(잰 278 초)에서
+   600 초로 계산했다 — 둘 다 40 분 제한의 90 %(2,160 초) 안이다. Silver 적재는 매시 Silver 이웃(공매·실거래 Silver)과 같이
+   Spark 풀 1 칸·우선순위 10 이다: 3 칸·우선순위 1 이면 매시 입력에 대해 풀 굶주림 한계(20 주기)를 넘는다(`job_specs.pool_starvation`). 둘 다 `commits: as_it_goes`·`retries: 0` 이다. 첫 run 의 저널이
+   곧 측정이고, 그 값을 적는 PR 이 `first_run` 을 지운다.
+7. **기대 결과**(ADR-0480): 고시는 정해진 공개일이 없어(엔드포인트 카탈로그 `expected_cadence.release = irregular`) 두 작업 모두
+   `changes_within_hours` 가 null 이고 이유를 적는다. 살아 있음은 모든 켜진 작업의 `done` 기대(일정 한 주기 + 제한 안에 `changed`
+   또는 `unchanged`)가 본다. 과거 고시 채우기 동안은 매 run 이 `changed` 다.
 
 ### 대안
 
@@ -88,8 +95,8 @@ WET 텍스트 파생, Apache Tika·Unstructured 를 원본 저장 뒤 파생 단
   bin 은 R2 로만 읽힌다(추출은 ai-server 에서 R2 를 직접 읽는다). 화면에 보이는 일은 intelligence 의 추출이 생긴 뒤다.
 - 단지 코드(`danji_cd`)와 고시 번호만 싣고, 고시의 법정동 코드(`noti_addr`)는 Silver 에 옮기지 않는다(Bronze 에 그대로
   있다): 코드 변경 따라가기(ADR-0329 §3)가 필요한 값을 새로 만들지 않는다. 단지 연결은 `official_complex_code` 이다.
-- **검증하지 못한 것**: 운영 run 시간·메모리(첫 attended run), 표본 밖의 형식·최대 크기(첫 바퀴의
+- **검증하지 못한 것**: 운영 run 시간·메모리(첫 run 의 저널), 표본 밖의 형식·최대 크기(첫 바퀴의
   `industrial-complex-notice-summary-json` 의 `attachments.by_format`·`oversize`), 오래된 고시 파일이 사라진 비율(`gone`).
-- 남은 일: (1) 첫 attended run 을 재고 두 작업을 켜는 PR; (2) intelligence platform 의 문서 읽기(PDF 텍스트·OCR,
+- 남은 일: (1) 첫 run 의 저널로 `measured_run_seconds` 를 적고 `first_run` 을 지우는 PR; (2) intelligence platform 의 문서 읽기(PDF 텍스트·OCR,
   HWP 5/HWPX 텍스트 — 성숙한 OSS: pdfplumber/docling, pyhwp/LibreOffice)와 ai-server 로컬 모델 추출, 그 결과의 단지 패널
   절과 단지-필지 소속(`silver.complex_parcel_memberships`) 공급 — 별도 ADR.
