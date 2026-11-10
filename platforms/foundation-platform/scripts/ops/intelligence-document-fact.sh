@@ -34,12 +34,7 @@ if [ "${planned}" = 0 ]; then
 fi
 
 intelligence_document_fetch_media "${work}/plan/media.tsv"
-read -r model_base model_path model_name < <(intelligence_document_model_gateway)
-intelligence_document_image document_text --network host \
-  -e MODEL_RUNTIME_BASE_URL="${model_base}" -e MODEL_RUNTIME_CHAT_PATH="${model_path}" \
-  -e MODEL_RUNTIME_DEFAULT_MODEL="${model_name}" \
-  -v "${work}/plan:/plan:ro" -v "${work}/media:/media:ro" -v "${work}/out:/out" --entrypoint python \
-  -- -m document_text.fact_run --pages /plan --media /media --out /out
+intelligence_document_fact_run
 intelligence_document_spark append-facts --run-dir "${container_work}/out" --run-id "${run_id}"
 
 read_summary="$(python3 -I -c '

@@ -35,9 +35,7 @@ if [ "${planned}" = 0 ]; then
 fi
 
 intelligence_document_fetch_media "${work}/plan/media.tsv"
-intelligence_document_image document_text --network none \
-  -v "${work}/plan:/plan:ro" -v "${work}/media:/media:ro" -v "${work}/out:/out" \
-  -- --index /plan/index.jsonl --media /media --out /out
+intelligence_document_text_run
 intelligence_document_spark append-text --run-dir "${container_work}/out" --run-id "${run_id}"
 
 read_summary="$(python3 -I -c '

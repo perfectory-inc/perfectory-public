@@ -91,7 +91,7 @@
   "containers": {
     "document_text": {
       "image": "intelligence-document-text:local",
-      "image_from": "the release's own build of jobs/document_text/Dockerfile (jobs/document_text/compose.yml), tagged by the release admission like every compose image (root ADR-0276 §13)",
+      "image_from": "the release's own build of jobs/document_text/Dockerfile (compose.document-jobs.yml), tagged by the release admission like every compose image (root ADR-0276 §13)",
       "memory_limit": "2g",
       "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): the run process 486 MiB plus its largest tool process 777 MiB (LibreOffice or ocrmypdf), 97 attachments on 2026-11-11 (root ADR-0477, Consequences). Raising ocr_jobs means measuring again.",
       "cpus": 4,

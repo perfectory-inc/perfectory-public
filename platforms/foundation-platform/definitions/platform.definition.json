@@ -1525,7 +1525,7 @@
           "why": "A staff console's own compose file only builds its image, in CI, into the signed release (root ADR-0434); what a console runs on the host is a service of a host project above (compose.console.yml), counted there."
         },
         {
-          "path_prefix": "platforms/intelligence-platform/jobs/",
+          "path_prefix": "platforms/intelligence-platform/compose.document-jobs.yml",
           "why": "A job image's own compose file only builds it, in CI, into the signed release (root ADR-0477 §6); the host's job script runs it under the cap its contract states, counted in the job's host_memory."
         }
       ]

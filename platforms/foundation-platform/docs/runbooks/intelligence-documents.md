@@ -30,7 +30,7 @@ ADR-0478(로컬 모델 런타임)의 운영 절차다. 값(추출기 판·쪽 �
 - **왜 사실 작업은 spark 풀 전부인가.** 모델 런타임을 `Requires=` 하므로 그 run 동안 모델이 뜬다. 풀을 다 쥐어 모델이 Spark 옆에서
   메모리를 쥐지 않는다(ADR-0478 §2). 하루 한 번(02:50 UTC)이고 입력이 바뀌었다는 신호로는 시작하지 않는다: 매시 시작하면 같은 굶주림
   한도를 넘는다.
-- **이미지는 서버에서 짓지 않는다.** CI 의 릴리스 빌드가 `platforms/intelligence-platform/jobs/document_text/compose.yml` 로 짓고 서명한
+- **이미지는 서버에서 짓지 않는다.** CI 의 릴리스 빌드가 `platforms/intelligence-platform/compose.document-jobs.yml` 로 짓고 서명한
   릴리스에 담는다. 릴리스 승인이 compose 이름으로 태그한다(루트 ADR-0276 §13). 그 이미지가 없는 옛 릴리스로 되돌려도 승인된다.
 - **판은 이미지의 것이다.** 계획 단계는 이미지가 담은 계약(`/opt/intelligence/config/document-extraction.contract.json`)을 꺼내 읽는다.
   그래서 한 run 이 한 판으로 계획하고 다른 판으로 읽는 일이 없다. 판을 올리는 것은 전량 재처리이고 선언된 예외다(ADR-0477 §3).

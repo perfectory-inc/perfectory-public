@@ -43,7 +43,7 @@ SCHEMA = "foundation-platform.release_manifest.v1"
 # The Dawneer console's (root ADR-0434) and the intelligence document jobs' (root ADR-0477 §6) sit with
 # their source, outside the platform tree.
 COMPOSE_FILES = ("docker-compose.yml", "compose.recovery.yml", "compose.lakehouse.yml", "compose.orchestration.yml",
-                 "../../consoles/dawneer/compose.yml", "../intelligence-platform/jobs/document_text/compose.yml")
+                 "../../consoles/dawneer/compose.yml", "../intelligence-platform/compose.document-jobs.yml")
 FILE_MODES = {"foundation-outbox-publisher": "0555"}
 JAR_MODE = "0444"
 

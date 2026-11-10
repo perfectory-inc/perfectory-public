@@ -1,12 +1,13 @@
 # The one build of the document jobs' image (root ADR-0477 §6). The release build (scripts/deploy/
 # foundation-release-build.py) reads it and puts the image in the signed release; the data host never
 # builds it, and its job scripts (platforms/foundation-platform/scripts/ops/intelligence-document-*.sh)
-# run it under the caps config/document-extraction.contract.json states. Nothing starts it from here.
+# run it under the caps config/document-extraction.contract.json states. It sits at the platform root
+# because the build context is the whole platform (config/ and jobs/). Nothing starts it from here.
 services:
   document-text:
     image: intelligence-document-text:local
     build:
-      context: ../..
+      context: .
       dockerfile: jobs/document_text/Dockerfile
     profiles: ["build-only"]
     network_mode: none
