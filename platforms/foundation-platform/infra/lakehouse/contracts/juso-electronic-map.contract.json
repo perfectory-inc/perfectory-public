@@ -1,0 +1,162 @@
+{
+  "$comment": "Root ADR-0475 (amends ADR-0355 §3). The 주소정보 전자지도 daily changes from the official 데이터 연계 (변동자료 연계서비스) of 주소기반산업지원서비스: one approval key (config/runtime-secrets.contract.json group juso, FOUNDATION_PLATFORM_JUSO_APP_KEY) and one URL, update.juso.go.kr/updateInfo.do, asked per request code (cntc_cd) and day. The collector (`collect-juso-electronic-map` in services/foundation-outbox-publisher) and the Silver load read this file; nothing else restates these values. The wire format, request codes, members and columns are the provider's public guide (`guide`), read 2026-11-10; the error answer was measured the same day (no key: HTTP 200, header err_code E0001 and approval_yn N, empty body). Sizes are not measured yet: the first run with the key is the measurement (root ADR-0457).",
+  "version": 1,
+  "guide": {
+    "title_ko": "국가주소연계서비스 변동자료 연계서비스 가이드(기타언어)",
+    "url": "https://business.juso.go.kr/api/jst/download?fileName=AddrLinkEtc.pdf&realFileName=AddrLinkEtc.pdf&regYmd=2018",
+    "read_at": "2026-11-10",
+    "pages": 72
+  },
+  "base_url": "https://update.juso.go.kr",
+  "path": "/updateInfo.do",
+  "user_agent": "foundation-platform-juso-electronic-map-collector/1 (+root ADR-0475; daily changes, one window per request)",
+  "app_key_env": "FOUNDATION_PLATFORM_JUSO_APP_KEY",
+  "request_spacing_seconds": 3,
+  "request_timeout_seconds": 600,
+  "query": {
+    "$comment": "Guide §3.1. date_gb D: the map files are daily-change only (the guide's 주요입력파라미터: 매칭데이터 및 지도 자료는 D만 가능). retry_in Y: the re-reflected files (재반영) come with the daily ones; each says so in its header (retry). req_dt/req_dt2 are always sent: without them the server picks the window from its own last-delivery record and answers P1000 (nothing) to a second ask the same day, so a lost run would lose its files. With them the ask is a pure function of the window and can be repeated.",
+    "date_gb": "D",
+    "retry_in": "Y",
+    "from_param": "req_dt",
+    "to_param": "req_dt2",
+    "date_format": "%Y%m%d",
+    "max_window_days": 10
+  },
+  "answer": {
+    "$comment": "Guide §3.2. The body is a run of records, one per file: a 100-byte header, then the file (a zip) of the header's size. The header's fields are fixed-width ASCII at these byte offsets (start inclusive, end exclusive); the rest of the 100 bytes is padding. An answer without files is HTTP 200 with the response header err_code and an empty body.",
+    "header_bytes": 100,
+    "fields": {
+      "file_sequence": [0, 2],
+      "base_date": [2, 10],
+      "file_name": [10, 60],
+      "file_size": [60, 70],
+      "result_code": [70, 75],
+      "request_code": [75, 81],
+      "retry": [81, 82],
+      "created_date": [82, 90]
+    },
+    "error_header": "err_code",
+    "max_file_bytes": 2000000000
+  },
+  "result_codes": {
+    "$comment": "Guide §3.3. ok: the files are in the body. no_files: nothing for the window (a day the provider made no file: weekends, holidays, a kind with no change); the window is done. refused: the key or the code is not ours — the run stops asking at once, lands nothing more, and fails so the unit's OnFailure raises the alert (root ADR-0445); the next scheduled run asks again by itself, so no file has to be removed by a person (root ADR-0475 §4). ours: a request this collector built wrong; the run fails the same way. provider: the provider's own failure; that request code stops for this run and the window is asked again next run.",
+    "ok": ["P0000"],
+    "no_files": ["E1001"],
+    "refused": ["E0001", "E0002", "E0003", "E0004", "E1008"],
+    "ours": ["P1000", "E1002", "E1004", "E1006", "E1007"],
+    "provider": ["E1005", "E1999"]
+  },
+  "backfill": {
+    "$comment": "Each request code keeps its own cursor (the next day to ask, in the state directory); a run asks its windows oldest first, max_window_days days each, up to yesterday in KST (today's files are made after 07:00 KST and a window holding today could miss them). first_day is the start of the history the daily changes are kept for (a public implementer read files back to 2020; the first run measures it: a window answered E1001 moves the cursor on). The per-run cap is max_windows_per_run windows per request code and max_bytes_per_run over the whole run, whichever comes first; the cursor stops where the run stopped, so the next run goes on from there. With 2,505 days from first_day to 2026-11-09, a request code is 251 windows, about 9 daily runs at 30 windows.",
+    "first_day": "2020-01-01",
+    "timezone": "Asia/Seoul",
+    "max_windows_per_run": 30,
+    "max_bytes_per_run": 6000000000
+  },
+  "request_codes": {
+    "300001": {
+      "document_code": "JUSURB",
+      "name_ko": "도로명주소 건물도형",
+      "published": "daily",
+      "tables": ["TI_SGCO_RNADR_MST", "TI_SPBD_ENTRC", "TI_SPOT_CNTC"]
+    },
+    "300002": {
+      "document_code": "JUSUED",
+      "name_ko": "건물군 내 상세주소 동 도형",
+      "published": "daily",
+      "tables": ["TI_SGCO_RNADR_DONG", "TI_SPBD_ENTRC_DONG"]
+    },
+    "300003": {
+      "document_code": "JUSUZG",
+      "name_ko": "도로명이 부여된 도로 도형",
+      "published": "daily",
+      "tables": ["TI_SPRD_MANAGE", "TI_SPRD_INTRVL", "TI_SPRD_RW"]
+    },
+    "300006": {
+      "document_code": "JUSUGE",
+      "name_ko": "구역의 도형",
+      "published": "monthly",
+      "tables": ["TI_SCCO_CTPRVN", "TI_SCCO_SIG", "TI_SCCO_EMD", "TI_SCCO_LI", "TI_SCCO_GEMD", "TI_KODIS_BAS", "TI_SPPN_MAKAREA"]
+    }
+  },
+  "kinds": {
+    "$comment": "The 11 kinds of the endpoint catalog (group juso_electronic_map_bulk, Bronze source jusogokr__<kind>). A kind is one or more tables of one request code's file. A received file lands once in the Bronze of every kind its request code serves, byte for byte as the provider sent it (same SHA-256), so each kind's Silver reads only its own source (the owner's partial rule) and no file is cut apart before Bronze. Inside the zip a table is the members <AlterD>.<document_code>.<YYYYMMDD>.<table>.shp/.shx/.dbf and its removals <...>.<table>.Deletion.TXT (the removed rows' primary key only, guide p.34). key is the table's primary key (guide pp.54–71); legal_code is the column that places the row under a 법정동 code (the whole code or its 시도·시군구 prefix), which a code change moves (root ADR-0329 §3). Geometry is EPSG:5179.",
+    "building": {
+      "request_code": "300001",
+      "tables": ["TI_SGCO_RNADR_MST"],
+      "name_ko": "도로명주소 건물 도형",
+      "key": ["ADR_MNG_NO", "RN_CD", "BULD_SE_CD", "BULD_MNNM", "BULD_SLNO"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "building_entrance": {
+      "request_code": "300001",
+      "tables": ["TI_SPBD_ENTRC"],
+      "name_ko": "도로명주소 건물 출입구",
+      "key": ["SIG_CD", "ENT_MAN_NO"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "building_group": {
+      "request_code": "300002",
+      "tables": ["TI_SGCO_RNADR_DONG", "TI_SPBD_ENTRC_DONG"],
+      "name_ko": "건물군 내 상세주소 동 도형",
+      "key": ["ADR_MNG_NO", "BD_MGT_SN"],
+      "legal_code": {"column": "BD_MGT_SN", "level": "ri"}
+    },
+    "road_section": {
+      "request_code": "300003",
+      "tables": ["TI_SPRD_MANAGE"],
+      "name_ko": "도로구간",
+      "key": ["SIG_CD", "RDS_MAN_NO"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "base_interval": {
+      "request_code": "300003",
+      "tables": ["TI_SPRD_INTRVL"],
+      "name_ko": "기초구간",
+      "key": ["SIG_CD", "RDS_MAN_NO", "BSI_INT_SN"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "road_width": {
+      "request_code": "300003",
+      "tables": ["TI_SPRD_RW"],
+      "name_ko": "실폭도로",
+      "key": ["SIG_CD", "RW_SN"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "basic_area": {
+      "request_code": "300006",
+      "tables": ["TI_KODIS_BAS"],
+      "name_ko": "국가기초구역",
+      "key": ["BAS_MGT_SN"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "legal_sido": {
+      "request_code": "300006",
+      "tables": ["TI_SCCO_CTPRVN"],
+      "name_ko": "법정구역 시도",
+      "key": ["CTPRVN_CD"],
+      "legal_code": {"column": "CTPRVN_CD", "level": "sido"}
+    },
+    "legal_sigungu": {
+      "request_code": "300006",
+      "tables": ["TI_SCCO_SIG"],
+      "name_ko": "법정구역 시군구",
+      "key": ["SIG_CD"],
+      "legal_code": {"column": "SIG_CD", "level": "sigungu"}
+    },
+    "legal_emd": {
+      "request_code": "300006",
+      "tables": ["TI_SCCO_EMD"],
+      "name_ko": "법정구역 읍면동",
+      "key": ["EMD_CD"],
+      "legal_code": {"column": "EMD_CD", "level": "eupmyeondong"}
+    },
+    "legal_ri": {
+      "request_code": "300006",
+      "tables": ["TI_SCCO_LI"],
+      "name_ko": "법정구역 리",
+      "key": ["LI_CD"],
+      "legal_code": {"column": "LI_CD", "level": "ri"}
+    }
+  }
+}

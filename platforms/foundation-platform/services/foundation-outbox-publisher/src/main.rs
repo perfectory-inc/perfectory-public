@@ -95,6 +95,7 @@ use foundation_publisher_core::by_pnu_gateway_contract;
 #[cfg(test)]
 use foundation_publisher_core::test_support;
 mod handoff_object_support;
+mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
@@ -165,6 +166,7 @@ enum Command {
     CollectRtMolitRealTransaction,
     CollectCourtauctionGoKr,
     CollectDataGoKrFileData,
+    CollectJusoElectronicMap,
     PlanSilverLoadObjects,
     ListLakehouseObjects,
     MediaLadderBacklog,
@@ -348,6 +350,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
             bail!("collect-courtauction-go-kr runs on the Linux host only (BoringSSL)")
         }),
         Command::CollectDataGoKrFileData => Box::pin(data_go_kr_file_data_collect::run()),
+        Command::CollectJusoElectronicMap => Box::pin(juso_electronic_map_collect::run()),
         Command::PlanSilverLoadObjects => Box::pin(silver_load_objects::run()),
         Command::ListLakehouseObjects => Box::pin(lakehouse_object_listing::run()),
         Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
@@ -718,6 +721,7 @@ where
         Some("collect-rt-molit-real-transaction") => Ok(Command::CollectRtMolitRealTransaction),
         Some("collect-courtauction-go-kr") => Ok(Command::CollectCourtauctionGoKr),
         Some("collect-data-go-kr-file-data") => Ok(Command::CollectDataGoKrFileData),
+        Some("collect-juso-electronic-map") => Ok(Command::CollectJusoElectronicMap),
         Some("plan-silver-load-objects") => Ok(Command::PlanSilverLoadObjects),
         Some("list-lakehouse-objects") => Ok(Command::ListLakehouseObjects),
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
