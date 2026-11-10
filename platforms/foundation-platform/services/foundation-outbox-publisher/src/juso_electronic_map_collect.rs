@@ -7,7 +7,9 @@
 //! directory). A run asks windows of at most ten days, oldest first, from the cursor to yesterday in
 //! KST, always naming the window (`req_dt`/`req_dt2`) so an ask can be repeated; it stops at the
 //! per-run cap (windows per code, bytes per run). An answer is a run of records, a 100-byte header
-//! and a zip each. Every zip lands, byte for byte, in the Bronze of every kind its request code
+//! and a zip each; a record with a blank file name is one day's own answer and carries no file (the
+//! provider's own client reads it so). An answer the collector cannot read is kept, as received, in
+//! the run directory's `quarantine/` before the run fails, so its real shape is evidence. Every zip lands, byte for byte, in the Bronze of every kind its request code
 //! serves (`jusogokr__<kind>`), its object named by the provider's file name, retry flag and making
 //! date, so landing a file twice is the committer's idempotent success. The cursor moves past a
 //! window only after all of its files are committed.
@@ -73,6 +75,8 @@ pub(crate) struct Query {
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct AnswerFormat {
     pub(crate) header_bytes: usize,
+    pub(crate) count_header: String,
+    pub(crate) quarantine_bytes: usize,
     pub(crate) fields: BTreeMap<String, [usize; 2]>,
     pub(crate) error_header: String,
     pub(crate) max_file_bytes: u64,
@@ -196,7 +200,8 @@ pub(crate) fn classify(codes: &ResultCodes, code: &str) -> Outcome {
     }
 }
 
-/// One file of an answer: its header's fields and its bytes.
+/// One record of an answer: its header's fields and its file's bytes. A blank `file_name` is a
+/// record without a file (one day's own answer, its `result_code`).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Received {
     pub(crate) sequence: String,
@@ -222,7 +227,13 @@ fn field<'h>(format: &AnswerFormat, header: &'h [u8], name: &str) -> anyhow::Res
     Ok(text.trim_matches(|c: char| c.is_whitespace() || c == '\0'))
 }
 
-/// Reads one header; the size is the file's bytes that follow it.
+impl Received {
+    pub(crate) fn has_file(&self) -> bool {
+        !self.file_name.is_empty()
+    }
+}
+
+/// Reads one header; the size is the file's bytes that follow it, none for a record without a file.
 pub(crate) fn read_header(
     format: &AnswerFormat,
     header: &[u8],
@@ -237,12 +248,14 @@ pub(crate) fn read_header(
     );
     let file_name = field(format, header, "file_name")?.to_owned();
     ensure!(
-        !file_name.is_empty()
-            && file_name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'),
+        file_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'),
         "the juso header names an unexpected file {file_name:?}"
     );
+    // A blank name holds no file and no bytes follow it, whatever its size says: the provider's own
+    // client (ADSReceiver.makeReceiveData) skips the body exactly so.
+    let size = if file_name.is_empty() { 0 } else { size };
     let retry = match field(format, header, "retry")? {
         "Y" => true,
         "N" | "" => false,
@@ -369,11 +382,39 @@ fn without_key(error: reqwest::Error) -> anyhow::Error {
     anyhow::anyhow!("{}", error.without_url())
 }
 
-/// One window's answer: the error header (none when files follow) and the files.
+/// One window's answer: the error header, the records, and, when it could not be read, why and its
+/// bytes as received (up to the contract's `quarantine_bytes`).
 pub(crate) struct Asked {
     pub(crate) error_code: Option<String>,
-    pub(crate) files: Vec<Received>,
+    pub(crate) total_count: Option<String>,
+    pub(crate) records: Vec<Received>,
     pub(crate) bytes: u64,
+    pub(crate) broken: Option<String>,
+    pub(crate) raw: Vec<u8>,
+}
+
+impl Asked {
+    pub(crate) fn files(&self) -> impl Iterator<Item = &Received> {
+        self.records.iter().filter(|record| record.has_file())
+    }
+}
+
+/// Why an answer is not the contract's: the body did not split into whole records, or not into the
+/// number the count header announced.
+fn broken_answer(asked: &Asked, left: usize) -> Option<String> {
+    if left > 0 {
+        return Some(format!(
+            "the answer ended inside a record ({left} bytes left)"
+        ));
+    }
+    let count = asked.total_count.as_deref()?;
+    match count.parse::<usize>() {
+        Ok(count) if count == asked.records.len() => None,
+        _ => Some(format!(
+            "the answer announced {count:?} records and held {}",
+            asked.records.len()
+        )),
+    }
 }
 
 /// Asks one request code for one window and reads the answer record by record.
@@ -413,57 +454,134 @@ pub(crate) async fn ask(
         (200..300).contains(&status),
         "the juso request for {request_code} answered HTTP {status}"
     );
-    let error_code = response
-        .headers()
-        .get(contract.answer.error_header.as_str())
-        .and_then(|value| value.to_str().ok())
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty());
+    let header = |name: &str| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+    };
+    let mut asked = Asked {
+        error_code: header(contract.answer.error_header.as_str()),
+        total_count: header(contract.answer.count_header.as_str()),
+        records: Vec::new(),
+        bytes: 0,
+        broken: None,
+        raw: Vec::new(),
+    };
+    let keep = contract.answer.quarantine_bytes;
     let mut buffer = Vec::new();
-    let mut files = Vec::new();
-    let mut bytes = 0_u64;
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(without_key)
         .context("the juso answer broke off")?
     {
-        bytes += chunk.len() as u64;
+        asked.bytes += chunk.len() as u64;
+        let room = keep.saturating_sub(asked.raw.len());
+        asked.raw.extend_from_slice(&chunk[..room.min(chunk.len())]);
+        if asked.broken.is_some() {
+            // Read on only to keep the dead letter whole, up to its cap.
+            if asked.raw.len() >= keep {
+                break;
+            }
+            continue;
+        }
         buffer.extend_from_slice(&chunk);
-        let (taken, used) = take_records(&contract.answer, &buffer)?;
-        files.extend(taken);
-        buffer.drain(..used);
-    }
-    ensure!(
-        buffer.is_empty(),
-        "the juso answer for {request_code} ended inside a record ({} bytes left)",
-        buffer.len()
-    );
-    Ok(Asked {
-        error_code,
-        files,
-        bytes,
-    })
-}
-
-/// The code an answer stands for: the error header, else every file's own result code, which must
-/// agree.
-pub(crate) fn answer_code(asked: &Asked) -> anyhow::Result<String> {
-    if let Some(code) = &asked.error_code {
-        if asked.files.is_empty() {
-            return Ok(code.clone());
+        match take_records(&contract.answer, &buffer) {
+            Ok((taken, used)) => {
+                asked.records.extend(taken);
+                buffer.drain(..used);
+            }
+            Err(error) => asked.broken = Some(format!("{error:#}")),
         }
     }
-    let mut codes = asked.files.iter().map(|file| file.result_code.as_str());
-    let Some(first) = codes.next() else {
-        // HTTP 200, no error header and no file: the provider said nothing.
-        bail!("the juso answer has neither an error code nor a file");
-    };
-    ensure!(
-        codes.all(|code| code == first),
-        "the juso answer's files carry different result codes"
+    if asked.broken.is_none() {
+        asked.broken = broken_answer(&asked, buffer.len());
+    }
+    if asked.broken.is_none() {
+        asked.raw = Vec::new();
+    }
+    Ok(asked)
+}
+
+/// Keeps an answer the collector could not read in the run directory, write-once and as received:
+/// the body (up to `quarantine_bytes`) and what was known of it. The key is in neither.
+pub(crate) fn quarantine(
+    output_dir: &Path,
+    request_code: &str,
+    (from, to): (NaiveDate, NaiveDate),
+    asked: &Asked,
+) -> anyhow::Result<PathBuf> {
+    let dir = output_dir.join("quarantine");
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    let stem = format!(
+        "{request_code}-{}-{}",
+        from.format("%Y%m%d"),
+        to.format("%Y%m%d")
     );
-    Ok(first.to_owned())
+    let body = dir.join(format!("{stem}.bin"));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&body)
+        .with_context(|| format!("failed to create {}", body.display()))?;
+    std::io::Write::write_all(&mut file, &asked.raw)
+        .with_context(|| format!("failed to write {}", body.display()))?;
+    write_json_file(
+        &dir.join(format!("{stem}.json")),
+        &json!({
+            "request_code": request_code,
+            "from": from.to_string(),
+            "to": to.to_string(),
+            "broken": asked.broken,
+            "error_code": asked.error_code,
+            "total_count": asked.total_count,
+            "records_read": asked.records.len(),
+            "answer_bytes": asked.bytes,
+            "kept_bytes": asked.raw.len(),
+        }),
+    )?;
+    Ok(body)
+}
+
+/// The code a window's answer stands for, from the error header and every record's own code. A
+/// window's days answer one by one (a file one day, E1001 the next), so the codes need not agree:
+/// the first refusal, else our mistake, else the provider's failure decides; otherwise the window
+/// holds what it holds (a file's code, or the no-file code). Every file must be `ok`.
+pub(crate) fn answer_code(codes: &ResultCodes, asked: &Asked) -> anyhow::Result<String> {
+    let all: Vec<&str> = asked
+        .error_code
+        .iter()
+        .map(String::as_str)
+        .chain(
+            asked
+                .records
+                .iter()
+                .map(|record| record.result_code.as_str()),
+        )
+        .collect();
+    for wanted in [Outcome::Refused, Outcome::Ours, Outcome::Provider] {
+        if let Some(code) = all.iter().find(|code| classify(codes, code) == wanted) {
+            return Ok((*code).to_owned());
+        }
+    }
+    if let Some(file) = asked.files().next() {
+        for other in asked.files() {
+            ensure!(
+                classify(codes, &other.result_code) == Outcome::Ok,
+                "the juso file {} carries the result code {}",
+                other.file_name,
+                other.result_code
+            );
+        }
+        return Ok(file.result_code.clone());
+    }
+    // HTTP 200, no error header and no record: the provider said nothing.
+    all.first()
+        .map(|code| (*code).to_owned())
+        .context("the juso answer has neither an error code nor a record")
 }
 
 /// A file must be the zip its header announces and of the code asked.
@@ -770,13 +888,31 @@ async fn collect_code(
         )
         .await?;
         *bytes += answer.bytes;
-        let code = answer_code(&answer)?;
+        if let Some(broken) = &answer.broken {
+            let kept = quarantine(&config.output_dir, request_code, window, &answer)?;
+            bail!(
+                "the juso answer for {request_code} {}..{} is not the contract's ({broken}); it is kept at {}",
+                window.0,
+                window.1,
+                kept.display()
+            );
+        }
+        let code = answer_code(&contract.result_codes, &answer)?;
+        let days: Vec<JsonValue> = answer
+            .records
+            .iter()
+            .filter(|record| !record.has_file())
+            .map(|record| json!({"base_date": record.base_date, "result_code": record.result_code}))
+            .collect();
         asked.push(json!({
             "request_code": request_code,
             "from": window.0.to_string(),
             "to": window.1.to_string(),
             "result_code": code,
-            "files": answer.files.len(),
+            "total_count": answer.total_count,
+            "records": answer.records.len(),
+            "files": answer.files().count(),
+            "days_without_file": days,
             "bytes": answer.bytes,
         }));
         match classify(&contract.result_codes, &code) {
@@ -795,7 +931,7 @@ async fn collect_code(
                 window.1
             ),
         }
-        for received in &answer.files {
+        for received in answer.files() {
             check_file(received, request_code)?;
             for (slug, kind) in &kinds {
                 let object = if let Some(live) = live {

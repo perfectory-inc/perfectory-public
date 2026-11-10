@@ -4,8 +4,8 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    answer_code, ask, check_file, classify, last_day, plan, provider_file_id, read_cursor,
-    read_header, source_contract, take_records, windows, Outcome, Received,
+    answer_code, ask, check_file, classify, last_day, plan, provider_file_id, quarantine,
+    read_cursor, read_header, source_contract, take_records, windows, Outcome, Received,
 };
 use foundation_shared_kernel::ids::IngestionRunId;
 
@@ -31,6 +31,18 @@ fn record(sequence: u8, base: &str, name: &str, code: &str, retry: char, file: &
     .into_bytes();
     header.resize(100, b' ');
     header.extend_from_slice(file);
+    header
+}
+
+/// A record without a file, as the provider's own client reads it (ADSReceiver.makeReceiveData): the
+/// file name is blank and no bytes follow. Its size and dates are what such a record may carry.
+fn day_without_file(sequence: u8, base: &str, size: u64, result: &str, code: &str) -> Vec<u8> {
+    let mut header = format!(
+        "{sequence:02}{base}{blank:<50}{size:010}{result}{code}N{base}",
+        blank = ""
+    )
+    .into_bytes();
+    header.resize(100, b' ');
     header
 }
 
@@ -292,8 +304,8 @@ async fn an_ask_names_its_window_and_reads_the_files() -> anyhow::Result<()> {
         (day("2099-01-01")?, day("2099-01-10")?),
     )
     .await?;
-    assert_eq!(asked.files.len(), 2);
-    assert_eq!(answer_code(&asked)?, "P0000");
+    assert_eq!(asked.files().count(), 2);
+    assert_eq!(answer_code(&contract.result_codes, &asked)?, "P0000");
     Ok(())
 }
 
@@ -321,13 +333,13 @@ async fn a_refusal_comes_in_the_error_header_with_no_body() -> anyhow::Result<()
         (day("2099-01-01")?, day("2099-01-10")?),
     )
     .await?;
-    let code = answer_code(&asked)?;
+    let code = answer_code(&contract.result_codes, &asked)?;
     assert_eq!(classify(&contract.result_codes, &code), Outcome::Refused);
     Ok(())
 }
 
 #[tokio::test]
-async fn a_body_that_ends_inside_a_record_fails() -> anyhow::Result<()> {
+async fn a_body_that_ends_inside_a_record_is_broken_and_kept() -> anyhow::Result<()> {
     let contract = source_contract()?;
     let server = MockServer::start().await;
     let mut body = record(
@@ -345,15 +357,126 @@ async fn a_body_that_ends_inside_a_record_fails() -> anyhow::Result<()> {
         .mount(&server)
         .await;
     let http = reqwest::Client::new();
-    let asked = ask(
+    let window = (day("2099-01-01")?, day("2099-01-10")?);
+    let asked = ask(&contract, &http, &server.uri(), KEY, "300001", window).await?;
+    assert!(asked.broken.is_some());
+    assert_eq!(
+        asked.raw.len() as u64,
+        asked.bytes,
+        "the whole answer is kept"
+    );
+    let dir = tempfile::tempdir()?;
+    let kept = quarantine(dir.path(), "300001", window, &asked)?;
+    assert_eq!(std::fs::read(&kept)?, asked.raw);
+    assert!(
+        quarantine(dir.path(), "300001", window, &asked).is_err(),
+        "a dead letter is written once"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_record_without_a_file_takes_no_bytes() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    // A size on a blank record is not followed by bytes: the next header comes at once.
+    let mut body = day_without_file(1, "20990101", 7, "E1001", "300001");
+    body.extend(record(
+        2,
+        "20990102",
+        "AlterD.JUSURB.20990102.ZIP",
+        "300001",
+        'N',
+        &zip("two"),
+    ));
+    let (records, used) = take_records(&contract.answer, &body)?;
+    assert_eq!(used, body.len());
+    assert_eq!(records.len(), 2);
+    assert!(!records[0].has_file());
+    assert_eq!(records[0].result_code, "E1001");
+    assert!(records[0].bytes.is_empty());
+    assert_eq!(records[1].bytes, zip("two"));
+    Ok(())
+}
+
+async fn answered(body: Vec<u8>, count: usize) -> anyhow::Result<super::Asked> {
+    let contract = source_contract()?;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(contract.path.clone()))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("total_count", count.to_string().as_str())
+                .set_body_bytes(body),
+        )
+        .mount(&server)
+        .await;
+    ask(
         &contract,
-        &http,
+        &reqwest::Client::new(),
         &server.uri(),
         KEY,
         "300001",
         (day("2099-01-01")?, day("2099-01-10")?),
     )
-    .await;
-    assert!(asked.is_err());
+    .await
+}
+
+#[tokio::test]
+async fn a_window_of_days_without_files_moves_on() -> anyhow::Result<()> {
+    // The first run with the key (2026-11-10) failed here on all four codes: blank-name records.
+    let codes = source_contract()?.result_codes;
+    let mut body = Vec::new();
+    for (sequence, base) in [(1, "20990101"), (2, "20990102"), (3, "20990103")] {
+        body.extend(day_without_file(sequence, base, 0, "E1001", "300001"));
+    }
+    let asked = answered(body, 3).await?;
+    assert!(asked.broken.is_none());
+    assert_eq!(asked.files().count(), 0);
+    let code = answer_code(&codes, &asked)?;
+    assert_eq!(classify(&codes, &code), Outcome::NoFiles);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_window_with_a_file_and_days_without_lands_the_file() -> anyhow::Result<()> {
+    let codes = source_contract()?.result_codes;
+    let mut body = day_without_file(1, "20990101", 0, "E1001", "300001");
+    body.extend(record(
+        2,
+        "20990102",
+        "AlterD.JUSURB.20990102.ZIP",
+        "300001",
+        'N',
+        &zip("two"),
+    ));
+    let asked = answered(body, 2).await?;
+    assert_eq!(asked.files().count(), 1);
+    assert_eq!(answer_code(&codes, &asked)?, "P0000");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refusal_inside_the_body_still_refuses() -> anyhow::Result<()> {
+    let codes = source_contract()?.result_codes;
+    let mut body = record(
+        1,
+        "20990101",
+        "AlterD.JUSURB.20990101.ZIP",
+        "300001",
+        'N',
+        &zip("one"),
+    );
+    body.extend(day_without_file(2, "20990102", 0, "E1008", "300001"));
+    let asked = answered(body, 2).await?;
+    assert_eq!(answer_code(&codes, &asked)?, "E1008");
+    Ok(())
+}
+
+#[tokio::test]
+async fn fewer_records_than_announced_is_broken() -> anyhow::Result<()> {
+    let body = day_without_file(1, "20990101", 0, "E1001", "300001");
+    let asked = answered(body, 2).await?;
+    assert!(asked.broken.is_some());
+    assert_eq!(asked.raw.len(), 100);
     Ok(())
 }
