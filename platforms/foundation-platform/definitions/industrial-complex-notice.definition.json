@@ -97,7 +97,7 @@
     "industrial_complex_notice_silver": [
       {
         "project": "foundation-platform-compute",
-        "service": "spark"
+        "service": "spark-small"
       }
     ]
   },

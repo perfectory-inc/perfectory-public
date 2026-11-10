@@ -63,7 +63,7 @@
 6. **켜진 채로 들어온다**(ADR-0457): 두 작업 모두 `per_run_cap.first_run` 을 적고 사람 없이 첫 run 을 돈다. 수집기는
    1,900 초(목록 한 번 + `run_time_budget_seconds` 1,800 초 + 마지막 고시), Silver 적재는 같은 꼴의 경매 Silver 적재(잰 278 초)에서
    600 초로 계산했다 — 둘 다 40 분 제한의 90 %(2,160 초) 안이다. Silver 적재는 매시 Silver 이웃(공매·실거래 Silver)과 같이
-   Spark 풀 1 칸·우선순위 10 이다: 3 칸·우선순위 1 이면 매시 입력에 대해 풀 굶주림 한계(20 주기)를 넘는다(`job_specs.pool_starvation`). 둘 다 `commits: as_it_goes`·`retries: 0` 이다. 첫 run 의 저널이
+   작은 Spark(`spark-small`, 2,560 MiB 상한, 1g 힙 — 공매 Silver 가 잰 모양)에서 Spark 풀 1 칸·우선순위 10 이다: 3 칸·우선순위 1 이면 매시 입력에 대해 풀 굶주림 한계(20 주기)를 넘는다(`job_specs.pool_starvation`). 둘 다 `commits: as_it_goes`·`retries: 0` 이다. 첫 run 의 저널이
    곧 측정이고, 그 값을 적는 PR 이 `first_run` 을 지운다.
 7. **기대 결과**(ADR-0480): 고시는 정해진 공개일이 없어(엔드포인트 카탈로그 `expected_cadence.release = irregular`) 두 작업 모두
    `changes_within_hours` 가 null 이고 이유를 적는다. 살아 있음은 모든 켜진 작업의 `done` 기대(일정 한 주기 + 제한 안에 `changed`

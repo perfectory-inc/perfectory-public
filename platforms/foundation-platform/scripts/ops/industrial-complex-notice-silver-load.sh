@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 산업단지 고시의 Silver 적재 절반 (root ADR-0484). 등록된 작업 industrial_complex_notice_silver(spark 3칸, 가중치 1)가
+# 산업단지 고시의 Silver 적재 절반 (root ADR-0484). 등록된 작업 industrial_complex_notice_silver(spark 1칸, 가중치 10)가
 # 수집 실행이 Bronze 를 바꿨다고 알리면, 그리고 일정마다 돌린다.
 #
 # 쌓을 것은 R2 만 보고 정한다. plan-silver-load-objects 가 고시 상세 원천의 Bronze 접두어를 나열하고, 읽은 기록
@@ -51,7 +51,7 @@ FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFOR
 lakehouse_spark_run foundation-platform-compute \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark spark-submit --master 'local[2,8]' --driver-memory 2g \
+  spark-small spark-submit --master 'local[2,8]' --driver-memory 1g \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/industryland_or_kr.py load \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/details" \
