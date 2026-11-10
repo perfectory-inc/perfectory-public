@@ -1,6 +1,6 @@
 [Unit]
 Description=Foundation Platform 주소정보 전자지도 daily changes from the juso.go.kr data linkage: land each day's files in Bronze per kind, backfilling from 2020 under a per-run cap (root ADR-0475)
-Documentation=file:///opt/foundation-platform/current/docs/adr/0475-the-juso-electronic-map-is-collected-every-day-from-the-official-daily-change-linkage-with-one-approval-key.md
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/juso-electronic-map.md
 X-Foundation-Owner=collection
 Requires=docker.service
 After=docker.service network-online.target
