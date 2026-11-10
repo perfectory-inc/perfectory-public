@@ -141,12 +141,14 @@ impl MediaFormat {
     /// what it can show.
     #[must_use]
     pub fn sniff_document(bytes: &[u8]) -> Self {
+        Self::sniff(bytes).unwrap_or_else(|| Self::sniff_non_photo(bytes))
+    }
+
+    /// The document formats [`Self::sniff`] does not name: HWP, HWPX, ZIP, else [`Self::Binary`].
+    fn sniff_non_photo(bytes: &[u8]) -> Self {
         const CFB: &[u8] = &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
         const HWP_HEADER: &[u8] = b"HWP Document File";
-        if let Some(format) = Self::sniff(bytes) {
-            format
-        } else if bytes.starts_with(HWP_HEADER)
-            || (bytes.starts_with(CFB) && contains(bytes, HWP_HEADER))
+        if bytes.starts_with(HWP_HEADER) || (bytes.starts_with(CFB) && contains(bytes, HWP_HEADER))
         {
             Self::Hwp
         } else if bytes.starts_with(b"PK\x03\x04") {
@@ -350,16 +352,16 @@ mod tests {
 
     #[test]
     fn sniffs_every_notice_attachment_and_keeps_photo_sniffing_as_it_was() {
-        let mut hwp5 = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
-        hwp5.extend_from_slice(&[0; 600]);
-        hwp5.extend_from_slice(b"HWP Document File\0\0");
+        let mut hwp_five = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        hwp_five.extend_from_slice(&[0; 600]);
+        hwp_five.extend_from_slice(b"HWP Document File\0\0");
         let mut hwpx = b"PK\x03\x04".to_vec();
         hwpx.extend_from_slice(&[0; 26]);
         hwpx.extend_from_slice(b"mimetypeapplication/hwp+zipPK");
         let mut xls = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
         xls.extend_from_slice(b"Workbook");
         let cases: [(&[u8], MediaFormat); 7] = [
-            (&hwp5, MediaFormat::Hwp),
+            (&hwp_five, MediaFormat::Hwp),
             (b"HWP Document File V3.00 \x1a\x01\x02", MediaFormat::Hwp),
             (&hwpx, MediaFormat::Hwpx),
             (b"PK\x03\x04\x14\0\0\0word/document.xml", MediaFormat::Zip),
