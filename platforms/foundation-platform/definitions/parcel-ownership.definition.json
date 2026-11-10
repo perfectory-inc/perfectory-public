@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-03); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 2400,
+          "estimated_from": "computed from the lane's own full build measured in its cut-over's gold step (the operator's copy of this unit, gold-panel-rebuild.sh parcel-ownership): 1,602 s on 2026-11-05 and 1,501 s on 2026-11-07 for 39,396,906 rows from about 120 million owner rows (gold-kind mode=full 1,571 s and 1,449 s). A new Silver release can change every row, so the first run as its unit is taken as a full build again: about 1.5 times the longest, 2,400 s, inside the 8,100 s share of the 150-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -32,8 +35,8 @@
         "silver-land-ownership-to-gold-parcel-ownership",
         "reference-legal-dong-code-change-to-gold-parcel-ownership"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0361). Off until its first full build (about 120 million owner rows nationally, computed) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-ownership, root ADR-0193 §7), after silver_refresh_land_ownership loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_ownership_bake",
@@ -59,7 +62,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-03); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1200,
+          "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-ownership bake, the same by-pnu-serving-bake.sh): 636 s on 2026-11-05 and 665 s on 2026-11-07 for 39,396,906 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 1,200 s, inside the 6,210 s share of the 115-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -69,8 +75,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-ownership-to-parcel-ownership-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0361). Off with gold_parcel_ownership_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-ownership cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     }
   ],
   "assets": [

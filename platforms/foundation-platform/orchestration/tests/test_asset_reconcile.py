@@ -80,13 +80,28 @@ class Reconciler(unittest.TestCase):
             # The building-permit and nearby lanes (root ADR-0468), caught up.
             "gold.parcel_building_permits": table(snap("501", None, 0)),
             "gold.parcel_nearby": table(snap("601", None, 0)),
+            # The lanes switched on behind the loaders that fill them (root ADR-0468, revised 2026-11-10), caught up.
+            "gold.parcel_ownership": table(snap("701", None, 0)),
+            "gold.parcel_sub_parcels": table(snap("702", None, 0)),
+            "gold.parcel_energy": table(snap("703", None, 0)),
+            "gold.parcel_demolitions": table(snap("704", None, 0)),
+            "gold.parcel_factories": table(snap("705", None, 0)),
+            "gold.parcel_register_masters": table(snap("706", None, 0)),
+            "gold.parcel_real_transaction": table(snap("707", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},
                       "parcel-court-auction": {"read_snapshot_id": "401", "outcome": "served"},
                       "unit-price": {"read_snapshot_id": "301", "outcome": "served"},
                       "building": {"read_snapshot_id": "201", "outcome": "served"},
                       "parcel-building-permits": {"read_snapshot_id": "501", "outcome": "served"},
-                      "parcel-nearby": {"read_snapshot_id": "601", "outcome": "served"}}
+                      "parcel-nearby": {"read_snapshot_id": "601", "outcome": "served"},
+                      "parcel-ownership": {"read_snapshot_id": "701", "outcome": "served"},
+                      "parcel-sub-parcels": {"read_snapshot_id": "702", "outcome": "served"},
+                      "parcel-energy": {"read_snapshot_id": "703", "outcome": "served"},
+                      "parcel-demolitions": {"read_snapshot_id": "704", "outcome": "served"},
+                      "parcel-factories": {"read_snapshot_id": "705", "outcome": "served"},
+                      "parcel-register-masters": {"read_snapshot_id": "706", "outcome": "served"},
+                      "parcel-real-transaction": {"read_snapshot_id": "707", "outcome": "served"}}
         self.running, self.full, self.unpublished = set(), set(), set()
 
     def tick(self, now_minutes=40, state=None, panel=False):
@@ -130,7 +145,10 @@ class Reconciler(unittest.TestCase):
     def test_the_assets_are_those_the_reconciler_names_each_one_asset(self):
         # The court auction Gold and its bake join when they are switched on (root ADR-0353, ADR-0386 §3).
         self.assertEqual(set(self.assets), {"gold_unit_price_rebuild", "by_pnu_unit_price_bake", "by_pnu_public_auction_bake",
-                                            "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake"})
+                                            "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
+                                            *(f"by_pnu_parcel_{kind}_bake" for kind in (
+                                                "ownership", "sub_parcels", "energy", "demolitions", "factories",
+                                                "register_masters", "real_transaction"))})
         # Every lane the panel bake serves is an asset of its own, fed from its one Gold table; inside
         # the one unit the kinds follow the parcel lane by run order, so none follows across jobs.
         self.assertEqual({lane: (asset.lane_table, asset.follows, asset.uri) for lane, asset in self.lanes.items()},

@@ -293,7 +293,11 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
                          {"by_pnu_public_auction_bake", "gold_unit_price_rebuild", "by_pnu_unit_price_bake",
                           "by_pnu_serving_bake", "gold_panel_rebuild", "gold_kind_rebuild",
                           # Root ADR-0468: switched on with the first runs they read.
-                          "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake"})
+                          "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
+                          # Root ADR-0468 (revised 2026-11-10): switched on behind the loaders that fill them.
+                          "by_pnu_parcel_ownership_bake", "by_pnu_parcel_sub_parcels_bake", "by_pnu_parcel_energy_bake",
+                          "by_pnu_parcel_demolitions_bake", "by_pnu_parcel_factories_bake",
+                          "by_pnu_parcel_register_masters_bake", "by_pnu_parcel_real_transaction_bake"})
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).

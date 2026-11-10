@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 3600,
+          "estimated_from": "computed, never run: the build places every deal from its address and lot on each run (root ADR-0351 §3), 13,476,265 Silver deals on 2026-11-10 (about 50 million once the 250 months of every dataset are in, root ADR-0371), against the served parcels (39,861,511) and the owner rows its 공장창고 inference windows (about 120 million); the same unit template's parcel-ownership full build over those owner rows measured 1,602 s (2026-11-05, its cut-over's gold step), so about two such passes, 3,600 s, inside the 8,100 s share of the 150-minute limit; a first run past it is stopped by TimeoutStartSec and the auto-promotion's gold step resumes it"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -40,8 +43,8 @@
         "reference-legal-dong-code-change-to-gold-real-transaction-region-stats",
         "gold-real-transaction-region-stats-to-gold-parcel-real-transaction"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0371). Off until its first full build has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh parcel-real-transaction gold-rebuild; measured 2026-11-03: 828,897 deal rows loaded; computed: about 210 thousand a month across the 12 datasets, so about 50 million once their 250 months of history are in, root ADR-0193 §7); switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_real_transaction_bake",
@@ -67,7 +70,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-06); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed from the parcel-ownership bake, the same by-pnu-serving-bake.sh: 636 s for 39,396,906 documents (2026-11-05, its cut-over's bake step); the lane bakes at most one document per served parcel (39,861,511), so 1,500 s, more than twice it; before the lane's first publish, which waits for whole history (root ADR-0350 §6), a run is `nothing to do: not cut over yet`"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -77,8 +83,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-real-transaction-to-parcel-real-transaction-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0371). Off with gold_parcel_real_transaction_rebuild, which feeds it, and until the operator has cut the lane over (by-pnu-pack-operator.sh parcel-real-transaction cutover 1, root ADR-0190), which the cut-over refuses until the three industrial datasets' history is whole (first_publish_waits_for_history, root ADR-0350 §6); switching both on is one separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     }
   ],
   "assets": [

@@ -215,23 +215,26 @@ last_reviewed: 2026-11-07
 | --- | --- | --- | --- | --- |
 | 공장·산업단지 | 산업단지 경계 (`silver.industrial_complex_boundaries`) | — | `complex-tiles` | 화면 |
 | 공장·산업단지 | 산업단지 기본 정보 (`silver.industrial_complexes`) | — | `complex-tiles` | 화면 |
-| 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | `parcel-factories (꺼짐)` | — | 길 있음·꺼짐 |
+| 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | `parcel-factories` | — | 화면 |
 | 공장·산업단지 | 산업단지와 필지 소속 (`silver.complex_parcel_memberships`) | — | — | 없음 |
-| 토지 | 필지별 토지특성 (`silver.land_characteristic`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
+| 토지 | 필지별 토지특성 (`silver.land_characteristic`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 토지 | 필지별 임야대장 (`silver.land_forest_ledger`) | `parcel` | — | 화면 |
 | 토지 | 필지별 공시지가 (`silver.land_individual_price`) | `parcel` | — | 화면 |
+| 토지 | 필지별 토지소유 (`silver.land_ownership`) | `parcel-ownership`<br>`parcel-real-transaction` | — | 화면 |
 | 토지 | 필지별 대지권 등록 (`silver.land_right_registration`) | `parcel` | — | 화면 |
-| 토지 | 필지별 토지이동이력 (`silver.land_transfer_history`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
+| 토지 | 필지별 토지이동이력 (`silver.land_transfer_history`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
 | 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 화면 |
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
-| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction (꺼짐)`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
-| 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction (꺼짐)` | — | 화면 |
-| 토지 | 필지별 토지소유 (`silver.land_ownership`) | `parcel-ownership (꺼짐)`<br>`parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
+| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
+| 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
+| 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy` | — | 화면 |
+| 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy` | — | 화면 |
 | 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 건축인허가 부설주차장 (`silver.building_permit_annex_parking`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 건축인허가 기본개요 (`silver.building_permit_basis_outline`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 건축인허가 동별개요 (`silver.building_permit_building_outline`) | `parcel-building-permits` | — | 화면 |
+| 건물 | 건축인허가 철거멸실관리대장 (`silver.building_permit_demolition_loss`) | `parcel-demolitions` | — | 화면 |
 | 건물 | 건축인허가 층별개요 (`silver.building_permit_floor_overview`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 건축인허가 대수선 (`silver.building_permit_major_repair`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 건축인허가 주차장 (`silver.building_permit_parking`) | `parcel-building-permits` | — | 화면 |
@@ -241,15 +244,12 @@ last_reviewed: 2026-11-07
 | 건물 | 건축물대장 공동주택가격 (`silver.building_register_apartment_price`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건축물대장 전유부 (`silver.building_register_exclusive_unit`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건물 층별 정보 (`silver.building_register_floors`) | `building` | — | 화면 |
-| 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits`<br>`parcel-real-transaction (꺼짐)`<br>`unit-price` | — | 화면 |
+| 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters` | — | 화면 |
+| 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels` | — | 화면 |
+| 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits`<br>`parcel-real-transaction`<br>`unit-price` | — | 화면 |
 | 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |
 | 건물 | 건물 호별 정보 (`silver.building_register_units`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
-| 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축인허가 철거멸실관리대장 (`silver.building_permit_demolition_loss`) | `parcel-demolitions (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters (꺼짐)` | — | 길 있음·꺼짐 |
-| 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 온비드 공고 (`silver.onbid_announcement`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고 입찰결과 (`silver.onbid_announcement_bid_result`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고상세 (`silver.onbid_announcement_detail`) | `parcel-public-auction` | — | 화면 |
@@ -258,10 +258,10 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 온비드 부동산 물건 (`silver.onbid_real_estate_item`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 물건상세 (`silver.onbid_real_estate_item_detail`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 물건 사진 (`silver.onbid_real_estate_item_photo`) | `parcel-public-auction` | — | 화면 |
+| 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction` | — | 화면 |
 | 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 사건 사진 (`silver.court_auction_item_photo`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
-| 거래·공매·경매 | 실거래가 (`silver.real_transaction`) | `parcel-real-transaction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
 | 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby` | — | 화면 |

@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-05); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed from the lane's own full build measured in its cut-over's gold step (the operator's copy of this unit, gold-panel-rebuild.sh parcel-demolitions): 115 s on 2026-11-09 for 326,999 rows (gold-kind mode=full 85 s). A new Silver release can change every row, so the first run as its unit is taken as a full build again: about five times it, 600 s, inside the 8,100 s share of the 150-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -32,8 +35,8 @@
         "silver-building-permit-demolition-loss-to-gold-parcel-demolitions",
         "reference-legal-dong-code-change-to-gold-parcel-demolitions"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0399). Off until its first full build (425,040 parcels with a report in the 2026-10 file, measured) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-demolitions, root ADR-0193 §7), after silver_refresh_building_permit_demolition_loss loaded its first release; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_demolitions_bake",
@@ -59,7 +62,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-05); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-demolitions bake, the same by-pnu-serving-bake.sh): 213 s on 2026-11-09 for 326,999 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 900 s, inside the 6,210 s share of the 115-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -69,8 +75,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-demolitions-to-parcel-demolitions-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0399). Off with gold_parcel_demolitions_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-demolitions cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     }
   ],
   "assets": [

@@ -22,7 +22,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-05); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed from the lane's own full build measured in its cut-over's gold step (the operator's copy of this unit, gold-panel-rebuild.sh parcel-energy): 241 s on 2026-11-09 for 1,446,147 rows from the two monthly usage Silver tables (gold-kind mode=full 209 s). A new Silver release can change every row, so the first run as its unit is taken as a full build again: about four times it, 900 s, inside the 8,100 s share of the 150-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -33,8 +36,8 @@
         "silver-building-energy-monthly-gas-to-gold-parcel-energy",
         "reference-legal-dong-code-change-to-gold-parcel-energy"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0398). Off until its first full build (about 1.5 million parcels with a usage row, computed from the 2026-10 files) has run attended and been timed within the unit's 150-minute limit (by-pnu-pack-operator.sh gold rebuild parcel-energy, root ADR-0193 §7), after the two 월별 에너지 Silver lanes loaded their first releases; switching it on is a separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     },
     {
       "id": "by_pnu_parcel_energy_bake",
@@ -60,7 +63,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-05); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed from the lane's own bakes measured in its cut-over's bake step (by-pnu-pack-operator.sh parcel-energy bake, the same by-pnu-serving-bake.sh): 146 s, 275 s and 120 s on 2026-11-09 for 1,446,147 documents; the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 900 s, inside the 6,210 s share of the 115-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 2,
@@ -70,8 +76,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-energy-to-parcel-energy-by-pnu-section-packs"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0398). Off with gold_parcel_energy_rebuild, which feeds it: nothing to bake until that job's first full build is timed and the operator has cut the lane over (by-pnu-pack-operator.sh parcel-energy cutover 1, root ADR-0190); switching both on is one separate deploy step (ADR-0122 §4)."
+      "enabled": true,
+      "enabled_since": "2026-11-10T18:00:00Z"
     }
   ],
   "assets": [
