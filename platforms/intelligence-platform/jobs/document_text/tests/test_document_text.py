@@ -126,6 +126,19 @@ class ContractTest(unittest.TestCase):
             self.assertEqual([(o["sha256"], o["outcome"]) for o in outcomes], [(SHA_B, "unsupported_format")])
             self.assertEqual(json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))["by_format"]["zip"]["documents"], 1)
 
+    def test_a_run_past_its_budget_starts_no_new_document(self) -> None:
+        contract = load_contract()
+        contract["document_text"]["run_time_budget_seconds"] = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+            (root / "index.jsonl").write_text(json.dumps({"sha256": SHA_A, "media_format": "zip", "notice_sequence": 1}), encoding="utf-8")
+            with mock.patch("sys.stdout"):
+                main(["--index", str(root / "index.jsonl"), "--media", tmp, "--out", str(root / "out"), "--contract", str(root / "contract.json")])
+            self.assertEqual((root / "out" / "document_text_outcome.jsonl").read_text(encoding="utf-8"), "")
+            summary = json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))
+            self.assertEqual((summary["planned"], summary["read"]), (1, 0))
+
     def test_the_contract_is_the_areas_file(self) -> None:
         self.assertEqual(CONTRACT.parent.name, "config")
         self.assertTrue(CONTRACT.is_file())

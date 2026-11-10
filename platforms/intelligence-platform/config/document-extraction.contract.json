@@ -45,7 +45,7 @@
     }
   },
   "document_text": {
-    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --skip-text, Tesseract kor). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다).",
+    "$comment": "첫 조각: PDF 는 텍스트 층(pdfplumber), 글자가 ocr_below_chars 보다 적은 쪽만 OCR(ocrmypdf --skip-text, Tesseract kor). HWP·HWPX 는 LibreOffice + H2Orestart 로 PDF 로 바꾼 뒤 같은 길. 그 밖의 형식은 unsupported_format 으로 세고 남긴다(바이트는 저장소에 있어 나중에 다시 읽힌다). run 은 per_run_limit 건 또는 run_time_budget_seconds 가 지나면 새 문서를 시작하지 않는다: 실측(2026-11-11, 표본 97 개) 문서당 평균 65 초·최대 727 초(60 쪽 스캔)라 건수만으로는 run 시간이 묶이지 않는다. 못 읽은 문서는 결과가 없으므로 다음 run 이 고른다.",
     "extractor_version": "document-text.v1",
     "pdf_formats": ["pdf"],
     "converted_formats": ["hwp", "hwpx"],
@@ -54,6 +54,7 @@
     "ocr_jobs": 4,
     "convert_timeout_seconds": 180,
     "ocr_timeout_seconds_per_page": 60,
-    "per_run_limit": 400
+    "per_run_limit": 400,
+    "run_time_budget_seconds": 3300
   }
 }

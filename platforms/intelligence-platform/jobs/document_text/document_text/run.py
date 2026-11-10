@@ -98,6 +98,8 @@ def main(argv: list[str] | None = None) -> int:
         args.out / "document_text_page.jsonl"
     ).open("w", encoding="utf-8") as pages:
         for doc in docs:
+            if time.monotonic() - started >= settings["run_time_budget_seconds"]:
+                break  # unread documents have no outcome, so the next run plans them
             source = args.media / f"{doc.sha256}.{doc.media_format}"
             t0 = time.monotonic()
             result = extract(source, doc.media_format, settings)
@@ -106,6 +108,9 @@ def main(argv: list[str] | None = None) -> int:
             outcomes.write(json.dumps(outcome_row(contract, doc, result, int(elapsed * 1000), at), ensure_ascii=False) + "\n")
             for row in page_rows(contract, doc, result):
                 pages.write(json.dumps(row, ensure_ascii=False) + "\n")
+            # A stopped run keeps every document it finished (a 60-page scan takes ~12 minutes).
+            pages.flush()
+            outcomes.flush()
             stats = by_format[doc.media_format]
             stats["documents"] += 1
             stats["pages"] += len(result.pages)
@@ -116,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = {
         "extractor_version": settings["extractor_version"],
         "planned": len(docs),
+        "read": sum(stats["documents"] for stats in by_format.values()),
         "run_seconds": round(time.monotonic() - started, 1),
         "peak_memory_mib": peak_memory_mib(),
         "by_format": {
