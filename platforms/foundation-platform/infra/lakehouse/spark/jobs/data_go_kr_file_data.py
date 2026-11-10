@@ -298,8 +298,14 @@ def staged_rows(spark: Any, paths: Sequence[Path], entry: Mapping[str, Any]) -> 
     names = [f"c{index}" for index in range(len(header))]
     schema = T.StructType([T.StructField("source_line_number", T.IntegerType()),
                            *(T.StructField(name, T.StringType()) for name in names)])
+    # The copies are written by Python's csv module (RFC 4180: a quote inside a field is doubled, a
+    # backslash is just a character), so Spark reads them with `"` as its escape, not its default `\`.
+    # With the default a doubled quote was read back still doubled, and a quoted field holding a quote
+    # and a line break refused the run (2026-11-09 23:40Z and 11-10 11:40Z: a railway station's history
+    # text, MALFORMED_CSV_RECORD, so none of the eleven Silver tables of this job was loaded).
     frame = (spark.read.option("header", False).option("multiLine", True).option("mode", "FAILFAST")
-             .option("encoding", "UTF-8").schema(schema).csv([str(p) for p in paths]))
+             .option("encoding", "UTF-8").option("quote", '"').option("escape", '"')
+             .schema(schema).csv([str(p) for p in paths]))
     cells = [F.coalesce(F.col(name), F.lit("")) for name in names]
     fields = F.to_json(F.struct(*(cell.alias(title) for cell, title in zip(cells, header))))
     rule = entry["row_key"]

@@ -219,6 +219,25 @@ class SparkRows(unittest.TestCase):
         self.assertEqual(rows[0]["row_key"], job.row_key(data[0], header, entry["row_key"]))
         self.assertEqual(rows[0]["source_line_number"], 2)
 
+    def test_a_cell_with_quotes_line_breaks_and_backslashes_reads_back_as_written(self):
+        # 2026-11-09 23:40Z and 11-10 11:40Z: a railway station's history text (a quote and line
+        # breaks in one quoted cell) refused the run with MALFORMED_CSV_RECORD, and a doubled quote was
+        # read back doubled: the staged copy is RFC 4180 (Python's csv), so Spark must read `"` as its escape.
+        entry = FILES["highway_access_point"]
+        header = job.data_spec(entry)["header"]
+        backslash = chr(92)
+        texts = ['합성 "가상" 연혁', '날짜 내용\n  "합성" 역명 변경\n', f'경로 C:{backslash}합성{backslash}"가상"',
+                 f"끝{backslash}"]
+        data = [[text, *(f"v{index}" for index in range(1, len(header)))] for text in texts]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "f.csv"
+            with path.open("w", encoding="utf-8", newline="") as out:
+                csv.writer(out, lineterminator="\n").writerows([header, *data])
+            staged = job.stage(path, {**entry, "format": "csv", "encoding": "utf-8"}, Path(tmp) / "out")
+            rows = sorted((r.asDict() for r in job.staged_rows(self.spark, staged, entry).collect()),
+                          key=lambda r: r["source_line_number"])
+        self.assertEqual([json.loads(r["provider_fields_json"]) for r in rows], [dict(zip(header, d)) for d in data])
+
     def test_names_and_codes_link_by_the_contracts_place_link(self):
         rows, entry = self.rows("highway_access_point", [["9", "합성선", "합성도", "합성시", "가상동", "합성IC", "2099"],
                                                          ["9", "합성선", "합성도", "합성시", "없는동", "가상IC", "2099"]])
