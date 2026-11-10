@@ -86,5 +86,22 @@
     "ocr_timeout_seconds_per_page": 60,
     "per_run_limit": 400,
     "run_time_budget_seconds": 3300
+  },
+  "containers_means": "The containers the host's document jobs start themselves (root ADR-0477 §6, ADR-0455): their image, their cap and why. foundation's memory budget reads memory_limit from here (definitions/intelligence-documents.definition.json host_memory, the guard every-container-has-a-memory-cap.sh); the job scripts read the rest. One at a time, after the Spark plan step and before the Spark append.",
+  "containers": {
+    "document_text": {
+      "image": "intelligence-document-text:local",
+      "image_from": "the release's own build of jobs/document_text/Dockerfile (jobs/document_text/compose.yml), tagged by the release admission like every compose image (root ADR-0276 §13)",
+      "memory_limit": "2g",
+      "memory_reason": "1.5 x the measured peak, rounded up (root ADR-0455 §3): the run process 486 MiB plus its largest tool process 777 MiB (LibreOffice or ocrmypdf), 97 attachments on 2026-11-11 (root ADR-0477, Consequences). Raising ocr_jobs means measuring again.",
+      "cpus": 4,
+      "cpus_reason": "ocr_jobs Tesseract processes; the text-layer pages need one."
+    },
+    "media_fetch": {
+      "image": "amazon/aws-cli:2.17.0",
+      "image_digest_from": "tools/technology-versions.contract.json",
+      "memory_limit": "512m",
+      "memory_reason": "Measured on ai-server 2026-10-18 (cgroup v2, the parcel-number-change collector's same image): anonymous memory peaked at 133 MiB over s3 cp of 1 GiB; the rest is reclaimable page cache."
+    }
   }
 }

@@ -58,7 +58,7 @@ export type CiWeek = DataCatalogSchemas["CiWeek"];
 export interface PipelineGraph {
   nodes: {
     id: string;
-    /** `source_group`, `silver_table`, `reference_table`, `gold_table`, `serving_surface`, `serving_group`. */
+    /** `source_group`, `silver_table`, `reference_table`, `intelligence_table`, `gold_table`, `serving_surface`, `serving_group`. */
     type?: string;
     title?: string;
     description?: string;

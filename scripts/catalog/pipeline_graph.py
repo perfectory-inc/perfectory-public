@@ -43,8 +43,10 @@ REFUSED_LANES = {"disabled_api_duplicate", "provider_inventory_missing"}
 SWEPT_LANES = {"bulk_file", "provider_dataset_file"}
 # The four classes of root ADR-0400, in the order the map shows them.
 COLLECTION_CLASSES = ("served", "collected", "not_collected", "deliberate")
-NODE_TYPES = {"source_group", "silver_table", "gold_table", "reference_table", "serving_group", "serving_surface"}
-TABLE_TYPES = {"silver_table", "gold_table", "reference_table"}
+# intelligence_table: a table only the intelligence platform writes and foundation only reads (root ADR-0477 §1).
+NODE_TYPES = {"source_group", "silver_table", "gold_table", "reference_table", "intelligence_table", "serving_group",
+              "serving_surface"}
+TABLE_TYPES = {"silver_table", "gold_table", "reference_table", "intelligence_table"}
 
 
 def load_json(path: Path) -> dict:

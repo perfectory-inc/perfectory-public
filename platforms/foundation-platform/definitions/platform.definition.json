@@ -11,6 +11,10 @@
         "spark": {
           "slots": 3,
           "description": "The host's scheduled heavy work (root ADR-0138): FLOOR and lineage take all three slots (20g Spark) and run alone; a map-edit fold takes two, so the folds never overlap (their Spark runs share one init container name); the by-PNU bake takes one, so one fold can run beside it; the panel Gold rebuild and each hub Silver refresh lane take all three (20g Spark) and run alone. The host memory guard checks every combination these slots allow."
+        },
+        "documents": {
+          "slots": 1,
+          "description": "The intelligence platform's document text (root ADR-0477 §6): CPU-bound OCR and HWP printing in its own image under its own cap, an hour at a time, which holds no Spark slot while it reads and so never makes the spark pool's jobs wait; its plan and append steps are small Spark sessions (spark-small). One slot: one run at a time."
         }
       },
       "pools_means": "Every Airflow pool a job may name, besides Airflow's own default_pool, with its slot count; a job takes pool_slots of them (1 when absent). scripts/deploy/airflow-runtime.sh creates exactly these. orchestration/dags/job_specs.py refuses a job naming any other pool, a pool_slots above the pool's slots, and a job that could hold slots another job needs for longer than STARVATION_CYCLES runs of that job. scripts/guard/every-container-has-a-memory-cap.sh adds up the memory of every set of jobs the slots let run together (root ADR-0138). compose.orchestration.yml's AIRFLOW__CORE__PARALLELISM is at least the slots here plus one, so a default_pool job always has a slot (orchestration/tests/test_job_specs.py). A job's priority_weight decides which waiting job Airflow starts first when slots free (FLOOR and lineage above the folds, the folds above the Silver refresh lanes, the lanes above the Gold rebuild, the Gold rebuild above the bake). retries (1 when absent) is how often Airflow runs it again after a failure. A takes_turns job starts at most once between scheduled starts of every job in its pool that cannot run beside it: scripts/ops/start-scheduled-job.sh keeps the starts and defers it, so a multi-day bake cannot keep FLOOR and lineage waiting run after run.",
@@ -188,6 +192,14 @@
         {
           "path": "/data/foundation-platform/source-sweep",
           "mode": "0755"
+        },
+        {
+          "path": "/data/foundation-platform/intelligence-documents",
+          "mode": "0755"
+        },
+        {
+          "path": "/data/foundation-platform/intelligence-documents/lakehouse",
+          "mode": "0777"
         },
         {
           "path": "/data/foundation-platform/silver-refresh",
@@ -1441,6 +1453,18 @@
             "measured_peak": "29655M",
             "measured": "the hand-installed ollama.service this unit replaces, cgroup MemoryPeak 2026-09-11..11-11 (31,842,312,192 bytes, page cache of the model files included, with up to three models loaded at once); the 35B-A3B Q4 run of 2026-11-11 (16 ILIS notices, root ADR-0478) held 21.4 GB with 5.5 GB of the model on the GPU",
             "headroom_why": "A decided bound, not 1.5 x the old peak: one model at a time (OLLAMA_MAX_LOADED_MODELS=1) and the largest is 23 GB, of which about 5.5 GB sits in VRAM; the model files are mapped, so under MemoryHigh the kernel drops their pages and reads them again instead of killing. 24G is the most one unit may hold beside every standing service and host_reserved, and the unit runs only under a job that holds the whole spark pool (root ADR-0478 §2)"
+          },
+          "foundation-intelligence-document-text.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "306M",
+            "measured": "not this unit's: never run (root ADR-0477 §6). The peak of foundation-court-auction-silver-load.service, the same shape (a job script, the Docker client and python3 -c reads; its containers have their own caps), journal `memory peak` 2026-10-18..11-08; its first run measures this one."
+          },
+          "foundation-intelligence-document-fact.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured_peak": "306M",
+            "measured": "not this unit's: never run (root ADR-0477 §6). The peak of foundation-court-auction-silver-load.service, the same shape (a job script, the Docker client and python3 -c reads; its containers have their own caps), journal `memory peak` 2026-10-18..11-08; its first run measures this one."
           }
         }
       },
@@ -1499,6 +1523,10 @@
         {
           "path_prefix": "consoles/",
           "why": "A staff console's own compose file only builds its image, in CI, into the signed release (root ADR-0434); what a console runs on the host is a service of a host project above (compose.console.yml), counted there."
+        },
+        {
+          "path_prefix": "platforms/intelligence-platform/jobs/",
+          "why": "A job image's own compose file only builds it, in CI, into the signed release (root ADR-0477 §6); the host's job script runs it under the cap its contract states, counted in the job's host_memory."
         }
       ]
     },

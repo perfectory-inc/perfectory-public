@@ -12,6 +12,9 @@ pub enum LakehouseLayer {
     Gold,
     /// Externally issued registry or crosswalk table that other layers join against.
     Reference,
+    /// Written only by the intelligence platform from the documents foundation hands it, and only
+    /// read by foundation (root ADR-0477 §1): one writer per table across the two platforms.
+    Intelligence,
 }
 
 /// Physical file format used by the lakehouse table.
@@ -462,6 +465,10 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     GOLD_PLACE_ID_CHANGELOG,
     GOLD_LINEAGE_REVIEW_QUEUE,
     GOLD_LAND_USE_ZONE_AREA_BY_TILE,
+    crate::INTELLIGENCE_DOCUMENT_TEXT_OUTCOME,
+    crate::INTELLIGENCE_DOCUMENT_TEXT_PAGE,
+    crate::INTELLIGENCE_DOCUMENT_FACT,
+    crate::INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
 ];
 
 /// Returns the industrial complex lakehouse `PoC` table contracts in publish order, then the Gold

@@ -276,7 +276,7 @@ def baked_surfaces_without_a_job(jobs=None, graph=None):
 
 # The lakehouse datasets a job is expected to make (root ADR-0234); source groups, Postgres serving
 # groups and serving surfaces are not data-flow steps a scheduled job writes.
-DATA_FLOW_TYPES = {"silver_table", "gold_table", "reference_table"}
+DATA_FLOW_TYPES = {"silver_table", "gold_table", "reference_table", "intelligence_table"}
 # Why a dataset no job writes has none (pipeline-graph node `unscheduled`, root ADR-0234 §2):
 # on_event: made by hand when its input event comes, by the runbook its runbook_ref names;
 # not_started: production has never written it; needs_job: it should have a job and has none yet.

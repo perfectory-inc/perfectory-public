@@ -26,6 +26,7 @@ last_reviewed: 2026-07-29
 - [data.go.kr 파일 데이터 — 등록공장 수집·PNU·적재, 기타 공공 일괄 파일 수집](./data-go-kr-registered-factory.md)
 - [주소정보 전자지도 변동분 수집 — 승인키 놓기·커서·거부 알림](./juso-electronic-map.md)
 - [로컬 모델 런타임 — spark 풀 시간 나눔·평가·증설 첫날 순서](./model-runtime.md)
+- [고시 첨부 텍스트·사실 — intelligence 이미지·documents 풀·켜기](./intelligence-documents.md)
 - [법원경매정보 (courtauction.go.kr) — 정직한 수집·멈춤·적재](./court-auction.md)
 - [온비드 공매 (data.go.kr) — 수집·적재](./data-go-kr-onbid.md)
 - [산업입지정보시스템(ILIS) 산업단지 고시 첨부 — 수집·적재](./industrial-complex-notice.md)

@@ -34,6 +34,7 @@ export function datasetStage(node: Kinded): Stage {
       return "collect";
     case "silver_table":
     case "reference_table":
+    case "intelligence_table":
       return "silver";
     case "gold_table":
       return "gold";
@@ -53,6 +54,8 @@ export function datasetKind(node: Kinded): { icon: string; word: string } {
       return { icon: "🗂️", word: "정리된 표" };
     case "reference_table":
       return { icon: "📖", word: "기준 코드표" };
+    case "intelligence_table":
+      return { icon: "🔎", word: "문서에서 읽은 표" };
     case "gold_table":
       return { icon: "⭐", word: "합친 표" };
     case "serving_group":
@@ -323,7 +326,7 @@ export function flowStatus(state: JobState | null): FlowStatus {
 }
 
 /** The kinds a scheduled job writes (root ADR-0234 §1): only these, and baked surfaces, can miss a job. */
-const JOB_WRITTEN_KINDS = new Set(["silver_table", "gold_table", "reference_table"]);
+const JOB_WRITTEN_KINDS = new Set(["silver_table", "gold_table", "reference_table", "intelligence_table"]);
 
 /**
  * What a dataset shows (root ADR-0234): the state of the jobs that write it; for a lakehouse
