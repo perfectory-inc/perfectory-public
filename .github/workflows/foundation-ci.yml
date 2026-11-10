@@ -84,6 +84,7 @@ jobs:
           if [ "$AFFECTED" = true ]; then
             python3 scripts/ci/test_foundation_ci_scope.py
             python3 scripts/ci/test_foundation_postgres_production_shape.py
+            python3 scripts/ci/test_production_shape_fetch.py
           fi
           python3 scripts/ci/foundation_ci_scope.py --skipped-jobs --affected "$AFFECTED" \
             --event-name "$CHANGE_SCOPE_EVENT" --base "$CHANGE_SCOPE_BASE" --head "$CHANGE_SCOPE_HEAD" \
@@ -106,6 +107,11 @@ jobs:
       - name: Generate the declared artifacts (root ADR-0418)
         shell: bash
         run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
+      # Root ADR-0476: the production-shape gates judge against production's published shape, not
+      # a committed copy; the ledger bucket's public read domain needs no secret.
+      - name: Fetch production's published table shapes
+        shell: bash
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/production-shape-fetch.py"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -234,6 +240,11 @@ jobs:
       - name: Generate the declared artifacts (root ADR-0418)
         shell: bash
         run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
+      # Root ADR-0476: the production-shape gates judge against production's published shape, not
+      # a committed copy; the ledger bucket's public read domain needs no secret.
+      - name: Fetch production's published table shapes
+        shell: bash
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/production-shape-fetch.py"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -517,6 +528,11 @@ jobs:
       - name: Generate the declared artifacts (root ADR-0418)
         shell: bash
         run: bash "$GITHUB_WORKSPACE/scripts/ci/generate-declared.sh"
+      # Root ADR-0476: the production-shape gates judge against production's published shape, not
+      # a committed copy; the ledger bucket's public read domain needs no secret.
+      - name: Fetch production's published table shapes
+        shell: bash
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/production-shape-fetch.py"
 
       - name: Set dynamic database URL
         env:

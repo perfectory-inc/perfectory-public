@@ -1,6 +1,6 @@
 # ADR 0279: 낡은 모양 원장은 CI 가 준비한 PR 로 온다 — 서버는 비공개 버킷에 올리기만 한다
 
-- Status: Accepted
+- Status: Superseded by [ADR-0476](./0476-production-shape-ledgers-are-published-by-the-host-and-ci-reads-them-with-no-copy.md)
 - Date: 2026-10-19 (코디네이터 결정)
 - Amends: [ADR-0259](./0259-ci-migrates-the-production-table-shape.md) §5 (갱신 PR 을 서버가 아니라 CI 가 연다)
 

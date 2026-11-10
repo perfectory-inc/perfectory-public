@@ -1,8 +1,8 @@
-"""Put and get one small R2 object with the standard library: AWS Signature Version 4, path style.
+"""Put one small R2 object with the standard library: AWS Signature Version 4, path style.
 
-For hosts and runners that hold an R2 access key but no AWS tooling: the shape ledger check writes
-its captures with it, and the shape ledger refresh workflow reads them (root ADR-0279). One object
-per call, whole in memory; not for data files.
+For hosts that hold an R2 access key but no AWS tooling: the shape ledger check writes its captures
+with the short-lived key its unit mints for it (root ADR-0476), whose session token rides in
+x-amz-security-token. One object per call, whole in memory; not for data files.
 """
 
 from __future__ import annotations
@@ -41,13 +41,18 @@ def canonical_request(method: str, path: str, headers: dict[str, str], payload_s
 
 
 def signed_request(method: str, endpoint: str, bucket: str, key: str, access_key: str, secret: str,
-                   body: bytes = b"", when: datetime | None = None, region: str = REGION) -> urllib.request.Request:
-    """A ready request for `bucket/key` at `endpoint` (https://<account>.r2.cloudflarestorage.com)."""
+                   body: bytes = b"", when: datetime | None = None, region: str = REGION,
+                   session_token: str = "", extra: dict[str, str] | None = None) -> urllib.request.Request:
+    """A ready request for `bucket/key` at `endpoint` (https://<account>.r2.cloudflarestorage.com).
+    `extra` are further headers, lower-case and signed (e.g. if-none-match)."""
     when = when or datetime.now(timezone.utc)
     host = urllib.parse.urlsplit(endpoint).netloc
     path = "/" + urllib.parse.quote(f"{bucket}/{key}", safe="/-_.~")
     payload = hashlib.sha256(body).hexdigest()
-    headers = {"host": host, "x-amz-content-sha256": payload, "x-amz-date": when.strftime("%Y%m%dT%H%M%SZ")}
+    headers = {"host": host, "x-amz-content-sha256": payload, "x-amz-date": when.strftime("%Y%m%dT%H%M%SZ"),
+               **(extra or {})}
+    if session_token:
+        headers["x-amz-security-token"] = session_token
     request, signed = canonical_request(method, path, headers, payload)
     scope = f"{when.strftime('%Y%m%d')}/{region}/{SERVICE}/aws4_request"
     authorization = (f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed}, "
@@ -57,17 +62,18 @@ def signed_request(method: str, endpoint: str, bucket: str, key: str, access_key
                                            "Authorization": authorization})
 
 
-def put(endpoint: str, bucket: str, key: str, access_key: str, secret: str, body: bytes) -> None:
-    with urllib.request.urlopen(signed_request("PUT", endpoint, bucket, key, access_key, secret, body), timeout=60):
-        pass
-
-
-def get(endpoint: str, bucket: str, key: str, access_key: str, secret: str) -> bytes | None:
-    """The object's bytes, or None when it does not exist."""
+def put(endpoint: str, bucket: str, key: str, access_key: str, secret: str, body: bytes,
+        session_token: str = "", only_new: bool = False) -> bool:
+    """Writes the object; False when `only_new` and the key already holds one (If-None-Match: *,
+    HTTP 412), which leaves it as it was."""
+    extra = {"if-none-match": "*"} if only_new else None
+    request = signed_request("PUT", endpoint, bucket, key, access_key, secret, body,
+                             session_token=session_token, extra=extra)
     try:
-        with urllib.request.urlopen(signed_request("GET", endpoint, bucket, key, access_key, secret), timeout=60) as r:
-            return r.read()
+        with urllib.request.urlopen(request, timeout=60):
+            return True
     except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
+        if only_new and error.code == 412:
+            return False
         raise
+
