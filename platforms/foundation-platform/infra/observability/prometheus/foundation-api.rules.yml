@@ -368,6 +368,24 @@ groups:
         annotations:
           summary: foundation-api 가 원천별 기대 주기를 못 읽어요 — 수집이 멈춰도 알림이 안 와요
           runbook: docs/runbooks/slo-alert-policy.md
+      - alert: FoundationPlatformIngestionSourceNeverCollected
+        # A source the catalog says is collected on a cadence that has no finished Bronze run at all
+        # (root ADR-0480): the stale rule above has no series to compare, so it was silent. The court
+        # auction collector ran every night and said `changed` for its lists while not one item detail
+        # reached Bronze (no catalog row for courtauctiongokr__auction_item_detail, measured 2026-11-11).
+        # A day's grace covers a source declared in the release before its first scheduled run.
+        expr: >-
+          foundation_platform_ingestion_source_expected_max_age_seconds
+          unless on (source) foundation_platform_ingestion_run_last_finished_at_seconds
+          and on () (foundation_api_up == 1)
+        for: 1d
+        labels:
+          severity: ticket
+          service: foundation-api
+        annotations:
+          summary: '{{ $labels.source }} 은 주기를 선언한 수집 원천인데 Bronze 수집이 한 번도 끝난 적이 없어요 — 수집기가 성공해도 이 원천은 0 건이에요'
+          description: The endpoint catalog declares an expected_cadence for {{ $labels.source }}, and catalog.ingestion_run has no finished run of it.
+          runbook: docs/runbooks/job-outcomes.md
   # Each asset's lag and how long it has gone unscheduled (root ADR-0333 §7). 2026-10-28 21:38 the
   # 공매 Gold rebuild committed and recorded asset event 3912, which reached a bake a deploy held
   # paused; nothing queued it and no series said so: the screen would have waited 13 hours for the
@@ -724,4 +742,74 @@ groups:
           service: dual-run
         annotations:
           summary: Dagster 상태(dagster.prom)를 30분 넘게 못 읽었어요 — 코드 위치가 죽어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
+          runbook: docs/runbooks/asset-reconcile.md
+  # Outcomes, not process status (root ADR-0480). A unit that succeeded is not a job that did its work:
+  # 2026-11-06..11-09 the shape ledger check waited for a host chain never provisioned, 2026-11-09 ten
+  # first Silver loads were refused their pool and said `waiting`, and the data_go_kr file data's first
+  # start was skipped, all with no failed unit. The scheduler's runner appends every outcome it says to
+  # the outcome ledger; the asset reconciler (every five minutes) writes when each enabled job last met
+  # each outcome its definition expects (jobs.v1.json expected_outcome) and how long it may go without
+  # (job-outcomes.prom). `done`: a run or check that ended changed or unchanged; `change`: one that
+  # ended changed. The job's owner and runbook come from its unit file (root ADR-0445).
+  - name: foundation-job-outcomes
+    rules:
+      - alert: FoundationJobOutcomeMissing
+        # While a deploy holds the DAGs paused nothing starts and the deploy's own alert says so
+        # (2026-11-10 17:49Z, measured: the five-minute reconciler had no outcome for 1.5 hours of a
+        # deploy); the jobs run again within minutes of the unpause, inside this rule's 15 minutes.
+        expr: >-
+          (
+            time() - foundation_job_outcome_met_seconds
+            > on (job_id, expectation) foundation_job_outcome_expected_seconds
+          )
+          * on (job_id) group_left (unit, owner, runbook) foundation_job_outcome_info
+          unless on () foundation_deploy_dags_paused_since_timestamp_seconds
+        for: 15m
+        labels:
+          severity: ticket
+          service: job-outcome
+        annotations:
+          summary: '{{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 {{ $value | humanizeDuration }} 동안 내지 않았어요 — 유닛이 성공해도 일을 안 한 거예요. 주인 {{ $labels.owner }}, 런북 {{ $labels.runbook }}. 더니어 지도의 그 작업 결과 줄과 journalctl -u {{ $labels.unit }} 를 보세요'
+          runbook: docs/runbooks/job-outcomes.md
+      - alert: FoundationJobOutcomeMissingLong
+        # A day past its bound: the owner is called by name, as a unit failed for six hours is (root ADR-0445).
+        expr: >-
+          (
+            time() - foundation_job_outcome_met_seconds
+            - on (job_id, expectation) foundation_job_outcome_expected_seconds
+            > 86400
+          )
+          * on (job_id) group_left (unit, owner, runbook) foundation_job_outcome_info
+        for: 15m
+        labels:
+          severity: page
+          service: job-outcome
+        annotations:
+          summary: '<!channel> {{ $labels.job_id }} 가 기대한 결과({{ $labels.expectation }})를 기한보다 {{ $value | humanizeDuration }} 더 내지 않았어요 — 주인 {{ $labels.owner }} 가 고칠 차례예요. 런북 {{ $labels.runbook }}'
+          runbook: docs/runbooks/job-outcomes.md
+      - alert: FoundationJobOutcomesSilent
+        # The scheduler decided nothing: the reconciler itself runs every five minutes and a dozen jobs
+        # run hourly, so an hour with no outcome of any job is Airflow (or Dagster, once it runs jobs)
+        # starting nothing. A deploy that holds the DAGs paused is FoundationDeployDagsPausedLong's.
+        expr: >-
+          time() - foundation_job_outcomes_last_recorded_seconds > 3600
+          unless on () foundation_deploy_dags_paused_since_timestamp_seconds
+        for: 15m
+        labels:
+          severity: page
+          service: job-outcome
+        annotations:
+          summary: '<!channel> 한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
+          runbook: docs/runbooks/job-outcomes.md
+      - alert: FoundationJobOutcomesUnread
+        # Without the file the three above cannot fire.
+        expr: >-
+          time() - node_textfile_mtime_seconds{file=~".*/job-outcomes.prom"} > 1800
+          or absent(foundation_job_outcomes_recorded)
+        for: 10m
+        labels:
+          severity: ticket
+          service: job-outcome
+        annotations:
+          summary: 작업 결과(job-outcomes.prom)를 30분 넘게 못 읽었어요 — 일을 안 하는 작업이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
           runbook: docs/runbooks/asset-reconcile.md

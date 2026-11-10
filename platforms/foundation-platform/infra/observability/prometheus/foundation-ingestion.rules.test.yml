@@ -103,3 +103,38 @@ tests:
             exp_annotations:
               summary: foundation-api 가 원천별 기대 주기를 못 읽어요 — 수집이 멈춰도 알림이 안 와요
               runbook: docs/runbooks/slo-alert-policy.md
+
+  # The court auction item detail (measured 2026-11-11): its endpoint declares a daily cadence and the
+  # collector said `changed` every night for its lists, yet no item detail run ever finished, so the
+  # stale rule had no series to compare. A declared source with no finished run is said after a day; a
+  # source that has one, however old, is the stale rule's.
+  - interval: 4m
+    input_series:
+      - series: 'foundation_api_up'
+        values: '1x420'
+      - series: 'foundation_platform_ingestion_run_last_finished_at_seconds{source="courtauctiongokr__auction_item",status="succeeded"}'
+        values: '0+240x420'
+      - series: 'foundation_platform_ingestion_source_expected_max_age_seconds{source="courtauctiongokr__auction_item"}'
+        values: '108000x420'
+      - series: 'foundation_platform_ingestion_source_expected_max_age_seconds{source="courtauctiongokr__auction_item_detail"}'
+        values: '108000x420'
+      - series: 'foundation_platform_ingestion_source_max_run_seconds{source="courtauctiongokr__auction_item_detail"}'
+        values: '18000x420'
+    alert_rule_test:
+      - eval_time: 23h
+        alertname: FoundationPlatformIngestionSourceNeverCollected
+        exp_alerts: []
+      - eval_time: 25h
+        alertname: FoundationPlatformIngestionSourceNeverCollected
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: foundation-api
+              source: courtauctiongokr__auction_item_detail
+            exp_annotations:
+              summary: 'courtauctiongokr__auction_item_detail 은 주기를 선언한 수집 원천인데 Bronze 수집이 한 번도 끝난 적이 없어요 — 수집기가 성공해도 이 원천은 0 건이에요'
+              description: The endpoint catalog declares an expected_cadence for courtauctiongokr__auction_item_detail, and catalog.ingestion_run has no finished run of it.
+              runbook: docs/runbooks/job-outcomes.md
+      - eval_time: 25h
+        alertname: FoundationPlatformIngestionRunStale
+        exp_alerts: []

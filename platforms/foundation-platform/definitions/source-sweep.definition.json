@@ -41,7 +41,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-01T10:33:44Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 96,
+        "basis": "it collects the daily-changing VWorld and HUB inventories (land forest, transfer history, right registration and land use zone: expected_cadence daily, 72 h) plus one daily turn; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed 16 of 19 runs, longest gap 72.1 h."
+      }
     }
   ],
   "assets": [

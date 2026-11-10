@@ -34,7 +34,11 @@
         "gold-parcel-boundary-served-to-parcel-tiles"
       ],
       "enabled": false,
-      "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it."
+      "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it.",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
     }
   ],
   "assets": [

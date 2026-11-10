@@ -44,7 +44,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-19T14:49:09Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 10224,
+        "basis": "the factory register file is released yearly (expected_cadence yearly, 10,200 h) plus one daily turn."
+      }
     }
   ],
   "assets": [

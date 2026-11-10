@@ -43,7 +43,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-30T13:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "Bronze land use zones are collected daily; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): the Silver lane changed once. A month and a day without one is a lane that stopped."
+      }
     }
   ],
   "assets": [

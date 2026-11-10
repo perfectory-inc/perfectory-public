@@ -39,7 +39,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-06T17:08:23Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 2952,
+        "basis": "parcel number changes are released quarterly (expected_cadence quarterly, 2928 h) plus one daily turn."
+      }
     }
   ]
 }

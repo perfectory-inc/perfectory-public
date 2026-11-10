@@ -44,7 +44,11 @@
       "enabled": true,
       "enabled_since": "2026-10-01T10:33:44Z",
       "dagster_stage": "shadow",
-      "started_once_after_deploy": true
+      "started_once_after_deploy": true,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when an operator edits the map (root ADR-0112): `unchanged` is its normal outcome. That it keeps finishing is the done bound."
+      }
     }
   ],
   "assets": [

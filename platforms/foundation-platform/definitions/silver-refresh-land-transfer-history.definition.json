@@ -47,7 +47,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-14T02:51:17Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "Bronze is collected daily, but a Silver release is cut far less often; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): changed twice, 310.3 h apart."
+      }
     }
   ],
   "assets": [

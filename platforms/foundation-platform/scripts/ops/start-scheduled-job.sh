@@ -56,6 +56,22 @@ refuse() {
   exit 64
 }
 
+# Which units run, where a deferral and an outcome are recorded, are job_units.py's answers, from this
+# script's release (root ADR-0184, ADR-0260).
+job_units="$(dirname "${BASH_SOURCE[0]}")/../deploy/job_units.py"
+# Says the outcome this script decided on and appends it to the outcome ledger (root ADR-0480): the
+# asset reconciler holds each job to the outcomes its definition expects, so a start that ran nothing
+# (a refusal, a pause, a deferral) is kept as well as a run's own word. A ledger that cannot be
+# written loses one line, not the run.
+keep() {
+  python3 -I -B "${job_units}" record-outcome "${job}" "$1" "${2:-run}" "${invocation:-}" \
+    || printf 'start-scheduled-job: cannot record the outcome of %s\n' "${job}" >&2
+}
+say() {
+  printf '%s\n' "$1"
+  keep "$@"
+}
+
 [[ "${checking}" == true && "${triggered}" == true ]] && refuse "a check is not triggered"
 [[ "${job}" =~ ^[a-z][a-z0-9_]*$ ]] || refuse "expected one job id, got '${job:0:40}'"
 listing="$(python3 - "${jobs_file}" "${job}" "${checking}" "$([[ -n "${requested}" ]] && echo true || echo false)" <<'PY'
@@ -76,7 +92,7 @@ read -r service wait_limit run_service <<<"${listing}" || true
 if [[ -z "${requested}" && -e "${switches}/${job}" ]]; then
   printf 'start-scheduled-job: %s is paused by an operator: %s\n' "${job}" \
     "$(sed -n 's/^reason=//p' "${switches}/${job}" | sed -n 1p)"
-  [[ "${checking}" == true ]] || printf 'foundation-job-outcome skipped paused\n'
+  [[ "${checking}" == true ]] || say 'foundation-job-outcome skipped paused'
   exit 0
 fi
 
@@ -109,8 +125,10 @@ PY
 if [[ -n "${turn}" ]]; then
   printf 'start-scheduled-job: %s %s\n' "${job}" "${turn}"
   # Nothing ran, so nothing changed: no output events, nothing downstream starts (root ADR-0171).
-  # The job's own fallback schedule starts it again.
+  # The job's own fallback schedule starts it again. The ledger keeps it as skipped: nothing ran, so
+  # it is not the job's work done (root ADR-0480).
   printf 'foundation-job-outcome unchanged\n'
+  keep "foundation-job-outcome skipped ${turn}"
   exit 0
 fi
 
@@ -126,9 +144,6 @@ fi
 # (deploy-start-once.sh). Admission owns the lock; it answers 75 while a build holds it. Any other
 # answer starts the job, whose ExecStartPre still refuses a build this question missed.
 admission="${FOUNDATION_RELEASE_ADMISSION:-/opt/perfectory-control/current/scripts/deploy/foundation-release-admission.py}"
-# Which units run, and where a deferral is recorded, are job_units.py's answers, from this script's
-# release (root ADR-0184, ADR-0260).
-job_units="$(dirname "${BASH_SOURCE[0]}")/../deploy/job_units.py"
 deferred="$(python3 -I -B "${job_units}" deferred-dir)" || refuse "cannot read where deferrals are recorded"
 # A start waits for the host before its run, up to the job's wait_limit_minutes (root ADR-0270 §2b,
 # deploy D4): for a release build to finish, or for its pool to have room. It asks every 30 seconds
@@ -157,7 +172,7 @@ while :; do
       mkdir -p "${deferred}" && date +%s >"${deferred}/${job}" ||
         printf 'start-scheduled-job: cannot record the deferral of %s under %s\n' "${job}" "${deferred}" >&2
       printf 'start-scheduled-job: %s deferred: a release build is running\n' "${job}"
-      printf 'foundation-job-outcome waiting a release build is running; this job starts after it finishes\n'
+      say 'foundation-job-outcome waiting a release build is running; this job starts after it finishes'
     else
       printf 'start-scheduled-job: %s not started: %s\n' "${job}" "${full}"
       # The refusal is queued, not dropped (root ADR-0462): the asset reconciler starts the job again
@@ -168,7 +183,7 @@ while :; do
           && printf 'start-scheduled-job: %s %s; started again when its pool has room\n' "${job}" "${queued}" \
           || printf 'start-scheduled-job: cannot queue the refused start of %s\n' "${job}" >&2
       fi
-      printf 'foundation-job-outcome waiting %s\n' "${full}"
+      say "foundation-job-outcome waiting ${full}"
     fi
     exit 0
   fi
@@ -214,7 +229,7 @@ if [[ -n "${requested}" ]]; then
   fi
   if [[ -n "${why}" ]]; then
     printf 'start-scheduled-job: run-now %s of %s not started: %s\n' "${requested}" "${job}" "${why}"
-    printf 'foundation-job-outcome skipped %s\n' "${why}"
+    say "foundation-job-outcome skipped ${why}"
     exit 0
   fi
   printf 'start-scheduled-job: run-now %s of %s by %s: %s\n' "${requested}" "${job}" \
@@ -264,7 +279,9 @@ if [[ "${checking}" == true ]]; then
   answer=""
   [[ "${result}" == success ]] && answer="$(journalctl --no-pager -o cat -n 200 "_SYSTEMD_INVOCATION_ID=${invocation}" \
     | grep -E '^foundation-job-check [^ ]+$' | tail -n 1)"
-  [[ -z "${answer}" ]] || printf '%s\n' "${answer}"
+  # The answer is kept as the job's outcome (root ADR-0480): `unchanged` is a turn whose outputs hold
+  # their inputs, `would_change` only a run about to start, which says its own outcome.
+  [[ -z "${answer}" ]] || say "${answer}" check
   # A check that found nothing to do was the job's turn (root ADR-0305): its run is skipped, so it
   # would never be recorded, and a takes_turns job would wait for it forever (2026-10-19..28: the
   # by-PNU bake deferred every clock start to twelve Silver lanes with nothing to load).
@@ -305,11 +322,11 @@ if [[ "${result}" != success ]]; then
   # invocation it stopped before it stops it.
   stopper="$(grep -lx "invocation=${invocation}" "${FOUNDATION_OPERATOR_STOPS_DIR:-/var/lib/foundation-run-now/stopped}"/* 2>/dev/null | sed -n 1p)" || stopper=""
   if [[ -n "${stopper}" ]]; then
-    printf 'foundation-job-outcome failed stopped by %s\n' "$(sed -n 's/^actor=//p' "${stopper}" | sed -n 1p)"
+    say "foundation-job-outcome failed stopped by $(sed -n 's/^actor=//p' "${stopper}" | sed -n 1p)"
   elif [[ -n "${outcome}" && "${claimed}" != failed* ]]; then
-    printf 'foundation-job-outcome failed systemd result=%s after the run said %s\n' "${result}" "${claimed}"
+    say "foundation-job-outcome failed systemd result=${result} after the run said ${claimed}"
   else
-    printf 'foundation-job-outcome failed systemd result=%s\n' "${result}"
+    say "foundation-job-outcome failed systemd result=${result}"
   fi
   verdict=1
 else
@@ -319,7 +336,7 @@ else
   elif [[ "${outcome}" == "foundation-job-outcome failed "* ]]; then
     verdict=1
   fi
-  printf '%s\n' "${outcome}"
+  say "${outcome}"
 fi
 printf 'start-scheduled-job: %s result=%s\n' "${service}" "${result}"
 exit "${verdict}"

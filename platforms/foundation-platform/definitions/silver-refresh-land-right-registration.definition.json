@@ -43,7 +43,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-10T22:13:25Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "Bronze is collected daily (31 runs in 30 days), but a Silver release is cut far less often; measured 2026-11-11 from each unit's journal, 10-12..11-11 (read-only): no run said changed. A month and a day without one is a lane that stopped."
+      }
     }
   ],
   "assets": [

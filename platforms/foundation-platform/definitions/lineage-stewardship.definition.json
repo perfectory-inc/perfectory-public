@@ -56,7 +56,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-10-01T10:33:44Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "An operation, not a data producer: `unchanged` is its normal outcome. That it keeps finishing is the done bound."
+      }
     }
   ],
   "assets": [

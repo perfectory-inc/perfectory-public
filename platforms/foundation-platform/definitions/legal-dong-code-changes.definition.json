@@ -40,7 +40,11 @@
       "enabled": true,
       "enabled_since": "2026-10-05T03:16:07Z",
       "dagster_stage": "shadow",
-      "started_once_after_deploy": true
+      "started_once_after_deploy": true,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Its provider publishes on no fixed day (expected_cadence `irregular` in docs/catalog/public-source-endpoint-catalog.v1.json), so a run that finds nothing new is healthy. That it keeps finishing is the done bound."
+      }
     }
   ]
 }

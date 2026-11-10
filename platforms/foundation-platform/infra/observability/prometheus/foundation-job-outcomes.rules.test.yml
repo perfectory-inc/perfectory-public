@@ -1,0 +1,222 @@
+# promtool unit tests for the foundation-job-outcomes rules (root ADR-0480): a job whose unit succeeds
+# and that produces nothing it is expected to calls its owner. The series are what the asset
+# reconciler writes from the outcome ledger (scripts/ops/job_outcomes.py); the per-job bounds and the
+# five incidents are tested against the real definitions in orchestration/tests/test_job_outcomes.py.
+# Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # 2026-11-06..: the shape ledger check waited, run after run, for a host chain never provisioned. It
+  # never ended `changed` or `unchanged`; its bound is one day, its 75 minutes of limits and an hour
+  # (94,500 s). No unit failed while it waited, so nothing was said. It is reported 15 minutes after
+  # the bound and called by name a day later.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_job_outcome_met_seconds{job_id="shape_ledger_check",expectation="done"}'
+        values: '0x3100'
+      - series: 'foundation_job_outcome_expected_seconds{job_id="shape_ledger_check",expectation="done"}'
+        values: '94500x3100'
+      - series: 'foundation_job_outcome_info{job_id="shape_ledger_check",unit="foundation-shape-ledger-check.service",owner="platform",runbook="docs/runbooks/shape-ledger-bucket.md"}'
+        values: '1x3100'
+      # Another job keeps finishing: the scheduler is alive and its file fresh.
+      - series: 'foundation_job_outcome_met_seconds{job_id="asset_reconcile",expectation="done"}'
+        values: '0+60x3100'
+      - series: 'foundation_job_outcome_expected_seconds{job_id="asset_reconcile",expectation="done"}'
+        values: '4380x3100'
+      - series: 'foundation_job_outcome_info{job_id="asset_reconcile",unit="foundation-asset-reconcile.service",owner="lakehouse",runbook="docs/runbooks/asset-reconcile.md"}'
+        values: '1x3100'
+      - series: 'foundation_job_outcomes_last_recorded_seconds'
+        values: '0+60x3100'
+      - series: 'foundation_job_outcomes_recorded'
+        values: '1+5x3100'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0+60x3100'
+    alert_rule_test:
+      - eval_time: 26h25m
+        alertname: FoundationJobOutcomeMissing
+        exp_alerts: []
+      - eval_time: 26h35m
+        alertname: FoundationJobOutcomeMissing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: job-outcome
+              job_id: shape_ledger_check
+              expectation: done
+              unit: foundation-shape-ledger-check.service
+              owner: platform
+              runbook: docs/runbooks/shape-ledger-bucket.md
+            exp_annotations:
+              summary: 'shape_ledger_check 가 기대한 결과(done)를 1d 2h 35m 0s 동안 내지 않았어요 — 유닛이 성공해도 일을 안 한 거예요. 주인 platform, 런북 docs/runbooks/shape-ledger-bucket.md. 더니어 지도의 그 작업 결과 줄과 journalctl -u foundation-shape-ledger-check.service 를 보세요'
+              runbook: docs/runbooks/job-outcomes.md
+      - eval_time: 26h35m
+        alertname: FoundationJobOutcomeMissingLong
+        exp_alerts: []
+      - eval_time: 51h
+        alertname: FoundationJobOutcomeMissingLong
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: job-outcome
+              job_id: shape_ledger_check
+              expectation: done
+              unit: foundation-shape-ledger-check.service
+              owner: platform
+              runbook: docs/runbooks/shape-ledger-bucket.md
+            exp_annotations:
+              summary: '<!channel> shape_ledger_check 가 기대한 결과(done)를 기한보다 1d 0h 45m 0s 더 내지 않았어요 — 주인 platform 가 고칠 차례예요. 런북 docs/runbooks/shape-ledger-bucket.md'
+              runbook: docs/runbooks/job-outcomes.md
+      - eval_time: 51h
+        alertname: FoundationJobOutcomesSilent
+        exp_alerts: []
+      - eval_time: 51h
+        alertname: FoundationJobOutcomesUnread
+        exp_alerts: []
+
+  # The data_go_kr file data, switched on 11-09 03:00Z: had it run every day and written nothing, its
+  # change bound of a month and a day (1,104 h = 3,974,400 s) is what reports it, while every run is
+  # done. The series start an hour short of the bound (its last change 3,970,800 s before time 0).
+  - interval: 1m
+    input_series:
+      - series: 'foundation_job_outcome_met_seconds{job_id="data_go_kr_file_data",expectation="change"}'
+        values: '-3970800x200'
+      - series: 'foundation_job_outcome_expected_seconds{job_id="data_go_kr_file_data",expectation="change"}'
+        values: '3974400x200'
+      - series: 'foundation_job_outcome_met_seconds{job_id="data_go_kr_file_data",expectation="done"}'
+        values: '0+60x200'
+      - series: 'foundation_job_outcome_expected_seconds{job_id="data_go_kr_file_data",expectation="done"}'
+        values: '95400x200'
+      - series: 'foundation_job_outcome_info{job_id="data_go_kr_file_data",unit="foundation-data-go-kr-file-data.service",owner="collection",runbook="docs/runbooks/data-go-kr-registered-factory.md"}'
+        values: '1x200'
+      - series: 'foundation_job_outcomes_last_recorded_seconds'
+        values: '0+60x200'
+      - series: 'foundation_job_outcomes_recorded'
+        values: '1+1x200'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0+60x200'
+    alert_rule_test:
+      - eval_time: 1h10m
+        alertname: FoundationJobOutcomeMissing
+        exp_alerts: []
+      - eval_time: 1h20m
+        alertname: FoundationJobOutcomeMissing
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: job-outcome
+              job_id: data_go_kr_file_data
+              expectation: change
+              unit: foundation-data-go-kr-file-data.service
+              owner: collection
+              runbook: docs/runbooks/data-go-kr-registered-factory.md
+            exp_annotations:
+              summary: 'data_go_kr_file_data 가 기대한 결과(change)를 46d 0h 20m 0s 동안 내지 않았어요 — 유닛이 성공해도 일을 안 한 거예요. 주인 collection, 런북 docs/runbooks/data-go-kr-registered-factory.md. 더니어 지도의 그 작업 결과 줄과 journalctl -u foundation-data-go-kr-file-data.service 를 보세요'
+              runbook: docs/runbooks/job-outcomes.md
+
+  # The scheduler starts nothing: the newest outcome of any job stays at time 0. Reported after an hour
+  # and fifteen minutes; while a deploy holds the DAGs paused it is the deploy's alert instead.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_job_outcomes_last_recorded_seconds'
+        values: '0x200'
+      - series: 'foundation_job_outcomes_recorded'
+        values: '7x200'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0+60x200'
+    alert_rule_test:
+      - eval_time: 1h10m
+        alertname: FoundationJobOutcomesSilent
+        exp_alerts: []
+      - eval_time: 1h20m
+        alertname: FoundationJobOutcomesSilent
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: job-outcome
+            exp_annotations:
+              summary: '<!channel> 한 시간 넘게 어떤 작업도 결과를 남기지 않았어요 — 스케줄러가 아무것도 시작하지 않고 있어요. Airflow 스케줄러(docker logs airflow-scheduler-1)와 start-scheduled-job 을 보세요'
+              runbook: docs/runbooks/job-outcomes.md
+  - interval: 1m
+    input_series:
+      - series: 'foundation_job_outcomes_last_recorded_seconds'
+        values: '0x200'
+      - series: 'foundation_job_outcomes_recorded'
+        values: '7x200'
+      - series: 'foundation_deploy_dags_paused_since_timestamp_seconds{scope="all"}'
+        values: '0x200'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0+60x200'
+      # The five-minute reconciler has nothing done for the deploy's two hours: not its alert either.
+      - series: 'foundation_job_outcome_met_seconds{job_id="asset_reconcile",expectation="done"}'
+        values: '0x200'
+      - series: 'foundation_job_outcome_expected_seconds{job_id="asset_reconcile",expectation="done"}'
+        values: '4380x200'
+      - series: 'foundation_job_outcome_info{job_id="asset_reconcile",unit="foundation-asset-reconcile.service",owner="lakehouse",runbook="docs/runbooks/asset-reconcile.md"}'
+        values: '1x200'
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: FoundationJobOutcomesSilent
+        exp_alerts: []
+      - eval_time: 2h
+        alertname: FoundationJobOutcomeMissing
+        exp_alerts: []
+
+  # 2026-11-06 21:16Z..11-09: Dagster's code location failed every load while the deploy said
+  # "observing". Dagster runs no job yet, so its outcome is the decision it compares and appends to the
+  # dual-run ledger: the last comparison stays at time 0 while Airflow's jobs keep recording outcomes.
+  # The outcome rule (FoundationDualRunSilent) reports it on the second day; the process status (the UI
+  # answered) never would have. Airflow, which runs the jobs, is not silent and is not reported.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_dagster_observing'
+        values: '1x1700'
+      - series: 'foundation_dual_run_jobs'
+        values: '64x1700'
+      - series: 'foundation_dual_run_last_comparison_timestamp_seconds{job="synthetic_daily"}'
+        values: '0x1700'
+      - series: 'foundation_job_outcomes_last_recorded_seconds'
+        values: '0+60x1700'
+      - series: 'foundation_job_outcomes_recorded'
+        values: '1+1x1700'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0+60x1700'
+    alert_rule_test:
+      - eval_time: 26h50m
+        alertname: FoundationDualRunSilent
+        exp_alerts: []
+      - eval_time: 27h10m
+        alertname: FoundationDualRunSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: dual-run
+            exp_annotations:
+              summary: '이중 실행의 작업 64개가 26시간 넘게 비교를 하나도 남기지 않았어요 — 원장(/var/lib/dagster/dual-run/comparisons.jsonl)이 자라지 않아 옮기는 문턱이 서 있어요. Dagster 의 dual_run_matches_airflow 검사 run 과 센서 틱을 보세요'
+              runbook: docs/runbooks/production-orchestrator-cutover.md
+      - eval_time: 27h10m
+        alertname: FoundationJobOutcomesSilent
+        exp_alerts: []
+
+  # The reconciler stops writing the file: reported after 40 minutes, as nothing above can fire.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_job_outcomes_recorded'
+        values: '7x60'
+      - series: 'node_textfile_mtime_seconds{file="/textfile-jobs/job-outcomes.prom"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: FoundationJobOutcomesUnread
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: FoundationJobOutcomesUnread
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: job-outcome
+              file: /textfile-jobs/job-outcomes.prom
+            exp_annotations:
+              summary: 작업 결과(job-outcomes.prom)를 30분 넘게 못 읽었어요 — 일을 안 하는 작업이 있어도 알림이 안 가요. journalctl -u foundation-asset-reconcile.service 를 보세요
+              runbook: docs/runbooks/asset-reconcile.md

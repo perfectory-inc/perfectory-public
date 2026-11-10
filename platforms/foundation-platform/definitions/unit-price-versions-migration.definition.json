@@ -43,7 +43,11 @@
       ],
       "enabled": true,
       "enabled_since": "2026-11-05T22:24:33Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "A migration that carries on each day until it is done, then does nothing (`unchanged`) for good: no change is owed. That it keeps finishing is the done bound."
+      }
     }
   ],
   "host_memory": {

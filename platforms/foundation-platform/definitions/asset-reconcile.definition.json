@@ -58,7 +58,11 @@
       "dagster_stage": "shadow",
       "requeues_refused_starts_in": [
         "spark"
-      ]
+      ],
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "An operation, not a data producer: `unchanged` is its normal outcome. That it keeps finishing is the done bound."
+      }
     }
   ]
 }

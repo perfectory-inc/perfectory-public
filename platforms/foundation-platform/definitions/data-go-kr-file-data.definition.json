@@ -49,7 +49,11 @@
       "pool_slots": 3,
       "priority_weight": 1,
       "enabled_since": "2026-11-09T03:00:00Z",
-      "dagster_stage": "shadow"
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "its files are released monthly at the most often (school locations, household counts, population: expected_cadence monthly, 1080 h; the rest quarterly, yearly or irregular) plus one daily turn."
+      }
     }
   ],
   "assets": [
