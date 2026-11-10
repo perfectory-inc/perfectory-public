@@ -77,9 +77,8 @@
     "free_bytes_margin": 21474836480
   },
   "evaluation": {
-    "$comment": "What a runtime must show on the hand-checked sample before it serves (root ADR-0478 §5); the sample's shape is jobs/model_runtime/README.md. min_precision and the sample size are ADR-0477's accuracy gate (document-extraction.contract.json accuracy_gate) once that contract lands; until then these numbers are the gate.",
-    "sample_min_documents": 30,
-    "min_precision": 0.98,
+    "$comment": "How jobs/model_runtime/eval_extraction.py asks every runtime the same question. What a runtime must reach before it serves is the extraction contract's gate, stated there and only there: config/document-extraction.contract.json#/outputs/document_fact/accuracy_gate (root ADR-0477 §4).",
+    "accuracy_gate_from": "platforms/intelligence-platform/config/document-extraction.contract.json#/outputs/document_fact/accuracy_gate",
     "temperature": 0.1,
     "max_output_tokens": 2048
   }

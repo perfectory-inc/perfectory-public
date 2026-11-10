@@ -7,7 +7,7 @@
   (모든 유닛이 메모리를 선언한다), [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)
   (예약 작업 풀), [ADR-0435](./0435-a-by-pnu-lane-publishes-itself-through-automated-analysis-and-capacity-and-priority-not-the-clock-decide-when-work-starts.md)
   (용량 claim), [ADR-0097](./0097-dependencies-track-latest-and-version-pins-live-in-one-contract.md) (버전 핀은 한 계약)
-- Related: ADR-0477(문서 추출 경계, W54: 모델을 부르는 쪽)
+- Related: [ADR-0477](./0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md)(문서 추출 경계: 모델을 부르는 쪽, 정확도 관문)
 
 ## Context
 
