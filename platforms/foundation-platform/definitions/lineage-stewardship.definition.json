@@ -63,7 +63,8 @@
         "silver-registered-factory-to-gold-lineage-review-queue",
         "silver-school-location-to-gold-lineage-review-queue",
         "silver-subway-station-to-gold-lineage-review-queue",
-        "silver-university-to-gold-lineage-review-queue"
+        "silver-university-to-gold-lineage-review-queue",
+        "silver-onbid-real-estate-item-to-gold-lineage-review-queue"
       ],
       "enabled": true,
       "enabled_since": "2026-10-01T10:33:44Z",
@@ -488,6 +489,17 @@
     },
     {
       "from": "silver-university",
+      "to": "gold-lineage-review-queue",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_reference_queue.py"
+      ],
+      "description": "해석기가 못 놓은 현재 행을 (원천, pnu_unresolved_reason, 법정동) 항목으로 하나의 스튜어드 큐(unit place_reference)에 세운다(루트 ADR-0483 §5). 지난 큐 뒤 스냅숏이 움직였을 때만 읽고, 이 원천의 항목만 MERGE 한다."
+    },
+    {
+      "from": "silver-onbid-real-estate-item",
       "to": "gold-lineage-review-queue",
       "relation": "feeds",
       "status": "implemented",
