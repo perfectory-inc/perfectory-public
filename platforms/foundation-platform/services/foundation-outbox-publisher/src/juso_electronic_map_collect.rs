@@ -96,8 +96,6 @@ pub(crate) struct Backfill {
 
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct RequestCode {
-    pub(crate) document_code: String,
-    pub(crate) name_ko: String,
     pub(crate) published: String,
 }
 
@@ -187,7 +185,13 @@ pub(crate) fn classify(codes: &ResultCodes, code: &str) -> Outcome {
     } else if has(&codes.provider) {
         Outcome::Provider
     } else {
-        // An unknown code is treated as our own mistake: the run fails and says which code.
+        if !has(&codes.ours) {
+            // An unknown code is treated as our own mistake: the run fails and says which code.
+            tracing::warn!(
+                code,
+                "juso answered a result code the contract does not list"
+            );
+        }
         Outcome::Ours
     }
 }
