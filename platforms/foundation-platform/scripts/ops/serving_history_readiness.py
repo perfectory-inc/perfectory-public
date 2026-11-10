@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Is the history a lane serves whole enough for its first publish? (root ADR-0350 §6, ADR-0371 §5)
+"""Is the history a lane serves deep enough for its first publish? (root ADR-0479, superseding ADR-0371 §5)
 
     serving_history_readiness.py <lane>       `ready ...` (exit 0) or `waiting ...` (exit 1)
     serving_history_readiness.py --report     every 실거래 dataset's months, one line each (exit 0)
 
 A lane line of config/r2-connections.contract.json may name `first_publish_waits_for_history`: the
-실거래 datasets whose whole history must be in `silver.real_transaction` before the lane is first cut
-over, because a half-filled history reads as "no deal" on the screen. What is loaded is what the
+실거래 datasets the served document computes windows from (the 공장창고 comparables over 36 months,
+the region statistics over 12), whose recent history (`recent_history_months` of the contract, the
+months the collector fills first) must be in `silver.real_transaction` before the lane is first cut
+over: a window short of months would show wrong counts and medians with nothing to say so. The rest of
+the history is not waited for: the document says from when each dataset not held whole is held
+(`real_transaction.coverage`, root ADR-0479). What is loaded is what the
 Silver load's own commits record: each commit names the Bronze export it loaded
 (`lakehouse_ingest.append_source_object`, `foundation.ingest-batch-objects`, and the durable table
 property copy of root ADR-0332), one export per (dataset, month), `source=rtmolitgokr__<dataset>/
-period=YYYY-MM/` in its key. A dataset is whole when every month from its `first_month`
-(rt-molit-real-transaction.contract.json) to the last whole month before today has a loaded export.
+period=YYYY-MM/` in its key. A dataset is ready when every month of the recent history up to the last
+whole month before today has a loaded export (from its `first_month` when that is later); `--report`
+also counts every month from the `first_month` (rt-molit-real-transaction.contract.json).
 The same record `plan-silver-load-objects` decides what a load owes from, read here over the catalog's
 REST API (iceberg_metadata.py), no Spark and no data file.
 
@@ -66,8 +71,16 @@ def recorded_objects(history: dict) -> set[str]:
     return names
 
 
-def completeness(objects: set[str], datasets: dict[str, dict], through: str) -> dict[str, dict]:
-    """{dataset: loaded, expected, missing (the oldest few), share} for every contract dataset."""
+def months_before(month: str, count: int) -> str:
+    """The month `count` months before `month` (`YYYY-MM`)."""
+    year, number = map(int, month.split("-"))
+    index = year * 12 + number - 1 - count
+    return f"{index // 12:04d}-{index % 12 + 1:02d}"
+
+
+def completeness(objects: set[str], datasets: dict[str, dict], through: str, recent_months: int) -> dict[str, dict]:
+    """{dataset: loaded, expected, missing (the oldest few), share, and the same of the recent history
+    (the `recent_months` whole months up to `through`)} for every contract dataset."""
     loaded: dict[str, set[str]] = {}
     for name in objects:
         found = OBJECT.search(name)
@@ -77,9 +90,13 @@ def completeness(objects: set[str], datasets: dict[str, dict], through: str) -> 
     for dataset, spec in datasets.items():
         expected = months(spec["first_month"], through)
         missing = [m for m in expected if m not in loaded.get(dataset, set())]
+        recent = months(max(spec["first_month"], months_before(through, recent_months - 1)), through)
+        recent_missing = [m for m in recent if m in missing]
         report[dataset] = {"loaded": len(expected) - len(missing), "expected": len(expected),
                            "share": round((len(expected) - len(missing)) / len(expected), 4) if expected else 1.0,
-                           "missing_first": missing[:3], "through": through}
+                           "missing_first": missing[:3], "through": through,
+                           "recent_loaded": len(recent) - len(recent_missing), "recent_expected": len(recent),
+                           "recent_missing_last": recent_missing[-3:]}
     return report
 
 
@@ -90,11 +107,15 @@ def verdict(lane: str, report: dict[str, dict], lanes: dict) -> tuple[bool, str]
     unknown = sorted(set(waits) - set(report))
     if unknown:
         raise ValueError(f"{lane} waits for datasets the 실거래 contract does not name: {unknown}")
-    short = [f"{d} {report[d]['loaded']}/{report[d]['expected']} (from {', '.join(report[d]['missing_first'])})"
-             for d in waits if report[d]["loaded"] < report[d]["expected"]]
+    short = [f"{d} {report[d]['recent_loaded']}/{report[d]['recent_expected']} "
+             f"(missing {', '.join(report[d]['recent_missing_last'])})"
+             for d in waits if report[d]["recent_loaded"] < report[d]["recent_expected"]]
     if short:
-        return False, f"waiting {lane}: history not whole through {report[waits[0]]['through']}: " + "; ".join(short)
-    return True, f"ready {lane}: " + ", ".join(f"{d} {report[d]['expected']} months" for d in waits)
+        return False, (f"waiting {lane}: recent history not loaded through {report[waits[0]]['through']}: "
+                       + "; ".join(short))
+    return True, f"ready {lane}: " + ", ".join(
+        f"{d} {report[d]['recent_expected']} recent months ({report[d]['loaded']}/{report[d]['expected']} in all)"
+        for d in waits)
 
 
 def main(argv: list[str]) -> int:
@@ -103,7 +124,8 @@ def main(argv: list[str]) -> int:
         return 64
     import iceberg_metadata  # noqa: PLC0415
 
-    datasets = json.loads(CONTRACT.read_text(encoding="utf-8"))["datasets"]
+    source = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    datasets = source["datasets"]
     lanes = json.loads(LANES.read_text(encoding="utf-8"))["by_pnu_lanes"]
     if argv[0] != "--report" and argv[0] not in lanes:
         print(f"{argv[0]} is not a by_pnu_lanes lane", file=sys.stderr)
@@ -116,7 +138,7 @@ def main(argv: list[str]) -> int:
         print(f"cannot tell: {TABLE} history unreadable: {error}", file=sys.stderr)
         return 65
     report = completeness(recorded_objects(history), datasets,
-                          last_whole_month(datetime.now(timezone.utc).date()))
+                          last_whole_month(datetime.now(timezone.utc).date()), source["recent_history_months"])
     if argv[0] == "--report":
         for dataset, line in report.items():
             print(json.dumps({"dataset": dataset, **line}, ensure_ascii=False, sort_keys=True))

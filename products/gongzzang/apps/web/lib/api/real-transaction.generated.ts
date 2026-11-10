@@ -52,6 +52,10 @@ export const ParcelRealTransactionByPnuSchema = z.object({
         }).nullish(),
       })),
     }),
+    coverage: z.array(z.object({
+      dataset_slug: z.string(),
+      from_month: z.string().nullable(),
+    })).nullish(),
   }),
   transaction_total: z.number().int().nullish(),
 });

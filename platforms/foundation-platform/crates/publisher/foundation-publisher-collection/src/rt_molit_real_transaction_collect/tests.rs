@@ -43,7 +43,7 @@ fn the_contract_names_the_twelve_datasets_by_their_codes() {
 }
 
 #[test]
-fn a_new_state_owes_the_recent_months_first_then_the_history_newest_first() {
+fn a_new_state_owes_the_recent_months_first_then_every_datasets_recent_history_month_by_month() {
     let contract = contract_with(&[
         ("real_transaction_apartment_trade", "2026-06"),
         ("real_transaction_industrial_trade", "2026-06"),
@@ -55,6 +55,9 @@ fn a_new_state_owes_the_recent_months_first_then_the_history_newest_first() {
             .map(|w| (w.stage, w.dataset, yyyymm(w.month)))
             .collect();
     let expect = |stage, dataset: &str, month: &str| (stage, dataset.to_owned(), month.to_owned());
+    let history = |month: &str| Stage::RecentHistory {
+        newest_first: -month_index(month).unwrap(),
+    };
     // 17:00 UTC is 02:00 KST on 10-31: the current KST month is still 2026-10.
     assert_eq!(
         order,
@@ -65,28 +68,113 @@ fn a_new_state_owes_the_recent_months_first_then_the_history_newest_first() {
             expect(Stage::Recent, "real_transaction_apartment_trade", "202610"),
             expect(Stage::Recent, "real_transaction_apartment_trade", "202609"),
             expect(Stage::Recent, "real_transaction_apartment_trade", "202608"),
+            // Root ADR-0479: within the recent history a month of every dataset comes before any
+            // dataset's older month; the priority only breaks the tie within a month.
             expect(
-                Stage::Backfill,
+                history("2026-07"),
                 "real_transaction_industrial_trade",
                 "202607"
             ),
             expect(
-                Stage::Backfill,
-                "real_transaction_industrial_trade",
-                "202606"
-            ),
-            expect(
-                Stage::Backfill,
+                history("2026-07"),
                 "real_transaction_apartment_trade",
                 "202607"
             ),
             expect(
-                Stage::Backfill,
+                history("2026-06"),
+                "real_transaction_industrial_trade",
+                "202606"
+            ),
+            expect(
+                history("2026-06"),
                 "real_transaction_apartment_trade",
                 "202606"
             ),
         ]
     );
+}
+
+#[test]
+fn the_history_older_than_the_recent_months_goes_by_priority_each_newest_month_first() {
+    let mut contract = contract_with(&[
+        ("real_transaction_apartment_trade", "2026-03"),
+        ("real_transaction_industrial_trade", "2026-03"),
+    ]);
+    contract.recent_history_months = 4;
+    let history: Vec<(Stage, String, String)> =
+        plan_work(&contract, &State::default(), at("2026-10-30T17:00:00Z"))
+            .unwrap()
+            .into_iter()
+            .filter(|w| w.stage != Stage::Recent)
+            .map(|w| (w.stage, w.dataset, yyyymm(w.month)))
+            .collect();
+    let recent = |month: &str| Stage::RecentHistory {
+        newest_first: -month_index(month).unwrap(),
+    };
+    let expect = |stage, dataset: &str, month: &str| (stage, dataset.to_owned(), month.to_owned());
+    assert_eq!(
+        history,
+        vec![
+            expect(
+                recent("2026-07"),
+                "real_transaction_industrial_trade",
+                "202607"
+            ),
+            expect(
+                recent("2026-07"),
+                "real_transaction_apartment_trade",
+                "202607"
+            ),
+            expect(
+                recent("2026-06"),
+                "real_transaction_industrial_trade",
+                "202606"
+            ),
+            expect(
+                recent("2026-06"),
+                "real_transaction_apartment_trade",
+                "202606"
+            ),
+            // Older than 4 months: the industrial dataset's whole rest first, newest month first.
+            expect(
+                Stage::Backfill,
+                "real_transaction_industrial_trade",
+                "202605"
+            ),
+            expect(
+                Stage::Backfill,
+                "real_transaction_industrial_trade",
+                "202604"
+            ),
+            expect(
+                Stage::Backfill,
+                "real_transaction_industrial_trade",
+                "202603"
+            ),
+            expect(
+                Stage::Backfill,
+                "real_transaction_apartment_trade",
+                "202605"
+            ),
+            expect(
+                Stage::Backfill,
+                "real_transaction_apartment_trade",
+                "202604"
+            ),
+            expect(
+                Stage::Backfill,
+                "real_transaction_apartment_trade",
+                "202603"
+            ),
+        ]
+    );
+}
+
+#[test]
+fn the_recent_history_reaches_the_deepest_window_the_document_computes_from() {
+    // Root ADR-0479: the lane's first publish waits for these months, and the 공장창고 comparables
+    // read 36 months (COMPARABLE_MONTHS, real_transaction_silver_to_gold.py).
+    assert!(source_contract().unwrap().recent_history_months >= 36);
 }
 
 #[test]

@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_real_transaction_by_pnu",
+  "description": "A parcel's 국토교통부 실거래 deals and the 공장·창고 deals of its 법정동 (root ADR-0350, ADR-0371). Amounts are the provider's 만원, areas m²; the words are the provider's columns as the Silver names them.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_real_transaction_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "real_transaction": {
+      "type": "object",
+      "properties": {
+        "as_of_month": {
+          "description": "The build month the windows count from.",
+          "type": "string"
+        },
+        "transactions": {
+          "description": "Every deal placed on the parcel, newest contract first, cancelled ones too.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "dataset_slug": {
+                "type": "string"
+              },
+              "deal_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deal_amount_10k_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "deposit_10k_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "monthly_rent_10k_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "rent_kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_use": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "building_area_kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "land_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "land_area_kind": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "floor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "build_year": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "land_use": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "jimok": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "jibun_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "share_dealing_type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dealing_gbn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cancelled": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "cancel_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "place_identity_grade": {
+                "description": "How the deal reached this parcel: code_exact, code_superseded, or inferred_* (the screen says 추정, root ADR-0351); inferred_same_main_lot_group places it on every parcel of its 본번 group, listed in main_lot_group_pnus (the screen says 추정 · 같은 본번, root ADR-0405).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attached_via": {
+                "description": "The lineage path when the deal's parcel was split or merged since (root ADR-0113).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "dataset_slug"
+            ]
+          }
+        },
+        "transactions_omitted": {
+          "description": "The oldest deals left out to keep the document under 256 KiB.",
+          "type": "integer"
+        },
+        "main_lot_group_pnus": {
+          "description": "The current parcels of this parcel's 본번 group (same 법정동, 산 flag and 본번), sorted, when a deal reached it by inferred_same_main_lot_group; empty otherwise (root ADR-0405).",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{19}$"
+          }
+        },
+        "comparables": {
+          "description": "For a 공장용지·창고용지 parcel or one with a 공장창고 deal: the newest 20 uncancelled 공장창고 deals of its 법정동 since comparables_from, masked lots included.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "deal_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "deal_amount_10k_krw": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "land_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "building_area_m2": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "land_use": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_use": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "build_year": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "jibun_raw": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pnu": {
+                "description": "The parcel the deal is linked to, when it is linked to one (null for a 본번 group link).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "place_identity_grade": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "main_lot_group_key": {
+                "description": "For a deal linked to a 본번 group (root ADR-0405): the group's 15 digits (법정동, 산 flag, 본번).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "main_lot_group_size": {
+                "description": "For a deal linked to a 본번 group: how many current parcels the group holds.",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "comparables_from": {
+          "type": "string"
+        },
+        "region": {
+          "type": "object",
+          "properties": {
+            "legal_dong_code": {
+              "type": "string"
+            },
+            "from": {
+              "type": "string"
+            },
+            "datasets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "dataset_slug": {
+                    "type": "string"
+                  },
+                  "deal_count": {
+                    "type": "integer"
+                  },
+                  "cancelled_count": {
+                    "type": "integer"
+                  },
+                  "land_price_per_m2_10k_krw": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "p25": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "median": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "p75": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    }
+                  },
+                  "building_price_per_m2_10k_krw": {
+                    "type": [
+                      "object",
+                      "null"
+                    ],
+                    "properties": {
+                      "p25": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "median": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "p75": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "dataset_slug",
+                  "deal_count",
+                  "cancelled_count"
+                ]
+              }
+            }
+          },
+          "required": [
+            "legal_dong_code",
+            "from",
+            "datasets"
+          ]
+        },
+        "coverage": {
+          "description": "The datasets whose history is not held whole yet, each with the month its deals are held from without a gap (null: none yet); a dataset left out is whole (root ADR-0479). The screen says 'YYYY-MM 이후'.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "dataset_slug": {
+                "type": "string"
+              },
+              "from_month": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "dataset_slug",
+              "from_month"
+            ]
+          }
+        }
+      },
+      "required": [
+        "as_of_month",
+        "transactions",
+        "transactions_omitted",
+        "main_lot_group_pnus",
+        "comparables",
+        "comparables_from",
+        "region"
+      ]
+    },
+    "transaction_total": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "real_transaction"
+  ]
+}

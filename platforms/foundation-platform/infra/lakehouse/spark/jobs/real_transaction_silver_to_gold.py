@@ -26,7 +26,10 @@ What a PNU's document holds (`real_transaction`, root ADR-0350 §2):
 - `comparables`: for a parcel whose 지목 is 공장용지 or 창고용지 or that has a 공장창고 deal of its own,
   the newest COMPARABLE_COUNT uncancelled 공장창고 deals of its current 법정동 contracted within
   COMPARABLE_MONTHS of the build month, masked lots included (that is what the list is for);
-- `region`: the 법정동's 공장창고 and 토지 deals of the last REGION_MONTHS: counts and the m² price quartiles.
+- `region`: the 법정동's 공장창고 and 토지 deals of the last REGION_MONTHS: counts and the m² price quartiles;
+- `coverage`: the datasets whose history the Silver does not hold whole yet, each with the month the
+  screen says `YYYY-MM 이후` from (`history_coverage`, root ADR-0479): the history fills newest first,
+  and a dataset left out is whole.
 
 Partial by design (root ADR-0312 §2): the unit of change is the 법정동. Every deal, comparable and
 inference candidate of a PNU lies in the PNU's own current 법정동 (or, through the lineage, in its
@@ -63,6 +66,7 @@ REGION_DATASETS = (INDUSTRIAL, LAND)
 DOCUMENT_BYTE_LIMIT = 256 * 1024
 DOCUMENT_ENVELOPE_BYTES = 1024
 WRITTEN = {"ignoreNullFields": "false"}
+COVERAGE_TYPE = "array<struct<dataset_slug:string,from_month:string>>"
 MASKED = r"^(산\s*)?(\d+)(\*+)$"
 LOT = r"^(산\s*)?(\d{1,4})(?:-(\d{1,4}))?$"
 # A deal as the document carries it: the provider's columns as the Silver names them, and how it was placed.
@@ -273,9 +277,44 @@ def placed_deals(frames: dict[str, Any], inference: dict[str, Any]) -> Any:
     return placed.select(*columns).unionByName(unplaced.select(*columns))
 
 
+def history_coverage(months: list[tuple[str, str]], datasets: dict[str, dict[str, Any]], as_of: date,
+                     recent_months: int) -> list[dict[str, Any]]:
+    """The datasets whose history the build's Silver does not hold whole, each with the month the screen
+    says it holds deals from (`from_month`, `YYYY-MM`; None when it holds no month), from the
+    (dataset, 계약 달 `YYYYMM`) pairs of the whole Silver (root ADR-0479).
+
+    A dataset is whole when the gapless run of months ending at its newest reaches the contract's
+    first_month; it is then left out and the screen says nothing. Otherwise the claim is the start of
+    the recent history the collector fills first (`recent_months` before the build month, the month
+    `comparables_from` names) once the run reaches it, so the claim moves only with the build month,
+    as the windows do, and a later month landing changes no document its deals do not reach; until
+    then it is the run's own start. Either way it is never a month the build did not hold."""
+    held: dict[str, set[int]] = {}
+    for dataset, month in months:
+        held.setdefault(dataset, set()).add(int(month[:4]) * 12 + int(month[4:6]) - 1)
+    recent = add_months(month_start(as_of), -recent_months)
+    recent_index = recent.year * 12 + recent.month - 1
+    coverage = []
+    for dataset, spec in sorted(datasets.items()):
+        first_year, first_month = map(int, spec["first_month"].split("-"))
+        if dataset not in held:
+            coverage.append({"dataset_slug": dataset, "from_month": None})
+            continue
+        oldest = max(held[dataset])
+        while oldest - 1 in held[dataset]:
+            oldest -= 1
+        if oldest <= first_year * 12 + first_month - 1:
+            continue
+        claim = max(oldest, recent_index)
+        coverage.append({"dataset_slug": dataset, "from_month": f"{claim // 12:04d}-{claim % 12 + 1:02d}"})
+    return coverage
+
+
 def gold_rows(frames: dict[str, Any], inference: dict[str, Any], as_of: date, source_snapshot_id: str,
-              published_at_utc: str, columns: tuple[str, ...]) -> Any:
-    """One row per served PNU with a deal or a comparable: `real_transaction_json`, `transaction_total`."""
+              published_at_utc: str, columns: tuple[str, ...], *, coverage: list[dict[str, Any]]) -> Any:
+    """One row per served PNU with a deal or a comparable: `real_transaction_json`, `transaction_total`.
+    `coverage` is `history_coverage` of the whole Silver the build pinned, never of the 법정동s an
+    incremental run restricts its inputs to."""
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
 
     import place_identity_resolver as resolver  # noqa: PLC0415
@@ -357,6 +396,7 @@ def gold_rows(frames: dict[str, Any], inference: dict[str, Any], as_of: date, so
         F.struct(F.col("legal_dong").alias("legal_dong_code"),
                  F.lit(add_months(as_of, -REGION_MONTHS).isoformat()).alias("from"),
                  F.coalesce("datasets", F.array()).alias("datasets")).alias("region"),
+        F.from_json(F.lit(json.dumps(coverage, ensure_ascii=False)), COVERAGE_TYPE).alias("coverage"),
     )
     content = ("pnu", "real_transaction_json", "transaction_total", "attached_via")
     return (joined.select(
@@ -698,8 +738,15 @@ def main(argv=None) -> int:
             reached["scope"] = region_scope(dongs, prefixes)
             return affected_pnus(dongs, prefixes, [frames[PARCEL_SOURCE], spark.table(table)])
 
+        # The months the pinned Silver holds, read from the whole of it (two columns of the cached
+        # deals): the coverage is the lane's, and an incremental run's inputs are its 법정동s only.
+        source = rt.load_source_contract()
+        history = history_coverage([(r["dataset_slug"], r["deal_ym"]) for r in
+                                    frames[RT_SOURCE].select("dataset_slug", "deal_ym").distinct().collect()],
+                                   source["datasets"], as_of, source["recent_history_months"])
         lane = incremental.Lane(
-            build=lambda inputs: gold_rows(inputs, inference, as_of, pins[PARCEL_SOURCE], args.published_at_utc, columns),
+            build=lambda inputs: gold_rows(inputs, inference, as_of, pins[PARCEL_SOURCE], args.published_at_utc, columns,
+                                           coverage=history),
             restrict=restrict_inputs, affected=affected, validate=validate_gold,
             content_columns=("pnu", *kind.columns, "attached_via"), gold_columns=columns,
             append_inputs={RT_SOURCE: rt_table})

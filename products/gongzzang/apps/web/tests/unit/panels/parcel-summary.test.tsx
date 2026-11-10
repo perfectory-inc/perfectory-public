@@ -672,6 +672,10 @@ describe("parcel panel categories", () => {
       ],
       comparables_from: "2095-05-01",
       region: { datasets: [] },
+      coverage: [
+        { dataset_slug: "real_transaction_commercial_trade", from_month: "2095-05" },
+        { dataset_slug: "real_transaction_apartment_rent", from_month: null },
+      ],
       transactionTotal: 1,
       mainLotGroupOthers: [],
     };
@@ -684,6 +688,10 @@ describe("parcel panel categories", () => {
       expect(anchors()).toEqual(["이 필지의 실거래", "같은 법정동 공장·창고 거래"]);
       expect(screen.getByText("지번 4**")).toBeTruthy();
       expect(screen.getByText("추정")).toBeTruthy();
+      // Root ADR-0479: a category not held whole says from when, in its own words; no source line.
+      expect(screen.getByText("상업/업무용 매매 2095-05 이후")).toBeTruthy();
+      expect(screen.getByText("아파트 전월세 아직 없음")).toBeTruthy();
+      expect(screen.queryByText(/실거래가 공개시스템/)).toBeNull();
     } finally {
       reads.realTransaction = null;
     }

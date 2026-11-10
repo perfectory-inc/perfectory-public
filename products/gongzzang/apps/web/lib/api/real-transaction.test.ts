@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  coverageGroups,
   fetchRealTransaction,
   formatManwon,
   industrialRegion,
@@ -156,5 +157,44 @@ describe("real transaction edge", () => {
     expect(isInferred("inferred_same_main_lot_group")).toBe(true);
     expect(lotOfPnu(neighbour)).toBe("5-1");
     expect(lotOfPnu("9999900000203000000")).toBe("산 300");
+  });
+
+  it("groups the categories not held whole by the month each is held from (root ADR-0479)", async () => {
+    const coverage = [
+      { dataset_slug: "real_transaction_apartment_trade", from_month: "2097-11" },
+      { dataset_slug: "real_transaction_apartment_rent", from_month: null },
+      { dataset_slug: "real_transaction_commercial_trade", from_month: "2095-05" },
+      { dataset_slug: "real_transaction_officetel_trade", from_month: "2097-11" },
+    ];
+    const body = document();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ...body,
+              schema_revision: 2,
+              real_transaction: { ...body.real_transaction, coverage },
+            }),
+          ),
+      ),
+    );
+    const read = await fetchRealTransaction(pnu);
+    expect(read && coverageGroups(read)).toEqual([
+      { fromMonth: "2095-05", datasets: ["real_transaction_commercial_trade"] },
+      {
+        fromMonth: "2097-11",
+        datasets: ["real_transaction_apartment_trade", "real_transaction_officetel_trade"],
+      },
+      { fromMonth: null, datasets: ["real_transaction_apartment_rent"] },
+    ]);
+    // A revision 1 document carries no coverage: every category is whole.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(document()))),
+    );
+    const whole = await fetchRealTransaction(pnu);
+    expect(whole && coverageGroups(whole)).toEqual([]);
   });
 });

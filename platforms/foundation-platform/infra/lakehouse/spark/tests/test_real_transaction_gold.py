@@ -5,7 +5,9 @@ on each run and never reads the Silver's pnu; a 법정동 code change re-places 
 under the old code onto the parcel of the new one, and the change reaches exactly the PNUs under
 both codes; a factory parcel carries its 법정동's 공장창고 deals, masked lots included; the written
 JSON's paths are exactly the registry's (root ADR-0336); the digest holds content only; a deal linked
-to a 본번 group shows on every parcel of the group and once among the comparables (root ADR-0405).
+to a 본번 group shows on every parcel of the group and once among the comparables (root ADR-0405); a
+dataset whose history is not whole says from which month it is held, and that month moves only with
+the build month once the recent history is in (root ADR-0479).
 """
 
 import json
@@ -33,6 +35,8 @@ def pnu(code, main, sub=0):
 
 
 SNAPSHOT = [(OLD, OLD_NAME, "존재"), (NEW, NEW_NAME, "존재"), (OTHER, OTHER_NAME, "존재")]
+# A dataset not whole yet (root ADR-0479): every document carries the build's coverage.
+COVERAGE = [{"dataset_slug": "real_transaction_apartment_trade", "from_month": "2095-05"}]
 REORGANIZED = [{"kind": "pair", "old_code": OLD, "new_code": NEW, "level": "eupmyeondong",
                 "effective_date": "2098-01-01", "source": "synthetic"}]
 
@@ -80,6 +84,31 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(job.region_scope(None, ["99999101", "99"]), ["99", "99999"])
         self.assertEqual(job.region_scope(None, []), [])
         self.assertEqual(job.REGION_KEY[:3], ("dataset_slug", "region_level", "region_code"))
+
+    def test_a_dataset_not_whole_says_the_month_it_is_held_from(self):
+        datasets = {"real_transaction_industrial_trade": {"first_month": "2090-01"},
+                    "real_transaction_commercial_trade": {"first_month": "2090-01"},
+                    "real_transaction_apartment_trade": {"first_month": "2090-01"},
+                    "real_transaction_apartment_rent": {"first_month": "2091-01"}}
+        industrial = [("real_transaction_industrial_trade", f"{y}{m:02d}") for y in range(2090, 2099)
+                      for m in range(1, 13) if (y, m) <= (2098, 5)]
+        commercial = [("real_transaction_commercial_trade", f"2094{m:02d}") for m in range(1, 13)]
+        commercial += [("real_transaction_commercial_trade", f"{y}{m:02d}") for y in range(2095, 2099)
+                       for m in range(1, 13) if (y, m) <= (2098, 5)]
+        apartment = [("real_transaction_apartment_trade", "2091-03".replace("-", "")),  # an island, not the run
+                     *[("real_transaction_apartment_trade", f"2098{m:02d}") for m in (2, 3, 4, 5)]]
+        coverage = job.history_coverage(industrial + commercial + apartment, datasets, date(2098, 5, 20), 36)
+        self.assertEqual(coverage, [
+            # No month at all: the screen says so, never "no deal".
+            {"dataset_slug": "real_transaction_apartment_rent", "from_month": None},
+            # Short of the recent history: its own run's start (the island is not held without a gap).
+            {"dataset_slug": "real_transaction_apartment_trade", "from_month": "2098-02"},
+            # Deeper than the recent history: the recent history's start, the month comparables_from
+            # names, so the next month landing (2093-12) changes no claim.
+            {"dataset_slug": "real_transaction_commercial_trade", "from_month": "2095-05"},
+        ])  # the industrial dataset is whole and says nothing
+        self.assertEqual(job.history_coverage(industrial + commercial + [("real_transaction_commercial_trade", "209312")],
+                                              datasets, date(2098, 5, 2), 36)[2]["from_month"], "2095-05")
 
     def test_an_address_takes_its_current_code_through_the_pairs_in_force(self):
         rows, remap, ambiguous = job.address_codes(SNAPSHOT, REORGANIZED)
@@ -136,7 +165,8 @@ class DocumentSparkTest(unittest.TestCase):
         }
 
     def documents(self, frames, published="2098-05-03T00:00:00Z"):
-        gold = job.gold_rows(frames, INFERENCE, date.fromisoformat(published[:10]), "snap-1", published, GOLD_COLUMNS)
+        gold = job.gold_rows(frames, INFERENCE, date.fromisoformat(published[:10]), "snap-1", published, GOLD_COLUMNS,
+                             coverage=COVERAGE)
         return {r.pnu: (json.loads(r.real_transaction_json), r.transaction_total, r.row_digest) for r in gold.collect()}
 
     def test_a_legal_dong_code_change_re_places_a_deal_already_loaded(self):
@@ -201,7 +231,8 @@ class DocumentSparkTest(unittest.TestCase):
             "grade": "inferred_same_main_lot_group",
             "evidence": ["lot_range", "zone", "jimok", "land_area", "ownership_change"],
             "measured": {job.INDUSTRIAL: {"precision": 0.9963, "precision_wilson_low": 0.9953, "rows": 19483}}}]}
-        gold = job.gold_rows(frames, inference, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS)
+        gold = job.gold_rows(frames, inference, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS,
+                             coverage=COVERAGE)
         docs = {r.pnu: (json.loads(r.real_transaction_json), r.transaction_total) for r in gold.collect()}
         for parcel in (pick, neighbour):
             document, total = docs[parcel]
@@ -235,8 +266,10 @@ class DocumentSparkTest(unittest.TestCase):
         factory = pnu(OTHER, 5)
         deals = [self.deal("o-1", OTHER_NAME, "5", date(2098, 2, 1))]
         frames = self.frames(deals, [], [factory], [(factory, "공장용지", 1000.0, "계획관리지역")])
-        first = job.gold_rows(frames, INFERENCE, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS).first()
-        again = job.gold_rows(frames, INFERENCE, date(2098, 5, 28), "snap-2", "2098-05-28T00:00:00Z", GOLD_COLUMNS).first()
+        first = job.gold_rows(frames, INFERENCE, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS,
+                              coverage=COVERAGE).first()
+        again = job.gold_rows(frames, INFERENCE, date(2098, 5, 28), "snap-2", "2098-05-28T00:00:00Z", GOLD_COLUMNS,
+                              coverage=COVERAGE).first()
         self.assertEqual(first.row_digest, again.row_digest)
 
 
