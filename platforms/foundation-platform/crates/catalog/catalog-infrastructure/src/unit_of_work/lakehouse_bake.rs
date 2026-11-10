@@ -81,20 +81,7 @@ pub(super) async fn start(
             "lakehouse bake input must be the active validated static_pmtiles release",
         ));
     }
-    let input_snapshot: String = row
-        .try_get("canonical_iceberg_snapshot_id")
-        .map_err(map_sqlx)?;
-    // A rebake of the input's own snapshot is admitted only under a recorded recipe the input was
-    // not baked with (root ADR-0373: tiles follow code changes as they follow data).
-    let input_recipe: Option<String> = row.try_get("bake_inputs_sha256").map_err(map_sqlx)?;
-    if input_snapshot == command.canonical_iceberg_snapshot_id.as_str()
-        && (command.bake_inputs_sha256.is_none()
-            || command.bake_inputs_sha256.as_deref() == input_recipe.as_deref())
-    {
-        return Err(invalid_runtime(
-            "lakehouse bake must freeze a snapshot other than the one its input already serves,              or bake it under a recipe its input was not baked with",
-        ));
-    }
+    refuse_a_served_snapshot_under_its_recipe(&row, &command)?;
     let publication_unit_id: Uuid = row.try_get("publication_unit_id").map_err(map_sqlx)?;
     let silver = command.silver_source.as_ref();
     let (bound_source_record_id, anchor) = output_anchor(&mut tx, silver, &row).await?;
@@ -197,6 +184,27 @@ async fn silver_source_record(
     .fetch_one(&mut **tx)
     .await
     .map_err(map_sqlx)
+}
+
+/// A rebake of the input's own snapshot is admitted only under a recorded recipe the input was not
+/// baked with (root ADR-0373: tiles follow code changes as they follow data).
+fn refuse_a_served_snapshot_under_its_recipe(
+    input: &sqlx::postgres::PgRow,
+    command: &StartLakehouseBakeCommand,
+) -> Result<(), CatalogError> {
+    let input_snapshot: String = input
+        .try_get("canonical_iceberg_snapshot_id")
+        .map_err(map_sqlx)?;
+    let input_recipe: Option<String> = input.try_get("bake_inputs_sha256").map_err(map_sqlx)?;
+    if input_snapshot == command.canonical_iceberg_snapshot_id.as_str()
+        && (command.bake_inputs_sha256.is_none()
+            || command.bake_inputs_sha256.as_deref() == input_recipe.as_deref())
+    {
+        return Err(invalid_runtime(
+            "lakehouse bake must freeze a snapshot other than the one its input already serves,              or bake it under a recipe its input was not baked with",
+        ));
+    }
+    Ok(())
 }
 
 /// Mints (or, on a retry, reuses) the revision the baked release carries: one per unit per snapshot,
