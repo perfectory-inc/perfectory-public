@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "쪽마다 텍스트와 그 쪽이 문서 전체 텍스트(쪽을 \\f 로 이은 것)에서 차지하는 위치, 읽은 방법(text_layer·ocr)을 쌓는다. 인용은 (sha256, page_number, char_start, char_end) 이고 그 구간이 인용문과 같을 때만 유효하다(루트 ADR-0477 §4). 작업이 꺼진 채라 아직 흐르지 않는다."
+  purpose: "쪽마다 텍스트와 그 쪽이 문서 전체 텍스트(쪽을 \\f 로 이은 것)에서 차지하는 위치, 읽은 방법(text_layer·ocr)을 쌓는다. 인용은 (sha256, page_number, char_start, char_end) 이고 그 구간이 인용문과 같을 때만 유효하다(루트 ADR-0477 §4). 첫 run 전이라 아직 흐르지 않는다."
 team:
   name: "intelligence-platform"
 servers:

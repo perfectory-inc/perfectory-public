@@ -37,18 +37,17 @@ ADR-0478(로컬 모델 런타임)의 운영 절차다. 값(추출기 판·쪽 �
 
 ## 켜기
 
-두 작업은 꺼진 채로 들어온다(ADR-0386 §3). 사람이 손으로 돌리지 않는다: 입력 작업(`industrial_complex_notice_collect`·
-`industrial_complex_notice_silver`)이 켜지면, 텍스트 작업을 켜는 PR 이 `enabled` 와 함께 `per_run_cap.first_run`(추정 초와 그 근거,
-루트 ADR-0457)을 둔다. 첫 run 은 그 유닛의 시간·메모리 상한 안에서 스케줄러가 시작하고, 문서마다 바로 쓰므로 멈춰도 끝낸 문서를
-잃지 않는다. 그 run 을 잰 PR 이 `first_run` 을 `measured_run_seconds` 로 바꾼다. 잴 것:
+두 작업은 입력 작업(`industrial_complex_notice_collect`·`industrial_complex_notice_silver`)과 함께 **첫 run 으로 켜진 채** 들어온다
+(루트 ADR-0457 `per_run_cap.first_run`: 추정 초와 그 근거, `commits as_it_goes`, `retries 0`). 사람이 손으로 돌리지 않는다: 스케줄러가
+유닛의 시간·메모리 상한 안에서 시작하고, 색인 표가 아직 없으면 계획이 `owed 0` 으로 끝난다(`unchanged`). 꺼진 독자는
+`test_no_reader_of_a_first_run_is_left_off` 가 막는다. 첫 run 을 잰 PR 이 `first_run` 을 `measured_run_seconds` 로 바꾼다. 잴 것:
 
 1. 입력: `silver.industrial_complex_notice_attachment` 의 줄 수와 형식별 수(Trino, 읽기만).
 2. 저널의 마지막 줄 `intelligence document text ok run=… owed=… planned=… {read, run_seconds, peak_memory_mib, by_format}`
    과 `/data/foundation-platform/intelligence-documents/lakehouse/runs/text-<run>/run.log` 의 문서별 줄(형식·결과·쪽·초).
 3. 표: `intelligence.document_text_outcome` 의 형식·결과별 수, `document_text_page` 의 method 별 쪽 수.
-
-사실 작업은 텍스트가 쌓인 뒤 같은 방식으로 켠다. 모델 런타임 유닛이 함께 뜨고 멈추는지(`systemctl status
-intelligence-model-runtime-ollama.service`, 읽기만)와 `model_calls`·`dropped` 를 함께 본다.
+4. 사실: `intelligence.document_fact` 의 종류·방법별 수, `document_fact_outcome` 의 `model_calls`·`dropped`, 모델 런타임 유닛이
+   함께 뜨고 멈추는지(`systemctl status intelligence-model-runtime-ollama.service`, 읽기만).
 
 ## 멈췄을 때
 

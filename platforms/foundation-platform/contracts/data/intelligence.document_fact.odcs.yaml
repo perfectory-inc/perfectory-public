@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "값 하나와 그 인용 하나: 토지이용계획의 용지별 면적·비율, 유치업종, 지번, 분양가. 규칙이 먼저(method rule), 규칙이 못 닫은 표만 로컬 모델(local_llm, model 기록). 검산을 넘은 값만 쌓는다(루트 ADR-0477 §5). 사실 종류마다 손 확인 정밀도가 관문을 넘기 전에는 화면에 싣지 않는다. 작업이 꺼진 채라 아직 흐르지 않는다."
+  purpose: "값 하나와 그 인용 하나: 토지이용계획의 용지별 면적·비율, 유치업종, 지번, 분양가. 규칙이 먼저(method rule), 규칙이 못 닫은 표만 로컬 모델(local_llm, model 기록). 검산을 넘은 값만 쌓는다(루트 ADR-0477 §5). 사실 종류마다 손 확인 정밀도가 관문을 넘기 전에는 화면에 싣지 않는다. 첫 run 전이라 아직 흐르지 않는다."
 team:
   name: "intelligence-platform"
 servers:

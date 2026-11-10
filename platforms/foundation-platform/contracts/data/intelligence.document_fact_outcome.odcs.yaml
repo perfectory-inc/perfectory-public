@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "사실 판마다 문서 하나를 읽은 기록: 종류별 사실 수, 규칙이 못 닫은 쪽, 검산에서 버린 값, 모델 호출 수. 이 판으로 다시 읽지 않는 기록이다(루트 ADR-0477 §5). 작업이 꺼진 채라 아직 흐르지 않는다."
+  purpose: "사실 판마다 문서 하나를 읽은 기록: 종류별 사실 수, 규칙이 못 닫은 쪽, 검산에서 버린 값, 모델 호출 수. 이 판으로 다시 읽지 않는 기록이다(루트 ADR-0477 §5). 첫 run 전이라 아직 흐르지 않는다."
 team:
   name: "intelligence-platform"
 servers:

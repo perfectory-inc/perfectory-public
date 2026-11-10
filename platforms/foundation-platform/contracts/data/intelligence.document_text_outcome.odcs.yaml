@@ -8,7 +8,7 @@ version: "1.0.0"
 status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "intelligence platform 이 첨부 해시·추출기 판마다 한 번 읽은 결과(text·partial_ocr·ocr·empty·unsupported_format·failed, 쪽 수, OCR 쪽 수, 걸린 시간)를 쌓는다. 이 판으로 다시 읽지 않는 기록이다(루트 ADR-0477 §3). intelligence 만 쓰고 foundation 은 읽기만 한다. 작업이 꺼진 채라 아직 흐르지 않는다."
+  purpose: "intelligence platform 이 첨부 해시·추출기 판마다 한 번 읽은 결과(text·partial_ocr·ocr·empty·unsupported_format·failed, 쪽 수, OCR 쪽 수, 걸린 시간)를 쌓는다. 이 판으로 다시 읽지 않는 기록이다(루트 ADR-0477 §3). intelligence 만 쓰고 foundation 은 읽기만 한다. 첫 run 전이라 아직 흐르지 않는다."
 team:
   name: "intelligence-platform"
 servers:
