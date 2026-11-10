@@ -291,7 +291,8 @@ def main(argv=None) -> int:
     counters: dict[str, int] = {}
     try:
         frames, changes = read_inputs(spark, args, pins, counters)
-        frames = {name: frame.cache() for name, frame in frames.items()}
+        # Every parcel's place id is ~40M rows: read where it is joined, not held in memory.
+        frames = {name: frame if name == place_id_join.BRIDGE_SOURCE else frame.cache() for name, frame in frames.items()}
         older: dict[str, Any] = {}
 
         def previous_frames() -> dict[str, Any]:

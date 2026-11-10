@@ -734,8 +734,8 @@ def main(argv=None) -> int:
     counters: dict[str, int] = {}
     try:
         # The registers only the inference reads stay uncached: with no level enabled they are never
-        # scanned, and the 토지소유 table alone is ~80M rows (2026-11-03).
-        frames = {name: frame if name in INFERENCE_ONLY else frame.cache()
+        # scanned, and the 토지소유 table alone is ~80M rows (2026-11-03); every parcel's place id is ~40M.
+        frames = {name: frame if name in (*INFERENCE_ONLY, place_id_join.BRIDGE_SOURCE) else frame.cache()
                   for name, frame in read_inputs(spark, args, pins).items()}
         older: dict[str, Any] = {}
 
