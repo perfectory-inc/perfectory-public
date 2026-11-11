@@ -318,5 +318,36 @@
         "service": "spark"
       }
     ]
-  }
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_by_pnu_profile",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel",
+        "producer": "crates/publisher/foundation-publisher-by-pnu/src/parcel_by_pnu_serving_export/parcel_document.rs"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_by_pnu_profile.v1",
+          "legacy": true,
+          "decision": "docs/adr/0096-parcel-attributes-are-served-from-pre-baked-r2-objects.md",
+          "reason": "the first served document: gold.parcel_panel's sections of one PNU with the Gold snapshot it was read from, as ParcelByPnuDocument wrote it"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.parcel_by_pnu_profile.v2",
+          "legacy": true,
+          "decision": "docs/adr/0320-a-document-schema-bump-bakes-only-the-documents-it-changes.md",
+          "reason": "the legal dong's names (legal_dong, root ADR-0113 §5) and the forest ledger's ownership kind name (#746), both optional: an expansion of revision 1 served under its own string before the registry existed, its v1 documents still served beside it"
+        }
+      ],
+      "consumers": []
+    }
+  ]
 }

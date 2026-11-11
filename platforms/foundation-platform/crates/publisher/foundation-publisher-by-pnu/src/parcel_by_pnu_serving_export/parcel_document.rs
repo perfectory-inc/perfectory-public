@@ -22,15 +22,12 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-/// Wire schema version of the published by-PNU serving document.
-pub const PARCEL_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.parcel_by_pnu_profile.v2";
-
-/// The earlier versions v2 only adds optional fields to (root ADR-0320).
-///
-/// v1 documents stay served beside v2 patches until the next whole generation, so the bump costs
-/// the documents that change.
-pub const PARCEL_DOCUMENT_SCHEMA_EXPANDS: &[&str] =
-    &["foundation-platform.parcel_by_pnu_profile.v1"];
+/// The published document's schema: its subject in the schema registry (root ADR-0336), compiled in.
+/// The other strings of its major stay served beside it until the next whole generation (root
+/// ADR-0320), so a revision costs the documents that change.
+pub use foundation_publisher_core::host_document_schemas::{
+    PARCEL_DOCUMENT_SCHEMA_EXPANDS, PARCEL_DOCUMENT_SCHEMA_VERSION,
+};
 
 /// One serving artifact, ready to be written under a generation directory.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,8 +54,8 @@ pub struct GoldSnapshotProvenance {
     pub manifest_list_location: String,
 }
 
-/// Its fields are recorded per schema version (`contracts/by-pnu-documents`): a field gained, lost
-/// or renamed is a new `PARCEL_DOCUMENT_SCHEMA_VERSION`.
+/// Its fields are its subject's current revision in the schema registry (root ADR-0336): a field
+/// gained, lost or renamed is a new revision there.
 #[derive(Debug, Serialize)]
 #[cfg_attr(test, derive(utoipa::ToSchema))]
 pub(crate) struct ParcelByPnuDocument<'a> {
@@ -262,7 +259,7 @@ fn required_u64(row: &JsonMap<String, JsonValue>, column: &str) -> anyhow::Resul
 mod tests {
     use serde_json::{json, Map as JsonMap, Value as JsonValue};
 
-    use super::{build, GoldSnapshotProvenance};
+    use super::{build, GoldSnapshotProvenance, PARCEL_DOCUMENT_SCHEMA_VERSION};
 
     // Snapshot ids and PNUs sit in the repository-reserved synthetic namespaces
     // (`scripts/guard/public-fixture-safety.py`): a real Iceberg snapshot id is a 19-digit
@@ -303,10 +300,7 @@ mod tests {
         assert_eq!(first.pnu, "9999900000100000000");
 
         let document: JsonValue = serde_json::from_slice(&first.body)?;
-        assert_eq!(
-            document["schema_version"],
-            "foundation-platform.parcel_by_pnu_profile.v2"
-        );
+        assert_eq!(document["schema_version"], PARCEL_DOCUMENT_SCHEMA_VERSION);
         assert_eq!(document["pnu"], "9999900000100000000");
         assert_eq!(document["source"]["table"], "gold.parcel_panel");
         assert_eq!(document["kind"], JsonValue::Null);

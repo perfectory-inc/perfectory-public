@@ -55,8 +55,9 @@ pub struct CatalogParcelResponse {
     /// Total registered land-right rows, independent of the published page bound (root ADR-0093).
     #[serde(default)]
     pub land_right_total: u64,
-    /// Contract the edge document was written under (root ADR-0096), e.g.
-    /// `foundation-platform.parcel_by_pnu_profile.v1`. Absent on the retired API shape.
+    /// Contract the edge document was written under (root ADR-0096): its subject and major in the
+    /// foundation's schema registry, `<subject>.v<major>` (root ADR-0336). Absent on the retired API
+    /// shape.
     #[serde(default)]
     pub schema_version: Option<String>,
     /// Gold snapshot the edge document was baked from — the as-of of every value in it

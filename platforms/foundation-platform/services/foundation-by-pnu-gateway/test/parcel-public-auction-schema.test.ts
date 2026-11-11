@@ -76,10 +76,10 @@ describe("the public auction subject's majors come from the registry (root ADR-0
     ).toBe(false);
     expect(recordsReadableDocuments("parcel-public-auction", {})).toBe(false);
     // A host lane the registry does not list yet keeps its earlier mechanism.
-    expect(subjectOfLane("parcel")).toBeNull();
-    expect(recordsReadableDocuments("parcel", { document_schema_version: "anything" })).toBe(true);
+    expect(subjectOfLane("building")).toBeNull();
+    expect(recordsReadableDocuments("building", { document_schema_version: "anything" })).toBe(true);
     expect(documentSchemas("parcel-public-auction")).toEqual({ [SUBJECT]: [1] });
-    expect(documentSchemas("parcel")).toEqual({});
+    expect(documentSchemas("building")).toEqual({});
   });
 
   it("serves a major it reads, names it at the capabilities path, and refuses one it does not", async () => {
