@@ -51,7 +51,7 @@ pub const APPROVED_PROVIDER_DOMAINS: [&str; 11] = [
     "code.go.kr",
     // 법원경매정보: the owner decided to collect it, openly and politely (root ADR-0280, ADR-0281).
     "courtauction.go.kr",
-    // 전력데이터 개방포털: 분산전원연계정보, waiting on the owner's portal key (root ADR-0492).
+    // 전력데이터 개방포털: 분산전원연계정보, waiting on the owner's portal key (root ADR-0498).
     "bigdata.kepco.co.kr",
 ];
 
