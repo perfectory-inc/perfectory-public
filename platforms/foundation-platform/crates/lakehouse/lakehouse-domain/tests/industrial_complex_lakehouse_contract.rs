@@ -287,6 +287,26 @@ fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
     );
 }
 
+/// The HUB file lanes that append their changes and mark vanished keys (root ADR-0318, ADR-0402).
+const HUB_APPENDING_LANES: &[lakehouse_domain::LakehouseTableContract] = &[
+    SILVER_BUILDING_PERMIT_BASIS_OUTLINE,
+    lakehouse_domain::SILVER_HOUSING_PERMIT_BASIS_OUTLINE,
+    SILVER_BUILDING_REGISTER_MASTER,
+    lakehouse_domain::SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY,
+    lakehouse_domain::SILVER_BUILDING_ENERGY_MONTHLY_GAS,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS,
+    lakehouse_domain::SILVER_BUILDING_REGISTER_SUB_PARCEL,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_PARKING,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_ANNEX_PARKING,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_BUILDING_OUTLINE,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_MAJOR_REPAIR,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_STRUCTURE_LEDGER,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_FLOOR_OVERVIEW,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING,
+    lakehouse_domain::SILVER_BUILDING_PERMIT_SITE_LOCATION,
+    lakehouse_domain::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY,
+];
+
 /// The versioned tables, and only they, say which row is current (root ADR-0267).
 #[test]
 fn only_versioned_tables_define_a_current_row_rule() {
@@ -318,36 +338,9 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_BUILDING_REGISTER_UNITS.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_UNIT_AREAS.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT.table_name
-            || contract.table_name == SILVER_BUILDING_PERMIT_BASIS_OUTLINE.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_HOUSING_PERMIT_BASIS_OUTLINE.table_name
-            || contract.table_name == SILVER_BUILDING_REGISTER_MASTER.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_ENERGY_MONTHLY_GAS.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_DEMOLITION_LOSS.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_REGISTER_SUB_PARCEL.table_name
-            || contract.table_name == lakehouse_domain::SILVER_BUILDING_PERMIT_PARKING.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_ANNEX_PARKING.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_BUILDING_OUTLINE.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_MAJOR_REPAIR.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_STRUCTURE_LEDGER.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_FLOOR_OVERVIEW.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_PERMIT_SITE_LOCATION.table_name
-            || contract.table_name
-                == lakehouse_domain::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY
-                    .table_name
+            || HUB_APPENDING_LANES
+                .iter()
+                .any(|table| table.table_name == contract.table_name)
             || contract.table_name == SILVER_LAND_USE_ZONE_CODES.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_APARTMENT_PRICE_VERSIONS.table_name
             || contract.table_name == SILVER_UNIT_OFFICIAL_PRICE_VERSIONS.table_name
