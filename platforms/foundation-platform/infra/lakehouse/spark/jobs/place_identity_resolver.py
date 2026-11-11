@@ -469,7 +469,8 @@ def unique_pick(candidates: Iterable[str]) -> tuple[str | None, str | None, int]
 
 def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, levels: Sequence[Mapping[str, Any]],
                  tolerance_m2: float, ownership_window_days: tuple[int, int], ownership_causes: Sequence[str],
-                 group_parcels: Any | None = None) -> Any:
+                 group_parcels: Any | None = None, remap: Mapping[str, str] | None = None,
+                 zone_subdivisions: Mapping[str, Sequence[str]] | None = None) -> Any:
     """The inferred pnu of each masked deal, by the first level that leaves exactly one candidate.
 
     ``deals``: `row_id`, `legal_dong_code` (current), `lot_mountain`, `lot_low`, `lot_high`, `zone`,
@@ -479,6 +480,14 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     ``ownership``: the current owners' `pnu`, `ownership_changed_on` (date), `ownership_change_reason`;
     None while that Silver is absent (the level that needs it then links nothing).
     ``group_parcels``: the current parcels' `pnu` a 본번 group is drawn from (default ``parcels``).
+    ``remap``: old → current legal-dong code (``code_crosswalk``). A deal names its CURRENT code, and
+    the parcels, their registers and owners may carry an earlier one (the served edition, the land and
+    ownership files predate a code change); a parcel is a candidate when its code carried to the
+    current one is the deal's, and it stays the pnu its own edition names (root ADR-0482 §1). On
+    2026-11-11 the 2026-07-01 전남광주 pairs left 1,547,762 masked 토지 deals (all of 12…) with no
+    parcel of their 법정동: the land file and the served edition still name 46…/29….
+    ``zone_subdivisions``: a deal's 용도지역 → the ones it was split into since (the contract's
+    `place_inference.zone_subdivisions`); a parcel zoned as any of them matches.
     Returns `row_id`, `pnu`, `pnu_group` (the sorted current parcels of the 본번 group, only for
     `MAIN_LOT_GROUP`; `pnu` is then null), `place_identity_grade`, `pnu_unresolved_reason`,
     `pnu_candidate_count`.
@@ -486,9 +495,13 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
 
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
 
+    spark = deals.sparkSession
+    crosswalk = F.broadcast(spark.createDataFrame(sorted((remap or {}).items()), "_old string, _current string"))
+    carried = (parcels.withColumn("_old", F.substring("pnu", 1, 10)).join(crosswalk, "_old", "left")
+               .withColumn("_dong", F.coalesce("_current", "_old")).drop("_old", "_current"))
     candidates = (deals.alias("d").join(
-        parcels.alias("p"),
-        (F.substring("p.pnu", 1, 10) == F.col("d.legal_dong_code"))
+        carried.alias("p"),
+        (F.col("p._dong") == F.col("d.legal_dong_code"))
         & (F.substring("p.pnu", 11, 1) == F.when(F.col("d.lot_mountain"), F.lit("2")).otherwise(F.lit("1")))
         & F.substring("p.pnu", 12, 4).cast("int").between(F.col("d.lot_low"), F.col("d.lot_high")))
         .select("d.*", F.col("p.pnu").alias("candidate"), "p.land_category", "p.area_m2", "p.zone_name_1"))
@@ -508,9 +521,12 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     else:
         candidates = candidates.withColumn("_owner_ok", F.lit(False))
     near = lambda a, b: F.abs(F.col(a) - F.col(b)) < F.lit(tolerance_m2)  # noqa: E731
+    # "<deal zone>|<parcel zone>" for every zone the deal's has been split into since.
+    split_zones = sorted(f"{zone}|{part}" for zone, parts in (zone_subdivisions or {}).items() for part in parts) or [""]
     checks = {
         "lot_range": F.lit(True),
-        "zone": F.col("zone").isNull() | (F.col("zone_name_1") == F.col("zone")),
+        "zone": F.col("zone").isNull() | (F.col("zone_name_1") == F.col("zone"))
+        | F.concat_ws("|", "zone", "zone_name_1").isin(*split_zones),
         "jimok": F.col("jimok").isNull() | (F.col("land_category") == F.col("jimok")),
         "land_area": F.col("land_area_m2").isNotNull() & near("area_m2", "land_area_m2"),
         "building_year": F.col("building_year").isNotNull() & F.array_contains(F.coalesce("_years", F.array()), F.col("building_year")),

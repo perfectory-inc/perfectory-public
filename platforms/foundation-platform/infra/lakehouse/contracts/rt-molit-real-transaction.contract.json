@@ -58,6 +58,10 @@
     "precision_bar": 0.99,
     "min_measured_rows": 200,
     "area_tolerance_m2": 0.05,
+    "zone_subdivisions": {
+      "관리지역": ["계획관리지역", "생산관리지역", "보전관리지역"]
+    },
+    "zone_subdivisions_reason": "A deal names the 용도지역 of its day; the land file names today's. 관리지역 was split into 계획·생산·보전관리지역 (국토의 계획 및 이용에 관한 법률, 2003, subdivided by each 시군 by 2014), so a deal that says 관리지역 matches a parcel whose zone is one of the three. Measured 2026-11-11 (read-only Trino, 법정동 xxhash 1% sample, 93,735 masked 토지 deals): 9,589 (10.2%) had no parcel of their zone in range, 8,802 of them before 2015, and the 15 largest (deal zone, parcel zone) pairs were all 관리지역 against the three.",
     "ownership_window_days": [
       0,
       120
