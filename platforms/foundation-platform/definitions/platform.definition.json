@@ -198,10 +198,6 @@
           "mode": "0755"
         },
         {
-          "path": "/data/foundation-platform/intelligence-documents/lakehouse",
-          "mode": "0777"
-        },
-        {
           "path": "/data/foundation-platform/silver-refresh",
           "mode": "2770"
         },
