@@ -25,6 +25,7 @@ mod building_permit_temporary_building;
 mod building_register_apartment_price;
 mod building_register_exclusive_unit;
 mod building_register_master;
+mod building_register_sewage_facility;
 mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
@@ -80,6 +81,7 @@ pub use building_register_apartment_price::{
 };
 pub use building_register_exclusive_unit::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT;
 pub use building_register_master::SILVER_BUILDING_REGISTER_MASTER;
+pub use building_register_sewage_facility::SILVER_BUILDING_REGISTER_SEWAGE_FACILITY;
 pub use building_register_sub_parcel::SILVER_BUILDING_REGISTER_SUB_PARCEL;
 pub use by_pnu_kind::{by_pnu_kind_table_error, by_pnu_kind_tables};
 pub use data_go_kr_file_data::{

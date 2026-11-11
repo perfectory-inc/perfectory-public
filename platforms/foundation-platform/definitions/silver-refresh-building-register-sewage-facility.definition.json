@@ -1,0 +1,99 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-building-register-sewage-facility",
+  "jobs": [
+    {
+      "id": "silver_refresh_building_register_sewage_facility",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 오수정화시설 lane `building-register-sewage-facility` (root ADR-0169 ②, ADR-0490): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_sewage_facility already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in sixteen buckets (the first hex digit of each row's SHA-256 key) and append to main only the rows it has not held and a removal marker per row it no longer holds (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@building-register-sewage-facility.service",
+      "check_service": "foundation-silver-refresh-plan@building-register-sewage-facility.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1200,
+          "estimated_from": "computed from the nearest measured neighbour on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release of 6.53M rows; this lane's newest release is 342 MB of 6.62M rows (1.6 GB of text, measured 2026-11-11), so about the same work, taken as 1,200 s with the room for its sixteen bucket commits, inside the 150-minute limit"
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-building-register-sewage-facility"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-12T00:00:00Z",
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "building HUB files are released monthly (expected_cadence monthly, 1080 h, in the endpoint catalog) plus one daily fallback; this lane's ledger holds five monthly releases 2026-06..10 (measured 2026-11-11, catalog.bronze_object)"
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-building-register-sewage-facility",
+      "type": "silver_table",
+      "title": "건축물대장 오수정화시설",
+      "description": "건축물대장의 오수정화시설마다 한 행: 오수정화방식(하수종말처리장연결·마을하수처리장연결·부패탱크방법·접촉폭기방법 등)·용량·대장종류. 필지의 하수 신호다 — 하수처리장연결은 공공하수도에 이어진 증거, 그 밖의 방식은 개인하수처리시설이다. 한 건물에 시설이 여럿이라 행 글자의 SHA-256 이 키다. 원문 29칸 보존. 읽는 소비자(필지 by-PNU 종류)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0490).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-register-sewage-facility-source-objects.json",
+        "docs/adr/0490-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md"
+      ],
+      "table_name": "silver.building_register_sewage_facility",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.building_register_sewage_facility"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-building-register-sewage-facility",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-building-register-sewage-facility-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__building_register_sewage_facility"
+      ],
+      "description": "건축물대장 오수정화시설(mart_djy_07) 29칸을 행마다 새 행·사라진 행만 append-only Silver 로 쌓는다(루트 ADR-0490).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0490)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_building_register_sewage_facility": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}

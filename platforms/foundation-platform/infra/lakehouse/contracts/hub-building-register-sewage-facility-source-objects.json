@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "decision": "docs/adr/0490-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md",
+  "source": "bronze/source=hubgokr__building_register_sewage_facility",
+  "measured_at_utc": "2026-11-11",
+  "dataset_series": "mart_djy_07",
+  "how_measured": "운영 장부의 최신 판 ZIP(2026-10, 342,373,235 바이트, 멤버 mart_djy_07.txt 1,602,995,282 바이트)을 R2 읽기 전용 키로 받아 끝까지 읽었다: 6,616,909 행, 모든 행 29칸. 칸 0(관리건축물대장PK)은 모든 행이 채워졌지만 서로 다른 값이 6,567,455 개뿐이다(한 건물에 시설 여럿). 서로 다른 행 6,599,955 개(같은 행 최대 35번 되풀이). PNU 입력(시군구 5·법정동 5·대지구분 0–2·번 4·지 4 자리) 유효 6,616,891 행(99.9997%), 서로 다른 지번 5,439,288. 대장종류: 일반건축물 5,831,817·표제부 417,793·총괄표제부 367,299. 오수정화방식코드: 빈칸 3,404,526·201 부패탱크방법 1,098,123·300 하수종말처리장연결 819,545·199 기타오수처리시설 448,640·117 접촉폭기방법 229,467·400 마을하수처리장연결 34,255. 방식이 채워진 지번 2,826,917 중 하수처리장연결(300·400) 756,006, 그 밖의 방식 2,085,118, 둘 다 14,337. 방식이 채워진 지번 표본 2,000 의 1,778(88.9%)이 서빙 필지판(gold.parcel_characteristics)에 있다. 2026-09 판(6,605,880 행, 서로 다른 행 6,589,079)과 비교해 이 판에만 있는 행 22,165 개, 앞 판에만 있는 행 11,289 개.",
+  "field_layout_authority": "공공데이터포털 국토교통부_건축HUB_건축물대장정보 서비스 getBrWclfInfo(오수정화시설) 응답 항목(관리건축물대장PK·대장구분코드·명·대장종류코드·명·대지위치·도로명대지위치·건물명·시군구코드·법정동코드·대지구분코드·번·지·특수지명·블록·로트·새주소도로코드·새주소법정동코드·새주소지상지하코드·새주소본번·새주소부번·오수정화방식코드·명·기타방식·단위구분코드·명·용량(인용)·용량(루베)·생성일자, 29개)과 2026-10 판 실측의 교차 확인. 대량 파일은 같은 순서로 관리건축물대장PK 가 칸 0 이다.",
+  "unmapped_columns": "이름을 붙이지 않은 칸(대장구분 1·2, 대지위치 5, 도로명대지위치 6, 건물명 7, 특수지명·블록·로트 13–15, 새주소 칸 16–20, 단위구분코드 24)은 raw_columns 의 원래 index 로만 보존한다. 칸 7(건물명)은 화면에 내보내지 않는다(ADR-0356 §4).",
+  "load_granularity": "national",
+  "release_rule": "적재할 판은 Bronze 장부(catalog.bronze_object)의 가장 새 완전한 제공자 월이다. 이 원천의 객체가 그 월에 하나 있어야 하고, 둘이면 provider_updated_at 이 늦은 것, 같으면 거부한다. vintage 는 그 ZIP 이름 OPN<YYYYMMDD> 의 YYYYMM 이다(root ADR-0169 §2).",
+  "inner_file": "mart_djy_07.txt",
+  "csv_delimiter": "|",
+  "encoding": "utf-8",
+  "has_header": false,
+  "column_count": 29,
+  "row_key": "sha256_of_row",
+  "columns": {
+    "building_mgmt_key": {
+      "index": 0,
+      "meaning": "관리건축물대장PK 원문: 표제부(silver.building_register_titles)의 관리건축물대장PK 와 같은 건물 키. 한 건물에 시설이 여럿이면 되풀이되어 행을 가르지 못한다"
+    },
+    "register_kind_code": {
+      "index": 3,
+      "meaning": "대장종류코드(1 총괄표제부·2 일반건축물·3 표제부)"
+    },
+    "register_kind_name": {
+      "index": 4,
+      "meaning": "대장종류코드명 원문"
+    },
+    "sigungu_cd": {
+      "index": 8,
+      "meaning": "시군구코드"
+    },
+    "bjdong_cd": {
+      "index": 9,
+      "meaning": "법정동코드"
+    },
+    "san_gubun": {
+      "index": 10,
+      "meaning": "HUB 대지구분코드; 표준 PNU 대지구분과 구별한다(FP-ADR-0023)"
+    },
+    "bonbeon": {
+      "index": 11,
+      "meaning": "번 원문"
+    },
+    "bubeon": {
+      "index": 12,
+      "meaning": "지 원문"
+    },
+    "treatment_method_code": {
+      "index": 21,
+      "meaning": "오수정화방식코드 원문: 1xx 오수처리시설, 2xx 단독정화조, 300 하수종말처리장연결, 400 마을하수처리장연결(2026-10 판 실측 코드명)"
+    },
+    "treatment_method_name": {
+      "index": 22,
+      "meaning": "오수정화방식코드명 원문(부패탱크방법·하수종말처리장연결·접촉폭기방법 등)"
+    },
+    "other_method": {
+      "index": 23,
+      "meaning": "기타방식 원문"
+    },
+    "capacity_unit_name": {
+      "index": 25,
+      "meaning": "단위구분코드명 원문(인용·루베)"
+    },
+    "capacity_persons": {
+      "index": 26,
+      "meaning": "용량(인용) 원문"
+    },
+    "capacity_cubic_m": {
+      "index": 27,
+      "meaning": "용량(루베) 원문"
+    },
+    "created_date": {
+      "index": 28,
+      "meaning": "생성일자 YYYYMMDD 원문"
+    }
+  },
+  "handoff_prefix": "silver-handoff/hubgokr__building_register_sewage_facility",
+  "handoff_suffix": ".jsonl.gz",
+  "handoff_layout": "manifest_parts",
+  "rows_per_part": 1000000,
+  "max_row_bytes": 1048576,
+  "silver_refresh": {
+    "$comment": "foundation-silver-refresh@building-register-sewage-facility.service 의 실행 값(root ADR-0169 §3, ADR-0490). 판은 장부가 정한다. 칸 0(관리건축물대장PK)은 모든 행에 있지만 6,616,909 행에 6,567,455 값이라 행을 가르지 못해 mgmt_key 는 행 글자의 SHA-256 이다(row_key, ADR-0397). 건물 키는 building_mgmt_key 로 남긴다. compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 커밋하고, 다 되면 main 으로 한 번에 발행한다(ADR-0318). 원문이 1.6 GB 라 ADR-0402 §6 대로 나눠 비교한다: 키가 SHA-256 16진수라 앞 한 자리로 16 묶음(묶음당 약 41만 행)이다. 2026-09 → 2026-10 은 새 행 22,165·사라진 행 11,289 이다.",
+    "table": "silver.building_register_sewage_facility",
+    "roles": {
+      "source": "hubgokr__building_register_sewage_facility"
+    },
+    "export": "export-building-register-sewage-facility-silver-handoff",
+    "spark": {
+      "master": "local[8,8]",
+      "driver_memory": "16g",
+      "iceberg_write_mode": "append",
+      "input_file_batch_size": 40
+    },
+    "compare": {
+      "content_columns": [
+        "building_mgmt_key",
+        "register_kind_code",
+        "register_kind_name",
+        "sigungu_cd",
+        "bjdong_cd",
+        "san_gubun",
+        "bonbeon",
+        "bubeon",
+        "treatment_method_code",
+        "treatment_method_name",
+        "other_method",
+        "capacity_unit_name",
+        "capacity_persons",
+        "capacity_cubic_m",
+        "created_date",
+        "pnu",
+        "raw_columns"
+      ],
+      "bucket_prefix_length": 1
+    }
+  }
+}
