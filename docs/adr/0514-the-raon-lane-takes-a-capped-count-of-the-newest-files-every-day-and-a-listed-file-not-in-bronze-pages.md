@@ -17,7 +17,7 @@
 | 무엇 | 값 |
 |---|---|
 | parcel-zoning 레인 manifest 나이 / `foundation_by_pnu_lane_behind_seconds` | 2,106,062 s (24.4일) / 0 |
-| gold.parcel_zoning 이 고정한 silver.land_use_plan 판 | 2026-10-15 커밋, 판 `20260609` |
+| gold.parcel_zoning 이 고정한 silver.land_use_plan 판 | 판 `20260609`(Silver 에 2026-10-15 적재) |
 | Bronze 에 있는 용도지역지구(AL_D155) 판 | `20260711`·`0826`·`0909`·`1009`·`1109` 가 모두 시도 13~15 개 — 경기(41)·경북(47) 없음 |
 | `20260609` 까지의 판 | 시도 17 개 전부 |
 | 매일 훑기 journal 의 raon 줄(11-01~11-11) | `raon deferred=44~49 listed_bytes=37~41 GB budget=0 status=lane-off` — 용도지역지구 26·용도구역 17·토지소유 6 |
