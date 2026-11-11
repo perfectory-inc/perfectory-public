@@ -54,7 +54,11 @@ def doors(contract: dict, r2: dict) -> dict[str, dict[str, str]]:
     for name, door in contract["doors"].items():
         if "gateway" not in door:
             continue
-        public = r2[door["gateway"]]["public_hostname"]
+        # A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190).
+        block = r2
+        for part in door["gateway"].split("."):
+            block = block[part]
+        public = block["public_hostname"]
         found[name] = {"public": public,
                        "cloudflare": public if door["answered_by"] == "cloudflare" else door["origin_hostname"],
                        "answered_by": door["answered_by"]}

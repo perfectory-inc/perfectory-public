@@ -22,6 +22,10 @@
     {
       "pattern": "buildings.gongzzang.app",
       "custom_domain": true
+    },
+    {
+      "pattern": "buildings-origin.perfectory.io",
+      "custom_domain": true
     }
   ],
   "r2_buckets": [
