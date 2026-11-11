@@ -343,7 +343,7 @@ class LinkInputs:
         import address_pnu  # noqa: PLC0415
 
         if self._dongs is None:
-            self._dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(self.spark, self.catalog))
+            self._dongs = address_pnu.lakehouse_legal_dong_index(self.spark, self.catalog)
         return self._dongs
 
     @property
