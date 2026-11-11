@@ -92,6 +92,20 @@ class SparkRuntimeFilesTest(unittest.TestCase):
         self.assertIn("== test_b_passes.py (", result.stdout)
         self.assertIn("test_it (test_b_passes.T", result.stdout)
 
+    def test_a_hung_file_is_stopped_and_fails_with_the_test_it_hung_in(self):
+        self.gated("test_a_hangs.py", sleep=60)
+        self.gated("test_b_passes.py")
+
+        result, seconds = self.run_files(jobs=2, extra={"SPARK_RUNTIME_FILE_SECONDS": "2"})
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertLess(seconds, 30, "the hung file was not stopped")
+        self.assertIn("test_it (test_a_hangs.T", result.stdout)
+        self.assertIn("stopped after 2s", result.stdout)
+        self.assertIn("test_a_hangs.py  FAILED (exit 124)", result.stdout)
+        self.assertIn("== test_b_passes.py (", result.stdout)
+        self.assertIn("exit 0)", result.stdout)
+
     def test_a_failure_in_the_last_file_still_fails_the_run(self):
         self.gated("test_a_passes.py")
         self.gated("test_z_fails.py", passes=False)
