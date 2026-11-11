@@ -518,6 +518,7 @@ pub use crate::court_auction::{
 pub use crate::industrial_complex_notice::{
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT, SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL,
 };
+pub use crate::juso_address_db::SILVER_JUSO_ROAD_ADDRESS;
 pub use crate::land_characteristic::SILVER_LAND_CHARACTERISTIC;
 pub use crate::land_forest_ledger::SILVER_LAND_FOREST_LEDGER;
 pub use crate::land_ownership::SILVER_LAND_OWNERSHIP;

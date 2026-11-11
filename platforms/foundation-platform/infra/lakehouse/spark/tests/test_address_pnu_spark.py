@@ -62,6 +62,50 @@ class ResolveTest(unittest.TestCase):
             self.assertEqual(row.pnu is None, row.pnu_basis is None)
             self.assertEqual(row.pnu is None, row.pnu_unresolved_reason is not None)
 
+    def test_the_juso_road_places_a_road_its_sigungu_codes_name_once_after_the_jibun(self):
+        """Root ADR-0495: between the jibun and the register, the 주소DB road; its 시군구 is matched by code
+        (a former name through its pair), and two PNUs, an unserved PNU or another 시군구 do not place."""
+
+        offered = self.spark.createDataFrame([
+            (1, None, None, "99", "가상시", "가나대로", 3, 0),       # one address, served: juso
+            (2, None, None, "99", "옛구", "새길", 7, 0),            # former 시군구 name, its successor's road
+            (3, None, None, "99", "가상시", "겹로", 1, 0),          # two addresses, two PNUs
+            (4, None, None, "99", "가상시", "먼로", 2, 0),          # its PNU not served
+            (5, None, None, "99", "다른시", "가나대로", 3, 0),       # same road number in another 시군구
+            (6, "9999910100100070000", None, "99", "가상시", "가나대로", 3, 0),   # the jibun wins
+            (7, None, None, "99", "", "홀로", 4, 0),                # no 시군구 word, one in the 시도
+        ], OFFERED)
+        parcels = self.spark.createDataFrame([("9999910100100070000",), ("9999910100100010000",),
+                                              ("9999920100100020000",), ("9999910100100050000",),
+                                              ("9999910100100060000",)], "pnu string")
+        titles = self.spark.createDataFrame([], "pnu string, road_address_raw string")
+        roads = self.spark.createDataFrame([
+            ("99101", "가나대로", 3, 0, "9999910100100010000"),
+            ("99201", "새길", 7, 0, "9999920100100020000"),
+            ("99101", "겹로", 1, 0, "9999910100100050000"),
+            ("99101", "겹로", 1, 0, "9999910100100060000"),
+            ("99101", "먼로", 2, 0, "9999910100100099999"),
+            ("99101", "홀로", 4, 0, "9999910100100060000"),
+        ], "sigungu_code string, road_name string, building_main_no int, building_sub_no int, pnu string")
+        index = self.address_pnu.sigungu_index(
+            [("9910100000", "합성도 가상시"), ("9920100000", "합성도 새구"), ("9930100000", "합성도 다른시")],
+            [("9919900000", "합성도 옛구")], [("99199", "99201")])
+        sigungus = self.spark.createDataFrame([(s, w, c) for (s, w), codes in index.items() for c in codes],
+                                              "road_sido string, road_sigungu string, sigungu_code string")
+        juso = self.address_pnu.JusoRoads(roads, sigungus)
+        rows = {row.row_id: row for row in self.address_pnu.resolve(offered, parcels, titles, None, juso).collect()}
+        self.assertEqual((rows[1].pnu, rows[1].pnu_basis), ("9999910100100010000", "juso_road_address"))
+        self.assertEqual((rows[2].pnu, rows[2].pnu_basis), ("9999920100100020000", "juso_road_address"))
+        self.assertEqual((rows[3].pnu, rows[3].pnu_unresolved_reason, rows[3].pnu_candidate_count),
+                         (None, "road_ambiguous", 2))
+        self.assertEqual((rows[4].pnu, rows[4].pnu_unresolved_reason), (None, "road_not_found"))
+        self.assertEqual((rows[5].pnu, rows[5].pnu_unresolved_reason), (None, "road_not_found"))
+        self.assertEqual((rows[6].pnu, rows[6].pnu_basis), ("9999910100100070000", "jibun_address"))
+        self.assertEqual((rows[7].pnu, rows[7].pnu_basis), ("9999910100100060000", "juso_road_address"))
+        for row in rows.values():
+            self.assertEqual(row.pnu is None, row.pnu_basis is None)
+            self.assertEqual(row.pnu is None, row.pnu_unresolved_reason is not None)
+
     # Root ADR-0482 §1. Synthetic: 99999102 dongs became 99999202 on a pair the served edition predates, so
     # the served parcel still carries the old code. 99999103 and 99999104 merged into 99999203; both had lot 7.
     REMAP = {"9999910200": "9999920200", "9999910300": "9999920300", "9999910400": "9999920300"}

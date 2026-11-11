@@ -101,4 +101,5 @@ customProperties:
       - "source_line_number"
   - property: "upstreamDatasets"
     value:
+      - "silver.juso_road_address"
       - "source-data-go-kr-file-data"

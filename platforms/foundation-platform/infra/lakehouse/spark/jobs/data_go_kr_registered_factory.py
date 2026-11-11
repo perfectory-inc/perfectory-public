@@ -220,7 +220,8 @@ def follow_code_changes(spark: Any, catalog: str, table: str, prefixes: Mapping[
             schema="row_id int, source_record_id string, source_snapshot_id string")
         offered = spark.createDataFrame(relinked_offers(rows, prefixes, dongs), schema=OFFERED_SCHEMA)
         staged = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, catalog),
-                                          place_identity_resolver.pairs_from_lakehouse(spark, catalog)[0])
+                                          place_identity_resolver.pairs_from_lakehouse(spark, catalog)[0],
+                                          address_pnu.lakehouse_juso_roads(spark, catalog))
                   .join(kept, "row_id")
                   .withColumn("ingested_at_utc", instant)
                   .select(*columns))
@@ -314,7 +315,7 @@ def _load(argv: Sequence[str]) -> int:
             check_bounds(len(rows), latest_edition_rows(spark, table), source)
             offered = spark.createDataFrame(factory_rows(rows, prefixes, dongs), schema=OFFERED_SCHEMA)
             resolved = (address_pnu.resolve(offered, *address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name),
-                                               remap)
+                                               remap, address_pnu.lakehouse_juso_roads(spark, args.iceberg_catalog_name))
                         .withColumn("source_record_id", F.lit(entry["object_key"]))
                         .withColumn("source_snapshot_id", F.lit(snapshot))
                         .withColumn("ingested_at_utc", F.lit(now).cast("timestamp"))

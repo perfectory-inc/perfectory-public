@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The 주소DB (도로명주소 ↔ 지번, rtlDtaDtlSn 8) from the provider's public download screen API of business.juso.go.kr, with no login and no key (root ADR-0495; scripts/ops/juso-address-db-cycle.sh). With no base in its state directory the run lands the newest monthly full once (jusogokr__address_db_monthly_full, 181 MB on 2026-11-11); then, from its cursor (the next day to land, starting at the base's first day so one month is replayed onto it) to yesterday in KST, it asks one list per month and lands each day's change file oldest first (jusogokr__address_db_daily_change), byte for byte, each committed on its own; the cursor moves past a day only after its file is committed, and a day the list does not hold is passed only once a later day has landed. The object is named by the provider's stored file name, so landing a file twice is the committer's idempotent success. The per-run cap is the contract's per_run_cap: 62 day files and 1 GB. A failure fails the run so the unit's OnFailure raises the alert; what landed stays and the next run goes on from the cursor.",
+      "description": "The 주소DB (도로명주소 ↔ 지번, rtlDtaDtlSn 8) from the provider's public download screen API of business.juso.go.kr, with no login and no key (root ADR-0495; scripts/ops/juso-address-db-cycle.sh). With no base in its state directory the run lands the newest monthly full once (jusogokr__address_db_monthly_full, 181 MB on 2026-11-11); then, from its cursor (the next day to land, starting at the base's first day so one month is replayed onto it) to yesterday in KST, it asks one list per month and lands each day's change file oldest first (jusogokr__address_db_daily_change), byte for byte, each committed on its own; the cursor moves past a day only after its file is committed, and a day the list does not hold is passed only once a later day has landed. The object is named by the provider's stored file name, so landing a file twice is the committer's idempotent success. The per-run cap is the contract's per_run_cap: 62 day files and 1 GB. Load: plan-silver-load-objects names the Bronze objects silver.juso_road_address does not record (the full first, then the change files by day) and one Spark run (infra/lakehouse/spark/jobs/juso_address_db.py) appends the full once, as the base (6,426,585 addresses on 2026-11-11, a declared whole load), and after it only the keys each change file changes and a removal marker for an address it abolishes (변경사유 63), each row carrying the PNU of its representative 지번. A failure fails the run so the unit's OnFailure raises the alert; what landed stays and the next run goes on from the cursor.",
       "systemd_service": "foundation-juso-address-db.service",
       "systemd_timer": null,
       "state_paths": [
@@ -18,7 +18,7 @@
       "started_by": "schedule",
       "stop_grace_minutes": 5,
       "wait_limit_minutes": 0,
-      "time_limit_minutes": 60,
+      "time_limit_minutes": 90,
       "per_run_cap": {
         "unit": "request",
         "limits": [
@@ -28,14 +28,15 @@
         "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 600,
-          "estimated_from": "computed from the 2026-11-11 measurement: the 181,440,694-byte monthly full downloaded in 49 s, 41 day files of 1 to 100 KB and three month lists at the contract's 3 s spacing (about 135 s), and one R2 write of the full at the measured 50 MB/s of the data.go.kr file collector (about 4 s); 600 s is about three times that sum and a sixth of the 3,600 s limit. A run after the first is one list and one day file, about 10 s. The first run is the measurement (root ADR-0457 §3)"
+          "estimate_seconds": 1500,
+          "estimated_from": "computed from the 2026-11-11 measurement: the 181,440,694-byte monthly full downloaded in 49 s, 41 day files of 1 to 100 KB and three month lists at the contract's 3 s spacing (about 135 s), and one R2 write of the full at the measured 50 MB/s of the data.go.kr file collector (about 4 s); staging the full's members to UTF-8 took 44 s on a 4-core laptop (6,426,585 addresses and as many representative 지번, 372,379 road codes, measured 2026-11-11), and the Spark joins and the append of 6.4 million rows and about 41 change files about ten times that; 1,500 s is about twice the sum and under a third of the 5,400 s limit. A run after the first is one list and one day file, about 10 s. The first run is the measurement (root ADR-0457 §3)"
         }
       },
-      "pool": "default_pool",
+      "pool": "spark",
       "retries": 0,
       "pipeline_graph_edges": [
-        "juso-address-db-collection-to-source-juso-address-db"
+        "juso-address-db-collection-to-source-juso-address-db",
+        "source-juso-address-db-to-silver-juso-road-address"
       ],
       "enabled": true,
       "enabled_since": "2026-11-11T12:00:00Z",
@@ -43,7 +44,9 @@
       "expected_outcome": {
         "changes_within_hours": 54,
         "basis": "the provider publishes a change file for every day (61 of 61 days listed on 2026-11-11 for 2026-09..10); two daily turns."
-      }
+      },
+      "pool_slots": 3,
+      "priority_weight": 1
     }
   ],
   "assets": [
@@ -64,8 +67,8 @@
       "id": "source-juso-address-db",
       "type": "source_group",
       "title": "주소DB",
-      "description": "주소기반산업지원서비스의 주소DB(구 매칭데이터): 도로명주소(도로명코드·건물번호)와 그 대표·관련 지번(법정동 코드·산·본번·부번), 월전체와 일변동. 도로명 주소만 가진 원천(경매·공매)을 공식 지번에 놓는 원장이다(루트 ADR-0495). 받은 객체가 아직 0 이고 Silver 가 없어 planned 다.",
-      "status": "planned",
+      "description": "주소기반산업지원서비스의 주소DB(구 매칭데이터): 도로명주소(도로명코드·건물번호)와 그 대표·관련 지번(법정동 코드·산·본번·부번), 월전체와 일변동. 도로명 주소만 가진 원천(경매·공매)을 공식 지번에 놓는 원장이다(루트 ADR-0495).",
+      "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
         "docs/adr/0495-the-juso-address-db-is-collected-without-login-and-places-a-road-address-on-its-official-jibun.md",
@@ -73,6 +76,25 @@
       ],
       "endpoint_catalog_group": "juso_address_db",
       "unmapped_status": "collected_only"
+    },
+    {
+      "id": "silver-juso-road-address",
+      "type": "silver_table",
+      "title": "주소DB 도로명주소",
+      "description": "주소DB 의 도로명주소 관리번호마다 한 행: 도로명코드·도로명·시도/시군구 이름·건물 본번/부번과 대표지번(법정동 코드·산·본번·부번)의 PNU. 월전체를 한 번 기초로 싣고, 그 뒤 일변동은 바뀐 키와 폐지(63)의 삭제 표지만 쌓는다. 해석기(address_pnu)의 juso 도로명 단계가 읽는다(루트 ADR-0495).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/juso-address-db.contract.json"
+      ],
+      "table_name": "silver.juso_road_address",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.juso_road_address"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -85,6 +107,75 @@
         "platforms/foundation-platform/scripts/ops/juso-address-db-cycle.sh",
         "collect-juso-address-db"
       ]
+    },
+    {
+      "from": "source-juso-address-db",
+      "to": "silver-juso-road-address",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-juso-address-db",
+        "platforms/foundation-platform/scripts/ops/juso-address-db-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/juso_address_db.py"
+      ],
+      "source_slugs": [
+        "jusogokr__address_db_monthly_full",
+        "jusogokr__address_db_daily_change"
+      ],
+      "description": "월전체는 기초로 한 번, 일변동은 날마다 바뀐 키만 쌓는다(루트 ADR-0495).",
+      "pnu_resolution": "pnu is the provider's own representative 지번 of each address (주소DB 대표지번, its current legal-dong code), not a resolved source code; the consumer (address_pnu.resolve) places it on the served edition's form through place_identity_resolver.held_forms and its rows follow views.changed_codes (ADR-0482, ADR-0495)"
+    },
+    {
+      "from": "silver-juso-road-address",
+      "to": "silver-court-auction-item",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "description": "주소DB 도로명 단계: 지번이 놓지 못한 도로명 주소를 주소DB 의 대표지번 PNU 하나에 놓는다(루트 ADR-0495)."
+    },
+    {
+      "from": "silver-juso-road-address",
+      "to": "silver-court-auction-sale-result",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "description": "주소DB 도로명 단계: 지번이 놓지 못한 도로명 주소를 주소DB 의 대표지번 PNU 하나에 놓는다(루트 ADR-0495)."
+    },
+    {
+      "from": "silver-juso-road-address",
+      "to": "silver-onbid-real-estate-item",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_onbid.py"
+      ],
+      "description": "주소DB 도로명 단계: 지번이 놓지 못한 도로명 주소를 주소DB 의 대표지번 PNU 하나에 놓는다(루트 ADR-0495)."
+    },
+    {
+      "from": "silver-juso-road-address",
+      "to": "silver-registered-factory",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_registered_factory.py"
+      ],
+      "description": "주소DB 도로명 단계: 지번이 놓지 못한 도로명 주소를 주소DB 의 대표지번 PNU 하나에 놓는다(루트 ADR-0495)."
     }
-  ]
+  ],
+  "host_memory": {
+    "juso_address_db": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
 }

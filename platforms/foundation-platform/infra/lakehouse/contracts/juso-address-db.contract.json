@@ -40,6 +40,11 @@
     "max_day_files_per_run": 62,
     "max_bytes_per_run": 1000000000
   },
+  "silver_load": {
+    "$comment": "plan-silver-load-objects for silver.juso_road_address over both sources: every object no load recorded, the full first and the change files by day (juso_address_db.py sorts them). The window is two days: a change file lands every day, so one unloaded longer than that means loads have been failing.",
+    "window_days": 2,
+    "max_objects": 70
+  },
   "max_file_bytes": 600000000,
   "timezone": "Asia/Seoul",
   "members": {

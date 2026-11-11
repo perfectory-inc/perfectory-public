@@ -154,5 +154,33 @@ class FormerNameTest(unittest.TestCase):
         self.assertEqual(a.candidates("합성도 옛구 남은동 7", PREFIXES, self.dongs())["legal_dong_code"], "9914010900")
 
 
+class SigunguIndexTest(unittest.TestCase):
+    """Root ADR-0495: the 시군구 words of a road address read as current 5-digit 시군구 codes."""
+
+    CURRENT = [("9910100000", "합성도 가상시 동녘구"), ("9910300000", "합성도 가상시 서녘구"), ("9920100000", "합성도 새구"),
+               ("9920300000", "합성도 바다구"), ("9930100000", "합성도 다른군"), ("9930101000", "합성도 다른군 가나읍")]
+    FORMER = [("9919900000", "합성도 옛구"), ("9929900000", "합성도 갈린구")]
+    PAIRS = [("99199", "99201"), ("99299", "99201"), ("99299", "99203")]
+
+    def test_a_city_without_its_district_names_every_district(self) -> None:
+        index = a.sigungu_index(self.CURRENT, self.FORMER, self.PAIRS)
+        self.assertEqual(index[("99", "가상시 동녘구")], {"99101"})
+        self.assertEqual(index[("99", "가상시")], {"99101", "99103"})
+        self.assertNotIn(("99", "다른군 가나읍"), index, "a 읍 row is not a 시군구")
+
+    def test_a_former_name_names_the_codes_its_pairs_lead_to(self) -> None:
+        index = a.sigungu_index(self.CURRENT, self.FORMER, self.PAIRS)
+        self.assertEqual(index[("99", "옛구")], {"99201"})
+        self.assertEqual(index[("99", "갈린구")], {"99201", "99203"})
+        self.assertNotIn(("99", "옛구"), a.sigungu_index(self.CURRENT, self.FORMER, []))
+
+    def test_no_sigungu_word_names_the_whole_province(self) -> None:
+        index = a.sigungu_index(self.CURRENT, self.FORMER, self.PAIRS)
+        self.assertEqual(index[("99", "")], {"99101", "99103", "99201", "99203", "99301"})
+
+    def test_a_road_with_no_sigungu_word_still_reads(self) -> None:
+        self.assertEqual(a.road_key("합성도 가나대로 12 가나빌", PREFIXES), a.RoadKey("99", "", "가나대로", 12, 0))
+
+
 if __name__ == "__main__":
     unittest.main()
