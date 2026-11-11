@@ -374,13 +374,45 @@ def answer(contract: Mapping[str, Any], report: Mapping[str, Any], request: Mapp
     return {**record, "outcome": "granted"}, promoted
 
 
-def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answers: Path) -> list[str]:
+CONTROLLER = "edition-controller"
+
+
+def controller_request(contract: Mapping[str, Any], report: Mapping[str, Any], now: datetime | None = None) -> dict[str, str] | None:
+    """The request the judgement makes itself (root ADR-0490 §5): the newest edition newer than the served
+    one that the report holds `ready`, once per edition and contract (its id names both), or None.
+
+    Like Argo Rollouts promoting a canary its analysis passed: the verdict, not a person, asks. A console
+    request (ADR-0381 §4) stays the way to ask for anything else."""
+
+    now = now or _now()
+    served = editions.served(contract)
+    ready = [row["edition"] for row in report.get("editions") or [] if row.get("ready") is True and row["edition"] > served]
+    if not ready:
+        return None
+    name = max(ready)
+    return {"request": f"{CONTROLLER}-{name}-{str(report.get('contract_sha256'))[:12]}", "actor": CONTROLLER,
+            "requested_at": _iso(now), "reason": f"{name} passed every readiness stage (root ADR-0490 §5)",
+            "job": PROMOTION_JOB, "expires_at": _iso(now + timedelta(hours=1)), "edition": name}
+
+
+def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answers: Path,
+          controller: bool = False) -> list[str]:
     """Answers every request in `requests` that `answers` does not hold yet, each once, and lists every
-    answer in the report under `promotion_requests`. Returns the ids answered now."""
+    answer in the report under `promotion_requests`. With `controller`, the judgement's own request for
+    the newest ready edition is answered the same way, once. Returns the ids answered now."""
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     answers.mkdir(parents=True, exist_ok=True)
     answered = []
+    own = controller_request(contract, report) if controller else None
+    if own is not None and not (answers / f"{own['request']}.json").exists():
+        record, promoted = answer(contract, report, own)
+        if promoted is not None:
+            target = answers / f"{own['request']}.contract.json"
+            target.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            record["contract"] = str(target)
+        (answers / f"{own['request']}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+        answered.append(own["request"])
     for path in sorted(requests.glob("*")) if requests.is_dir() else []:
         if not path.is_file() or path.name.endswith(".partial") or (answers / f"{path.name}.json").exists():
             continue
@@ -425,6 +457,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--journal", help="evidence: the parcel tile bake's journal")
     parser.add_argument("--requests", help="grant: the console's promotion requests (switches/promote.d)")
     parser.add_argument("--answers", help="grant: where each answer and granted contract is kept")
+    parser.add_argument("--controller", action="store_true",
+                        help="grant: also promote the newest ready edition on the judgement's own request (ADR-0490 §5)")
     parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
     parser.add_argument("--inputs", help="readiness: the per-edition input digests beside it; rewritten")
     parser.add_argument("--output", help="evidence, readiness: where to write (stdout without); lag: the .prom file")
@@ -475,7 +509,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "grant":
             if not args.requests or not args.answers:
                 raise editions.EditionError("grant needs --requests and --answers")
-            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers))
+            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers), args.controller)
             print(",".join(answered))
             return 0
         report = json.loads(Path(args.report).read_text(encoding="utf-8"))

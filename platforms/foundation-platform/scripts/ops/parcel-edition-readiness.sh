@@ -60,10 +60,11 @@ mkdir -p "$(dirname "${OUT}")"
 # per-edition input digests live beside the report and are replaced after it.
 if [ -f "${OUT}.inputs.json" ]; then cp -- "${OUT}.inputs.json" "${work}/inputs.json"; fi
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" readiness --evidence "${work}/evidence.json"   --previous "${OUT}" --inputs "${work}/inputs.json" --output "${work}/readiness.json" > "${work}/judged"
-# Each request asked in the console is answered once: a ready edition's is granted as the promoted contract
+# The judgement asks for the newest ready edition itself (--controller, root ADR-0490 §5), once per edition and
+# contract. Each request asked in the console is answered once: a ready edition's is granted as the promoted contract
 # under ${ANSWERS}, for the reviewed change that serves it; the rest are refused with the reason.
 "${PY[@]}" "${JOBS}/parcel_edition_readiness.py" grant --report "${work}/readiness.json" \
-  --requests "${REQUESTS}" --answers "${ANSWERS}" > "${work}/answered"
+  --requests "${REQUESTS}" --answers "${ANSWERS}" --controller > "${work}/answered"
 answered="$(cat "${work}/answered")"
 [ -z "${answered}" ] || echo "parcel-edition-readiness: answered promotion requests ${answered} (${ANSWERS})" >&2
 "${PY[@]}" -c 'import json, sys

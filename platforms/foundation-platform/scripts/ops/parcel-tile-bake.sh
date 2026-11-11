@@ -109,8 +109,13 @@ fi
 
 # The edition, its snapshot id, its 시도 and the data-disk work root, from the contracts this
 # release ships: none of them is written down here. A rehearsal's Gold half bakes the edition it
-# names, which the contract must hold.
-mapfile -t plan < <(python3 -I - "${RELEASE_ROOT}" "${REHEARSED:-served}" <<'PY'
+# names, which the contract must hold. `served` also answers whether the served edition is the
+# ledger's first, served by the release from before the lakehouse bake (root ADR-0490 §4), and the
+# candidate the readiness judgement names: the newest edition newer than the served one whose source
+# and Silver passed and whose rehearsal has not (READINESS, written by parcel-edition-readiness.sh).
+READINESS="${FOUNDATION_PARCEL_EDITION_READINESS_PATH:-/var/lib/foundation-platform/parcel-editions/readiness.json}"
+edition_plan() {
+  python3 -I - "${RELEASE_ROOT}" "$1" "${READINESS}" <<'PY'
 import json, pathlib, sys
 sys.dont_write_bytecode = True
 release = pathlib.Path(sys.argv[1])
@@ -121,14 +126,27 @@ chosen = editions.served(contract) if sys.argv[2] == "served" else sys.argv[2]
 if chosen not in contract["editions"]:
     sys.exit(f"parcel-tile-bake: refused: the source contract holds no edition {chosen}")
 bake = json.loads((release / "config/tile-bake-containers.contract.json").read_text(encoding="utf-8"))
+ledger = contract["promotions"]
+bootstrap = len(ledger) == 1 and ledger[0]["readiness"] is None and ledger[0]["edition"] == chosen
+candidate = ""
+report = pathlib.Path(sys.argv[3])
+if report.is_file():
+    rows = json.loads(report.read_text(encoding="utf-8")).get("editions") or []
+    waiting = [row["edition"] for row in rows if row["edition"] > editions.served(contract)
+               and row["edition"] in contract["editions"] and row.get("first_failing_stage") == "rehearsal"]
+    candidate = max(waiting, default="")
 print(chosen)
 print(editions.snapshot_id(contract, chosen))
 print(",".join(sorted({obj["region_code"][:2] for obj in editions.edition(contract, chosen)["objects"]
                        if obj["granularity"] == "sido"})))
 print(bake["work_disk"]["production_root"])
+print("bootstrap" if bootstrap else "promoted")
+print(candidate or "-")
 PY
-)
+}
+mapfile -t plan < <(edition_plan "${REHEARSED:-served}")
 edition="${plan[0]}"; snapshot="${plan[1]}"; sido="${plan[2]}"; work_root="${plan[3]}"
+served_kind="${plan[4]:-}"; candidate="${plan[5]:-}"
 [[ -n "${work_root:-}" && -n "${sido}" ]] || { echo "parcel-tile-bake: refused: the contracts name no edition, 시도 or work root" >&2; exit 65; }
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
@@ -142,6 +160,11 @@ run_log=/dev/null
 on_error() {
   job_journal "${journal}" "${MODE} ${snapshot} FAILED at line $1 (log ${run_log})" >&2
   job_run_log_tail "${run_log}"
+  # A rehearsal bake that failed is not baked again from the same Gold (root ADR-0490 §4); one that only
+  # deferred partitions to its next run (ADR-0493) did not fail and continues.
+  if [[ "${MODE}" == rehearsal-bake && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
+    cp -- "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed" || true
+  fi
 }
 trap 'on_error ${LINENO}' ERR
 
@@ -158,13 +181,40 @@ spark() {
 
 if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   if [[ "${MODE}" == gold && -z "${FORCE}" ]]; then
-    if [[ -s "${baked_file}" && "$(cat "${baked_file}")" == "${snapshot}" ]]; then
-      job_journal "${journal}" "nothing to do: the parcel tiles already serve ${snapshot}"
-      echo "foundation-job-outcome unchanged"; exit 0
+    served_done=""
+    if [[ "${served_kind}" == bootstrap ]]; then
+      served_done="${snapshot} is the ledger's first edition, served by the release from before the lakehouse bake"
+    elif [[ -s "${baked_file}" && "$(cat "${baked_file}")" == "${snapshot}" ]]; then
+      served_done="the parcel tiles already serve ${snapshot}"
+    elif [[ -s "${ready_file}" && "$(cut -d' ' -f1 "${ready_file}")" == "${snapshot}" ]]; then
+      served_done="the Gold of ${snapshot} waits for the bake"
     fi
-    if [[ -s "${ready_file}" && "$(cut -d' ' -f1 "${ready_file}")" == "${snapshot}" ]]; then
-      job_journal "${journal}" "nothing to do: the Gold of ${snapshot} waits for the bake"
-      echo "foundation-job-outcome unchanged"; exit 0
+    if [[ -n "${served_done}" ]]; then
+      # Root ADR-0490 §4: with nothing to do for the served edition, the half rehearses the candidate.
+      # A rehearsal that did not pass is tried again after REHEARSAL_RETRY_DAYS, not on every release (the
+      # host deploys several a day, and a rehearsal is about 100 minutes of the spark pool). 2026-10-15..
+      # 11-11 the one rehearsal a person ran failed and nobody ran another.
+      attempted_file="${STATE_ROOT}/rehearsal-attempted"
+      retry_seconds=$(( ${REHEARSAL_RETRY_DAYS:-7} * 86400 ))
+      if [[ "${candidate}" == "-" || -z "${candidate}" ]]; then
+        job_journal "${journal}" "nothing to do: ${served_done}; no edition waits for its rehearsal"
+        echo "foundation-job-outcome unchanged"; exit 0
+      fi
+      mapfile -t plan < <(edition_plan "${candidate}")
+      edition="${plan[0]}"; snapshot="${plan[1]}"; sido="${plan[2]}"
+      if [[ -s "${attempted_file}" ]]; then
+        read -r tried tried_at <"${attempted_file}"
+        if [[ "${tried}" == "${snapshot}" ]] && (( $(date -u +%s) - tried_at < retry_seconds )); then
+          job_journal "${journal}" "nothing to do: ${served_done}; ${snapshot} was rehearsed $(date -u -d "@${tried_at}" +%FT%TZ), again after ${REHEARSAL_RETRY_DAYS:-7} days"
+          echo "foundation-job-outcome unchanged"; exit 0
+        fi
+      fi
+      printf '%s %s\n' "${snapshot}" "$(date -u +%s)" >"${attempted_file}.tmp"
+      mv "${attempted_file}.tmp" "${attempted_file}"
+      job_journal "${journal}" "rehearsing ${snapshot}: ${served_done}"
+      MODE=rehearsal-gold
+      ready_file="${STATE_ROOT}/rehearsal-ready"
+      REHEARSED_BY_JOB=1
     fi
   fi
   [[ -z "${FORCE}" ]] || job_journal "${journal}" "forced: ${FORCE}"
@@ -212,11 +262,23 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   job_journal "${journal}" "${MODE}: served Gold of ${snapshot} in $((SECONDS - step))s, handoff $(du -sb "${work}/served" | cut -f1) bytes, total $((SECONDS - started))s"
   printf '%s %s\n' "${snapshot}" "${work}" >"${ready_file}.tmp"
   mv "${ready_file}.tmp" "${ready_file}"
-  if [[ "${MODE}" == gold ]]; then echo "foundation-job-outcome changed"; else echo "foundation-job-outcome unchanged"; fi
+  # A rehearsal the job started hands its Gold to the bake half like a served one (root ADR-0490 §4).
+  if [[ "${MODE}" == gold || -n "${REHEARSED_BY_JOB:-}" ]]; then echo "foundation-job-outcome changed"; else echo "foundation-job-outcome unchanged"; fi
   exit 0
 fi
 
 # bake / rehearsal-bake
+# Root ADR-0490 §4: the bake half bakes the served Gold first; with none waiting, the candidate's rehearsal.
+# A rehearsal bake that failed waits for the next rehearsal Gold, not the next day.
+if [[ "${MODE}" == bake && ! -s "${ready_file}" && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
+  if [[ -s "${STATE_ROOT}/rehearsal-bake-failed" ]] \
+    && cmp -s "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed"; then
+    job_journal "${journal}" "nothing to do: the bake of the rehearsal Gold $(cut -d' ' -f1 "${STATE_ROOT}/rehearsal-ready") failed; the next rehearsal makes another"
+    echo "foundation-job-outcome unchanged"; exit 0
+  fi
+  MODE=rehearsal-bake
+  ready_file="${STATE_ROOT}/rehearsal-ready"
+fi
 if [[ ! -s "${ready_file}" ]]; then
   job_journal "${journal}" "nothing to do: no served Gold waits for the bake"
   echo "foundation-job-outcome unchanged"; exit 0

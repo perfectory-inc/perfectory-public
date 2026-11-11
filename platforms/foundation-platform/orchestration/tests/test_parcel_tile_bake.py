@@ -71,7 +71,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\nexit 0\n")
+        publisher.write_text("#!/bin/sh\n[ -z \"$FAKE_PUBLISHER_FAIL\" ] || exit 1\necho lakehouse-tile-bake-rehearsal synthetic\nexit 0\n")
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -97,10 +97,24 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.served = editions.snapshot_id(contract, editions.served(contract))
         self.rehearsed = sorted(contract["editions"])[0]
         self.newest = editions.snapshot_id(contract, self.rehearsed)
+        self.served_name = editions.served(contract)
+        self.candidate = min(name for name in contract["editions"] if name > self.served_name)
+        self.readiness = self.root / "readiness.json"
+        self.env["FOUNDATION_PARCEL_EDITION_READINESS_PATH"] = str(self.readiness)
+        # The real ledger's only entry is the bootstrap edition, which the half never bakes (root ADR-0490 §4);
+        # the served path is exercised on a copy whose served edition came through a gated promotion.
+        promoted = json.loads(json.dumps(contract))
+        promoted["promotions"][0]["readiness"] = {"checked_at_utc": "2099-01-01T00:00:00Z", "contract_sha256": "0" * 64,
+                                                  "stages": {stage: "synthetic" for stage in editions.PROMOTION_STAGES}}
+        editions.validate(promoted)
+        self.promoted = self.root / "promoted-contract.json"
+        self.promoted.write_text(json.dumps(promoted, ensure_ascii=False), encoding="utf-8")
 
-    def run_half(self, mode, gate):
-        result = subprocess.run(["bash", str(self.script), mode], env={**self.env, "FAKE_GATE": gate},
-                                capture_output=True, text=True, timeout=120)
+    def run_half(self, mode, gate, bootstrap=False):
+        env = {**self.env, "FAKE_GATE": gate}
+        if not bootstrap:
+            env["VWORLD_PARCEL_SOURCE_CONTRACT"] = str(self.promoted)
+        result = subprocess.run(["bash", str(self.script), mode], env=env, capture_output=True, text=True, timeout=120)
         calls = [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
         return result, calls
 
@@ -155,6 +169,63 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
         self.assertEqual((self.state / "ready").read_text().split()[0], self.served)
         self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome changed")
+
+
+    # Root ADR-0490 §4: 2026-10-15..11-11 the one rehearsal a person ran failed and nobody ran another,
+    # so 202609 never became ready. The job's halves now rehearse the judgement's candidate themselves.
+    def wait_for_rehearsal(self):
+        self.readiness.write_text(json.dumps({"editions": [
+            {"edition": self.served_name, "first_failing_stage": None},
+            {"edition": self.candidate, "first_failing_stage": "rehearsal"}]}), encoding="utf-8")
+
+    def test_the_bootstrap_edition_is_never_baked_and_with_no_candidate_nothing_runs(self):
+        result, calls = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(calls, [])
+        self.assertIn("served by the release from before the lakehouse bake", (self.state / "journal.log").read_text())
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome unchanged")
+
+    def test_the_gold_half_rehearses_the_candidate_once_and_hands_it_to_the_bake(self):
+        self.wait_for_rehearsal()
+        result, calls = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        candidate = calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1]
+        self.assertTrue(candidate.endswith(self.candidate), candidate)
+        for call in calls:
+            self.assertIn("--allow-non-served-edition", call["args"], call["job"])
+        self.assertEqual((self.state / "rehearsal-ready").read_text().split()[0], candidate)
+        self.assertFalse((self.state / "ready").exists(), "a rehearsal never readies the served bake")
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome changed")
+        # Again the same day: tried, not tried again until REHEARSAL_RETRY_DAYS pass.
+        again, calls_after = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(len(calls_after), len(calls))
+        self.assertIn("again after 7 days", (self.state / "journal.log").read_text())
+
+    def test_the_bake_half_bakes_the_rehearsal_when_no_served_gold_waits(self):
+        self.wait_for_rehearsal()
+        self.run_half("gold", "pass", bootstrap=True)
+        result, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        journal = (self.state / "journal.log").read_text()
+        self.assertIn("rehearsal baked", journal)
+        self.assertFalse((self.state / "baked-edition").exists(), "a rehearsal bakes nothing served")
+        self.assertFalse((self.state / "rehearsal-ready").exists(), "a baked rehearsal Gold is used up")
+        # A rehearsal bake that failed keeps its Gold and is not baked again from it.
+        self.run_half("gold", "pass", bootstrap=True)
+        self.assertFalse((self.state / "rehearsal-ready").exists(), "tried today: no second rehearsal Gold")
+
+    def test_a_failed_rehearsal_bake_is_not_baked_again_from_the_same_gold(self):
+        self.wait_for_rehearsal()
+        self.run_half("gold", "pass", bootstrap=True)
+        self.env["FAKE_PUBLISHER_FAIL"] = "1"
+        failed, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertTrue((self.state / "rehearsal-ready").exists())
+        again, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("failed; the next rehearsal makes another", (self.state / "journal.log").read_text())
 
 
 if __name__ == "__main__":
