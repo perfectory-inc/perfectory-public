@@ -301,6 +301,9 @@ pub(crate) struct ItemMark {
     pub(crate) seen: BTreeSet<String>,
     /// Photos stored for it.
     pub(crate) photos: u32,
+    /// Of those, the photos whose original is stored too (root ADR-0486); 0 in a mark written before.
+    #[serde(default)]
+    pub(crate) originals: u32,
     /// The media fields its detail was mirrored under (`coverage::MEDIA_FIELDS`); an item completed
     /// under fewer is fetched once more, without re-downloading what is stored (root ADR-0340 §4).
     #[serde(default)]

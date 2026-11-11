@@ -473,16 +473,24 @@ pub(crate) async fn mirror_detail_lines(
         )
         .await;
     }
+    let rule = settings.fields.originals.get(PHOTO_FIELD);
     for (index, response) in responses.iter().enumerate() {
         let Some(response) = response else {
             continue;
         };
-        let photos = field_urls(response, PHOTO_FIELD, settings.url_host)
+        let urls = field_urls(response, PHOTO_FIELD, settings.url_host);
+        let photos = urls
             .iter()
             .filter(|url| resolved.contains_key(*url))
             .count();
+        let originals = urls
+            .iter()
+            .filter_map(|url| rule.and_then(|rule| original_url(url, rule)))
+            .filter(|original| resolved.contains_key(original))
+            .count();
         outcomes[index].complete = landed[index];
         outcomes[index].photos = u32::try_from(photos).unwrap_or(u32::MAX);
+        outcomes[index].originals = u32::try_from(originals).unwrap_or(u32::MAX);
         if landed[index] {
             report.lines_complete += 1;
         } else {
