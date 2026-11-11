@@ -121,12 +121,24 @@ def json_document(answer: Answer) -> tuple[Any, str | None]:
     if not body:
         return None, "an empty body"
     try:
-        value = json.loads(gzip.decompress(body) if headers.get("content-encoding") == "gzip" else body)
+        value = json.loads(body)
     except (OSError, ValueError) as error:
         return None, f"not a JSON document ({error})"
     if not isinstance(value, dict) or not value:
         return None, "not a non-empty JSON object"
     return value, None
+
+
+def decoded(answer: Answer) -> Answer:
+    """The answer with its gzip content coding removed, or a 0 answer saying it does not decode."""
+
+    status, headers, body = answer
+    if headers.get("content-encoding") != "gzip":
+        return answer
+    try:
+        return status, headers, gzip.decompress(body)
+    except (OSError, EOFError) as error:
+        return 0, {}, f"a gzip-encoded body that does not decode ({error})".encode()
 
 
 class Probe:
@@ -145,15 +157,29 @@ class Probe:
         self.log(f"FAILED {message}")
 
     def get(self, path: str) -> Answer:
+        """One answer, its body as a user agent reads it: a gzip-encoded body is decoded, as a browser
+        decodes it. 2026-11-10 the catalog moved behind CloudFront (root ADR-0470), which gzips a PDF
+        for a client that accepts it; the bytes held to the hash in the blob's name were the encoded
+        ones, and every quarter-hourly probe failed from then on while the PDF itself was whole.
+
+        No answer at all (a timeout, a reset connection) is asked again, at most the policy's
+        transport_tries times: it says nothing about the edge, and 2026-11-11 one 20 s timeout rolled
+        a Worker deploy back. An answer of any status is the edge's and is returned as it is."""
         request = urllib.request.Request(f"{self.base_url}{path}", headers={
             "Accept-Encoding": "gzip", "User-Agent": self.policy["user_agent"]})
-        try:
-            with urllib.request.urlopen(request, timeout=self.policy["read_timeout_seconds"]) as response:
-                return response.status, {k.lower(): v for k, v in response.headers.items()}, response.read()
-        except urllib.error.HTTPError as error:
-            return error.code, {k.lower(): v for k, v in error.headers.items()}, error.read()
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
-            return 0, {}, str(error).encode()
+        tries = self.policy["transport_tries"]
+        for attempt in range(1, tries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=self.policy["read_timeout_seconds"]) as response:
+                    return decoded((response.status, {k.lower(): v for k, v in response.headers.items()},
+                                    response.read()))
+            except urllib.error.HTTPError as error:
+                return decoded((error.code, {k.lower(): v for k, v in error.headers.items()}, error.read()))
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                if attempt == tries:
+                    return 0, {}, f"{error} ({tries} tries)".encode()
+                self.log(f"GET {path}: no answer ({error}), asked again ({attempt} of {tries})")
+        raise AssertionError("unreachable")
 
     def hold(self, path: str, content_type: str, judge: Callable[[Answer], str | None]) -> None:
         """`reads` GETs of `path`, each held to 200, `content_type` and `judge`."""
