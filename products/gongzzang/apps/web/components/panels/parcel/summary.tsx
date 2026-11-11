@@ -25,6 +25,7 @@ import type { RealTransaction } from "@/lib/api/real-transaction";
 import { filled, type RegisterMasters } from "@/lib/api/register-masters";
 import type { RegulationZone, RegulationZones } from "@/lib/api/regulation-zones";
 import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
+import { gasConnection, sewageMethods, type UtilityRecords } from "@/lib/api/utility";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
 import {
   ZONING_FAMILIES,
@@ -51,6 +52,7 @@ import {
   parcelRegisterMastersQuery,
   parcelRegulationZonesQuery,
   parcelSubParcelsQuery,
+  parcelUtilityQuery,
 } from "./queries";
 import { ParcelComparablesCard, ParcelRealTransactionsCard } from "./real-transaction";
 
@@ -330,6 +332,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
   const registerMasters = useQuery(parcelRegisterMastersQuery(entry.id));
   const buildingPermits = useQuery(parcelBuildingPermitsQuery(entry.id));
   const nearby = useQuery(parcelNearbyQuery(entry.id));
+  const utility = useQuery(parcelUtilityQuery(entry.id));
   const sections: Section[] = [
     {
       id: "land",
@@ -366,6 +369,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <EnergySection energy={energy.data} />,
     });
   }
+  sections.push(...utilitySections(data, energy.data, utility.data, t("sections.utility")));
   if (demolitions.data && demolitions.data.records.length > 0) {
     sections.push({
       id: "demolitions",
@@ -770,6 +774,51 @@ function EnergySection({ energy }: { energy: Energy }) {
       </table>
       <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
         {t("energy.exclusions")}
+      </p>
+    </Group>
+  );
+}
+
+/**
+ * 인입 가능성: the public signals that a parcel is reached by city gas, a sewer and a road
+ * (lib/api/utility.ts). Only the signals the parcel has are shown,
+ * in the sources' words, with no source note; the caveat says they are evidence, not a ruling.
+ */
+function utilitySections(
+  data: ParcelDocument,
+  energy: Energy | null | undefined,
+  utility: UtilityRecords | null | undefined,
+  label: string,
+): Section[] {
+  const gas = gasConnection(energy);
+  const sewage = sewageMethods(utility);
+  const road = data.characteristics?.road_contact ?? null;
+  if (!gas && sewage.length === 0 && !road) return [];
+  return [
+    { id: "utility", label, content: <UtilitySection gas={gas} sewage={sewage} road={road} /> },
+  ];
+}
+
+function UtilitySection({
+  gas,
+  sewage,
+  road,
+}: {
+  gas: { latestUseYm: string } | null;
+  sewage: string[];
+  road: string | null;
+}) {
+  const t = useTranslations("panels.parcel.summary");
+  const rows: [string, ReactNode][] = [];
+  if (gas)
+    rows.push([t("utility.gas"), t("utility.gasUsed", { month: monthLabel(gas.latestUseYm) })]);
+  if (sewage.length > 0) rows.push([t("utility.sewage"), sewage.join(" · ")]);
+  if (road) rows.push([t("utility.roadContact"), road]);
+  return (
+    <Group title={t("utility.title")}>
+      <Rows rows={rows} />
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("utility.caveat")}
       </p>
     </Group>
   );

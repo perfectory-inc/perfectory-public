@@ -360,6 +360,18 @@ fn maintenance_regular_inspection_streaming_export_command_is_explicit() -> anyh
 }
 
 #[test]
+fn register_sewage_facility_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-building-register-sewage-facility-silver-handoff"
+        ])?,
+        Command::ExportBuildingRegisterSewageFacilitySilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn apartment_price_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

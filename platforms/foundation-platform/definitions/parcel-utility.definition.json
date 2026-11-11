@@ -1,0 +1,283 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "parcel-utility",
+  "jobs": [
+    {
+      "id": "gold_parcel_utility_rebuild",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "인입 가능성 kind Gold (root ADR-0497; scripts/ops/gold-panel-rebuild.sh parcel-utility): gold.parcel_utility from the current rows of silver.building_register_sewage_facility, when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current 오수정화시설 rows differ between the pinned and the current Silver (both directions, so a facility that moved PNU leaves its old parcel) and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (parcel_utility_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_utility_bake bakes its commit.",
+      "systemd_service": "foundation-gold-lane-rebuild@parcel-utility.service",
+      "systemd_timer": null,
+      "state_paths": [],
+      "schedule": "35 10 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 900,
+          "estimated_from": "computed, never run: the same template's register-masters build measured 129 s on 2026-11-09 for 581,357 rows from 621,193 Silver rows (gold-kind mode=full 93 s); this kind reads 6,616,909 Silver rows of which 3,212,383 carry a method (measured 2026-11-11 in the 2026-10 file) and writes about 2.5 million documents (2,826,917 parcels with a method times the 88.9% served join rate, computed), so about five times it, 900 s, inside the 8,100 s share of the 150-minute limit"
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 2,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-building-register-sewage-facility-to-gold-parcel-utility",
+        "reference-legal-dong-code-change-to-gold-parcel-utility"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-12T00:00:00Z",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
+    },
+    {
+      "id": "by_pnu_parcel_utility_bake",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Reflect each new Gold snapshot of gold.parcel_utility (the own-producer 인입 가능성 kind, root ADR-0497) in R2 by-PNU serving (scripts/ops/by-pnu-serving-bake.sh parcel-utility), as section packs (root ADR-0147, ADR-0193 §9), exactly as the ownership bake. Its own job, as every own-producer kind's (root ADR-0303 §2). Nothing to do until the lane's first pack-only publish (root ADR-0190, ADR-0435). Started when gold_parcel_utility_rebuild commits a new snapshot, and at 11:35 as the fallback (root ADR-0171). Two slots and MemoryMax=5G, the ownership bake's bound (root ADR-0138).",
+      "capabilities": [
+        "by_pnu_kind_section_pack_patches"
+      ],
+      "systemd_service": "foundation-by-pnu-lane-bake@parcel-utility.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/by-pnu-bake"
+      ],
+      "schedule": "35 11 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 30,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 115,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1500,
+          "estimated_from": "computed from the register-masters bake, the same by-pnu-serving-bake.sh: 277 s on 2026-11-09 for 581,357 documents; this kind bakes about 2.5 million (computed above), about four times it, and the first scheduled bake after the publish may cut a whole generation (no reads.jsonl yet, root ADR-0468 §4), so 1,500 s, inside the 6,210 s share of the 115-minute limit"
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 2,
+      "priority_weight": 1,
+      "priority_class": "publish",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-parcel-utility-to-parcel-utility-by-pnu-section-packs"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-12T00:00:00Z",
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "gold-parcel-utility",
+      "type": "gold_table",
+      "title": "필지 인입 가능성 by-PNU 표",
+      "description": "PNU마다 그 필지가 기반시설에 이어져 있다는 공개 기록을 담는 데이터 종류 표(루트 ADR-0497). 지금은 건축물대장 오수정화시설의 오수정화방식별 시설 수와 하수처리장연결 여부다. 계약의 종류 한 줄(parcel-utility)이 자기 생산자를 이름 짓고, silver.building_register_sewage_facility 의 현재 행에서 만든다. 서빙 필지판의 PNU만, 바뀐 필지만 다시 계산한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/definitions/parcel-utility.definition.json",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_utility_silver_to_gold.py"
+      ],
+      "table_name": "gold.parcel_utility",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.parcel_utility"
+        }
+      ]
+    },
+    {
+      "id": "parcel-utility-by-pnu-section-packs",
+      "type": "serving_surface",
+      "title": "필지 인입 가능성 by-PNU 묶음 파일",
+      "description": "gold.parcel_utility 의 PNU 문서를 법정동 묶음으로만 굽는다. 필지 호스트의 Worker 가 /parcels/utility/by-pnu/ 경로로 서빙한다(루트 ADR-0193, ADR-0497). 첫 발행은 자동 승격(루트 ADR-0435)이 한다.",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/definitions/parcel-utility.definition.json",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-building-register-sewage-facility",
+      "to": "gold-parcel-utility",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_utility_silver_to_gold.py"
+      ],
+      "description": "자기 생산자를 가진 종류(루트 ADR-0287 9항, ADR-0497): 오수정화방식이 채워진 현재 행을 서빙 필지판의 PNU에만 방식별 시설 수로 묶는다. 고정한 Silver 와 지금 Silver 에서 현재 행이 다른 PNU(양방향)와 필지판에 들고 난 PNU만 다시 계산한다."
+    },
+    {
+      "from": "reference-legal-dong-code-change",
+      "to": "gold-parcel-utility",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/parcel_utility_silver_to_gold.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_change_views.py"
+      ],
+      "description": "개편으로 바뀐 코드에 걸린 오수정화시설 행을 서빙 필지판의 코드로 읽는다(모든 필지 섹션과 같은 renumbered, 루트 ADR-0329 §3). 이 표가 바뀌면 종류를 통째로 짓는다(루트 ADR-0497)."
+    },
+    {
+      "from": "gold-parcel-utility",
+      "to": "parcel-utility-by-pnu-section-packs",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/section_packs/bake.rs"
+      ]
+    }
+  ],
+  "by_pnu_lanes": {
+    "parcel-utility": {
+      "host": "parcel_by_pnu_gateway",
+      "kind": "utility",
+      "section": "utility",
+      "columns": [
+        "utility_json"
+      ],
+      "producer": "parcel_utility_silver_to_gold",
+      "decision": "docs/adr/0497-a-parcel-shows-its-utility-connection-records-as-its-own-by-pnu-kind.md",
+      "spark_held_test": "infra/lakehouse/spark/tests/test_parcel_utility_gold.py"
+    }
+  },
+  "host_memory": {
+    "gold_parcel_utility_rebuild": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ],
+    "by_pnu_parcel_utility_bake": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "published_schemas": [
+    {
+      "subject": "foundation-platform.parcel_utility_by_pnu",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "parcel-utility",
+        "producer": "infra/lakehouse/spark/jobs/parcel_utility_silver_to_gold.py"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.parcel_utility_by_pnu.v1",
+          "decision": "docs/adr/0497-a-parcel-shows-its-utility-connection-records-as-its-own-by-pnu-kind.md",
+          "reason": "the first document: the parcel's 건축물대장 오수정화시설 per 오수정화방식 (code, name, facilities), how many, and whether one is 하수종말처리장연결 or 마을하수처리장연결, from the current rows of silver.building_register_sewage_facility"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "pack-lane-document",
+          "at": "platforms/foundation-platform/crates/publisher/foundation-publisher-by-pnu/src/pack_lane_document.rs",
+          "reason": "pack_lane_document::check, which the bake's read-back and the serving monitor hold every served document to; it takes the subject's major from the registry (by_pnu_gateway_contract::resolve_lane_entry)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "source",
+              "required": true
+            },
+            {
+              "path": "utility",
+              "required": true
+            },
+            {
+              "path": "attached_via",
+              "required": false
+            }
+          ]
+        },
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/utility.generated.ts",
+          "reason": "the parcel panel's 인입 가능성 group (root ADR-0497): generated from this list and the subject's current revision (pnpm gen:schemas), so the web parses exactly what it reads",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            },
+            {
+              "path": "utility",
+              "required": true
+            },
+            {
+              "path": "utility.sewage",
+              "required": true
+            },
+            {
+              "path": "utility.sewage.treatment_plant_connection",
+              "required": true
+            },
+            {
+              "path": "utility.sewage.facility_total",
+              "required": true
+            },
+            {
+              "path": "utility.sewage.methods",
+              "required": true
+            },
+            {
+              "path": "utility.sewage.methods[].code",
+              "required": true
+            },
+            {
+              "path": "utility.sewage.methods[].name",
+              "required": false
+            },
+            {
+              "path": "utility.sewage.methods[].facilities",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

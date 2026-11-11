@@ -76,6 +76,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.building_maintenance_regular_inspection_history": "vintage",
             "silver.building_register_exclusive_unit": "vintage",
             "silver.building_register_master": "vintage",
+            "silver.building_register_sewage_facility": "vintage",
             "silver.building_register_sub_parcel": "vintage",
             "silver.building_register_titles": "valid_from_utc",
             "silver.building_register_unit_areas": "valid_from_utc",

@@ -105,6 +105,8 @@
       "building_register_master_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "building_permit_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
       "building_permit_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
+      "parcel_utility_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
+      "parcel_utility_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "parcel_nearby_silver_to_gold.affected_pnus": "As parcel_panel_silver_to_gold.affected_pnus.",
       "parcel_nearby_silver_to_gold.restrict_inputs": "As parcel_panel_silver_to_gold.restrict_inputs.",
       "parcel_nearby_silver_to_gold.store_pnus": "As parcel_panel_silver_to_gold.affected_pnus: the stores' part of the incremental dependency map.",

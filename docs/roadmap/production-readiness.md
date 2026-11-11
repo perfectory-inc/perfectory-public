@@ -246,6 +246,7 @@ last_reviewed: 2026-11-07
 | 건물 | 건축물대장 전유부 (`silver.building_register_exclusive_unit`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건물 층별 정보 (`silver.building_register_floors`) | `building` | — | 화면 |
 | 건물 | 건축물대장 총괄표제부 (`silver.building_register_master`) | `parcel-register-masters` | — | 화면 |
+| 건물 | 건축물대장 오수정화시설 (`silver.building_register_sewage_facility`) | `parcel-utility` | — | 화면 |
 | 건물 | 건축물대장 부속지번 (`silver.building_register_sub_parcel`) | `parcel-sub-parcels` | — | 화면 |
 | 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits`<br>`parcel-real-transaction`<br>`unit-price` | — | 화면 |
 | 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |

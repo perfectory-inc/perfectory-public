@@ -22,6 +22,8 @@ mod major_repair_tests;
 #[cfg(test)]
 mod permit_parking_tests;
 #[cfg(test)]
+mod sewage_facility_tests;
+#[cfg(test)]
 mod site_location_tests;
 #[cfg(test)]
 mod structure_ledger_tests;
