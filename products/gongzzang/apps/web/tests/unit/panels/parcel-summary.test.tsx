@@ -444,7 +444,7 @@ describe("parcel panel sections", () => {
     try {
       renderPanel(parcel());
       expect(await screen.findByText("건축인허가 3건")).toBeTruthy();
-      expect(anchors()).toContain("건축인허가");
+      expect(anchors()).toContain("인허가 이력");
       expect(screen.getByText("신축 · 공장")).toBeTruthy();
       expect(screen.getByText("대지면적 1000.5㎡ · 연면적 800㎡")).toBeTruthy();
       expect(screen.getByText("건축허가일 2098.01.01 · 실제착공일 2098.03.01")).toBeTruthy();
@@ -480,11 +480,35 @@ describe("parcel panel sections", () => {
         ],
       },
       site_locations: null,
+      housing_permits: {
+        total: 1,
+        records: [
+          {
+            purpose_name: "공동주택",
+            structure_name: null,
+            total_household_count: "150",
+            main_building_count: "3",
+            total_floor_area_m2: "12000.5",
+            approval_date: "20980115",
+            start_scheduled_date: "",
+            start_actual_date: "20980710",
+            use_inspection_scheduled_date: "",
+            use_inspection_date: null,
+          },
+        ],
+      },
     };
     try {
       renderPanel(parcel());
       expect(await screen.findByText("가설건축물 2건")).toBeTruthy();
-      expect(anchors()).toContain("건축인허가");
+      // Root ADR-0511: the 주택인허가 기본개요 is one more list of the same section, in the provider's words.
+      expect(screen.getByText("주택인허가 1건")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "총세대수 150세대 · 주건축물수 3 · 연면적 12000.5㎡ · 승인일 2098.01.15 · 착공일 2098.07.10",
+        ),
+      ).toBeTruthy();
+      expect(anchors()).toContain("인허가 이력");
       expect(screen.queryByText(/^건축인허가 \d+건$/)).toBeNull();
       expect(screen.getByText("창고시설 · 컨테이너조")).toBeTruthy();
       expect(

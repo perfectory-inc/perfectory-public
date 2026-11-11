@@ -258,7 +258,7 @@
           "factories": "등록공장",
           "buildings": "건물",
           "registerMasters": "총괄표제부",
-          "buildingPermits": "건축인허가",
+          "buildingPermits": "인허가 이력",
           "subParcels": "부속지번",
           "energy": "에너지",
           "utility": "인입 가능성",
@@ -322,6 +322,17 @@
           "outdoorSelfParking": "옥외자주식 {value}대",
           "indoorMechanicalParking": "옥내기계식 {value}대",
           "more": "최근 {shown}건만 보임 · 전체 {total}건",
+          "housing_permits": {
+            "title": "주택인허가 {count}건",
+            "total_household_count": "총세대수 {value}세대",
+            "main_building_count": "주건축물수 {value}",
+            "total_floor_area_m2": "연면적 {value}㎡",
+            "approval_date": "승인일 {value}",
+            "start_scheduled_date": "착공예정일 {value}",
+            "start_actual_date": "착공일 {value}",
+            "use_inspection_scheduled_date": "사용검사예정일 {value}",
+            "use_inspection_date": "사용검사일 {value}"
+          },
           "building_outlines": {
             "title": "동별개요 {count}건",
             "building_area_m2": "건축면적 {value}㎡",

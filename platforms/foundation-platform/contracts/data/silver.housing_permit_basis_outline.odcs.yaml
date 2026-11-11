@@ -5,10 +5,10 @@ kind: "DataContract"
 id: "silver.housing_permit_basis_outline"
 name: "주택인허가 기본개요"
 version: "1.0.0"
-status: "draft"
+status: "active"
 domain: "foundation-platform"
 description:
-  purpose: "주택건설사업계획승인마다 한 행: 승인일·착공예정일·착공일·사용검사예정일·사용검사일과 용도·구조·주건축물수·연면적·총세대수. 아파트·다세대 단지가 언제 승인되고 착공해 언제 입주(사용검사)하는지 말한다. 관리주택대장PK 가 키다. 원문 29칸 보존. 소비자가 서기 전까지 contract_only 다(다음: 필지 by-PNU 종류 parcel-building-permits, 루트 ADR-0511 §2)."
+  purpose: "주택건설사업계획승인마다 한 행: 승인일·착공예정일·착공일·사용검사예정일·사용검사일과 용도·구조·주건축물수·연면적·총세대수. 아파트·다세대 단지가 언제 승인되고 착공해 언제 입주(사용검사)하는지 말한다. 관리주택대장PK 가 키다. 원문 29칸 보존. 필지 by-PNU 종류 parcel-building-permits 가 행의 PNU 로 필지 문서의 목록 하나(housing_permits)로 싣는다(루트 ADR-0511 §2)."
 team:
   name: "foundation-platform"
 servers:
@@ -144,7 +144,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "silver-housing-permit-basis-outline"
   - property: "declaredStatus"
-    value: "contract_only"
+    value: "implemented"
   - property: "servingRole"
     value: "Canonical"
   - property: "physicalFormat"
