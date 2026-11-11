@@ -956,6 +956,16 @@ fn data_go_kr_file_data_collect_command_is_explicit() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The 주소DB collector: the full once, then each day's change file, with no key (root ADR-0495).
+#[test]
+fn juso_address_db_collect_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command(["foundation-outbox-publisher", "collect-juso-address-db"])?,
+        Command::CollectJusoAddressDb
+    );
+    Ok(())
+}
+
 /// The 주소정보 전자지도 daily-change collector (root ADR-0475).
 #[test]
 fn juso_electronic_map_collect_command_is_explicit() -> anyhow::Result<()> {

@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **159개**
-- 고유 dataset slug: **137개**
-- 고유 Bronze source slug: **158개**
-- 국가 수집 허용 endpoint: **122개**
+- 엔드포인트 정의: **161개**
+- 고유 dataset slug: **139개**
+- 고유 Bronze source slug: **160개**
+- 국가 수집 허용 endpoint: **124개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -37,7 +37,7 @@ last_reviewed: 2026-07-30
 | data.go.kr | 43 | 20 | 0 | API 예정 8, 전용 커맨드 13, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 4 | 3 | 0 | 전용 커맨드 4 |
-| juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
+| juso.go.kr | 13 | 2 | 0 | 수동 승인 11, 전용 커맨드 2 |
 | rt.molit.go.kr | 12 | 12 | 0 | 전용 커맨드 12 |
 | vworld.kr | 26 | 26 | 25 | API 예정 1, 기본 실행 25 |
 
@@ -58,6 +58,7 @@ last_reviewed: 2026-07-30
 | `court_auction` | 3 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
 | `data_go_kr_file_data` | 13 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 4 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
+| `juso_address_db` | 2 | juso.go.kr 주소DB (도로명↔지번, 공개 내려받기) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
 | `onbid_open_api` | 7 | data.go.kr 차세대 온비드 공매 물건·공고·입찰결과 (root ADR-0280) |
@@ -202,6 +203,8 @@ last_reviewed: 2026-07-30
 | industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 목록 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
 | industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 고시 목록 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
 | industryland.or.kr | 산업단지 주소 출처 | ILIS 산업단지 고시 상세·첨부 | 공개 JSON API (전용 커맨드) | true | 전용 커맨드 |
+| juso.go.kr | 주소DB | 주소DB 일변동 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| juso.go.kr | 주소DB | 주소DB 월전체 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 기초구간 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 국가기초구역 | 벌크(수동 승인) | false | 수동 승인 |
 | juso.go.kr | 주소정보 전자지도 | JUSO 건물 도형 | 벌크(수동 승인) | false | 수동 승인 |

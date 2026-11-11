@@ -112,6 +112,10 @@
           "mode": "0777"
         },
         {
+          "path": "/var/lib/foundation-platform/juso-address-db",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/juso-electronic-map",
           "mode": "0755"
         },
@@ -1230,6 +1234,11 @@
             "class": "batch",
             "memory_max": "1G",
             "measured": "no memory peak logged 2026-10-18..11-08 (no cap, so no memory accounting); sized as its drill database runs in a capped container; cgroup peak 14M on 2026-11-08 (systemctl MemoryPeak); systemd logs the peak of every run under this cap"
+          },
+          "foundation-juso-address-db.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "never run (root ADR-0495: new); sized as the collector holds the 181,440,694-byte monthly full (measured 2026-11-11) in memory and one more copy while it commits it; systemd logs the peak of every run under this cap"
           },
           "foundation-juso-electronic-map.service": {
             "class": "batch",
