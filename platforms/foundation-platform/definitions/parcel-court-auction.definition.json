@@ -326,7 +326,7 @@
           "revision": 4,
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md",
-          "reason": "each round gains its detail from the 물건상세 (rounds[].detail: case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표, with the site's code names), an optional field, null until read"
+          "reason": "each round gains its detail from the 물건상세 (rounds[].detail: case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; codes stay codes), an optional field, null until read"
         }
       ],
       "consumers": [
@@ -536,10 +536,6 @@
               "required": false
             },
             {
-              "path": "court_auction.rounds[].detail.spec.bid_kind_name",
-              "required": false
-            },
-            {
               "path": "court_auction.rounds[].detail.spec.sale_decision_date",
               "required": false
             },
@@ -560,15 +556,7 @@
               "required": false
             },
             {
-              "path": "court_auction.rounds[].detail.schedule[].schedule_kind_name",
-              "required": false
-            },
-            {
               "path": "court_auction.rounds[].detail.schedule[].schedule_place",
-              "required": false
-            },
-            {
-              "path": "court_auction.rounds[].detail.schedule[].result_name",
               "required": false
             },
             {
@@ -582,10 +570,6 @@
             {
               "path": "court_auction.rounds[].detail.objects[].object_seq",
               "required": true
-            },
-            {
-              "path": "court_auction.rounds[].detail.objects[].list_kind_name",
-              "required": false
             },
             {
               "path": "court_auction.rounds[].detail.objects[].realty_kind",
@@ -630,14 +614,6 @@
             {
               "path": "court_auction.rounds[].detail.appraisal_points",
               "required": true
-            },
-            {
-              "path": "court_auction.rounds[].detail.appraisal_points[].table_name",
-              "required": false
-            },
-            {
-              "path": "court_auction.rounds[].detail.appraisal_points[].item_name",
-              "required": false
             },
             {
               "path": "court_auction.rounds[].detail.appraisal_points[].content",

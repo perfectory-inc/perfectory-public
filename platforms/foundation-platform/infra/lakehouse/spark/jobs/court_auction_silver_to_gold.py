@@ -49,7 +49,6 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from functools import reduce
 from typing import Any
 
@@ -78,9 +77,6 @@ ANNEX_DOC = "silver.court_auction_item_annex"
 APPRAISAL_DOC = "silver.court_auction_appraisal_point"
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC)
-# The site's names of the codes a detail carries (courtauction-go-kr.contract.json `code_names`).
-CODE_NAMES = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "courtauction-go-kr.contract.json")
-                        .read_text(encoding="utf-8"))["code_names"]["groups"]
 PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,kind_code:string,sequence:int,title:string,"
                 "media_format:string,size_bytes:bigint>>")
 # The code change rows a build reads, the parcel panel's (`changed_codes` compares them).
@@ -178,18 +174,6 @@ def with_photos(round_rows: Any, photo_rows: Any | None) -> Any:
             .withColumn("photos", F.coalesce(F.col("photos"), empty)))
 
 
-def code_name(column: str, group: str) -> Any:
-    """The site's own name of the code in `column` (the contract's `code_names`, root ADR-0540 §5), or
-    null for a code its table lacks."""
-    from itertools import chain  # noqa: PLC0415
-
-    from pyspark.sql import functions as F  # noqa: PLC0415
-
-    names = CODE_NAMES[group]
-    lookup = F.create_map(*chain.from_iterable((F.lit(code), F.lit(name)) for code, name in sorted(names.items())))
-    return F.when(F.col(column).isin(sorted(names)), lookup[F.col(column)])
-
-
 def _listed(frame: Any, group: tuple[str, ...], order: tuple[str, ...], fields: list[Any], name: str) -> Any:
     """`frame`'s rows as one array per `group`, in `order`."""
     from pyspark.sql import functions as F  # noqa: PLC0415
@@ -201,7 +185,7 @@ def _listed(frame: Any, group: tuple[str, ...], order: tuple[str, ...], fields: 
 def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
     """Each document table's current rows (root ADR-0540 §4) as one column per property or case:
     `_case` and `_spec` structs, `_schedule`, `_objects`, `_annexes` and `_appraisal_points` arrays in
-    the site's order. The codes keep their codes and gain the site's names."""
+    the site's order. Codes stay codes."""
     from pyspark.sql import functions as F  # noqa: PLC0415
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
 
@@ -213,24 +197,23 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
         "department_phone", "dividend_demand_deadline").alias("_case"))
     spec = current(SPEC_DOC).select(*PROPERTY, F.struct(
         "spec_written_date", "assumed_rights", "superficies", "spec_remarks", "first_rank_setting", "item_remarks",
-        "item_usage_code", code_name("item_usage_code", "PGJ-AUCTN_GDS_USG_CD").alias("item_usage_name"),
-        "bid_kind_code", code_name("bid_kind_code", "PGJ-BID_DVS_CD").alias("bid_kind_name"),
+        "item_usage_code",
+        "bid_kind_code",
         "bid_start_date", "bid_end_date", "sale_decision_date", "sale_decision_time_raw", "sale_decision_place",
         "deposit_rate_percent").alias("_spec"))
     schedule = _listed(current(SCHEDULE_DOC), PROPERTY, ("schedule_seq",), [
-        "schedule_date", "schedule_time_raw", "schedule_kind_code",
-        code_name("schedule_kind_code", "PGJ-AUCTN_DXDY_KND_CD").alias("schedule_kind_name"), "schedule_place",
-        "result_code", code_name("result_code", "LJH-AUCTN_DXDY_RSLT_CD").alias("result_name"),
+        "schedule_date", "schedule_time_raw", "schedule_kind_code", "schedule_place",
+        "result_code",
         "minimum_bid_price_krw", "sale_amount_krw"], "_schedule")
     objects = _listed(current(OBJECT_DOC), PROPERTY, ("object_seq",), [
-        "object_seq", "list_kind_code", code_name("list_kind_code", "LJH-AUCTN_LST_DVS_CD").alias("list_kind_name"),
+        "object_seq", "list_kind_code",
         "realty_kind", "building_structure", "area_raw", "land_category", "appraisal_amount_krw", "print_address_raw",
         "building_unit_raw", "share_numerator", "share_denominator"], "_objects")
     annexes = _listed(current(ANNEX_DOC), PROPERTY, ("object_seq", "annex_seq"), [
         "object_seq", "usage_raw", "structure_raw", "area_raw", "appraisal_amount_krw", "remarks"], "_annexes")
     points = _listed(current(APPRAISAL_DOC), CASE, ("point_seq",), [
-        "table_code", code_name("table_code", "PGJ-AEE_WEVL_MNPNT_TBLT_DVS_CD").alias("table_name"),
-        "item_code", code_name("item_code", "PGJ-AEE_WEVL_MNPNT_ITM_CD").alias("item_name"), "content"],
+        "table_code",
+        "item_code", "content"],
         "_appraisal_points")
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
             "appraisal_points": points}

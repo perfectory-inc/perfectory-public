@@ -135,7 +135,6 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
     [t("detail.commencement"), c?.commencement_date],
     [t("detail.claim"), money(c?.claim_amount_krw)],
     [t("detail.dividendDeadline"), c?.dividend_demand_deadline],
-    [t("detail.bidKind"), s?.bid_kind_name],
     [t("detail.saleDecisionDate"), s?.sale_decision_date],
     [
       t("detail.depositRate"),
@@ -166,9 +165,8 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
             <thead className="text-[var(--color-muted)]">
               <tr>
                 <th className="font-normal">{t("detail.scheduleDate")}</th>
-                <th className="font-normal">{t("detail.scheduleKind")}</th>
+                <th className="font-normal">{t("detail.schedulePlace")}</th>
                 <th className="font-normal">{t("detail.scheduleMinimum")}</th>
-                <th className="font-normal">{t("detail.scheduleResult")}</th>
               </tr>
             </thead>
             <tbody>
@@ -176,9 +174,8 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
                 // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
                 <tr key={i}>
                   <td>{[step.schedule_date, step.schedule_time_raw].filter(Boolean).join(" ")}</td>
-                  <td>{step.schedule_kind_name ?? ""}</td>
+                  <td>{step.schedule_place ?? ""}</td>
                   <td>{money(step.minimum_bid_price_krw) ?? ""}</td>
-                  <td>{step.result_name ?? ""}</td>
                 </tr>
               ))}
             </tbody>
@@ -193,13 +190,7 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
                 <span className="text-[var(--color-muted)]">
                   {t("detail.objectNumber", { n: o.object_seq })}
                 </span>{" "}
-                {[
-                  o.list_kind_name,
-                  o.realty_kind,
-                  o.land_category,
-                  o.area_raw,
-                  money(o.appraisal_amount_krw),
-                ]
+                {[o.realty_kind, o.land_category, o.area_raw, money(o.appraisal_amount_krw)]
                   .filter(Boolean)
                   .join(" · ")}
                 {o.building_structure ? `\n${o.building_structure}` : ""}
@@ -225,17 +216,16 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
       )}
       {detail.appraisal_points.length > 0 && (
         <Section title={t("detail.appraisalPoints")}>
-          <Rows
-            rows={present(
-              detail.appraisal_points.map(
-                (p, i) =>
-                  [p.item_name ?? p.table_name ?? String(i + 1), p.content] as [
-                    string,
-                    string | null | undefined,
-                  ],
-              ),
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.appraisal_points.map((p, i) =>
+              p.content ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+                <li key={i} className="whitespace-pre-line">
+                  {p.content}
+                </li>
+              ) : null,
             )}
-          />
+          </ul>
         </Section>
       )}
     </div>

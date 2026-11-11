@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "foundation-platform.parcel_court_auction_by_pnu major 1 revision 4",
-  "description": "A parcel's court auction (법원경매) items in progress, served by PNU on the parcel edge (lane parcel-court-auction), soonest sale date first. A field that is not required may be absent or null. The court's data is a public work its consumers attribute (source_attribution, 저작권법 제24조의2; root ADR-0281 §6). Revision 3 adds the parcel's 매각결과 (sale_results, newest sale date first, at most 50; sale_result_total counts them all, root ADR-0454). Revision 4 adds each round's detail, from its 물건상세 (rounds[].detail: the case, the 매각물건명세서 summary, the 기일내역, 목록내역, 제시외건물 and 감정요항표; codes keep their codes and gain the site's own names beside them; null until the property's 물건상세 is read; root ADR-0540).",
+  "description": "A parcel's court auction (법원경매) items in progress, served by PNU on the parcel edge (lane parcel-court-auction), soonest sale date first. A field that is not required may be absent or null. The court's data is a public work its consumers attribute (source_attribution, 저작권법 제24조의2; root ADR-0281 §6). Revision 3 adds the parcel's 매각결과 (sale_results, newest sale date first, at most 50; sale_result_total counts them all, root ADR-0454). Revision 4 adds each round's detail, from its 물건상세 (rounds[].detail: the case, the 매각물건명세서 summary, the 기일내역, 목록내역, 제시외건물 and 감정요항표; codes stay codes; null until the property's 물건상세 is read; root ADR-0540).",
   "type": "object",
   "properties": {
     "schema_version": {
@@ -264,12 +264,6 @@
                           "null"
                         ]
                       },
-                      "department_name": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
                       "department_phone": {
                         "type": [
                           "string",
@@ -332,19 +326,7 @@
                           "null"
                         ]
                       },
-                      "item_usage_name": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
                       "bid_kind_code": {
-                        "type": [
-                          "string",
-                          "null"
-                        ]
-                      },
-                      "bid_kind_name": {
                         "type": [
                           "string",
                           "null"
@@ -411,12 +393,6 @@
                             "null"
                           ]
                         },
-                        "schedule_kind_name": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
                         "schedule_place": {
                           "type": [
                             "string",
@@ -424,12 +400,6 @@
                           ]
                         },
                         "result_code": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "result_name": {
                           "type": [
                             "string",
                             "null"
@@ -459,12 +429,6 @@
                           "type": "integer"
                         },
                         "list_kind_code": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "list_kind_name": {
                           "type": [
                             "string",
                             "null"
@@ -585,19 +549,7 @@
                             "null"
                           ]
                         },
-                        "table_name": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
                         "item_code": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "item_name": {
                           "type": [
                             "string",
                             "null"

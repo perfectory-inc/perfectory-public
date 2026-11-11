@@ -24,23 +24,19 @@ const round = {
     spec: {
       first_rank_setting: "2099.1.5. 근저당권",
       assumed_rights: "해당사항없음",
-      bid_kind_name: "기일입찰",
       deposit_rate_percent: 10,
     },
     schedule: [
       {
         schedule_date: "2099-03-15",
         schedule_time_raw: "1000",
-        schedule_kind_name: "매각기일",
-        result_name: "유찰",
+        schedule_place: "제1호 법정",
         minimum_bid_price_krw: 100_000_000,
       },
     ],
-    objects: [
-      { object_seq: 1, list_kind_name: "토지", land_category: "공장용지", area_raw: "330㎡" },
-    ],
+    objects: [{ object_seq: 1, realty_kind: "토지", land_category: "공장용지", area_raw: "330㎡" }],
     annexes: [{ object_seq: 1, usage_raw: "창고", structure_raw: "판넬조" }],
-    appraisal_points: [{ item_name: "위치 및 주위환경", content: "합성도 가나동 소재" }],
+    appraisal_points: [{ content: "합성도 가나동 소재" }],
   },
 };
 
@@ -67,7 +63,7 @@ describe("court auction detail", () => {
     ]) {
       expect(screen.getByText(word)).toBeTruthy();
     }
-    expect(screen.getByText("유찰")).toBeTruthy();
+    expect(screen.getByText("제1호 법정")).toBeTruthy();
     expect(screen.getByText("최저매각가격의 10%")).toBeTruthy();
     expect(screen.getByText("합성도 가나동 소재")).toBeTruthy();
   });

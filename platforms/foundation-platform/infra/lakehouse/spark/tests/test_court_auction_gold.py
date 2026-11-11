@@ -332,7 +332,7 @@ def versioned(case, pnu_value, snap, sale_date, row_state=None):
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
-def document_frames(spark, round_row, result_code="002"):
+def document_frames(spark, round_row):
     """One synthetic row in each 물건상세 document table for `round_row`'s property (root ADR-0540)."""
     from platform_contracts import load_lakehouse_contract, spark_sql_type
 
@@ -343,7 +343,7 @@ def document_frames(spark, round_row, result_code="002"):
         job.CASE_DOC: {"case_name": "부동산임의경매", "claim_amount_krw": 150000000, "commencement_date": date(2099, 1, 1)},
         job.SPEC_DOC: {"assumed_rights": "해당사항없음", "item_usage_code": "10", "bid_kind_code": "000331"},
         job.SCHEDULE_DOC: {"schedule_seq": 1, "schedule_date": date(2099, 1, 2), "schedule_kind_code": "01",
-                           "result_code": result_code, "minimum_bid_price_krw": 100},
+                           "result_code": "002", "minimum_bid_price_krw": 100},
         job.OBJECT_DOC: {"object_seq": 1, "list_kind_code": "01", "land_category": "공장용지", "area_raw": "330㎡"},
         job.ANNEX_DOC: {"object_seq": 1, "annex_seq": 1, "usage_raw": "창고"},
         job.APPRAISAL_DOC: {"point_seq": 1, "table_code": "00082001", "item_code": "00083001", "content": "합성"},
@@ -358,7 +358,7 @@ def document_frames(spark, round_row, result_code="002"):
 
 
 class DetailSparkTest(unittest.TestCase):
-    """Root ADR-0540 §5: a round carries its 물건상세's documents, the codes beside the site's names."""
+    """Root ADR-0540 §5: a round carries its 물건상세's documents."""
 
     @classmethod
     def setUpClass(cls):
@@ -370,7 +370,7 @@ class DetailSparkTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.spark.stop()
 
-    def test_a_round_carries_its_detail_with_the_site_s_code_names_and_an_unread_one_none(self):
+    def test_a_round_carries_its_detail_and_an_unread_one_none(self):
         import json
 
         from pyspark.sql import functions as F
@@ -384,27 +384,14 @@ class DetailSparkTest(unittest.TestCase):
                             .select(F.to_json("detail").alias("j")).first().j)
         self.assertEqual(detail["case"]["claim_amount_krw"], 150000000)
         [step] = detail["schedule"]
-        self.assertEqual((step["schedule_kind_name"], step["result_name"]), ("매각기일", "유찰"),
-                         "the names are the site's own 공통코드 names")
-        self.assertEqual((detail["spec"]["item_usage_name"], detail["spec"]["bid_kind_name"]),
-                         (job.CODE_NAMES["PGJ-AUCTN_GDS_USG_CD"]["10"], "기일입찰"))
-        self.assertEqual(detail["objects"][0]["list_kind_name"], "토지")
-        self.assertEqual(detail["appraisal_points"][0]["item_name"], "위치 및 주위환경")
+        self.assertEqual((step["schedule_kind_code"], step["result_code"]), ("01", "002"), "codes stay codes")
+        self.assertEqual(detail["objects"][0]["land_category"], "공장용지")
+        self.assertEqual(detail["appraisal_points"][0]["content"], "합성")
         self.assertEqual(detail["annexes"][0]["usage_raw"], "창고")
 
     def test_a_build_without_the_documents_serves_every_detail_null(self):
         rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)
         self.assertIsNone(job.with_detail(rounds, {}).first().detail)
-
-    def test_a_code_the_table_lacks_keeps_its_code_and_has_no_name(self):
-        import json
-
-        from pyspark.sql import functions as F
-
-        rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)
-        frames = document_frames(self.spark, rounds.first(), result_code="999")
-        detail = json.loads(job.with_detail(rounds, frames).select(F.to_json("detail").alias("j")).first().j)
-        self.assertEqual((detail["schedule"][0]["result_code"], detail["schedule"][0].get("result_name")), ("999", None))
 
 
 class AffectedSparkTest(unittest.TestCase):
