@@ -104,12 +104,31 @@ class Reconciler(unittest.TestCase):
                       "parcel-real-transaction": {"read_snapshot_id": "707", "outcome": "served"}}
         self.running, self.full, self.unpublished = set(), set(), set()
 
-    def tick(self, now_minutes=40, state=None, panel=False):
+    def tick(self, now_minutes=40, state=None, panel=False, current=None):
         found = list(self.assets.values()) + (list(self.lanes.values()) if panel else [])
         return asset_reconcile.tick(T0 + 60 * now_minutes, found, self.catalog.__getitem__,
                                     self.reads.get, lambda service: service in self.running,
                                     lambda job: "full" if job in self.full else "", state or {},
-                                    published=lambda lane: lane not in self.unpublished)
+                                    published=lambda lane: lane not in self.unpublished, current=current)
+
+    def test_a_job_is_current_only_when_every_asset_of_it_was_read_and_owes_nothing(self):
+        # Root ADR-0480: a reconciled job whose outputs are as new as its inputs has done its work though
+        # nothing ran (2026-11-09..10, the by-PNU bake's deferred clock starts and the kind rebuild's wait).
+        self.reads["parcel-public-auction"]["read_snapshot_id"] = "102"
+        current = set()
+        owed, _, _, errors = self.tick(current=current)
+        self.assertEqual((owed, errors), ([], []))
+        self.assertEqual(current, {asset.job for asset in self.assets.values()})
+        # Owed, being written, or unreadable: not current.
+        self.reads["parcel-public-auction"]["read_snapshot_id"] = "101"
+        self.running = {"foundation-gold-unit-price-rebuild.service"}
+        del self.catalog["gold.parcel_real_transaction"]
+        current = set()
+        self.tick(current=current)
+        self.assertNotIn("by_pnu_public_auction_bake", current)
+        self.assertNotIn("gold_unit_price_rebuild", current)
+        self.assertNotIn("by_pnu_parcel_real_transaction_bake", current)
+        self.assertIn("by_pnu_unit_price_bake", current)
 
     def test_a_lane_no_cut_over_has_published_is_not_owed_its_bake(self):
         # Root ADR-0468: the building-permit and nearby bakes, switched on before the auto-promotion published

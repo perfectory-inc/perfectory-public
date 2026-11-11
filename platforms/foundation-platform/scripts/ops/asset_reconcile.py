@@ -395,9 +395,12 @@ def lane_behind_since(asset: Asset, table, reads) -> float | None:
 
 
 def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict, timed_out=lambda service: False,
-         published=lambda lane: True):
-    """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables."""
+         published=lambda lane: True, current: set | None = None):
+    """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables.
+    `current`, when given, receives each job whose every asset was read and is neither owed nor being
+    written (job_outcomes.CURRENT, root ADR-0480)."""
     owed_by_job, metrics, errors, next_state = {}, [], [], {}
+    not_current = set()
     for asset in found:
         labels = f'asset="{asset.uri}",job="{asset.job}"'
         kept = dict(state.get(asset.uri, {}))
@@ -407,6 +410,7 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
             full = "" if busy else pool_full(asset.job)
         except Exception as error:  # noqa: BLE001 -- one asset that cannot be read does not stop the others
             errors.append(f"{asset.job}: {type(error).__name__}: {error}")
+            not_current.add(asset.job)
             metrics.append(f"foundation_asset_reconcile_error{{{labels}}} 1")
             if "unscheduled_since" in kept:
                 metrics.append(f"foundation_asset_unscheduled_since_timestamp_seconds{{{labels}}} {kept['unscheduled_since']:.0f}")
@@ -425,6 +429,8 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
             if since is not None:
                 behind = max(now - since, 0.0) if since else 0.0
                 metrics.append(f'foundation_by_pnu_lane_behind_seconds{{lane="{asset.lane}"}} {behind:.0f}')
+        if verdict.owed or busy:
+            not_current.add(asset.job)
         if busy or full:
             kept["busy_at"] = now
         versions = gold_attempt(asset, verdict, busy, kept, now, not busy and asset.gold is not None
@@ -443,6 +449,8 @@ def tick(now: float, found: list[Asset], table, reads, running, pool_full, state
               f", lag {verdict.lag:.0f}s{f'; {why}' if why else ''}")
         next_state[asset.uri] = kept
     metrics.append(f"foundation_asset_reconcile_timestamp_seconds {now:.0f}")
+    if current is not None:
+        current.update({asset.job for asset in found} - not_current)
     # One start per job: a job serving several lanes owes one run for all its owed lanes' versions.
     owed_lines = [f"foundation-asset-owed {job} {versions_key(owed)}" for job, owed in owed_by_job.items()]
     return owed_lines, metrics, next_state, errors
@@ -834,8 +842,9 @@ def main() -> int:
         return shown.stdout.strip() == "timeout"
 
     now = time.time()
+    current: set = set()
     owed, metrics, state, errors = tick(now, found, table, last_read(bake_root), running, pool_full, state,
-                                        timed_out, cut_over(bake_root))
+                                        timed_out, cut_over(bake_root), current)
     try:
         queued_owed, queued_metrics = queued_starts(now, jobs, job_units.queued(), job_units.last_started(),
                                                     running, pool_full)
@@ -886,7 +895,8 @@ def main() -> int:
     except (OSError, ValueError, job_specs.JobListError) as error:
         print(f"asset_reconcile: could not ask Dagster: {error}", file=sys.stderr)
     # Each job held to the outcomes its definition expects (root ADR-0480): the ledger lines appended
-    # since the last tick, folded into the newest time of each outcome; a ledger that cannot be read
+    # since the last tick, folded into the newest time of each outcome, and each reconciled job this tick
+    # found current (its work is done though nothing ran); a ledger that cannot be read
     # leaves the textfile to go stale, which FoundationJobOutcomesUnread reports.
     try:
         try:
@@ -894,7 +904,7 @@ def main() -> int:
         except (FileNotFoundError, ValueError):
             summary = {}
         records, summary["offset"] = job_units.outcomes_after(int(summary.get("offset", 0)))
-        summary = job_outcomes.fold(summary, records)
+        summary = job_outcomes.fold_current(job_outcomes.fold(summary, records), current, now)
         write_replacing(metrics_file.with_name(job_outcomes.METRICS_NAME),
                         job_outcomes.textfile(jobs["jobs"], summary, job_specs.service_unit_text))
         write_replacing(state_dir / job_outcomes.SUMMARY_FILE, json.dumps(summary, sort_keys=True) + "\n")

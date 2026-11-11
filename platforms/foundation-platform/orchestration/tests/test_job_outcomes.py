@@ -175,6 +175,27 @@ class TheVerdicts(unittest.TestCase):
         records = [record(job["id"], "2026-11-10T07:00:30Z", "unchanged")]
         self.assertEqual(missed([job], records, "2026-11-11T07:30:00Z", "2026-11-01T00:00:00Z"), set())
 
+    def test_a_reconciled_job_whose_outputs_stay_current_is_done_though_nothing_ran(self):
+        # 2026-11-09..10 (the W56 replay): the by-PNU bake's clock starts were deferred by turn-taking and
+        # the kind Gold rebuild waited for the panel rebuild, while the asset reconciler found every output
+        # of both current (gold.parcel_panel's two commits only recorded new pins, no row changed).
+        bake = enabled("by_pnu_serving_bake", "2026-10-01T00:00:00Z")
+        kinds = enabled("gold_kind_rebuild", "2026-10-01T00:00:00Z")
+        records = [record(bake["id"], "2026-11-08T20:26:18Z", "changed"),
+                   record(bake["id"], "2026-11-09T10:46:13Z", "skipped", "deferred: gold_kind_rebuild, ..."),
+                   record(bake["id"], "2026-11-10T10:15:08Z", "skipped", "deferred: gold_unit_price_rebuild"),
+                   record(kinds["id"], "2026-11-09T10:52:06Z", "unchanged"),
+                   record(kinds["id"], "2026-11-10T09:15:04Z", "waiting", "the Gold panel rebuild is held by another run")]
+        now = at("2026-11-11T12:00:00Z")
+        summary = outcomes.fold({"first_at": int(at("2026-11-01T00:00:00Z"))}, records)
+        self.assertEqual({(found["job"], found["expectation"]) for found in outcomes.overdue([bake, kinds], summary, now)},
+                         {("by_pnu_serving_bake", "done"), ("gold_kind_rebuild", "done")})
+        summary = outcomes.fold_current(summary, {"by_pnu_serving_bake", "gold_kind_rebuild"}, now - 300)
+        self.assertEqual(outcomes.overdue([bake, kinds], summary, now), [])
+        self.assertEqual(summary["lines"], len(records), "the reconciler's verdict is not a ledger line")
+        # The newest run's outcome stays what the readiness report shows.
+        self.assertEqual(outcomes.expectations(bake, summary)[0]["last"], "skipped")
+
     def test_a_job_switched_off_is_not_judged(self):
         job = {**BY_ID["data_go_kr_file_data"], "enabled": False}
         self.assertEqual(missed([job], [], "2026-12-31T00:00:00Z", "2026-11-01T00:00:00Z"), set())

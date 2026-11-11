@@ -6,7 +6,12 @@ is held to two outcomes, read from the outcome ledger the scheduler's runner app
 
 - `done`, every job: a run or check that ended `changed` or `unchanged` within one schedule period
   plus its time and wait limits and an hour (or the job's `expected_outcome.done_within_hours`). A job
-  that only waits, is skipped, is refused its pool, fails, or is never started misses it.
+  that only waits, is skipped, is refused its pool, fails, or is never started misses it. A job the
+  asset reconciler reconciles is also done while the reconciler finds every output of it as new as its
+  inputs (`current`): nothing was owed, so no run had to happen, and an owed output the job does not
+  write is the reconciler's own alert (FoundationAsset*, root ADR-0333). 2026-11-09..10 the by-PNU
+  bake's clock starts were deferred by turn-taking and the kind Gold rebuild's waited for the panel
+  rebuild while their outputs stayed current, and both read as overdue.
 - `change`, a job whose `expected_outcome.changes_within_hours` is a number: a run that ended
   `changed` within that many hours. A job that runs and writes nothing misses it.
 
@@ -23,6 +28,8 @@ import re
 
 # Outcomes that end a run's work (root ADR-0260 §1): it did what it had to, writing or not.
 DONE = ("changed", "unchanged")
+# Not a run's outcome: the asset reconciler's verdict that a job it reconciles owes nothing (fold_current).
+CURRENT = "current"
 # A scheduler's lag on top of a job's own limits: Airflow's queue, a deploy's paused DAGs.
 GRACE_SECONDS = 3600
 EXPECTATIONS = ("done", "change")
@@ -84,6 +91,14 @@ def fold(summary: dict, records: list[dict]) -> dict:
     return summary
 
 
+def fold_current(summary: dict, jobs, now: float) -> dict:
+    """`summary` with each of `jobs` (the reconciled jobs the asset reconciler found current at `now`)
+    kept as `current` at `now`. Not a ledger line: the ledger's first and last times and count stay."""
+    for job in jobs:
+        summary.setdefault("jobs", {}).setdefault(job, {})[CURRENT] = int(now)
+    return summary
+
+
 def enabled_since(job: dict) -> float | None:
     from datetime import datetime  # noqa: PLC0415
 
@@ -97,9 +112,10 @@ def expectations(job: dict, summary: dict) -> list[dict]:
     """[{expectation, expected_seconds, met_at, last}] for an enabled job, from the folded ledger."""
     kept = summary.get("jobs", {}).get(job["id"], {})
     baseline = max(filter(None, (enabled_since(job), summary.get("first_at"))), default=None)
-    done = max((kept.get(outcome, 0) for outcome in DONE), default=0) or None
+    done = max((kept.get(outcome, 0) for outcome in (*DONE, CURRENT)), default=0) or None
+    ran = {outcome: stamp for outcome, stamp in kept.items() if outcome != CURRENT}
     rows = [{"expectation": "done", "expected_seconds": done_budget_seconds(job),
-             "met_at": done or baseline, "last": max(kept.items(), key=lambda item: item[1])[0] if kept else None}]
+             "met_at": done or baseline, "last": max(ran.items(), key=lambda item: item[1])[0] if ran else None}]
     hours = (job.get("expected_outcome") or {}).get("changes_within_hours")
     if hours:
         rows.append({"expectation": "change", "expected_seconds": int(hours * 3600),
