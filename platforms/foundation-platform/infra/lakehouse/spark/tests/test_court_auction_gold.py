@@ -46,9 +46,9 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE,
                                          job.CODE_CHANGE_SOURCE, *job.place_id_join.INPUTS})
         # The case photos are optional, like 공매's media (root ADR-0384).
-        # So are the 물건상세 documents, under one flag (root ADR-0540 §5).
+        # So are the 물건상세 documents and the names of their codes, under one flag (root ADR-0540 §5).
         self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos",
-                                    **{source: "--no-documents" for source in job.DOCUMENT_SOURCES}})
+                                    **{source: "--no-documents" for source in (*job.DOCUMENT_SOURCES, job.CODE_SOURCE)}})
         # The item table maps its changed keys to PNUs; a parcel edition or lineage change moves
         # items their rows do not name, so those two rebuild the kind whole (root ADR-0312 §2).
         self.assertEqual(set(whole), {job.PARCEL_SOURCE, job.LINEAGE_SOURCE})
@@ -331,6 +331,37 @@ def versioned(case, pnu_value, snap, sale_date, row_state=None):
     return ("B", case, 1, 1, pnu_value, row_state, snap, "Y", sale_date)
 
 
+class NamedCodesTest(unittest.TestCase):
+    """Root ADR-0540 §5: which column a 공통코드 group names is the source contract's one record."""
+
+    def test_each_named_column_is_a_code_column_of_a_document_table(self):
+        from platform_contracts import load_lakehouse_contract
+
+        self.assertEqual(job.NAMED[job.SCHEDULE_DOC], (("schedule_kind_code", ("PGJ", "PGJ", "AUCTN_DXDY_KND_CD")),
+                                                       ("result_code", ("LJH", "LJH", "AUCTN_DXDY_RSLT_CD"))))
+        for source, columns in job.NAMED.items():
+            self.assertIn(source, job.DOCUMENT_SOURCES)
+            names = {c["name"] for c in load_lakehouse_contract(source)["columns"]}
+            for column, _group in columns:
+                self.assertIn(column, names)
+                self.assertNotIn(job.name_of(column), names, "the name is the build's, not a Silver column")
+        self.assertEqual(job.name_of("result_code"), "result_name")
+        self.assertEqual(tuple(load_lakehouse_contract(job.CODE_SOURCE)["current_row_latest"]["key"]),
+                         (*job.CODE_GROUP, "code"))
+
+
+def code_frame(spark, codes):
+    """`silver.court_auction_code` rows (system, owner, group, code, name) with made-up names."""
+    from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+    columns = load_lakehouse_contract(job.CODE_SOURCE)["columns"]
+    rows = [{"system_code": s, "owner_code": o, "group_code": g, "code": c, "name": n, "source_record_id": "o",
+             "source_line_number": i, "source_snapshot_id": snap, "ingested_at_utc": None}
+            for i, (s, o, g, c, n, snap) in enumerate(codes, start=1)]
+    return spark.createDataFrame([tuple(r.get(c["name"]) for c in columns) for r in rows],
+                                 ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in columns))
+
+
 def document_frames(spark, round_row):
     """One synthetic row in each 물건상세 document table for `round_row`'s property (root ADR-0540)."""
     from platform_contracts import load_lakehouse_contract, spark_sql_type
@@ -388,6 +419,29 @@ class DetailSparkTest(unittest.TestCase):
         self.assertEqual(detail["objects"][0]["land_category"], "공장용지")
         self.assertEqual(detail["appraisal_points"][0]["content"], "합성")
         self.assertEqual(detail["annexes"][0]["usage_raw"], "창고")
+
+    def test_a_code_carries_the_sites_newest_name_beside_it(self):
+        import json
+
+        from pyspark.sql import functions as F
+
+        rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)
+        frames = document_frames(self.spark, rounds.first())
+        frames[job.CODE_SOURCE] = code_frame(self.spark, [
+            ("LJH", "LJH", "AUCTN_DXDY_RSLT_CD", "002", "합성옛이름", "s1"),
+            ("LJH", "LJH", "AUCTN_DXDY_RSLT_CD", "002", "합성유찰", "s2"),
+            ("PGJ", "PGJ", "AUCTN_DXDY_KND_CD", "01", "합성매각기일", "s1"),
+            # The same code in another group names nothing here.
+            ("LJH", "LJH", "AUCTN_LST_DVS_CD", "002", "합성다른묶음", "s1"),
+        ])
+        detail = json.loads(job.with_detail(rounds, frames).select(F.to_json("detail").alias("j")).first().j)
+        [step] = detail["schedule"]
+        self.assertEqual((step["result_code"], step["result_name"]), ("002", "합성유찰"), "the newest name")
+        self.assertEqual(step["schedule_kind_name"], "합성매각기일")
+        self.assertNotIn("list_kind_name", detail["objects"][0], "a code without a name has none (null)")
+        without = json.loads(job.with_detail(rounds, document_frames(self.spark, rounds.first()))
+                             .select(F.to_json("detail").alias("j")).first().j)
+        self.assertNotIn("result_name", without["schedule"][0], "no code table, no name")
 
     def test_a_build_without_the_documents_serves_every_detail_null(self):
         rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)

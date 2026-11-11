@@ -124,7 +124,8 @@ function present(pairs: [string, string | number | null | undefined][]): [string
 }
 
 /** An item's 물건상세 (root ADR-0540): its case, its 매각물건명세서, 기일내역, 목록내역, 제시외건물 and
- * 감정평가요항표, in the site's words. Names of people are not in the document. */
+ * 감정평가요항표, in the site's words; a code shows the name the site gives it (its 공통코드, §5).
+ * Names of people are not in the document. */
 function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
   const c = detail.case;
   const s = detail.spec;
@@ -142,6 +143,8 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
         ? t("detail.depositRateValue", { rate: s.deposit_rate_percent })
         : null,
     ],
+    [t("detail.itemKind"), s?.item_usage_name],
+    [t("detail.bidKind"), s?.bid_kind_name],
     [t("detail.itemRemarks"), s?.item_remarks],
   ]);
   const specRows = present([
@@ -165,8 +168,10 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
             <thead className="text-[var(--color-muted)]">
               <tr>
                 <th className="font-normal">{t("detail.scheduleDate")}</th>
+                <th className="font-normal">{t("detail.scheduleKind")}</th>
                 <th className="font-normal">{t("detail.schedulePlace")}</th>
                 <th className="font-normal">{t("detail.scheduleMinimum")}</th>
+                <th className="font-normal">{t("detail.scheduleResult")}</th>
               </tr>
             </thead>
             <tbody>
@@ -174,8 +179,10 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
                 // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
                 <tr key={i}>
                   <td>{[step.schedule_date, step.schedule_time_raw].filter(Boolean).join(" ")}</td>
+                  <td>{step.schedule_kind_name ?? ""}</td>
                   <td>{step.schedule_place ?? ""}</td>
                   <td>{money(step.minimum_bid_price_krw) ?? ""}</td>
+                  <td>{step.result_name ?? ""}</td>
                 </tr>
               ))}
             </tbody>
@@ -190,7 +197,13 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
                 <span className="text-[var(--color-muted)]">
                   {t("detail.objectNumber", { n: o.object_seq })}
                 </span>{" "}
-                {[o.realty_kind, o.land_category, o.area_raw, money(o.appraisal_amount_krw)]
+                {[
+                  o.list_kind_name,
+                  o.realty_kind,
+                  o.land_category,
+                  o.area_raw,
+                  money(o.appraisal_amount_krw),
+                ]
                   .filter(Boolean)
                   .join(" · ")}
                 {o.building_structure ? `\n${o.building_structure}` : ""}
@@ -221,6 +234,7 @@ function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
               p.content ? (
                 // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
                 <li key={i} className="whitespace-pre-line">
+                  {p.item_name && <span className="text-[var(--color-muted)]">{p.item_name} </span>}
                   {p.content}
                 </li>
               ) : null,

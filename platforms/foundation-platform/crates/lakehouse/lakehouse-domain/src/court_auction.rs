@@ -528,3 +528,42 @@ pub const SILVER_COURT_AUCTION_APPRAISAL_POINT: LakehouseTableContract = Lakehou
     ],
     load: OBJECT_LOAD,
 };
+
+const CODE_KEY: &[&str] = &["system_code", "owner_code", "group_code", "code"];
+
+/// The site's 공통코드: the name its screens give each code the documents carry, as the run's one
+/// request answered it (root ADR-0540 §5). A name that changed is appended; the newest per code is
+/// current, and a code never vanishes. No name is kept in the repository (root ADR-0403).
+pub const SILVER_COURT_AUCTION_CODE: LakehouseTableContract = LakehouseTableContract {
+    table_name: "silver.court_auction_code",
+    layer: LakehouseLayer::Silver,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Canonical,
+    current_row_predicate: None,
+    row_versions: LakehouseRowVersions::LatestPerKey(LakehouseCurrentRowLatest {
+        key: CODE_KEY,
+        newest_first: LATEST,
+        removal_column: None,
+        keep_ties: false,
+    }),
+    columns: with_load_columns!(
+        // systmCd, intgCdOnrIdntId, intgGrpCd, intgCd.
+        column("system_code", "string", true),
+        column("owner_code", "string", true),
+        column("group_code", "string", true),
+        column("code", "string", true),
+        column("name", "string", false),
+        column("owner_kind_code", "string", false),
+        column("listed_codes_raw", "string", false),
+        column("first_extra_raw", "string", false),
+        column("second_extra_raw", "string", false),
+    ),
+    partition_spec: &[],
+    sort_order: CODE_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(system_code, owner_code, group_code, code, source_snapshot_id) unique",
+    ],
+    load: OBJECT_LOAD,
+};

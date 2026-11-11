@@ -74,6 +74,32 @@
       }
     }
   },
+  "common_codes": {
+    "$comment": "Root ADR-0540 §1, §5. 공통코드: the names the site's own screens give the codes the documents carry (pgj.js getSTGcodeSystemNm reads them from this endpoint; sccdo.js loadIntgCdLst builds the request). Asked once a run, after a list pass that was not cut short, on the same pool, tally and pace group as the case documents; the answer lands as its own Bronze object and the Silver load appends the (system, owner, group, code) rows whose name changed to silver.court_auction_code. No name is kept in this repository: a code's name is what the site answered last (root ADR-0403). Each group is asked as `system[-owner]-group`, the groups of one system and owner joined by `&` and the systems by `,`, in one request (request_field); owner is the system unless given. `names` are the Silver columns (`table.column`) whose codes the group names: the Gold build attaches each name beside its code (`<column less _code>_name`), and rebuilds the properties whose code's name changed. Measured 2026-11-12: one request, HTTP 200 JSON, 60,622 bytes, 277 codes in these 14 groups (기일결과 001 매각, 002 유찰 ...).",
+    "dataset_slug": "auction_common_code",
+    "operation": "sccdList",
+    "path": "/pgj/scframe/lib/sccd/list.on",
+    "pace_group": "case_detail",
+    "headers": {},
+    "request_field": "intgGrpCdLst",
+    "result_pointer": "/data/sccdLst",
+    "groups": [
+      {"system": "PGJ", "group": "AUCTN_GDS_USG_CD", "names": ["silver.court_auction_item_spec.item_usage_code"]},
+      {"system": "PGJ", "group": "BID_DVS_CD", "names": ["silver.court_auction_item_spec.bid_kind_code"]},
+      {"system": "PGJ", "group": "AUCTN_DXDY_KND_CD", "names": ["silver.court_auction_item_schedule.schedule_kind_code"]},
+      {"system": "PGJ", "group": "AEE_WEVL_MNPNT_TBLT_DVS_CD", "names": ["silver.court_auction_appraisal_point.table_code"]},
+      {"system": "PGJ", "group": "AEE_WEVL_MNPNT_ITM_CD", "names": ["silver.court_auction_appraisal_point.item_code"]},
+      {"system": "PGJ", "group": "CORT_AUCTN_PIC_DVS_CD", "names": []},
+      {"system": "PGJ", "group": "DSPSL_GDS_LST_USG_CD", "names": []},
+      {"system": "PGJ", "group": "ULTMT_DVS_CD", "names": []},
+      {"system": "LJH", "group": "AUCTN_DXDY_RSLT_CD", "names": ["silver.court_auction_item_schedule.result_code"]},
+      {"system": "LJH", "group": "AUCTN_LST_DVS_CD", "names": ["silver.court_auction_item_object.list_kind_code"]},
+      {"system": "LJH", "group": "AUCTN_RGLT_KND_CD", "names": []},
+      {"system": "LJH", "group": "PRPND_RSLT_CD", "names": []},
+      {"system": "LJH", "owner": "JH", "group": "ULTMT_DVS_CD", "names": []},
+      {"system": "LJH", "owner": "JH", "group": "AUCTN_CS_NM_CD", "names": []}
+    ]
+  },
   "collection": {
     "$comment": "Root ADR-0289/0290 values the collection rules (collection-domain::court_auction), the asking (collection-application::court_auction_asking) and the browser session pool (collection-infrastructure::court_auction_browser) read.",
     "block_signals": {

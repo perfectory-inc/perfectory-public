@@ -40,6 +40,11 @@ those under a code a change of the code change table reaches (`views.changed_cod
 change to the served parcels or the lineage moves placements the item rows do not name, so those
 two are whole-table inputs and rebuild the kind whole.
 
+A detail's codes carry the site's name beside them (`<code column less _code>_name`, root ADR-0540 §5):
+the 공통코드 the collector asks each run (`silver.court_auction_code`), for the columns the source
+contract's `common_codes.groups[].names` lists; a code's name that changed rebuilds the PNUs of the
+properties whose document carries that code.
+
 Each row carries its parcel's stable `place_id` (`place_id_join`, root ADR-0483): a run also recomputes
 the PNUs whose place id a release moved.
 """
@@ -48,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 from dataclasses import dataclass
 from functools import reduce
 from typing import Any
@@ -77,6 +83,31 @@ ANNEX_DOC = "silver.court_auction_item_annex"
 APPRAISAL_DOC = "silver.court_auction_appraisal_point"
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC)
+# The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
+CODE_SOURCE = "silver.court_auction_code"
+CODE_GROUP = ("system_code", "owner_code", "group_code")
+SOURCE_CONTRACT = Path(__file__).resolve().parents[2] / "contracts" / "courtauction-go-kr.contract.json"
+
+
+def named_columns(contract_path: Path = SOURCE_CONTRACT) -> dict[str, tuple[tuple[str, tuple[str, str, str]], ...]]:
+    """Document table -> ((code column, its group), ...): what each 공통코드 group names (the source
+    contract's `common_codes.groups[].names`), the one record of which column a group names."""
+    groups = json.loads(contract_path.read_text(encoding="utf-8"))["common_codes"]["groups"]
+    out: dict[str, list[tuple[str, tuple[str, str, str]]]] = {}
+    for group in groups:
+        key = (group["system"], group.get("owner") or group["system"], group["group"])
+        for named in group["names"]:
+            table, column = named.rsplit(".", 1)
+            out.setdefault(table, []).append((column, key))
+    return {table: tuple(columns) for table, columns in out.items()}
+
+
+NAMED = named_columns()
+
+
+def name_of(column: str) -> str:
+    """The column a code's name is served in: `result_code` -> `result_name`."""
+    return column.removesuffix("_code") + "_name"
 PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,kind_code:string,sequence:int,title:string,"
                 "media_format:string,size_bytes:bigint>>")
 # The code change rows a build reads, the parcel panel's (`changed_codes` compares them).
@@ -135,7 +166,7 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     del lane
     return ((PARCEL_SOURCE, ITEM_SOURCE, SALE_RESULT_SOURCE, CODE_CHANGE_SOURCE, *place_id_join.INPUTS),
             {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos",
-             **{source: "--no-documents" for source in DOCUMENT_SOURCES}}, PARCEL_SOURCE,
+             **{source: "--no-documents" for source in (*DOCUMENT_SOURCES, CODE_SOURCE)}}, PARCEL_SOURCE,
             (PARCEL_SOURCE, LINEAGE_SOURCE))
 
 
@@ -144,7 +175,7 @@ def declared_sources(lane: str, carry_lineage: bool, photos: bool = True, docume
     (`load_source_snapshot_pins` rejects any mismatch, the 2026-10-27 공매 crash)."""
     required, _optional, _anchor, _whole = lane_inputs(lane)
     return (*required, *((LINEAGE_SOURCE,) if carry_lineage else ()), *((PHOTO_SOURCE,) if photos else ()),
-            *(DOCUMENT_SOURCES if documents else ()))
+            *((*DOCUMENT_SOURCES, CODE_SOURCE) if documents else ()))
 
 
 def photos_by_case(photo_rows: Any) -> Any:
@@ -182,39 +213,62 @@ def _listed(frame: Any, group: tuple[str, ...], order: tuple[str, ...], fields: 
     return frame.groupBy(*group).agg(F.array_sort(F.collect_list(keyed)).getField("_e").alias(name))
 
 
+def with_names(frame: Any, source: str, codes: Any | None) -> Any:
+    """`frame` with each code column `NAMED` lists for `source` joined to its group's name beside it
+    (`name_of`), null without a name or without the code table (root ADR-0540 §5)."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    for column, (system, owner, group) in NAMED.get(source, ()):
+        if codes is None:
+            frame = frame.withColumn(name_of(column), F.lit(None).cast("string"))
+            continue
+        names = (codes.where((F.col("system_code") == system) & (F.col("owner_code") == owner)
+                             & (F.col("group_code") == group))
+                 .select(F.col("code").alias("_named_code"), F.col("name").alias(name_of(column))))
+        frame = (frame.join(F.broadcast(names), F.col(column) == F.col("_named_code"), "left")
+                 .drop("_named_code"))
+    return frame
+
+
+def current_codes(frames: dict[str, Any]) -> Any | None:
+    """The code table's current rows, or None when the build has none."""
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    if CODE_SOURCE not in frames:
+        return None
+    return current_rows(frames[CODE_SOURCE], load_lakehouse_contract(CODE_SOURCE))
+
+
 def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
     """Each document table's current rows (root ADR-0540 §4) as one column per property or case:
     `_case` and `_spec` structs, `_schedule`, `_objects`, `_annexes` and `_appraisal_points` arrays in
-    the site's order. Codes stay codes."""
+    the site's order. Each code keeps its code, with the site's name beside it (`with_names`)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
 
+    codes = current_codes(frames)
+
     def current(source: str) -> Any:
-        return current_rows(frames[source], load_lakehouse_contract(source))
+        return with_names(current_rows(frames[source], load_lakehouse_contract(source)), source, codes)
 
     case = current(CASE_DOC).select(*CASE, F.struct(
         "case_name", "case_received_date", "commencement_date", "claim_amount_krw", "department_name",
         "department_phone", "dividend_demand_deadline").alias("_case"))
     spec = current(SPEC_DOC).select(*PROPERTY, F.struct(
         "spec_written_date", "assumed_rights", "superficies", "spec_remarks", "first_rank_setting", "item_remarks",
-        "item_usage_code",
-        "bid_kind_code",
+        "item_usage_code", "item_usage_name", "bid_kind_code", "bid_kind_name",
         "bid_start_date", "bid_end_date", "sale_decision_date", "sale_decision_time_raw", "sale_decision_place",
         "deposit_rate_percent").alias("_spec"))
     schedule = _listed(current(SCHEDULE_DOC), PROPERTY, ("schedule_seq",), [
-        "schedule_date", "schedule_time_raw", "schedule_kind_code", "schedule_place",
-        "result_code",
-        "minimum_bid_price_krw", "sale_amount_krw"], "_schedule")
+        "schedule_date", "schedule_time_raw", "schedule_kind_code", "schedule_kind_name", "schedule_place",
+        "result_code", "result_name", "minimum_bid_price_krw", "sale_amount_krw"], "_schedule")
     objects = _listed(current(OBJECT_DOC), PROPERTY, ("object_seq",), [
-        "object_seq", "list_kind_code",
-        "realty_kind", "building_structure", "area_raw", "land_category", "appraisal_amount_krw", "print_address_raw",
-        "building_unit_raw", "share_numerator", "share_denominator"], "_objects")
+        "object_seq", "list_kind_code", "list_kind_name", "realty_kind", "building_structure", "area_raw",
+        "land_category", "appraisal_amount_krw", "print_address_raw", "building_unit_raw", "share_numerator", "share_denominator"], "_objects")
     annexes = _listed(current(ANNEX_DOC), PROPERTY, ("object_seq", "annex_seq"), [
         "object_seq", "usage_raw", "structure_raw", "area_raw", "appraisal_amount_krw", "remarks"], "_annexes")
     points = _listed(current(APPRAISAL_DOC), CASE, ("point_seq",), [
-        "table_code",
-        "item_code", "content"],
-        "_appraisal_points")
+        "table_code", "table_name", "item_code", "item_name", "content"], "_appraisal_points")
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
             "appraisal_points": points}
 
@@ -464,6 +518,8 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
             by = CASE if source in CASE_DOCUMENTS else PROPERTY
             owners = incremental.changed_rows(old[source], new[source], by).select(*by).distinct()
             touched.append(new[ITEM_SOURCE].join(owners, list(by), "left_semi").select(*KEY))
+    if CODE_SOURCE in changed and CODE_SOURCE in old and CODE_SOURCE in new:
+        touched.extend(named_code_owners(old[CODE_SOURCE], new[CODE_SOURCE], new))
     today = F.to_date(F.to_timestamp(F.lit(how.as_of)))
     passed = rounds(new[ITEM_SOURCE]).where(F.col("sale_date").isNotNull() & (F.col("sale_date") < today))
     if previous_as_of is not None:
@@ -475,6 +531,30 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
     before = document_round_keys(current_gold).join(keys, list(KEY), "left_semi").select("pnu")
     moved = [] if place_change is None else [place_change.select("pnu")]
     return reduce(lambda a, b: a.unionByName(b), [now, before, *moved]).distinct()
+
+
+def named_code_owners(old_codes: Any, new_codes: Any, new: dict[str, Any]) -> list[Any]:
+    """The items whose document names a code whose name changed (root ADR-0540 §5): for each document
+    table and code column a group names (`NAMED`), the properties or cases of its current rows that
+    carry a changed (group, code), as item keys."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    import gold_incremental as incremental  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    changed = incremental.changed_rows(old_codes, new_codes, (*CODE_GROUP, "code")).select(*CODE_GROUP, "code")
+    owners = []
+    for source, columns in NAMED.items():
+        if source not in new:
+            continue
+        by = CASE if source in CASE_DOCUMENTS else PROPERTY
+        rows = current_rows(new[source], load_lakehouse_contract(source))
+        for column, (system, owner, group) in columns:
+            codes = changed.where((F.col("system_code") == system) & (F.col("owner_code") == owner)
+                                  & (F.col("group_code") == group)).select(F.col("code").alias(column))
+            hit = rows.join(F.broadcast(codes), column, "left_semi").select(*by).distinct()
+            owners.append(new[ITEM_SOURCE].join(hit, list(by), "left_semi").select(*KEY))
+    return owners
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -559,7 +639,7 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         frames[PHOTO_SOURCE] = versions(pins, PHOTO_SOURCE).cache()
         if old is not None and previous is not None and PHOTO_SOURCE in previous:
             old[PHOTO_SOURCE] = versions(previous, PHOTO_SOURCE)
-    for source in DOCUMENT_SOURCES if args.documents else ():
+    for source in (*DOCUMENT_SOURCES, CODE_SOURCE) if args.documents else ():
         if source in pins:
             frames[source] = versions(pins, source).cache()
             if old is not None and previous is not None and source in previous:

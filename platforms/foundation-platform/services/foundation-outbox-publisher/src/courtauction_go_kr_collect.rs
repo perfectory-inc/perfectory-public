@@ -20,9 +20,9 @@
 //! the request body, the HTTP status and the response body as received. The Silver load
 //! (`infra/lakehouse/spark/jobs/courtauction_go_kr.py`) parses them.
 //!
-//! After a list pass that was not cut short, the same run asks the 물건상세 of the properties due,
-//! on the same pool and tally, and stores their photos once in the shared media store
-//! ([`detail`], root ADR-0384).
+//! After a list pass that was not cut short, the same run asks the site's 공통코드 once ([`codes`],
+//! root ADR-0540 §5), then the 물건상세 of the properties due, on the same pool and tally, and stores
+//! their photos once in the shared media store ([`detail`], root ADR-0384).
 
 use std::{
     collections::BTreeMap,
@@ -178,6 +178,7 @@ pub(crate) struct SourceContract {
     pub(crate) item_search: Search,
     pub(crate) sale_result_search: Search,
     pub(crate) item_detail: detail::ItemDetail,
+    pub(crate) common_codes: codes::CommonCodes,
     pub(crate) collection: Collection,
 }
 
@@ -955,6 +956,35 @@ pub async fn run() -> anyhow::Result<()> {
         entry["rows"] = json!(result.rows);
         objects.push(entry);
     }
+    // The 공통코드 are asked once and commit at once, as the lists do (root ADR-0540 §5).
+    if stop.is_none() {
+        let (result, codes_stop) = codes::collect_codes(&contract, &asking, Utc::now).await?;
+        println!(
+            "courtauction.go.kr common codes: {:?} codes{}",
+            result.codes,
+            result
+                .failure
+                .as_deref()
+                .map(|why| format!(", failed: {why}"))
+                .unwrap_or_default()
+        );
+        stop = codes_stop;
+        if !result.lines.is_empty() {
+            let mut entry = persist(
+                &contract.common_codes.as_search(),
+                &config.output_dir,
+                &result.lines,
+                started,
+                &lists_night,
+                live,
+            )
+            .await?;
+            entry["role"] = json!("common_codes");
+            entry["complete"] = json!(result.codes.is_some());
+            entry["rows"] = json!(result.codes.unwrap_or(0));
+            objects.push(entry);
+        }
+    }
     let mut details: Option<(detail::DetailResult, JsonValue)> = None;
     if stop.is_none() {
         // The detail asking leaves the ladder step its budget inside the run's (root ADR-0427 §7).
@@ -1104,6 +1134,7 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(crate) mod codes;
 pub(crate) mod detail;
 
 #[cfg(test)]
