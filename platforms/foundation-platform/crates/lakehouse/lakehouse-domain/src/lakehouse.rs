@@ -477,6 +477,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::INTELLIGENCE_DOCUMENT_TEXT_PAGE,
     crate::INTELLIGENCE_DOCUMENT_FACT,
     crate::INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
+    crate::GOLD_COMPLEX_DOCUMENT_FACTS,
 ];
 
 /// Returns the industrial complex lakehouse `PoC` table contracts in publish order, then the Gold

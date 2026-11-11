@@ -10,6 +10,9 @@
 # 2. intelligence 이미지의 fact_run 이 규칙 먼저, 규칙이 못 닫은 표만 모델에 묻는다. 엔진은 모른다: 관문
 #    MODEL_RUNTIME_* 만 읽는다(model-runtime.contract.json 의 serving).
 # 3. intelligence_documents.py append-facts 가 사실을 먼저, 결과를 나중에 쌓는다.
+# 4. intelligence_documents.py fold-complex-facts 가 이 run 에 사실이 쌓인 첨부의 단지만, 패널이 말해도 되는 사실을
+#    gold.complex_document_facts 에 단지마다 한 줄 쌓는다(관문을 넘은 종류만, root ADR-0477 §1·§5). 빚이 없는 run 도
+#    접기는 돈다: 관문이나 사실 판이 바뀌었으면 그것이 전부 다시 접는 선언된 예외이고, 아니면 할 일 없이 끝난다.
 set -Eeuo pipefail
 shopt -s inherit_errexit
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
@@ -27,20 +30,28 @@ intelligence_document_extraction_contract
 intelligence_document_spark plan-facts --out "${container_work}/plan"
 owed="$(intelligence_document_summary owed)"
 planned="$(intelligence_document_summary planned)"
+# Foundation's read of the facts for the complex panel; prints "<complexes> <appended>".
+fold_complex_facts() {
+  intelligence_document_spark fold-complex-facts --run-id "${run_id}"
+  folded="$(intelligence_document_summary complexes) $(intelligence_document_summary appended)"
+}
+
 if [ "${planned}" = 0 ]; then
-  job_journal "${journal}" "intelligence document fact: nothing owed run=${run_id}"
-  printf 'foundation-job-outcome unchanged\n'
+  fold_complex_facts
+  job_journal "${journal}" "intelligence document fact: nothing owed, folded=${folded} run=${run_id}"
+  if [ "${folded#* }" = True ]; then printf 'foundation-job-outcome changed\n'; else printf 'foundation-job-outcome unchanged\n'; fi
   exit 0
 fi
 
 intelligence_document_fetch_media "${work}/plan/media.tsv"
 intelligence_document_fact_run
 intelligence_document_spark append-facts --run-dir "${container_work}/out" --run-id "${run_id}"
+fold_complex_facts
 
 read_summary="$(python3 -I -c '
 import json, sys
 s = json.load(open(sys.argv[1], encoding="utf-8"))
 print(json.dumps({k: s.get(k) for k in ("planned", "model", "run_seconds", "counts", "dropped")}, sort_keys=True))
 ' "${work}/out/summary.json")"
-job_journal "${journal}" "intelligence document fact ok run=${run_id} owed=${owed} planned=${planned} ${read_summary}"
+job_journal "${journal}" "intelligence document fact ok run=${run_id} owed=${owed} planned=${planned} folded=${folded} ${read_summary}"
 printf 'foundation-job-outcome changed\n'
