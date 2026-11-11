@@ -18,6 +18,7 @@ last_reviewed: 2026-11-05
 - `public-data-bronze-lane-registry.v1.json` — 실행 레인 계약
 - `pipeline-graph.v1.json` — 파이프라인 그래프 계약([계약과 운영 상태](./pipeline-graph-control-plane.md))
 - [레이크하우스 업계 참고](./lakehouse-industry-reference.md)
+- [카탈로그 전수 처리 현황(2026-11-11 실측)](./catalog-coverage-2026-11-11.md) — endpoint 159개의 수집·Silver·서빙·화면
 
 ## 승인 전 제안·초안
 

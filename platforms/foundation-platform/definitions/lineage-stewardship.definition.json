@@ -181,14 +181,14 @@
       "from": "source-mois-standard-code",
       "to": "reference-legal-dong-code-snapshot",
       "relation": "feeds",
-      "status": "implemented",
+      "status": "disabled",
       "via": [
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/legal_dong_code_snapshot_to_reference.py"
       ],
       "source_slugs": [
         "datagokr__legal_dong_code"
       ],
-      "description": "같은 권위(행정표준코드)의 전체자료 내려받기본(폐지 코드 포함)을 스냅숏 행으로 싣는다. 내려받기 수집 엔드포인트 등록은 수집 레인 몫이다."
+      "description": "꺼짐: 이 API 의 수집기가 없고 Bronze 가 0 이다(2026-11-11 실측). 스냅숏은 code.go.kr 전체 표가 먹인다(source-code-go-kr 엣지)."
     },
     {
       "from": "source-code-go-kr",
