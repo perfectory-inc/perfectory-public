@@ -59,6 +59,26 @@ describe("Foundation vector source refresh", () => {
     expect(tiles).toEqual(["https://tiles.example.com/parcels/{z}/{x}/{y}"]);
   });
 
+  it("retargets every zoom band of a unit to the new release", () => {
+    const retargeted = new Map<string, string[]>();
+    const band = (id: string) => ({ setTiles: (next: string[]) => retargeted.set(id, next) });
+    const sources: Record<string, ReturnType<typeof band>> = {
+      parcels: band("parcels"),
+      "parcels@z14": band("parcels@z14"),
+    };
+    const mapbox = { getSource: (id: string) => sources[id] };
+    const next = manifest(2, "https://tiles.example.com/parcels/{z}/{x}/{y}");
+    refreshFoundationVectorSources(
+      mapbox,
+      manifest(1, "http://127.0.0.1:3110/parcels/{z}/{x}/{y}"),
+      next,
+    );
+    expect([...retargeted.keys()].sort()).toEqual(["parcels", "parcels@z14"]);
+    expect(retargeted.get("parcels@z14")).toEqual([
+      "https://tiles.example.com/parcels/{z}/{x}/{y}",
+    ]);
+  });
+
   it("fails closed when the manifest layer identity drifts from the registry", () => {
     const previous = manifest(1, "http://127.0.0.1:3110/parcels/{z}/{x}/{y}");
     const previousParcels = previous.publication_units.parcels;

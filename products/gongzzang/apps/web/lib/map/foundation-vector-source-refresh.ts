@@ -1,3 +1,4 @@
+import { foundationVectorBandSourceIds } from "@/lib/map/foundation-vector-fill-layers";
 import {
   buildFoundationVectorSource,
   FOUNDATION_VECTOR_LAYER_REGISTRY,
@@ -30,7 +31,10 @@ export function refreshFoundationVectorSources(
     const source = mapbox.getSource?.(definition.sourceId);
     const nextSource = buildFoundationVectorSource(next, unitName, definition.layerName);
     if (source?.setTiles) {
-      source.setTiles(nextSource.tiles);
+      // Every zoom band of the unit reads the same release (root ADR-0489).
+      for (const bandSourceId of foundationVectorBandSourceIds(definition.sourceId)) {
+        mapbox.getSource?.(bandSourceId)?.setTiles?.(nextSource.tiles);
+      }
     } else if (mapbox.addSource && !source) {
       mapbox.addSource(definition.sourceId, nextSource);
     } else {

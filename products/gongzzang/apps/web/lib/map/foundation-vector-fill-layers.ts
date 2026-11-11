@@ -53,14 +53,106 @@ export type FoundationVectorFillStyle = {
 const FILL_LAYER_SUFFIX = "-fill";
 const OUTLINE_LAYER_SUFFIX = "-outline";
 
-/** The Mapbox layer id this repo draws `unitName`'s polygons as. */
-export function foundationVectorFillLayerId(unitName: string): string {
-  return `${unitName}${FILL_LAYER_SUFFIX}`;
+/**
+ * How many tile zooms one source of a unit serves (root ADR-0489).
+ *
+ * Mapbox GL draws a missing tile from a loaded ancestor up to `SourceCache.maxOverzooming` (10)
+ * levels above it, so one z6..16 source showed a z8 complex tile at z15 while the z15 tiles loaded:
+ * edges 36 m (19 px) off (W41, 남동산단, 2026-11-09). An ancestor is never taken below the source's
+ * `minzoom`, so a unit is served as one source per band of three zooms and a placeholder is at most
+ * two levels coarser than the tile it stands in for.
+ */
+export const FOUNDATION_VECTOR_ZOOM_BAND_LEVELS = 3;
+
+/** Every tile zoom a band can start at: a lower band is named by its first tile zoom. */
+const ZOOM_BAND_CELLS = Array.from({ length: 25 }, (_, zoom) => zoom);
+
+/**
+ * One source of a unit: the tile zooms it requests and the zooms its layers are drawn at.
+ *
+ * `cell` is `null` for the top band, which keeps the unit's own source and layer ids, so every
+ * reader that names the unit's layer by id still finds the detailed one; a lower band is named by
+ * its first tile zoom.
+ */
+export type FoundationVectorZoomBand = {
+  cell: number | null;
+  tileMinZoom: number;
+  tileMaxZoom: number;
+  renderMinZoom: number;
+  renderMaxZoom: number;
+};
+
+/**
+ * The bands a layer's tile window splits into, counted down from `tile_max_zoom`: the detailed
+ * top band is always a full three zooms, and only the coarsest band may be shorter.
+ */
+export function foundationVectorZoomBands(layer: {
+  tile_min_zoom: number;
+  tile_max_zoom: number;
+  render_min_zoom: number;
+  render_max_zoom: number;
+}): FoundationVectorZoomBand[] {
+  const bands: FoundationVectorZoomBand[] = [];
+  for (let end = layer.tile_max_zoom; end >= layer.tile_min_zoom; ) {
+    const start = Math.max(end - FOUNDATION_VECTOR_ZOOM_BAND_LEVELS + 1, layer.tile_min_zoom);
+    const top = end === layer.tile_max_zoom;
+    const renderMinZoom = Math.max(start, layer.render_min_zoom);
+    const renderMaxZoom = top ? layer.render_max_zoom : end + 1;
+    if (renderMinZoom < renderMaxZoom) {
+      bands.unshift({
+        cell: top ? null : start,
+        tileMinZoom: start,
+        tileMaxZoom: end,
+        renderMinZoom,
+        renderMaxZoom,
+      });
+    }
+    end = start - 1;
+  }
+  return bands;
+}
+
+function banded(id: string, cell: number | null | undefined): string {
+  return cell === null || cell === undefined ? id : `${id}@z${cell}`;
+}
+
+/** The Mapbox layer id this repo draws `unitName`'s polygons as, in band `cell` when given. */
+export function foundationVectorFillLayerId(unitName: string, cell?: number | null): string {
+  return `${banded(unitName, cell)}${FILL_LAYER_SUFFIX}`;
 }
 
 /** The Mapbox layer id for a unit's crisp boundary line, when its style asks for one. */
-export function foundationVectorOutlineLayerId(unitName: string): string {
-  return `${unitName}${OUTLINE_LAYER_SUFFIX}`;
+export function foundationVectorOutlineLayerId(unitName: string, cell?: number | null): string {
+  return `${banded(unitName, cell)}${OUTLINE_LAYER_SUFFIX}`;
+}
+
+/** The Mapbox source id of `sourceId`'s band `cell`. */
+export function foundationVectorBandSourceId(sourceId: string, cell: number | null): string {
+  return banded(sourceId, cell);
+}
+
+/** Every band source id a unit's source could have, the unit's own first. */
+export function foundationVectorBandSourceIds(sourceId: string): string[] {
+  return [sourceId, ...ZOOM_BAND_CELLS.map((cell) => banded(sourceId, cell))];
+}
+
+/**
+ * The fill (or outline) layers of every band of `unitName` on the map, the top band first.
+ *
+ * A reader that acts on a unit's polygons (a click, a filter, a tombstone) acts on all of them:
+ * the same feature is drawn by a different band's layer at a different zoom.
+ */
+export function foundationVectorUnitLayerIds(
+  mb: { getLayer?: (id: string) => unknown },
+  unitName: string,
+  kind: "fill" | "outline" | "both" = "both",
+): string[] {
+  const ids: string[] = [];
+  for (const cell of [null, ...ZOOM_BAND_CELLS]) {
+    if (kind !== "outline") ids.push(foundationVectorFillLayerId(unitName, cell));
+    if (kind !== "fill") ids.push(foundationVectorOutlineLayerId(unitName, cell));
+  }
+  return ids.filter((id) => mb.getLayer?.(id));
 }
 
 /**
@@ -77,11 +169,13 @@ export function foundationVectorOutlineLayerId(unitName: string): string {
  * complex boundary is never clickable at all.
  */
 export const COMPLEX_CLICK_YIELDS_TO_LAYER_IDS: readonly string[] = [
-  foundationVectorFillLayerId("parcels"),
   PARCEL_ANCHOR_MARKER_TILE_CIRCLE_LAYER_ID,
   LISTING_MARKER_TILE_CIRCLE_LAYER_ID,
   LISTING_MARKER_DELTA_TILE_CIRCLE_LAYER_ID,
 ];
+
+/** The units whose polygons, in every zoom band, own a click that also lands on `complex`. */
+export const COMPLEX_CLICK_YIELDS_TO_UNITS: readonly string[] = ["parcels"];
 
 export const FOUNDATION_VECTOR_FILL_STYLES: Record<string, FoundationVectorFillStyle> = {
   parcels: {
@@ -130,12 +224,6 @@ export const FOUNDATION_VECTOR_FILL_STYLES: Record<string, FoundationVectorFillS
   },
 };
 
-/** The layers a zoning toggle filters. */
-export const ZONING_LAYER_IDS: readonly string[] = [
-  foundationVectorFillLayerId("zoning"),
-  foundationVectorOutlineLayerId("zoning"),
-];
-
 /** The mapbox-gl surface this module needs, so callers can pass their own bridge type. */
 export type FoundationVectorLayerBridge = {
   addSource: (id: string, source: Record<string, unknown>) => void;
@@ -152,6 +240,8 @@ export type FoundationVectorFillRegistration = {
   minzoom: number;
   maxzoom: number;
   promoteId?: string;
+  /** The zoom band this registration draws; absent is the unit's own (top) layers. */
+  cell?: number | null;
 };
 
 /**
@@ -182,7 +272,7 @@ export function registerFoundationVectorFillLayers(
     ...(style.filter ? { filter: style.filter } : {}),
   };
 
-  const fillLayerId = foundationVectorFillLayerId(unitName);
+  const fillLayerId = foundationVectorFillLayerId(unitName, registration.cell);
   const fillLayer: Record<string, unknown> = {
     ...shared,
     id: fillLayerId,
@@ -198,7 +288,7 @@ export function registerFoundationVectorFillLayers(
   const layerIds = [fillLayerId];
 
   if (style.outlineWidth !== undefined) {
-    const outlineLayerId = foundationVectorOutlineLayerId(unitName);
+    const outlineLayerId = foundationVectorOutlineLayerId(unitName, registration.cell);
     mb.addLayer(
       {
         ...shared,
@@ -219,7 +309,10 @@ export function registerFoundationVectorFillLayers(
 
 /**
  * Registers one v2 runtime unit, reading its source identity from the registry and its render
- * window from the manifest.
+ * window from the manifest, as one source and layer pair per zoom band
+ * ({@link foundationVectorZoomBands}). The top band goes first and keeps the unit's ids; the lower
+ * bands are inserted above it, so the unit's own fill stays the lowest of its layers and a unit
+ * inserted below it lands below every band.
  *
  * Returns an empty array when the manifest carries no such unit, which is the normal state of an
  * environment where the unit has not been promoted yet.
@@ -241,17 +334,23 @@ export function registerFoundationVectorRuntimeUnit(
   if (!layer) {
     throw new Error(`v2 ${unitName} unit is missing the ${definition.layerName} layer`);
   }
-  return registerFoundationVectorFillLayers(mb, unitName, {
-    sourceId: definition.sourceId,
-    source: buildFoundationVectorSource(manifest, unitName, definition.layerName),
-    sourceLayer: layer.source_layer,
-    // The render window, not the tile window: the source already carries `tile_max_zoom`, so a
-    // request never leaves the range Martin cuts, and a client asking for z18 gets the z16 tile
-    // overzoomed rather than an empty one.
-    minzoom: layer.render_min_zoom,
-    maxzoom: layer.render_max_zoom,
-    promoteId: layer.feature_id_property,
-  });
+  const source = buildFoundationVectorSource(manifest, unitName, definition.layerName);
+  const bands = foundationVectorZoomBands(layer);
+  const top = bands.at(-1);
+  const ordered = top ? [top, ...bands.slice(0, -1)] : [];
+  return ordered.flatMap((band) =>
+    registerFoundationVectorFillLayers(mb, unitName, {
+      sourceId: foundationVectorBandSourceId(definition.sourceId, band.cell),
+      // Each band requests only its own tile zooms, so no tile is fetched twice; the top band ends
+      // at `tile_max_zoom`, the range Martin cuts, and its layers draw that tile overzoomed.
+      source: { ...source, minzoom: band.tileMinZoom, maxzoom: band.tileMaxZoom },
+      sourceLayer: layer.source_layer,
+      minzoom: band.renderMinZoom,
+      maxzoom: band.renderMaxZoom,
+      promoteId: layer.feature_id_property,
+      cell: band.cell,
+    }),
+  );
 }
 
 function resolveInsertBeforeId(

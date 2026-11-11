@@ -176,14 +176,22 @@ describe("drawing the overlay", () => {
     expect(registerMapEditOverlayLayers(fakeMapbox([]), "complex")).toEqual([]);
   });
 
-  it("hides every edited id in both base layers and draws the fresh polygons", () => {
-    const mb = fakeMapbox(["complex-fill", "complex-outline"]);
+  it("hides every edited id in the base layers of every zoom band and draws the fresh polygons", () => {
+    const mb = fakeMapbox([
+      "complex-fill",
+      "complex-outline",
+      "complex@z8-fill",
+      "complex@z8-outline",
+    ]);
     registerMapEditOverlayLayers(mb, "complex");
     const overlay = parseMapEditOverlay(overlayBody(), "complex");
     applyMapEditOverlay(mb, overlay);
     const expected = ["!", ["in", ["get", "complex_id"], ["literal", [EDITED, DELETED]]]];
     expect(mb.filters.get("complex-fill")).toEqual(expected);
     expect(mb.filters.get("complex-outline")).toEqual(expected);
+    // Root ADR-0489: the same polygons are drawn by a lower band's layers at lower zooms.
+    expect(mb.filters.get("complex@z8-fill")).toEqual(expected);
+    expect(mb.filters.get("complex@z8-outline")).toEqual(expected);
     expect(mb.sources.get(mapEditOverlaySourceId("complex"))?.setData).toHaveBeenCalledWith(
       overlay.features,
     );
