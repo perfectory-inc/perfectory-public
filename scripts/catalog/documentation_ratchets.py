@@ -59,9 +59,10 @@ MISSING_NOTE = re.compile(
 CODE_CITATION = re.compile(r"(?:^|[^A-Za-z-])ADR[- ](\d{4})")
 
 
-def git(root: Path, *args: str) -> str:
+def git(root: Path, *args: str, errors: str = "strict") -> str:
     return subprocess.run(
-        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True, encoding="utf-8"
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True, encoding="utf-8",
+        errors=errors,
     ).stdout
 
 
@@ -158,7 +159,10 @@ def unindexed_runbooks(tree: Tree) -> set[str]:
 
 def code_cited_adrs(tree: Tree) -> set[str]:
     try:
-        out = git(tree.root, "grep", "-I", "-h", "-o", "-E", r"(^|[^A-Za-z-])ADR[- ][0-9]{4}", "--", ".", ":(exclude)*.md")
+        # git grep matches bytes: `[^A-Za-z-]` takes one byte of a multibyte character (the B7 of "·ADR-"),
+        # so the match is not whole UTF-8 (W67b, 2026-11-11: the pre-push hook died on "ADR-0143·ADR-0400").
+        out = git(tree.root, "grep", "-I", "-h", "-o", "-E", r"(^|[^A-Za-z-])ADR[- ][0-9]{4}", "--", ".", ":(exclude)*.md",
+                  errors="replace")
     except subprocess.CalledProcessError as error:
         if error.returncode == 1:  # no match
             return set()
