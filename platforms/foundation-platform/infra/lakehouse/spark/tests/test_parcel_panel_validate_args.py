@@ -163,6 +163,9 @@ class ParcelPanelLineageTest(unittest.TestCase):
                     }))
                     stack.enter_context(mock.patch.object(job, "parse_args", return_value=args))
                     frame, spark = mock.MagicMock(), mock.MagicMock()
+                    # The plan pins go to the run's local dir; a mock's `spark.local.dir` is a path named
+                    # after the mock, relative to the working directory (PR #1252 committed them).
+                    stack.enter_context(mock.patch.object(job.incremental, "local_dir", return_value=Path(directory)))
                     for name in ("read_source", "filtered_by_region", "with_lineage_sources",
                                  "build_zonings", "build_price", "build_characteristics",
                                  "build_forest_ledger", "build_transfer_history", "build_land_rights", "build_lineage",
