@@ -7,6 +7,8 @@ admitted by name; the name never points the writer at another release, and the b
 verified. Release ids are synthetic.
 """
 
+import hashlib
+import json
 import os
 import pathlib
 import shutil
@@ -49,6 +51,35 @@ class TheRunsRelease(unittest.TestCase):
         self.assertNotIn("writer must execute", result.stderr)
         # Admitted by name only: the build output it names is verified the same way (none here).
         self.assertIn("trusted release build output is missing", result.stderr)
+
+    def admitted_build(self, release):
+        """A build output of `release` the runtime verifies: a read-only publisher its manifest names."""
+        root = self.writer.parents[4] / "artifacts" / release
+        root.mkdir(parents=True)
+        publisher = root / "foundation-outbox-publisher"
+        publisher.write_bytes(b"synthetic publisher")
+        publisher.chmod(0o555)
+        (root / "build.json").write_text(json.dumps({
+            "source": release, "tippecanoe_image": "sha256:" + "0" * 64,
+            "files": {"foundation-outbox-publisher": hashlib.sha256(b"synthetic publisher").hexdigest(),
+                      "jars/synthetic.jar": "0" * 64}}))
+
+    def test_a_step_a_run_starts_after_a_deploy_keeps_the_runs_release(self):
+        # 2026-11-11 04:31Z: the source sweep's members step re-checked `current` after a deploy had
+        # moved it and was refused, and the whole sweep failed. A run's children are the same run.
+        self.admitted_build(OLD)
+        base = self.writer.parents[4]
+        (base / "current").unlink()
+        (base / "current").symlink_to(pathlib.Path("releases") / OLD)
+        ops = self.writer.parent
+        (ops / "parent.sh").write_text(
+            'source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current\n'
+            f'ln -sfn releases/{NEW} "{base}/current"\n'  # the deploy switches while the run goes on
+            'bash "$(dirname "${BASH_SOURCE[0]}")/writer.sh" && echo child-admitted\n')
+        result = subprocess.run(["bash", str(ops / "parent.sh")], capture_output=True, text=True, timeout=30,
+                                env={key: value for key, value in os.environ.items() if key != "FOUNDATION_RUN_RELEASE"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("child-admitted", result.stdout)
 
     def test_another_releases_name_admits_nothing(self):
         result = self.run_writer(FOUNDATION_RUN_RELEASE=NEW)
