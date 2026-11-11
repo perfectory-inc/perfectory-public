@@ -88,6 +88,7 @@
         {"path": "infra/lakehouse/spark/jobs/by_pnu_kind_silver_to_gold.py", "reads": 1, "kept_by": "head", "reason": "the host panel's head, which the plan named in this run"},
         {"path": "infra/lakehouse/spark/jobs/by_pnu_kind_sizes.py", "reads": 1, "kept_by": "head", "reason": "main's head, read in the same run"},
         {"path": "infra/lakehouse/spark/jobs/lakehouse_schema_migrate.py", "reads": 1, "kept_by": "head", "reason": "main's head, read in the same run"},
+        {"path": "infra/lakehouse/spark/jobs/place_reference_queue_to_gold.py", "reads": 1, "kept_by": "head", "reason": "each parcel source's head, read in the same run; the queue records that id only to skip an unmoved source next time and never reads it back (root ADR-0483 §5)"},
         {"path": "infra/lakehouse/spark/jobs/lineage_review_queue_to_gold.py", "reads": 1, "kept_by": "head", "reason": "parcel_lineage's head, read in the same run"},
         {"path": "infra/lakehouse/spark/jobs/parcel_boundary_served_gold.py", "reads": 2, "kept_by": "head", "reason": "the Silver head and the Gold snapshot this run just wrote"},
         {"path": "infra/lakehouse/spark/jobs/parcel_lineage_scheduled.py", "reads": 2, "kept_by": "head", "reason": "the heads this run pinned a moment before"},
