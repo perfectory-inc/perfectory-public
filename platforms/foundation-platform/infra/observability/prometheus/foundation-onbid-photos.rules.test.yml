@@ -1,0 +1,87 @@
+# promtool unit tests for the foundation-onbid-photos rules (root ADR-0427 §4, ADR-0486): do the
+# 공매 photos on the screen show at their original size? The incident: 2026-11-06..11 the contract's
+# originals rule matched no URL the 물건상세 API gives, so no original was asked for; 44,896 covered
+# items showed 178x134 thumbnails for five days, every collector run said "changed", and the rule
+# mismatch alert, which needs ten attempts a run, could not fire on zero attempts.
+# Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # The incident replayed from the collector's series that morning (onbid-item-detail.prom,
+  # 2026-11-11 00:22Z): photos on 44,896 covered items, an original on none, no original asked.
+  # One-minute samples: an hourly series goes stale after five minutes and resets the two-day wait.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_onbid_item_detail_with_photos_conditions'
+        values: '44896x3000'
+      - series: 'foundation_onbid_item_detail_with_originals_conditions'
+        values: '0x3000'
+      - series: 'foundation_onbid_photo_original_attempted'
+        values: '0x3000'
+      - series: 'foundation_onbid_photo_original_rule_mismatched'
+        values: '0x3000'
+    alert_rule_test:
+      - eval_time: 47h
+        alertname: FoundationOnbidPhotoOriginalsNotShown
+        exp_alerts: []
+      - eval_time: 49h
+        alertname: FoundationOnbidPhotoOriginalsNotShown
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+            exp_annotations:
+              summary: '공매 사진 있는 물건 중 원본 크기 사진이 있는 것이 0% 뿐이에요 — 화면은 178×134 썸네일이에요. 물건상세의 potoUrlList[].urlAdr 를 data-go-kr-onbid.contract.json media.fields.originals 규칙과 대조하고 onbid-media-summary-json 의 originals_attempted 를 보세요'
+              runbook: docs/runbooks/data-go-kr-onbid.md
+      # Zero attempts is the silence this file exists for: the attempts rule says nothing.
+      - eval_time: 49h
+        alertname: FoundationOnbidPhotoOriginalRuleMismatch
+        exp_alerts: []
+
+  # A healthy backfill after the fix (ADR-0486, computed at most ~2.3 days to all): 1,800 items an hour pass
+  # half the items with photos in about 12.5 hours, so the two-day bound never fires.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_onbid_item_detail_with_photos_conditions'
+        values: '44896x3000'
+      - series: 'foundation_onbid_item_detail_with_originals_conditions'
+        values: '0+30x1500 44896x1500'
+    alert_rule_test:
+      - eval_time: 49h
+        alertname: FoundationOnbidPhotoOriginalsNotShown
+        exp_alerts: []
+
+  # A small lane is not judged: under 100 items with photos the ratio is noise.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_onbid_item_detail_with_photos_conditions'
+        values: '40x3000'
+      - series: 'foundation_onbid_item_detail_with_originals_conditions'
+        values: '0x3000'
+    alert_rule_test:
+      - eval_time: 49h
+        alertname: FoundationOnbidPhotoOriginalsNotShown
+        exp_alerts: []
+
+  # The provider changes the rule: originals come back as thumbnails (root ADR-0427 §4).
+  - interval: 1m
+    input_series:
+      - series: 'foundation_onbid_photo_original_attempted'
+        values: '20x90'
+      - series: 'foundation_onbid_photo_original_rule_mismatched'
+        values: '15x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: FoundationOnbidPhotoOriginalRuleMismatch
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: FoundationOnbidPhotoOriginalRuleMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: data-flow
+            exp_annotations:
+              summary: '공매 사진 원본 규칙이 맞지 않아요 — 지난 run 에 받은 원본의 75% 가 HTML 이거나 썸네일 크기예요. 화면은 썸네일로 버텨요. data-go-kr-onbid.contract.json media.fields.originals 를 물건상세 API 가 주는 potoUrlList[].urlAdr 와 대조하세요'
+              runbook: docs/runbooks/data-go-kr-onbid.md

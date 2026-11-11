@@ -293,6 +293,7 @@ fn complete(photos: u32) -> LineOutcome {
         complete: true,
         photos_complete: true,
         photos,
+        originals: 0,
     }
 }
 
@@ -393,6 +394,7 @@ fn item_mark(seen: &[&str], photos: u32) -> ItemMark {
     ItemMark {
         seen: seen.iter().map(|digest| (*digest).to_owned()).collect(),
         photos,
+        originals: 0,
         media_fields: MEDIA_FIELDS,
     }
 }
@@ -685,6 +687,7 @@ fn an_item_owed_only_appraisals_waits_behind_every_item_still_owed_photos() {
         complete: false,
         photos_complete: true,
         photos: 3,
+        originals: 0,
     };
     assert_eq!(
         settle_details(&mut state, &fetched, &[photos_only, LineOutcome::default()]),
@@ -755,6 +758,7 @@ fn coverage_counts_the_conditions_whose_bid_has_not_ended() {
             key("B", 1),
             key("C", 1),
             key("D", 1),
+            key("E", 1),
         ])),
         ..State::default()
     };
@@ -764,14 +768,28 @@ fn coverage_counts_the_conditions_whose_bid_has_not_ended() {
     state.items.insert("A".to_owned(), item_mark(&["d"], 3));
     state.items.insert("B".to_owned(), item_mark(&["d"], 0));
     state.items.insert("D".to_owned(), item_mark(&["d"], 3));
+    // Root ADR-0486: E's photos have their originals; A shows only thumbnails.
+    state.items.insert(
+        "E".to_owned(),
+        ItemMark {
+            originals: 2,
+            ..item_mark(&["d"], 3)
+        },
+    );
     let coverage = Coverage::of(&state, now);
     assert_eq!(
-        (coverage.open, coverage.covered, coverage.with_photos),
-        (3, 2, 1)
+        (
+            coverage.open,
+            coverage.covered,
+            coverage.with_photos,
+            coverage.with_originals
+        ),
+        (4, 3, 2, 1)
     );
     let text = coverage.prometheus(now);
-    assert!(text.contains("foundation_onbid_item_detail_coverage_ratio 0.6666"));
-    assert!(text.contains("foundation_onbid_item_detail_open_conditions 3\n"));
+    assert!(text.contains("foundation_onbid_item_detail_with_originals_conditions 1\n"));
+    assert!(text.contains("foundation_onbid_item_detail_coverage_ratio 0.75\n"));
+    assert!(text.contains("foundation_onbid_item_detail_open_conditions 4\n"));
     assert!(text.contains("foundation_onbid_photo_original_rule_mismatched 0\n"));
     assert!(Coverage::default()
         .prometheus(now)

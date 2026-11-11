@@ -136,8 +136,11 @@ fn no_media_fields_yields_nothing() {
     }
 }
 
-/// A provider attachment URL of the shape the 물건상세 photo list carries (synthetic numbers).
-const THUMBNAIL: &str = "https://www.onbid.co.kr/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldImgFile.do?atchFileLstNo=99999&atchSn=2&thnImgDownloadFlag=true&downloadImageKind=ELGM_FILE_NM";
+/// A provider attachment URL of the shape the 물건상세 photo list carries (synthetic numbers): the
+/// shape of every `potoUrlList[].urlAdr` in the 175 item-detail Bronze objects (2026-11-11, root
+/// ADR-0486). The first version of this test wrote the web screen's `dnldImgFile.do` instead, so the
+/// rule it held matched no URL the API gives and no original was ever asked for (2026-11-06..11).
+const THUMBNAIL: &str = "https://www.onbid.co.kr/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldFile.do?atchFileLstNo=99999&atchSn=2&hashCrpsNo=99999&downloadImageKind=THNL_NM";
 
 #[test]
 fn a_thumbnail_url_becomes_its_original_and_any_other_url_has_none() {
@@ -146,7 +149,7 @@ fn a_thumbnail_url_becomes_its_original_and_any_other_url_has_none() {
     let rule = &media_fields.originals[PHOTO_FIELD];
     assert_eq!(
         super::original_url(THUMBNAIL, rule).as_deref(),
-        Some("https://www.onbid.co.kr/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldImgFile.do?atchFileLstNo=99999&atchSn=2&downloadImageKind=CLG_FILE_NM&thnImgDownloadFlag=false")
+        Some("https://www.onbid.co.kr/op/cm/syc/filemng/filemngprcs/FileMngPrcsController/dnldFile.do?atchFileLstNo=99999&atchSn=2&hashCrpsNo=99999&downloadImageKind=CLG_FILE_NM")
     );
     assert_eq!(
         super::original_url("https://www.onbid.co.kr/op/a.jpg", rule),
@@ -495,12 +498,12 @@ async fn every_lines_thumbnails_land_before_any_original_and_an_original_complet
     use wiremock::matchers::method;
     use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
-    // The provider's endpoint: a thumbnail when thnImgDownloadFlag=true, else the original.
+    // The provider's endpoint: a thumbnail when downloadImageKind=THNL_NM, else the original.
     struct Attachment;
     impl Respond for Attachment {
         fn respond(&self, request: &Request) -> ResponseTemplate {
             let query = request.url.query().unwrap_or_default();
-            let size = if query.contains("thnImgDownloadFlag=true") {
+            let size = if query.contains("downloadImageKind=THNL_NM") {
                 1
             } else {
                 9
@@ -560,9 +563,9 @@ async fn every_lines_thumbnails_land_before_any_original_and_an_original_complet
     let outcomes = first
         .outcomes
         .iter()
-        .map(|outcome| (outcome.photos_complete, outcome.complete))
+        .map(|outcome| (outcome.photos_complete, outcome.complete, outcome.originals))
         .collect::<Vec<_>>();
-    assert_eq!(outcomes, [(true, false), (true, false)]);
+    assert_eq!(outcomes, [(true, false, 0), (true, false, 0)]);
     // The next run reuses the thumbnails and fetches only the originals.
     let next = mirror_detail_lines(
         &lines,
@@ -576,6 +579,8 @@ async fn every_lines_thumbnails_land_before_any_original_and_an_original_complet
     .await;
     assert_eq!((next.report.reused, next.report.downloaded), (2, 2));
     assert!(next.outcomes.iter().all(|outcome| outcome.complete));
+    // Each line's photo now shows at full size (root ADR-0486's coverage series).
+    assert!(next.outcomes.iter().all(|outcome| outcome.originals == 1));
     let record: serde_json::Value = serde_json::from_str(&next.lines[1])?;
     let response: serde_json::Value =
         serde_json::from_str(record["body"].as_str().unwrap_or_default())?;
@@ -613,12 +618,12 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
     let server = MockServer::start().await;
     let thumbnail_bytes = jpeg(178, 134);
     Mock::given(method("GET"))
-        .and(query_param("thnImgDownloadFlag", "true"))
+        .and(query_param("downloadImageKind", "THNL_NM"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(thumbnail_bytes.clone()))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(query_param("thnImgDownloadFlag", "false"))
+        .and(query_param("downloadImageKind", "CLG_FILE_NM"))
         .respond_with(ResponseTemplate::new(200).set_body_bytes(jpeg(160, 120)))
         .mount(&server)
         .await;
@@ -667,6 +672,7 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
     );
     assert_eq!((report.ladders_written, report.ladders_deferred), (1, 0));
     assert!(mirrored.outcomes[0].complete);
+    assert_eq!(mirrored.outcomes[0].originals, 0);
     // Not recorded as the original, and not memoized: the screen keeps the thumbnail.
     assert_eq!(memo.len(), 1);
     let record: serde_json::Value = serde_json::from_str(&mirrored.lines[0])?;

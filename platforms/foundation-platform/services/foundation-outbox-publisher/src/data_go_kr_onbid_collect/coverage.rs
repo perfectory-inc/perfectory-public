@@ -120,10 +120,12 @@ pub(crate) fn owed_bid_infos(
 /// The media fields the collector mirrors (`media.fields`): 1 since root ADR-0340 §4 added the
 /// location map, cadastral map, 360-degree photo and video to the photos and appraisals; 2 since
 /// root ADR-0424 added the photos' full-size originals; 3 since root ADR-0427 made each photo's
-/// rendition ladder part of its media. An item completed under a lower number is fetched once more;
+/// rendition ladder part of its media; 4 (root ADR-0486) when the originals rule first reached the
+/// URLs the API gives, so every open item completed under 3 asks its photos' originals once. An item
+/// completed under a lower number is fetched once more;
 /// that refetch is not a refresh, so the media it already stored are not downloaded again (its
 /// ladder is made from the stored original).
-pub(crate) const MEDIA_FIELDS: u32 = 3;
+pub(crate) const MEDIA_FIELDS: u32 = 4;
 
 fn owed_items(
     marks: &mut BTreeMap<String, ItemMark>,
@@ -204,6 +206,8 @@ pub(crate) struct LineOutcome {
     pub(crate) photos_complete: bool,
     /// Photos of the line now stored.
     pub(crate) photos: u32,
+    /// Of those, the photos whose full-size original is stored too (root ADR-0424, ADR-0486).
+    pub(crate) originals: u32,
 }
 
 /// Marks complete the items whose media all landed; the rest stay owed and are fetched again by a
@@ -224,6 +228,7 @@ pub(crate) fn settle_details(
         let mark = ItemMark {
             seen: fetched.seen.clone(),
             photos: outcome.photos,
+            originals: outcome.originals,
             media_fields: MEDIA_FIELDS,
         };
         if outcome.complete {
@@ -245,6 +250,9 @@ pub(crate) struct Coverage {
     pub(crate) open: usize,
     pub(crate) covered: usize,
     pub(crate) with_photos: usize,
+    /// Of the covered with photos, the ones with at least one photo's original stored: what the
+    /// screen shows at full size (root ADR-0486; rule `FoundationOnbidPhotoOriginalsNotShown`).
+    pub(crate) with_originals: usize,
     /// This run's photo originals asked through the contract's rule, the ones it no longer reached
     /// (root ADR-0427 §4), and the photo sources whose ladder waits for a later run.
     pub(crate) originals_attempted: usize,
@@ -269,6 +277,7 @@ impl Coverage {
             if let Some(mark) = state.items.get(&key.cltr_mng_no) {
                 coverage.covered += 1;
                 coverage.with_photos += usize::from(mark.photos > 0);
+                coverage.with_originals += usize::from(mark.photos > 0 && mark.originals > 0);
             }
         }
         coverage
@@ -293,6 +302,9 @@ impl Coverage {
              # HELP foundation_onbid_item_detail_with_photos_conditions Of the covered, the ones with at least one photo stored.\n\
              # TYPE foundation_onbid_item_detail_with_photos_conditions gauge\n\
              foundation_onbid_item_detail_with_photos_conditions {}\n\
+             # HELP foundation_onbid_item_detail_with_originals_conditions Of those, the ones with at least one photo's full-size original stored (root ADR-0486).\n\
+             # TYPE foundation_onbid_item_detail_with_originals_conditions gauge\n\
+             foundation_onbid_item_detail_with_originals_conditions {}\n\
              # HELP foundation_onbid_item_detail_coverage_ratio covered / open (1 when nothing is open).\n\
              # TYPE foundation_onbid_item_detail_coverage_ratio gauge\n\
              foundation_onbid_item_detail_coverage_ratio {ratio}\n\
@@ -311,6 +323,7 @@ impl Coverage {
             self.open,
             self.covered,
             self.with_photos,
+            self.with_originals,
             now.timestamp(),
             self.originals_attempted,
             self.originals_rule_mismatched,
