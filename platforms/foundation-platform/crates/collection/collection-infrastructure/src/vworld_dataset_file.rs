@@ -595,9 +595,13 @@ impl VWorldDatasetFileClient {
             .await
         {
             Ok(true) => selection_archive_requires_raon_agent_error(request),
-            Ok(false) => CollectionError::Infrastructure(
-                "VWorld dataset file response body was empty".to_owned(),
-            ),
+            // The provider listed the file and answered it with nothing, and not because it is a RAON
+            // archive: it did not serve the file (root ADR-0363, as its maintenance page is). 2026-11-11
+            // two files of that day's real estate broker edition answered empty on both sweep runs.
+            Ok(false) => CollectionError::ProviderUnavailable(format!(
+                "VWorld dataset file response body was empty download_ds_id={} file_no={}",
+                request.download_ds_id, request.file_no
+            )),
             Err(error) => CollectionError::Infrastructure(format!(
                 "VWorld dataset file response body was empty; RAON fallback probe failed: {error}"
             )),
