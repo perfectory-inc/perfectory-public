@@ -354,6 +354,7 @@ pub(super) const SILVER_PARCEL_REGISTRY_COLUMNS: &[LakehouseColumn] = &[
 
 /// Bitemporal parcel registry: which stable `parcel_id` a PNU carried, from when to when (root ADR-0113
 /// §2·§3). Rows only open, close or redirect; folding them in date order gives the registry now.
+///
 /// Every row names the edition it registered: readers fold as of an edition (root ADR-0490 §4a).
 pub const SILVER_PARCEL_REGISTRY: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.parcel_registry",
