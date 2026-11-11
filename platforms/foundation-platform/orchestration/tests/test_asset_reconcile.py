@@ -88,7 +88,7 @@ class Reconciler(unittest.TestCase):
             "gold.parcel_factories": table(snap("705", None, 0)),
             "gold.parcel_register_masters": table(snap("706", None, 0)),
             "gold.parcel_real_transaction": table(snap("707", None, 0)),
-            # The 인입 가능성 lane (root ADR-0491), caught up.
+            # The 인입 가능성 lane (root ADR-0497), caught up.
             "gold.parcel_utility": table(snap("708", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},

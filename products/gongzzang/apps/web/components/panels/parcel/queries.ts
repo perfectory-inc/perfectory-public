@@ -87,7 +87,7 @@ export const parcelNearbyQuery = (pnu: string) => ({
 export const parcelUtilityQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "utility", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchUtility(pnu, signal),
-  // Built from the monthly 건축물대장 오수정화시설 file (root ADR-0491).
+  // Built from the monthly 건축물대장 오수정화시설 file (root ADR-0497).
   staleTime: 60 * 60_000,
 });
 

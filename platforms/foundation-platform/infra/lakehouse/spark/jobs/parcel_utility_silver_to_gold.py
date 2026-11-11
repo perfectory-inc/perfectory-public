@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the parcel utility by-PNU kind's Gold from its own Silver (root ADR-0490, ADR-0491).
+"""Build the parcel utility by-PNU kind's Gold from its own Silver (root ADR-0496, ADR-0497).
 
 A kind with its own producer (`by_pnu_kinds.Kind.producer`, root ADR-0287 §9), served on the parcel
 lane: what the public registers say about whether a parcel is reached by a utility line. Its one
@@ -13,7 +13,7 @@ filled (a row without one says nothing and is left out):
 - `sewage.facility_total`: the facilities counted, all methods.
 - `sewage.treatment_plant_connection`: true when a facility's method is 하수종말처리장연결 (300) or
   마을하수처리장연결 (400), the register's record that the building's 오수 goes to a public treatment
-  plant (measured in the 2026-10 file, root ADR-0490). Any other method is a private treatment
+  plant (measured in the 2026-10 file, root ADR-0496). Any other method is a private treatment
   facility; the panel shows the method names, never a ruling.
 
 A row keyed under a code a reorganization renumbered is read under the served code (`renumbered`,
@@ -37,7 +37,7 @@ PARCEL_SOURCE = "silver.parcel_boundaries"
 CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
 WHOLE_TABLE_INPUTS = (CODE_CHANGE_SOURCE,)
 SECTION = "utility"
-# 오수정화방식코드 300 하수종말처리장연결 and 400 마을하수처리장연결 (2026-10 file, root ADR-0490).
+# 오수정화방식코드 300 하수종말처리장연결 and 400 마을하수처리장연결 (2026-10 file, root ADR-0496).
 TREATMENT_PLANT_CODES = ("300", "400")
 # Measured 2026-11-11: 47 codes in the national file; a parcel lists a handful.
 METHOD_BOUND = 20

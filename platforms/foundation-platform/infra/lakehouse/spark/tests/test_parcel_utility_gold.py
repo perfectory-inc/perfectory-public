@@ -1,4 +1,4 @@
-"""Parcel utility by-PNU kind (root ADR-0490, ADR-0491).
+"""Parcel utility by-PNU kind (root ADR-0496, ADR-0497).
 
 Synthetic PNUs (prefix 99999). Pins: a parcel's document counts its facilities per 오수정화방식, most
 first, and says whether one is connected to a treatment plant (300·400); a row without a method says

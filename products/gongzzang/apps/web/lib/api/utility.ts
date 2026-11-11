@@ -7,7 +7,7 @@ import { ParcelUtilityByPnuSchema as Generated } from "./utility.generated";
 // 인입 가능성: what public data says about whether a parcel is reached by city gas and a road
 // (platforms/foundation-platform/docs/catalog/parcel-utility-connectivity-sources.md). Every signal
 // is read from a by-PNU document: gas from the energy document, the road from the parcel's own, the
-// sewer from the parcel's 인입 가능성 document (`parcel-utility` lane, root ADR-0491). A signal is
+// sewer from the parcel's 인입 가능성 document (`parcel-utility` lane, root ADR-0497). A signal is
 // evidence, not a ruling: no public source says a line can be connected, so a parcel without one
 // shows nothing, never "없음".
 export const UtilityDocumentSchema = Generated.extend({ pnu: PnuSchema });
