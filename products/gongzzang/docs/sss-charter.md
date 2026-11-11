@@ -107,7 +107,7 @@ ui-writing-korean·testing·git-and-pr·comments). *신호:* 처음 보는 사�
 - **좋다는 건:** 모든 값에 출처·수집시각·SRID·라이선스 추적, 원본(raw lineage) 보존, 신선도 인지.
 - **어떻게 아나:** 임의 매물/필지의 "이 값 어디서 언제 왔나"를 끝까지 되짚을 수 있다. 오래된 데이터가 최신인 척 안 함.
 - **런칭 전 최소선:** Catalog 원본=Foundation Platform lineage store, 자체 외부호출=승인된 archive/lineage 계약
-  ([데이터 원천 경계](./data-sources/README.md#catalog-원천-경계)). SRID 항상 명시. "맞는 것만 보여주고, 불확실하면 숨기거나 표시."
+  ([데이터 원천 경계](./data-sources/README.md#카탈로그-원천-경계)). SRID 항상 명시. "맞는 것만 보여주고, 불확실하면 숨기거나 표시."
 
 ### B-2. 신뢰성 (Reliability / SLO)
 
