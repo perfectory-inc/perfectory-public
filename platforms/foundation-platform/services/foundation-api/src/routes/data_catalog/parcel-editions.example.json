@@ -2,6 +2,7 @@
   "schema_version": 1,
   "checked_at_utc": "2099-10-20T12:00:00Z",
   "evidence_measured_at_utc": "2099-10-20T11:00:00Z",
+  "silver_measured": true,
   "contract_sha256": "c43702b6e3f01a4381841ccd4bf6862a8edfdb0be18c90c72708a5ca2bfe16cc",
   "served_edition": "209910",
   "editions": [

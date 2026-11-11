@@ -97,6 +97,16 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 배포 뒤 필지를 읽는 Gold 가 두 판이 다른 PNU 만 다시 짓고, by-PNU 레인은 모두 지어질 때까지 기다렸다가 함께 내보낸다
 (`edition_lockstep_gate.py`, 기다리는 동안 결과는 `waiting the served edition moved to ...`).
 
+### 서빙판이 뒤처졌다는 알림 (root ADR-0490 §7)
+
+| 알림 | 뜻 | 볼 곳 |
+| --- | --- | --- |
+| `FoundationParcelServedEditionBehind` | Silver 의 가장 새 판이 측정일부터 `readiness.max_served_lag_days`(14 일)를 넘게 승격되지 못했다 | `journalctl -u foundation-parcel-edition-readiness.service` 의 판별 첫 실패 단계 |
+| `FoundationParcelEditionSilverUnmeasured` | 판정이 Silver 의 판별 행 수를 읽지 못했다(뒤처짐을 잴 수 없다) | 같은 journal 의 `silver not measured` 이유 |
+| `FoundationParcelEditionReadinessSilent` | 판정이 3 일 돌지 않았다 | `systemctl status foundation-parcel-edition-readiness.service` |
+
+계열은 `/var/lib/foundation-jobs/metrics/parcel-edition-lag.prom` 이다. `parcel_edition_readiness.py lag` 가 판정 보고서에서 쓴다.
+
 ## 4. Silver 적재 (판 하나)
 
 계약에 판이 들어간 릴리스가 `current` 인 ai-server 에서 돌린다. 두 단계 모두 같은 판 하나만 받는다. 계보 값

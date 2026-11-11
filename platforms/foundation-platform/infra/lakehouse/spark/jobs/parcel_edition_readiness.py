@@ -243,6 +243,7 @@ def readiness(contract: Mapping[str, Any], evidence: Mapping[str, Any], now: dat
         "schema_version": REPORT_SCHEMA_VERSION,
         "checked_at_utc": _iso(now or _now()),
         "evidence_measured_at_utc": evidence.get("measured_at_utc"),
+        "silver_measured": isinstance((evidence.get("silver") or {}).get("rows_by_edition"), Mapping),
         "contract_sha256": contract_digest(contract),
         "served_edition": served,
         "editions": rows,
@@ -292,6 +293,50 @@ def promote(contract: Mapping[str, Any], report: Mapping[str, Any], name: str, b
     })
     editions.validate(promoted)
     return promoted
+
+
+def lag(contract: Mapping[str, Any], report: Mapping[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    """How far the served edition is behind the newest edition Silver holds (root ADR-0490 §7).
+
+    `newest` is the newest edition the report found rows of in Silver; it has been available since its
+    objects were measured (`measured_at_utc`, when the collection proposed it). `behind_seconds` is 0 when
+    it is the served edition or older. `silver_measured` is False when the report could not read Silver
+    (2026-11-04..11: every run, so 202609 stood unjudged and nothing said so): then no lag is claimed."""
+
+    now = now or _now()
+    served = editions.served(contract)
+    held = [row["edition"] for row in report.get("editions") or []
+            if (row.get("stages") or {}).get("silver", {}).get("passed") is True]
+    measured = report.get("silver_measured") is True
+    newest = max(held, default=served)
+    behind = 0
+    if newest > served:
+        since = _utc(f"{editions.edition(contract, newest)['measured_at_utc']}T00:00:00Z", "measured_at_utc")
+        behind = max(0, int((now - since).total_seconds()))
+    return {"served": served, "newest": newest, "behind_seconds": behind, "silver_measured": measured,
+            "budget_seconds": int(float(contract["readiness"]["max_served_lag_days"]) * 86400)}
+
+
+def lag_series(found: Mapping[str, Any], now: datetime | None = None) -> list[str]:
+    """`lag` as node-exporter textfile lines for FoundationParcelServedEditionBehind and its two companions
+    (infra/observability/prometheus/foundation-api.rules.yml)."""
+
+    at = (now or _now()).timestamp()
+    labels = f'served="{found["served"]}",newest="{found["newest"]}"'
+    return [
+        "# HELP foundation_parcel_served_edition_behind_seconds How long the newest cadastral edition Silver holds has waited to be served (root ADR-0490).",
+        "# TYPE foundation_parcel_served_edition_behind_seconds gauge",
+        f"foundation_parcel_served_edition_behind_seconds{{{labels}}} {found['behind_seconds']}",
+        "# HELP foundation_parcel_served_edition_behind_budget_seconds How long a new edition may wait before it is said (readiness.max_served_lag_days).",
+        "# TYPE foundation_parcel_served_edition_behind_budget_seconds gauge",
+        f"foundation_parcel_served_edition_behind_budget_seconds {found['budget_seconds']}",
+        "# HELP foundation_parcel_edition_silver_measured Whether the readiness check could read Silver's rows per edition.",
+        "# TYPE foundation_parcel_edition_silver_measured gauge",
+        f"foundation_parcel_edition_silver_measured {int(bool(found['silver_measured']))}",
+        "# HELP foundation_parcel_edition_readiness_timestamp_seconds When the readiness check last judged the editions.",
+        "# TYPE foundation_parcel_edition_readiness_timestamp_seconds gauge",
+        f"foundation_parcel_edition_readiness_timestamp_seconds {at:.0f}",
+    ]
 
 
 PROMOTION_JOB = "parcel_edition_readiness"
@@ -368,7 +413,7 @@ def _text(path: str | None) -> str | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("evidence", "readiness", "promote", "grant"))
+    parser.add_argument("command", choices=("evidence", "readiness", "promote", "grant", "lag"))
     parser.add_argument("--contract", help=f"defaults to ${editions.CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--evidence", help="readiness: the host's measured evidence (JSON)")
     parser.add_argument("--report", help="promote: the readiness report to rest on")
@@ -382,7 +427,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--answers", help="grant: where each answer and granted contract is kept")
     parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
     parser.add_argument("--inputs", help="readiness: the per-edition input digests beside it; rewritten")
-    parser.add_argument("--output", help="evidence, readiness: where to write (stdout without)")
+    parser.add_argument("--output", help="evidence, readiness: where to write (stdout without); lag: the .prom file")
     args = parser.parse_args(argv)
     path = Path(args.contract) if args.contract else editions.contract_path()
     try:
@@ -414,6 +459,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if not args.report:
             raise editions.EditionError(f"{args.command} needs --report, the readiness report it rests on")
+        if args.command == "lag":
+            found = lag(contract, json.loads(Path(args.report).read_text(encoding="utf-8")))
+            lines = "\n".join(lag_series(found)) + "\n"
+            if args.output:
+                target = Path(args.output)
+                temporary = target.with_name(f".{target.name}.partial")
+                temporary.write_text(lines, encoding="utf-8")
+                temporary.replace(target)
+            else:
+                sys.stdout.write(lines)
+            print(f"{found['served']} served, {found['newest']} newest in Silver, behind {found['behind_seconds'] // 86400} days",
+                  file=sys.stderr)
+            return 0
         if args.command == "grant":
             if not args.requests or not args.answers:
                 raise editions.EditionError("grant needs --requests and --answers")

@@ -262,6 +262,37 @@ class ConsoleRequestTest(unittest.TestCase):
             self.assertEqual(len(json.loads(report.read_text(encoding="utf-8"))["promotion_requests"]), 4)
 
 
+class LagTest(unittest.TestCase):
+    """Root ADR-0490 §7: 202609, measured 2026-10-05, waited 37 days unserved and nothing said so."""
+
+    def test_the_newest_edition_in_silver_waits_from_its_measurement(self):
+        found = readiness.lag(contract(), readiness.readiness(contract(), evidence(), NOW), NOW)
+        self.assertEqual((found["served"], found["newest"]), (SERVED, CANDIDATE))
+        self.assertEqual(found["behind_seconds"], 5 * 86400 + 12 * 3600)  # measured 2099-10-15, now 10-20 12:00
+        self.assertEqual(found["budget_seconds"], 14 * 86400)
+        self.assertTrue(found["silver_measured"])
+        lines = "\n".join(readiness.lag_series(found, NOW))
+        self.assertIn(f'foundation_parcel_served_edition_behind_seconds{{served="{SERVED}",newest="{CANDIDATE}"}} 475200', lines)
+        self.assertIn("foundation_parcel_edition_silver_measured 1", lines)
+
+    def test_an_edition_not_in_silver_or_the_served_one_is_no_lag(self):
+        for found in (evidence(silver={"rows_by_edition": {SERVED: 1000}}), ):
+            report = readiness.readiness(contract(), found, NOW)
+            self.assertEqual(readiness.lag(contract(), report, NOW)["behind_seconds"], 0)
+
+    def test_unmeasured_silver_is_said_not_taken_for_no_lag(self):
+        found = readiness.lag(contract(), readiness.readiness(contract(), evidence(silver=None), NOW), NOW)
+        self.assertFalse(found["silver_measured"])
+        self.assertEqual(found["behind_seconds"], 0)
+        self.assertIn("foundation_parcel_edition_silver_measured 0", readiness.lag_series(found, NOW))
+
+    def test_the_bound_is_the_contracts(self):
+        held = contract()
+        del held["readiness"]["max_served_lag_days_reason"]
+        with self.assertRaises(editions.EditionError):
+            editions.validate(held)
+
+
 class CommandLineTest(unittest.TestCase):
     def test_the_command_refuses_an_incomplete_edition_and_leaves_the_contract(self):
         with tempfile.TemporaryDirectory() as tmp:

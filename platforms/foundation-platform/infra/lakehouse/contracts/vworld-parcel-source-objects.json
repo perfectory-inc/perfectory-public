@@ -16,7 +16,9 @@
   "readiness": {
     "$comment": "What parcel_edition_readiness.py asks of an edition before it may be served (root ADR-0291 §2, ADR-0379). Silver: at most max_row_loss_fraction fewer rows than the served edition (202606 → 202609 measured 2026-10-21: 39.86M → 39.88M, +0.05%; 1% is about 400k parcels, a missing 시도 or two). A report older than max_report_age_hours is measured again: the table and the provider move daily.",
     "max_row_loss_fraction": 0.01,
-    "max_report_age_hours": 48
+    "max_report_age_hours": 48,
+    "max_served_lag_days": 14,
+    "max_served_lag_days_reason": "Root ADR-0490 §7. How long the newest edition Silver holds may wait, from when its objects were measured, before FoundationParcelServedEditionBehind pages. Editions come quarterly; a rehearsal and a promotion take a day or two, so two weeks is a stall, not the work. 2026-11-11: 202609, measured 2026-10-05, waited 37 days unserved and nothing said so."
   },
   "promotions": [
     {
