@@ -894,6 +894,13 @@ fn industrial_complex_address_source_commands_are_explicit() -> anyhow::Result<(
     assert_eq!(
         parse_command([
             "foundation-outbox-publisher",
+            "collect-industrial-complex-notice-attachments",
+        ])?,
+        Command::CollectIndustrialComplexNoticeAttachments
+    );
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
             "build-industrial-complex-address-resolution",
         ])?,
         Command::BuildIndustrialComplexAddressResolution

@@ -1,0 +1,188 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "industrial-complex-notice",
+  "jobs": [
+    {
+      "id": "industrial_complex_notice_collect",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "산업입지정보시스템(ILIS) 산업단지 고시와 그 첨부 (root ADR-0484; scripts/ops/industrial-complex-notice-collect.sh): the notice list in one request, then the notices the lakehouse does not record as settled (silver.industrial_complex_notice_detail), newest first, at most notice_detail.per_run_limit and until its run_time_budget_seconds, two seconds between requests. Each attachment still in use is downloaded and stored once, whatever its format (pdf, hwp, hwpx, zip, a picture, else bin), in the shared content-addressed media store; the details land in Bronze, notice_detail.commit_every notices to an object, each attachment annotated with its hash, format, size, source URL and outcome. A settled notice is never asked again (a change is a new notice). Reads nothing inside the files: extraction is the intelligence platform's, on ai-server, later. No Spark.",
+      "systemd_service": "foundation-industrial-complex-notice-collect.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-notice"
+      ],
+      "schedule": "20 * * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 2,
+      "wait_limit_minutes": 30,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "request",
+        "limits": [
+          "infra/lakehouse/contracts/industryland-or-kr.contract.json#/notice_detail/per_run_limit"
+        ],
+        "deadline": "infra/lakehouse/contracts/industryland-or-kr.contract.json#/notice_detail/run_time_budget_seconds",
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 1900,
+          "estimated_from": "computed from its own bounds: the list in one request (13.5 MB, measured 2026-11-09 in a few seconds) and then notices until notice_detail.run_time_budget_seconds (1,800 s) stops the loop, the last notice (one detail and about one attachment, two seconds between requests) finishing after it: about 1,900 s, inside the 2,160 s share of the 40-minute limit. Each 50 notices commit on their own (as_it_goes)."
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "The provider publishes notices on no fixed day (endpoint catalog expected_cadence irregular, ilis-industrial_complex_notice_detail); that the job runs and finishes is its done expectation (root ADR-0480 §1)."
+      },
+      "pool": "default_pool",
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-ilis-to-silver-industrial-complex-notice-detail",
+        "source-ilis-to-silver-industrial-complex-notice-attachment",
+        "silver-industrial-complex-notice-detail-to-source-ilis"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-10T21:00:00Z",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    },
+    {
+      "id": "industrial_complex_notice_silver",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver load of the ILIS notice reads and attachments (root ADR-0484; infra/lakehouse/spark/jobs/industryland_or_kr.py): the notice detail objects no commit of silver.industrial_complex_notice_detail records (plan-silver-load-objects, R2 alone), oldest first, each committed on its own: first its attachments in the store to silver.industrial_complex_notice_attachment (new or changed (notice, hash) only), then one read row per notice to silver.industrial_complex_notice_detail. `unchanged` without Spark when nothing is owed.",
+      "systemd_service": "foundation-industrial-complex-notice-silver-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-notice"
+      ],
+      "schedule": "5 * * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 40,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "infra/lakehouse/contracts/industryland-or-kr.contract.json#/silver_load/max_objects"
+        ],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed from court_auction_silver, the same plan-then-container Spark load (measured 278 s for one run); one collector run leaves at most eight objects (400 notices, 50 to an object), so about twice it, 600 s, inside the 2,160 s share of the 40-minute limit"
+        }
+      },
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when its collector wrote a notice object; that it is not behind its inputs is the asset reconciler's lag (root ADR-0333)."
+      },
+      "pool": "spark",
+      "pool_slots": 1,
+      "priority_weight": 10,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-ilis-to-silver-industrial-complex-notice-detail",
+        "source-ilis-to-silver-industrial-complex-notice-attachment"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-10T21:00:00Z",
+      "started_once_after_deploy": null,
+      "disabled_reason": null
+    }
+  ],
+  "host_memory": {
+    "industrial_complex_notice_silver": [
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      }
+    ]
+  },
+  "assets": [
+    {
+      "id": "silver-industrial-complex-notice-detail",
+      "type": "silver_table",
+      "title": "산업단지 고시 읽은 기록",
+      "description": "ILIS 고시 상세를 읽을 때마다(실패 포함) 고시 하나에 한 행을 쌓는다: 고시 번호·단지 코드·제목·고시일·종류·첨부 수. 수집기가 다음 실행에 물을 고시를 이 표에서 계산한다(루트 ADR-0484).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industryland-or-kr.contract.json"
+      ],
+      "table_name": "silver.industrial_complex_notice_detail",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.industrial_complex_notice_detail"
+        }
+      ]
+    },
+    {
+      "id": "silver-industrial-complex-notice-attachment",
+      "type": "silver_table",
+      "title": "산업단지 고시 첨부",
+      "description": "고시마다 그 첨부(PDF·HWP·HWPX·ZIP·그림, 그 밖은 bin)를 내용 해시로 한 번씩 쌓는다: 파일 이름·제공자 크기·출처 URL·받은 시각·형식·바이트 수. 바이트는 공용 content-addressed 미디어 저장소에 한 번만 있다(루트 ADR-0298, ADR-0484). 읽기·추출은 이 표로 저장소를 찾아 intelligence platform 이 ai-server 에서 나중에 한다",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industryland-or-kr.contract.json"
+      ],
+      "table_name": "silver.industrial_complex_notice_attachment",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.industrial_complex_notice_attachment"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-ilis",
+      "to": "silver-industrial-complex-notice-detail",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-industrial-complex-notice-attachments",
+        "platforms/foundation-platform/scripts/ops/industrial-complex-notice-collect.sh",
+        "platforms/foundation-platform/scripts/ops/industrial-complex-notice-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industryland_or_kr.py"
+      ],
+      "source_slugs": [
+        "industrylandorkr__industrial_complex_notice_detail"
+      ],
+      "description": "아직 끝나지 않은 고시의 상세를 새 것부터 묻고 읽은 기록을 쌓는다(루트 ADR-0484)."
+    },
+    {
+      "from": "source-ilis",
+      "to": "silver-industrial-complex-notice-attachment",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-industrial-complex-notice-attachments",
+        "platforms/foundation-platform/scripts/ops/industrial-complex-notice-collect.sh",
+        "platforms/foundation-platform/scripts/ops/industrial-complex-notice-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/industryland_or_kr.py"
+      ],
+      "source_slugs": [
+        "industrylandorkr__industrial_complex_notice_detail"
+      ],
+      "description": "고시의 첨부를 형식에 상관없이 받아 공용 미디어 저장소에 내용 해시로 한 번만 담고, 색인을 쌓는다(루트 ADR-0484)."
+    },
+    {
+      "from": "silver-industrial-complex-notice-detail",
+      "to": "source-ilis",
+      "relation": "schedules",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_notice_collect.rs"
+      ],
+      "description": "수집기가 매 실행 이 표의 마지막 읽음으로 물을 고시를 계산한다: 목록의 고시 중 마지막 읽음이 끝나지(read) 않은 것, 새 것부터(루트 ADR-0484 §3)."
+    }
+  ]
+}

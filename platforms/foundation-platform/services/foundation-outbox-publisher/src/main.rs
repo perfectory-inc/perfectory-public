@@ -69,6 +69,7 @@ mod industrial_complex_bronze_raw_jsonl_export;
 mod industrial_complex_canonical_load;
 mod industrial_complex_gold_pointer_publish;
 mod industrial_complex_gold_profile_export;
+mod industrial_complex_notice_collect;
 mod lakehouse_object_listing;
 mod silver_load_objects;
 use foundation_publisher_core::industrial_complex_gold_profile_store;
@@ -171,6 +172,7 @@ enum Command {
     ListLakehouseObjects,
     MediaLadderBacklog,
     CollectIndustrialComplexAddressSource,
+    CollectIndustrialComplexNoticeAttachments,
     DeleteR2Candidates,
     ExportBuildingRegisterFloorSilverHandoff,
     StageBuildingRegisterFloorInputs,
@@ -356,6 +358,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::MediaLadderBacklog => Box::pin(media_ladder_backlog::run()),
         Command::CollectIndustrialComplexAddressSource => {
             Box::pin(industrial_complex_address_source_collect::run())
+        }
+        Command::CollectIndustrialComplexNoticeAttachments => {
+            Box::pin(industrial_complex_notice_collect::run())
         }
         Command::DeleteR2Candidates => Box::pin(r2_delete_candidates::run()),
         Command::ExportBuildingRegisterFloorSilverHandoff => {
@@ -727,6 +732,9 @@ where
         Some("media-ladder-backlog") => Ok(Command::MediaLadderBacklog),
         Some("collect-industrial-complex-address-source") => {
             Ok(Command::CollectIndustrialComplexAddressSource)
+        }
+        Some("collect-industrial-complex-notice-attachments") => {
+            Ok(Command::CollectIndustrialComplexNoticeAttachments)
         }
         Some("export-industrial-complex-boundary-silver-handoff") => {
             Ok(Command::ExportIndustrialComplexBoundarySilverHandoff)

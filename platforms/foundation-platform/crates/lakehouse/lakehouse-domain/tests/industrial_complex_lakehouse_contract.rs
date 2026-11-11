@@ -12,7 +12,8 @@ use lakehouse_domain::{
     SILVER_BUILDING_REGISTER_UNITS, SILVER_BUILDING_REGISTER_UNIT_AREAS,
     SILVER_COMPLEX_PARCEL_MEMBERSHIPS, SILVER_COURT_AUCTION_ITEM, SILVER_COURT_AUCTION_ITEM_DETAIL,
     SILVER_COURT_AUCTION_ITEM_PHOTO, SILVER_COURT_AUCTION_SALE_RESULT, SILVER_INDUSTRIAL_COMPLEXES,
-    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
+    SILVER_INDUSTRIAL_COMPLEX_BOUNDARIES, SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT,
+    SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
     SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_OWNERSHIP, SILVER_LAND_RIGHT_REGISTRATION,
     SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_AREA,
     SILVER_LAND_USE_ZONE_CODES, SILVER_ONBID_ANNOUNCEMENT, SILVER_ONBID_ANNOUNCEMENT_BID_RESULT,
@@ -370,6 +371,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_DETAIL.table_name
             || contract.table_name == SILVER_ONBID_ITEM_BID_INFO.table_name
+            || contract.table_name == SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
+            || contract.table_name == SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT.table_name
         {
             // Root ADR-0340: an Onbid announcement, detail or bid-info row is appended when its
             // content changed; the newest is current, and none vanishes (the provider's windowed
@@ -379,7 +382,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
             // vanishes (root ADR-0384).
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
-            // photo reference never vanishes (root ADR-0298).
+            // photo reference never vanishes (root ADR-0298). A notice read and its attachments
+            // likewise (root ADR-0484).
             assert_eq!(contract.current_row_predicate, None);
             assert!(contract
                 .current_row_latest()

@@ -88,6 +88,14 @@
           "mode": "0777"
         },
         {
+          "path": "/var/lib/foundation-platform/industrial-complex-notice",
+          "mode": "0755"
+        },
+        {
+          "path": "/var/lib/foundation-platform/industrial-complex-notice/lakehouse",
+          "mode": "0777"
+        },
+        {
           "path": "/var/lib/foundation-platform/registered-factory",
           "mode": "0755"
         },
@@ -1228,6 +1236,16 @@
             "memory_max": "3G",
             "measured": "never run (root ADR-0475: new, waiting for the approval key); sized as the collector holds one ten-day answer's files in memory and one more copy while it commits each, against the provider's 2,000,000,000-byte file limit for the largest; systemd logs the peak of every run under this cap"
           },
+          "foundation-industrial-complex-notice-collect.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no run yet (new 2026-11-09, root ADR-0484); sized as the court auction collector (547M measured), which keeps one detail and its attachments in memory as this one does, under a 256 MiB per-file cap (industryland-or-kr.contract.json attachments.max_file_bytes); systemd logs the peak of every run under this cap"
+          },
+          "foundation-industrial-complex-notice-silver-load.service": {
+            "class": "batch",
+            "memory_max": "512M",
+            "measured": "no run yet (new 2026-11-09, root ADR-0484); sized as the court auction Silver load (306M measured), the same plan-then-container script; the Spark container is capped by its compose service; systemd logs the peak of every run under this cap"
+          },
           "foundation-lakehouse-maintenance.service": {
             "class": "batch",
             "memory_max": "512M",
@@ -1502,6 +1520,8 @@
       "legal_dong_code_changes",
       "court_auction_collect",
       "court_auction_silver",
+      "industrial_complex_notice_collect",
+      "industrial_complex_notice_silver",
       "registered_factory",
       "onbid_public_auction_collect",
       "onbid_public_auction_silver",
@@ -1937,6 +1957,7 @@
       "rt_molit_real_transaction_silver",
       "registered_factory",
       "court_auction_silver",
+      "industrial_complex_notice_silver",
       "gold_panel_rebuild",
       "gold_kind_rebuild",
       "gold_public_auction_rebuild",
