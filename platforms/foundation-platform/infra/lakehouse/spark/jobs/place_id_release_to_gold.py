@@ -18,12 +18,14 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import parcel_identity as pi
 import parcel_place_id_release as parcel_release
+import parcel_registry_frames as registry_frames
 import place_id_release as rel
 import place_identity_resolver as pir
+import vworld_parcel_editions as editions
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
 from lakehouse_ingest import append_batch_once
 from parcel_lineage_to_silver import IDENTIFIER, PREFIX
@@ -133,11 +135,25 @@ def ensure_release_table(spark: Any, cat: str, namespace: str, name: str) -> str
     return table
 
 
-def registry_rows(spark: Any, cat: str) -> Any:
-    """`silver.parcel_registry` with each id's region (`parcel_place_id_release.with_scope`)."""
+def registry_rows(spark: Any, cat: str, contract: Mapping[str, Any] | None = None) -> Any:
+    """`silver.parcel_registry` as of the served edition (`parcel_registry_frames.registry_through`, root
+    ADR-0490 §4a), with each id's region (`parcel_place_id_release.with_scope`) and `visible_at_utc`: when
+    the row reached this read, its recording or the promotion that put its edition in the read
+    (`vworld_parcel_editions.included_since`). A candidate's step is in the table before it is served;
+    consumers see it on its promotion, and the regions it moved are released then."""
 
-    return parcel_release.with_scope(spark.table(f"{cat}.`silver`.`parcel_registry`").select(
-        "parcel_id", "pnu", "status", "valid_from", "valid_to", "redirect_to", "recorded_at_utc"))
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    contract = contract or editions.load()
+    served = editions.snapshot_id(contract, editions.served(contract))
+    since = editions.included_since(contract)
+    included = F.lit(None).cast("timestamp")
+    for snapshot, instant in sorted(since.items()):
+        included = F.when(F.col("to_snapshot_id") == snapshot, F.to_timestamp(F.lit(instant))).otherwise(included)
+    rows = registry_frames.registry_through(spark.table(f"{cat}.`silver`.`parcel_registry`"), served, contract)
+    return parcel_release.with_scope(rows.select(
+        "parcel_id", "pnu", "status", "valid_from", "valid_to", "redirect_to", "recorded_at_utc",
+        F.greatest(F.col("recorded_at_utc"), F.coalesce(included, F.col("recorded_at_utc"))).alias("visible_at_utc")))
 
 
 def code_moved_scopes(spark: Any, cat: str, rows: Any, published: Any) -> set[str]:
