@@ -1126,10 +1126,13 @@ fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> a
             }
             Completeness::National => 0,
             // The layer code, `D032`: each layer is compared and committed alone (root ADR-0362).
-            Completeness::Listed => {
-                assert_eq!(latest.key.first(), Some(&"layer_code"), "{}", lane.id());
-                4
-            }
+            // A one-file national lane keyed by the 시군구 that registered the row compares its 시도,
+            // the code's first two digits (the 부동산중개업 lanes, root ADR-0511 §4).
+            Completeness::Listed => match latest.key.first() {
+                Some(&"layer_code") => 4,
+                Some(&"sigungu_code") => 2,
+                other => anyhow::bail!("{}: a listed lane keyed by {other:?}", lane.id()),
+            },
         };
         assert_eq!(
             contract.compare_bucket_prefix_length,
