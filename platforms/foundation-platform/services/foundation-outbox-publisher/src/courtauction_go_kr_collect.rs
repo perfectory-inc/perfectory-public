@@ -22,7 +22,8 @@
 //!
 //! After a list pass that was not cut short, the same run asks the site's 공통코드 once ([`codes`],
 //! root ADR-0540 §5), then the 물건상세 of the properties due, on the same pool and tally, and stores
-//! their photos once in the shared media store ([`detail`], root ADR-0384).
+//! their photos once in the shared media store ([`detail`], root ADR-0384), then the 사건상세,
+//! 현황조사 and 감정평가 of the cases due ([`cases`], root ADR-0540 §1).
 
 use std::{
     collections::BTreeMap,
@@ -178,6 +179,7 @@ pub(crate) struct SourceContract {
     pub(crate) sale_result_search: Search,
     pub(crate) item_detail: detail::ItemDetail,
     pub(crate) common_codes: codes::CommonCodes,
+    pub(crate) case_documents: cases::CaseDocuments,
     pub(crate) collection: Collection,
 }
 
@@ -886,6 +888,61 @@ async fn detail_frontier(
     Ok((asked, report))
 }
 
+/// The case-document phase: the cases of this run's item search against the lakehouse's last reads,
+/// then their documents until `deadline`. A failure to read the last reads skips the phase; it
+/// never asks blind.
+async fn run_cases(
+    contract: &SourceContract,
+    asking: &Asking<'_>,
+    deadline: Instant,
+    results: &BTreeMap<&'static str, SearchResult>,
+    live: bool,
+) -> anyhow::Result<(cases::CasesResult, Option<Stop>, JsonValue)> {
+    let documents = &contract.case_documents;
+    let lines = results
+        .get("item_search")
+        .map(|r| r.lines.as_slice())
+        .unwrap_or_default();
+    let wanted = cases::cases_of(&detail::wanted_from_lines(
+        lines,
+        &contract.item_detail,
+        &contract.collection,
+    ));
+    let last = if live {
+        match cases::last_reads_from_lakehouse(documents).await {
+            Ok(last) => last,
+            Err(error) => {
+                tracing::warn!(error = %format!("{error:#}"), "courtauction.go.kr: the case frontier could not be read; no case document asked");
+                let report = json!({"asked": 0, "skipped": format!("{error:#}")});
+                return Ok((cases::CasesResult::default(), None, report));
+            }
+        }
+    } else {
+        std::collections::HashMap::new()
+    };
+    let today = (Utc::now() + chrono::Duration::hours(KST_HOURS)).date_naive();
+    let candidates = wanted.len();
+    let asked = cases::frontier(
+        wanted,
+        &last,
+        &contract.collection.recrawl,
+        today,
+        documents.per_run_limit,
+    );
+    let (result, stop) =
+        cases::collect_case_documents(contract, asking, deadline, &asked, Utc::now).await?;
+    let report = json!({
+        "in_progress": candidates,
+        "read_before": last.len(),
+        "frontier": asked.len(),
+        "cases": result.cases,
+        "requests": result.requests,
+        "failed": result.failed,
+    });
+    println!("courtauction.go.kr case documents: {report}");
+    Ok((result, stop, report))
+}
+
 /// Collects one run into Bronze.
 ///
 /// # Errors
@@ -990,10 +1047,15 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
     let mut details: Option<(detail::DetailResult, JsonValue)> = None;
+    // The case documents end the run; the 물건상세 leave them their budget (root ADR-0540 §1). The
+    // photos' display ladders are the hourly backlog's, not the run's (root ADR-0566).
+    let cases_deadline = deadline;
     if stop.is_none() {
-        // The run collects; the photos' display ladders are the hourly ladder backlog's
-        // (media_ladder_backlog, root ADR-0429), so the details have the run's whole budget.
-        let detail_deadline = deadline;
+        let detail_deadline = cases_deadline
+            .checked_sub(Duration::from_secs(
+                contract.case_documents.run_time_budget_seconds,
+            ))
+            .unwrap_or(cases_deadline);
         let (asked, mut report) =
             detail_frontier(&contract, &results, live.map(|(_, s)| s)).await?;
         // The list lines are in Bronze and the frontier is read from them: nothing reads them again,
@@ -1060,9 +1122,34 @@ pub async fn run() -> anyhow::Result<()> {
         println!("courtauction.go.kr item detail: {report}");
         details = Some((total, report));
     }
+    // The 물건상세 phase ends at its own deadline (TimeBudget), which still leaves the case documents
+    // theirs; an operator's window that ended does not.
+    let mut case_documents = None;
+    if matches!(stop, None | Some(Stop::TimeBudget)) && details.is_some() {
+        let (result, cases_stop, report) =
+            run_cases(&contract, &asking, cases_deadline, &results, live.is_some()).await?;
+        stop = cases_stop.or(stop);
+        case_documents = Some((result, report));
+    }
     let counts = asking.tally.counts();
     let sessions = pool.sessions();
     let night = night_summary(counts, &sessions, &failed, stop.as_ref());
+    let mut cases_report = json!({"asked": 0, "skipped": "the 물건상세 phase did not end cleanly"});
+    if let Some((result, report)) = case_documents {
+        for (document, lines) in contract.case_documents.documents.iter().zip(&result.lines) {
+            if lines.is_empty() {
+                continue;
+            }
+            let search = document.as_search(&contract.case_documents.pace_group);
+            let mut entry =
+                persist(&search, &config.output_dir, lines, started, &night, live).await?;
+            entry["role"] = json!(document.role);
+            entry["complete"] = json!(stop.is_none());
+            entry["rows"] = json!(lines.len());
+            objects.push(entry);
+        }
+        cases_report = report;
+    }
     let detail_report = match details {
         Some((_, report)) => report,
         None => json!({"asked": 0, "skipped": "the list pass did not end cleanly"}),
@@ -1076,6 +1163,7 @@ pub async fn run() -> anyhow::Result<()> {
             "night": night,
             "objects": objects,
             "item_detail": detail_report,
+            "case_documents": cases_report,
         }),
     )?;
     tracing::info!(
@@ -1107,6 +1195,7 @@ pub async fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
+pub(crate) mod cases;
 pub(crate) mod codes;
 pub(crate) mod detail;
 

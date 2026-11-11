@@ -264,6 +264,66 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "detail 의 코드 옆에 사이트가 붙이는 이름(기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목)을 `*_name` 으로 싣는다. 계약 common_codes 의 names 가 어느 칸인지 정하고, 이름이 바뀐 코드를 쓰는 물건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-case-related",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail 에 사건의 문서(관련사건·당사자 구분·목록별 종국결과·현황조사 최신 회차·감정평가 최신 회차)로 싣는다. 레지스트리 개정 1.6, 바뀐 사건의 PNU 만 다시 짓는다(루트 ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-case-object",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail 에 사건의 문서(관련사건·당사자 구분·목록별 종국결과·현황조사 최신 회차·감정평가 최신 회차)로 싣는다. 레지스트리 개정 1.6, 바뀐 사건의 PNU 만 다시 짓는다(루트 ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-case-party",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail 에 사건의 문서(관련사건·당사자 구분·목록별 종국결과·현황조사 최신 회차·감정평가 최신 회차)로 싣는다. 레지스트리 개정 1.6, 바뀐 사건의 PNU 만 다시 짓는다(루트 ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-survey",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail 에 사건의 문서(관련사건·당사자 구분·목록별 종국결과·현황조사 최신 회차·감정평가 최신 회차)로 싣는다. 레지스트리 개정 1.6, 바뀐 사건의 PNU 만 다시 짓는다(루트 ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-survey-object",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail 에 사건의 문서(관련사건·당사자 구분·목록별 종국결과·현황조사 최신 회차·감정평가 최신 회차)로 싣는다. 레지스트리 개정 1.6, 바뀐 사건의 PNU 만 다시 짓는다(루트 ADR-0540 §1)."
+    },
+    {
+      "from": "silver-court-auction-appraisal",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
+      ],
+      "description": "진행 물건 회차의 detail 에 사건의 문서(관련사건·당사자 구분·목록별 종국결과·현황조사 최신 회차·감정평가 최신 회차)로 싣는다. 레지스트리 개정 1.6, 바뀐 사건의 PNU 만 다시 짓는다(루트 ADR-0540 §1)."
     }
   ],
   "by_pnu_lanes": {
@@ -344,13 +404,20 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md",
           "reason": "each code of a round's detail gains the site's name beside it (*_name: 기일종류·기일결과·목록구분·물건종류·입찰구분·감정요항표 표와 항목), from the 공통코드 the collector asks each run (silver.court_auction_code); optional fields, null while a code has no name"
+        },
+        {
+          "major": 1,
+          "revision": 6,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md",
+          "reason": "each round's detail gains its case's own documents: related_cases, parties (kinds and counts, no names), objects[].closure_kind_name, survey (the newest 현황조사 round with its 목록, names masked) and appraisal (the newest 감정평가 round); optional fields"
         }
       ],
       "consumers": [
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
-          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5)",
+          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표; the names the site gives their codes (기일결과 매각·유찰, 기일종류, 목록구분, 물건종류, 입찰구분, 감정요항표 항목; root ADR-0540 §5); the case's 관련사건·당사자·목록별 종국결과·현황조사서·감정평가 (root ADR-0540 §1)",
           "reads": [
             {
               "path": "schema_version",
@@ -658,6 +725,82 @@
             },
             {
               "path": "court_auction.rounds[].detail.appraisal_points[].item_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].closure_kind_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.related_cases",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.related_cases[].related_user_case_no",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.related_cases[].relation_kind_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.parties",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.parties[].kind_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.parties[].count",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.surveyed_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.possession_summary",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.lease_text",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.objects",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.objects[].object_seq",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.objects[].possession_text",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.survey.objects[].lease_count",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal.price_basis_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal.written_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal.opinion",
               "required": false
             }
           ]
