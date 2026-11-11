@@ -135,7 +135,7 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         self.assertEqual((command, datasets.split(",")), ("collect-data-go-kr-file-data", expected))
         self.assertEqual([c.split(" ")[1] for c in calls[1:]], ["silver." + slug for slug in expected])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
-        self.assertEqual(call.count("--plan-dir"), 16, "one Spark run for every table, for the code-change follow-up too")
+        self.assertEqual(call.count("--plan-dir"), 17, "one Spark run for every table, for the code-change follow-up too")
         self.assertEqual(sorted(self.state.rglob("*.csv")), [])
 
     def test_a_landed_owed_or_followed_run_is_a_change(self):

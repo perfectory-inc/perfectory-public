@@ -229,6 +229,7 @@ last_reviewed: 2026-11-07
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
 | 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
+| 토지 | 지가변동률(시군구) (`silver.land_price_change_rate`) | — | — | 없음 |
 | 토지 | 지역지구별 토지이용규제 (`silver.land_use_regulation_by_zone`) | — | — | 없음 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy` | — | 화면 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy` | — | 화면 |

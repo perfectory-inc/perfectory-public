@@ -656,6 +656,42 @@
         "window_days": 7,
         "max_objects": 1
       }
+    },
+    "land_price_change_rate": {
+      "operation": "fileData15063473",
+      "name_ko": "국토교통부_읍면동 지가변동률",
+      "institution_ko": "국토교통부",
+      "published": "monthly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15063473",
+        "publicDataDetailPk": "uddi:6df6d130-e449-443c-ac9e-f8d23fbea15b",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "cp949",
+      "header": ["시도명", "시군구명", "기준년도", "변동률구분", "01월", "02월", "03월", "04월", "05월", "06월", "07월", "08월", "09월", "10월", "11월", "12월"],
+      "bounds": {
+        "$comment": "min_rows is the 2026-06-30 판's 5,834 rows minus about 10%.",
+        "min_rows": 5250,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["시도명", "시군구명", "기준년도", "변동률구분"],
+        "$comment": "One row per (시도, 시군구, 기준년도, 변동률구분): 5,834 distinct of 5,834 (2026-11-11). The current year's row gains a month each edition, so it is that key's newer row; earlier years stay."
+      },
+      "place_link": {
+        "kind": "legal_dong_by_names",
+        "names": ["시도명", "시군구명"],
+        "$comment": "시도·시군구 names to the 시군구's 법정동 code; a name a reorganisation retired reads through the recorded pairs (ADR-0329). 269 (시도, 시군구) pairs, 2005–2026."
+      },
+      "measured": "2026-11-11 (2026-06-30 판, portal updated 2026-08-31): 662,484 bytes, one CP949 CSV of 5,834 rows and 16 columns on every row, 기준년도 2005–2026, 변동률구분 평균지가변동률 only; the months not yet published are 0. The portal names it 읍면동 but its unit is the 시군구. The 용도지역별 rate (15112264, 한국부동산원) has no file on the portal (its download answers 0 bytes, 2026-11-11) and lives at R-ONE.",
+      "silver_load": {
+        "$comment": "What one load of silver.land_price_change_rate may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     }
   }
 }

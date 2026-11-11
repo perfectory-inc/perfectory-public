@@ -48,7 +48,8 @@
         "source-data-go-kr-file-data-to-silver-elevator-installation",
         "source-data-go-kr-file-data-to-silver-knowledge-industry-center",
         "source-data-go-kr-file-data-to-silver-urban-plan-notice",
-        "source-data-go-kr-file-data-to-silver-land-use-regulation-by-zone"
+        "source-data-go-kr-file-data-to-silver-land-use-regulation-by-zone",
+        "source-data-go-kr-file-data-to-silver-land-price-change-rate"
       ],
       "enabled": true,
       "pool_slots": 3,
@@ -377,6 +378,25 @@
           "value": "silver.land_use_regulation_by_zone"
         }
       ]
+    },
+    {
+      "id": "silver-land-price-change-rate",
+      "type": "silver_table",
+      "title": "지가변동률(시군구)",
+      "description": "국토교통부 읍면동 지가변동률(15063473), 실제 단위는 시군구: (시도, 시군구, 기준년도, 변동률구분)마다 한 행, 1–12월 평균지가변동률(2005년부터). 시도·시군구 이름으로 법정동 코드에 잇는다(바뀐 이름은 코드 대응표로). 올해 행은 판마다 달이 늘어 같은 키의 새 행이 된다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 중개사가 고객에게 땅값 추세를 설명하는 자료다(W68 순위 4 의 대체: 용도지역별 15112264 는 포털에 파일이 없다). 읽는 소비자(by-PNU 종류)가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.land_price_change_rate",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.land_price_change_rate"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -637,6 +657,21 @@
       ],
       "source_slugs": [
         "datagokr__land_use_regulation_by_zone"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-land-price-change-rate",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__land_price_change_rate"
       ],
       "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     }

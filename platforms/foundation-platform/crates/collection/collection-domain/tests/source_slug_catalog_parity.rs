@@ -85,7 +85,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (164 in-scope, 10 mixed).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (165 in-scope, 10 mixed).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
@@ -103,9 +103,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // 158th is the courtauction.go.kr 물건상세, asked after the list searches in the same run (root ADR-0384);
     // the 159th is the ILIS 산업단지 고시 상세, whose attachments are collected whole (root ADR-0484);
     // the 160th–162nd are three more data.go.kr files the same collector lands: 표준지공시지가,
-    // 승강기 설치 현황 and 전국지식산업센터현황; the 163rd–164th are (도시계획)고시정보 and 지역지구별
-    // 토지이용규제정보.
-    assert_eq!(checked, 164, "expected 164 in-scope catalog entries");
+    // 승강기 설치 현황 and 전국지식산업센터현황; the 163rd–165th are (도시계획)고시정보, 지역지구별
+    // 토지이용규제정보 and 읍면동 지가변동률.
+    assert_eq!(checked, 165, "expected 165 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"
@@ -242,10 +242,11 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
     );
     // The registered factory, the nine other public bulk endpoints (root ADR-0401: the railway
     // station and station-line endpoints are one file), the three 표준데이터 (root ADR-0453) and
-    // 표준지공시지가, 승강기 설치 현황, 전국지식산업센터현황, (도시계획)고시정보 and 지역지구별 토지이용규제정보.
+    // 표준지공시지가, 승강기 설치 현황, 전국지식산업센터현황, (도시계획)고시정보, 지역지구별 토지이용규제정보 and
+    // 읍면동 지가변동률.
     assert_eq!(
-        file_data_checked, 18,
-        "expected the 18 file-data endpoints to match the catalog"
+        file_data_checked, 19,
+        "expected the 19 file-data endpoints to match the catalog"
     );
     Ok(())
 }
