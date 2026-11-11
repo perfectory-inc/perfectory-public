@@ -84,3 +84,36 @@ dbt 시험의 `warn_if`/`error_if` 와 Deequ 제약의 비율 경계는 "몇 건
 - 비용: 리허설 gold 약 15 분 + bake 약 85 분, 승격 뒤 실제 gold·bake 한 번 더(첫 기본판 전량, 약 5.5GB R2 쓰기, 무료 등급 내 계산값),
   패널 레인 증분 재빌드.
 - 남은 일: §4–§8 의 구현. 코드 목록 최신 스냅숏이 2026-10-04 로 낡은 것은 이 ADR 범위 밖이다.
+
+## 개정 각주 — 2026-11-11, §5 버킷 사본과 §7 되돌리기의 구현 (W58d)
+
+결정은 그대로이고, 구현에서 정한 것을 적는다.
+
+- **§7 의 관문은 레인의 변경 집합 대조다.** by-PNU 레인은 승격 뒤 Gold 를 엣지에 올리기 전에 서빙 중인 판과 대조한다
+  (`by_pnu_panel_delta.py`, ADR-0141 §3·ADR-0346). 판이 바뀌는 것은 기록된 변경 집합(ADR-0381 §2)이라, 맞는 승격은
+  `not_a_delta`(기록 없이 절반 넘게 다름)를 만나지 않는다. 엣지 탐침(`by-pnu-serving-monitor.sh`)은 레인이 서빙하는 문서끼리 비교해서
+  판의 잘못을 보지 못하므로 쓰지 않는다. 타일은 리허설에서 같은 관문을 이미 통과했다.
+  - `by-pnu-serving-bake.sh` 는 lockstep 장벽이 열린 뒤의 기록(`reads.jsonl`)에 `edition`(장벽 안 레인만,
+    `edition_lockstep_gate.py edition <lane>`)과 거부 이름 `refused` 를 싣는다.
+  - 판정은 매 run 처음에 `parcel_edition_readiness.py rollback` 을 돈다. 마지막 승격 뒤, 그 판으로 그 레인이 아직 한 번도 게시하지
+    않았는데 `not_a_delta` 로 거부된 기록이 있으면, 승격이 떠난 판으로 돌아가는 줄(`rollback_of`·`cause`)을 호스트 원장에 덧붙인다.
+    충돌·다른 거부·이미 게시한 뒤의 거부·다른 판의 거부는 되돌리지 않는다. 지우는 것은 없다.
+  - 되돌린 판은 판정이 스스로 다시 승격하지 않는다(Kargo 가 검증에 실패한 Freight 를 자동 승격하지 않는 것과 같다). 더 새 판이 그것을
+    대신하거나, 고친 뒤 콘솔 요청(ADR-0381 §4)이 다시 올린다. 배포마다 다시 올렸다 되돌리면 레인 전체가 하루 몇 번씩 판을 오간다.
+  - 판정은 매시 10분에 돈다(전에는 하루 한 번). 되돌리기가 늦으면 다른 레인은 새 판, 실패한 레인은 옛 판을 서빙한다. 한 run 은 1초
+    안팎이다(2026-11-04~05 실측 5 run).
+- **되돌리기는 타일을 다시 굽지 않는다.** 타일 굽기의 "첫 판(부트스트랩)" 판정이 원장 길이(`len == 1`)를 읽어서, 첫 판으로 돌아가면
+  레이크하우스에서 전국을 굽었을 것이다(약 85 분, 5.5 GB, 바뀌는 것 없음). 이제 서빙판이 원장의 첫 판이고 레이크하우스 굽기가 한 번도
+  승격되지 않았으면(`baked-edition` 없음) PostGIS 시절 release 가 그것을 서빙한다고 본다. 승격된 판의 타일이 이미 구워졌다면 첫 판도
+  다른 판처럼 굽는다(필요한 굽기다).
+- **§5 버킷 사본은 ADR-0476 의 버킷을 함께 쓴다.** 같은 버킷의 `parcel-editions/` 아래에
+  `objects/<SHA-256>.jsonl`(새것만, 잠금 규칙 `Indefinite`), `history/<시각>.json`, 머리 `latest.json` 을 둔다
+  (`scripts/ops/parcel-promotions-publish.py`). 쓰기 열쇠는 판정 유닛의 `ExecStartPre=+` 가 매 run `parcel-editions/` 접두사만,
+  20 분짜리로 받는다(`shape-ledger-writer-key.py parcel-editions/`). CI 의 suites 작업은 공개 주소에서 머리와 원장을 읽어 해시를
+  맞추고, 이 트리의 계약 위에 겹쳐 읽는다(`scripts/ci/parcel-promotions-check.py`). 계약이 운영 원장을 잇지 못하면 PR 이 실패한다 —
+  병합하면 첫 배포에서 모든 판독자가 멈출 계약이다. 첫 머리가 올라가기 전에는 경고하고 통과한다.
+  - 열쇠 스크립트는 제어 체크아웃(`/opt/perfectory-control`)에서 돌아 한 배포 늦게 바뀐다. 그 사이 run 은 옛 스크립트가 만든
+    `shape-ledger/` 열쇠를 받고, 발행 스크립트가 접두사가 다른 열쇠를 쓰지 않아 "not published" 로 넘어간다.
+- 가드(ADR-0001): `test_parcel_edition_readiness.py` 의 `RollbackTest` — W58c 가 원장에 되돌리기 줄을 받게만 하고 아무도 쓰지 않던
+  틈. `test_parcel_tile_bake.py` 의 `test_a_rollback_before_any_lakehouse_bake_bakes_nothing` — 원장 길이를 읽는 부트스트랩 판정.
+  `scripts/ci/test_parcel_promotions_check.py` — 운영 원장과 어긋난 계약이 병합되는 것.

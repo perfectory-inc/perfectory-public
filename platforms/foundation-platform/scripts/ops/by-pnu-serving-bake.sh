@@ -317,6 +317,11 @@ fi
 # A lane run on its own (not a lane of `all`, which decides the run's outcome above) ends with the
 # outcome line itself, whichever way it exits (root ADR-0260: a run without one is failed).
 OWN_RUN=false LANE_WAITING=""
+# Root ADR-0490 §7: the served edition this run publishes, once the lockstep gate opens for a lane built
+# from the served parcels (none for any other lane), and the change-set refusal that stopped it. Both
+# go in the lane's records, so the readiness judgement can tell a refused first publish of a promotion
+# from every other failure and roll that promotion back.
+LANE_EDITION="" REFUSED=""
 if [[ -z "${BY_PNU_BAKE_PUBLISHED:-}" ]]; then
   OWN_RUN=true
   BY_PNU_BAKE_PUBLISHED="$(mktemp)"
@@ -349,14 +354,18 @@ trap lane_exit EXIT
 # follow records what it waits for, so the reconciler starts it again once that lane moves. A run
 # that failed records that, with the snapshot the lane still serves (the last record's), so the
 # reconciler owes it a new start after a backoff instead of the one start per Gold snapshot.
+# A record made after the lockstep gate opened names the edition (`edition`), and a refused change set
+# its refusal (`refused`).
 # record_read <served snapshot> [<gold snapshot it waits to bake> <followed lane> <followed snapshot>]
 # record_failed <exit code>
 record_read() {
-  python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "$@" <<'PY'
+  python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "${LANE_EDITION}" "$@" <<'PY'
 import datetime, json, sys
-path, lane, served, *waiting = sys.argv[1:]
+path, lane, edition, served, *waiting = sys.argv[1:]
 record = {"at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "lane": lane,
           "read_snapshot_id": served, "outcome": "waiting" if waiting else "served"}
+if edition:
+    record["edition"] = edition
 if waiting:
     record["gold_snapshot_id"], follows, followed = waiting
     record["waiting_on"] = {"lane": follows, "read_snapshot_id": followed}
@@ -366,9 +375,9 @@ PY
   echo "foundation-asset-read ${UNIT} gold=$1"
 }
 record_failed() {
-  python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "$1" <<'PY'
+  python3 -I - "${STATE_ROOT}/reads.jsonl" "${UNIT}" "$1" "${LANE_EDITION}" "${REFUSED}" <<'PY'
 import datetime, json, sys
-path, lane, code = sys.argv[1:]
+path, lane, code, edition, refused = sys.argv[1:]
 try:
     with open(path, encoding="utf-8") as reads:
         lines = [line for line in reads if line.strip()]
@@ -377,6 +386,10 @@ except FileNotFoundError:
     served = None
 record = {"at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "lane": lane,
           "read_snapshot_id": served, "outcome": "failed", "exit_code": int(code)}
+if edition:
+    record["edition"] = edition
+if refused:
+    record["refused"] = refused
 with open(path, "a", encoding="utf-8") as reads:
     reads.write(json.dumps(record, sort_keys=True) + "\n")
 PY
@@ -564,6 +577,7 @@ if [[ "${lockstep}" == waiting* ]]; then
   LANE_WAITING="${lockstep#waiting }"
   exit 0
 fi
+LANE_EDITION="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/edition_lockstep_gate.py" edition "${UNIT}")"   || { log "refused: cannot tell which edition the ${UNIT} lane publishes"; exit 65; }
 
 # Every choice and count of this run, for the run summary.
 declare -A summary=([unit]="${UNIT}" [gold_iceberg_snapshot_id]="${gold}" [gold_now_iceberg_snapshot_id]="${gold_now}"
@@ -662,7 +676,7 @@ run_delta() {
 
 # A refused change set: name the refusal in the log and the run summary, publish nothing.
 refuse_change_set() {
-  summary[refused]="$1"
+  summary[refused]="$1" REFUSED="$1"
   run="${delta}"
   write_summary
   log "FAILED: $2"

@@ -83,19 +83,36 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 
 `served_edition` 은 손으로 고치지 않는다 — `vworld_parcel_editions.validate` 가 원장(`promotions`) 마지막 항목과 다른 값을 거부한다.
 
-1. 호스트에서 판정을 쓴다(읽기만; Trino 파티션 메타데이터·최신 제공자 목록·타일 굽기 저널):
+1. 판정 작업 `parcel_edition_readiness`(매시 10분)이 판정을 쓴다(읽기만; Trino 파티션 메타데이터·최신 제공자 목록·타일 굽기 저널):
    `scripts/ops/parcel-edition-readiness.sh` → `/var/lib/foundation-platform/parcel-editions/readiness.json`, 판마다
    `ready` 또는 `not ready: <첫 실패 단계>`(`source` → `silver` → `rehearsal`).
-2. 옮길 판이 `ready` 이면 그 보고서(48시간 안)를 저장소 체크아웃으로 가져와
+2. 서빙판보다 새 판이 `ready` 이면 판정이 스스로 승격한다(루트 ADR-0490 §5, 요청자 `edition-controller`). 승격은 호스트 원장
+   `/var/lib/foundation-platform/parcel-editions/served-ledger.jsonl`(계약 `host_promotions_ledger`)에 한 줄로 덧붙고, 그 순간부터
+   계약을 읽는 모든 곳(`vworld_parcel_editions.load`, Rust `served_edition_view`, Spark 컨테이너는 읽기 전용 마운트)이 그 판을
+   서빙판으로 읽는다. PR 도 사람 단계도 없다. 승격된 계약 사본은 `promotions/<요청 id>.contract.json` 에 남는다. 원장 줄을 계약의
+   `promotions` 에 옮기는 PR 은 선택이다(같은 판·같은 시각이면 두 번 세지 않는다).
+3. 손으로 승격하려면(예외): 48시간 안의 보고서로
    `python3 infra/lakehouse/spark/jobs/parcel_edition_readiness.py promote --report readiness.json --edition <YYYYMM> --by <누가> --reason "<왜>"`.
    준비 안 됐거나, 오래됐거나, 다른 계약에서 만든 보고서면 거부하고 계약을 그대로 둔다.
-3. 바뀐 계약(서빙판 + 원장 한 줄)을 PR 로 낸다. 지도·패널·타일을 함께 옮기는 재굽기는 ADR-0291 §3 이다.
 
-콘솔에서(루트 ADR-0381): 더니어 「데이터 흐름 › 지적 판」 에서 `준비됨` 판의 승격 요청 칸에 이유를 적어 보낸다. 판정 작업
-`parcel_edition_readiness` 이 다음 실행에서 답한다(지금 답하게 하려면 그 작업을 「지금 한 번 돌리기」). 승인되면 승격된 계약이
-`/var/lib/foundation-platform/parcel-editions/promotions/<요청 id>.contract.json` 에 놓인다. 그 파일을 계약 자리에 넣는 PR 을 낸다.
+콘솔에서(루트 ADR-0381): 더니어 「데이터 흐름 › 지적 판」 에서 `준비됨` 판의 승격 요청 칸에 이유를 적어 보낸다. 판정 작업이
+다음 실행에서 답한다(지금 답하게 하려면 그 작업을 「지금 한 번 돌리기」). 승인되면 위 2 처럼 호스트 원장에 덧붙어 서빙된다.
 배포 뒤 필지를 읽는 Gold 가 두 판이 다른 PNU 만 다시 짓고, by-PNU 레인은 모두 지어질 때까지 기다렸다가 함께 내보낸다
 (`edition_lockstep_gate.py`, 기다리는 동안 결과는 `waiting the served edition moved to ...`).
+
+### 승격의 첫 게시가 실패하면 — 되돌리기 (root ADR-0490 §7)
+
+장벽 안 by-PNU 레인이 승격된 판의 첫 게시에서 변경 집합 대조에 거부되면(`refused: not_a_delta`, 레인의
+`/data/foundation-platform/by-pnu-bake/<레인>/reads.jsonl` 에 `edition`·`refused` 와 함께 남는다), 다음 판정 run 이 처음에
+승격이 떠난 판으로 돌아가는 줄(`rollback_of`·`cause`)을 호스트 원장에 덧붙인다. journal 에 `rolled back: <이유>` 가 남고, 결과 줄은
+`rolled back <판>-><판>` 이다. 레인은 두 판이 다른 PNU 만 되돌려 짓고, 타일은 레이크하우스 굽기가 승격된 적이 없으면 다시 굽지 않는다.
+
+되돌린 판은 판정이 다시 승격하지 않는다. 원인을 고친 뒤 콘솔에서 그 판의 승격을 요청하면(위 「콘솔에서」) 다시 올라간다.
+더 새 판이 준비되면 그것이 대신한다.
+
+호스트 원장은 매 run 버킷 `foundation-platform-shape-ledger-prod` 의 `parcel-editions/` 에 복사되고
+(`https://shape-ledger.perfectory.io/parcel-editions/latest.json`), CI 의 suites 작업이 PR 의 계약을 그 위에 겹쳐 읽는다
+(`scripts/ci/parcel-promotions-check.py`). 복사가 안 되면 journal 에 `not published` 가 남을 뿐 판정은 계속된다.
 
 ### 서빙판이 뒤처졌다는 알림 (root ADR-0490 §7)
 

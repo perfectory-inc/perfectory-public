@@ -185,6 +185,47 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertIn("served by the release from before the lakehouse bake", (self.state / "journal.log").read_text())
         self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome unchanged")
 
+    def rolled_back(self):
+        """The real contract with its candidate promoted and then rolled back (root ADR-0490 §7)."""
+        contract = json.loads(self.promoted.read_text(encoding="utf-8"))
+        first = json.loads(json.dumps(contract["promotions"][0]))
+        first["readiness"] = None
+        promoted_at = "2099-02-01T00:00:00Z"
+        contract["promotions"] = [first, {
+            "edition": self.candidate, "from_edition": self.served_name, "promoted_at_utc": promoted_at,
+            "by": "edition-controller", "reason": "synthetic",
+            "readiness": {"checked_at_utc": promoted_at, "contract_sha256": "0" * 64,
+                          "stages": {stage: "synthetic" for stage in ("source", "silver", "rehearsal")}},
+        }, {
+            "edition": self.served_name, "from_edition": self.candidate, "promoted_at_utc": "2099-02-02T00:00:00Z",
+            "by": "edition-controller", "reason": "synthetic", "readiness": None,
+            "rollback_of": promoted_at, "cause": "synthetic refusal",
+        }]
+        contract["served_edition"] = self.served_name
+        path = self.root / "rolled-back-contract.json"
+        path.write_text(json.dumps(contract, ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def test_a_rollback_before_any_lakehouse_bake_bakes_nothing(self):
+        # W58c: the bootstrap check read the ledger's length, so a rollback to the first edition would have
+        # baked it nationally from the lakehouse (about 85 minutes, 5.5 GB) for tiles the PostGIS-era
+        # release already serves.
+        self.env["VWORLD_PARCEL_SOURCE_CONTRACT"] = str(self.rolled_back())
+        result, calls = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(calls, [])
+        self.assertIn("served by the release from before the lakehouse bake", (self.state / "journal.log").read_text())
+
+    def test_a_rollback_after_the_promoted_edition_was_baked_bakes_the_first_edition_again(self):
+        self.env["VWORLD_PARCEL_SOURCE_CONTRACT"] = str(self.rolled_back())
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / "baked-edition").write_text(self.served[: -len(self.served_name)] + self.candidate + "\n")
+        result, calls = self.run_half("gold", "pass", bootstrap=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([c["job"] for c in calls], ["parcel_matching_gate.py", "parcel_boundary_served_gold.py"])
+        self.assertEqual(calls[0]["args"][calls[0]["args"].index("--snapshot-id") + 1], self.served)
+        self.assertEqual((self.state / "ready").read_text().split()[0], self.served)
+
     def test_the_gold_half_rehearses_the_candidate_once_and_hands_it_to_the_bake(self):
         self.wait_for_rehearsal()
         result, calls = self.run_half("gold", "pass", bootstrap=True)

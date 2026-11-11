@@ -70,7 +70,8 @@
     "start-once.parcel_edition_readiness": {
       "inputs": ["scripts/ops/parcel-edition-readiness.sh", "infra/systemd/foundation-parcel-edition-readiness.service",
                  "infra/lakehouse/spark/jobs/parcel_edition_readiness.py", "infra/lakehouse/spark/jobs/vworld_parcel_editions.py",
-                 "infra/lakehouse/contracts/vworld-parcel-source-objects.json"]
+                 "infra/lakehouse/contracts/vworld-parcel-source-objects.json",
+                 "scripts/ops/parcel-promotions-publish.py", "scripts/ops/r2_object.py"]
     },
     "start-once.media_reconcile": {
       "inputs": ["scripts/ops/media-reconcile.sh", "scripts/ops/media_reconcile.py", "scripts/ops/admitted-writer-runtime.sh",

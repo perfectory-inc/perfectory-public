@@ -85,6 +85,7 @@ jobs:
             python3 scripts/ci/test_foundation_ci_scope.py
             python3 scripts/ci/test_foundation_postgres_production_shape.py
             python3 scripts/ci/test_production_shape_fetch.py
+            python3 scripts/ci/test_parcel_promotions_check.py
           fi
           python3 scripts/ci/foundation_ci_scope.py --skipped-jobs --affected "$AFFECTED" \
             --event-name "$CHANGE_SCOPE_EVENT" --base "$CHANGE_SCOPE_BASE" --head "$CHANGE_SCOPE_HEAD" \
@@ -245,6 +246,11 @@ jobs:
       - name: Fetch production's published table shapes
         shell: bash
         run: python3 "$GITHUB_WORKSPACE/scripts/ci/production-shape-fetch.py"
+      # Root ADR-0490 §5: the host lays its promotions ledger over the parcel source contract, and a
+      # contract it does not continue stops every reader on the first deploy; judged here first.
+      - name: Judge the parcel source contract against production's promotions ledger
+        shell: bash
+        run: python3 "$GITHUB_WORKSPACE/scripts/ci/parcel-promotions-check.py"
       - name: Restore pinned release binaries
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

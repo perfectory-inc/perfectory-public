@@ -19,8 +19,10 @@ not. A stage the evidence says nothing about fails: unmeasured is not ready.
 changes, and otherwise moves `served_edition` and appends the promotion — who, why, when, and the
 readiness it rested on — to the contract's `promotions` ledger, which is never rewritten
 (`vworld_parcel_editions.validate` refuses a served edition the ledger's last entry does not name).
-The contract change still lands through a reviewed pull request, so the gate holds from the moment
-it merges, not one deploy later.
+`grant` answers the console's requests and the judgement's own (root ADR-0490 §5). A granted promotion
+takes effect when it is appended to the host promotions ledger (`host_promotions_ledger`), which every
+reader lays over the contract; nobody writes a pull request for it. A reviewed change may still copy it
+into the contract's own ledger.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -382,11 +385,15 @@ def controller_request(contract: Mapping[str, Any], report: Mapping[str, Any], n
     one that the report holds `ready`, once per edition and contract (its id names both), or None.
 
     Like Argo Rollouts promoting a canary its analysis passed: the verdict, not a person, asks. A console
-    request (ADR-0381 §4) stays the way to ask for anything else."""
+    request (ADR-0381 §4) stays the way to ask for anything else. An edition a rollback undid
+    (`rolled_back`) is never asked for again, as Kargo does not promote Freight whose verification failed:
+    a newer edition supersedes it, or a console request brings it back after a fix (root ADR-0490 §7)."""
 
     now = now or _now()
     served = editions.served(contract)
-    ready = [row["edition"] for row in report.get("editions") or [] if row.get("ready") is True and row["edition"] > served]
+    undone = rolled_back(contract)
+    ready = [row["edition"] for row in report.get("editions") or []
+             if row.get("ready") is True and row["edition"] > served and row["edition"] not in undone]
     if not ready:
         return None
     name = max(ready)
@@ -395,24 +402,133 @@ def controller_request(contract: Mapping[str, Any], report: Mapping[str, Any], n
             "job": PROMOTION_JOB, "expires_at": _iso(now + timedelta(hours=1)), "edition": name}
 
 
+# Root ADR-0490 §7. The refusals of a lane's change set (by-pnu-serving-bake.sh `refused`) that say the
+# promoted edition is wrong, not the bake: more than max_delta_fraction of the lane changed and no record
+# explains it (ADR-0141 §3, ADR-0346). An edition move is a recorded change set (ADR-0381 §2), so a correct
+# promotion never meets it; a missing comparison snapshot or a crashed change-set job says nothing of it.
+ROLLBACK_REFUSALS = ("not_a_delta",)
+
+
+def lane_records(bake_root: Path) -> dict[str, list[dict[str, Any]]]:
+    """{lane: its records} from each by-PNU lane's reads.jsonl under the serving bake's state root
+    (by-pnu-serving-bake.sh record_read, record_failed). A line that is not a record is skipped: the file
+    belongs to the bake, and one torn line must not stop the judgement of every edition."""
+
+    found: dict[str, list[dict[str, Any]]] = {}
+    for path in sorted(bake_root.glob("*/reads.jsonl")) if bake_root.is_dir() else []:
+        records = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+        found[path.parent.name] = records
+    return found
+
+
+def rolled_back(contract: Mapping[str, Any]) -> set[str]:
+    """The editions a rollback in the ledger undid (root ADR-0490 §7)."""
+
+    return {str(entry.get("from_edition")) for entry in contract.get("promotions") or [] if entry.get("rollback_of")}
+
+
+def rollback(contract: Mapping[str, Any], records: Mapping[str, Sequence[Mapping[str, Any]]],
+             now: datetime | None = None) -> dict[str, Any] | None:
+    """The contract rolled back to the edition the last promotion moved from, or None (root ADR-0490 §7).
+
+    It rolls back when a lane of the lockstep barrier (a record names the `edition` it was to publish only
+    for those, edition_lockstep_gate.py edition) had its first publish of the promoted edition refused by
+    the change-set comparison (ROLLBACK_REFUSALS): a record after the promotion, of that edition, before
+    any publish of it by that lane. A refusal after the lane served the edition is not its first publish;
+    a crash names no refusal. Like Argo Rollouts aborting to the stable revision on a failed analysis, or
+    Flagger's rollback on a failed canary check, nothing is deleted: the rollback is one more ledger line,
+    and the lanes rebuild only the PNUs the two editions differ in (ADR-0381 §2). The ledger's first entry
+    and a rollback are never rolled back."""
+
+    ledger = list(contract.get("promotions") or [])
+    last = ledger[-1] if ledger else {}
+    if len(ledger) < 2 or last.get("rollback_of") is not None or last.get("readiness") is None:
+        return None
+    edition, since = str(last["edition"]), str(last["promoted_at_utc"])
+    for lane in sorted(records):
+        for record in records[lane]:
+            if str(record.get("at") or "") < since or record.get("edition") != edition:
+                continue
+            if record.get("outcome") == "served":
+                break
+            if record.get("outcome") == "failed" and record.get("refused") in ROLLBACK_REFUSALS:
+                now = now or _now()
+                at = max(now, _utc(since, "promoted_at_utc") + timedelta(seconds=1))
+                rolled = json.loads(json.dumps(contract))
+                rolled["served_edition"] = last["from_edition"]
+                rolled["promotions"].append({
+                    "edition": last["from_edition"],
+                    "from_edition": edition,
+                    "promoted_at_utc": _iso(at),
+                    "by": CONTROLLER,
+                    "reason": f"rolled back: the first publish of {edition} failed its gate (root ADR-0490 §7)",
+                    "rollback_of": since,
+                    "cause": (f"the {lane} lane's first publish of {edition} was refused at {record.get('at')}: "
+                              f"{record.get('refused')} (by-pnu-serving-bake.sh, exit {record.get('exit_code')})"),
+                    "readiness": None,
+                })
+                editions.validate(rolled)
+                return rolled
+    return None
+
+
+def append_promotion(ledger: Path, promoted: Mapping[str, Any]) -> None:
+    """Adds `promoted`'s last promotion to the host ledger (root ADR-0490 §5). The whole file is written
+    beside it and renamed over it, so a reader sees the ledger before or after, never half a line. It is
+    world-readable: the Spark containers read it as their own user through a read-only mount. A rollback
+    (root ADR-0490 §7) is appended the same way."""
+
+    held = ledger.read_text(encoding="utf-8") if ledger.is_file() else ""
+    if held and not held.endswith("\n"):
+        held += "\n"
+    temporary = ledger.with_name(f".{ledger.name}.partial")
+    with temporary.open("w", encoding="utf-8", newline="\n") as out:
+        out.write(held + json.dumps(promoted["promotions"][-1], ensure_ascii=False, sort_keys=True) + "\n")
+        out.flush()
+        os.fsync(out.fileno())
+    temporary.chmod(0o644)
+    temporary.replace(ledger)
+
+
 def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answers: Path,
-          controller: bool = False) -> list[str]:
+          controller: bool = False, ledger: Path | None = None) -> list[str]:
     """Answers every request in `requests` that `answers` does not hold yet, each once, and lists every
     answer in the report under `promotion_requests`. With `controller`, the judgement's own request for
-    the newest ready edition is answered the same way, once. Returns the ids answered now."""
+    the newest ready edition is answered the same way, once. Returns the ids answered now.
+
+    With `ledger`, a granted promotion takes effect: it is appended to the host ledger every reader lays
+    over the contract (root ADR-0490 §5). The requests after it in the same run are judged against the
+    promoted contract, so the report, made from the one before, is refused as made from another: one
+    promotion a run. Without `ledger` the granted contract waits under `answers` for a reviewed change."""
 
     report = json.loads(report_path.read_text(encoding="utf-8"))
     answers.mkdir(parents=True, exist_ok=True)
     answered = []
-    own = controller_request(contract, report) if controller else None
-    if own is not None and not (answers / f"{own['request']}.json").exists():
-        record, promoted = answer(contract, report, own)
+
+    def take(name: str, record: dict[str, Any], promoted: dict[str, Any] | None) -> None:
+        nonlocal contract
         if promoted is not None:
-            target = answers / f"{own['request']}.contract.json"
+            target = answers / f"{name}.contract.json"
             target.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             record["contract"] = str(target)
-        (answers / f"{own['request']}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-        answered.append(own["request"])
+            if ledger is not None:
+                append_promotion(ledger, promoted)
+                record["served_from"] = str(ledger)
+                contract = promoted
+        # The answer is written last and once: a run that dies before it answers again, never twice.
+        (answers / f"{name}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+        answered.append(name)
+
+    own = controller_request(contract, report) if controller else None
+    if own is not None and not (answers / f"{own['request']}.json").exists():
+        take(own["request"], *answer(contract, report, own))
     for path in sorted(requests.glob("*")) if requests.is_dir() else []:
         if not path.is_file() or path.name.endswith(".partial") or (answers / f"{path.name}.json").exists():
             continue
@@ -422,13 +538,7 @@ def grant(contract: Mapping[str, Any], report_path: Path, requests: Path, answer
             record, promoted = {"request": path.name, "outcome": f"refused: {error}", "answered_at": _iso(_now())}, None
         else:
             record, promoted = answer(contract, report, request)
-        if promoted is not None:
-            target = answers / f"{path.name}.contract.json"
-            target.write_text(json.dumps(promoted, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            record["contract"] = str(target)
-        # The answer is written last and once: a run that dies before it answers again, never twice.
-        (answers / f"{path.name}.json").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-        answered.append(path.name)
+        take(path.name, record, promoted)
     report["promotion_requests"] = sorted(
         (json.loads(path.read_text(encoding="utf-8")) for path in answers.glob("*.json")
          if not path.name.endswith(".contract.json")),
@@ -445,7 +555,7 @@ def _text(path: str | None) -> str | None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("evidence", "readiness", "promote", "grant", "lag"))
+    parser.add_argument("command", choices=("evidence", "readiness", "promote", "grant", "lag", "rollback"))
     parser.add_argument("--contract", help=f"defaults to ${editions.CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--evidence", help="readiness: the host's measured evidence (JSON)")
     parser.add_argument("--report", help="promote: the readiness report to rest on")
@@ -457,6 +567,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--journal", help="evidence: the parcel tile bake's journal")
     parser.add_argument("--requests", help="grant: the console's promotion requests (switches/promote.d)")
     parser.add_argument("--answers", help="grant: where each answer and granted contract is kept")
+    parser.add_argument("--ledger", help="grant, rollback: the host promotions ledger a granted promotion is appended to, "
+                                         "which serves it (root ADR-0490 §5); without it the granted contract waits for a pull request")
+    parser.add_argument("--bake-root", help="rollback: the by-PNU serving bake's state root, each lane's reads.jsonl under it")
     parser.add_argument("--controller", action="store_true",
                         help="grant: also promote the newest ready edition on the judgement's own request (ADR-0490 §5)")
     parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
@@ -491,6 +604,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 # The editions judged again, one line (empty when none): the job's outcome rests on it.
                 print(",".join(moved), file=sys.stdout if args.output else sys.stderr)
             return 0
+        if args.command == "rollback":
+            if not args.bake_root or not args.ledger:
+                raise editions.EditionError("rollback needs --bake-root and --ledger")
+            rolled = rollback(contract, lane_records(Path(args.bake_root)))
+            if rolled is not None:
+                append_promotion(Path(args.ledger), rolled)
+                print(f"{rolled['promotions'][-1]['from_edition']}->{rolled['served_edition']}")
+                print(f"parcel-edition-readiness: rolled back: {rolled['promotions'][-1]['cause']}", file=sys.stderr)
+            return 0
         if not args.report:
             raise editions.EditionError(f"{args.command} needs --report, the readiness report it rests on")
         if args.command == "lag":
@@ -509,7 +631,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "grant":
             if not args.requests or not args.answers:
                 raise editions.EditionError("grant needs --requests and --answers")
-            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers), args.controller)
+            answered = grant(contract, Path(args.report), Path(args.requests), Path(args.answers), args.controller,
+                             Path(args.ledger) if args.ledger else None)
             print(",".join(answered))
             return 0
         report = json.loads(Path(args.report).read_text(encoding="utf-8"))
