@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
-import { BuildingByPnuPageSchema } from "./building-page.generated";
 import {
   BuildingByPnuProfileMajor,
   BuildingByPnuProfileSchema,
   BuildingByPnuProfileSubject,
 } from "./building.generated";
+import { BuildingByPnuPageSchema } from "./building-page.generated";
 
 // Published foundation-contracts building_panel / UnitResponse wire shapes (root ADR-0100).
 export const PnuSchema = z.string().regex(/^[0-9]{10}[1289][0-9]{8}$/);
