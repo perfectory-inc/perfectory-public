@@ -165,6 +165,16 @@ pub fn document_schemas(
         .collect())
 }
 
+/// The subject of a part of a by-PNU lane's documents (the building pages, root ADR-0325).
+///
+/// # Errors
+/// Returns an error when the registry cannot be read.
+pub fn subject_of_part(lane: &str, part: &str) -> anyhow::Result<Option<&'static Subject>> {
+    Ok(registry()?.subjects.iter().find(|subject| {
+        subject.owner.lane.as_deref() == Some(lane) && subject.owner.part.as_deref() == Some(part)
+    }))
+}
+
 /// The subject a serving surface (a top-level block of the connection contract) owns.
 ///
 /// # Errors
@@ -204,8 +214,13 @@ mod tests {
         assert_eq!(subject.current().revision, 4);
         assert_eq!(subject.current().schema_version, format!("{name}.v1"));
         assert_eq!(subject.written_revision(), Some(4));
-        // A host lane keeps its own document schema until it moves (root ADR-0336).
-        assert!(subject_of_lane("building")?.is_none());
+        // The building pages are a part of the building lane's documents, not its documents.
+        let documents = subject_of_lane("building")?
+            .ok_or_else(|| anyhow::anyhow!("the registry lists the building subject"))?;
+        let pages = subject_of_part("building", "page")?
+            .ok_or_else(|| anyhow::anyhow!("the registry lists the building pages' subject"))?;
+        assert_ne!(documents.subject, pages.subject);
+        assert!(subject_of_lane("no-such-lane")?.is_none());
         Ok(())
     }
 }

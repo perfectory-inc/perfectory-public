@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
+import {
+  BuildingByPnuProfileMajor,
+  BuildingByPnuProfileSchema,
+  BuildingByPnuProfileSubject,
+} from "./building.generated";
+import { BuildingByPnuPageSchema } from "./building-page.generated";
 
 // Published foundation-contracts building_panel / UnitResponse wire shapes (root ADR-0100).
 export const PnuSchema = z.string().regex(/^[0-9]{10}[1289][0-9]{8}$/);
@@ -63,13 +69,10 @@ const EdgeBuildingSchema = z.object({
   units: z.array(EdgeUnitSchema),
 });
 export const EdgeBuildingProfileSchema = z.object({
-  // v3 is v2 without the unit prices (root ADR-0190); v4 is v2 with the register's names beside its
-  // codes. All are read until v2 is no longer served.
-  schema_version: z.enum([
-    "foundation-platform.building_by_pnu_profile.v2",
-    "foundation-platform.building_by_pnu_profile.v3",
-    "foundation-platform.building_by_pnu_profile.v4",
-  ]),
+  // Every string of the subject's major in the schema registry (root ADR-0336): v2, and v4 (v2 with
+  // the register's names beside its codes) as the legacy strings, `<subject>.v<major>` for what the
+  // registry writes next.
+  schema_version: BuildingByPnuProfileSchema.shape.schema_version,
   pnu: PnuSchema,
   source: EdgeSourceSchema,
   buildings: z.array(EdgeBuildingSchema),
@@ -78,13 +81,11 @@ export const EdgeBuildingProfileSchema = z.object({
 
 export type EdgeBuildingProfile = z.infer<typeof EdgeBuildingProfileSchema>;
 
-const PAGE_SCHEMA_VERSION = "foundation-platform.building_by_pnu_page.v1";
-
 // One page of a building document too large for one request (root ADR-0325): page 1 answers the
 // parcel's own path, page n `<pnu>/<n>`; a building cut between pages appears on each, its floors
 // on the first. `withheld` says the document could not be served at all, and why.
 export const EdgeBuildingPageSchema = z.object({
-  schema_version: z.literal(PAGE_SCHEMA_VERSION),
+  schema_version: BuildingByPnuPageSchema.shape.schema_version,
   pnu: PnuSchema,
   source: EdgeSourceSchema,
   page: z.object({ index: z.number().int().positive(), count: z.number().int().positive() }),
@@ -161,9 +162,9 @@ export function joinBuildingPages(pnu: string, pages: EdgeBuildingPage[]): EdgeB
     }
     unlinked.push(...page.unlinked_units);
   });
-  // A page carries the v4 document's fields, cut; joined, it is that document.
+  // A page carries the current document's fields, cut; joined, it is a document of the major.
   return {
-    schema_version: "foundation-platform.building_by_pnu_profile.v4",
+    schema_version: `${BuildingByPnuProfileSubject}.v${BuildingByPnuProfileMajor}` as const,
     pnu,
     source: first.source,
     buildings,
@@ -177,8 +178,9 @@ export async function fetchBuildingProfile(
 ): Promise<EdgeBuildingProfile> {
   PnuSchema.parse(pnu);
   const body = await fetchEdge(pnu, 1, signal);
-  const paged =
-    (body as { schema_version?: unknown } | null)?.schema_version === PAGE_SCHEMA_VERSION;
+  const paged = BuildingByPnuPageSchema.shape.schema_version.safeParse(
+    (body as { schema_version?: unknown } | null)?.schema_version,
+  ).success;
   if (!paged) {
     const profile = EdgeBuildingProfileSchema.parse(body);
     if (profile.pnu !== pnu) throw new Error("building edge response PNU disagrees with request");

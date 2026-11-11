@@ -348,6 +348,89 @@
         }
       ],
       "consumers": []
+    },
+    {
+      "subject": "foundation-platform.building_by_pnu_profile",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 5,
+      "owner": {
+        "lane": "building",
+        "producer": "crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/building_document.rs"
+      },
+      "revisions": [
+        {
+          "major": 5,
+          "revision": 1,
+          "schema_version": "foundation-platform.building_by_pnu_profile.v2",
+          "legacy": true,
+          "decision": "docs/adr/0190-unit-prices-are-their-own-gold-panel-and-by-pnu-lane.md",
+          "reason": "the oldest document still read: a PNU's buildings of gold.building_panel with their floors and units, as BuildingByPnuDocument wrote it. Major 5, above every number a string of this document has held (v1 and v3 were served before and are no longer, v3 with no record of its fields), so a document the registry writes never reuses a retired string"
+        },
+        {
+          "major": 5,
+          "revision": 2,
+          "schema_version": "foundation-platform.building_by_pnu_profile.v4",
+          "legacy": true,
+          "decision": "docs/adr/0320-a-document-schema-bump-bakes-only-the-documents-it-changes.md",
+          "reason": "the register's purpose and structure names beside their codes (#746), both optional: an expansion of revision 1 served under its own string before the registry existed"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/building.generated.ts",
+          "reason": "the building panel: its document version, generated from this list and the subject's current revision (pnpm gen:schemas), so the web reads every string of the major; the panel's fields are still its own zod schema (building-edge.ts)",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "subject": "foundation-platform.building_by_pnu_page",
+      "format": "JSON",
+      "compatibility": "FULL_TRANSITIVE",
+      "major": 1,
+      "owner": {
+        "lane": "building",
+        "part": "page",
+        "producer": "crates/publisher/foundation-publisher-by-pnu/src/building_by_pnu_serving_export/building_document.rs"
+      },
+      "revisions": [
+        {
+          "major": 1,
+          "revision": 1,
+          "schema_version": "foundation-platform.building_by_pnu_page.v1",
+          "legacy": true,
+          "decision": "docs/adr/0325-a-document-past-one-request-is-served-as-pages.md",
+          "reason": "the first served page: a building document's buildings and units cut into pages, each naming its index and the page count, a whole document of its own schema"
+        }
+      ],
+      "consumers": [
+        {
+          "name": "web",
+          "at": "products/gongzzang/apps/web/lib/api/building-page.generated.ts",
+          "reason": "the building panel's pages (root ADR-0325): their version, generated from this list (pnpm gen:schemas); the page's fields are still building-edge.ts's own zod schema",
+          "reads": [
+            {
+              "path": "schema_version",
+              "required": true
+            },
+            {
+              "path": "pnu",
+              "required": true
+            }
+          ]
+        }
+      ]
     }
   ]
 }
