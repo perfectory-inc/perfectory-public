@@ -188,7 +188,7 @@ pub const GOLD_COMPLEX_DOCUMENT_FACTS: LakehouseTableContract = LakehouseTableCo
     columns: &[
         column("official_complex_code", "string", true),
         column("document_facts_json", "string", true),
-        column("fact_count", "int", true),
+        column("fact_count", "long", true),
         column("fact_extractor_version", "string", true),
         column("accuracy_gate_json", "string", true),
         column("folded_at_utc", "timestamp", true),

@@ -14742,7 +14742,7 @@
         },
         {
           "name": "fact_count",
-          "logical_type": "int",
+          "logical_type": "long",
           "required": true
         },
         {

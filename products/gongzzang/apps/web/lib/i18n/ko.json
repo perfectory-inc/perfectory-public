@@ -855,7 +855,21 @@
         "designationBasisLaw": "지정 근거 법률",
         "developmentMethod": "개발 방식",
         "developmentPurpose": "조성 목적",
-        "invitedIndustries": "유치 업종"
+        "invitedIndustries": "유치 업종",
+        "documentFacts": {
+          "aiExtracted": "AI 추출",
+          "landUse": "토지이용계획",
+          "landUseLabel": "용지",
+          "landUseArea": "면적",
+          "landUseRatio": "비율",
+          "areaM2": "{value} ㎡",
+          "ratio": "{value}%",
+          "invitedIndustries": "고시의 유치 업종",
+          "industry": "{name} ({code})",
+          "page": "{page}쪽",
+          "pages": "{first}–{last}쪽",
+          "original": "원문 {label}"
+        }
       }
     },
     "listing": {

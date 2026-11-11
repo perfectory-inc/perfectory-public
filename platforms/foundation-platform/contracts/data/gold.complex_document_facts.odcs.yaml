@@ -30,7 +30,7 @@ schema:
         logicalType: "string"
         required: true
       - name: "fact_count"
-        physicalType: "int"
+        physicalType: "long"
         logicalType: "integer"
         required: true
       - name: "fact_extractor_version"
