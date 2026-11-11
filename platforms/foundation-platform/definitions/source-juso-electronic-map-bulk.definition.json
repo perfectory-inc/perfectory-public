@@ -41,9 +41,8 @@
       "pipeline_graph_edges": [
         "juso-electronic-map-collection-to-source-juso-electronic-map-bulk"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-10T14:00:00Z",
-      "dagster_stage": "shadow",
+      "enabled": false,
+      "disabled_reason": "Paused 2026-11-11 before it writes anything (W61c; it had landed 0 files: 120 asks, all E1001): the 보안각서 signed for the juso data forbids taking it out of Korea (국외 반출 금지), and its Bronze is the R2 bucket foundation-platform-lakehouse-prod, whose location the Cloudflare API reports as APAC with the default jurisdiction (no Korean region exists on R2), object-locked so a landed file could not be taken back. Turned on by the pull request that moves the juso Bronze to a store located in Korea, or records the owner's acceptance of R2, and sets enabled_since again.",
       "expected_outcome": {
         "changes_within_hours": 54,
         "basis": "the juso electronic map's daily change linkage publishes every day (root ADR-0475); two daily turns. Until the approval key is placed the job waits, and the done bound reports that wait."
