@@ -4,7 +4,8 @@ The script runs from an installed release layout (as in test_data_go_kr_file_dat
 stand-in that answers the collect command with a manifest. What runs for real is the script: without the approval key
 it asks nothing (not even the publisher) and ends `waiting`; with it the collector is run live and a landed file is a
 change; a refusal fails the run with the collector's summary in the journal; and a missing variable stops the run
-before anything reaches the provider.
+before anything reaches the provider. A base file placed in the inbox (root ADR-0494) runs the collector even without
+the key, the inbox it is handed is the one the script read, and a landed base file is a change.
 """
 
 import hashlib
@@ -41,11 +42,14 @@ assert os.environ[prefix + "LIVE_WRITE"] == "1"
 out = os.environ[prefix + "OUTPUT_DIR"]
 landed = [{"kind": "building", "file_name": "AlterD.JUSURB.20990101.ZIP"}] if os.environ.get("FAKE_LANDED") == "1" else []
 refused = "300001: E0002" if os.environ.get("FAKE_REFUSED") == "1" else None
-json.dump({"requests": 1, "bytes": 0, "files": landed, "stops": {}, "refused": refused, "failed": []},
+inbox = os.environ[prefix + "BASE_INBOX"]
+base = [{"month": m, "name": n} for m in sorted(os.listdir(inbox)) for n in sorted(os.listdir(os.path.join(inbox, m)))]
+json.dump({"requests": 1, "bytes": 0, "files": landed, "stops": {}, "refused": refused, "failed": [],
+           "base": {"inbox": inbox, "landed": base, "refused": []}},
           open(os.path.join(out, "manifest.json"), "w", encoding="utf-8"))
 if refused:
     sys.exit(1)
-print("foundation-job-outcome " + ("changed" if landed else "unchanged"))
+print("foundation-job-outcome " + ("changed" if landed or base else "unchanged"))
 """
 
 
@@ -60,6 +64,9 @@ class JusoElectronicMapCommand(unittest.TestCase):
         for name in ("juso-electronic-map-cycle.sh", "admitted-writer-runtime.sh", "job-journal.sh", "database-url.sh"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
+        (release / "infra/lakehouse/contracts").mkdir(parents=True)
+        contract = "infra/lakehouse/contracts/juso-electronic-map.contract.json"
+        (release / contract).write_bytes((PLATFORM / contract).read_bytes())
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -74,7 +81,10 @@ class JusoElectronicMapCommand(unittest.TestCase):
         self.state = root / "state"
         self.fake = root / "fake"
         self.fake.mkdir()
+        self.inbox = root / "inbox"
+        self.inbox.mkdir()
         self.env = {
+            "FOUNDATION_PLATFORM_JUSO_ELECTRONIC_MAP_BASE_INBOX": str(self.inbox),
             "PATH": os.environ["PATH"], "FOUNDATION_JUSO_ELECTRONIC_MAP_STATE_ROOT": str(self.state),
             "FAKE_STATE": str(self.fake),
             **{name: "planted-" + name.lower() for name in NEEDS},
@@ -100,6 +110,27 @@ class JusoElectronicMapCommand(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
                 self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome " + outcome)
         self.assertEqual((self.fake / "calls.log").read_text().splitlines(), ["collect-juso-electronic-map"] * 2)
+
+    def test_a_placed_base_file_runs_the_collector_without_the_key_and_is_a_change(self):
+        (self.inbox / "209910").mkdir()
+        (self.inbox / "209910" / "synthetic-map.zip").write_bytes(b"PK\x03\x04synthetic")
+        env = {name: value for name, value in self.env.items() if name != KEY}
+        result = self.run_job(env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertEqual((self.fake / "calls.log").read_text().splitlines(), ["collect-juso-electronic-map"])
+        self.assertIn('"base_landed": 1', (self.state / "journal.log").read_text(encoding="utf-8"))
+
+    def test_the_inbox_is_the_contracts_when_the_unit_names_none(self):
+        script = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('["base"]["inbox"]', script)
+        contract = json.loads((PLATFORM / "infra/lakehouse/contracts/juso-electronic-map.contract.json")
+                              .read_text(encoding="utf-8"))
+        inbox = contract["base"]["inbox"]
+        jobs = json.loads((PLATFORM / "orchestration/jobs.v1.json").read_text(encoding="utf-8"))
+        job = next(job for job in jobs["jobs"] if job["id"] == "juso_electronic_map")
+        self.assertIn(inbox, job["state_paths"])
+        self.assertIn(inbox, [entry["path"] for entry in jobs["state_directories"]])
 
     def test_a_refusal_fails_the_run_and_the_journal_names_it(self):
         result = self.run_job({**self.env, "FAKE_REFUSED": "1"})
