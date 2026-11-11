@@ -40,7 +40,7 @@ def csv_bytes(rows, encoding="cp949"):
 
 class Contract(unittest.TestCase):
     def test_every_file_but_the_registered_factory_is_loaded_into_its_own_table(self):
-        self.assertEqual(len(FILES), 14)
+        self.assertEqual(len(FILES), 17)
         self.assertNotIn("registered_factory", FILES)
         artifact = json.loads((job.CONTRACT_PATH.parent / "industrial_complex_lakehouse_contracts.json")
                               .read_text(encoding="utf-8"))["contracts"]
@@ -164,6 +164,20 @@ class Reading(unittest.TestCase):
         self.assertEqual(job.names_code(["합성도", "합성시", "없는동"], PREFIXES, DONGS), (None, "no_legal_dong"))
         self.assertEqual(job.names_code(["모름도", "합성시"], PREFIXES, DONGS), (None, "unparsed"))
         self.assertEqual(job.names_code(["", " "], PREFIXES, DONGS), (None, "no_address"))
+
+    def test_a_code_column_reaches_a_current_legal_dong_through_the_crosswalk_or_says_why_not(self):
+        place = {"kind": "legal_dong_code", "code_column": "코드", "nationwide_codes": ["00000"]}
+        current = {"9999900000", "9999800000"}
+        remap = {"9999700000": "9999800000"}  # a 시군구 a merger replaced
+        self.assertEqual(job.code_link("99999", place, current, remap), ("9999900000", None))
+        self.assertEqual(job.code_link("99997", place, current, remap), ("9999800000", None))
+        self.assertEqual(job.code_link("9999900000", place, current, remap), ("9999900000", None))
+        self.assertEqual(job.code_link("99996", place, current, remap), (None, "no_legal_dong"))
+        self.assertEqual(job.code_link("00000", place, current, remap), (None, "nationwide"))
+        self.assertEqual(job.code_link("9999", place, current, remap), (None, "unparsed"))
+        self.assertEqual(job.code_link(" ", place, current, remap), (None, "no_address"))
+        self.assertIn("legal_dong_code", job.FOLLOWED_LINKS)
+        self.assertEqual(job.link_kind({"place_link": place}), "area")
 
     def test_a_plan_names_only_the_sources_this_job_loads(self):
         slugs = {job.source_slug(s): s for s in FILES}

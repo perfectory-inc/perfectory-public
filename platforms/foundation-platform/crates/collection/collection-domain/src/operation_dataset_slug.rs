@@ -135,6 +135,10 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15004246" => Some("standard_land_price"),
         "fileData15112638" => Some("elevator_installation"),
         "fileData15117154" => Some("knowledge_industry_center"),
+        // The 도시계획 고시 and the limits each zone's 법령·조례 set, both by the provider's 시군구 code.
+        "fileData15130432" => Some("urban_plan_notice"),
+        "fileData15122715" => Some("land_use_regulation_by_zone"),
+        "fileData15063473" => Some("land_price_change_rate"),
         // The three 표준데이터 the same collector asks through the dataset page's keyless download
         // (`stdData<공공데이터 번호>`, root ADR-0453).
         "stdData15021148" => Some("school_location"),

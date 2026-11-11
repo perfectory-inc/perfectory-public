@@ -152,9 +152,20 @@ pub const SILVER_ELEVATOR_INSTALLATION: LakehouseTableContract =
 /// 지번 then 도로명 address resolved to.
 pub const SILVER_KNOWLEDGE_INDUSTRY_CENTER: LakehouseTableContract =
     table("silver.knowledge_industry_center", PARCEL_COLUMNS, true);
+/// 국토교통부 (도시계획)고시정보, one row per 고시관리코드, with the 법정동 code its 원천시군구코드 carries to.
+pub const SILVER_URBAN_PLAN_NOTICE: LakehouseTableContract =
+    table("silver.urban_plan_notice", AREA_COLUMNS, false);
+/// 국토교통부 지역지구별 토지이용규제정보, keyed by the row's SHA-256 (no provider key), with the 법정동 code
+/// its 관할지역코드 carries to (none for a 법률 that holds everywhere).
+pub const SILVER_LAND_USE_REGULATION_BY_ZONE: LakehouseTableContract =
+    table("silver.land_use_regulation_by_zone", AREA_COLUMNS, true);
+/// 국토교통부 읍면동 지가변동률 (시군구 단위), one row per (시도, 시군구, 기준년도, 변동률구분), with the 법정동
+/// code its names name.
+pub const SILVER_LAND_PRICE_CHANGE_RATE: LakehouseTableContract =
+    table("silver.land_price_change_rate", AREA_COLUMNS, false);
 
-/// The fourteen tables, in the contract's file order.
-pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 14] = [
+/// The seventeen tables, in the contract's file order.
+pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 17] = [
     SILVER_HIGHWAY_ACCESS_POINT,
     SILVER_HOUSEHOLD_COUNT,
     SILVER_DONG_POPULATION,
@@ -169,4 +180,7 @@ pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 14] = [
     SILVER_STANDARD_LAND_PRICE,
     SILVER_ELEVATOR_INSTALLATION,
     SILVER_KNOWLEDGE_INDUSTRY_CENTER,
+    SILVER_URBAN_PLAN_NOTICE,
+    SILVER_LAND_USE_REGULATION_BY_ZONE,
+    SILVER_LAND_PRICE_CHANGE_RATE,
 ];
