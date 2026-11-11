@@ -34,11 +34,12 @@ pub const JOB_UNIT_LINES: &[&str] = &[
 pub const TMPFILES: &str = "infra/tmpfiles/foundation-job-state.conf";
 /// The account and group that own every job state directory.
 pub const STATE_OWNER: &str = "foundation-platform";
-/// The operator's directory on the data disk: its account owns it, not root and not the jobs, so
-/// systemd-tmpfiles refuses to step through one of our directories inside it ("unsafe path
-/// transition", exit 73; every deploy from 2026-11-11 15:34Z stopped on
-/// `/data/foundation-platform/intelligence-documents/lakehouse`). A state directory here is its
-/// direct child; deeper ones the job makes itself.
+/// The operator's directory on the data disk; a state directory here is its direct child.
+///
+/// Its account owns it, not root and not the jobs, so systemd-tmpfiles refuses to step through one
+/// of our directories inside it ("unsafe path transition", exit 73; every deploy from 2026-11-11
+/// 15:34Z stopped on `/data/foundation-platform/intelligence-documents/lakehouse`). Deeper ones the
+/// job makes itself.
 pub const OPERATOR_OWNED_ROOT: &str = "/data/foundation-platform";
 /// What a reader of the units is told when one differs from its rendering.
 pub const GENERATE: &str =
