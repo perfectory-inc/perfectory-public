@@ -14,6 +14,8 @@ mod energy_monthly_tests;
 mod exclusive_unit_tests;
 #[cfg(test)]
 mod floor_overview_tests;
+#[cfg(test)]
+mod housing_permit_basis_tests;
 mod layout;
 #[cfg(test)]
 mod maintenance_regular_inspection_tests;

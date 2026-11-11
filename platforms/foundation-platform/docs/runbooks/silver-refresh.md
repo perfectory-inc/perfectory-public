@@ -43,6 +43,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-permit-temporary-building` | `silver.building_permit_temporary_building` | 가설건축물 `mart_kcy_08` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-site-location` | `silver.building_permit_site_location` | 건축인허가 대지위치 `mart_kcy_16` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 대지 행만 main 에 (`compare`, 묶음 = 관리대지위치관리번호 앞 두 자리) |
 | `building-maintenance-regular-inspection-history` | `silver.building_maintenance_regular_inspection_history` | 건축물 정기점검이력 `mart_ll_02` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음; pnu 없음 — 표제부로 잇는다, 루트 ADR-0404) |
+| `housing-permit-basis-outline` | `silver.housing_permit_basis_outline` | 주택인허가 기본개요 `mart_jty_01` (루트 ADR-0511) | 부분을 load branch 에 쌓고 바뀐 승인 행만 main 에 (`compare`, 키 = 관리주택대장PK, 한 묶음) |
 | `building-permit-basis-outline` | `silver.building_permit_basis_outline` | 건축인허가 기본개요 `mart_kcy_01` (루트 ADR-0356) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |
 | `land-characteristic` | `silver.land_characteristic` | 토지특성 `AL_D195` 시도 전부 | 같은 묶음을 load branch 에 올린 뒤 바뀐 키만 main 에 append(ADR-0275, ADR-0311) |
 | `land-forest-ledger` | `silver.land_forest_ledger` | 임야대장 `AL_D003` 시도 전부 | 같음 |

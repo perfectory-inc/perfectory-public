@@ -187,6 +187,7 @@ enum Command {
     ExportBuildingRegisterApartmentPriceSilverHandoff,
     ExportBuildingRegisterExclusiveUnitSilverHandoff,
     ExportBuildingPermitBasisOutlineSilverHandoff,
+    ExportHousingPermitBasisOutlineSilverHandoff,
     ExportBuildingRegisterMasterSilverHandoff,
     ExportBuildingPermitDemolitionLossSilverHandoff,
     ExportBuildingEnergyMonthlyElectricitySilverHandoff,
@@ -407,6 +408,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         ),
         Command::ExportBuildingPermitBasisOutlineSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_basis_outline_silver_export::run(),
+        ),
+        Command::ExportHousingPermitBasisOutlineSilverHandoff => Box::pin(
+            foundation_publisher_silver::housing_permit_basis_outline_silver_export::run(),
         ),
         Command::ExportBuildingRegisterMasterSilverHandoff => {
             Box::pin(foundation_publisher_silver::building_register_master_silver_export::run())
@@ -780,6 +784,9 @@ where
         }
         Some("export-building-permit-basis-outline-silver-handoff") => {
             Ok(Command::ExportBuildingPermitBasisOutlineSilverHandoff)
+        }
+        Some("export-housing-permit-basis-outline-silver-handoff") => {
+            Ok(Command::ExportHousingPermitBasisOutlineSilverHandoff)
         }
         Some("export-building-register-master-silver-handoff") => {
             Ok(Command::ExportBuildingRegisterMasterSilverHandoff)
