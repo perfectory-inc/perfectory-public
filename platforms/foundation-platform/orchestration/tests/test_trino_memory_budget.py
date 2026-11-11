@@ -130,7 +130,10 @@ class EveryFileFollowsTheRelease(unittest.TestCase):
         deploy = (PLATFORM / "scripts/deploy/foundation-deploy.sh").read_text(encoding="utf-8")
         self.assertLess(deploy.index('"${release}" datahub'), deploy.index('"${release}" trino'))
         release = (PLATFORM / "scripts/deploy/foundation-release.sh").read_text(encoding="utf-8")
-        self.assertIn("  trino)\n    [[ \"$#\" == 1 ]] || usage\n    apply_trino\n", release)
+        self.assertIn('source "${release_root}/current/scripts/deploy/trino-follows-the-release.sh"\n    apply_trino\n',
+                      release)
+        step = (PLATFORM / "scripts/deploy/trino-follows-the-release.sh").read_text(encoding="utf-8")
+        self.assertIn("apply_trino() {", step)
 
 
 if __name__ == "__main__":
