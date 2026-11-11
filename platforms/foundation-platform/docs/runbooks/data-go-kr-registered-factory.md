@@ -120,6 +120,26 @@ last_reviewed: 2026-11-09
 - 거부: 머리줄·칸 수가 계약과 다르거나 인코딩으로 읽히지 않는 바이트(제공자가 형식을 바꿈 → 계약을 고치는 PR), 제공자 키가
   비었거나 겹침, 행이 바닥보다 적거나 현재 행보다 한계 넘게 줄어듦(잘린 파일일 수 있음 → 포털에서 받아 확인).
 
+### 토지이음 공개자료 3개 — 포털 항목이 잇는 곳에서 받는다
+
+토지이용규제정보(행위제한, 15047873)·토지이용규제법령정보(15047872)·개발행위허가정보(15021109)는 포털 항목에 파일이 없고
+토지이음(`www.eum.go.kr/web/op/sv/svItemDet.jsp?dataCd=<코드>`) 공개자료 페이지로 잇는다(메타데이터의 `dataUrl`). 같은 수집기가
+그 페이지의 스크립트(`svItemDet.js`)와 같은 세 단계를 키 없이 보낸다(`format: eum_open_data`, 계약 `eum_open_data`).
+
+1. 목록(`list_path`): 파일마다 `dataDownload('<fileId>')` 가 있고 가장 큰 id 가 최신이다. `EUM_<dataCd>_<fileId>` 가 판이고, 마지막으로
+   받은 판과 같으면 여기서 끝난다(요청 1개).
+2. 파일 정보(`file_info_path`, `function=selectFileInfo` 폼): 목록 페이지를 referer 로 보내야 답한다(없으면 오류 화면, 2026-11-11).
+   일회용 `key`·`fileNm`·`fileSize` 를 준다.
+3. 내려받기(`download_base_url` `:8002` + `download_path?key=&filename=`): zip 이 `fileSize` 와 다르거나 zip 이 아니면 거부.
+
+| 계약 `files` | 토지이음 `dataCd` | 2026-11-11 실측 | Silver |
+|---|---|---|---|
+| `land_use_activity_restriction` | 007 | zip 55 MB(XLSX 72 MB, 시도 시트 16 + 법령 1, 2,177,899행) | 아직 없음: 지역지구를 이름으로만 적는다(코드 없음) → 이름↔`silver.land_use_plan.zone_code` 대응표가 먼저(이름 383 중 250 일치, 행의 80.7%) |
+| `land_use_regulation_law` | 006 | zip 7 MB(XLSX 7.5 MB) | 아직 없음 |
+| `development_activity_permit` | 001 | zip 18.8 MB(CSV CP949 141 MB, 858,488줄, PNU 가 모든 줄에) | 아직 없음: 따옴표 없는 `개발행위목적` 안의 줄바꿈이 약 380줄을 가른다 → 잇는 규칙이 먼저 |
+
+`silver_load` 가 없는 파일은 수집만 한다: Silver 잡(`data_go_kr_file_data.py`)의 `files()` 가 그 파일을 고르지 않는다.
+
 ### 표준데이터 3개 — 데이터셋 페이지의 키 없는 내려받기 (루트 ADR-0453)
 
 학교 위치·대학·도시철도역은 포털의 표준데이터라 파일 두 단계로 받을 수 없다(메타데이터가 파일 id 를 주지 않는다). 대신

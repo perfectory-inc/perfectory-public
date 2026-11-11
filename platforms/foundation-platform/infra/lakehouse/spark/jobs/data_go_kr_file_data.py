@@ -72,9 +72,11 @@ def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
 
 
 def files(contract: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
-    """The files this job loads, by dataset slug, with the slug in each."""
+    """The files this job loads, by dataset slug, with the slug in each: every file but the registered
+    factory that names its Silver load (a file without `silver_load` is collected only, for now)."""
 
-    return {slug: {"dataset_slug": slug, **entry} for slug, entry in contract["files"].items() if slug != OWN_JOB}
+    return {slug: {"dataset_slug": slug, **entry} for slug, entry in contract["files"].items()
+            if slug != OWN_JOB and "silver_load" in entry}
 
 
 def table_of(slug: str) -> str:

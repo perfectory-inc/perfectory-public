@@ -133,7 +133,8 @@ class DataGoKrFileDataCommand(unittest.TestCase):
         command, datasets = calls[0].split(" ")
         expected = [slug for slug in files if slug != "registered_factory"]
         self.assertEqual((command, datasets.split(",")), ("collect-data-go-kr-file-data", expected))
-        self.assertEqual([c.split(" ")[1] for c in calls[1:]], ["silver." + slug for slug in expected])
+        loaded = [slug for slug in expected if "silver_load" in files[slug]]
+        self.assertEqual([c.split(" ")[1] for c in calls[1:]], ["silver." + slug for slug in loaded])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         self.assertEqual(call.count("--plan-dir"), 17, "one Spark run for every table, for the code-change follow-up too")
         self.assertEqual(sorted(self.state.rglob("*.csv")), [])

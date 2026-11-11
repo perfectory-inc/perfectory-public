@@ -22,10 +22,10 @@ last_reviewed: 2026-07-30
 
 ## 현재 카탈로그 규모
 
-- 엔드포인트 정의: **165개**
-- 고유 dataset slug: **143개**
-- 고유 Bronze source slug: **164개**
-- 국가 수집 허용 endpoint: **128개**
+- 엔드포인트 정의: **168개**
+- 고유 dataset slug: **146개**
+- 고유 Bronze source slug: **167개**
+- 국가 수집 허용 endpoint: **131개**
 - 기본 실행 레인에 포함되는 endpoint: **82개**
 
 ## 제공기관별 정리
@@ -34,7 +34,7 @@ last_reviewed: 2026-07-30
 |---|---:|---:|---:|---|
 | code.go.kr | 1 | 1 | 0 | 전용 커맨드 1 |
 | courtauction.go.kr | 3 | 3 | 0 | 전용 커맨드 3 |
-| data.go.kr | 49 | 26 | 0 | API 예정 8, 전용 커맨드 19, 중복 API 비활성 22 |
+| data.go.kr | 52 | 29 | 0 | API 예정 8, 전용 커맨드 22, 중복 API 비활성 22 |
 | hub.go.kr | 59 | 57 | 57 | 기본 실행 57, 제공기관 목록 없음 2 |
 | industryland.or.kr | 4 | 3 | 0 | 전용 커맨드 4 |
 | juso.go.kr | 11 | 0 | 0 | 수동 승인 11 |
@@ -56,7 +56,7 @@ last_reviewed: 2026-07-30
 | `building_register_open_api` | 10 | data.go.kr 건축물대장 API 중복 경로 |
 | `code_go_kr` | 1 | code.go.kr 법정동 전체 표 (법정동 코드 변경 출처, root ADR-0143) |
 | `court_auction` | 3 | courtauction.go.kr 법원경매 물건·매각결과 목록 (root ADR-0280, ADR-0281) |
-| `data_go_kr_file_data` | 19 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
+| `data_go_kr_file_data` | 22 | data.go.kr 파일 데이터: 한국산업단지공단 전국등록공장현황 (root ADR-0280) |
 | `ilis` | 4 | industryland.or.kr 산업단지 목록·고시·상세 (주소 해소 출처) |
 | `juso_electronic_map_bulk` | 11 | juso.go.kr 주소정보 전자지도 벌크 (수동 승인) |
 | `mois_standard_code_open_api` | 1 | 설명 필요 |
@@ -110,13 +110,16 @@ last_reviewed: 2026-07-30
 | data.go.kr | 등록공장 | 행정동 법정동 연계 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 공항 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 상권 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 개발행위허가 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 동 인구 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 승강기 설치 현황 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 고속도로 접근점 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 세대수 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 지식산업센터 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 지가변동률(시군구) | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 토지이용규제 행위제한 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 지역지구별 토지이용규제 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
+| data.go.kr | 등록공장 | 토지이용규제 법령 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 항만 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 철도역 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |
 | data.go.kr | 등록공장 | 철도역 노선 매핑 | 공개 웹 화면 (전용 커맨드) | true | 전용 커맨드 |

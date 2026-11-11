@@ -139,6 +139,10 @@ pub fn file_data_dataset_slug(operation: &str) -> Option<&'static str> {
         "fileData15130432" => Some("urban_plan_notice"),
         "fileData15122715" => Some("land_use_regulation_by_zone"),
         "fileData15063473" => Some("land_price_change_rate"),
+        // Three whose portal entry links to 토지이음's open-data page, fetched there (`eum_open_data`).
+        "fileData15047873" => Some("land_use_activity_restriction"),
+        "fileData15047872" => Some("land_use_regulation_law"),
+        "fileData15021109" => Some("development_activity_permit"),
         // The three 표준데이터 the same collector asks through the dataset page's keyless download
         // (`stdData<공공데이터 번호>`, root ADR-0453).
         "stdData15021148" => Some("school_location"),

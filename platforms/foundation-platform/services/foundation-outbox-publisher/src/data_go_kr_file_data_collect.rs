@@ -16,6 +16,12 @@
 //! service key is set, a landed pass is cross-checked against the `OpenAPI`'s total; that check is
 //! recorded in the manifest and never fails the file.
 //!
+//! Three datasets whose portal entry links to 토지이음 (`format: eum_open_data`: 행위제한·법령·개발행위허가)
+//! are fetched where the portal points, through the keyless steps of that site's own open-data page
+//! (`eum_open_data` in the contract): its list names the current file (`dataDownload('<fileId>')`), its
+//! file-information answer gives a one-time key, and the downloader serves the zip by that key. The
+//! file id is the edition: a run fetches only when it differs from the last one landed.
+//!
 //! One file's failure does not stop the others (each commits on its own); the run fails at the end
 //! naming every file that failed. A run writes `..._OUTPUT_DIR/manifest.json` and a local copy of
 //! each file it fetched; its last stdout line says whether it landed a new file.
@@ -75,13 +81,34 @@ pub(crate) struct Download {
     pub(crate) query: BTreeMap<String, String>,
 }
 
-/// How a file arrives: a zip archive, one CSV as it is, or the pages of a 표준데이터 download pass.
+/// How a file arrives: a zip archive, one CSV as it is, the pages of a 표준데이터 download pass, or a
+/// zip from 토지이음's open-data page the portal entry links to.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum FileFormat {
     Zip,
     Csv,
     StandardPages,
+    EumOpenData,
+}
+
+/// 토지이음's open-data page (www.eum.go.kr/web/op/sv): the list, the file-information answer and the
+/// downloader its own script uses.
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct EumOpenData {
+    pub(crate) base_url: String,
+    pub(crate) list_path: String,
+    pub(crate) list_query: BTreeMap<String, String>,
+    pub(crate) file_info_path: String,
+    pub(crate) download_base_url: String,
+    pub(crate) download_path: String,
+    pub(crate) data_type_cd: String,
+}
+
+/// One `eum_open_data` file's dataset code on that page (`dataCd`).
+#[derive(Clone, Debug, Deserialize)]
+pub(crate) struct EumFile {
+    pub(crate) data_cd: String,
 }
 
 /// The dataset page's keyless 표준데이터 download.
@@ -129,6 +156,7 @@ pub(crate) struct ContractFile {
     pub(crate) format: FileFormat,
     pub(crate) standard: Option<StandardFile>,
     pub(crate) openapi: Option<OpenapiFile>,
+    pub(crate) eum: Option<EumFile>,
     /// A file too large for the contract-wide timeout states its own.
     pub(crate) request_timeout_seconds: Option<u64>,
 }
@@ -143,6 +171,7 @@ pub(crate) struct SourceContract {
     pub(crate) download: Download,
     pub(crate) standard_download: StandardDownload,
     pub(crate) openapi: Openapi,
+    pub(crate) eum_open_data: EumOpenData,
     pub(crate) files: BTreeMap<String, ContractFile>,
 }
 
@@ -224,7 +253,7 @@ pub(crate) fn provider_file_id(file: &ContractFile, announced: &Announced) -> St
 
 fn extension(file: &ContractFile) -> &'static str {
     match file.format {
-        FileFormat::Zip => "zip",
+        FileFormat::Zip | FileFormat::EumOpenData => "zip",
         FileFormat::Csv => "csv",
         FileFormat::StandardPages => "gz",
     }
@@ -249,6 +278,8 @@ fn last_accepted(state_dir: &Path, file: &ContractFile) -> anyhow::Result<Option
 struct Config {
     base_uri: String,
     openapi_base_uri: String,
+    eum_base_uri: String,
+    eum_download_base_uri: String,
     service_key: Option<String>,
     request_spacing: ProviderRequestSpacing,
     live_write: bool,
@@ -266,6 +297,14 @@ impl Config {
                 .to_owned(),
             openapi_base_uri: optional_env_value(&format!("{PREFIX}_OPENAPI_BASE_URI"))?
                 .unwrap_or_else(|| contract.openapi.base_url.clone())
+                .trim_end_matches('/')
+                .to_owned(),
+            eum_base_uri: optional_env_value(&format!("{PREFIX}_EUM_BASE_URI"))?
+                .unwrap_or_else(|| contract.eum_open_data.base_url.clone())
+                .trim_end_matches('/')
+                .to_owned(),
+            eum_download_base_uri: optional_env_value(&format!("{PREFIX}_EUM_DOWNLOAD_BASE_URI"))?
+                .unwrap_or_else(|| contract.eum_open_data.download_base_url.clone())
                 .trim_end_matches('/')
                 .to_owned(),
             service_key: optional_env_value(SERVICE_KEY_ENV)?.filter(|key| !key.trim().is_empty()),
@@ -289,7 +328,7 @@ impl Config {
 /// (the portal answers a login or notice page with HTTP 200).
 fn check_download(file: &ContractFile, bytes: &[u8]) -> anyhow::Result<()> {
     match file.format {
-        FileFormat::Zip => ensure!(
+        FileFormat::Zip | FileFormat::EumOpenData => ensure!(
             bytes.starts_with(ZIP_MAGIC),
             "the {} download is not a zip ({} bytes)",
             file.dataset_slug,
@@ -592,6 +631,174 @@ pub(crate) async fn fetch(
     Ok(Some((announced, bytes)))
 }
 
+/// The newest file the 토지이음 list names: the largest `dataDownload('<fileId>')` (ids only grow; the
+/// page lists newest first). The page is EUC-KR; only its ASCII calls are read.
+pub(crate) fn read_eum_list(body: &[u8]) -> anyhow::Result<u64> {
+    let calls = regex::bytes::Regex::new(r"dataDownload\('(\d{1,12})'\)")?;
+    calls
+        .captures_iter(body)
+        .filter_map(|found| std::str::from_utf8(&found[1]).ok()?.parse::<u64>().ok())
+        .max()
+        .context("the 토지이음 list names no file (no dataDownload call)")
+}
+
+/// The one-time download of a file: its key, its file name and its size. The answer is JSON whose
+/// `fileList` is EUC-KR XML; only its ASCII elements are read, and the key and name must stay in the
+/// alphabet the downloader's own link uses (the key arrives URL-encoded and is sent as it is).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EumDownload {
+    pub(crate) key: String,
+    pub(crate) file_name: String,
+    pub(crate) size: u64,
+    pub(crate) reference_date: Option<String>,
+}
+
+pub(crate) fn read_eum_file_info(body: &[u8]) -> anyhow::Result<EumDownload> {
+    let element = |name: &str| -> anyhow::Result<Option<String>> {
+        let pattern = regex::bytes::Regex::new(&format!(r"<{name}>([^<]*)<\\?/{name}>"))?;
+        Ok(pattern
+            .captures(body)
+            .and_then(|found| std::str::from_utf8(&found[1]).ok().map(str::to_owned)))
+    };
+    let key = element("key")?.context("the 토지이음 file information has no key")?;
+    ensure!(
+        !key.is_empty()
+            && key
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '%' | '.' | '_' | '-')),
+        "the 토지이음 file information names an unexpected key"
+    );
+    let file_name = element("fileNm")?.context("the 토지이음 file information has no fileNm")?;
+    ensure!(
+        file_name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            && file_name.ends_with(".zip"),
+        "the 토지이음 file information names an unexpected file {file_name:?}"
+    );
+    let size = element("fileSize")?
+        .context("the 토지이음 file information has no fileSize")?
+        .parse::<u64>()
+        .context("the 토지이음 fileSize is not a number")?;
+    Ok(EumDownload {
+        key,
+        file_name,
+        size,
+        reference_date: element("refDt")?,
+    })
+}
+
+/// A 토지이음 file: the newest id its list names, then (only when that id is new) the one-time key and
+/// the zip. The edition id is `EUM_<dataCd>_<fileId>`; a download that is not the announced size or
+/// not a zip refuses.
+pub(crate) async fn fetch_eum(
+    contract: &SourceContract,
+    file: &ContractFile,
+    (base_uri, download_base_uri): (&str, &str),
+    spacing: ProviderRequestSpacing,
+    requests: &mut usize,
+    last: Option<&str>,
+) -> anyhow::Result<Option<(Announced, Vec<u8>)>> {
+    let eum = &contract.eum_open_data;
+    let data_cd = &file
+        .eum
+        .as_ref()
+        .with_context(|| {
+            format!(
+                "{} is eum_open_data without an eum entry",
+                file.dataset_slug
+            )
+        })?
+        .data_cd;
+    ensure!(
+        !data_cd.is_empty() && data_cd.chars().all(|c| c.is_ascii_digit()),
+        "{} names an unexpected dataCd {data_cd:?}",
+        file.dataset_slug
+    );
+    let http = http_client(
+        contract,
+        file.request_timeout_seconds
+            .unwrap_or(contract.request_timeout_seconds),
+    )?;
+    let mut list_query = eum.list_query.clone();
+    list_query.insert("dataCd".to_owned(), data_cd.clone());
+    list_query.insert("dataTypeCd".to_owned(), eum.data_type_cd.clone());
+    let list_url =
+        reqwest::Url::parse_with_params(&format!("{base_uri}{}", eum.list_path), list_query.iter())
+            .context("the 토지이음 list URL is not valid")?;
+    spacing.wait_before_request(*requests).await;
+    *requests += 1;
+    let response = http
+        .get(list_url.clone())
+        .send()
+        .await
+        .context("the 토지이음 list request failed")?;
+    ensure!(
+        response.status().is_success(),
+        "the 토지이음 list answered HTTP {}",
+        response.status()
+    );
+    let file_id = read_eum_list(&response.bytes().await?)?;
+    let edition = format!("EUM_{data_cd}_{file_id}");
+    if last == Some(edition.as_str()) {
+        return Ok(None);
+    }
+    spacing.wait_before_request(*requests).await;
+    *requests += 1;
+    // The page's own script posts this with the page as its referrer; the answer is an error page
+    // without one (2026-11-11).
+    let response = http
+        .post(format!("{base_uri}{}", eum.file_info_path))
+        .header(reqwest::header::REFERER, list_url.as_str())
+        .form(&[
+            ("function", "selectFileInfo"),
+            ("dataCd", data_cd.as_str()),
+            ("dataTypeCd", eum.data_type_cd.as_str()),
+            ("refDt", ""),
+            ("fileId", file_id.to_string().as_str()),
+        ])
+        .send()
+        .await
+        .context("the 토지이음 file information request failed")?;
+    ensure!(
+        response.status().is_success(),
+        "the 토지이음 file information answered HTTP {}",
+        response.status()
+    );
+    let download = read_eum_file_info(&response.bytes().await?)?;
+    spacing.wait_before_request(*requests).await;
+    *requests += 1;
+    let response = http
+        .get(format!(
+            "{download_base_uri}{}?key={}&filename={}",
+            eum.download_path, download.key, download.file_name
+        ))
+        .send()
+        .await
+        .context("the 토지이음 download failed")?;
+    ensure!(
+        response.status().is_success(),
+        "the 토지이음 download answered HTTP {}",
+        response.status()
+    );
+    let bytes = Vec::from(response.bytes().await?);
+    ensure!(
+        bytes.len() as u64 == download.size,
+        "the {} download is {} bytes, not the {} its file information announced",
+        file.dataset_slug,
+        bytes.len(),
+        download.size
+    );
+    check_download(file, &bytes)?;
+    Ok(Some((
+        Announced {
+            attach_file_id: edition,
+            updated_at: download.reference_date,
+        },
+        bytes,
+    )))
+}
+
 pub(crate) fn plan(
     file: &ContractFile,
     announced: &Announced,
@@ -620,7 +827,7 @@ pub(crate) fn plan(
 
 fn content_type(file: &ContractFile) -> &'static str {
     match file.format {
-        FileFormat::Zip => "application/zip",
+        FileFormat::Zip | FileFormat::EumOpenData => "application/zip",
         FileFormat::Csv => "text/csv",
         FileFormat::StandardPages => "application/gzip",
     }
@@ -759,7 +966,7 @@ fn source_catalog_entry(
         base_url: Some(contract.base_url.clone()),
         auth_kind: SourceAuthKind::NoAuth,
         payload_format: match file.format {
-            FileFormat::Zip => SourcePayloadFormat::Zip,
+            FileFormat::Zip | FileFormat::EumOpenData => SourcePayloadFormat::Zip,
             FileFormat::Csv => SourcePayloadFormat::Csv,
             FileFormat::StandardPages => SourcePayloadFormat::Json,
         },
@@ -837,6 +1044,17 @@ async fn collect_one(
             }
             None => (None, None),
         }
+    } else if file.format == FileFormat::EumOpenData {
+        let fetched = fetch_eum(
+            contract,
+            file,
+            (&config.eum_base_uri, &config.eum_download_base_uri),
+            config.request_spacing,
+            requests,
+            last.as_deref(),
+        )
+        .await?;
+        (fetched, None)
     } else {
         let fetched = fetch(
             contract,

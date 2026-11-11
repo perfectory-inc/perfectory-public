@@ -1,5 +1,5 @@
 {
-  "$comment": "Root ADR-0280 §4, ADR-0401 §1. The data.go.kr file data the platform collects: where each file is asked for, what it must look like, how its rows are keyed and how they reach a parcel or a 법정동. The collector (`collect-data-go-kr-file-data` in services/foundation-outbox-publisher) iterates `files` (keyed by dataset_slug, the catalog's), the Silver loads and their tests read this file; nothing else restates these values. One run asks each selected file's metadata once and fetches a file only when its atchFileId is new. The per-run cap is the files themselves: measured 2026-11-04, the eight files beside the registered factory are about 15.5 MB together plus the 349 MB 상가(상권) zip (59 s), so a run that finds every one new lands about 365 MB in about 3 minutes with the spacing. The three 표준데이터 (school location, university, subway station) have no portal file id: they come through the dataset page's own keyless download (`standard_download` below, root ADR-0453), every page of one pass in one gzip JSON-lines object, landed only when the pass's rows differ from the last landed pass; the OpenAPI is only a cross-check when the platform's key is registered.",
+  "$comment": "Root ADR-0280 §4, ADR-0401 §1. The data.go.kr file data the platform collects: where each file is asked for, what it must look like, how its rows are keyed and how they reach a parcel or a 법정동. The collector (`collect-data-go-kr-file-data` in services/foundation-outbox-publisher) iterates `files` (keyed by dataset_slug, the catalog's), the Silver loads and their tests read this file; nothing else restates these values. A file with no silver_load is collected only: its Silver table is a later change. One run asks each selected file's metadata once and fetches a file only when its atchFileId is new. The per-run cap is the files themselves: measured 2026-11-04, the eight files beside the registered factory are about 15.5 MB together plus the 349 MB 상가(상권) zip (59 s), so a run that finds every one new lands about 365 MB in about 3 minutes with the spacing. The three 표준데이터 (school location, university, subway station) have no portal file id: they come through the dataset page's own keyless download (`standard_download` below, root ADR-0453), every page of one pass in one gzip JSON-lines object, landed only when the pass's rows differ from the last landed pass; the OpenAPI is only a cross-check when the platform's key is registered.",
   "version": 4,
   "base_url": "https://www.data.go.kr",
   "user_agent": "foundation-platform-data-go-kr-file-collector/3 (+root ADR-0280, ADR-0401, ADR-0453; one check per file per day)",
@@ -35,6 +35,19 @@
       "ok": "00",
       "no_data": "03"
     }
+  },
+  "eum_open_data": {
+    "$comment": "Three datasets whose portal entry (data.go.kr/data/<pk>/fileData.do) holds no file but links to 토지이음's open-data page (its dataUrl, www.eum.go.kr/web/op/sv/svItemDet.jsp?dataCd=<code>). A run asks that page's own three keyless steps, as its script (svItemDet.js) does: the list (list_path; it names each file as dataDownload('<fileId>'), newest first), the file information (file_info_path, a form post with function=selectFileInfo, answered only when the list page is the referrer; it gives a one-time key, the file name and its size) and the downloader (download_base_url + download_path?key=&filename=). The page asks a person for a use purpose before the download only to count downloads; the steps do not need it and a run does not send it. Measured 2026-11-11: list 36 KB, file information under 1 KB, the 행위제한 zip 55,005,829 bytes.",
+    "base_url": "https://www.eum.go.kr",
+    "list_path": "/web/op/sv/svItemDet.jsp",
+    "list_query": {
+      "currentPageNo": "1",
+      "selectType": "subject"
+    },
+    "file_info_path": "/web/op/sv/svItemAjaxXml.jsp",
+    "download_base_url": "https://map.eum.go.kr:8002",
+    "download_path": "/OpenData/opDownloader.jsp",
+    "data_type_cd": "CSV"
   },
   "files": {
     "registered_factory": {
@@ -692,6 +705,45 @@
         "window_days": 7,
         "max_objects": 1
       }
+    },
+    "land_use_activity_restriction": {
+      "operation": "fileData15047873",
+      "name_ko": "국토교통부_토지이용규제정보(행위제한)",
+      "institution_ko": "국토교통부",
+      "published": "monthly",
+      "format": "eum_open_data",
+      "eum": {
+        "data_cd": "007"
+      },
+      "request_timeout_seconds": 600,
+      "$comment": "Collected only (no silver_load yet): one XLSX in the zip, a sheet per 시도 (조례_<시도>) plus 법령, every row 구분코드(시군구)·구분·용도지역지구명·법률명·토지이용명·가능여부·조건제한예외사항. It names a 용도지역지구 by its name, never a code, so its Silver needs the name ↔ silver.land_use_plan.zone_code crosswalk first (2026-11-11: 250 of its 383 names match a zone_name as written, 80.7% of its rows).",
+      "measured": "2026-11-11 (20261016 판, fileId 713): 55,005,829 bytes, a zip of one XLSX (71,979,334 bytes, 17 sheets, 2,177,899 data rows, 239 시군구 codes, 1,795 토지이용명, 460 가능여부 values led by 건축 가능 1,465,910 and 건축 금지 690,675). Monthly: the list shows one 전국 file a month since 2025-03."
+    },
+    "land_use_regulation_law": {
+      "operation": "fileData15047872",
+      "name_ko": "국토교통부_토지이용규제법령정보",
+      "institution_ko": "국토교통부",
+      "published": "monthly",
+      "format": "eum_open_data",
+      "eum": {
+        "data_cd": "006"
+      },
+      "request_timeout_seconds": 300,
+      "$comment": "Collected only (no silver_load yet): one XLSX in the zip, the 법령·조례 articles the 행위제한 rows cite.",
+      "measured": "2026-11-11 (20261016 판, fileId 712): 7,040,899 bytes, a zip of one XLSX (7,533,705 bytes)."
+    },
+    "development_activity_permit": {
+      "operation": "fileData15021109",
+      "name_ko": "국토교통부_개발행위허가정보",
+      "institution_ko": "국토교통부",
+      "published": "irregularly",
+      "format": "eum_open_data",
+      "eum": {
+        "data_cd": "001"
+      },
+      "request_timeout_seconds": 600,
+      "$comment": "Collected only (no silver_load yet): one CP949 CSV, 15 columns led by PNU (filled on every row) — 위치명·지목명·면적·용도지역명·지자체코드·개발행위코드·개발행위명·신청일자·허가일자·개발행위목적. About 380 rows are split by a line break inside an unquoted 개발행위목적 (2026-11-11: 183 rows of 2 cells and 183 of 14, 12 of 16), so its Silver needs a rule that rejoins them before the strict width check.",
+      "measured": "2026-11-11 (20261019 판, fileId 715): 18,782,906 bytes, a zip of one CSV (140,683,869 bytes, 858,488 data lines, 858,109 of them 15 cells); 허가일자 filled on 772,838."
     }
   }
 }
