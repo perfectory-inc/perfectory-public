@@ -148,6 +148,21 @@ pub fn subject_of_lane(lane: &str) -> anyhow::Result<Option<&'static Subject>> {
         .find(|subject| subject.owner.lane.as_deref() == Some(lane)))
 }
 
+/// What a gateway that reads every major the registry lists for `lane` answers in its
+/// capabilities' `document_schemas` (the Worker's `documentSchemas`): the subject's name to its
+/// majors, empty for a lane the registry does not list.
+///
+/// # Errors
+/// Returns an error when the registry cannot be read.
+pub fn document_schemas(
+    lane: &str,
+) -> anyhow::Result<std::collections::BTreeMap<String, Vec<u32>>> {
+    Ok(subject_of_lane(lane)?
+        .map(|subject| (subject.subject.clone(), subject.majors()))
+        .into_iter()
+        .collect())
+}
+
 /// The subject a serving surface (a top-level block of the connection contract) owns.
 ///
 /// # Errors

@@ -70,6 +70,9 @@ async fn serve_capabilities(gateway: &MockServer, lane: ByPnuLane, versions: &[u
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "unit": lane.unit(),
             "manifest_schema_versions": versions,
+            // The deployed Worker reads every major the registry lists (root ADR-0336).
+            "document_schemas": crate::schema_registry::document_schemas(lane.name())
+                .unwrap_or_default(),
         })))
         .mount(gateway)
         .await;

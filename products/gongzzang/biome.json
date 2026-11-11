@@ -21,6 +21,7 @@
       "!**/.mcp-local",
       "!crates/foundation-platform-client/openapi/*.json",
       "!apps/web/lib/api/*.generated.ts",
+      "apps/web/lib/api/api-proxy-client.generated.ts",
       "!services/gongzzang-api/openapi.json",
       "!packages/api-types/generated/schema.ts",
       "!pnpm-lock.yaml"
