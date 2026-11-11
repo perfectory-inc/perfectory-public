@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.building_by_pnu_profile",
+  "description": "A PNU's buildings on the building edge (root ADR-0100): each building of gold.building_panel with its floors and units, and the units no building holds, with the Gold snapshot they were read from. Revision 2 (served as v4) adds the register's purpose and structure names, both optional.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.building_by_pnu_profile.v5",
+        "foundation-platform.building_by_pnu_profile.v2",
+        "foundation-platform.building_by_pnu_profile.v4"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "buildings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "parcel_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "register_pk": {
+            "type": "string"
+          },
+          "purpose_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "structure_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "floor_area_m2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "stories": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "below_ground_floors": {
+            "type": "integer"
+          },
+          "has_rooftop": {
+            "type": "boolean"
+          },
+          "rooftop_area_m2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "rooftop_usage": {
+            "type": "string"
+          },
+          "built_year": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "floors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "floor_row_id": {
+                  "type": "string"
+                },
+                "floor_kind": {
+                  "type": "string"
+                },
+                "floor_number": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "floor_index": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "floor_display_ko": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "floor_row_id",
+                "floor_kind"
+              ]
+            }
+          },
+          "units": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "building_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "building_name": {
+                  "type": "string"
+                },
+                "dong_name": {
+                  "type": "string"
+                },
+                "exclusive_area_m2": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "floor_label": {
+                  "type": "string"
+                },
+                "ho_name": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "official_price_history": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "base_date": {
+                        "type": "string",
+                        "pattern": "^[0-9]{8}$"
+                      },
+                      "price_won": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "base_date",
+                      "price_won"
+                    ]
+                  }
+                },
+                "parcel_id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                "structure_name": {
+                  "type": "string"
+                },
+                "usage_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "parcel_id",
+                "building_name",
+                "dong_name",
+                "ho_name",
+                "floor_label",
+                "usage_name",
+                "structure_name"
+              ]
+            }
+          },
+          "purpose_name": {
+            "description": "The register's name for purpose_code (주용도코드명); absent when it stated none.",
+            "type": "string"
+          },
+          "structure_name": {
+            "description": "The register's name for structure_code (구조코드명); absent when it stated none.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parcel_id",
+          "register_pk",
+          "below_ground_floors",
+          "has_rooftop",
+          "rooftop_usage",
+          "floors",
+          "units"
+        ]
+      }
+    },
+    "unlinked_units": {
+      "description": "The units on the PNU whose register names no building the catalog holds.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "building_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "building_name": {
+            "type": "string"
+          },
+          "dong_name": {
+            "type": "string"
+          },
+          "exclusive_area_m2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "floor_label": {
+            "type": "string"
+          },
+          "ho_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "official_price_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "base_date": {
+                  "type": "string",
+                  "pattern": "^[0-9]{8}$"
+                },
+                "price_won": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "base_date",
+                "price_won"
+              ]
+            }
+          },
+          "parcel_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "structure_name": {
+            "type": "string"
+          },
+          "usage_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parcel_id",
+          "building_name",
+          "dong_name",
+          "ho_name",
+          "floor_label",
+          "usage_name",
+          "structure_name"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "buildings",
+    "unlinked_units"
+  ]
+}

@@ -11,7 +11,7 @@ import { PublicAuctionDocumentSchema } from "./public-auction";
 import { UnitPriceDocumentSchema } from "./unit-price-edge";
 
 // The web's copies of what the foundation publishes are checked against their sources: the
-// schema registry for the pack lanes, the Rust constant for the building document.
+// schema registry for every lane's documents, the connection contract for the hosts.
 const FOUNDATION = resolve(__dirname, "../../../../../../platforms/foundation-platform");
 const connections = JSON.parse(
   readFileSync(resolve(FOUNDATION, "config/r2-connections.contract.json"), "utf8"),
@@ -23,14 +23,10 @@ const registry = JSON.parse(
 ) as {
   subjects: {
     subject: string;
-    owner: { lane: string };
+    owner: { lane: string; part?: string };
     revisions: { major: number; schema_version: string }[];
   }[];
 };
-const buildingVersion = readFileSync(
-  resolve(FOUNDATION, "crates/foundation-contracts/src/building_panel.rs"),
-  "utf8",
-).match(/pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "([^"]+)";/)?.[1];
 
 describe("the web reads what the foundation publishes", () => {
   // Root ADR-0456: the complex index is on the parcel edge, the host the web reads parcels from.
@@ -43,9 +39,19 @@ describe("the web reads what the foundation publishes", () => {
     );
   });
 
-  it("accepts the building document version the publisher writes", () => {
-    expect(buildingVersion).toBeDefined();
-    expect(EdgeBuildingProfileSchema.shape.schema_version.options).toContain(buildingVersion);
+  it("accepts every building document version the lane can serve", () => {
+    const entry = registry.subjects.find(
+      (subject) => subject.owner.lane === "building" && !("part" in subject.owner),
+    );
+    expect(entry).toBeDefined();
+    for (const revision of entry?.revisions ?? []) {
+      expect(EdgeBuildingProfileSchema.shape.schema_version.options).toContain(
+        revision.schema_version,
+      );
+      expect(EdgeBuildingProfileSchema.shape.schema_version.options).toContain(
+        `${entry?.subject}.v${revision.major}`,
+      );
+    }
   });
 
   it("reads the unit price lane's host from the contract", () => {
