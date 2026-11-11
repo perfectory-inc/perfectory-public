@@ -467,6 +467,20 @@ def _waiting_claims(listing, pool, rank, running_units, *, equal, since=None, no
                                           and (since is None or (found.get("since") or 0) <= since))]
 
 
+def pool_patterns(listing, pool) -> list[str]:
+    """The service names and templates (`name@*.service`) of every job of `pool`: what holds its slots."""
+    members = [job for job in listing["jobs"] if job["pool"] == pool]
+    return sorted({job["systemd_service"] for job in members}
+                  | {f"{template(job['systemd_service'])}*.service" for job in members if template(job["systemd_service"])})
+
+
+def claim_work(listing, claimant) -> list[str]:
+    """The units whose run is the work a claim of `claimant` holds its pool for: every job of the pool
+    (what the claim waits for) and the claimant's own `work_units` (its Spark steps' units)."""
+    declared = (listing.get("capacity_claimants") or {})[claimant]
+    return sorted(set(pool_patterns(listing, declared["pool"])) | set(declared.get("work_units") or []))
+
+
 def pool_full(jobs_file, unit, running_units=running) -> str:
     """Why `unit` (a job id, its service, or another instance of a templated job's service) does not
     fit in its pool beside what runs now, or "".
@@ -494,10 +508,7 @@ def pool_full(jobs_file, unit, running_units=running) -> str:
     pool = listing.get("pools", {}).get(mine["pool"])
     if pool is None:
         return ""
-    members = [job for job in jobs if job["pool"] == mine["pool"]]
-    patterns = sorted({job["systemd_service"] for job in members}
-                      | {f"{template(job['systemd_service'])}*.service" for job in members if template(job["systemd_service"])})
-    held = sorted(service for service in running_units(patterns) if service != named)
+    held = sorted(service for service in running_units(pool_patterns(listing, mine["pool"])) if service != named)
     taken = {service: slots_of(service).get("pool_slots", 1) for service in held}
     need = mine.get("pool_slots", 1)
     # A claim waiting for this pool keeps its slots free of any start of a lower class, and of a
@@ -539,11 +550,8 @@ def preempted(jobs_file, job_id, running_units=running) -> str:
     if not above:
         return ""
     members = [entry for entry in listing["jobs"] if entry["pool"] == job["pool"]]
-    patterns = sorted({entry["systemd_service"] for entry in members}
-                      | {f"{template(entry['systemd_service'])}*.service" for entry in members
-                         if template(entry["systemd_service"])})
     held = sum(next((entry.get("pool_slots", 1) for entry in members if entry["systemd_service"] == service), 1)
-               for service in running_units(patterns))
+               for service in running_units(pool_patterns(listing, job["pool"])))
     if held + sum(found["slots"] for found in above) <= pool["slots"]:
         return ""
     names = ", ".join(f"{found['claimant']} ({found['priority_class']})" for found in above)

@@ -192,8 +192,21 @@ if ((${#drain[@]} > 0)); then
   # Assigned before it is read: a systemd that cannot answer is not "nothing runs" (ADR-0012 rule 2).
   units_running="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/job_units.py" running 'foundation-*')" \
     || { echo "foundation-deploy: systemd cannot tell which units run; ${sha} holds ${drain[*]}" >&2; exit 75; }
+  # Amended by root ADR-0521: an operator's unit that declares the jobs whose assets it writes
+  # (FOUNDATION_RUN_WRITES, by-pnu-pack-operator.sh) is waited for only when one of them is held; one
+  # that declares nothing, or a release that holds every job, waits as before.
   while read -r unit _; do
     if [[ -n "${unit}" && "$(systemctl show -p Transient --value "${unit}")" == yes ]]; then
+      writes="$(systemctl show -p Environment --value "${unit}" | tr ' ' '\n' \
+                | sed -n 's/^FOUNDATION_RUN_WRITES=//p' | tail -1)" || writes=""
+      if [[ "${drains_all}" == no && "${writes}" =~ ^[a-z][a-z0-9_]*(,[a-z][a-z0-9_]*)*$ ]]; then
+        meets=""
+        for id in ${writes//,/ }; do [[ -z "${drained["${id}"]-}" ]] || meets="${meets} ${id}"; done
+        if [[ -z "${meets}" ]]; then
+          echo "foundation-deploy: ${unit} writes ${writes}, none of what ${sha} holds; the deploy does not wait for it (root ADR-0521)" >&2
+          continue
+        fi
+      fi
       operator_units+=("${unit}")
     fi
   done <<<"${units_running}"

@@ -508,6 +508,10 @@ def capacity_claimants(jobs, pools):
             raise JobListError(f"capacity claimant {name}: pool_slots must be 1 to {slots}")
         if not re.fullmatch(r"[a-z0-9@*-]+\.service", claimant.get("unit") or ""):
             raise JobListError(f"capacity claimant {name}: unit must be a systemd service name or pattern")
+        work = claimant.get("work_units", [])
+        if not isinstance(work, list) or not all(isinstance(unit, str) and re.fullmatch(r"[a-z0-9@*-]+\.service", unit)
+                                                 for unit in work):
+            raise JobListError(f"capacity claimant {name}: work_units must be systemd service names or patterns")
         if (jobs["priority_classes"].get(claimant.get("priority_class")) or {}).get("yields_at_step_boundary"):
             raise JobListError(f"capacity claimant {name}: a claimant does not yield; name another class")
         priority_class(jobs, claimant, f"capacity claimant {name}")

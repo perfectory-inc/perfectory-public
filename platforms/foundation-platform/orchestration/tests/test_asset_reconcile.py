@@ -730,6 +730,47 @@ class QueuedStarts(unittest.TestCase):
             self.assertIsInstance(entry.get("queue_wait_budget_minutes"), int, name)
 
 
+class CapacityClaims(unittest.TestCase):
+    """Root ADR-0462: a claim holds its pool only for a Spark step. The reconciler counts, under each
+    live claim, the units it holds the pool for (the pool's jobs it waits for and its own Spark steps'
+    units, `work_units`), and FoundationCapacityClaimHeldWithoutSpark fires on a claim none of them runs (root ADR-0521)
+    under (2026-11-09 06:13Z..07:10Z a cut-over's claim held through a latency step)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+
+    def claim(self):
+        return {"claimant": "by_pnu_lane_cutover", "unit": "foundation-by-pnu-lane-cutover-g1.service",
+                "since": T0 - 1800, "pool": "spark", "slots": 3, "priority": 500, "priority_class": "first_publish"}
+
+    def test_a_claim_counts_its_gold_step_and_the_pool_jobs_it_waits_for(self):
+        asked = []
+
+        def running(patterns):
+            asked.append(patterns)
+            return {"foundation-gold-panel-rebuild-unconditional.service": "activating"}
+
+        metrics = asset_reconcile.claim_metrics(T0, self.jobs, [self.claim()], running)
+        labels = 'claimant="by_pnu_lane_cutover",pool="spark",priority_class="first_publish"'
+        self.assertIn(f"foundation_capacity_claim_age_seconds{{{labels}}} 1800", metrics)
+        self.assertIn(f"foundation_capacity_claim_work_units{{{labels}}} 1", metrics)
+        (patterns,) = asked
+        self.assertIn("foundation-gold-panel-rebuild-unconditional.service", patterns)
+        self.assertIn("foundation-*-pack-bake-g*.service", patterns)
+        self.assertIn("foundation-zoning-tile-bake.service", patterns, "a spark-pool job it waits for")
+        self.assertIn("foundation-silver-refresh@*.service", patterns)
+
+    def test_a_claim_with_no_work_running_reads_zero_and_alerts(self):
+        metrics = asset_reconcile.claim_metrics(T0, self.jobs, [self.claim()], lambda patterns: {})
+        self.assertIn('foundation_capacity_claim_work_units{claimant="by_pnu_lane_cutover",pool="spark",'
+                      'priority_class="first_publish"} 0', metrics)
+        self.assertEqual(asset_reconcile.claim_metrics(T0, self.jobs, [], lambda patterns: {}), [])
+        rules = (PLATFORM / "infra/observability/prometheus/foundation-api.rules.yml").read_text(encoding="utf-8")
+        self.assertIn("alert: FoundationCapacityClaimHeldWithoutSpark", rules)
+        self.assertIn("expr: foundation_capacity_claim_work_units == 0", rules)
+
+
 class MissedStarts(unittest.TestCase):
     """Root ADR-0467, the 2026-11-09 11:40Z replay: data_go_kr_file_data's first run was refused by the
     spark pool before the start queue was deployed (14:42Z), nothing held the refusal, and its next try

@@ -924,6 +924,9 @@ class TheWholeDeploy(unittest.TestCase):
                           '  list-units*) if [[ -n "${FIXTURE_OPERATOR_UNIT:-}" ]]; then\n'
                           '      printf "%s loaded active running operator\\n" "${FIXTURE_OPERATOR_UNIT}"; fi ;;\n'
                           '  *Transient*) if [[ "${service}" == "${FIXTURE_OPERATOR_UNIT:-}" ]]; then echo yes; else echo no; fi ;;\n'
+                          # The jobs an operator's unit declares it writes (root ADR-0521), when the test names them.
+                          '  *Environment*) if [[ "${service}" == "${FIXTURE_OPERATOR_UNIT:-}" ]]; then\n'
+                          '      echo "FOUNDATION_RUN_RELEASE=abc ${FIXTURE_OPERATOR_WRITES:+FOUNDATION_RUN_WRITES=${FIXTURE_OPERATOR_WRITES}}"; fi ;;\n'
                           '  *ActiveState*) echo inactive ;;\n'
                           '  *Result*) if [[ "${failing}" == *" ${service} "* ]]; then echo exit-code; else echo success; fi ;;\n'
                           'esac\n'),
@@ -1072,6 +1075,25 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual(self.dags(), {}, "nothing was paused")
 
     OPERATOR = "foundation-by-pnu-lane-cutover-g1.service"
+
+    def test_an_operators_unit_that_writes_none_of_the_held_jobs_does_not_hold_the_deploy(self):
+        # Root ADR-0521 (amending ADR-0441): 2026-11-11 a cut-over whose Gold step ran for hours held
+        # every release that changed a table it never writes. Its unit declares the jobs whose assets it
+        # writes (FOUNDATION_RUN_WRITES); the deploy waits for it only when one of them is held. Pulled
+        # from the registry, as on the host: a release the host builds holds every job.
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        writes = "by_pnu_parcel_real_transaction_bake,gold_parcel_real_transaction_rebuild"
+        free = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR, FIXTURE_OPERATOR_WRITES=writes)
+        self.assertNotEqual(free.returncode, 75, free.stdout + free.stderr)
+        self.assertNotIn("waiting for the operator's", free.stderr)
+        self.assertIn(f"{self.OPERATOR} writes {writes}, none of what", free.stderr)
+
+    def test_an_operators_unit_that_writes_a_held_job_still_holds_the_deploy(self):
+        # source_sweep names no table in the graph, so every table change holds it.
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        held = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR, FIXTURE_OPERATOR_WRITES="source_sweep")
+        self.assertEqual(held.returncode, 75, held.stdout + held.stderr)
+        self.assertIn(f"waiting for the operator's {self.OPERATOR} (root ADR-0441)", held.stderr)
 
     def test_a_release_that_holds_nothing_deploys_beside_an_operators_unit(self):
         # Pulled from the registry, as on the host: a release the host builds holds every job.

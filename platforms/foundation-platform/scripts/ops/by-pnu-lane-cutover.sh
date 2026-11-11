@@ -133,7 +133,8 @@ sys.path.insert(0, os.path.join(root, "infra/lakehouse/spark/jobs"))
 import by_pnu_kinds, gold_rebuild  # noqa: E402
 rebuild = gold_rebuild.load_contract()["tables"]
 groups = {group["name"]: group["path"] for group in load("config/runtime-secrets.contract.json")["groups"]}
-jobs = load("orchestration/jobs.v1.json")["jobs"]
+listing = load("orchestration/jobs.v1.json")
+jobs = listing["jobs"]
 lanes = r2.get("by_pnu_lanes", {})
 
 def block(lane):
@@ -184,7 +185,10 @@ for lane in chosen:
           ",".join(lanes.get(lane, {}).get("first_publish_waits_for_history") or []) or "-",
           60 if timed else panel_limit, worker, own["public_hostname"])
 
-units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"})
+# Every spark-pool job and the units this runner's own Spark steps run in (the claimant's work_units,
+# root ADR-0462: the reconciler alerts on a claim none of them runs under).
+units = sorted({job["systemd_service"] for job in jobs if job.get("pool") == "spark"}
+               | set(listing["capacity_claimants"]["by_pnu_lane_cutover"]["work_units"]))
 # Each spark-pool unit's run limit, for the Spark wait's bound; the operator's own Gold and pack bake
 # units are bounded like the longest job.
 limits = {job["systemd_service"]: job["time_limit_minutes"] + job["stop_grace_minutes"]
@@ -199,7 +203,7 @@ unset 'PLAN[-1]'
 read -r _ LONGEST_LIMIT UNIT_LIMITS <<<"${PLAN[-1]}"
 unset 'PLAN[-1]'
 # Units that run Spark: every spark-pool job, the operator's Gold rebuild and the pack bakes.
-read -ra SPARK_UNITS <<<"${SPARK_UNITS} foundation-gold-panel-rebuild-unconditional.service foundation-*-pack-bake-g*.service"
+read -ra SPARK_UNITS <<<"${SPARK_UNITS}"
 spark_running() {
   python3 -I -B "${PLATFORM_ROOT}/scripts/deploy/job_units.py" running "${SPARK_UNITS[@]}" \
     || refuse "systemd cannot tell whether a Spark job runs" 70
