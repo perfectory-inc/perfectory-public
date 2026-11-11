@@ -1387,7 +1387,7 @@ class TheWholeDeploy(unittest.TestCase):
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
                          ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
-                          "observability", "datahub"])
+                          "observability", "datahub", "trino"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
         # Nothing was deferred, so nothing is started out of its schedule (root ADR-0260).

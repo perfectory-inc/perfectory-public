@@ -44,6 +44,7 @@ usage:
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh datahub
   foundation-release.sh observability
+  foundation-release.sh trino
   foundation-release.sh console
   foundation-release.sh rollback
   foundation-release.sh prune
@@ -1006,6 +1007,8 @@ prepare_spark_tmp() {
     "${release_root}/current/config/host-layout.contract.json")"
 }
 
+# Trino follows the release (root ADR-0504): scripts/deploy/trino-follows-the-release.sh.
+
 # The job state directories, each with its owner and mode, before any unit or container uses one
 # (orchestration/jobs.v1.json state_directories, rendered by foundation-jobs; root ADR-0270 §1). On
 # 2026-10-15 a directory made only in `timers` was mounted by `migrate` first, Docker made it root
@@ -1227,6 +1230,12 @@ case "${command}" in
   observability)
     [[ "$#" == 1 ]] || usage
     apply_observability
+    ;;
+  trino)
+    [[ "$#" == 1 ]] || usage
+    # shellcheck source=trino-follows-the-release.sh
+    source "${release_root}/current/scripts/deploy/trino-follows-the-release.sh"
+    apply_trino
     ;;
   console)
     # The console comes up as the deploy brings it up, once its files exist: edge_settings.py runs this
