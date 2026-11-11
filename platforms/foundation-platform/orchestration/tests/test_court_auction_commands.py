@@ -55,7 +55,10 @@ assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auctio
                          {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"},
                          {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"},
                          {"silver.court_auction_appraisal_point": "courtauctiongokr__auction_item_detail"},
-                         {"silver.court_auction_code": "courtauctiongokr__auction_common_code"}), (table, slug)
+                         {"silver.court_auction_code": "courtauctiongokr__auction_common_code"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_detail"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_survey"},
+                         {"silver.court_auction_case_document_read": "courtauctiongokr__auction_case_appraisal"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
@@ -185,7 +188,8 @@ class CourtAuctionCommands(unittest.TestCase):
         # The 물건상세 objects are planned against their read record (root ADR-0384) and their last
         # document table, so a new document table is filled from the window's objects (root ADR-0540).
         # The 공통코드 objects are planned against the code table (root ADR-0540 §5).
-        self.assertEqual(plans, ["items", "results", "details", "documents", "codes"])
+        # The 사건 문서 objects are planned against their read record, one plan per document (root ADR-0540 §3).
+        self.assertEqual(plans, ["items", "results", "details", "documents", "codes", "cases", "surveys", "appraisals"])
 
 
 if __name__ == "__main__":

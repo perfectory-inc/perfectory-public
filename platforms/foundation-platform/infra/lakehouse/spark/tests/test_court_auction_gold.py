@@ -456,6 +456,44 @@ class DetailSparkTest(unittest.TestCase):
                              .select(F.to_json("detail").alias("j")).first().j)
         self.assertNotIn("result_name", without["schedule"][0], "no code table, no name")
 
+    def test_a_round_carries_its_cases_own_documents_newest_round_first(self):
+        import json
+
+        from pyspark.sql import functions as F
+        from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+        rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)
+        frames = document_frames(self.spark, rounds.first())
+        case = {"court_office_code": "B", "case_no": "A", "source_record_id": "o", "source_line_number": 1,
+                "source_snapshot_id": "s1"}
+        rows = {
+            job.RELATED_DOC: [{"related_seq": 1, "list": "related", "related_user_case_no": "2099타경9",
+                               "relation_kind_name": "중복"}],
+            job.CASE_OBJECT_DOC: [{"object_seq": 1, "closure_kind_name": "미종국"}],
+            job.PARTY_DOC: [{"party_seq": 1, "party_kind_name": "채권자"}, {"party_seq": 2, "party_kind_name": "임차인"},
+                            {"party_seq": 3, "party_kind_name": "임차인"}],
+            job.SURVEY_DOC: [{"round_seq": 1, "lease_text": "옛 회차"}, {"round_seq": 2, "lease_text": "새 회차"}],
+            job.SURVEY_OBJECT_DOC: [{"round_seq": 2, "object_seq": 1, "possession_text": "○○○ 점유", "lease_count": 1}],
+            job.APPRAISAL_ROUND_DOC: [{"round_seq": 1, "appraisal_no": "합성-0001", "written_date": date(2099, 1, 12)}],
+        }
+        for source, given in rows.items():
+            columns = load_lakehouse_contract(source)["columns"]
+            frames[source] = self.spark.createDataFrame(
+                [tuple({**case, **row}.get(c["name"]) for c in columns) for row in given],
+                ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in columns))
+        detail = json.loads(job.with_detail(rounds, frames).select(F.to_json("detail").alias("j")).first().j)
+        self.assertEqual(detail["related_cases"], [{"list": "related", "related_user_case_no": "2099타경9",
+                                                    "relation_kind_name": "중복"}])
+        self.assertEqual(detail["parties"], [{"kind_name": "채권자", "count": 1}, {"kind_name": "임차인", "count": 2}])
+        self.assertEqual(detail["objects"][0]["closure_kind_name"], "미종국")
+        self.assertEqual((detail["survey"]["round_seq"], detail["survey"]["lease_text"]), (2, "새 회차"))
+        self.assertEqual(detail["survey"]["objects"][0]["lease_count"], 1)
+        self.assertEqual(detail["appraisal"]["appraisal_no"], "합성-0001")
+        bare = json.loads(job.with_detail(rounds, document_frames(self.spark, rounds.first()))
+                          .select(F.to_json("detail").alias("j")).first().j)
+        self.assertEqual((bare["related_cases"], bare["parties"]), ([], []), "a case never read has empty lists")
+        self.assertNotIn("survey", bare)
+
     def test_a_build_without_the_documents_serves_every_detail_null(self):
         rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)
         self.assertIsNone(job.with_detail(rounds, {}).first().detail)

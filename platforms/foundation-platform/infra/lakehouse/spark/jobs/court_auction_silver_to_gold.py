@@ -81,8 +81,17 @@ SCHEDULE_DOC = "silver.court_auction_item_schedule"
 OBJECT_DOC = "silver.court_auction_item_object"
 ANNEX_DOC = "silver.court_auction_item_annex"
 APPRAISAL_DOC = "silver.court_auction_appraisal_point"
-DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC)
-CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC)
+# A case's own documents (root ADR-0540 §1): the 사건상세's related cases, 목록 종국결과 and 당사자
+# kinds, the 현황조사 and the 감정평가, every one a case's.
+RELATED_DOC = "silver.court_auction_case_related"
+CASE_OBJECT_DOC = "silver.court_auction_case_object"
+PARTY_DOC = "silver.court_auction_case_party"
+SURVEY_DOC = "silver.court_auction_survey"
+SURVEY_OBJECT_DOC = "silver.court_auction_survey_object"
+APPRAISAL_ROUND_DOC = "silver.court_auction_appraisal"
+CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SURVEY_OBJECT_DOC, APPRAISAL_ROUND_DOC)
+DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
+CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 # The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
 CODE_SOURCE = "silver.court_auction_code"
 CODE_GROUP = ("system_code", "owner_code", "group_code")
@@ -262,15 +271,41 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
     schedule = _listed(current(SCHEDULE_DOC), PROPERTY, ("schedule_seq",), [
         "schedule_date", "schedule_time_raw", "schedule_kind_code", "schedule_kind_name", "schedule_place",
         "result_code", "result_name", "minimum_bid_price_krw", "sale_amount_krw"], "_schedule")
-    objects = _listed(current(OBJECT_DOC), PROPERTY, ("object_seq",), [
+    closures = current(CASE_OBJECT_DOC).select(*CASE, "object_seq", "closure_kind_name")
+    objects = _listed(current(OBJECT_DOC).join(closures, [*CASE, "object_seq"], "left"), PROPERTY, ("object_seq",), [
         "object_seq", "list_kind_code", "list_kind_name", "realty_kind", "building_structure", "area_raw",
-        "land_category", "appraisal_amount_krw", "print_address_raw", "building_unit_raw", "share_numerator", "share_denominator"], "_objects")
+        "land_category", "appraisal_amount_krw", "print_address_raw", "building_unit_raw", "closure_kind_name", "share_numerator", "share_denominator"], "_objects")
     annexes = _listed(current(ANNEX_DOC), PROPERTY, ("object_seq", "annex_seq"), [
         "object_seq", "usage_raw", "structure_raw", "area_raw", "appraisal_amount_krw", "remarks"], "_annexes")
     points = _listed(current(APPRAISAL_DOC), CASE, ("point_seq",), [
         "table_code", "table_name", "item_code", "item_name", "content"], "_appraisal_points")
+    related = _listed(current(RELATED_DOC), CASE, ("related_seq",), [
+        "list", "related_user_case_no", "relation_kind_name", "related_court_name"], "_related_cases")
+    parties = _listed(current(PARTY_DOC).groupBy(*CASE, "party_kind_name").agg(
+        F.min("party_seq").alias("_first"), F.count(F.lit(1)).cast("int").alias("count")),
+        CASE, ("_first",), [F.col("party_kind_name").alias("kind_name"), "count"], "_parties")
+    survey = newest_round(current(SURVEY_DOC)).join(
+        _listed(current(SURVEY_OBJECT_DOC), (*CASE, "round_seq"), ("object_seq",), [
+            "object_seq", "possession_text", "lease_count", "remarks"], "_survey_objects"),
+        [*CASE, "round_seq"], "left").select(*CASE, F.struct(
+            "round_seq", "surveyed_raw", "possession_summary", "lease_text",
+            F.coalesce(F.col("_survey_objects"), F.expr(
+                "CAST(array() AS array<struct<object_seq:int,possession_text:string,lease_count:int,remarks:string>>)"))
+            .alias("objects")).alias("_survey"))
+    appraisal = newest_round(current(APPRAISAL_ROUND_DOC)).select(*CASE, F.struct(
+        "round_seq", "appraisal_no", "price_basis_date", "written_date", "opinion").alias("_appraisal"))
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
-            "appraisal_points": points}
+            "appraisal_points": points, "related_cases": related, "parties": parties, "survey": survey,
+            "appraisal": appraisal}
+
+
+def newest_round(rows: Any) -> Any:
+    """Each case's newest round (the highest `round_seq`) of a 현황조사 or 감정평가 table's current rows."""
+    from pyspark.sql import Window  # noqa: PLC0415
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    order = Window.partitionBy(*CASE).orderBy(F.col("round_seq").desc())
+    return rows.withColumn("_round", F.row_number().over(order)).where(F.col("_round") == 1).drop("_round")
 
 
 def with_detail(round_rows: Any, frames: dict[str, Any], spark: Any = None) -> Any:
@@ -280,21 +315,22 @@ def with_detail(round_rows: Any, frames: dict[str, Any], spark: Any = None) -> A
     from pyspark.sql import functions as F  # noqa: PLC0415
     from platform_contracts import load_lakehouse_contract, spark_sql_type  # noqa: PLC0415
 
-    if not all(source in frames for source in DOCUMENT_SOURCES):
-        session = spark or round_rows.sparkSession
-        frames = {source: session.createDataFrame([], ", ".join(
-            f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in load_lakehouse_contract(source)["columns"]))
-            for source in DOCUMENT_SOURCES}
+    # A build without a document table (`--no-documents`, or one not yet written) reads it empty.
+    session = spark or round_rows.sparkSession
+    frames = {**{source: session.createDataFrame([], ", ".join(
+        f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in load_lakehouse_contract(source)["columns"]))
+        for source in DOCUMENT_SOURCES if source not in frames}, **frames}
     parts = detail_parts(frames)
     joined = round_rows
     for name, part in parts.items():
         on = [c for c in part.columns if not c.startswith("_")]
         joined = joined.join(part, on, "left")
-    lists = ("schedule", "objects", "annexes", "appraisal_points")
+    lists = ("schedule", "objects", "annexes", "appraisal_points", "related_cases", "parties")
     typed = {name: parts[name].schema[f"_{name}"].dataType.simpleString() for name in lists}
     present = F.col("_case").isNotNull() | F.col("_spec").isNotNull()
     detail = F.struct(F.col("_case").alias("case"), F.col("_spec").alias("spec"), *[
-        F.coalesce(F.col(f"_{name}"), F.expr(f"CAST(array() AS {typed[name]})")).alias(name) for name in lists])
+        F.coalesce(F.col(f"_{name}"), F.expr(f"CAST(array() AS {typed[name]})")).alias(name) for name in lists],
+        F.col("_survey").alias("survey"), F.col("_appraisal").alias("appraisal"))
     return (joined.withColumn("detail", F.when(present, detail))
             .drop(*[f"_{name}" for name in parts]))
 

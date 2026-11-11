@@ -868,7 +868,20 @@
           "objects": "목록내역",
           "objectNumber": "목록{n}",
           "annexes": "제시외건물",
-          "appraisalPoints": "감정평가요항표"
+          "appraisalPoints": "감정평가요항표",
+          "closure": "종국결과",
+          "relatedCases": "관련사건내역",
+          "parties": "당사자내역",
+          "partyCount": "{kind} {count}",
+          "survey": "현황조사서",
+          "surveyedAt": "조사일시",
+          "possession": "점유관계",
+          "lease": "임대차관계",
+          "leaseCount": "임차 {n}",
+          "appraisal": "감정평가",
+          "priceBasis": "가격시점",
+          "written": "작성일",
+          "opinion": "평가의견"
         }
       }
     },
