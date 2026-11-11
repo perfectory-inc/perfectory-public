@@ -127,6 +127,39 @@ fn a_run_takes_its_first_files_and_is_refused_whole_above_its_budget() {
     );
 }
 
+/// Root ADR-0514 §2: the newest release's missing 시도 kept silver.land_use_plan on 2026-06-09 while
+/// five newer months waited; a capped run takes the newest files first, undated ones last.
+#[test]
+fn a_capped_run_takes_the_newest_provider_files_first() {
+    let dated = |file_no: &str, updated_at: Option<&str>| ProviderBlockedFileRow {
+        updated_at: updated_at.map(str::to_owned),
+        ..row(file_no, 600)
+    };
+    let rows = [
+        dated("9001", Some("2099-07-11")),
+        dated("9002", None),
+        dated("9003", Some("2099-11-09")),
+        dated("9004", Some("2099-09-09")),
+        dated("9005", Some("2099-11-09")),
+    ];
+    let taken = |max_files| {
+        compile_provider_acquisition_plan_report(
+            &rows,
+            ProviderAcquisitionPlanLimits {
+                max_files,
+                new_bytes_budget: None,
+            },
+        )
+        .expect("report")
+        .jobs
+        .into_iter()
+        .map(|job| job.file_no)
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(taken(Some(3)), ["9003", "9005", "9004"]);
+    assert_eq!(taken(None), ["9003", "9005", "9004", "9001", "9002"]);
+}
+
 #[test]
 fn limits_are_whole_numbers() {
     assert_eq!(parse_new_bytes_budget("0").expect("zero budget"), 0);

@@ -240,6 +240,12 @@ Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않
 선택 묶음을 `selection_archives`에 `deferred_selection_archive`로 적는다. 그런 파일이 있을 때 매일 훑기는 한 실행
 상한(아래 1)을 본다.
 
+- 상한 양수(기본, 루트 ADR-0514): 매일 실행이 공급자 갱신일이 새것부터 카탈로그의
+  `selection_archive_max_files_per_run` 개를 받고, 남은 것은 다음 날 잇는다. 사람의 첫 실행은 없다.
+- 실행이 끝나면(실패해도) 목록에 있는데 Bronze 에 없는 파일의 원천별 수·바이트·가장 오래된 공급자 갱신일을
+  `/var/lib/foundation-jobs/metrics/source-sweep.prom` 에 쓴다. 그 날짜가 72시간을 넘으면 `FoundationSourceFilesUnfetched`
+  (page), 이틀 동안 쓰지 못하면 `FoundationSourceSweepMetricsSilent`. 울리면 훑기 journal 의 `| raon` 줄에서 받은 것·실패·
+  상한을 본다.
 - 상한 0 = 레인 꺼짐: `raon-large-files.sh`를 부르지 않는다. journal에
   `| raon deferred=N listed_bytes=… budget=0 status=lane-off files=…`(기다리는 파일 id)를 적고, 슬랙에 안내 한 줄
   (ℹ️, 🔴 아님)을 보낸다. 이 레인 때문에 매일 훑기가 실패하지 않는다.
@@ -261,13 +267,11 @@ Fargate는 관리형 후보로 깔끔하지만 이 런북에서 선택하지 않
 무엇도 쓰기 전에 78로 끝나고, 매일 훑기의 raon 레인은 실패한다. 조용히 건너뛰지 않는다. image build가 실패하면
 (주소가 답하지 않거나 바이트가 고정값과 다르면) 아무것도 받기 전에 레인이 실패한다.
 
-### 첫 감독 실행 (운영자)
+### 손으로 한 번 돌리기 (운영자, 선택)
 
-카탈로그의 상한은 0(레인 꺼짐)에서 시작한다: 매일 실행은 원장이 갖지 않은 대용량 파일을 찾으면 받지 않고 몇 개·
-얼마·어느 파일인지 journal에 적고 슬랙에 안내 한 줄로 알린다(실패 아님). 운영자가 아래 순서로 한 번 지켜본 뒤 측정한
-양수 상한을 PR로 카탈로그에 적어야 매일 실행이 받는다.
-환경 파일은 계약이 정한다(`config/runtime-secrets.contract.json`의 run `raon-large-files`, 루트 ADR-0153).
-매일 단위(`foundation-source-sweep.service`)가 도는 동안에는 돌리지 않는다.
+매일 실행이 스스로 돈다(루트 ADR-0514): ADR-0170 의 첫 감독 실행은 레인을 켜는 조건이 아니게 되었다. 아래는 실패를 다시 재 보거나 밀린 것을 한 번에 더 받을 때의 명령이다 —
+레인을 켜는 조건이 아니다. 환경 파일은 계약이 정한다(`config/runtime-secrets.contract.json`의 run `raon-large-files`,
+루트 ADR-0153). 매일 단위(`foundation-source-sweep.service`)가 도는 동안에는 돌리지 않는다.
 
 ```bash
 raon() {
@@ -291,9 +295,9 @@ raon -E FOUNDATION_RAON_LARGE_FILES_MAX_FILES=1 \
 ```
 
 3의 실행 디렉터리에서 `batch/<batch>/summary.json`이 `committed`이고, 원장(`catalog.bronze_object`)에 그 파일의
-내용 주소 키(`...--sha256-<checksum>.zip`) 행이 생겼는지 확인한다. 그 다음 밀린 것을 같은 명령으로
-`FOUNDATION_RAON_LARGE_FILES_MAX_FILES` 없이 받고(상한은 plan의 `listed_bytes_total` 이상), 측정한 하루 상한을
-카탈로그에 적는 PR을 연다. journal 줄에는 `budget_override=1`이 붙는다. 실행 ID·파일 식별자·크기·checksum은 이
+내용 주소 키(`...--sha256-<checksum>.zip`) 행이 생겼는지 확인한다. 밀린 것을 더 받으려면 같은 명령에
+`FOUNDATION_RAON_LARGE_FILES_MAX_FILES` 를 크게 주고(상한은 plan의 `listed_bytes_total` 이상), 잰 속도로 하루 개수를
+올리려면 카탈로그의 `selection_archive_max_files_per_run` 을 PR 로 바꾼다. journal 줄에는 `budget_override=1`이 붙는다. 실행 ID·파일 식별자·크기·checksum은 이
 문서가 아니라 ADR 0007의 private operations evidence에 남긴다.
 
 ### 호스트에 직접 깔린 제조사 패키지 지우기 (사장, 한 번 — 루트 ADR-0394)

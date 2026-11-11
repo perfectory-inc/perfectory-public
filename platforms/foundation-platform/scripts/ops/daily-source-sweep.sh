@@ -76,6 +76,8 @@ CATALOG="${RELEASE_ROOT}/docs/catalog/public-source-endpoint-catalog.v1.json"
 # 기본값은 데이터 디스크다 — 상태 디렉터리가 있는 루트 디스크는 작고 두 번 찼다(2026-10-02). 단위의
 # ReadWritePaths 와 릴리스 설치가 이 기본값을 만든다.
 SPOOL_DIR="${FOUNDATION_SOURCE_SWEEP_SPOOL_DIR:-/data/foundation-platform/source-sweep/spool}"
+# The scheduled jobs' textfile directory node-exporter reads (jobs.v1.json state_paths, root ADR-0514).
+METRICS_DIR="${FOUNDATION_SOURCE_SWEEP_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
 
 mkdir -p "${STATE_ROOT}"
 journal="${STATE_ROOT}/journal.log"
@@ -311,8 +313,8 @@ elif raon_budget == "0":
     ids = ",".join(f"{a.get('source_slug')}:{a.get('download_ds_id')}-{a.get('file_no')}" for a in waiting)
     raon_line = f"raon deferred={raon_deferred} listed_bytes={listed} budget=0 status=lane-off files={ids}"
     info.append(f"ℹ️ daily-source-sweep: RAON 대용량 파일 {raon_deferred}건 {gib(listed)}이 Bronze 에 없다 — "
-                f"레인이 꺼져 있어(상한 0) 받지 않았다. 받는 법은 런북 provider-acquisition-fargate.md "
-                f"'첫 감독 실행' (ADR-0170)")
+                f"레인이 꺼져 있어(상한 0) 받지 않았다. 카탈로그 selection_archive_new_bytes_budget 이 0 이다 "
+                f"(ADR-0514)")
 else:
     raon = load(raon_path)
     if raon is None:
@@ -376,6 +378,11 @@ line="$(field line)"
 failed_lanes="$(field failed)"
 new_count="$(field new)"
 job_journal "${journal}" "sweep ${line}"
+# 6. 공급자가 목록에 올렸는데 이 실행 뒤에도 Bronze 에 없는 파일(루트 ADR-0514): 원천마다 개수·바이트·가장 오래된
+#    공급자 갱신일을 node-exporter 에 낸다 → FoundationSourceFilesUnfetched. 실패한 실행도 쓴다 — 밀린 파일은
+#    레인이 실패해도 밀린 것이다. 쓰지 못하면 그 시각이 멈추고 FoundationSourceSweepMetricsSilent 가 안다.
+python3 -I "${RELEASE_ROOT}/scripts/ops/source_sweep_metrics.py" "${vworld_evidence_path}" "${vworld_inventory_path}"   "${raon_summary_path}" "${METRICS_DIR}/source-sweep.prom" >> "${run_log}" 2>&1 ||
+  echo "daily-source-sweep: could not write ${METRICS_DIR}/source-sweep.prom (root ADR-0514)" >&2
 
 if [ -n "${failed_lanes}" ]; then
   notes="$(field notes)"
