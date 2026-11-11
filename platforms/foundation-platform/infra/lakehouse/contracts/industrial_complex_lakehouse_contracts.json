@@ -10353,7 +10353,7 @@
       "current_row_latest": null,
       "row_versions": {
         "kind": "events",
-        "canonical_reader": null
+        "canonical_reader": "parcel_registry_frames.registry_through"
       },
       "columns": [
         {

@@ -264,6 +264,46 @@ def edition_of_snapshot_id(contract: Mapping[str, Any], value: str) -> str:
     return name
 
 
+def snapshot_ids_through(contract: Mapping[str, Any], value: str) -> list[str]:
+    """The snapshot ids of the edition `value` names and of every edition before it, oldest first: what
+    a reader of an append-only table that registers editions in turn folds "as of" that edition
+    (`silver.parcel_registry`, root ADR-0490 §4a). Editions order as their YYYYMM names."""
+
+    name = edition_of_snapshot_id(contract, value)
+    return [snapshot_id(contract, n) for n in names(contract) if n <= name]
+
+
+def included_since(contract: Mapping[str, Any]) -> dict[str, str]:
+    """snapshot id -> the promotion (`promoted_at_utc`) since which the served edition's "as of" read
+    (`snapshot_ids_through`) holds that edition, for every edition it holds now. A row registered
+    before then reaches the served edition's readers only then (root ADR-0490 §4a): the place-id
+    release counts it as new from that instant. A rollback (ADR-0490 §7) drops a newer edition out of
+    the read, and a later promotion includes it again from its own instant."""
+
+    since: dict[str, str] = {}
+    previous = ""
+    for entry in contract["promotions"]:
+        name = str(entry["edition"])
+        for edition_name in names(contract):
+            if edition_name <= name and not (previous and edition_name <= previous):
+                since[snapshot_id(contract, edition_name)] = str(entry["promoted_at_utc"])
+            elif edition_name > name:
+                since.pop(snapshot_id(contract, edition_name), None)
+        previous = name
+    return since
+
+
+def candidate(contract: Mapping[str, Any], report: Mapping[str, Any] | None) -> str | None:
+    """The edition readiness names as the next to serve (root ADR-0490 §4): the newest edition newer than
+    the served one whose source and Silver passed and whose rehearsal has not (`first_failing_stage`
+    `rehearsal` in the readiness report). None without a report or such an edition."""
+
+    rows = (report or {}).get("editions") or []
+    waiting = [row["edition"] for row in rows if row.get("edition") in contract["editions"]
+               and row["edition"] > served(contract) and row.get("first_failing_stage") == "rehearsal"]
+    return max(waiting, default=None)
+
+
 def valid_from_utc(name: str) -> str:
     match = EDITION.fullmatch(name)
     if match is None:
@@ -504,7 +544,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("command", choices=("check", "editions", "served", "snapshot-id", "valid-from",
                                             "handoff-prefix", "handoff-suffix", "source-keys", "handoff-keys",
                                             "endpoint-catalog", "provider-edition", "held-reuploads", "select-inventory",
-                                            "propose"))
+                                            "propose", "candidate"))
     parser.add_argument("--edition", help="YYYYMM; required by every command naming one edition")
     parser.add_argument("--contract", help=f"defaults to ${CONTRACT_ENV}, then the contract beside this job")
     parser.add_argument("--inventory", help="provider-edition, select-inventory: the inventory report")
@@ -512,6 +552,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--summary-output", help="endpoint-catalog: the plan's inventory summary CSV")
     parser.add_argument("--measured", help="propose: JSON lines from vworld_parcel_edition_members.py")
     parser.add_argument("--output", help="endpoint-catalog, select-inventory, propose: where to write")
+    parser.add_argument("--report", help="candidate: the readiness report (parcel-edition-readiness.sh); absent = none")
     args = parser.parse_args(argv)
     try:
         contract = load(Path(args.contract) if args.contract else None)
@@ -541,6 +582,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             Path(args.output).write_text(json.dumps({args.edition: entry}, ensure_ascii=False, indent=2) + "\n",
                                          encoding="utf-8")
             print(f"edition={args.edition} {entry['granularity_counts']} extracted={entry['extracted_on']}")
+            return 0
+        if args.command == "candidate":
+            report = Path(args.report) if args.report else None
+            found = candidate(contract, json.loads(report.read_text(encoding="utf-8")) if report and report.is_file() else None)
+            print(found or "-")
             return 0
         if args.command == "check":
             print(f"ok editions={','.join(names(contract))} served={served(contract)}")

@@ -36,8 +36,8 @@ from typing import Any
 
 import legal_dong_code_change_views as code_changes
 import map_matching_gate as gate
-import parcel_identity as pi
 import parcel_lineage as pl
+import parcel_registry_frames as registry_frames
 import vworld_parcel_editions as editions
 from lineage_review_queue import steward_resolved
 from lakehouse_engine import apply_catalog_settings, assert_catalog_env, iceberg_packages
@@ -57,6 +57,9 @@ CODE_CHANGE_COLUMNS = ("kind", "old_code", "new_code", "level", "effective_date"
 # 2026-11-11: 2 of 202609's 39,876,546 (a 리 code no list ever held, an abolished 동 with no pair). 100 is
 # 0.00025% of an edition; a reorganization the change table misses is thousands and is still refused.
 UNEXPLAINED_LEGAL_DONG_BOUND = 100
+# (pnu, parcel_id) of every current id of registry rows (root ADR-0113 §7(b)); the gate reads the registry
+# as of the snapshot it checks (root ADR-0490 §4a), so a candidate is checked against its own step.
+current_ids = registry_frames.current_ids
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -128,40 +131,6 @@ def report(checked: int, violations: dict[str, tuple[int, list[str]]], allowed: 
     if unexplained_sample:
         made["unexplained_sample"] = unexplained_sample
     return made
-
-
-def current_ids(registry: Any) -> Any:
-    """`parcel_identity.fold` over registry rows as a join: (pnu, parcel_id) of every current id.
-
-    The fold replays rows by (valid_from or valid_to, current last) and keeps, per PNU, the id its
-    last `current` row opened unless a later `historic` or `redirected` row closes that same id.
-    Two `current` rows of one PNU on one date are ordered by parcel id here, where the fold keeps
-    input order; the registry writes one current row per PNU and date.
-    """
-
-    from pyspark.sql import functions as F  # noqa: PLC0415
-
-    rows = registry.select(
-        "pnu",
-        "parcel_id",
-        "status",
-        F.expr("coalesce(nullif(CAST(valid_from AS STRING), ''), CAST(valid_to AS STRING), '')").alias("k"),
-    )
-    last = (
-        rows.where(F.col("status") == pi.CURRENT)
-        .groupBy("pnu")
-        .agg(F.max(F.struct("k", "parcel_id")).alias("last"))
-        .select("pnu", F.col("last.k").alias("k"), F.col("last.parcel_id").alias("parcel_id"))
-    )
-    closing = rows.where(F.col("status").isin(pi.HISTORIC, pi.REDIRECTED)).select(
-        F.col("pnu").alias("c_pnu"), F.col("parcel_id").alias("c_id"), F.col("k").alias("c_k")
-    )
-    closed = last.join(
-        closing,
-        (last.pnu == closing.c_pnu) & (last.parcel_id == closing.c_id) & (closing.c_k > last.k),
-        "left_semi",
-    )
-    return last.join(closed.select("pnu"), "pnu", "left_anti").select("pnu", "parcel_id")
 
 
 def check_parcels(parcels: Any, official: Any, admin_codes: Any, current: Any | None,
@@ -328,12 +297,13 @@ def main(argv: list[str] | None = None) -> int:
         admin_codes = spark.sql(f"SELECT canonical_code FROM {cat}.`gold`.`administrative_boundary_served`")
         current = None
         if state == "checked":
-            current = current_ids(
+            current = current_ids(registry_frames.registry_through(
                 spark.sql(
-                    f"SELECT parcel_id, pnu, status, valid_from, valid_to FROM {cat}.`silver`.`parcel_registry` "
+                    f"SELECT parcel_id, pnu, status, valid_from, valid_to, to_snapshot_id FROM {cat}.`silver`.`parcel_registry` "
                     f"WHERE substr(pnu, 1, 2) IN ({sql_prefixes(args.sido)})"
-                )
-            )
+                ),
+                args.snapshot_id,
+            ))
         renumbered = renumbered_into_existing(spark, cat, official)
         verdict["renumbered_legal_dongs"] = renumbered.count()
         verdict["parcels"] = check_parcels(parcels, official, admin_codes, current, renumbered,
