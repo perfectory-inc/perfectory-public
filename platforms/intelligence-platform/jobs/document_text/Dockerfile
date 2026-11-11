@@ -33,6 +33,8 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /tmp/requ
 
 COPY config/document-extraction.contract.json /opt/intelligence/config/document-extraction.contract.json
 COPY config/ksic-divisions.json /opt/intelligence/config/ksic-divisions.json
+# The serving runtime the fact job calls (root ADR-0478 §1); the host script reads it from here.
+COPY config/model-runtime.contract.json /opt/intelligence/config/model-runtime.contract.json
 COPY jobs/document_text/document_text /opt/intelligence/jobs/document_text/document_text
 
 USER intelligence

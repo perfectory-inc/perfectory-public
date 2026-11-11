@@ -30,6 +30,7 @@ mod by_pnu_kind;
 mod court_auction;
 mod data_go_kr_file_data;
 mod industrial_complex_notice;
+mod intelligence_document;
 mod land_characteristic;
 mod land_forest_ledger;
 mod land_ownership;
@@ -97,6 +98,10 @@ pub use industrial_complex_jsonl_transport::{
     INDUSTRIAL_COMPLEX_DEVELOPMENT_STAGE_WIRE_VALUES, INDUSTRIAL_COMPLEX_KIND_WIRE_VALUES,
     INDUSTRIAL_COMPLEX_LOT_SALES_STATUS_WIRE_VALUES, INDUSTRIAL_COMPLEX_SILVER_JOB_DERIVED_COLUMNS,
     INDUSTRIAL_COMPLEX_STATUS_WIRE_VALUES,
+};
+pub use intelligence_document::{
+    INTELLIGENCE_DOCUMENT_FACT, INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
+    INTELLIGENCE_DOCUMENT_TEXT_OUTCOME, INTELLIGENCE_DOCUMENT_TEXT_PAGE,
 };
 pub use lakehouse::{
     industrial_complex_lakehouse_contract_by_table_name, industrial_complex_lakehouse_contracts,

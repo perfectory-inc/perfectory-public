@@ -13,13 +13,15 @@ trap 'rm -rf "$fixture"' EXIT
 write_contract() {
   local physical="$1"
   mkdir -p "$fixture/tools" "$fixture/stack" "$fixture/local"
+  printf '{"areas": [{"slug": "zone", "dir": "areas/zone", "title": "fixture"}]}
+' > "$fixture/tools/areas.contract.json"
   cat > "$fixture/tools/host-memory-budget.contract.json" <<JSON
 {
   "schema_version": 1,
   "host": {"name": "fixture-host", "physical_memory": "$physical", "host_reserved": "1g", "uncapped": []},
   "projects": [{"name": "stack", "files": ["stack/docker-compose.yml"], "profiles": ["batch"]}],
   "not_on_host": [{"files": ["local/compose.yaml"], "why": "fixture"}],
-  "outside_scope": [{"path_prefix": "elsewhere/", "why": "fixture"}]
+  "outside_scope": [{"path_prefix": "elsewhere/", "why": "fixture"}, {"area": "zone", "path": "build-only/", "why": "fixture"}]
 }
 JSON
 }
@@ -121,6 +123,10 @@ expect_fail "a compose file the contract does not place"
 
 mv "$fixture/new-stack" "$fixture/elsewhere"
 expect_pass "a compose file under an outside_scope prefix"
+mkdir -p "$fixture/areas/zone"
+mv "$fixture/elsewhere" "$fixture/areas/zone/build-only"
+expect_pass "a compose file under an outside_scope path inside an area, named by the area's slug"
+mv "$fixture/areas/zone/build-only" "$fixture/elsewhere"
 
 printf 'services:\n  proof:\n    image: fixture/proof:1\n' > "$fixture/local/compose.yaml"
 expect_fail "an uncapped service in a stack that never runs on the host"

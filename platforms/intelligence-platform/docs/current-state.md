@@ -27,7 +27,7 @@ intelligence-api·worker·지식 색인은 배포된 적이 없다. Foundation �
 | 리트리버 융합 | `knowledge-domain` | 형태소·원문·제목 3신호 → RRF(k=60) | 미배포 | [ADR-0004](./adr/0004-retriever-fusion-over-a-single-scorer.md) |
 | 결과 조립 | `knowledge-domain` | 출처별 상한 3, 이웃 문맥 | 미배포 | [ADR-0005](./adr/0005-result-assembly-diversity-and-context.md) |
 | 이벤트 백본(C2) | `crates/messaging`, `crates/intelligence-contracts`, `schemas/*.avsc` | Kafka/Karapace 어댑터·`foundation_knowledge_consumer` 코드 있음 | **미배선**: Foundation 쪽 `knowledge.source-upserted` 생산자 없음 | [루트 ADR-0215](../../../docs/adr/0215-a-topics-avro-schema-belongs-to-its-producer-and-consumers-only-look-it-up.md) |
-| **문서 텍스트(첫 조각)** | `jobs/document_text`, `config/document-extraction.contract.json` | PDF 텍스트 층 + 쪽 단위 OCR, HWP/HWPX→PDF, 쪽·위치 보존, 새 해시만 | **미배포**(입력 수집이 꺼져 있다, §3) | [루트 ADR-0477](../../../docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md) |
+| **문서 텍스트(첫 조각)** | `jobs/document_text`, `config/document-extraction.contract.json` | PDF 텍스트 층 + 쪽 단위 OCR, HWP/HWPX→PDF, 쪽·위치 보존, 새 해시만; 사실은 규칙 먼저·로컬 모델 나머지 | **작업 등록, 첫 run 으로 켜짐(ADR-0457)**: `intelligence_document_text`(`documents` 풀)·`intelligence_document_fact`(spark 풀 전부, 하루 한 번), 이미지는 릴리스가 CI 에서 짓는다. 입력 수집과 함께 켜진다(§3). 운영 절차는 `platforms/foundation-platform/docs/runbooks/intelligence-documents.md` | [루트 ADR-0477](../../../docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md) |
 | **문서 사실 v1** | `jobs/document_text/document_text/fact_run.py`·`facts.py`·`model_facts.py`, `config/ksic-divisions.json` | 규칙 먼저(토지이용계획 용지별 면적·유치업종·토지조서 지번·분양가), 규칙이 못 닫은 토지이용계획 표만 로컬 모델(`MODEL_RUNTIME_*`), OCR 쪽 값은 표 합계 검산 또는 비전 재독; 검산 통과·인용 유효한 값만 씀 | **미배포**(입력 수집 대기). 손 확인 정밀도는 계약 `accuracy_gate.measured` | [루트 ADR-0477](../../../docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md) §5 |
 | 재순위·distillation·평가 세트·벡터 | — | **없다** | — | ADR-0002 승인 조건 |
 
@@ -55,6 +55,6 @@ intelligence-api·worker·지식 색인은 배포된 적이 없다. Foundation �
 | Foundation → Intelligence | 고시 첨부 바이트 | 공용 내용주소 저장소 `…/sha256/<해시>.<형식>`(루트 ADR-0298·0456) | 수집 작업이 꺼져 있다(ADR-0456 §6) |
 | Foundation → Intelligence | 첨부 색인 | `silver.industrial_complex_notice_attachment`(Iceberg, 읽기만) | 표 계약만(`contract_only`) |
 | Foundation → Intelligence | 필지 | `gold.place_id_registry`·`gold.place_id_bridge`(루트 ADR-0288 §5) — intelligence 는 PNU 를 만들지 않는다 | 읽는 코드 없음 |
-| Intelligence → Foundation | 텍스트·사실 | `intelligence.document_text_*`·`intelligence.document_fact`(intelligence 만 쓰는 append-only 표) | 첫 조각은 run 산출 파일까지 |
+| Intelligence → Foundation | 텍스트·사실 | `intelligence.document_text_*`·`intelligence.document_fact*`(intelligence 만 쓰는 append-only Iceberg 표; 열은 계약의 열 + `run_id`, 레이크하우스 계약 `industrial_complex_lakehouse_contracts.json`) | 이미지는 로컬 파일만 읽고 쓰고, 표는 그 작업의 Spark 단계(`infra/lakehouse/spark/jobs/intelligence_documents.py`)만 쓴다. 첫 run 이 아직 없다 |
 
 R2·Iceberg·by-PNU 를 직접 읽는 intelligence 코드는 문서 텍스트 작업 전에는 없었다(`git grep` 기준: `trino`·`place_id`·`by_pnu` 0건).

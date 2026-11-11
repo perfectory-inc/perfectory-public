@@ -1,0 +1,36 @@
+[Unit]
+Description=Intelligence Platform: the cited facts of the ILIS notice attachments, rules first and the local model for the rest (root ADR-0477 §5)
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/intelligence-documents.md
+X-Foundation-Owner=intelligence
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+# The model runs only while this job does, and stops with it (StopWhenUnneeded=, root ADR-0478 §2);
+# the job holds every spark slot meanwhile.
+Requires=intelligence-model-runtime-ollama.service
+After=intelligence-model-runtime-ollama.service
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/intelligence-document-fact.sh
+TimeoutStartSec=80m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/data/foundation-platform/intelligence-documents
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=460M
+MemoryMax=512M
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=multi-user.target

@@ -13141,6 +13141,382 @@
         "object_prefix": null,
         "object_suffix_separator": null
       }
+    },
+    "intelligence.document_text_outcome": {
+      "table_name": "intelligence.document_text_outcome",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sha256",
+          "extractor_version"
+        ],
+        "newest_first": [
+          "run_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "media_format",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "outcome",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "page_count",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "ocr_page_count",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "char_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "error",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "elapsed_ms",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "extracted_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "run_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sha256",
+        "extractor_version"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(sha256, extractor_version) unique",
+        "outcome is text, partial_ocr, ocr, empty, unsupported_format or failed",
+        "appended after the run's pages, so an outcome never names pages that are missing"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "run_id"
+      }
+    },
+    "intelligence.document_text_page": {
+      "table_name": "intelligence.document_text_page",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sha256",
+          "extractor_version",
+          "page_number"
+        ],
+        "newest_first": [
+          "run_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "page_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "char_start",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "char_end",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "method",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "text",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "run_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sha256",
+        "extractor_version",
+        "page_number"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(sha256, extractor_version, page_number) unique",
+        "method is text_layer or ocr"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "run_id"
+      }
+    },
+    "intelligence.document_fact": {
+      "table_name": "intelligence.document_fact",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sha256",
+          "extractor_version",
+          "fact_kind",
+          "fact_index"
+        ],
+        "newest_first": [
+          "run_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "text_extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "fact_kind",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "fact_index",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "value_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "page_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "char_start",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "char_end",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "quote",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "method",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "model",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "check",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "extracted_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "run_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sha256",
+        "extractor_version",
+        "fact_kind",
+        "fact_index"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(sha256, extractor_version, fact_kind, fact_index) unique",
+        "method is rule or local_llm; model is set exactly when method is local_llm",
+        "every row's (page_number, char_start, char_end) span equals its quote"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "run_id"
+      }
+    },
+    "intelligence.document_fact_outcome": {
+      "table_name": "intelligence.document_fact_outcome",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sha256",
+          "extractor_version"
+        ],
+        "newest_first": [
+          "run_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sha256",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "text_extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "fact_counts_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "unsolved_pages_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "dropped_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "model_calls",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "elapsed_ms",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "extracted_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "run_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sha256",
+        "extractor_version"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(sha256, extractor_version) unique",
+        "appended after the run's facts, so an outcome never names facts that are missing"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "run_id"
+      }
     }
   },
   "jsonl_transports": {

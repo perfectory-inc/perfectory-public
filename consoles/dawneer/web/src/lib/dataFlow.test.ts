@@ -149,6 +149,7 @@ describe("the flow view", () => {
 
   it("places datasets by kind, a baked serving surface before an unbaked one", () => {
     expect(datasetStage({ type: "reference_table" })).toBe("silver");
+    expect(datasetStage({ type: "intelligence_table" })).toBe("silver");
     expect(datasetStage({ type: "serving_surface", surface_kind: "tiles" })).toBe("bake");
     expect(datasetStage({ type: "serving_surface", surface_kind: "consumer_receiver" })).toBe("serve");
     expect(datasetStage({ type: "serving_group" })).toBe("serve");

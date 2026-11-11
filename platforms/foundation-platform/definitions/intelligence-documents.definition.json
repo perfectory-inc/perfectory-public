@@ -1,0 +1,255 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "intelligence-documents",
+  "jobs": [
+    {
+      "id": "intelligence_document_text",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The intelligence platform's text of the ILIS notice attachments (root ADR-0477; scripts/ops/intelligence-document-text.sh): the hashes of silver.industrial_complex_notice_attachment with no intelligence.document_text_outcome of the image's extractor version, newest notice first, at most document_text.per_run_limit and until its run_time_budget_seconds. Their bytes are read from the shared content-addressed store with the lakehouse reader key; the intelligence image reads each page's text layer, OCRs only the pages without one and prints HWP/HWPX to PDF first, with no network, under its memory cap. Pages are appended before outcomes, each run once: an outcome is the record that a document is done, failures included. `unchanged` without the image when nothing is owed.",
+      "systemd_service": "foundation-intelligence-document-text.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/intelligence-documents"
+      ],
+      "schedule": "35 * * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 80,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "../intelligence-platform/config/document-extraction.contract.json#/document_text/per_run_limit"
+        ],
+        "deadline": "../intelligence-platform/config/document-extraction.contract.json#/document_text/run_time_budget_seconds",
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 4100,
+          "estimated_from": "computed from the image's measurement (root ADR-0477, 97 attachments on a laptop, 2026-11-11): new documents stop starting at run_time_budget_seconds (3,300 s), the document in flight finishing after it (mean 65 s, longest measured 727 s, a 60-page scan); the plan, fetch and append Spark steps as court_auction_silver's plan-then-load (278 s measured for one run). About 3,300 + 300 + 500 = 4,100 s, inside the 4,320 s share of the 80-minute limit. Each document's outcome is written as it finishes and the run's rows are appended once, so a stopped run loses only the append; the next plans them again."
+        }
+      },
+      "pool": "documents",
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-industrial-complex-notice-attachment-to-intelligence-document-text-outcome",
+        "silver-industrial-complex-notice-attachment-to-intelligence-document-text-page"
+      ],
+      "enabled": true,
+      "started_once_after_deploy": false,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when the attachment index gains a hash; that it is not behind it is the owed count each run reports (intelligence-documents-summary-json owed)."
+      },
+      "enabled_since": "2026-11-11T07:00:00Z"
+    },
+    {
+      "id": "intelligence_document_fact",
+      "scope": "new-objects",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The cited facts of the notice attachments' text (root ADR-0477 §5; scripts/ops/intelligence-document-fact.sh): the hashes with a text outcome of the fact version's text version and no intelligence.document_fact_outcome of the fact version, newest text first, at most document_fact.per_run_limit and until its run_time_budget_seconds. Rules first with their table totals; only the land-use tables the rules cannot close go to the local model (MODEL_RUNTIME_*, root ADR-0478), at most model_pages_per_run pages, and an OCR'd value is kept only if its table closes or the local vision model reads the same digits on the drawn page. Facts are appended before their outcomes. It runs the model runtime unit for as long as it runs and holds every spark slot meanwhile, so the model never holds memory beside Spark.",
+      "systemd_service": "foundation-intelligence-document-fact.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/intelligence-documents"
+      ],
+      "schedule": "50 2 * * *",
+      "started_by": "schedule",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 80,
+      "per_run_cap": {
+        "unit": "object",
+        "limits": [
+          "../intelligence-platform/config/document-extraction.contract.json#/document_fact/per_run_limit",
+          "../intelligence-platform/config/document-extraction.contract.json#/document_fact/model_pages_per_run"
+        ],
+        "deadline": "../intelligence-platform/config/document-extraction.contract.json#/document_fact/run_time_budget_seconds",
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 3900,
+          "estimated_from": "computed from its own bounds: documents stop starting at run_time_budget_seconds (3,300 s); rules take milliseconds and the model is asked at most model_pages_per_run (60) pages, each call bounded by model_timeout_seconds (600 s; 13.3 s a notice measured on ai-server, root ADR-0478), so the call in flight finishes after the budget; plus the model runtime's start (up to 120 s, its unit) and the plan and append Spark steps (about 300 s). About 3,300 + 200 + 120 + 300 = 3,900 s, inside the 4,320 s share of the 80-minute limit."
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 1,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "intelligence-document-text-page-to-intelligence-document-fact",
+        "intelligence-document-text-page-to-intelligence-document-fact-outcome"
+      ],
+      "enabled": true,
+      "started_once_after_deploy": false,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when the text job appends pages; that it is not behind them is the owed count each run reports (intelligence-documents-summary-json owed)."
+      },
+      "enabled_since": "2026-11-11T07:00:00Z"
+    }
+  ],
+  "host_memory": {
+    "intelligence_document_text": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      },
+      {
+        "contract": "platforms/intelligence-platform/config/document-extraction.contract.json",
+        "containers": [
+          "containers"
+        ]
+      }
+    ],
+    "intelligence_document_fact": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark-small"
+      },
+      {
+        "contract": "platforms/intelligence-platform/config/document-extraction.contract.json",
+        "containers": [
+          "containers"
+        ]
+      }
+    ]
+  },
+  "assets": [
+    {
+      "id": "intelligence-document-text-outcome",
+      "type": "intelligence_table",
+      "title": "고시 첨부 텍스트 결과",
+      "description": "intelligence platform 이 첨부 해시·추출기 판마다 한 번 읽은 결과(text·partial_ocr·ocr·empty·unsupported_format·failed, 쪽 수, OCR 쪽 수, 걸린 시간)를 쌓는다. 이 판으로 다시 읽지 않는 기록이다(루트 ADR-0477 §3). intelligence 만 쓰고 foundation 은 읽기만 한다. 첫 run 전이라 아직 흐르지 않는다.",
+      "status": "contract_only",
+      "owner": "intelligence-platform",
+      "evidence_refs": [
+        "platforms/intelligence-platform/config/document-extraction.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "intelligence.document_text_outcome",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "intelligence.document_text_outcome"
+        }
+      ]
+    },
+    {
+      "id": "intelligence-document-text-page",
+      "type": "intelligence_table",
+      "title": "고시 첨부 쪽 텍스트",
+      "description": "쪽마다 텍스트와 그 쪽이 문서 전체 텍스트(쪽을 \\f 로 이은 것)에서 차지하는 위치, 읽은 방법(text_layer·ocr)을 쌓는다. 인용은 (sha256, page_number, char_start, char_end) 이고 그 구간이 인용문과 같을 때만 유효하다(루트 ADR-0477 §4). 첫 run 전이라 아직 흐르지 않는다.",
+      "status": "contract_only",
+      "owner": "intelligence-platform",
+      "evidence_refs": [
+        "platforms/intelligence-platform/config/document-extraction.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "intelligence.document_text_page",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "intelligence.document_text_page"
+        }
+      ]
+    },
+    {
+      "id": "intelligence-document-fact",
+      "type": "intelligence_table",
+      "title": "고시 첨부에서 뽑은 사실",
+      "description": "값 하나와 그 인용 하나: 토지이용계획의 용지별 면적·비율, 유치업종, 지번, 분양가. 규칙이 먼저(method rule), 규칙이 못 닫은 표만 로컬 모델(local_llm, model 기록). 검산을 넘은 값만 쌓는다(루트 ADR-0477 §5). 사실 종류마다 손 확인 정밀도가 관문을 넘기 전에는 화면에 싣지 않는다. 첫 run 전이라 아직 흐르지 않는다.",
+      "status": "contract_only",
+      "owner": "intelligence-platform",
+      "evidence_refs": [
+        "platforms/intelligence-platform/config/document-extraction.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "intelligence.document_fact",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "intelligence.document_fact"
+        }
+      ]
+    },
+    {
+      "id": "intelligence-document-fact-outcome",
+      "type": "intelligence_table",
+      "title": "고시 첨부 사실 결과",
+      "description": "사실 판마다 문서 하나를 읽은 기록: 종류별 사실 수, 규칙이 못 닫은 쪽, 검산에서 버린 값, 모델 호출 수. 이 판으로 다시 읽지 않는 기록이다(루트 ADR-0477 §5). 첫 run 전이라 아직 흐르지 않는다.",
+      "status": "contract_only",
+      "owner": "intelligence-platform",
+      "evidence_refs": [
+        "platforms/intelligence-platform/config/document-extraction.contract.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
+      ],
+      "table_name": "intelligence.document_fact_outcome",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "intelligence.document_fact_outcome"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-industrial-complex-notice-attachment",
+      "to": "intelligence-document-text-outcome",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-text.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py",
+        "platforms/intelligence-platform/jobs/document_text/document_text/run.py"
+      ],
+      "description": "색인의 해시 중 이 판의 결과가 없는 것을 새 고시부터 읽고, 문서마다 결과를 쌓는다(루트 ADR-0477 §3). 첫 run 전이라 아직 흐르지 않는다."
+    },
+    {
+      "from": "silver-industrial-complex-notice-attachment",
+      "to": "intelligence-document-text-page",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-text.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py",
+        "platforms/intelligence-platform/jobs/document_text/document_text/run.py"
+      ],
+      "description": "읽은 문서의 쪽마다 텍스트와 위치를 결과보다 먼저 쌓는다(루트 ADR-0477 §4). 첫 run 전이라 아직 흐르지 않는다."
+    },
+    {
+      "from": "intelligence-document-text-page",
+      "to": "intelligence-document-fact",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py",
+        "platforms/intelligence-platform/jobs/document_text/document_text/fact_run.py"
+      ],
+      "description": "쪽 텍스트에서 규칙이 먼저, 규칙이 못 닫은 표만 로컬 모델이 사실을 뽑고, 검산을 넘은 값만 쌓는다(루트 ADR-0477 §5). 첫 run 전이라 아직 흐르지 않는다."
+    },
+    {
+      "from": "intelligence-document-text-page",
+      "to": "intelligence-document-fact-outcome",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py",
+        "platforms/intelligence-platform/jobs/document_text/document_text/fact_run.py"
+      ],
+      "description": "사실 판마다 문서 하나를 읽은 기록을 사실보다 뒤에 쌓는다. 첫 run 전이라 아직 흐르지 않는다."
+    }
+  ]
+}

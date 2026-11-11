@@ -436,8 +436,10 @@ COMPOSE_IMAGES = ("foundation-platform-runtime", "foundation-postgres-recovery")
 # Dawneer console's (root ADR-0434, foundation-release.sh `migrate`). The release's Airflow image (root
 # ADR-0431 §5) is in every release since it: a release before it runs the stock apache/airflow its
 # own compose file names, so a rollback needs none (airflow-runtime.sh refuses a compose file that
-# names the image the release did not carry).
-OPTIONAL_COMPOSE_IMAGES = ("foundation-platform-dagster", "dawneer-console", "foundation-platform-airflow")
+# names the image the release did not carry). The intelligence document jobs' image (root ADR-0477 §6)
+# is run only by their job scripts, which a release before it does not carry.
+OPTIONAL_COMPOSE_IMAGES = ("foundation-platform-dagster", "dawneer-console", "foundation-platform-airflow",
+                           "intelligence-document-text")
 
 
 def require_release_images(release_id: str, artifacts: Path) -> None:
