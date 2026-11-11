@@ -6,7 +6,8 @@
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
 //! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0091),
 //! and the AL_D161 land ownership (`silver.land_ownership`, root ADR-0360), and the AL_D171
-//! register of brokerage offices (`silver.real_estate_broker_office`, root ADR-0511 §4).
+//! register of brokerage offices (`silver.real_estate_broker_office`) and the AL_D172 roster of
+//! their people (`silver.real_estate_broker_member`, root ADR-0511 §4).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -31,7 +32,7 @@ use lakehouse_domain::{
     LakehouseColumn, LakehouseTableContract, SILVER_LAND_CHARACTERISTIC, SILVER_LAND_FOREST_LEDGER,
     SILVER_LAND_INDIVIDUAL_PRICE, SILVER_LAND_OWNERSHIP, SILVER_LAND_RIGHT_REGISTRATION,
     SILVER_LAND_TRANSFER_HISTORY, SILVER_LAND_USE_PLAN, SILVER_LAND_USE_ZONE_CODES,
-    SILVER_REAL_ESTATE_BROKER_OFFICE,
+    SILVER_REAL_ESTATE_BROKER_MEMBER, SILVER_REAL_ESTATE_BROKER_OFFICE,
 };
 use serde_json::json;
 
@@ -533,6 +534,53 @@ const REAL_ESTATE_BROKER_OFFICE_LANE: Lane = Lane {
     delimiter: None,
 };
 
+// The national AL_D172 roster: every 공인중개사, 중개보조원, 중개인 and 법인 registered to an
+// office, with their 자격증번호 where they hold one (root ADR-0511 §4).
+const REAL_ESTATE_BROKER_MEMBER_LANE: Lane = Lane {
+    env_prefix: "FOUNDATION_PLATFORM_REAL_ESTATE_BROKER_MEMBER",
+    contract: &SILVER_REAL_ESTATE_BROKER_MEMBER,
+    expected_header: &[
+        "법정동코드",
+        "법정동명",
+        "등록번호",
+        "사업자상호",
+        "중개업자명",
+        "중개업자종별코드",
+        "중개업자종별명",
+        "자격증번호",
+        "자격증취득일",
+        "직위구분코드",
+        "직위구분명",
+        "데이터기준일자",
+    ],
+    csv_columns: &[
+        Some("sigungu_code"),
+        Some("sigungu_name"),
+        Some("registration_no"),
+        Some("office_name"),
+        Some("member_name"),
+        Some("member_kind_code"),
+        Some("member_kind_name"),
+        Some("license_no"),
+        Some("license_acquired_on"),
+        Some("position_code"),
+        Some("position_name"),
+        Some("data_reference_date"),
+    ],
+    member_matches: |name| name.starts_with("AL_D172_") && name.ends_with(".csv"),
+    pnu_position: None,
+    positive_area: false,
+    delimiter: None,
+};
+
+/// Exports every office's roster through the shared handoff transport (root ADR-0511 §4).
+///
+/// # Errors
+/// Refuses header drift, ambiguous members, and failed IO.
+pub async fn run_real_estate_broker_member() -> anyhow::Result<()> {
+    run_lane(&REAL_ESTATE_BROKER_MEMBER_LANE).await
+}
+
 /// Exports every registered brokerage office through the shared handoff transport (root
 /// ADR-0511 §4).
 ///
@@ -636,6 +684,7 @@ pub fn export_command(command: &str) -> Option<ExportCommand> {
         "export-land-right-registration-silver-handoff" => &LAND_RIGHT_LANE,
         "export-land-ownership-silver-handoff" => &LAND_OWNERSHIP_LANE,
         "export-real-estate-broker-office-silver-handoff" => &REAL_ESTATE_BROKER_OFFICE_LANE,
+        "export-real-estate-broker-member-silver-handoff" => &REAL_ESTATE_BROKER_MEMBER_LANE,
         // The 용도지역지구 layers are shapefiles, not CSV: their own export, same environment
         // names and summary, so the Silver refresh runs them as it runs these (root ADR-0362).
         "export-land-use-zone-area-silver-handoff" => {
@@ -1295,6 +1344,7 @@ mod tests {
     fn lane_mappings_cover_their_contracts_exactly() {
         for lane in [
             &REAL_ESTATE_BROKER_OFFICE_LANE,
+            &REAL_ESTATE_BROKER_MEMBER_LANE,
             &LAND_OWNERSHIP_LANE,
             &LAND_RIGHT_LANE,
             &PLAN_LANE,

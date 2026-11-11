@@ -7553,6 +7553,127 @@
         "object_suffix_separator": null
       }
     },
+    "silver.real_estate_broker_member": {
+      "table_name": "silver.real_estate_broker_member",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sigungu_code",
+          "registration_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sigungu_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "registration_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "office_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "member_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "member_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "member_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "license_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "license_acquired_on",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "position_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "position_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sigungu_code",
+        "registration_no",
+        "position_code",
+        "license_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "sigungu_code_not_null",
+        "registration_no_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_register_apartment_price": {
       "table_name": "silver.building_register_apartment_price",
       "physical_format": "Parquet",

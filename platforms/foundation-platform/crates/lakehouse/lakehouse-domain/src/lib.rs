@@ -156,6 +156,6 @@ pub use lakehouse_run_summary::{
     SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
-pub use real_estate_broker::SILVER_REAL_ESTATE_BROKER_OFFICE;
+pub use real_estate_broker::{SILVER_REAL_ESTATE_BROKER_MEMBER, SILVER_REAL_ESTATE_BROKER_OFFICE};
 pub use unit_official_price::{SILVER_UNIT_OFFICIAL_PRICE, SILVER_UNIT_OFFICIAL_PRICE_VERSIONS};
 pub use unit_price_panel::GOLD_UNIT_PRICE_PANEL;

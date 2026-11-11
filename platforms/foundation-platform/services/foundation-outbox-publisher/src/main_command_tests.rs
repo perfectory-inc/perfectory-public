@@ -1084,3 +1084,15 @@ fn real_estate_broker_office_export_command_is_explicit() -> anyhow::Result<()> 
     );
     Ok(())
 }
+
+#[test]
+fn real_estate_broker_member_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-real-estate-broker-member-silver-handoff"
+        ])?,
+        Command::ExportRealEstateBrokerMemberSilverHandoff
+    );
+    Ok(())
+}
