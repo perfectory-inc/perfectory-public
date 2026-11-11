@@ -6,8 +6,9 @@ use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    fetch, fetch_standard, openapi_check, pass_id, plan, provider_file_id, read_columns,
-    read_metadata, selected, source_contract, Announced, ContractFile, SourceContract, PREFIX,
+    fetch, fetch_eum, fetch_standard, openapi_check, pass_id, plan, provider_file_id, read_columns,
+    read_eum_file_info, read_eum_list, read_metadata, selected, source_contract, Announced,
+    ContractFile, SourceContract, PREFIX,
 };
 use crate::provider_request_spacing::ProviderRequestSpacing;
 
@@ -216,6 +217,154 @@ async fn a_download_that_is_not_the_file_is_refused() -> anyhow::Result<()> {
             .is_err(),
             "{slug}"
         );
+    }
+    Ok(())
+}
+
+/// A synthetic 토지이음 list page: two files, the newer first, as the page writes them.
+const EUM_LIST: &[u8] = b"<td class=\"left\">synthetic_20990201.zip</td><a onclick=\"$.fn.dataDownload('902');\"><td class=\"left\">synthetic_20990101.zip</td><a onclick=\"$.fn.dataDownload('901');\">";
+
+/// A synthetic 토지이음 file-information answer: JSON whose `fileList` is XML with escaped closing tags.
+fn eum_file_info(size: usize) -> String {
+    format!(
+        r#"{{"fileList":"<?xml version='1.0' encoding='EUC-KR' ?><root><node><fileId>902<\/fileId><fileNm>999_20990201_00000.zip<\/fileNm><fileSize>{size}<\/fileSize><key>SyNtHeTiC%2Fkey.0f<\/key><refDt>20990201<\/refDt><\/node><\/root>"}}"#
+    )
+}
+
+#[test]
+fn the_eum_list_names_its_newest_file_and_the_file_information_its_one_time_key(
+) -> anyhow::Result<()> {
+    assert_eq!(read_eum_list(EUM_LIST)?, 902);
+    assert!(read_eum_list(b"<html>no files</html>").is_err());
+    let download = read_eum_file_info(eum_file_info(9).as_bytes())?;
+    assert_eq!(
+        (
+            download.key.as_str(),
+            download.file_name.as_str(),
+            download.size,
+            download.reference_date.as_deref()
+        ),
+        (
+            "SyNtHeTiC%2Fkey.0f",
+            "999_20990201_00000.zip",
+            9,
+            Some("20990201")
+        )
+    );
+    assert!(read_eum_file_info(b"<!doctype html><title>error</title>").is_err());
+    assert!(read_eum_file_info(
+        eum_file_info(9)
+            .replace("SyNtHeTiC%2Fkey.0f", "a&b=c")
+            .as_bytes()
+    )
+    .is_err());
+    assert!(read_eum_file_info(
+        eum_file_info(9)
+            .replace("999_20990201_00000.zip", "../x.zip")
+            .as_bytes()
+    )
+    .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_eum_file_is_fetched_by_its_one_time_key_only_when_its_list_names_a_new_one(
+) -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let target = file(&contract, "land_use_activity_restriction")?;
+    let eum = &contract.eum_open_data;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(eum.list_path.clone()))
+        .and(query_param("dataCd", "007"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(EUM_LIST.to_vec()))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(eum.file_info_path.clone()))
+        .and(wiremock::matchers::header_exists("referer"))
+        .and(wiremock::matchers::body_string_contains("fileId=902"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(eum_file_info(zip_bytes().len())))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(eum.download_path.clone()))
+        .and(query_param("filename", "999_20990201_00000.zip"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(zip_bytes()))
+        .mount(&server)
+        .await;
+    let mut requests = 0;
+    let uri = server.uri();
+    let (announced, bytes) = fetch_eum(
+        &contract,
+        target,
+        (&uri, &uri),
+        spacing()?,
+        &mut requests,
+        None,
+    )
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("a new file is fetched"))?;
+    assert_eq!(
+        (
+            announced.attach_file_id.as_str(),
+            announced.updated_at.as_deref(),
+            bytes
+        ),
+        ("EUM_007_902", Some("20990201"), zip_bytes())
+    );
+    assert_eq!(requests, 3, "the list, the file information, the download");
+    assert!(fetch_eum(
+        &contract,
+        target,
+        (&uri, &uri),
+        spacing()?,
+        &mut requests,
+        Some("EUM_007_902")
+    )
+    .await?
+    .is_none());
+    assert_eq!(requests, 4, "a landed file is only listed again");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_eum_download_shorter_than_announced_or_not_a_zip_is_refused() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let target = file(&contract, "development_activity_permit")?;
+    let eum = &contract.eum_open_data;
+    for (announced, body) in [
+        (zip_bytes().len() + 1, zip_bytes()),
+        (17, b"<html>error</html>".to_vec()),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path(eum.list_path.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(EUM_LIST.to_vec()))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(eum.file_info_path.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_string(eum_file_info(announced)))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(eum.download_path.clone()))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+        let mut requests = 0;
+        let uri = server.uri();
+        assert!(fetch_eum(
+            &contract,
+            target,
+            (&uri, &uri),
+            spacing()?,
+            &mut requests,
+            None
+        )
+        .await
+        .is_err());
     }
     Ok(())
 }
