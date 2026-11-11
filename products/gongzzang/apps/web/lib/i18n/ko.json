@@ -261,6 +261,7 @@
           "buildingPermits": "건축인허가",
           "subParcels": "부속지번",
           "energy": "에너지",
+          "utility": "인입 가능성",
           "demolitions": "멸실 건물",
           "rules": "규제",
           "nearby": "주변"
@@ -280,6 +281,13 @@
           "electricity": "전기 사용량({unit})",
           "gas": "가스 사용량",
           "exclusions": "제공처 기준: 산업·수송·발전·열병합·충전용 사용과 단독주택·200세대 미만 공동주택은 집계에서 빠진다."
+        },
+        "utility": {
+          "title": "인입 가능성",
+          "gas": "도시가스",
+          "gasUsed": "사용 실적 있음 · {month} 사용분",
+          "roadContact": "도로접면",
+          "caveat": "공개 자료에서 찾은 신호입니다. 실제 인입 가능 여부는 공급 기관에 신청한 뒤 정해집니다."
         },
         "factories": {
           "title": "등록공장 {count}곳",
