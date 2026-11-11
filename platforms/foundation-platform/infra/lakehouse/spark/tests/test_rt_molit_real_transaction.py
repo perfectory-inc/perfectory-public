@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -234,6 +235,128 @@ class LinksPlaces(unittest.TestCase):
         # 2026-11-08: a 토지 매매 month, every lot masked but two, both unresolved.
         self.assertFalse(job.below_link_bound([masked] * 1000 + [absent] * 2, 0.25))
         self.assertTrue(job.below_link_bound([masked] * 1000 + [absent] * job.MIN_UNMASKED_LOTS, 0.25))
+
+
+class ParsesInTheWorker(unittest.TestCase):
+    """2026-11-11: the driver held each export's rows, shipped them to the JVM and collected their links
+    back, and the small Spark's 2.5GiB was outgrown three times in 13 hours. The parse now runs in the
+    Python worker (export_records) and the driver reads only counts; what it yields is what the driver
+    path made of the same export."""
+
+    ENTRY = {"dataset": DATASET, "month": "209812", "object_key": "k", "source_snapshot_id": "20990102T030405Z"}
+    DONGS = {"합성도 합성시 합성면 가상리": "9999933021"}
+    COLUMNS = ("row_key", "jibun_raw", "legal_dong_code", "pnu", "source_line_number")
+
+    def records(self, data, remap=None, ambiguous=frozenset()):
+        return list(job.export_records(data, self.ENTRY, CSV, NOW, self.DONGS, remap or {}, ambiguous, self.COLUMNS))
+
+    def test_the_worker_yields_the_rows_rejected_lines_and_meta_the_driver_made(self):
+        data = export(factory(1), factory(2, jibun="3**"), ["x"], factory(3, jibun="가-1"))
+        records = self.records(data, remap={"9999933021": "9999933099"})
+        kinds = [r[0] for r in records]
+        self.assertEqual(kinds[0], job.META)
+        self.assertEqual(json.loads(records[0][4]), {"unknown": [], "refused": False})
+        rows, _unknown, rejected = rows_and_rejected(data)
+        self.assertEqual([r[1:4] for r in records if r[0] == job.REJECTED_LINE], [tuple(x) for x in rejected])
+        yielded = [r[5] for r in records if r[0] == job.ROW]
+        # The row key is Spark's (ranked): the worker yields the name it ranks by, rank 1 for a name alone.
+        self.assertEqual([f"{y[6]}-1" for y in yielded], [r["row_key"] for r in rows])
+        self.assertEqual([y[0] for y in yielded], [None] * 3)
+        # The source code's candidate, the current code under the crosswalk, and the reason a row names no lot.
+        self.assertEqual([y[2:4] + y[5:6] for y in yielded],
+                         [("9999933099", "9999933021100120003", None), ("9999933099", None, "jibun_masked"),
+                          ("9999933099", None, "provisional_lot")])
+
+    def test_a_refused_export_is_one_meta_and_one_rejected_line(self):
+        records = self.records(b"not the provider's csv")
+        self.assertEqual(json.loads(records[0][4])["refused"], True)
+        (line,) = [r for r in records if r[0] == job.REJECTED_LINE]
+        self.assertEqual(line[1], 0)
+        self.assertTrue(line[3].startswith("export_refused"))
+        self.assertFalse([r for r in records if r[0] == job.ROW])
+
+    def test_a_code_that_splits_names_no_current_code(self):
+        (row,) = [r[5] for r in self.records(export(factory(1)), ambiguous=frozenset({"9999933021"})) if r[0] == job.ROW]
+        self.assertIsNone(row[2])
+
+    def test_the_forms_asked_are_the_ones_the_resolver_asks(self):
+        # The Spark join of asked_forms, done here in Python, against place_identity_resolver.candidate_pnus.
+        import place_identity_resolver
+
+        remap = {"9999933021": "9999933099", "9999933022": "9999933099", "9999933030": "9999933031"}
+        split = {"9999933040"}
+        forms = job.asked_forms(remap, split)
+        touched = {code for code, _ in forms}
+        for pnu in ("9999933021100120003", "9999933099100120003", "9999933031100010000", "9999933050100010000",
+                    "9999933040100010000"):
+            code = pnu[:10]
+            asked = set() if code in split else ({form + pnu[10:] for c, form in forms if c == code}
+                                                 if code in touched else {pnu})
+            with self.subTest(pnu=pnu):
+                self.assertEqual(asked, place_identity_resolver.candidate_pnus([pnu], remap, split))
+
+
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class LoadsInSpark(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.spark = SparkSession.builder.master("local[2]").appName("rt-molit-worker-parse").getOrCreate()
+        # As the load does: the worker imports the job to parse an export.
+        cls.spark.sparkContext.addPyFile(job.__file__)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def test_an_export_parsed_from_its_file_in_the_worker_is_the_drivers_rows(self):
+        from pyspark.sql import functions as F
+        from pyspark.sql.types import ArrayType, IntegerType, StringType, StructField, StructType
+
+        # Two rows of one name (a cancellation filled in on one of them): ranked as rows_of ranks them.
+        data = export(factory(1), factory(2, cancel="20990110"), factory(3, jibun="3**"), factory(4, amount="1"))
+        columns = ParsesInTheWorker.COLUMNS
+        row_type = StructType([StructField(c, StringType()) for c in columns[:4]]
+                              + [StructField("source_line_number", IntegerType()),
+                                 StructField("_reason", StringType()), StructField("_name", StringType()),
+                                 StructField("_sort", ArrayType(StringType()))])
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "export.csv"
+            path.write_bytes(data)
+            import functools
+            import os
+
+            records = functools.partial(job.file_records, {os.path.normpath(str(path)): ParsesInTheWorker.ENTRY},
+                                        CSV, NOW, ParsesInTheWorker.DONGS, {}, frozenset(), columns)
+            files = self.spark.sparkContext.binaryFiles(str(path))
+            frame = self.spark.createDataFrame(files.flatMap(records), StructType([
+                StructField("kind", StringType()), StructField("line", IntegerType()),
+                StructField("raw", StringType()), StructField("reason", StringType()), StructField("meta", StringType()),
+                StructField("row", row_type)]))
+            got = job.ranked(frame.where(F.col("kind") == job.ROW).select("row.*"), F)
+            keys = {(r["source_line_number"], r["row_key"]) for r in got.collect()}
+        rows, _ = rows_of(data)
+        self.assertEqual(keys, {(r["source_line_number"], r["row_key"]) for r in rows})
+        self.assertIn(2, {int(key.rsplit("-", 1)[1]) for _, key in keys}, "the two rows of one name rank 1 and 2")
+
+    def test_the_link_counts_are_the_link_report(self):
+        from pyspark.sql import functions as F
+
+        rows = [{"dataset_slug": DATASET, "pnu": "9999933021100120003", "legal_dong_code": "9999933021",
+                 "pnu_unresolved_reason": None},
+                {"dataset_slug": DATASET, "pnu": None, "legal_dong_code": "9999933021",
+                 "pnu_unresolved_reason": "parcel_absent"},
+                {"dataset_slug": DATASET, "pnu": None, "legal_dong_code": "9999933021",
+                 "pnu_unresolved_reason": "jibun_masked"},
+                {"dataset_slug": DATASET, "pnu": None, "legal_dong_code": None,
+                 "pnu_unresolved_reason": "legal_dong_not_found"}]
+        frame = self.spark.createDataFrame(rows, "dataset_slug string, pnu string, legal_dong_code string, "
+                                                 "pnu_unresolved_reason string")
+        report, lots, unresolved = job.link_counts(frame, F)
+        self.assertEqual(report, job.link_report(rows))
+        self.assertEqual((lots, unresolved), (len(job.unmasked_lots(rows)),
+                                              sum(1 for r in job.unmasked_lots(rows) if not r["pnu"])))
 
 
 class ReadsPlans(unittest.TestCase):
