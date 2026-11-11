@@ -13,7 +13,8 @@
       "systemd_timer": "foundation-source-sweep.timer",
       "state_paths": [
         "/var/lib/foundation-platform/source-sweep",
-        "/data/foundation-platform/source-sweep"
+        "/data/foundation-platform/source-sweep",
+        "/var/lib/foundation-jobs/metrics"
       ],
       "schedule": "40 3 * * *",
       "started_by": "schedule",

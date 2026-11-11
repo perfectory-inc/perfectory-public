@@ -72,8 +72,9 @@ elif command == "plan-vworld-dataset-collection":
 elif command == "inventory-vworld-dataset-files":
     plan = json.load(open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_COLLECTION_PLAN_PATH"], encoding="utf-8"))
     json.dump({"status": "ready", "selection_archive_file_count": 3,
-               "jobs": [{"endpoint_slug": slug, "files": [
-                   {"download_ds_id": "9991", "file_no": n, "size_kib": 2**20} for n in ("7", "8")]}
+               "jobs": [{"endpoint_slug": slug, "source_slug": "vworldkr__synthetic", "files": [
+                   {"download_ds_id": "9991", "file_no": n, "size_kib": 2**20} for n in ("7", "8")]
+                   + scenario["vworld"].get("listed", [])}
                         for slug in plan["jobs"][:1]]}, open(env["FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_INVENTORY_PATH"], "w"))
 elif command == "ingest-vworld-dataset-files":
     for name, value in [("FOUNDATION_PLATFORM_VWORLD_DATASET_FILE_BRONZE_KEY", "content_addressed"),
@@ -177,7 +178,8 @@ class SweepCommand(unittest.TestCase):
         release = base / "releases" / RELEASE_ID
         (release / "scripts/ops").mkdir(parents=True)
         for name in ("daily-source-sweep.sh", "admitted-writer-runtime.sh", "vworld-login.sh", "job-journal.sh",
-                     "bronze-object-members.sh", "database-url.sh", "vworld-sweep-lane.sh", "provider_alert.py"):
+                     "bronze-object-members.sh", "database-url.sh", "vworld-sweep-lane.sh", "provider_alert.py",
+                     "source_sweep_metrics.py"):
             (release / "scripts/ops" / name).write_bytes((PLATFORM / "scripts/ops" / name).read_bytes())
             (release / "scripts/ops" / name).chmod(0o755)
         (release / "scripts/ops/raon-large-files.sh").write_text(FAKE_RAON)
@@ -212,12 +214,14 @@ class SweepCommand(unittest.TestCase):
         self.fake = root / "fake"
         self.fake.mkdir()
         self.spool = root / "data/source-sweep/spool"
+        self.metrics = root / "metrics"
         token = root / "slack-token"
         token.write_text("planted-token\n")
         self.env = {
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "FOUNDATION_SOURCE_SWEEP_STATE_ROOT": str(self.state),
             "FOUNDATION_SOURCE_SWEEP_SLACK_TOKEN_FILE": str(token), "FAKE_STATE": str(self.fake),
             "FOUNDATION_SOURCE_SWEEP_SPOOL_DIR": str(self.spool),
+            "FOUNDATION_SOURCE_SWEEP_METRICS_DIR": str(self.metrics),
             "FOUNDATION_ALERTMANAGER_PORT": self.alertmanager.port,
             **{name: "planted-" + name.lower() for name in NEEDS},
             VWORLD_LOGIN["username"]["canonical"]: "planted-user", VWORLD_LOGIN["password"]["canonical"]: "planted-pass",
@@ -682,6 +686,59 @@ class SweepCommand(unittest.TestCase):
         self.assertNotEqual(self.run_job().returncode, 0)
         self.assertIn("raon deferred=1 status=no-summary rc=1", self.journal().splitlines()[-1])
 
+    # --- what is listed and still not in Bronze (root ADR-0514) ---
+
+    def series(self):
+        text = (self.metrics / "source-sweep.prom").read_text(encoding="utf-8")
+        return dict(line.rsplit(" ", 1) for line in text.splitlines() if line and not line.startswith("#"))
+
+    def test_the_files_a_run_leaves_unfetched_are_measured_with_their_oldest_listed_date(self):
+        # 2026-10-09..11-11: the lane was off and 49 listed files waited; nothing measured them.
+        listed = [{"download_ds_id": "9991", "file_no": n, "size_kib": 2**20, "updated_at": day}
+                  for n, day in (("70", "2099-11-09"), ("71", "2099-07-11"), ("72", "2099-09-09"))]
+        self.scenario(vworld={"listed": listed, "evidence": vworld_evidence([], archives=[
+            self.archive("70"), self.archive("71", size_bytes=2**31), self.archive("72")])},
+            raon={"summary": raon_summary(files=[
+                {"source_slug": "vworldkr__synthetic", "provider_file_id": "9991-72", "status": "committed"}])})
+        self.assertEqual(self.run_job().returncode, 0)
+        series = self.series()
+        labels = '{source="vworldkr__synthetic"}'
+        self.assertEqual(series["foundation_source_sweep_unfetched_files" + labels], "2", "the committed one is in Bronze")
+        self.assertEqual(series["foundation_source_sweep_unfetched_bytes" + labels], str(2**30 + 2**31))
+        oldest = datetime.datetime(2099, 7, 11, tzinfo=datetime.timezone.utc).timestamp()
+        self.assertEqual(series["foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds" + labels],
+                         f"{oldest:.0f}")
+        self.assertIn("foundation_source_sweep_metrics_timestamp_seconds", series)
+
+    def test_a_switched_off_lane_leaves_its_files_measured_and_an_undated_one_counts_as_oldest(self):
+        self.raon_cap(0)
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])})
+        self.assertEqual(self.run_job().returncode, 0)
+        series = self.series()
+        self.assertEqual(series['foundation_source_sweep_unfetched_files{source="vworldkr__synthetic"}'], "1")
+        self.assertEqual(
+            series['foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds{source="vworldkr__synthetic"}'],
+            "0", "not knowing its date is no reason to be quiet")
+
+    def test_a_day_with_nothing_waiting_writes_only_the_timestamp(self):
+        self.scenario(vworld={"evidence": vworld_evidence([vfile("8", "skipped_existing")],
+                                                          archives=[self.archive("70", "skipped_existing")])})
+        self.assertEqual(self.run_job().returncode, 0)
+        self.assertEqual(list(self.series()), ["foundation_source_sweep_metrics_timestamp_seconds"])
+
+    def test_a_failed_run_still_says_what_waits(self):
+        self.scenario(vworld={"evidence": vworld_evidence([], archives=[self.archive("70")])},
+                      raon={"rc": 1, "summary": raon_summary(status="failed", committed=0, failed=1, files=[])})
+        self.assertNotEqual(self.run_job().returncode, 0)
+        self.assertEqual(self.series()['foundation_source_sweep_unfetched_files{source="vworldkr__synthetic"}'], "1")
+
+    def test_the_unit_may_write_the_metrics_directory(self):
+        unit = (PLATFORM / "infra/systemd" / UNIT).read_text(encoding="utf-8")
+        paths = next(line for line in unit.splitlines() if line.startswith("ReadWritePaths=")).split("=", 1)[1].split()
+        self.assertIn("/var/lib/foundation-jobs/metrics", paths)
+        jobs = json.loads((ORCHESTRATION / "jobs.v1.json").read_text(encoding="utf-8"))["jobs"]
+        self.assertIn("/var/lib/foundation-jobs/metrics", next(j for j in jobs if j["id"] == "source_sweep")["state_paths"])
+
     def test_the_large_file_script_needs_nothing_the_sweep_unit_does_not_load(self):
         # The sweep runs the lane's script rather than sourcing it, so the contract check of the unit
         # does not follow it: its requirements must be the unit's.
@@ -715,10 +772,14 @@ class SweptDatasets(unittest.TestCase):
         for name, collection in declared.items():
             self.assertIsInstance(collection["landed_bytes_notice"], int, name)
             self.assertGreater(collection["landed_bytes_notice"], 0, name)
-            # Zero is a decision, not a gap (root ADR-0170): the large-file lane fetches nothing on
-            # its own until an operator's supervised run has measured it.
+            # Root ADR-0514: the large-file lane takes its files itself, a capped count a day, newest
+            # first; no operator's run comes first (it never came, 2026-10-09..11-11). The budget
+            # admits the count's largest files, so it refuses only a file larger than any seen.
             self.assertIsInstance(collection["selection_archive_new_bytes_budget"], int, name)
-            self.assertGreaterEqual(collection["selection_archive_new_bytes_budget"], 0, name)
+            self.assertIsInstance(collection["selection_archive_max_files_per_run"], int, name)
+            self.assertGreater(collection["selection_archive_max_files_per_run"], 0, name)
+            self.assertGreaterEqual(collection["selection_archive_new_bytes_budget"],
+                                    collection["selection_archive_max_files_per_run"] * 1_598_299_302, name)
 
     def test_the_sweep_takes_only_vworld_dataset_files(self):
         self.assertTrue(self.swept(), "the VWorld lane sweeps something")

@@ -336,6 +336,35 @@ groups:
         annotations:
           summary: '공매 사진 있는 물건 중 원본 크기 사진이 있는 것이 {{ $value | humanizePercentage }} 뿐이에요 — 화면은 178×134 썸네일이에요. 물건상세의 potoUrlList[].urlAdr 를 data-go-kr-onbid.contract.json media.fields.originals 규칙과 대조하고 onbid-media-summary-json 의 originals_attempted 를 보세요'
           runbook: docs/runbooks/data-go-kr-onbid.md
+  # Listed and not in Bronze (root ADR-0514). 2026-10-09..11-11 the RAON large-file lane was off and 49
+  # files the provider listed never reached Bronze; 경기·경북 of every 용도지역지구 month since 2026-07 were
+  # among them, so silver.land_use_plan stayed on 2026-06-09 and parcel-zoning served it 24 days past its
+  # last bake with every other rule quiet: the lane served all Silver had (ADR-0444) and the source's
+  # other files kept its Bronze fresh (ADR-0443). The sweep writes what it still lacks after each run.
+  - name: foundation-source-sweep
+    rules:
+      - alert: FoundationSourceFilesUnfetched
+        # The provider dated the oldest such file more than 72 hours ago: a daily run that takes it
+        # (newest first, eight a run) has had three turns. Users then see data older than it.
+        expr: time() - foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds > 72 * 3600
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '{{ $labels.source }} 에 공급자가 올린 지 {{ humanizeDuration $value }} 된 파일이 아직 Bronze 에 없어요 — 그 원천을 읽는 Silver·Gold·화면이 그만큼 옛 판이에요. journalctl -u foundation-source-sweep.service 의 "| raon" 줄(받은 것·실패·상한)을 보세요'
+          runbook: docs/runbooks/provider-acquisition-fargate.md
+      - alert: FoundationSourceSweepMetricsSilent
+        # The sweep runs daily; two missed days and the files above are no longer measured.
+        expr: >-
+          time() - foundation_source_sweep_metrics_timestamp_seconds > 50 * 3600
+          or (absent(foundation_source_sweep_metrics_timestamp_seconds) and on () (foundation_api_up == 1))
+        for: 2d
+        labels:
+          severity: ticket
+          service: serving-freshness
+        annotations:
+          summary: '매일 원천 훑기가 이틀 넘게 "받지 못한 파일" 을 재지 못했어요 — 공급자 파일이 밀려도 알 수 없어요. systemctl status foundation-source-sweep.service 를 보세요'
+          runbook: docs/runbooks/provider-acquisition-fargate.md
   # Bronze ingestion (root ADR-0443). Each source is held to its own bounds, which foundation-api
   # renders from the endpoint catalog's expected_cadence (its provider's release schedule): one
   # 24-hour line for all would page about 85 of 105 sources that are healthy, because most

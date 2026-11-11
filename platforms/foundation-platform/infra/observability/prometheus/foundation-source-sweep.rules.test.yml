@@ -1,0 +1,77 @@
+# promtool unit tests for the foundation-source-sweep rules (root ADR-0514): a file the provider lists
+# and Bronze lacks pages after 72 hours. The incident: 2026-10-09..11-11 the RAON large-file lane was off
+# and 49 listed files never landed; 경기·경북 of the 용도지역지구 months since 2026-07 kept
+# silver.land_use_plan on 2026-06-09 and parcel-zoning served it with no rule firing.
+# Run by the guard prometheus-rules-pass-their-tests.
+rule_files:
+  - foundation-api.rules.yml
+evaluation_interval: 1m
+
+tests:
+  # At time 0 synthetic__monthly's oldest unfetched file was dated 71 hours ago and synthetic__daily's
+  # one hour ago. One hour later the monthly source is past 72 hours and pages; the daily one is quiet.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds{source="synthetic__monthly"}'
+        values: '-255600x120'
+      - series: 'foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds{source="synthetic__daily"}'
+        values: '-3600x120'
+      - series: 'foundation_source_sweep_metrics_timestamp_seconds'
+        values: '0x120'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: FoundationSourceFilesUnfetched
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: FoundationSourceFilesUnfetched
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: serving-freshness
+              source: synthetic__monthly
+            exp_annotations:
+              summary: 'synthetic__monthly 에 공급자가 올린 지 3d 0h 30m 0s 된 파일이 아직 Bronze 에 없어요 — 그 원천을 읽는 Silver·Gold·화면이 그만큼 옛 판이에요. journalctl -u foundation-source-sweep.service 의 "| raon" 줄(받은 것·실패·상한)을 보세요'
+              runbook: docs/runbooks/provider-acquisition-fargate.md
+      - eval_time: 90m
+        alertname: FoundationSourceSweepMetricsSilent
+        exp_alerts: []
+
+  # The sweep last wrote its series at time 0 and then stopped: past 50 hours and two days held, it says so.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_source_sweep_metrics_timestamp_seconds'
+        values: '0x6100'
+      - series: 'foundation_api_up'
+        values: '1x6100'
+    alert_rule_test:
+      - eval_time: 60h
+        alertname: FoundationSourceSweepMetricsSilent
+        exp_alerts: []
+      - eval_time: 100h
+        alertname: FoundationSourceSweepMetricsSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+            exp_annotations:
+              summary: '매일 원천 훑기가 이틀 넘게 "받지 못한 파일" 을 재지 못했어요 — 공급자 파일이 밀려도 알 수 없어요. systemctl status foundation-source-sweep.service 를 보세요'
+              runbook: docs/runbooks/provider-acquisition-fargate.md
+
+  # Never written since the release while foundation-api is up: absent, and two days later it says so.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_api_up'
+        values: '1x3100'
+    alert_rule_test:
+      - eval_time: 47h
+        alertname: FoundationSourceSweepMetricsSilent
+        exp_alerts: []
+      - eval_time: 50h
+        alertname: FoundationSourceSweepMetricsSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+            exp_annotations:
+              summary: '매일 원천 훑기가 이틀 넘게 "받지 못한 파일" 을 재지 못했어요 — 공급자 파일이 밀려도 알 수 없어요. systemctl status foundation-source-sweep.service 를 보세요'
+              runbook: docs/runbooks/provider-acquisition-fargate.md
