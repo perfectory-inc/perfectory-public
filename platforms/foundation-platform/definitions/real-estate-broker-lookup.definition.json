@@ -1,0 +1,92 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "real-estate-broker-lookup",
+  "jobs": [
+    {
+      "id": "real_estate_broker_lookup_load",
+      "scope": "changed-keys",
+      "interruptible": false,
+      "commits": "at_end",
+      "description": "Load the broker sign-up roster (root ADR-0550 §2): pin the current snapshots of silver.real_estate_broker_office and silver.real_estate_broker_member, take the offices with a Silver row at or after the last load's watermark (every office on the first load, the declared exception), read their current rows by the contracts' newest-per-key rule, and in one transaction retire those offices' roster rows, insert their current rows into catalog.real_estate_broker_office and catalog.real_estate_broker_member and record the load in catalog.real_estate_broker_lookup_load (`changed`); with no changed office it writes nothing (`unchanged`). foundation-api answers the Gongzzang sign-up's one-person check from it (POST /internal/real-estate-brokers/verify). Started when either broker Silver lane changed, and daily as the fallback (root ADR-0171). A stopped run writes nothing and the next reads from the same watermark.",
+      "systemd_service": "foundation-real-estate-broker-lookup-load.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/real-estate-broker-lookup"
+      ],
+      "schedule": "30 8 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 30,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 120,
+          "estimated_from": "computed (root ADR-0386): the first load reads 106,429 offices and 179,124 people, a few tens of MB through the Trino CLI as unit_official_price_projection_load reads, and COPYs them; later runs read a few hundred offices"
+        }
+      },
+      "pool": "default_pool",
+      "pool_slots": 1,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "silver-real-estate-broker-office-to-serving-real-estate-broker-lookup",
+        "silver-real-estate-broker-member-to-serving-real-estate-broker-lookup"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-13T00:00:00Z",
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 72,
+        "basis": "both broker Silver lanes take a new national file every day and offices change every day (root ADR-0511 §4); this job has not run yet, so its first change is its first load (root ADR-0457)."
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "serving-real-estate-broker-lookup",
+      "type": "serving_group",
+      "title": "중개사 가입 확인 명부",
+      "description": "공짱 회원 가입이 중개사 한 사람(이름 + 자격증번호 또는 사무소 등록번호)을 확인하는 비공개 명부. 두 중개업 Silver 에서 바뀐 사무소만 싣고, 덧붙이기만 한다(물린 행은 물린 적재를 든다). foundation-api 가 서비스 주체에게만 일치·불일치로 답하고 사람 목록은 내주지 않는다(루트 ADR-0550).",
+      "status": "schema_defined",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0550-a-broker-sign-up-is-checked-against-a-postgres-roster-loaded-by-changed-office-and-a-miss-asks-vworld-live.md",
+        "platforms/foundation-platform/migrations/20261112090000_a_broker_sign_up_is_checked_against_the_roster.sql"
+      ],
+      "tables": [
+        "catalog.real_estate_broker_office",
+        "catalog.real_estate_broker_member",
+        "catalog.real_estate_broker_lookup_load"
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "silver-real-estate-broker-office",
+      "to": "serving-real-estate-broker-lookup",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/real-estate-broker-lookup-load.sh",
+        "load-real-estate-broker-lookup"
+      ],
+      "description": "바뀐 사무소의 현재 행(상호·상태)을 명부에 싣는다."
+    },
+    {
+      "from": "silver-real-estate-broker-member",
+      "to": "serving-real-estate-broker-lookup",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/real-estate-broker-lookup-load.sh",
+        "load-real-estate-broker-lookup"
+      ],
+      "description": "바뀐 사무소의 소속 인원 전부(이름·종별·자격증번호·직위)를 명부에 싣는다."
+    }
+  ]
+}

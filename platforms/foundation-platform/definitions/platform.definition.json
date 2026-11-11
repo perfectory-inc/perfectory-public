@@ -1276,6 +1276,11 @@
             "measured_peak": "308M",
             "measured": "journal `memory peak` 2026-10-18..11-08, 22 runs, highest 2026-11-08 (foundation-legal-dong-code)"
           },
+          "foundation-real-estate-broker-lookup-load.service": {
+            "class": "batch",
+            "memory_max": "1G",
+            "measured": "no run yet (new 2026-11-12, root ADR-0550); sized as the first load holds every office and person (106,429 + 179,124 rows, a few tens of MB of text) twice, as Trino rows and as COPY lines; later loads hold a few hundred offices; systemd logs the peak of every run under this cap"
+          },
           "foundation-lineage-stewardship.service": {
             "class": "batch",
             "memory_max": "512M",

@@ -1,0 +1,29 @@
+[Unit]
+Description=Foundation Platform broker sign-up roster: load the offices whose Silver rows changed since the last load into catalog.real_estate_broker_office and _member (root ADR-0550)
+Documentation=file:///opt/foundation-platform/current/docs/adr/0550-a-broker-sign-up-is-checked-against-a-postgres-roster-loaded-by-changed-office-and-a-miss-asks-vworld-live.md
+X-Foundation-Owner=lakehouse
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+OnFailure=foundation-unit-failed@%n.service
+
+[Service]
+Type=oneshot
+User=foundation-platform
+Group=foundation-platform
+WorkingDirectory=/opt/foundation-platform/current
+EnvironmentFile=/etc/foundation-platform/recovery.env
+ExecStart=/opt/foundation-platform/current/scripts/ops/real-estate-broker-lookup-load.sh
+TimeoutStartSec=30m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/foundation-platform/real-estate-broker-lookup
+# Memory: rendered from tools/host-memory-budget.contract.json systemd_units (root ADR-0455); do not edit.
+MemoryHigh=921M
+MemoryMax=1G
+OOMScoreAdjust=500
+
+[Install]
+WantedBy=multi-user.target

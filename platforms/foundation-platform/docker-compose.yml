@@ -175,6 +175,10 @@ services:
     env_file:
       - path: ${FOUNDATION_PLATFORM_MAP_EDIT_ENV_FILE:-./map-edit.env}
         required: false
+      # 중개사 가입 확인의 실시간 VWorld 확인 키(루트 ADR-0550 §5). 없으면 명부에 없는 사람을
+      # VWorld 에 묻지 않고, 답의 checked 에 vworld_live 가 없다.
+      - path: ${FOUNDATION_PLATFORM_VWORLD_LIVE_ENV_FILE:-./vworld-live.env}
+        required: false
     ports:
       - "127.0.0.1:${FOUNDATION_API_PORT:-18080}:8080"
     # The host makes this directory, owned by the container's uid (orchestration/jobs.v1.json
