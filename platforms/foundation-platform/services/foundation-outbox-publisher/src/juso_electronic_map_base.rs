@@ -132,6 +132,12 @@ impl BaseContract {
                 "the juso base names a layer for {kind}, which is no kind of the contract"
             );
         }
+        for layer in &base.unmatched_layers {
+            ensure!(
+                !base.layers.values().any(|named| named == layer),
+                "the juso base names {layer} both as a kind's layer and as unmatched"
+            );
+        }
         ensure!(
             !base.layer_parts.is_empty(),
             "the juso contract's base names no layer part"

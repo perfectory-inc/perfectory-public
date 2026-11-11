@@ -85,6 +85,26 @@ binlog 위치부터 스트리밍), AWS DMS 의 full load + CDC, Kafka 의 compac
 | legal_ri | TL_SCCO_LI | 15,161 |
 | (기초 없음) | TL_SPBD_EQB 건물군 | 2,168,605 |
 
+7. **Silver 내보내기는 종류의 레이어 하나, 시도 zip 하나씩이다(W61c).** `export-juso-electronic-map-base-silver-handoff`
+   (`foundation-publisher-silver::juso_electronic_map_base_silver_export`)가 계약을 내장해 종류의 레이어(`base.layers`)·키
+   (`base.keys`, 없으면 `kinds.*.key`)·법정동 칸(`kinds.*.legal_code`)을 읽고, zip 의 `<시도코드>/<레이어>.shp`·`.dbf` 와 맨 위
+   `base.projection_member` 만 연다. DBF 칸은 제공처 이름 그대로(소문자) 모두 싣고, 옆에 `row_key`·`legal_code`·도형(WKB, EPSG:4326)·
+   상자·계보를 붙인다. 레이어 안에서 키가 겹치면 내보내기가 실패한다(재생이 그 키로 덮는다). 공유 SHP 리더는 UTM-K(EPSG:5179)와
+   점·선을 읽게 넓혔다(면 파일의 동작은 그대로). 기초 키 실측: `building` 은 연계 키의 `ADR_MNG_NO` 가 기초에 없고 도로명주소 다섯 칸은
+   4,269,964 번 겹쳐(한 주소의 여러 건물) `BD_MGT_SN`(건물관리번호, 10,684,580 행 유일)이 키다; 나머지 9 종은 연계 키 그대로
+   유일하다. 연계 변동의 건물 키와 `BD_MGT_SN` 의 대응은 첫 변동 파일이 실린 뒤 잰다.
+8. **저장 위치 (제안, 사장 결정 대기 — W61c).** 보안각서는 juso 자료의 **국외 반출을 금지**한다. Cloudflare API 실측(2026-11-11):
+   모든 R2 버킷이 `location APAC`, `jurisdiction default` 이고 R2 에는 한국 지역도 관할도 없다(관할은 EU·FedRAMP 뿐, APAC 는 나라를
+   보장하지 않는 힌트). 그래서 결정 전까지 juso 는 R2 에 쓰지 않는다(변동 수집 작업은 `enabled: false`, 기초는 #1275 초안). 안 (a):
+   juso 원본과 파생을 **한국 안 저장소**에 둔다 — 플랫폼 계정(091109217099)의 S3 `ap-northeast-2`(서울) 버킷 하나(객체 잠금·버전,
+   juso 전용), 그 위의 **별도 Iceberg 카탈로그** `juso_kr`(지금과 같은 JDBC 카탈로그 방식, 메타데이터 포인터는 ai-server 의
+   Postgres — 한국 안; warehouse 만 서울 S3), Trino·Spark 에 카탈로그 하나를 더하는 것뿐이라 다른 원천과 계약·작업 틀은 같다. Bronze
+   커밋은 같은 `BronzeStreamingObjectStorageWriter` 에 버킷만 다른 저장 설정을 준다(원천 계약이 버킷을 고른다). 비용(계산): 기초 4.59 GB
+   + 변동·Silver 를 합쳐 20 GB 로 잡아도 S3 Standard $0.025/GB·월 ≈ $0.50/월, 서울 안 전송은 무료, 넣기 요청은 수천 건으로 $0.01 미만.
+   대기업 방식: 데이터 주권이 걸린 자료는 관할별 저장소·카탈로그로 가른다(AWS·Snowflake 의 지역 계정, Databricks Unity Catalog 의
+   지역 metastore). 안 (b): R2 APAC 를 사장(법무) 판단으로 받아들인다. 어느 쪽이든 서빙 지도(전 세계 엣지 캐시)에 juso 도형을 올리는 것과
+   비공개·보안 시설 표시 금지는 따로 정한다 — 기초 레이어에는 보안 시설을 가리는 칸이 없다(실측: 칸 목록, §실측).
+
 ## Consequences
 
 - 사람 할 일은 한 번이다: 승인되면 마이페이지 → 다운로드 신청내역에서 받기(본인인증). 놓기·싣기·Silver 는 사람 없이 간다.
