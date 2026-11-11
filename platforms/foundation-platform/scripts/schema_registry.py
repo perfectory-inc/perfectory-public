@@ -50,13 +50,12 @@ TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", 
 HOST_LANES = ("parcel", "building")
 HOST_SCHEMAS = pathlib.Path("crates/publisher/foundation-publisher-core/src/host_document_schemas.rs")
 PATH = re.compile(r"^[a-z_][a-z0-9_]*(\[\])?(\.[a-z_][a-z0-9_]*(\[\])?)*$")
-# Files that may spell a registered subject's wire string: the registry, the records it was
-# translated from, generated code, tests, documents. Anywhere else it is a hand-written version list.
+# Files that may spell a registered subject's wire string: the registry, generated code, tests,
+# documents. Anywhere else it is a hand-written version list.
 WIRE_STRING_ALLOWED = (
     ":(exclude)platforms/foundation-platform/contracts/schema-registry/**",
     # The registry's subjects are declared in their lanes' definitions (root ADR-0418).
     ":(exclude)platforms/foundation-platform/definitions/**",
-    ":(exclude)platforms/foundation-platform/contracts/by-pnu-documents/**",
     ":(exclude)*.generated.ts",
     ":(exclude)platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/host_document_schemas.rs",
     ":(exclude)*test*",
@@ -140,8 +139,8 @@ def keyword_violations(node: Any, at: str) -> list[str]:
 
 
 def record_of(schema: dict[str, Any]) -> list[dict[str, Any]]:
-    """The schema as a field record (`contracts/by-pnu-documents` grammar): every property path, an
-    array's items under `<field>[]`, and whether it is required."""
+    """The schema as a field record: every property path, an array's items under `<field>[]`, and
+    whether it is required (the grammar the publisher's test and the Spark tests compare in)."""
     out: list[dict[str, Any]] = []
 
     def walk(node: dict[str, Any], at: str) -> None:
@@ -270,10 +269,6 @@ def check_subject(platform: pathlib.Path, entry: dict[str, Any], connections: di
             declared = (schema.get("properties") or {}).get("schema_revision")
             if declared is None or types(declared) != {"integer"} or "schema_revision" in schema.get("required", []):
                 fail(f"{label}: declares schema_revision, an optional integer (old documents have none)")
-        if revision.get("record"):
-            record = json.loads((platform / revision["record"]).read_text(encoding="utf-8"))
-            if record_of(schema) != sorted(record, key=lambda e: e["path"]):
-                fail(f"{label}: translates to other fields than its record {revision['record']}")
         for earlier in revisions:
             if earlier["major"] == major and earlier["revision"] < number:
                 old = schema_of(platform, subject, earlier)
@@ -403,7 +398,9 @@ def unchanged_since(platform: pathlib.Path, base: str) -> list[str]:
             out.append(f"{subject}: removed from the registry; a subject is retired, never deleted")
             continue
         kept = now[subject]["revisions"][: len(entry["revisions"])]
-        if kept != entry["revisions"]:
+        # `record` named the field record a legacy revision was translated from; the records were
+        # deleted with every lane moved here (2026-11-11), so it is no part of a revision.
+        if kept != [retired(revision) for revision in entry["revisions"]]:
             out.append(f"{subject}: a merged revision changed; add a new revision instead")
         for revision in now[subject]["revisions"][len(entry["revisions"]):]:
             if revision.get("legacy"):
@@ -413,6 +410,10 @@ def unchanged_since(platform: pathlib.Path, base: str) -> list[str]:
             if show(path) != ((platform / path).read_text(encoding="utf-8") if (platform / path).is_file() else None):
                 out.append(f"{subject}: {path} changed; a merged revision's file never changes")
     return out
+
+
+def retired(revision: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in revision.items() if key != "record"}
 
 
 def check(platform: pathlib.Path = PLATFORM, base: str | None = None) -> list[str]:

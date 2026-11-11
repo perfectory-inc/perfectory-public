@@ -38,7 +38,7 @@ use foundation_publisher_core::schema_registry;
 
 pub mod building_by_pnu_serving_export;
 #[cfg(test)]
-mod by_pnu_document_records;
+mod by_pnu_document_schemas;
 pub mod by_pnu_pack;
 pub mod by_pnu_section_pack_manifest;
 pub mod by_pnu_serving_generations;

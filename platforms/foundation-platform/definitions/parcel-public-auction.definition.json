@@ -324,7 +324,6 @@
           "revision": 1,
           "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v1",
           "legacy": true,
-          "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v1.json",
           "decision": "docs/adr/0287-public-sale-is-a-parcel-kind-built-from-its-own-silver.md",
           "reason": "the first served document: a parcel's open onbid rounds, the Gold JSON column as written"
         },
@@ -333,7 +332,6 @@
           "revision": 2,
           "schema_version": "foundation-platform.parcel_public_auction_by_pnu.v2",
           "legacy": true,
-          "record": "contracts/by-pnu-documents/foundation-platform.parcel_public_auction_by_pnu.v2.json",
           "decision": "docs/adr/0296-public-auction-serves-full-info-and-shares-one-content-addressed-media-store.md",
           "reason": "each round gains its media index (rounds[].photos[], content-addressed by sha256), an optional field: an expansion of revision 1 served under its own string before the registry existed"
         },

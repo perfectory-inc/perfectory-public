@@ -37,6 +37,6 @@ foundation-workspace-hack.workspace = true
 
 [dev-dependencies]
 foundation-publisher-core = { workspace = true, features = ["test-fixtures"] }
-# The documents' fields are generated from their types and held to contracts/by-pnu-documents.
+# The documents' fields are generated from their types and held to the schema registry.
 utoipa = { workspace = true }
 wiremock = { workspace = true }

@@ -245,7 +245,7 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertEqual((doc.round_count, doc.attached_via), (2, None))
 
     def test_a_document_carries_exactly_its_records_fields(self):
-        # The bake serves the JSON as written; its paths are the record's (contracts/by-pnu-documents).
+        # The bake serves the JSON as written; its paths are the registry's current revision (root ADR-0336).
         import json
         import by_pnu_kinds
         from pyspark.sql import functions as F

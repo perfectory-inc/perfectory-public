@@ -381,7 +381,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the lineage's derive.sql, and renumbered_into.sql); the publisher compiles in the parcel source contract
 # (the served edition) and the Gold rebuild contract (the kinds' row-loss bound) it reads; the stage's test
 # compiles in the document's registry schema and the file contract's headers it holds the build to.
-COMPILE_TIME_READ_BASELINE="${3:-201}"
+# 201 -> 200: the by-PNU publisher's test stops reading contracts/by-pnu-documents (deleted once every
+# by-PNU document was a subject of the schema registry, root ADR-0336).
+COMPILE_TIME_READ_BASELINE="${3:-200}"
 
 cd "$repo_root"
 

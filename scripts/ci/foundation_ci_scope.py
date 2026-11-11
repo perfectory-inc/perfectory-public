@@ -123,8 +123,8 @@ RULES = {
             "scripts/verify/foundation-spark-runtime.sh",
         ],
         "prefixes": [
-            # A by-PNU document record holds the keys Spark writes into the documents' JSON.
-            "platforms/foundation-platform/contracts/by-pnu-documents/",
+            # A registered document schema holds the keys Spark writes into the documents' JSON.
+            "platforms/foundation-platform/contracts/schema-registry/",
             "platforms/foundation-platform/infra/lakehouse/spark/",
         ],
     },

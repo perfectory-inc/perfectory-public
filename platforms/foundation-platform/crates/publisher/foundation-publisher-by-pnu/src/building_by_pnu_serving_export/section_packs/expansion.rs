@@ -4,8 +4,8 @@
 //! (Gold `row_digest`, ADR-0141) decides which documents the new version re-renders, and every
 //! other one stays served as the older version rendered it until the next whole generation. That
 //! is right only when the new renderer turns an unchanged Gold row into the same content as the
-//! served document. The records (`contracts/by-pnu-documents`) prove the shape half of the claim;
-//! this probe tests the content half before anything is written: it renders a deterministic
+//! served document. The schema registry's FULL check (root ADR-0336) proves the shape half of the
+//! claim; this probe tests the content half before anything is written: it renders a deterministic
 //! sample of the rows the change set does not name, reads each one's served answer the way the
 //! gateway does, and compares the two with the version stamp and the source snapshot set aside
 //! and a member that is null read as absent. One difference refuses the patch: the new version
