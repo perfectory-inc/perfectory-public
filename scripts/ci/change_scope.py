@@ -285,6 +285,16 @@ def check(root: Path = ROOT, tracked: Iterable[str] | None = None) -> list[str]:
         for glob in globs:
             if not any(glob_regex(prefix + glob).match(t) for t in tracked):
                 errors.append(f"crates.{key}: `{glob}` names no tracked file (stale)")
+    tracked_dirs = {str(p) for t in tracked for p in PurePosixPath(t).parents if str(p) != "."}
+    for member, paths in sorted(crates.get("reads", {}).items()):
+        if member.startswith("$"):
+            continue
+        if not isinstance(paths, list) or not paths:
+            errors.append(f"crates.reads.{member} must be a non-empty list of paths")
+            continue
+        for path in paths:
+            if path not in tracked and path not in tracked_dirs:
+                errors.append(f"crates.reads.{member}: `{path}` names no file or directory of the checkout (stale)")
     for name in sorted(set(scoped) | set(unscoped)):
         if not (root / WORKFLOWS / name).is_file():
             errors.append(f"{name}: listed in {CONTRACT} but no such workflow")
@@ -488,6 +498,27 @@ def member_reads(
         code = "\n".join(line for line in text.splitlines() if not COMMENT.match(line))
         reads[owner] |= {f"{workspace}/{word}" for word in QUOTED_WORD.findall(code)} & member_roots
     return reads
+
+
+def checkout_files(root: Path) -> list[str]:
+    """Every file of a checkout: git's tracked files and the generated artifacts (root ADR-0418).
+
+    A source naming a generated artifact (`orchestration/jobs.v1.json`) reads it like any file, and a
+    change to a definition changes it (`declared_definitions.with_generated`). Until 2026-11-11 the
+    readers resolved tracked files only, so no reader of the job list ran for a job's change.
+    """
+    listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], check=True, capture_output=True).stdout
+    return sorted({t for t in listed.decode().split("\0") if t} | set(declared_definitions.GENERATED))
+
+
+def declared_reads(
+    contract: dict, members: dict[str, tuple[str, set[str]]], reads: dict[str, set[str]]
+) -> dict[str, set[str]]:
+    """Member -> the repository paths `crates.reads` declares it reads (Bazel's `data`, Nx's `inputs`):
+    what its quoted paths cannot show, such as a directory it opens by names read at run time. A
+    member this workspace does not hold is another workspace's declaration and is left out."""
+    declared = contract["crates"].get("reads", {})
+    return {name: set(paths) for name, paths in declared.items() if name in members and name in reads}
 
 
 def decide_crates(
@@ -721,8 +752,7 @@ def suites_main(args: argparse.Namespace) -> int:
     reads: set[str] = set()
     tracked: list[str] = []
     if event in CRATE_SELECT_EVENTS and changed is not None:
-        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
-        tracked = sorted({t for t in listed.decode().split("\0") if t} | changed)
+        tracked = sorted(set(checkout_files(ROOT)) | changed)
         reads = suite_reads(ROOT, workspace, tracked)
     kind, selected, nodes, why = suite_answer(
         load_contract(),
@@ -760,10 +790,12 @@ def crates_main(args: argparse.Namespace) -> int:
         return 2
     reads: dict[str, set[str]] = {}
     if event in CRATE_SELECT_EVENTS and changed is not None:
-        listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], check=True, capture_output=True).stdout
         # A deleted file is still found by the sources that name it: those are what it breaks.
-        reads = member_reads(ROOT, workspace, members, sorted({t for t in listed.decode().split("\0") if t} | changed))
-    selected, direct, readers, reason = decide_crates(load_contract(), workspace, event, changed, members, reads)
+        reads = member_reads(ROOT, workspace, members, sorted(set(checkout_files(ROOT)) | changed))
+    contract = load_contract()
+    for name, paths in declared_reads(contract, members, reads).items():
+        reads[name] |= paths
+    selected, direct, readers, reason = decide_crates(contract, workspace, event, changed, members, reads)
     if args.includes is not None:
         verified = selected is None or args.includes in selected
         print(f"change-scope: {args.includes} {'is' if verified else 'is not'} verified ({reason})", file=sys.stderr)
