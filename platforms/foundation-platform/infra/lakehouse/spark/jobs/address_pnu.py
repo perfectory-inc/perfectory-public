@@ -4,7 +4,8 @@ Two steps, each naming itself, never geometry:
 
 - `jibun_address`: the 시도 word's code (`sido_prefixes`, derived from the 법정동 code table and the recorded
   code pairs, so an old name such as 강원도 or 전라남도 reads as the current code; root ADR-0403), the remaining place names up to the lot matched against the
-  current 법정동 names of `reference.legal_dong_code_snapshot`, then 산 and 본번-부번. The PNU counts only
+  법정동 names of `reference.legal_dong_code_snapshot` (an abolished name through its recorded code
+  pairs, root ADR-0329), then 산 and 본번-부번. The PNU counts only
   when `silver.parcel_boundaries` holds it as a current row.
 - `road_address`: (시도 code, 시군구, 도로명, 건물본번, 건물부번) read the same way from the source and from
   `silver.building_register_titles.road_address_raw`; resolved only when every matching title carries
@@ -125,9 +126,9 @@ def sido_code(word: str, prefixes: Mapping[str, str]) -> str | None:
 
 
 def address_words(address: str) -> list[str]:
-    """The words before any parenthesis, comma or 외 (외 1필지), with 산 split from a glued lot."""
+    """The words before any parenthesis, comma or 외 (외 1필지, 999외 9필지), with 산 split from a glued lot."""
 
-    head = re.split(r"[(,]|\s외\s|외\d", address or "", maxsplit=1)[0]
+    head = re.split(r"[(,]|\s외\s|(?<=\d)외|외(?=\d)", address or "", maxsplit=1)[0]
     head = re.sub(r"(?<=\s)산(?=\d)", "산 ", head)
     # 천안시서북구 -> 천안시 서북구
     head = re.sub(r"(?<=\S시)(?=\S+구(?:\s|$))", " ", head)
@@ -135,11 +136,12 @@ def address_words(address: str) -> list[str]:
 
 
 def without_gu(place: str) -> str:
-    """The place names without a 구 word after a 시 word: an address may omit a 구 its city has
-    (a city that gained 구 keeps its old addresses), and the code table always writes it."""
+    """The place names without a 구 word first or after a 시 word: an address may omit a 구 its city
+    has (a city that gained 구 keeps its old addresses; 광주광역시 금남로1가), and the code table always
+    writes it."""
 
     words = place.split()
-    return " ".join(w for i, w in enumerate(words) if not (i > 0 and words[i - 1].endswith("시") and w.endswith("구")))
+    return " ".join(w for i, w in enumerate(words) if not (w.endswith("구") and (i == 0 or words[i - 1].endswith("시"))))
 
 
 def jibun_key(address: str, prefixes: Mapping[str, str]) -> JibunKey | None:
@@ -184,10 +186,15 @@ def road_key(address: str, prefixes: Mapping[str, str]) -> RoadKey | None:
     return None
 
 
-def legal_dong_index(rows: Iterable[tuple[str, str]]) -> dict[tuple[str, str], str]:
+def legal_dong_index(rows: Iterable[tuple[str, str]], former: Iterable[tuple[str, str]] = (),
+                     pairs: Iterable[tuple[str, str]] = ()) -> dict[tuple[str, str], str]:
     """(시도 code, the names after the 시도) -> 10-digit 법정동 code, from current (code, full name) rows.
 
     A name two current codes share is left out: guessing between them would be a rule this has not.
+    ``former`` are the (code, full name) rows the table abolished and ``pairs`` the recorded (old, new)
+    10-digit code pairs (``legal_dong_code_change_views.region_pairs(rows, 10)``): an address keeps the
+    name a place had (인천광역시 서구 청라동 after 2026-07-01), and it reads as the one current code its
+    pairs lead to (root ADR-0329). A current name wins over a former one.
     """
 
     exact: dict[tuple[str, str], set[str]] = {}
@@ -204,6 +211,21 @@ def legal_dong_index(rows: Iterable[tuple[str, str]]) -> dict[tuple[str, str], s
         if short != place:
             loose.setdefault((sido, short), set()).update(codes)
     index.update({key: next(iter(codes)) for key, codes in loose.items() if len(codes) == 1 and key not in exact})
+    current = {code for codes in exact.values() for code in codes}
+    moves: dict[str, set[str]] = {}
+    for old, new in pairs:
+        moves.setdefault(old, set()).add(new)
+    claims: dict[tuple[str, str], set[str]] = {}
+    for code, full_name in former:
+        words = (full_name or "").split()
+        if len(words) < 2 or not re.fullmatch(r"\d{10}", code or ""):
+            continue
+        place = " ".join(words[1:])
+        for successor in current_successors(code, current, moves):
+            for name in {place, without_gu(place)}:
+                claims.setdefault((successor[:2], name), set()).add(successor)
+    index.update({key: next(iter(codes)) for key, codes in claims.items()
+                  if len(codes) == 1 and key not in exact and key not in loose})
     return index
 
 
@@ -230,20 +252,10 @@ def candidates(address: str, prefixes: Mapping[str, str], dongs: Mapping[tuple[s
     return {"jibun_pnu": None, "legal_dong_code": None, "road": None, "reason": "unparsed"}
 
 
-def current_legal_dongs(spark: Any, catalog: str) -> list[tuple[str, str]]:
-    """(code, full name) of the newest snapshot's current 법정동 codes."""
+def code_table(spark: Any, catalog: str) -> tuple[list[tuple[str, str, str]], list[dict[str, Any]]]:
+    """(code, full name, status) of every row of the newest 법정동 snapshot, and the recorded code changes."""
 
-    from legal_dong_code_snapshot_to_reference import newest_snapshot  # noqa: PLC0415
-
-    rows = (newest_snapshot(spark, f"`{catalog}`.`reference`.`legal_dong_code_snapshot`")
-            .where("status = '존재'").select("region_cd", "full_name").collect())
-    return [(row["region_cd"], row["full_name"]) for row in rows]
-
-
-def lakehouse_sido_prefixes(spark: Any, catalog: str) -> dict[str, str]:
-    """``sido_prefixes`` from the newest 법정동 snapshot (every status) and the recorded pairs in force."""
-
-    from legal_dong_code_change_views import CHANGE_TABLE, region_pairs  # noqa: PLC0415
+    from legal_dong_code_change_views import CHANGE_TABLE  # noqa: PLC0415
 
     table = f"`{catalog}`.`reference`.`legal_dong_code_snapshot`"
     newest = spark.sql(f"SELECT max(snapshot_date) AS d FROM {table}").collect()[0]["d"]
@@ -252,6 +264,27 @@ def lakehouse_sido_prefixes(spark: Any, catalog: str) -> dict[str, str]:
     schema, name = CHANGE_TABLE.split(".")
     changes = [row.asDict() for row in spark.sql(
         f"SELECT kind, old_code, new_code, level, effective_date, source FROM `{catalog}`.`{schema}`.`{name}`").collect()]
+    return names, changes
+
+
+def lakehouse_legal_dong_index(spark: Any, catalog: str) -> dict[tuple[str, str], str]:
+    """``legal_dong_index`` of the newest snapshot: its current names, and its abolished names through
+    the recorded pairs in force."""
+
+    from legal_dong_code_change_views import region_pairs  # noqa: PLC0415
+
+    names, changes = code_table(spark, catalog)
+    return legal_dong_index([(code, full) for code, full, status in names if status == "존재"],
+                            [(code, full) for code, full, status in names if status != "존재"],
+                            region_pairs(changes, 10))
+
+
+def lakehouse_sido_prefixes(spark: Any, catalog: str) -> dict[str, str]:
+    """``sido_prefixes`` from the newest 법정동 snapshot (every status) and the recorded pairs in force."""
+
+    from legal_dong_code_change_views import region_pairs  # noqa: PLC0415
+
+    names, changes = code_table(spark, catalog)
     return sido_prefixes(names, region_pairs(changes, 2))
 
 

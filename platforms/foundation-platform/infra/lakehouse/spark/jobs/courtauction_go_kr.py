@@ -552,7 +552,7 @@ def _load(argv: Sequence[str]) -> int:
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     try:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`silver`")
-        dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+        dongs = address_pnu.lakehouse_legal_dong_index(spark, args.iceberg_catalog_name)
         parcels, titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         # ADR-0288 §1: the code pairs are read once for the run, as every parcel source does.
