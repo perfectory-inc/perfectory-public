@@ -85,7 +85,7 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
         checked += 1;
     }
 
-    // Guardrail: the in-scope / out-of-scope split must stay as authored (133 in-scope, 10 mixed).
+    // Guardrail: the in-scope / out-of-scope split must stay as authored (162 in-scope, 10 mixed).
     // The three ILIS entries joined when the industrial-complex address source got a collector;
     // the 124th is the data.go.kr getStanReginCdList 법정동코드 endpoint (ADR-0103 Wave 1); the
     // 125th is the code.go.kr 법정동 full table (root ADR-0143; ADR-0144 dropped the notice board); the
@@ -102,8 +102,10 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // the three 표준데이터 the same collector asks through the public-data OpenAPI (ADR-0401); the
     // 158th is the courtauction.go.kr 물건상세, asked after the list searches in the same run (root ADR-0384);
     // the 159th is the ILIS 산업단지 고시 상세, whose attachments are collected whole (root ADR-0484);
-    // the 160th is the courtauction.go.kr 공통코드, asked once a run for the codes' names (root ADR-0540 §5).
-    assert_eq!(checked, 160, "expected 160 in-scope catalog entries");
+    // the 160th is the courtauction.go.kr 공통코드, asked once a run for the codes' names (root ADR-0540 §5);
+    // the 161st–163rd are three more data.go.kr files the same collector lands: 표준지공시지가,
+    // 승강기 설치 현황 and 전국지식산업센터현황.
+    assert_eq!(checked, 163, "expected 163 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"
@@ -239,10 +241,11 @@ fn operation_dataset_slug_maps_match_catalog() -> TestResult {
         "expected all 7 onbid operations to match the catalog"
     );
     // The registered factory, the nine other public bulk endpoints (root ADR-0401: the railway
-    // station and station-line endpoints are one file) and the three 표준데이터 (root ADR-0453).
+    // station and station-line endpoints are one file), the three 표준데이터 (root ADR-0453) and
+    // 표준지공시지가, 승강기 설치 현황 and 전국지식산업센터현황.
     assert_eq!(
-        file_data_checked, 13,
-        "expected the 13 file-data endpoints to match the catalog"
+        file_data_checked, 16,
+        "expected the 16 file-data endpoints to match the catalog"
     );
     Ok(())
 }
