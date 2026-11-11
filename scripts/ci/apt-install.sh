@@ -77,7 +77,9 @@ install_from_cache() {
   local debs=("$set_dir"/*.deb)
   [ -e "${debs[0]}" ] || return 1
   say "installing ${#debs[@]} cached package files from $set_dir (no network)"
-  "${sudo[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends --no-download "${debs[@]}"
+  # dpkg, not apt: the set is exactly what apt downloaded for this image, and dpkg cannot reach a
+  # mirror (apt's --no-download also refuses to copy local files in, measured on #1336).
+  "${sudo[@]}" env DEBIAN_FRONTEND=noninteractive dpkg -i "${debs[@]}"
 }
 
 if install_from_cache; then
