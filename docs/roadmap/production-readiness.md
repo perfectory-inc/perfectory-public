@@ -229,6 +229,7 @@ last_reviewed: 2026-11-07
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
 | 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
+| 토지 | 지역지구별 토지이용규제 (`silver.land_use_regulation_by_zone`) | — | — | 없음 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy` | — | 화면 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy` | — | 화면 |
 | 건물 | 건축물 정기점검이력 (`silver.building_maintenance_regular_inspection_history`) | `parcel-building-permits` | — | 화면 |
@@ -285,6 +286,7 @@ last_reviewed: 2026-11-07
 | 행정·내부 | 실거래가 적재 거부 줄 (`silver.real_transaction_rejected`) | — | — | 없음 |
 | 행정·내부 | 표준지공시지가 (`silver.standard_land_price`) | — | — | 없음 |
 | 행정·내부 | 세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | — | — | 없음 |
+| 행정·내부 | 도시계획 고시정보 (`silver.urban_plan_notice`) | — | — | 없음 |
 
 <!-- END GENERATED showing-inventory -->
 

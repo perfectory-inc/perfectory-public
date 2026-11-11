@@ -88,6 +88,7 @@ last_reviewed: 2026-11-09
 | `address_pnu` | railway_station, airport, port, elevator_installation, knowledge_industry_center | 지번 → 도로명 | 역 215 중 116(54.0%), 공항 14 중 6, 항만 72 중 0(위치가 시도·시군구뿐); 승강기 표본 3,000 중 2,910 이 도로명으로 읽히고 그 (시도, 시군구, 도로명, 건물번호) 2,829 가운데 2,551(90.2%)이 PNU 하나(2026-11-11) |
 | `place_identity` | commercial_district, standard_land_price | 지번코드·토지대장번호(PNU) → place-identity 해석기 → 현재 필지 | 상가 표본 2,000 중 1,980(99.0%); 표준지 19자리 표본 2,994 중 2,990(2026-11-11), 19자리가 아닌 사업지구 블록 1,902행(0.32%)은 못 찾음 |
 | `is_the_bridge` | adm_dong_code_linkage | 행정동코드·법정동코드 그대로 | — |
+| `legal_dong_code` | urban_plan_notice, land_use_regulation_by_zone | 제공자의 시군구(5자리)·법정동(10자리) 코드 칸 → 10자리로 채워 코드 대응표(`legal_dong_code_change` 의 유효 쌍)로 현재 코드 → 현재 코드표에 있으면 연결, `nationwide_codes`(00000 = 법률)는 일부러 법정동 없이 `nationwide` | 고시 408,054 중 407,640 이 그대로 현재, 412 는 폐지 코드(군위 47720 등)라 대응표로; 규제 23,427 중 17,627 그대로, 5,748 은 2026-07-01 통합 전 전남 코드(46xxx → 12xxx), 52 는 전국(2026-11-11) |
 
 | 계약 `files` | data.go.kr | 형식 | 2026-11-04 실측 |
 |---|---|---|---|
@@ -102,6 +103,8 @@ last_reviewed: 2026-11-09
 | `standard_land_price` | 15004246 국토교통부_표준지공시지가 | CSV CP949, 해마다(가격기준일 1월 1일) | 139.5 MB, 600,000행, 43칸(2026-11-11) |
 | `elevator_installation` | 15112638 한국승강기안전공단_승강기 설치 현황 | ZIP(CSV 2개, UTF-8), 수시 | 33 MB, 893,715행, 29칸(2026-11-11) |
 | `knowledge_industry_center` | 15117154 한국산업단지공단_전국지식산업센터현황 | ZIP(CSV 1개 CP949 + 데이터 사전), 수시 | 0.1 MB, 1,549행, 22칸(2026-11-11) |
+| `urban_plan_notice` | 15130432 국토교통부_(도시계획)고시정보 | ZIP(TN_NTFC.csv CP949 + 코드표), 포털 반기 | 35.5 MB(풀면 202 MB), 408,054행, 15칸(2026-11-11) |
+| `land_use_regulation_by_zone` | 15122715 국토교통부_지역지구별 토지이용규제정보 | CSV UTF-8, 수시 | 3.3 MB, 23,427행, 11칸(2026-11-11) |
 
 카탈로그의 `public-bulk-railway_station_line`(역↔노선) 은 따로 받는 파일이 아니라 철도역 파일의 `관련노선` 칸이다. 그래서
 두 endpoint 가 같은 Bronze 원천(`datagokr__railway_station`)을 가리킨다.

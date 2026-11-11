@@ -15,7 +15,9 @@ planned file, oldest first, this job:
    past its bound against the table's current rows;
 3. links each row by the contract's `place_link`: an address through `address_pnu` (지번, then
    도로명; with `address_columns`, the 지번 column's lot first, then the 도로명 column's road), the provider's 19-digit lot code through the place-identity resolver (never copied),
-   도·시군구·읍면동 names to a 법정동 code, or a 행정동 code kept for the linkage table to bridge;
+   도·시군구·읍면동 names to a 법정동 code, the provider's own 법정동 code column (a 5-digit 시군구 code
+   padded to ten) carried old -> current by the code crosswalk, or a 행정동 code kept for the linkage
+   table to bridge;
 4. appends only the keys that are new or changed and a removal marker per key the edition no longer
    holds (`silver_release_compare.release_changes`), in a commit that records the file. A file whose
    edition is one period (`row_key.period_column`, the monthly 인구·세대수) is compared only within the
@@ -61,7 +63,7 @@ LINK_COLUMNS = {
 }
 PARCEL_LINKS = {"address_pnu", "place_identity"}
 # The links a 법정동 code change can move; the 행정동 ones are bridged at read time by the linkage table.
-FOLLOWED_LINKS = {"address_pnu", "place_identity", "legal_dong_by_names"}
+FOLLOWED_LINKS = {"address_pnu", "place_identity", "legal_dong_by_names", "legal_dong_code"}
 LOT_CODE = re.compile(r"^\d{19}$")
 
 
@@ -229,6 +231,25 @@ def names_code(names: Sequence[str], prefixes: Mapping[str, str],
     return (code, None) if code else (None, "no_legal_dong")
 
 
+def code_link(value: str | None, place: Mapping[str, Any], current: set[str],
+              remap: Mapping[str, str]) -> tuple[str | None, str | None]:
+    """(법정동 code, None) for the provider's code column, or (None, why not). The code (a 시군구's five
+    digits or a 법정동's ten) is padded to ten and carried old -> current by the code crosswalk (root
+    ADR-0329 §3: a code the provider still writes after a merger reads as its successor); it links only
+    when the result is a current code. ``place["nationwide_codes"]`` are the provider's codes for "the
+    whole country" (a 법률 row), linked to no 법정동 on purpose."""
+
+    code = (value or "").strip()
+    if not code:
+        return None, "no_address"
+    if code in place.get("nationwide_codes", ()):
+        return None, "nationwide"
+    if not code.isdigit() or len(code) not in (5, 10):
+        return None, "unparsed"
+    code = remap.get(code.ljust(10, "0"), code.ljust(10, "0"))
+    return (code, None) if code in current else (None, "no_legal_dong")
+
+
 def address_offer(addresses: Sequence[str], prefixes: Mapping[str, str],
                   dongs: Mapping[tuple[str, str], str]) -> dict[str, Any]:
     """What a row's address columns offer `address_pnu.resolve`, 지번 first: the first column's jibun
@@ -327,7 +348,7 @@ class LinkInputs:
 
     def __init__(self, spark: Any, catalog: str) -> None:
         self.spark, self.catalog = spark, catalog
-        self._prefixes = self._dongs = self._lakehouse = self._pairs = None
+        self._prefixes = self._dongs = self._lakehouse = self._pairs = self._current_codes = None
 
     @property
     def prefixes(self) -> dict[str, str]:
@@ -345,6 +366,16 @@ class LinkInputs:
         if self._dongs is None:
             self._dongs = address_pnu.lakehouse_legal_dong_index(self.spark, self.catalog)
         return self._dongs
+
+    @property
+    def current_codes(self) -> set[str]:
+        """The 법정동 codes in force (status 존재) of the newest code-table snapshot."""
+        import address_pnu  # noqa: PLC0415
+
+        if self._current_codes is None:
+            names, _ = address_pnu.code_table(self.spark, self.catalog)
+            self._current_codes = {code for code, _, status in names if status == "존재"}
+        return self._current_codes
 
     @property
     def lakehouse(self) -> tuple[Any, Any]:
@@ -407,6 +438,12 @@ def link(frame: Any, entry: Mapping[str, Any], inputs: LinkInputs) -> Any:
         rows = frame.select("row_key", *(field(name).alias(f"_n{i}") for i, name in enumerate(place["names"]))).collect()
         found = [(row["row_key"], *names_code([row[f"_n{i}"] for i in range(len(place["names"]))],
                                                inputs.prefixes, inputs.dongs)) for row in rows]
+        codes = spark.createDataFrame(found, "row_key string, legal_dong_code string, legal_dong_unresolved_reason string")
+        return frame.join(codes, "row_key", "left").withColumn("administrative_dong_code", none)
+    if kind == "legal_dong_code":
+        rows = frame.select("row_key", field(place["code_column"]).alias("_c")).collect()
+        remap, current = inputs.pairs[0], inputs.current_codes
+        found = [(row["row_key"], *code_link(row["_c"], place, current, remap)) for row in rows]
         codes = spark.createDataFrame(found, "row_key string, legal_dong_code string, legal_dong_unresolved_reason string")
         return frame.join(codes, "row_key", "left").withColumn("administrative_dong_code", none)
     if kind == "adm_dong_via_linkage":

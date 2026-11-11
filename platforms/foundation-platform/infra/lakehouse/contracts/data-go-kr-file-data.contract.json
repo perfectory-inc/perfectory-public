@@ -579,6 +579,83 @@
         "window_days": 7,
         "max_objects": 1
       }
+    },
+    "urban_plan_notice": {
+      "operation": "fileData15130432",
+      "name_ko": "국토교통부_(도시계획)고시정보",
+      "institution_ko": "국토교통부",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15130432",
+        "publicDataDetailPk": "uddi:c7843757-4156-4225-b01c-e83e3d4b2349",
+        "fileDetailSn": "1"
+      },
+      "format": "zip",
+      "request_timeout_seconds": 600,
+      "member": {
+        "$comment": "The data member is TN_NTFC.csv; TN_NTFC_코드표.csv beside it names the 업무절차코드·고시유형·고시진행상태 codes and is not data.",
+        "name_pattern": "^(?:.*/)?TN_NTFC\\.csv$",
+        "encoding": "cp949",
+        "header": ["원천시군구코드", "고시관리코드", "이전정정고시관리코드", "계획관리코드", "업무절차코드", "지자체관리코드", "고시일자", "고시번호", "고시유형", "기관코드", "제목", "내용", "고시진행상태", "최초등록일시", "최종수정일시"],
+        "bounds": {
+          "$comment": "min_rows is the 2026-09 판's 408,054 rows minus about 10%.",
+          "min_rows": 367000,
+          "max_shrink_share": 0.15
+        }
+      },
+      "row_key": {
+        "kind": "columns",
+        "columns": ["고시관리코드"],
+        "$comment": "고시관리코드 (`<시군구>NTC<YYYYMMDD><순번>`) is filled and distinct on all 408,054 rows (2026-11-11). A corrected 고시 is its own row naming the one it corrects (이전정정고시관리코드)."
+      },
+      "place_link": {
+        "kind": "legal_dong_code",
+        "code_column": "원천시군구코드",
+        "$comment": "The provider's 5-digit 시군구 code, padded to ten and carried old -> current by the code crosswalk (ADR-0329 §3). 2026-11-11: 407,640 of 408,054 rows (99.9%) name a current 시군구 as written; 412 name an abolished one (403 are 47720 군위군, now under 대구) that the crosswalk carries, and 2 (99999, 43151) name none."
+      },
+      "measured": "2026-11-11 (2026-09-28 판; the portal says 반기, which the catalog cadences do not name, so it is checked as irregular): 35,523,421 bytes, a zip of TN_NTFC.csv (202,301,024 bytes, CP949, 408,054 rows, 15 columns on every row, 191 시군구) and its code table (1,130 codes).",
+      "silver_load": {
+        "$comment": "What one load of silver.urban_plan_notice may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
+    },
+    "land_use_regulation_by_zone": {
+      "operation": "fileData15122715",
+      "name_ko": "국토교통부_지역지구별 토지이용규제정보",
+      "institution_ko": "국토교통부",
+      "published": "irregularly",
+      "metadata_query": {
+        "recommendDataYn": "Y",
+        "publicDataPk": "15122715",
+        "publicDataDetailPk": "uddi:90f1214e-3911-49e7-a8b5-e0fc6990e504",
+        "fileDetailSn": "1"
+      },
+      "format": "csv",
+      "encoding": "utf-8-sig",
+      "header": ["법률코드", "법률명", "별표구분", "조번호", "항번호", "관할지역코드", "관할지역명", "용도지역지구명", "일련번호", "제한규정", "제한규정상세"],
+      "bounds": {
+        "$comment": "min_rows is the 2025-12-24 판's 23,427 rows minus about 10%.",
+        "min_rows": 21000,
+        "max_shrink_share": 0.15
+      },
+      "row_key": {
+        "kind": "sha256_of_row",
+        "$comment": "No provider key: 법률코드·별표구분·조번호·항번호·관할지역코드·용도지역지구명·일련번호 repeat on 16,329 rows of 23,427, and 8,411 rows are word-for-word repeats of another, so a repeat stays one key's set (keep_ties). The file names a 용도지역지구 by its name only (no zone code), as the 행위제한 file does."
+      },
+      "place_link": {
+        "kind": "legal_dong_code",
+        "code_column": "관할지역코드",
+        "nationwide_codes": ["00000"],
+        "$comment": "관할지역코드 is the 시군구 whose 조례 sets the limit, or 00000 for a 법률 that holds everywhere (52 rows, linked to no 법정동 on purpose). 2026-11-11: 17,627 rows name a current 시군구 as written; 5,748 name 전라남도 codes (46xxx) the 2026-07-01 merger replaced, which the crosswalk carries to the 전남광주통합특별시 codes (4682000000 -> 1279000000)."
+      },
+      "measured": "2026-11-11 (2025-12-24 판, portal updated 2025-12-29): 3,315,319 bytes, one UTF-8 (BOM) CSV of 23,427 rows and 11 columns on every row, 194 관할지역코드; 제한규정 is empty on 22,462 rows (the row names the article only).",
+      "silver_load": {
+        "$comment": "What one load of silver.land_use_regulation_by_zone may take (plan-silver-load-objects): files of this source no commit of the table records, landed within window_days (shorter than the snapshot retention), oldest first, one per run. An edition appends only its new and changed keys and a removal marker per key it no longer holds (ADR-0401 §3).",
+        "window_days": 7,
+        "max_objects": 1
+      }
     }
   }
 }

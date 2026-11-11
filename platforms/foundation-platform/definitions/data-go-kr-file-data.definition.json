@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit. The three 표준데이터 (school location, university, subway station) come through the dataset page's own keyless download (root ADR-0453): the current table and its column list, then every page of a pass, landed only when its rows changed; the OpenAPI is only a cross-check when a registered key is set. Their per-run cap is max_pages in the contract (3, 1 and 1 pages of 10,000): measured 2026-11-09, a pass of all three is 12,004, 1,995 and 898 rows in 4 pages plus 3 column lists, about 9.1 MB of JSON (1 MB gzipped) and under 2 s of answers, about 35 s with the 5 s spacing, so the limit holds. Three files a broker shows a buyer joined on 2026-11-11 (the W68 data landscape): 표준지공시지가 (139.5 MB CSV, 600,000 rows), 승강기 설치 현황 (33 MB zip, 893,715 rows) and 전국지식산업센터현황 (0.1 MB, 1,549 rows), so a run that finds every file new lands about 538 MB; the 표준지 file is yearly and the other two irregular, so a usual run lands none of them. A failed collection still lets the load run for the files that landed; the run fails at the end.",
+      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit. The three 표준데이터 (school location, university, subway station) come through the dataset page's own keyless download (root ADR-0453): the current table and its column list, then every page of a pass, landed only when its rows changed; the OpenAPI is only a cross-check when a registered key is set. Their per-run cap is max_pages in the contract (3, 1 and 1 pages of 10,000): measured 2026-11-09, a pass of all three is 12,004, 1,995 and 898 rows in 4 pages plus 3 column lists, about 9.1 MB of JSON (1 MB gzipped) and under 2 s of answers, about 35 s with the 5 s spacing, so the limit holds. Three files a broker shows a buyer joined on 2026-11-11 (the W68 data landscape): 표준지공시지가 (139.5 MB CSV, 600,000 rows), 승강기 설치 현황 (33 MB zip, 893,715 rows) and 전국지식산업센터현황 (0.1 MB, 1,549 rows),, then the (도시계획)고시정보 (35.5 MB zip, 408,054 rows) and 지역지구별 토지이용규제정보 (3.3 MB, 23,427 rows), so a run that finds every file new lands about 577 MB; the 표준지 file is yearly and the other two irregular, so a usual run lands none of them. A failed collection still lets the load run for the files that landed; the run fails at the end.",
       "systemd_service": "foundation-data-go-kr-file-data.service",
       "systemd_timer": null,
       "state_paths": [
@@ -46,7 +46,9 @@
         "source-data-go-kr-file-data-to-silver-subway-station",
         "source-data-go-kr-file-data-to-silver-standard-land-price",
         "source-data-go-kr-file-data-to-silver-elevator-installation",
-        "source-data-go-kr-file-data-to-silver-knowledge-industry-center"
+        "source-data-go-kr-file-data-to-silver-knowledge-industry-center",
+        "source-data-go-kr-file-data-to-silver-urban-plan-notice",
+        "source-data-go-kr-file-data-to-silver-land-use-regulation-by-zone"
       ],
       "enabled": true,
       "pool_slots": 3,
@@ -337,6 +339,44 @@
           "value": "silver.knowledge_industry_center"
         }
       ]
+    },
+    {
+      "id": "silver-urban-plan-notice",
+      "type": "silver_table",
+      "title": "도시계획 고시정보",
+      "description": "국토교통부 (도시계획)고시정보(15130432), 고시관리코드마다 한 행: 용도지역 변경·지구단위계획·도시계획시설 결정 고시의 번호·일자·제목·본문. 제공자의 원천시군구코드를 법정동 코드로 채워 코드 대응표(ADR-0329 §3)로 현재 코드에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 중개사가 고객에게 설명하는 자료로 받는다(산업용 부동산 데이터 지형 조사 W68). 읽는 소비자(by-PNU 종류)가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.urban_plan_notice",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.urban_plan_notice"
+        }
+      ]
+    },
+    {
+      "id": "silver-land-use-regulation-by-zone",
+      "type": "silver_table",
+      "title": "지역지구별 토지이용규제",
+      "description": "국토교통부 지역지구별 토지이용규제정보(15122715): 용도지역지구(이름)마다 그 제한을 정한 법령·조례 조항과 제한 규정(건폐율·용적률·높이 등). 제공자 키가 없어 행의 SHA-256 이 행 키다. 관할지역코드를 법정동 코드로 채워 코드 대응표로 현재 코드에 잇고, 전국에 걸치는 법률 행(00000)은 법정동 없이 둔다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 중개사가 고객에게 설명하는 자료로 받는다(산업용 부동산 데이터 지형 조사 W68). 읽는 소비자(by-PNU 종류)가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.land_use_regulation_by_zone",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.land_use_regulation_by_zone"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -567,6 +607,36 @@
       ],
       "source_slugs": [
         "datagokr__knowledge_industry_center"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-urban-plan-notice",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__urban_plan_notice"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-land-use-regulation-by-zone",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py"
+      ],
+      "source_slugs": [
+        "datagokr__land_use_regulation_by_zone"
       ],
       "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     }
