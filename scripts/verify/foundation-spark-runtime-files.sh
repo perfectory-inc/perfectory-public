@@ -8,6 +8,7 @@
 #                       root ADR-0365); none, every gated file runs.
 #   --list              print the gated files and stop: the one definition of which files these are.
 #   SPARK_RUNTIME_JOBS  how many files run at once (default: one per 2 CPUs and per 2 GiB free).
+#   SPARK_RUNTIME_FILE_SECONDS  how long one file may run before it is stopped and fails (default 600).
 #
 # foundation-spark-runtime.sh calls this inside the pinned Spark container. A file joins by naming
 # the runtime in its skip reason ("requires pyspark", "requires the pinned ..."). Each file keeps its
@@ -21,6 +22,11 @@
 # Their output is printed one file at a time in name order, then the files by duration, slowest
 # first, so a slow file is named in the log rather than guessed at. Any failing file fails the run,
 # whatever the others did.
+# A file that runs past SPARK_RUNTIME_FILE_SECONDS is stopped and fails with the log it wrote so far
+# (unittest -v names each test as it starts, so the log ends at the one that hung). Without it a
+# hung file held the lane until the job limit cancelled it, and a cancelled job prints none of the
+# logs: shard 4 of #1255 and #1256 on 2026-11-10 ran 20 minutes and said nothing. The slowest file
+# measured runs about 100 s on the 4-CPU runner, so 600 s fails only a file that has stopped.
 set -euo pipefail
 
 gated() {
@@ -44,6 +50,7 @@ default_jobs() {
   echo "$((cpus > 0 ? cpus : 1))"
 }
 jobs="${SPARK_RUNTIME_JOBS:-$(default_jobs)}"
+export SPARK_RUNTIME_FILE_SECONDS="${SPARK_RUNTIME_FILE_SECONDS:-600}"
 cd "$tests"
 
 if (($#)); then
@@ -66,7 +73,10 @@ run_one() {
   mkdir -p "$scratch"
   started="$(date +%s)"
   TMPDIR="$scratch" PYSPARK_SUBMIT_ARGS="--conf spark.local.dir=$scratch ${PYSPARK_SUBMIT_ARGS:-pyspark-shell}" \
-    python3 -m unittest -v "${file%.py}" >"$logs/$file.log" 2>&1 || status=$?
+    timeout --kill-after=30 "$SPARK_RUNTIME_FILE_SECONDS" python3 -m unittest -v "${file%.py}" >"$logs/$file.log" 2>&1 || status=$?
+  if ((status == 124 || status == 137)); then
+    echo "foundation-spark-runtime: stopped after ${SPARK_RUNTIME_FILE_SECONDS}s, the last test named above did not finish" >>"$logs/$file.log"
+  fi
   rm -rf "$scratch"
   printf '%s %s\n' "$status" "$(($(date +%s) - started))" >"$logs/$file.result"
 }
