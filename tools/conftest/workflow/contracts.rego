@@ -60,7 +60,12 @@ conditional_steps := {
 	["Save sqlx-cli", main_only_if],
 	["Fill pinned release binaries", cache_writer_if],
 	["Save pinned release binaries", cache_writer_if],
+	["Restore apt package cache", foundation_gate_if],
+	["Save apt package cache", apt_cache_save_if],
 }
+
+# scripts/ci/apt-install.sh asks for a save only when it downloaded a set the restored cache lacked.
+apt_cache_save_if := sprintf("${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (%s) }}", [cache_writer_if])
 
 # --- the parsed workflows -----------------------------------------------------------------------
 
@@ -189,6 +194,22 @@ deny contains msg if {
 	some fallback in fake_pass_fallbacks
 	contains(line, fallback)
 	msg := sprintf("%s: a run hides its own failure with `%s` (%v)", [path, fallback, location])
+}
+
+# Debian packages come through scripts/ci/apt-install.sh, which skips what the runner has, installs
+# from the package cache, probes mirrors and retries. On 2026-11-11 the runners could not resolve any
+# ubuntu.com mirror and every bare `apt-get` in CI ran past 20 minutes and failed (#1267, #1313,
+# #1323, #1329).
+deny contains msg if {
+	some [path, document] in workflows
+	walk(document, [location, value])
+	count(location) > 0
+	location[count(location) - 1] == "run"
+	is_string(value)
+	some line in split(value, "\n")
+	not startswith(trim_space(line), "#")
+	regex.match(`(^|[^A-Za-z0-9_./-])apt(-get|-fast)?[ \t]`, line)
+	msg := sprintf("%s: install Debian packages with bash \"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh\", not apt (%v)", [path, location])
 }
 
 deny contains msg if {

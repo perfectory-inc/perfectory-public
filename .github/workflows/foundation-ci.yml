@@ -118,6 +118,14 @@ jobs:
           path: ~/.cache/perfectory/pinned
           key: pinned-release-binaries-v1-${{ runner.os }}
           restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
+      # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
+      - name: Restore apt package cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}
+          restore-keys: apt-packages-v1-${{ runner.os }}-${{ github.job }}-
 
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
@@ -193,6 +201,14 @@ jobs:
           CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
         run: cargo xtask verify foundation --part cargo --affected
+      # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
+      # restored cache did not hold.
+      - name: Save apt package cache
+        if: ${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
 
       # On a pull request only when the publisher is among the crates it verifies (root
       # ADR-0269): verify no longer builds the publisher otherwise, and compiling it here ran
@@ -251,6 +267,14 @@ jobs:
           path: ~/.cache/perfectory/pinned
           key: pinned-release-binaries-v1-${{ runner.os }}
           restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
+      # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
+      - name: Restore apt package cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}
+          restore-keys: apt-packages-v1-${{ runner.os }}-${{ github.job }}-
 
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
@@ -328,6 +352,14 @@ jobs:
           CHANGE_SCOPE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
         run: cargo xtask verify foundation --part suites --affected
+      # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
+      # restored cache did not hold.
+      - name: Save apt package cache
+        if: ${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
       - name: Save pnpm store
         if: ${{ github.ref == 'refs/heads/main' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0 (SHA pin, ADR 0028)
@@ -574,6 +606,16 @@ jobs:
           shared-key: rust-quality-dependencies
           save-if: false
 
+      # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
+      # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
+      - name: Restore apt package cache
+        if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}
+          restore-keys: apt-packages-v1-${{ runner.os }}-${{ github.job }}-
+
       - name: Install database client
         shell: bash
         run: |
@@ -582,15 +624,7 @@ jobs:
             exit 0
           fi
           set -euo pipefail
-          if ! command -v psql >/dev/null 2>&1; then
-            if command -v sudo >/dev/null 2>&1 && sudo -n true; then
-              sudo apt-get update
-              sudo apt-get install -y --no-install-recommends postgresql-client
-            else
-              echo "::error::postgresql-client is missing and the GitHub-hosted runner does not provide passwordless sudo"
-              exit 1
-            fi
-          fi
+          bash "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" postgresql-client
           psql --version
 
       # Root ADR-0259 §8: a change's new migrations run onto main's schema holding a synthetic row
@@ -640,6 +674,14 @@ jobs:
             exit 0
           fi
           cargo xtask integration foundation --affected
+      # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
+      # restored cache did not hold.
+      - name: Save apt package cache
+        if: ${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
 
   kafka-integration:
     needs: [scope]
@@ -723,6 +765,16 @@ jobs:
           shared-key: rust-quality-dependencies
           save-if: false
 
+      # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
+      # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
+      - name: Restore apt package cache
+        if: ${{ env.FOUNDATION_CI_GATE_SELECTED == 'true' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}
+          restore-keys: apt-packages-v1-${{ runner.os }}-${{ github.job }}-
+
       - name: Install database client
         shell: bash
         run: |
@@ -731,10 +783,7 @@ jobs:
             exit 0
           fi
           set -euo pipefail
-          if ! command -v psql >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends postgresql-client
-          fi
+          bash "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" postgresql-client
           psql --version
 
       - name: Install Kafka Rust native build dependencies
@@ -747,9 +796,15 @@ jobs:
           set -euo pipefail
           # Keep this host-side live gate on the same complete native header set
           # declared by tools/xtask for Foundation's --all-features build.
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
+          bash "$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
+      # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
+      # restored cache did not hold.
+      - name: Save apt package cache
+        if: ${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
 
       - name: Run migrations through the production runner
         run: |

@@ -586,6 +586,12 @@
         ]
       },
       {
+        "name": "apt-install-self-test",
+        "paths": [
+          "scripts/ci/apt-install.sh"
+        ]
+      },
+      {
         "name": "rust-ci-setup",
         "paths": [
           ".github/workflows/**",
