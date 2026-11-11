@@ -278,6 +278,7 @@ last_reviewed: 2026-11-07
 | 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles` | 화면 |
 | 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
+| 행정·내부 | 주택인허가 기본개요 (`silver.housing_permit_basis_outline`) | — | — | 없음 |
 | 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |
 | 행정·내부 | 필지 ID 원장 (`silver.parcel_registry`) | — | — | 없음 |
 | 행정·내부 | 실거래가 적재 거부 줄 (`silver.real_transaction_rejected`) | — | — | 없음 |
