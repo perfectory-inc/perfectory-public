@@ -200,9 +200,9 @@ rm -rf -- "$in_repository_probe"
 in_repository_probe=""
 
 # --- case 7: the guards that caused the incident, under the same poison -------
-# Named individually because these two are the ones whose fixtures were found in
-# the wreckage. The sweep below covers the rest when it is asked for.
-for guard in build-coupling-baseline-self-test judgment-position-exit-codes-self-test; do
+# Named individually because it is the one whose fixtures were found in the
+# wreckage (the other, judgment-position-exit-codes, is now a Semgrep rule). The sweep below covers the rest when it is asked for.
+for guard in build-coupling-baseline-self-test; do
   new_canary
   canary="$CANARY"
   before="$(canary_state "$canary")"

@@ -1031,17 +1031,6 @@
         ]
       },
       {
-        "name": "judgment-position-exit-codes-self-test",
-        "paths": []
-      },
-      {
-        "name": "judgment-position-exit-codes",
-        "paths": [
-          "**/*.sh",
-          ".github/workflows/**"
-        ]
-      },
-      {
         "name": "publication-authority-self-test",
         "paths": [
           "scripts/github/**",

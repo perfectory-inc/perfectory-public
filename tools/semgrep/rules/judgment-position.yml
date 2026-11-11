@@ -1,0 +1,51 @@
+# No pipeline may stand where a command's success is judged (root ADR-0012 rule 2).
+#
+# Prevents: on 2026-08-05 `docker run … cargo check … | tail -40` reported exit 0 although the run
+# never happened (the path was rejected): a pipeline's status is its last stage's, so the command
+# being judged can fail while the judgment reads success. Two shapes are fail-open, and these rules
+# refuse both in every *.sh and workflow:
+#
+# * `$?` read after a pipeline (blank lines between do not help: a status does not expire);
+# * a pipeline consumed by `||` that assigns, exits or returns (`cmd | tail || rc=1`), the ADR's own
+#   example. `|| true` and `|| :` discard the status on purpose and stay allowed.
+#
+# Not refused: `if cmd | grep -q …`, which fails closed (a broken command prints nothing and the
+# assertion goes red); under pipefail that shape has its own defect, pipefail-early-exit-reader.yml.
+# `generic`, as that rule is: the engine's bash parser drops whole ranges of tracked scripts. A pipe is
+# one outside quotes, `[[ ]]` and comments; a `case` arm's alternation is not one. A reviewed exception
+# says `# verification-judgment: reviewed-pipeline` on the pipeline's line.
+rules:
+  - id: judgment-position-reads-status-after-a-pipeline
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      `$?` after a pipeline is the last stage's status, not the command's (2026-08-05, ADR-0012
+      rule 2). Write the command's output to a file and judge the command itself.
+    paths:
+      include:
+        - "*.sh"
+        - "/.github/workflows/*.yml"
+        - "/.github/workflows/*.yaml"
+    patterns:
+      # From the line's start, words outside quotes, `[[ ]]` and comments, then a pipe that is not
+      # `||` or `|&`; then, after blank lines only, a line that reads `$?` outside single quotes.
+      - pattern-regex: >-
+          (?m)^[ \t]*(?:\[\[(?:[^\]\n]|\][^\]\n])*\]\]|'[^'\n]*'|"(?:[^"\\\n]|\\.)*"|\\.|\$\{?#|\|\||\|&|\[(?!\[)|[^'"\\\n|#\[])*\|(?![|&])[^\n]*\n(?:[ \t]*\n)*(?:[^'\n#]|'[^'\n]*')*\$\?[^\n]*
+      - pattern-not-regex: '[^\n]*#[ \t]*verification-judgment:[ \t]*reviewed-pipeline[^\n]*\n(?:[ \t]*\n)*[^\n]*'
+  - id: judgment-position-pipeline-decides-an-or
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      A pipeline decides this `||`; its last stage's success hides a failure of the command being
+      judged (2026-08-05, ADR-0012 rule 2). Judge the command directly; `|| true` discards on purpose.
+    paths:
+      include:
+        - "*.sh"
+        - "/.github/workflows/*.yml"
+        - "/.github/workflows/*.yaml"
+    patterns:
+      - pattern-regex: >-
+          (?m)^[ \t]*(?:\[\[(?:[^\]\n]|\][^\]\n])*\]\]|'[^'\n]*'|"(?:[^"\\\n]|\\.)*"|\\.|\$\{?#|\|\||\|&|\[(?!\[)|[^'"\\\n|#\[])*\|(?![|&])(?:'[^'\n]*'|"(?:[^"\\\n]|\\.)*"|[^'"\n#])*?\|\|[ \t]*(?:[A-Za-z_][A-Za-z0-9_]*=|exit\b|return\b)[^\n]*
+      # A `case` arm: `a|b) … ;;` is alternation.
+      - pattern-not-regex: '(?m)^[^\n]*\)[^\n]*;;[^\n]*$'
+      - pattern-not-regex: '[^\n]*#[ \t]*verification-judgment:[ \t]*reviewed-pipeline[^\n]*'
