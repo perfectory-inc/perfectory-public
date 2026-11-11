@@ -783,7 +783,10 @@ def main(argv=None) -> int:
                 inputs[place_id_join.BRIDGE_SOURCE], content, columns),
             restrict=restrict_inputs, affected=affected, validate=validate_gold,
             content_columns=content, gold_columns=columns,
-            append_inputs={RT_SOURCE: rt_table, place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
+            append_inputs={RT_SOURCE: rt_table, place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)},
+            # The first national build ran past its 160 min unit (2026-11-11, 8,839 s, killed while it
+            # validated the whole): one 시도 at a time, each staged, so a killed run resumes (root ADR-0440).
+            full_shard_keys=lambda inputs: inputs[PARCEL_SOURCE])
         coverage = section_coverage.guard_from_arguments(spark, args, table, {SECTION: kind.columns[0]},
                                                          frames[CODE_CHANGE_SOURCE], shares=False)
         outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table, validate_gold,

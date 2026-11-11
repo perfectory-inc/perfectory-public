@@ -277,6 +277,36 @@ class DocumentSparkTest(unittest.TestCase):
                               coverage=COVERAGE).first()
         self.assertEqual(first.row_digest, again.row_digest)
 
+    def test_the_whole_build_in_shards_equals_the_whole_build(self):
+        # Root ADR-0440: 2026-11-11 the first national build ran 8,839 s, past its 160 min unit, and
+        # every try started over; built one shard at a time, a killed run resumes from the shards it
+        # staged. A shard's inputs are its 법정동s' (restrict_inputs), so its documents are the whole's.
+        import gold_incremental as incremental
+
+        factory, masked, house, moved = pnu(OTHER, 5), pnu(OTHER, 300), pnu(OTHER, 7), pnu(NEW, 12)
+        deals = [self.deal("o-1", OTHER_NAME, "5", date(2098, 2, 1)),
+                 self.deal("m-1", OTHER_NAME, "3**", date(2098, 4, 2)),
+                 self.deal("h-1", OTHER_NAME, "7", date(2098, 3, 1), dataset="real_transaction_detached_house_trade"),
+                 self.deal("a-1", OLD_NAME, "12", date(2098, 3, 10))]
+        land = [(factory, "공장용지", 1000.0, "계획관리지역"), (masked, "공장용지", 800.0, "계획관리지역"),
+                (house, "대", 300.0, "계획관리지역"), (moved, "공장용지", 1000.0, "계획관리지역")]
+        frames = self.frames(deals, REORGANIZED, [factory, masked, house, moved], land)
+
+        def build(inputs):
+            return job.gold_rows(inputs, INFERENCE, date(2098, 5, 3), "snap-1", "2098-05-03T00:00:00Z", GOLD_COLUMNS,
+                                 coverage=COVERAGE)
+
+        lane = incremental.Lane(build=build, restrict=job.restrict_inputs, affected=None, validate=None,
+                                content_columns=(), gold_columns=GOLD_COLUMNS,
+                                full_shard_keys=lambda inputs: inputs[job.PARCEL_SOURCE])
+        whole = sorted(map(tuple, build(frames).collect()))
+        self.assertEqual({row[0] for row in whole}, {factory, masked, house, moved})
+        stages = incremental.Stages(self.spark, "real-transaction-shards")
+        self.addCleanup(stages.remove)
+        # Every synthetic PNU shares its first digits: one shard per PNU here.
+        sharded = incremental.build_in_shards(stages, lane, frames, digits=19)
+        self.assertEqual(sorted(map(tuple, sharded.collect())), whole)
+
 
     def test_region_statistics_follow_the_deal_to_its_current_code(self):
         deals = [self.deal("a-1", OLD_NAME, "12", date(2098, 3, 10), amount=60000, land=1000.0, building=500.0),
