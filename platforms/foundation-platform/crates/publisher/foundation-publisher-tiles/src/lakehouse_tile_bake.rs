@@ -99,7 +99,8 @@ use gate::classify_missing;
 pub use gate::{check_pmtiles_header, gate_archive, IdGate, Missing, ServedLayer};
 pub use min_zoom::{FeatureMinZoom, LowZoomGeneralization};
 pub use partitions::{
-    bake_partitions, partition_archive, tile_join_args, CsvOut, CsvPart, PartitionedCsv,
+    bake_partitions, partition_archive, tile_join_args, warm_partitions, CsvOut, CsvPart,
+    PartitionedCsv, Warmed,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
 use upload::{bake_and_upload, compared_with, rehearse, Upload};
@@ -118,8 +119,6 @@ const DEFAULT_TILE_DETAIL: u8 = 12;
 const NAMED_IDS: usize = 5;
 /// The most missing ids the gate reads geometry for (ADR-0262); 202609 at detail 12 missed 542.
 const MAX_CLASSIFIED_MISSING: usize = 100_000;
-/// The deepest zoom a unit may be cut to: the render zooms Catalog accepts end at 22.
-const MAX_TILE_ZOOM: u8 = 22;
 /// Range size for reading the active archive: one directory or a few tiles per request.
 const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 
@@ -155,6 +154,10 @@ pub struct BakeContract {
     /// the release the bake promotes carries it.
     #[serde(default)]
     pub tile_max_zoom: std::collections::BTreeMap<String, u8>,
+    /// Root ADR-0493: a partitioned unit listed here starts no partition this many seconds after
+    /// the run started; the run ends deferred and the next start continues from the cache.
+    #[serde(default)]
+    pub partition_run_budget_seconds: std::collections::BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -232,19 +235,8 @@ impl BakeContract {
             contract.tile_bytes_budget.values().all(|bytes| *bytes > 0),
             "a tile_bytes_budget is positive"
         );
-        for (unit, zoom) in &contract.tile_max_zoom {
-            ensure!(
-                (1..=MAX_TILE_ZOOM).contains(zoom),
-                "{unit}'s tile_max_zoom {zoom} is not between 1 and {MAX_TILE_ZOOM}"
-            );
-            if let Some(newborn) = contract.units_born_from_a_lakehouse_bake.get(unit) {
-                ensure!(
-                    newborn.served_layer().tile_max_zoom == *zoom,
-                    "{unit} is born at z{} but its tile_max_zoom is {zoom}",
-                    newborn.served_layer().tile_max_zoom
-                );
-            }
-        }
+        partitions::validate_budgets(&contract)?;
+        min_zoom::validate_tile_max_zoom(&contract)?;
         Ok(contract)
     }
 
@@ -703,6 +695,8 @@ struct Config {
     tile_bytes_budget: Option<u64>,
     /// Root ADR-0492: the contract's maxzoom for this unit, if it sets one.
     tile_max_zoom: Option<u8>,
+    /// Root ADR-0493: when this run starts no more partitions, if the contract budgets them.
+    partition_deadline: Option<std::time::Instant>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -771,6 +765,7 @@ impl Config {
             low_zoom_generalization: None,
             tile_bytes_budget: None,
             tile_max_zoom: None,
+            partition_deadline: None,
         })
     }
 }
@@ -1247,6 +1242,11 @@ pub async fn run() -> anyhow::Result<()> {
         .cloned();
     config.tile_bytes_budget = contract.tile_bytes_budget.get(&config.unit_key).copied();
     config.tile_max_zoom = contract.tile_max_zoom.get(&config.unit_key).copied();
+    // The budget counts from the run's start: reading the handoff is part of the run.
+    config.partition_deadline = contract
+        .partition_run_budget_seconds
+        .get(&config.unit_key)
+        .map(|seconds| std::time::Instant::now() + Duration::from_secs(*seconds));
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1365,6 +1365,12 @@ async fn bake_in(
     if active.shows(&summary.canonical_iceberg_snapshot_id, &recipe) {
         unchanged(&config.unit_key, &active.snapshot);
         return Ok(());
+    }
+    if let Some(parts) = prepared.2.as_deref() {
+        let unbaked = (&contract.images, prepared.0.as_slice(), srid, &active.layer);
+        if partitions::deferred(config, work, parts, &inputs, &summary, unbaked).await? {
+            return Ok(());
+        }
     }
     if config.rehearsal {
         return rehearse(

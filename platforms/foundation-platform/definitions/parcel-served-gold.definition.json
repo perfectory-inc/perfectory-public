@@ -27,7 +27,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-03); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 5400,
+          "estimated_from": "computed from the job's own steps measured on 2026-10-13 under contention (runbook parcel-tile-bake.md §4): the matching gate 13.5 minutes and the served Gold 59 minutes (Spark 41 minutes and the part hash check) over the 202606 edition's 39,861,511 parcels, 4,350 s; 202609 holds 39,876,546 (the 2026-10-15 handoff), so 5,400 s leaves a quarter more"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -38,8 +41,8 @@
         "silver-map-edit-ledger-to-gold-parcel-boundary-served",
         "silver-parcel-registry-to-gold-parcel-boundary-served"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0253). Off until the supervised rehearsal of the edition the contract will serve (runbook parcel-tile-bake.md §2) has measured both halves within the unit's 115-minute limit and the owner has moved served_edition; switching it on is a separate deploy step (ADR-0122 §4).",
+      "enabled": true,
+      "enabled_since": "2026-11-11T00:00:00Z",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."

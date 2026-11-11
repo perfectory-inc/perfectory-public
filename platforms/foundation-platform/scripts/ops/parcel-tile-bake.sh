@@ -24,7 +24,9 @@
 #    `parcels` edit applied, committed to gold.parcel_boundary_served, and the v2 handoff parts.
 #    The run directory is recorded as ready; the last line is `changed`, which starts the bake.
 # bake:
-# 4. bake-lakehouse-tiles over the ready run: GDAL and tippecanoe in their capped containers, the
+# 4. bake-lakehouse-tiles over the ready run. Each 시도 is baked into the partition cache first; a
+#    run that reaches the contract's partition_run_budget_seconds ends `waiting` with the Gold still
+#    ready, and the next start continues (root ADR-0493). Then GDAL and tippecanoe in their capped containers, the
 #    archive gates, the first-release equivalence gate against the active release (ADR-0133 §4,
 #    ADR-0135, ADR-0251), the create-only upload and the promotion. A failure before the promotion
 #    changes nothing served. The edition is then recorded as baked.
@@ -308,6 +310,13 @@ FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_CONTAINER_PROJECT="foundation-parcel-til
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_BUILD_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-build" \
 FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE_PROMOTE_IDEMPOTENCY_KEY="parcel-tile-bake-${run_id}-promote" \
   "${PUBLISHER_BIN}" bake-lakehouse-tiles >>"${run_log}" 2>&1
+# Root ADR-0493: the run reached its partition budget before any Catalog or R2 write. The baked
+# partitions are in the cache; the Gold stays ready and the next start continues.
+deferred="$(tail -n 5 "${run_log}" | grep -oE 'lakehouse-tile-bake-deferred .*' | tail -1 || true)"
+if [[ -n "${deferred}" ]]; then
+  job_journal "${journal}" "deferred ${snapshot} after $((SECONDS - step))s: ${deferred}"
+  echo "foundation-job-outcome waiting ${deferred#lakehouse-tile-bake-deferred }"; exit 0
+fi
 result="$(grep -oE 'lakehouse-tile-bake-(ok|rehearsal).*' "${run_log}" | tail -1)"
 rm -f "${ready_file}"
 if ((rehearsal)); then
