@@ -169,7 +169,13 @@ export function ReviewTable({ items }: { items: ReviewItem[] }) {
               {item.legal_dong && <span className="ml-2 text-slate-700">{item.legal_dong.name}</span>}
             </td>
             <td className="px-4 py-2">{STATUS_LABEL[item.status]}</td>
-            <td className="px-4 py-2">{item.legal_dong ? item.legal_dong.candidates.length : item.candidates.length}</td>
+            <td className="px-4 py-2">
+              {item.place_reference
+                ? `${item.place_reference.rows.toLocaleString("ko-KR")}행`
+                : item.legal_dong
+                  ? item.legal_dong.candidates.length
+                  : item.candidates.length}
+            </td>
             <td className="px-4 py-2 text-slate-500">{item.claim ? "맡음" : "—"}</td>
             <td className="px-4 py-2 text-slate-500">{item.decisions.length ? `${item.decisions.length}건` : "—"}</td>
           </tr>
