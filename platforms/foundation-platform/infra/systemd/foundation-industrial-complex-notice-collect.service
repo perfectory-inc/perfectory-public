@@ -14,6 +14,7 @@ Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=-/etc/foundation-platform/operations-map.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/industrial-complex-notice-collect.sh
 # The job list's time_limit_minutes (jobs.v1.json): the notice budget (1,800 s) and one notice.
 TimeoutStartSec=40m
