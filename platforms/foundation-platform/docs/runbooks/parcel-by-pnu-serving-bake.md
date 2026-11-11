@@ -513,7 +513,7 @@ monitor` 가 있으면 그쪽(5xx·문서 불일치·p95)이 먼저다.
 전량 굽기(새 세대)는 13시간 넘게 걸릴 수 있고 그동안 서빙은 이전 발행 그대로다. 그 사이 경보는 사실이다 — 굽기가
 `published` 로 끝나면 다음 조정기 차례(5분)에 뒤처짐이 0 이 되고 경보가 풀린다.
 
-**`FoundationByPnuLaneUnmeasured`** ([루트 ADR-0521](../../../../docs/adr/0521-every-served-lane-and-tile-layer-of-the-lane-index-is-held-to-the-freshness-budget-even-when-nothing-else-measures-it.md)):
+**`FoundationByPnuLaneUnmeasured`** ([루트 ADR-0522](../../../../docs/adr/0522-every-served-lane-and-tile-layer-of-the-lane-index-is-held-to-the-freshness-budget-even-when-nothing-else-measures-it.md)):
 레인 색인(`config/by-pnu-lane-index.v1.json`)에 있는 레인이 등록(가장 이른 켜진 굽기 작업의 `enabled_since`, 켜진 굽기가
 없으면 0)된 지 예산이 지났는데 `foundation_by_pnu_served_manifest_age_seconds` 가 없다 — 그 레인의 서빙 모니터가 잰 적이
 없다. 첫 발행 전이면 `by-pnu-auto-promote` 의 cut-over 기록과 그 레인 굽기 일지의 `not cut over yet` 을, 발행했는데도

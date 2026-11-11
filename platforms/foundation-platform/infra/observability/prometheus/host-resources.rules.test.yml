@@ -260,7 +260,7 @@ tests:
               summary: 'parcel 레인의 서빙 모니터가 4h 0m 0s째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@parcel.timer 를 보세요'
               runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
 
-  # Root ADR-0521. 2026-11-11 parcel-nearby had been registered (its bake enabled) with no serving
+  # Root ADR-0522. 2026-11-11 parcel-nearby had been registered (its bake enabled) with no serving
   # monitor and no series. Past the 48-hour budget unmeasured it pages; a lane registered 40 hours ago
   # and a lane its monitor measures stay quiet; a lane with no enabled bake (since 0) is said at once
   # once nothing measures it.
@@ -291,7 +291,7 @@ tests:
               summary: 'parcel-nearby 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@parcel-nearby.timer 를 보세요'
               runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
 
-  # Root ADR-0521. 2026-11-11 the parcels tiles served a 2026-09-28 release about 26 days behind
+  # Root ADR-0522. 2026-11-11 the parcels tiles served a 2026-09-28 release about 26 days behind
   # gold.parcel_boundary_served; admin served a 10-16 release that held every change (0, quiet); the
   # zoning unit the runtime manifest lacks is not on the map; complex's table could not be read.
   - interval: 1m

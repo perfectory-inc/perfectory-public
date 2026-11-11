@@ -884,7 +884,7 @@ if __name__ == "__main__":
 
 
 class ServedSurfaces(unittest.TestCase):
-    """Root ADR-0521. 2026-11-11 parcel-nearby and parcel-real-transaction were registered lanes with
+    """Root ADR-0522. 2026-11-11 parcel-nearby and parcel-real-transaction were registered lanes with
     enabled bakes and no serving monitor, so no series named them; and no tile layer had a freshness
     series: the parcels unit served a 2026-09-28 release while its Gold had changed since 10-15."""
 

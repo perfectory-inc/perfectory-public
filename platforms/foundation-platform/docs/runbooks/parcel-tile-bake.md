@@ -104,7 +104,7 @@ ADR-0194 5.2). 승격은 하지 않았다. 대조 관문이 판을 거부했고(
 
 ## 5. 지도 타일 신선도 경보
 
-[루트 ADR-0521](../../../../docs/adr/0521-every-served-lane-and-tile-layer-of-the-lane-index-is-held-to-the-freshness-budget-even-when-nothing-else-measures-it.md).
+[루트 ADR-0522](../../../../docs/adr/0522-every-served-lane-and-tile-layer-of-the-lane-index-is-held-to-the-freshness-budget-even-when-nothing-else-measures-it.md).
 레인 색인의 `tile_units`(정의의 `surface_kind: tiles` 자산과 그 `publication_unit`) 마다 자산 조정기가 5분마다 잰다:
 지도가 읽는 런타임 manifest(`/catalog/v1/vector-tiles/runtime-manifest`)의 그 유닛 `canonical_iceberg_snapshot_id` 뒤로
 `snapshot_table` 에서 행이 바뀐 가장 오래된 커밋부터 지금까지(`foundation_tile_unit_behind_seconds`). 행정경계·산단처럼

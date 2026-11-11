@@ -298,7 +298,7 @@ def lane_index(documents):
             "bake_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers(set(serving))],
             "rebuild_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers(set(gold))],
         })
-    # The map's tile layers, the other half of what users see (root ADR-0521): each `tiles` surface's
+    # The map's tile layers, the other half of what users see (root ADR-0522): each `tiles` surface's
     # publication unit (its key in the runtime manifest) and the table whose snapshot a release names.
     tile_units = [{
         "unit": node["publication_unit"]["key"],

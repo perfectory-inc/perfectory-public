@@ -42,7 +42,7 @@ socket and the FoundationContainerMemoryNearCap rule looks up (root ADR-0385), a
 whether Dagster's code location loads and when the dual run last compared (dagster_state; the
 FoundationDagster*/FoundationDualRun* rules, root ADR-0431). Into asset-reconcile.prom also go, for
 every lane and tile layer the lane index names, since when the lane is meant to be served and how far
-each tile layer's served release is behind its snapshot table (served_surfaces, root ADR-0521). The
+each tile layer's served release is behind its snapshot table (served_surfaces, root ADR-0522). The
 FoundationAsset* rules turn them into asset_lag_seconds and asset_unscheduled_seconds and alert. The
 idle-since times are kept under the job's state path between ticks. It changes no data: its outcome
 is `unchanged`, or `failed` when no asset could be read.
@@ -100,7 +100,7 @@ QUEUE_RETRY_CAP = 3600.0
 # `select` already skips (root ADR-0467).
 MISSED_START_GRACE = 900.0
 # What users are served, lane by lane and tile layer by tile layer (scripts/catalog/declared_definitions.py
-# `lane_index`, root ADR-0418), and the route their maps read the tile layers' releases from (root ADR-0521).
+# `lane_index`, root ADR-0418), and the route their maps read the tile layers' releases from (root ADR-0522).
 LANE_INDEX = PLATFORM / "config" / "by-pnu-lane-index.v1.json"
 RUNTIME_MANIFEST_ROUTE = "foundation_platform.public.runtime_manifest_v2"
 
@@ -402,7 +402,7 @@ def lane_behind_since(asset: Asset, table, reads) -> float | None:
 
 
 def served_surfaces(now: float, index: dict, jobs: dict, budget_hours: float, table, runtime_manifest) -> list[str]:
-    """Every lane and tile layer of the lane index held to the serving freshness budget (root ADR-0521),
+    """Every lane and tile layer of the lane index held to the serving freshness budget (root ADR-0522),
     whatever else measures it.
 
     A by-PNU lane's age is the hourly serving monitor's, and a lane whose monitor timer was never turned
@@ -675,11 +675,11 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_job_missed_start_seconds gauge
 # HELP foundation_serving_freshness_budget_seconds The age past which a served lane or tile layer is stale (r2-connections by_pnu_section_packs.freshness_budget_hours, root ADR-0306).
 # TYPE foundation_serving_freshness_budget_seconds gauge
-# HELP foundation_by_pnu_lane_registered_since_timestamp_seconds Since when the lane is meant to be served: its earliest enabled bake's enabled_since, 0 when none is enabled (root ADR-0521).
+# HELP foundation_by_pnu_lane_registered_since_timestamp_seconds Since when the lane is meant to be served: its earliest enabled bake's enabled_since, 0 when none is enabled (root ADR-0522).
 # TYPE foundation_by_pnu_lane_registered_since_timestamp_seconds gauge
-# HELP foundation_tile_unit_served Whether the tile runtime manifest users' maps read serves the lane index's tile unit (root ADR-0521).
+# HELP foundation_tile_unit_served Whether the tile runtime manifest users' maps read serves the lane index's tile unit (root ADR-0522).
 # TYPE foundation_tile_unit_served gauge
-# HELP foundation_tile_unit_behind_seconds How long the tile unit has served data behind its snapshot table: since the oldest row change after the snapshot its release names (root ADR-0521); 0 when it serves every change.
+# HELP foundation_tile_unit_behind_seconds How long the tile unit has served data behind its snapshot table: since the oldest row change after the snapshot its release names (root ADR-0522); 0 when it serves every change.
 # TYPE foundation_tile_unit_behind_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge

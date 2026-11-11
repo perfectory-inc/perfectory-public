@@ -520,7 +520,7 @@ groups:
         annotations:
           summary: '{{ $labels.lane }} 레인의 서빙 모니터가 {{ humanizeDuration $value }}째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
           runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
-      # Root ADR-0521. The two rules above hold only lanes a serving monitor measures, and a monitor's
+      # Root ADR-0522. The two rules above hold only lanes a serving monitor measures, and a monitor's
       # timer is turned on by a lane's first publish: 2026-11-11 parcel-nearby and parcel-real-transaction
       # had been registered with enabled bakes for two days, served nothing, and no series named them.
       # Every lane of the lane index says since when it is meant to be served (asset_reconcile.py
@@ -538,7 +538,7 @@ groups:
         annotations:
           summary: '{{ $labels.lane }} 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
           runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
-      # Root ADR-0521. The map's tile layers had no freshness series at all: 2026-11-11 the parcels unit
+      # Root ADR-0522. The map's tile layers had no freshness series at all: 2026-11-11 the parcels unit
       # served its 2026-09-28 release while gold.parcel_boundary_served had changed rows since 10-15, and
       # the zoning unit's bake failed daily on an unchanged Silver snapshot. Behind its snapshot table,
       # not old (root ADR-0444's rule): admin and complex serve releases weeks old that hold every change.
