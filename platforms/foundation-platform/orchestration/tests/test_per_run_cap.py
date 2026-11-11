@@ -123,7 +123,6 @@ def real_graph():
 # (root ADR-0468, revised 2026-11-10).
 # A held-off reader that is switched on is a stale entry: the change that turns it on deletes its line.
 HELD_OFF = {
-    "parcel_served_gold": "the owner moves served_edition after the supervised edition rehearsal (root ADR-0253)",
     "gold_parcel_regulation_zones_rebuild": "its first national build ran 9,610 s, past the 150-minute limit "
                                             "(2026-11-07, root ADR-0435 개정 ②)",
     "gold_court_auction_rebuild": "the court-auction lane's own work (W18h, root ADR-0353)",

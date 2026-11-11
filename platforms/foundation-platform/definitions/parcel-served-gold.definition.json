@@ -11,7 +11,7 @@
       "full_tracked_by": "root ADR-0322 §4 and its progress notes (a fingerprint per 시도 so the gate and the served Gold redo only the 시도 whose inputs changed); its tracking PR #953 was folded there",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. Nothing reads PostGIS.",
+      "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. With nothing to do for the served edition (its tiles serve it, its Gold waits, or it is the ledger's first edition, served by the release from before the lakehouse bake), it rehearses the readiness judgement's candidate instead, serving nothing, and tries a rehearsal that did not pass again after seven days (root ADR-0485 §4). Nothing reads PostGIS.",
       "systemd_service": "foundation-parcel-tile-bake@gold.service",
       "systemd_timer": null,
       "state_paths": [
@@ -27,7 +27,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-03); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 1800,
+          "estimated_from": "the one rehearsal run of this half, 2026-10-15 (journal of foundation-parcel-tile-bake, edition 202609): the matching gate and the served Gold of 39,876,546 parcels in 866 s. About twice that, 1,800 s, for a gate that also reads the registry and the code changes (root ADR-0485), inside the 6,210 s share of the 115-minute limit"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -38,8 +41,7 @@
         "silver-map-edit-ledger-to-gold-parcel-boundary-served",
         "silver-parcel-registry-to-gold-parcel-boundary-served"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0253). Off until the supervised rehearsal of the edition the contract will serve (runbook parcel-tile-bake.md §2) has measured both halves within the unit's 115-minute limit and the owner has moved served_edition; switching it on is a separate deploy step (ADR-0122 §4).",
+      "enabled": true,
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."

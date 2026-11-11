@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The second half of the national parcel tile bake (root ADR-0133 §7, ADR-0253): take the served Gold run parcel_served_gold made ready and bake, gate and promote it with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh bake): GDAL and tippecanoe in their capped containers, the maxzoom id gate, the first-release equivalence gate against the active release (ADR-0133 §4, ADR-0135, ADR-0251), the create-only upload and the promotion. It first tries a patch (root ADR-0323, ADR-0111 base plus patches): only the tiles the changed parcels touch are baked and published by a manifest swap, and a new base is baked only when the patch policy's bounds say so (ADR-0323 §8). Started when the Gold half reports a ready run, and daily as the fallback; with none waiting, nothing to do. Nothing reads PostGIS.",
+      "description": "The second half of the national parcel tile bake (root ADR-0133 §7, ADR-0253): take the served Gold run parcel_served_gold made ready and bake, gate and promote it with bake-lakehouse-tiles (scripts/ops/parcel-tile-bake.sh bake): GDAL and tippecanoe in their capped containers, the maxzoom id gate, the first-release equivalence gate against the active release (ADR-0133 §4, ADR-0135, ADR-0251), the create-only upload and the promotion. It first tries a patch (root ADR-0323, ADR-0111 base plus patches): only the tiles the changed parcels touch are baked and published by a manifest swap, and a new base is baked only when the patch policy's bounds say so (ADR-0323 §8). Started when the Gold half reports a ready run, and daily as the fallback; with no served Gold waiting it bakes the candidate's rehearsal Gold once, with every gate and no upload (root ADR-0485 §4); with none waiting, nothing to do. Nothing reads PostGIS.",
       "systemd_service": "foundation-parcel-tile-bake@bake.service",
       "systemd_timer": null,
       "state_paths": [
@@ -24,7 +24,10 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
-        "unmeasured_reason": "Not enabled and never run as its unit in the journal (2026-10-16 to 2026-11-03); enabling it needs an attended run measured first (root ADR-0386 §3)."
+        "first_run": {
+          "estimate_seconds": 5700,
+          "estimated_from": "the one rehearsal run of this half, 2026-10-15 15:21-16:43 UTC (journal, edition 202609): 4,903 s to the maxzoom id gate, which then refused (since allowed sub-pixel, root ADR-0262); the equivalence gate and the stop before upload follow it. About 5,700 s, inside the 6,210 s share of the 115-minute limit; the first base is the declared full exception (root ADR-0485 §8)"
+        }
       },
       "pool": "spark",
       "pool_slots": 3,
@@ -33,8 +36,7 @@
       "pipeline_graph_edges": [
         "gold-parcel-boundary-served-to-parcel-tiles"
       ],
-      "enabled": false,
-      "disabled_reason": "New (root ADR-0253). Off with parcel_served_gold, for the same supervised rehearsal; it holds the spark pool's slots so the oven never runs beside a Spark job the host memory budget does not count with it.",
+      "enabled": true,
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."

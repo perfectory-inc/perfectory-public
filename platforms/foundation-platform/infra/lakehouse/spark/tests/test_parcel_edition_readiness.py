@@ -291,6 +291,43 @@ class LagTest(unittest.TestCase):
         del held["readiness"]["max_served_lag_days_reason"]
         with self.assertRaises(editions.EditionError):
             editions.validate(held)
+class ControllerTest(unittest.TestCase):
+    """Root ADR-0485 §5: a ready edition is promoted on the judgement's own request, with no person.
+    2026-10-05..11-11 the console was asked nothing and 202609 was never promoted."""
+
+    def run_grant(self, found: dict) -> tuple[list[str], Path, dict]:
+        held = contract()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        report = root / "readiness.json"
+        report.write_text(json.dumps(readiness.readiness(held, found, datetime.now(timezone.utc))), encoding="utf-8")
+        answered = readiness.grant(held, report, root / "promote.d", root / "promotions", controller=True)
+        return answered, root / "promotions", held
+
+    def test_the_newest_ready_edition_is_granted_once(self):
+        answered, answers, held = self.run_grant(evidence())
+        self.assertEqual(len(answered), 1)
+        self.assertTrue(answered[0].startswith(f"{readiness.CONTROLLER}-{CANDIDATE}-"))
+        granted = json.loads((answers / f"{answered[0]}.contract.json").read_text(encoding="utf-8"))
+        self.assertEqual(granted["served_edition"], CANDIDATE)
+        self.assertEqual(granted["promotions"][-1]["by"], readiness.CONTROLLER)
+        editions.validate(granted)
+        report = answers.parent / "readiness.json"
+        self.assertEqual(readiness.grant(held, report, answers.parent / "promote.d", answers, controller=True), [])
+
+    def test_an_edition_not_ready_is_not_asked_for(self):
+        answered, answers, _ = self.run_grant(evidence(rehearsals={}))
+        self.assertEqual(answered, [])
+        self.assertEqual(list(answers.glob("*")), [])
+
+    def test_without_the_flag_nothing_is_asked(self):
+        held = contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            report = root / "readiness.json"
+            report.write_text(json.dumps(readiness.readiness(held, evidence(), datetime.now(timezone.utc))), encoding="utf-8")
+            self.assertEqual(readiness.grant(held, report, root / "promote.d", root / "promotions"), [])
 
 
 class CommandLineTest(unittest.TestCase):
