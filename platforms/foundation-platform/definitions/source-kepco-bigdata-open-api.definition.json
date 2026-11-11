@@ -1,0 +1,21 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "source-kepco-bigdata-open-api",
+  "assets": [
+    {
+      "id": "source-kepco-bigdata-open-api",
+      "type": "source_group",
+      "title": "한전 전력데이터 개방포털 분산전원연계정보",
+      "description": "시도·시군구마다 변전소·주변압기·배전선로의 분산형전원 누적 연계 용량과 여유 용량을 주는 실시간 API 다. 필지가 속한 지역의 전력 여유를 보이는 유일한 공개 원천이다. 포털 인증키(사장의 회원가입·발급 한 단계) 전까지 수집기가 없고, 키가 놓이면 첫 실호출로 칸을 정한다(루트 ADR-0492).",
+      "status": "planned",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0492-kepco-grid-capacity-is-collected-per-sigungu-once-the-owner-holds-the-portal-key.md",
+        "platforms/foundation-platform/docs/catalog/parcel-utility-connectivity-sources.md"
+      ],
+      "endpoint_catalog_group": "kepco_bigdata_open_api",
+      "unmapped_status": "collected_only"
+    }
+  ]
+}
