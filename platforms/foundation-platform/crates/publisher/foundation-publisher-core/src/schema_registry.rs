@@ -40,6 +40,9 @@ pub struct Subject {
 struct Owner {
     lane: Option<String>,
     surface: Option<String>,
+    /// The part of the lane's documents the subject is the schema of (the building pages), when it
+    /// is not the documents themselves.
+    part: Option<String>,
 }
 
 /// One revision of a subject.
@@ -137,15 +140,14 @@ fn registry() -> anyhow::Result<&'static Registry> {
         .map_err(|error| anyhow::anyhow!("{error}"))
 }
 
-/// The subject a by-PNU lane owns, when the registry lists one.
+/// The subject of a by-PNU lane's documents, when the registry lists one.
 ///
 /// # Errors
 /// Returns an error when the registry cannot be read.
 pub fn subject_of_lane(lane: &str) -> anyhow::Result<Option<&'static Subject>> {
-    Ok(registry()?
-        .subjects
-        .iter()
-        .find(|subject| subject.owner.lane.as_deref() == Some(lane)))
+    Ok(registry()?.subjects.iter().find(|subject| {
+        subject.owner.lane.as_deref() == Some(lane) && subject.owner.part.is_none()
+    }))
 }
 
 /// What a gateway that reads every major the registry lists for `lane` answers in its
@@ -203,7 +205,7 @@ mod tests {
         assert_eq!(subject.current().schema_version, format!("{name}.v1"));
         assert_eq!(subject.written_revision(), Some(4));
         // A host lane keeps its own document schema until it moves (root ADR-0336).
-        assert!(subject_of_lane("parcel")?.is_none());
+        assert!(subject_of_lane("building")?.is_none());
         Ok(())
     }
 }
