@@ -34,6 +34,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+import legal_dong_code_change_views as code_changes
 import map_matching_gate as gate
 import parcel_identity as pi
 import parcel_lineage as pl
@@ -50,6 +51,12 @@ QUALIFIED = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_][A-Za-z0-9_]*$")
 PNU_SHAPE = "^[0-9]{19}$"
 INPUT_ABSENT = 3
 REGISTRY_TABLE = "silver.parcel_registry"
+CODE_CHANGE_COLUMNS = ("kind", "old_code", "new_code", "level", "effective_date", "source")
+# The national edition's bound on parcels whose legal dong nothing explains (map_matching_gate.UNEXPLAINED_LEGAL_DONG),
+# like a dbt test's `error_if`: past it the gate refuses, within it the parcels are sampled in the verdict.
+# 2026-11-11: 2 of 202609's 39,876,546 (a 리 code no list ever held, an abolished 동 with no pair). 100 is
+# 0.00025% of an edition; a reorganization the change table misses is thousands and is still refused.
+UNEXPLAINED_LEGAL_DONG_BOUND = 100
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -107,16 +114,20 @@ def violation(frame: Any, column: str) -> tuple[int, list[str]]:
     return count, sample
 
 
-def report(checked: int, violations: dict[str, tuple[int, list[str]]], allowed: dict[str, int]) -> dict:
+def report(checked: int, violations: dict[str, tuple[int, list[str]]], allowed: dict[str, int],
+           unexplained_sample: list[str] | None = None) -> dict:
     """The shape `map_matching_gate.GateReport.as_dict` gives, from counts and samples."""
 
     found = {reason: {"count": count, "sample": sample} for reason, (count, sample) in sorted(violations.items()) if count}
-    return {
+    made = {
         "passed": not found,
         "checked": checked,
         "violations": found,
         "allowed": {reason: n for reason, n in sorted(allowed.items()) if n},
     }
+    if unexplained_sample:
+        made["unexplained_sample"] = unexplained_sample
+    return made
 
 
 def current_ids(registry: Any) -> Any:
@@ -153,9 +164,11 @@ def current_ids(registry: Any) -> Any:
     return last.join(closed.select("pnu"), "pnu", "left_anti").select("pnu", "parcel_id")
 
 
-def check_parcels(parcels: Any, official: Any, admin_codes: Any, current: Any | None) -> dict:
+def check_parcels(parcels: Any, official: Any, admin_codes: Any, current: Any | None,
+                  renumbered: Any | None = None, unexplained_bound: int = 0) -> dict:
     """`map_matching_gate.check_parcels` as joins: `parcels` (pnu), `official` (region_cd, status),
-    `admin_codes` (canonical_code), `current` (pnu, parcel_id) or None without a registry."""
+    `admin_codes` (canonical_code), `current` (pnu, parcel_id) or None without a registry, `renumbered`
+    (renumbered_from, renumbered_to) or None: the small {legal dong: successor} map, broadcast."""
 
     from pyspark.sql import functions as F  # noqa: PLC0415
 
@@ -164,16 +177,29 @@ def check_parcels(parcels: Any, official: Any, admin_codes: Any, current: Any | 
     well = parcels.where(shaped)
     existing = F.broadcast(official.where(F.col("status") == gate.EXISTS).select(F.col("region_cd").alias("dong")))
     boundaries = F.broadcast(admin_codes.select(F.col("canonical_code").alias("emd")))
+    absent = well.join(existing, F.substring("pnu", 1, 10) == F.col("dong"), "left_anti")
+    if renumbered is None:
+        renumbered = parcels.sparkSession.createDataFrame([], "renumbered_from string, renumbered_to string")
+    # A renumbered dong is placed under its successor only when the successor exists (the pure gate's rule).
+    successors = F.broadcast(renumbered.join(existing, F.col("renumbered_to") == F.col("dong"), "left_semi"))
+    moved = absent.join(successors, F.substring("pnu", 1, 10) == F.col("renumbered_from"), "left_semi")
+    stray = absent.join(successors, F.substring("pnu", 1, 10) == F.col("renumbered_from"), "left_anti")
+    # A parcel with no place has no boundary to check (the pure gate skips it too).
+    placed = (well.join(stray, "pnu", "left_anti")
+              .join(successors, F.substring("pnu", 1, 10) == F.col("renumbered_from"), "left")
+              .select("pnu", F.coalesce(F.col("renumbered_to"), F.substring("pnu", 1, 10)).alias("placed_dong")))
+    strays, stray_sample = violation(stray, "pnu")
+    over = strays > unexplained_bound
     violations = {
         gate.MALFORMED_PNU: violation(parcels.where(~shaped), "pnu"),
-        gate.NO_LEGAL_DONG: violation(
-            well.join(existing, F.substring("pnu", 1, 10) == F.col("dong"), "left_anti"), "pnu"
-        ),
+        gate.NO_LEGAL_DONG: (strays, stray_sample) if over else (0, []),
         gate.NO_BOUNDARY: violation(
-            well.join(boundaries, F.concat(F.substring("pnu", 1, 8), F.lit("00")) == F.col("emd"), "left_anti"),
+            placed.join(boundaries, F.concat(F.substring("placed_dong", 1, 8), F.lit("00")) == F.col("emd"),
+                        "left_anti").select("pnu"),
             "pnu",
         ),
     }
+    allowed = {gate.RENUMBERED_LEGAL_DONG: moved.count(), gate.UNEXPLAINED_LEGAL_DONG: 0 if over else strays}
     if current is not None:
         held = well.join(current, "pnu", "left")
         violations[gate.NO_CURRENT_ID] = violation(held.where(F.col("parcel_id").isNull()), "pnu")
@@ -181,7 +207,28 @@ def check_parcels(parcels: Any, official: Any, admin_codes: Any, current: Any | 
             held.where(F.col("parcel_id").isNotNull()).groupBy("parcel_id").count().where(F.col("count") > 1),
             "parcel_id",
         )
-    return report(checked, violations, {})
+    return report(checked, violations, allowed, [] if over else stray_sample)
+
+
+def renumbered_into_existing(spark: Any, cat: str, official: Any) -> Any:
+    """(renumbered_from, renumbered_to): each legal dong an official 1:1 pair in force renumbered into a code
+    the newest list holds (legal_dong_code_change_views.renumbered_into, root ADR-0329), broadcast-sized.
+
+    The change table and the changed codes are a few thousand rows; the code list stays on the executors
+    except for the codes the pairs name."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    rows = [row.asDict() for row in spark.table(f"{cat}.`reference`.`legal_dong_code_change`")
+            .select(*CODE_CHANGE_COLUMNS).collect()]
+    named = sorted({code for old, news in code_changes.leaf_pairs(rows).items() for code in (old, *news)})
+    existing = []
+    if named:
+        existing = [row.region_cd for row in official.where((F.col("status") == gate.EXISTS)
+                                                            & F.col("region_cd").isin(named))
+                    .select("region_cd").distinct().collect()]
+    pairs = sorted(code_changes.renumbered_into(rows, existing).items())
+    return spark.createDataFrame(pairs, "renumbered_from string, renumbered_to string")
 
 
 def check_attribute(name: str, parcels: Any, held: Any, lineage: Any | None) -> dict:
@@ -287,7 +334,10 @@ def main(argv: list[str] | None = None) -> int:
                     f"WHERE substr(pnu, 1, 2) IN ({sql_prefixes(args.sido)})"
                 )
             )
-        verdict["parcels"] = check_parcels(parcels, official, admin_codes, current)
+        renumbered = renumbered_into_existing(spark, cat, official)
+        verdict["renumbered_legal_dongs"] = renumbered.count()
+        verdict["parcels"] = check_parcels(parcels, official, admin_codes, current, renumbered,
+                                           UNEXPLAINED_LEGAL_DONG_BOUND)
         verdict["official_code_snapshot"] = newest
         lineage = None
         if args.lineage_from_snapshot_id:

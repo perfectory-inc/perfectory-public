@@ -148,6 +148,25 @@ class ParcelGateSparkTest(unittest.TestCase):
         parcels, official, admin, _ = self.frames(PARCELS)
         self.assertEqual(job.check_parcels(parcels, official, admin, None), expected)
 
+    def test_a_renumbered_dong_is_allowed_under_its_successor_as_the_python_gate_allows_it(self):
+        # 병동 was abolished: renumbered into 갑동 (exists, has a boundary) it is allowed; into 을동 (exists,
+        # no boundary) its boundary is refused; a pair into an absent code is no successor.
+        cases = {"into 갑동": {BYEONG: GAP}, "into 을동": {BYEONG: EUL}, "into nothing": {BYEONG: "9999930100"}}
+        moved = [pnu(GAP, 1), pnu(BYEONG, 1), pnu(BYEONG, 2)]
+        for name, pairs in cases.items():
+            with self.subTest(name):
+                expected = gate.check_parcels(moved, OFFICIAL, ADMIN, None, pairs).as_dict()
+                parcels, official, admin, _ = self.frames(moved)
+                renumbered = self.spark.createDataFrame(sorted(pairs.items()), "renumbered_from string, renumbered_to string")
+                self.assertEqual(job.check_parcels(parcels, official, admin, None, renumbered), expected)
+        self.assertTrue(gate.check_parcels(moved, OFFICIAL, ADMIN, None, cases["into 갑동"]).passed)
+        # A stray code is allowed and sampled within the bound, refused past it, as the pure gate does.
+        for bound in (1, 2):
+            with self.subTest(bound=bound):
+                expected = gate.check_parcels(moved, OFFICIAL, ADMIN, None, None, bound).as_dict()
+                parcels, official, admin, _ = self.frames(moved)
+                self.assertEqual(job.check_parcels(parcels, official, admin, None, None, bound), expected)
+
     def test_a_clean_snapshot_passes(self):
         clean = [pnu(GAP, n) for n in range(1, 27)]
         parcels, official, admin, registry = self.frames(clean)
