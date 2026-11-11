@@ -1,11 +1,14 @@
+use std::time::Duration;
+
 use chrono::{NaiveDate, TimeZone, Utc};
 use uuid::Uuid;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use super::{
-    answer_code, ask, check_file, classify, last_day, plan, provider_file_id, quarantine,
-    read_cursor, read_header, source_contract, take_records, windows, Outcome, Received,
+    answer_code, ask, check_file, classify, code_deadline, last_day, next_stop, plan,
+    provider_file_id, quarantine, read_cursor, read_header, source_contract, take_records, windows,
+    Outcome, Received, Stop,
 };
 use foundation_shared_kernel::ids::IngestionRunId;
 
@@ -147,8 +150,8 @@ fn result_codes_mean_what_the_contract_says() -> anyhow::Result<()> {
 }
 
 #[test]
-fn windows_run_from_the_cursor_to_yesterday_and_stop_at_the_cap() -> anyhow::Result<()> {
-    let all = windows(day("2099-01-01")?, day("2099-01-25")?, 10, 30);
+fn windows_run_from_the_cursor_to_yesterday() -> anyhow::Result<()> {
+    let all = windows(day("2099-01-01")?, day("2099-01-25")?, 10);
     assert_eq!(
         all,
         vec![
@@ -157,11 +160,65 @@ fn windows_run_from_the_cursor_to_yesterday_and_stop_at_the_cap() -> anyhow::Res
             (day("2099-01-21")?, day("2099-01-25")?),
         ]
     );
+    assert!(windows(day("2099-01-26")?, day("2099-01-25")?, 10).is_empty());
+    Ok(())
+}
+
+// W61: the first run that read its answers (2026-11-10 23:30Z) asked 30 windows per code, all of
+// 2020 without a file, and stopped there; only windows that held a file count against the cap.
+#[test]
+fn only_windows_with_files_count_against_the_window_cap() -> anyhow::Result<()> {
+    let backfill = source_contract()?.backfill;
+    let now = std::time::Instant::now();
+    let later = now + Duration::from_secs(60);
+    assert_eq!(next_stop(&backfill, 0, 0, now, later), None);
     assert_eq!(
-        windows(day("2099-01-01")?, day("2099-01-25")?, 10, 2).len(),
-        2
+        next_stop(&backfill, backfill.max_windows_per_run - 1, 0, now, later),
+        None
     );
-    assert!(windows(day("2099-01-26")?, day("2099-01-25")?, 10, 30).is_empty());
+    assert_eq!(
+        next_stop(&backfill, backfill.max_windows_per_run, 0, now, later),
+        Some(Stop::Done)
+    );
+    assert_eq!(
+        next_stop(&backfill, 0, backfill.max_bytes_per_run, now, later),
+        Some(Stop::ByteCap)
+    );
+    assert_eq!(
+        next_stop(&backfill, 0, 0, later, later),
+        Some(Stop::Deadline),
+        "windows without files stop at the code's deadline"
+    );
+    Ok(())
+}
+
+#[test]
+fn each_code_may_run_until_its_share_of_the_budget_has_passed() {
+    let start = std::time::Instant::now();
+    let budget = Duration::from_secs(3600);
+    let deadlines: Vec<_> = (0..4)
+        .map(|index| code_deadline(start, budget, index, 4))
+        .collect();
+    assert_eq!(
+        deadlines,
+        [900, 1800, 2700, 3600].map(|seconds| start + Duration::from_secs(seconds))
+    );
+}
+
+// The empty history the cap no longer counts must still fit the run: every day from first_day to
+// the contract's reading, one ask per window, at the measured 3.05 s per ask (366 s for 120 asks,
+// 2026-11-10 23:30Z), inside the budget.
+#[test]
+fn the_whole_empty_history_fits_the_time_budget() -> anyhow::Result<()> {
+    let contract = source_contract()?;
+    let days = (day("2026-11-10")? - contract.backfill.first_day).num_days();
+    let per_code = u64::try_from(days)?.div_ceil(u64::from(contract.query.max_window_days));
+    let asks = per_code * u64::try_from(contract.request_codes.len())?;
+    assert!(
+        asks * 305 / 100 <= contract.backfill.run_time_budget_seconds,
+        "{asks} asks at 3.05 s outlast the {} s budget",
+        contract.backfill.run_time_budget_seconds
+    );
     Ok(())
 }
 
