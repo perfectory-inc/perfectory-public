@@ -29,6 +29,7 @@ mod building_register_sub_parcel;
 mod by_pnu_kind;
 mod court_auction;
 mod data_go_kr_file_data;
+mod housing_permit_basis_outline;
 mod industrial_complex_notice;
 mod intelligence_document;
 mod land_characteristic;
@@ -90,6 +91,7 @@ pub use data_go_kr_file_data::{
     SILVER_SUBWAY_STATION, SILVER_UNIVERSITY,
 };
 pub use errors::LakehouseError;
+pub use housing_permit_basis_outline::SILVER_HOUSING_PERMIT_BASIS_OUTLINE;
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,
 };

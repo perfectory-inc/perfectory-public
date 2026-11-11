@@ -319,6 +319,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_BUILDING_REGISTER_UNIT_AREAS.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT.table_name
             || contract.table_name == SILVER_BUILDING_PERMIT_BASIS_OUTLINE.table_name
+            || contract.table_name
+                == lakehouse_domain::SILVER_HOUSING_PERMIT_BASIS_OUTLINE.table_name
             || contract.table_name == SILVER_BUILDING_REGISTER_MASTER.table_name
             || contract.table_name
                 == lakehouse_domain::SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY.table_name

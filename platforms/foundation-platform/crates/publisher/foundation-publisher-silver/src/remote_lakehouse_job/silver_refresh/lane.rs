@@ -36,6 +36,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitFloorOverview,
     PermitTemporaryBuilding,
     PermitSiteLocation,
+    HousingPermitBasisOutline,
     MaintenanceRegularInspection,
     LandCharacteristic,
     LandForestLedger,
@@ -49,7 +50,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 29] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 30] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -69,6 +70,7 @@ impl Lane {
         Self::PermitFloorOverview,
         Self::PermitTemporaryBuilding,
         Self::PermitSiteLocation,
+        Self::HousingPermitBasisOutline,
         Self::MaintenanceRegularInspection,
         Self::LandCharacteristic,
         Self::LandForestLedger,
@@ -104,6 +106,7 @@ impl Lane {
             Self::PermitFloorOverview => "building-permit-floor-overview",
             Self::PermitTemporaryBuilding => "building-permit-temporary-building",
             Self::PermitSiteLocation => "building-permit-site-location",
+            Self::HousingPermitBasisOutline => "housing-permit-basis-outline",
             Self::MaintenanceRegularInspection => "building-maintenance-regular-inspection-history",
             Self::LandCharacteristic => "land-characteristic",
             Self::LandForestLedger => "land-forest-ledger",
@@ -214,6 +217,10 @@ impl Lane {
                 "hub-building-permit-site-location-source-objects.json",
                 crate::building_permit_site_location_silver_export::CONTRACT_JSON,
             ),
+            Self::HousingPermitBasisOutline => (
+                "hub-housing-permit-basis-outline-source-objects.json",
+                crate::housing_permit_basis_outline_silver_export::CONTRACT_JSON,
+            ),
             Self::MaintenanceRegularInspection => (
                 "hub-building-maintenance-regular-inspection-history-source-objects.json",
                 crate::building_maintenance_regular_inspection_history_silver_export::CONTRACT_JSON,
@@ -323,6 +330,9 @@ impl ExportKind {
             },
             "export-building-permit-major-repair-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_MAJOR_REPAIR",
+            },
+            "export-housing-permit-basis-outline-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_HOUSING_PERMIT_BASIS_OUTLINE",
             },
             "export-building-permit-structure-ledger-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_STRUCTURE_LEDGER",

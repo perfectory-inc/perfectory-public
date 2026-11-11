@@ -197,6 +197,18 @@ fn permit_basis_streaming_export_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn housing_permit_basis_streaming_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-housing-permit-basis-outline-silver-handoff"
+        ])?,
+        Command::ExportHousingPermitBasisOutlineSilverHandoff
+    );
+    Ok(())
+}
+
+#[test]
 fn register_master_streaming_export_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command([

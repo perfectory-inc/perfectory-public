@@ -78,6 +78,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.building_register_master": "vintage",
             "silver.building_register_sub_parcel": "vintage",
             "silver.building_register_titles": "valid_from_utc",
+            "silver.housing_permit_basis_outline": "vintage",
             "silver.building_register_unit_areas": "valid_from_utc",
             "silver.building_register_units": "valid_from_utc",
             "silver.land_characteristic": "source_snapshot_id",

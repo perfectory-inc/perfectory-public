@@ -1,0 +1,99 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "silver-refresh-housing-permit-basis-outline",
+  "jobs": [
+    {
+      "id": "silver_refresh_housing_permit_basis_outline",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "Silver refresh of the 주택인허가 기본개요 lane `housing-permit-basis-outline` (root ADR-0169 ②, ADR-0511): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.housing_permit_basis_outline already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in one bucket and append to main only the changed approvals' rows and a removal marker per vanished approval (keyed by the provider's 관리주택대장PK; lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "systemd_service": "foundation-silver-refresh@housing-permit-basis-outline.service",
+      "check_service": "foundation-silver-refresh-plan@housing-permit-basis-outline.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/data/foundation-platform/silver-refresh"
+      ],
+      "schedule": "0 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 10,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 150,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 600,
+          "estimated_from": "computed, about 2.5x the nearest larger measured neighbours on the same template unit (root ADR-0386): silver_refresh_building_permit_basis_outline 357 s for a 438 MB release, _parking 251 s for 59 MB, _demolition_loss 161 s for 15 MB; this lane's newest release is 7.6 MB (56 MB unzipped, 381,382 rows) in R2 (2026-11-11)"
+        }
+      },
+      "pool": "spark",
+      "pool_slots": 3,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "source-building-hub-bulk-to-silver-housing-permit-basis-outline"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-12T03:00:00Z",
+      "dagster_stage": "shadow",
+      "expected_outcome": {
+        "changes_within_hours": 1104,
+        "basis": "building HUB files are released monthly (expected_cadence monthly, 1080 h, in the endpoint catalog) plus one daily fallback; this lane has not run yet, so its first change is its first load (root ADR-0457)."
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "silver-housing-permit-basis-outline",
+      "type": "silver_table",
+      "title": "주택인허가 기본개요",
+      "description": "주택건설사업계획승인마다 한 행: 승인일·착공예정일·착공일·사용검사예정일·사용검사일과 용도·구조·주건축물수·연면적·총세대수. 아파트·다세대 단지가 언제 승인되고 착공해 언제 입주(사용검사)하는지 말한다. 관리주택대장PK 가 키다. 원문 29칸 보존. 소비자가 서기 전까지 contract_only 다(다음: 필지 by-PNU 종류 parcel-building-permits, 루트 ADR-0511 §2).",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/hub-housing-permit-basis-outline-source-objects.json",
+        "docs/adr/0511-housing-permits-and-the-rest-of-the-collected-files-reach-silver-and-the-permit-panel-shows-housing-permits.md"
+      ],
+      "table_name": "silver.housing_permit_basis_outline",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.housing_permit_basis_outline"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "source-building-hub-bulk",
+      "to": "silver-housing-permit-basis-outline",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "export-housing-permit-basis-outline-silver-handoff",
+        "platforms/foundation-platform/scripts/ops/silver-refresh.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/silver_scalar_handoff_to_lakehouse.py"
+      ],
+      "source_slugs": [
+        "hubgokr__housing_permit_basis_outline"
+      ],
+      "description": "주택인허가 기본개요(mart_jty_01) 29칸을 관리주택대장PK 마다 바뀐 승인만 append-only Silver 로 쌓는다(루트 ADR-0511).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0402)"
+    }
+  ],
+  "host_memory": {
+    "silver_refresh_housing_permit_basis_outline": [
+      {
+        "unit": "MemoryMax"
+      },
+      {
+        "project": "foundation-platform-compute",
+        "service": "spark"
+      }
+    ]
+  }
+}
