@@ -1,4 +1,4 @@
-//! VWorld 부동산중개업 files (root ADR-0511 §4): the `AL_D171` register of brokerage offices, one
+//! `VWorld` 부동산중개업 files (root ADR-0511 §4): the `AL_D171` register of brokerage offices, one
 //! row per office a 시군구 registered. The provider names its 5-digit 시군구 code 법정동코드; it is
 //! the registering authority, and the registration number is unique only within it.
 
