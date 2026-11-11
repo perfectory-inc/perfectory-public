@@ -58,16 +58,39 @@ class KindLineTest(unittest.TestCase):
                     by_pnu_kinds.kinds(path)
 
 
+def wilson_low(right, rows, z=1.96):
+    """The low end of the 95% Wilson interval of right/rows (root ADR-0370)."""
+    import math
+
+    p = right / rows
+    return (p + z * z / (2 * rows) - z * math.sqrt(p * (1 - p) / rows + z * z / (4 * rows * rows))) / (1 + z * z / rows)
+
+
 class BelowBarSwitchTest(unittest.TestCase):
     def contract(self):
         import rt_molit_real_transaction as rt
 
         return rt.load_source_contract()["place_inference"]
 
-    def test_the_switch_is_off_until_the_owner_decides_and_links_no_land_deal(self):
+    def test_the_owner_turned_the_switch_on_and_land_deals_link_by_the_group_level(self):
+        # The owner's decision, 2026-11-11 (option A): the masked 토지 deals show as label_ko.
         inference = self.contract()
-        self.assertIs(inference["below_bar"]["shown"], False)
-        self.assertEqual(resolver.enabled_levels(inference, "real_transaction_land_trade"), [])
+        self.assertIs(inference["below_bar"]["shown"], True)
+        [level] = resolver.enabled_levels(inference, "real_transaction_land_trade")
+        self.assertEqual(level["grade"], resolver.MAIN_LOT_GROUP_BELOW_BAR)
+        off = {**inference, "below_bar": {**inference["below_bar"], "shown": False}}
+        self.assertEqual(resolver.enabled_levels(off, "real_transaction_land_trade"), [])
+
+    def test_the_label_says_the_measured_precision_not_a_written_number(self):
+        import re
+
+        below = self.contract()["below_bar"]
+        [percent] = re.findall(r"(\d+)%", below["label_ko"])
+        for dataset, measured in below["measured"].items():
+            self.assertEqual(int(percent), round(measured["precision"] * 100), dataset)
+            for holdout in measured.get("holdouts", []):
+                for right, low in (("right", "precision_wilson_low"), ("group_right", "group_precision_wilson_low")):
+                    self.assertAlmostEqual(wilson_low(holdout[right], holdout["rows"]), holdout[low], places=4)
 
     def test_shown_it_links_the_land_deals_by_the_group_level_under_its_own_grade(self):
         inference = self.contract()
@@ -88,12 +111,8 @@ class BelowBarSwitchTest(unittest.TestCase):
         self.assertEqual(resolver.enabled_levels(low, "real_transaction_land_trade"), [])
 
     def test_the_recorded_bound_is_the_wilson_low_of_its_counts(self):
-        import math
-
         measured = self.contract()["below_bar"]["measured"]["real_transaction_land_trade"]
-        n, p, z = measured["rows"], measured["right"] / measured["rows"], 1.96
-        low = (p + z * z / (2 * n) - z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / (1 + z * z / n)
-        self.assertAlmostEqual(low, measured["precision_wilson_low"], places=4)
+        self.assertAlmostEqual(wilson_low(measured["right"], measured["rows"]), measured["precision_wilson_low"], places=4)
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")

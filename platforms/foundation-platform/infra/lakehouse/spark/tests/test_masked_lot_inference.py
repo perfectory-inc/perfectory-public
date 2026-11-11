@@ -84,14 +84,15 @@ class TheBarIsInTheContract(unittest.TestCase):
             r.enabled_levels(bad, "real_transaction_land_trade")
 
     def test_the_main_lot_group_level_is_on_only_where_its_lower_bound_clears_the_bar(self) -> None:
-        # 2026-11-04 (ADR-0405): the 본번 group's Wilson low is 99.53 / 99.08 / 99.33%; 토지 is unmeasured.
+        # 2026-11-04 (ADR-0405): the 본번 group's Wilson low is 99.53 / 99.08 / 99.33%; 토지 is not measured
+        # over the bar and links only under the owner's switch, with its own grade (ADR-0483 §6).
         on = {dataset: [lv["grade"] for lv in r.enabled_levels(INFERENCE, dataset)]
               for dataset in ("real_transaction_industrial_trade", "real_transaction_commercial_trade",
                               "real_transaction_detached_house_trade", "real_transaction_land_trade")}
         self.assertEqual(on, {"real_transaction_industrial_trade": [r.MAIN_LOT_GROUP],
                               "real_transaction_commercial_trade": [r.MAIN_LOT_GROUP],
                               "real_transaction_detached_house_trade": [r.MAIN_LOT_GROUP],
-                              "real_transaction_land_trade": []})
+                              "real_transaction_land_trade": [r.MAIN_LOT_GROUP_BELOW_BAR]})
         group = next(lv for lv in INFERENCE["levels"] if lv["grade"] == r.MAIN_LOT_GROUP)
         ownership = next(lv for lv in INFERENCE["levels"] if lv["grade"] == "inferred_ownership_change")
         # The same evidence as the ownership level: only the claim of the link differs.
