@@ -25,6 +25,7 @@ import type { RealTransaction } from "@/lib/api/real-transaction";
 import { filled, type RegisterMasters } from "@/lib/api/register-masters";
 import type { RegulationZone, RegulationZones } from "@/lib/api/regulation-zones";
 import { jibunLabel, type SubParcelLink, type SubParcels } from "@/lib/api/sub-parcels";
+import { gasConnection } from "@/lib/api/utility";
 import { formatAreaM2, formatAreaPyeong, formatPriceKrw, UNITS } from "@/lib/listings/format";
 import {
   ZONING_FAMILIES,
@@ -366,6 +367,7 @@ function useParcelSections(entry: Entry, data: ParcelDocument): Section[] {
       content: <EnergySection energy={energy.data} />,
     });
   }
+  sections.push(...utilitySections(data, energy.data, t("sections.utility")));
   if (demolitions.data && demolitions.data.records.length > 0) {
     sections.push({
       id: "demolitions",
@@ -770,6 +772,44 @@ function EnergySection({ energy }: { energy: Energy }) {
       </table>
       <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
         {t("energy.exclusions")}
+      </p>
+    </Group>
+  );
+}
+
+/**
+ * 인입 가능성: the public signals that a parcel is reached by city gas and a road, each from a
+ * document the panel already reads (lib/api/utility.ts). Only the signals the parcel has are shown,
+ * in the sources' words, with no source note; the caveat says they are evidence, not a ruling.
+ */
+function utilitySections(
+  data: ParcelDocument,
+  energy: Energy | null | undefined,
+  label: string,
+): Section[] {
+  const gas = gasConnection(energy);
+  const road = data.characteristics?.road_contact ?? null;
+  if (!gas && !road) return [];
+  return [{ id: "utility", label, content: <UtilitySection gas={gas} road={road} /> }];
+}
+
+function UtilitySection({
+  gas,
+  road,
+}: {
+  gas: { latestUseYm: string } | null;
+  road: string | null;
+}) {
+  const t = useTranslations("panels.parcel.summary");
+  const rows: [string, ReactNode][] = [];
+  if (gas)
+    rows.push([t("utility.gas"), t("utility.gasUsed", { month: monthLabel(gas.latestUseYm) })]);
+  if (road) rows.push([t("utility.roadContact"), road]);
+  return (
+    <Group title={t("utility.title")}>
+      <Rows rows={rows} />
+      <p className="text-[length:var(--text-caption)] text-[var(--color-muted)]">
+        {t("utility.caveat")}
       </p>
     </Group>
   );

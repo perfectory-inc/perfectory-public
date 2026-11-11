@@ -295,6 +295,42 @@ describe("parcel panel sections", () => {
     expect(anchors()).not.toContain("에너지");
   });
 
+  it("shows 인입 가능성 from the 가스 rows and 도로접면, without a source note", async () => {
+    reads.energy = {
+      months: [
+        {
+          use_ym: "209908",
+          electricity_usage: 10,
+          electricity_rows: 1,
+          gas_usage: null,
+          gas_rows: 0,
+        },
+        { use_ym: "209907", electricity_usage: 10, electricity_rows: 1, gas_usage: 0, gas_rows: 1 },
+      ],
+      electricity_unit: "kWh",
+      latest_use_ym: "209908",
+    };
+    try {
+      renderPanel(parcel({ characteristics: { road_contact: "세로한면(가)" } }));
+      // The energy read settles after the parcel's own 도로접면 is shown.
+      const gas = await screen.findByText("사용 실적 있음 · 2099.07 사용분");
+      expect(anchors()).toContain("인입 가능성");
+      const group = screen.getByRole("heading", { name: "인입 가능성" })
+        .parentElement as HTMLElement;
+      expect(group.contains(gas)).toBe(true);
+      expect(within(group).getByText("세로한면(가)")).toBeTruthy();
+      expect(group.textContent).not.toContain("건축HUB");
+    } finally {
+      reads.energy = null;
+    }
+  });
+
+  it("shows no 인입 가능성 for a parcel with neither a 가스 row nor a 도로접면", async () => {
+    renderPanel(parcel());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("인입 가능성")).toBeNull();
+  });
+
   it("shows the parcel's 멸실된 건물 in the source's words, newest first", async () => {
     reads.demolitions = {
       records: [
