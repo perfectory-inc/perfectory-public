@@ -46,6 +46,8 @@ class QueueTest(unittest.TestCase):
         moved = queue.items("silver.x", [{**rows[0], "rows": 58}])[0]
         self.assertEqual(moved.item_id, steward.item_id)
         self.assertNotEqual(moved.evidence_etag, steward.evidence_etag)
+        # The fingerprint the steward database recomputes on load (stewardship_domain::evidence_etag).
+        self.assertEqual(steward.evidence_etag, queue.q.evidence_etag(steward.status, steward.candidates_json))
         self.assertEqual(queue.summary({"silver.x": [steward, waiting]})["silver.x"],
                          {"items": {"steward": 1, "awaiting_data": 1}, "rows": {"steward": 57, "awaiting_data": 3}})
 

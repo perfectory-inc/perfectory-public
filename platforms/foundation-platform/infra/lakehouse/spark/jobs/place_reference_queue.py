@@ -14,7 +14,6 @@ Pure Python: the job (`place_reference_queue_to_gold`) aggregates in Spark and h
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
@@ -64,8 +63,9 @@ def items(table: str, rows: Iterable[Mapping[str, Any]]) -> list[Item]:
                 "sample_row_keys": sorted(row.get("sample_row_keys") or [])[:SAMPLE_KEYS]}
         text = json.dumps(body, ensure_ascii=False, sort_keys=True)
         key = subject(table, reason, code)
-        out.append(Item(key, q.item_id(UNIT, key), AWAITING if reason in AWAITING_DATA else STEWARD, text,
-                        hashlib.sha256(text.encode("utf-8")).hexdigest()))
+        status = AWAITING if reason in AWAITING_DATA else STEWARD
+        # The steward database recomputes this fingerprint on load (stewardship_domain::evidence_etag).
+        out.append(Item(key, q.item_id(UNIT, key), status, text, q.evidence_etag(status, text)))
     return out
 
 
