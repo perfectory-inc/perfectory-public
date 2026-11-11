@@ -85,6 +85,10 @@ binlog 위치부터 스트리밍), AWS DMS 의 full load + CDC, Kafka 의 compac
 | legal_ri | TL_SCCO_LI | 15,161 |
 | (기초 없음) | TL_SPBD_EQB 건물군 | 2,168,605 |
 
+7. **저장 위치: R2 그대로.** 보안각서의 국외 반출 금지 조항을 알고, 사장 결정(2026-11-11)으로 R2 APAC 를 받아들인다 — Cloudflare
+   API 실측으로 모든 R2 버킷이 location APAC·jurisdiction default(한국 지역 없음)이다. juso 기초·변동·Silver 모두
+   `foundation-platform-lakehouse-prod` 에 둔다.
+
 ## Consequences
 
 - 사람 할 일은 한 번이다: 승인되면 마이페이지 → 다운로드 신청내역에서 받기(본인인증). 놓기·싣기·Silver 는 사람 없이 간다.
