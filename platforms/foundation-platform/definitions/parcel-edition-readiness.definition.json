@@ -8,14 +8,14 @@
       "scope": "skip-if-unchanged",
       "interruptible": false,
       "commits": "at_end",
-      "description": "Whether each cadastral edition the source contract holds is all there (root ADR-0291 §2, ADR-0379, ADR-0380): source measured and not re-uploaded, Silver within the row-loss bound of the served edition, rehearsal Gold and bake passed. Reads only Trino's partition metadata of silver.parcel_boundaries, the edition collection's newest provider inventory and the tile bake journal, judges only the editions whose inputs moved since the last run, and writes the report foundation-api serves to the operator console.",
+      "description": "Whether each cadastral edition the source contract holds is all there (root ADR-0291 §2, ADR-0379, ADR-0380): source measured and not re-uploaded, Silver within the row-loss bound of the served edition, rehearsal Gold and bake passed. Reads only Trino's partition metadata of silver.parcel_boundaries, the edition collection's newest provider inventory and the tile bake journal, judges only the editions whose inputs moved since the last run, and writes the report foundation-api serves to the operator console. Hourly (root ADR-0490 §7): it is also the edition controller, which promotes a ready edition and rolls back a promotion whose first publish a lockstep lane's change-set gate refused, so a broken promotion is served at most an hour.",
       "systemd_service": "foundation-parcel-edition-readiness.service",
       "systemd_timer": null,
       "state_paths": [
         "/var/lib/foundation-platform/parcel-editions",
         "/var/lib/foundation-jobs/metrics"
       ],
-      "schedule": "10 8 * * *",
+      "schedule": "10 * * * *",
       "started_by": "schedule",
       "stop_grace_minutes": 2,
       "wait_limit_minutes": 30,

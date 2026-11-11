@@ -88,7 +88,8 @@ resource "cloudflare_r2_bucket" "ledger" {
 }
 
 # Append-only (root ADR-0476 §2): a shape object and a head's history entry can be neither replaced
-# nor deleted, by anyone, ever. The head shape-ledger/latest.json is the one key outside the rules.
+# nor deleted, by anyone, ever. The heads shape-ledger/latest.json and parcel-editions/latest.json are
+# the keys outside the rules.
 resource "cloudflare_r2_bucket_lock" "ledger" {
   account_id  = var.account_id
   bucket_name = cloudflare_r2_bucket.ledger.name
@@ -102,6 +103,19 @@ resource "cloudflare_r2_bucket_lock" "ledger" {
     {
       id        = "head history is kept forever"
       prefix    = "shape-ledger/history/"
+      enabled   = true
+      condition = { type = "Indefinite" }
+    },
+    # Root ADR-0490 §5: the copies of the host promotions ledger CI reads, and their heads' history.
+    {
+      id        = "promotions ledgers are kept forever"
+      prefix    = "parcel-editions/objects/"
+      enabled   = true
+      condition = { type = "Indefinite" }
+    },
+    {
+      id        = "promotions head history is kept forever"
+      prefix    = "parcel-editions/history/"
       enabled   = true
       condition = { type = "Indefinite" }
     },
