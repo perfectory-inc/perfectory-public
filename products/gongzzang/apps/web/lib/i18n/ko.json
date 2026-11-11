@@ -509,7 +509,7 @@
         "share": "지분",
         "inferred": "추정",
         "inferredSameMainLot": "추정 · 같은 본번",
-        "inferredBelowBar": "추정 · 정확도 약 95%",
+        "inferredBelowBar": "추정 · 정확도 약 91%",
         "mainLotGroupOthers": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 같은 본번의 다른 필지: {lots}",
         "mainLotGroupAlone": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 지금 이 본번의 필지는 이 필지뿐이에요",
         "mainLotGroupSize": "같은 본번 {count}필지",

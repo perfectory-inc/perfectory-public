@@ -143,7 +143,7 @@ export function ParcelComparablesCard({ data }: { data: RealTransaction }) {
 }
 
 /**
- * 추정 · 정확도 약 95% for a link under the bar (root ADR-0483 §4), 추정 · 같은 본번 for a 본번 group
+ * 추정 · 정확도 약 <measured %> for a link under the bar (root ADR-0483 §4), 추정 · 같은 본번 for a 본번 group
  * link, 추정 for any other inferred one (root ADR-0351, ADR-0405).
  */
 function inferredBadge(t: T, grade: string | null | undefined): string | null {
