@@ -341,7 +341,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # read goes to the door's origin hostname instead of CloudFront's cached public one (root ADR-0461).
 # 166 -> 167: the 주소정보 전자지도 collector embeds its source contract once, as the data.go.kr file
 # collector does (root ADR-0475).
-COMPILE_TIME_READ_BASELINE="${3:-167}"
+# 167 -> 166: the by-PNU publisher's test stops reading contracts/by-pnu-documents (deleted once every
+# by-PNU document was a subject of the schema registry, root ADR-0336).
+COMPILE_TIME_READ_BASELINE="${3:-166}"
 
 cd "$repo_root"
 

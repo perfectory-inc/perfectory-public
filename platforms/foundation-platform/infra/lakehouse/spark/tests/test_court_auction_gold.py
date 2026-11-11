@@ -243,7 +243,7 @@ class DocumentSparkTest(unittest.TestCase):
 
     def test_a_document_carries_exactly_its_records_fields(self):
         # The guard-equivalent path check: the bake serves the JSON as written, so its paths are the
-        # registry's current revision (root ADR-0336; by_pnu_document_records.rs SPARK_HELD names this test).
+        # registry's current revision (root ADR-0336; the lane line's spark_held_test names this test).
         import json
         import by_pnu_kinds
         from pyspark.sql import functions as F
