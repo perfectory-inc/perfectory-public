@@ -49,11 +49,12 @@
     "provider": ["E1005", "E1999"]
   },
   "backfill": {
-    "$comment": "Each request code keeps its own cursor (the next day to ask, in the state directory); a run asks its windows oldest first, max_window_days days each, up to yesterday in KST (today's files are made after 07:00 KST and a window holding today could miss them). first_day is the start of the history the daily changes are kept for (a public implementer read files back to 2020; the first run measures it: a window answered E1001 moves the cursor on). The per-run cap is max_windows_per_run windows per request code and max_bytes_per_run over the whole run, whichever comes first; the cursor stops where the run stopped, so the next run goes on from there. With 2,505 days from first_day to 2026-11-09, a request code is 251 windows, about 9 daily runs at 30 windows.",
+    "$comment": "Each request code keeps its own cursor (the next day to ask, in the state directory); a run asks its windows oldest first, max_window_days days each, up to yesterday in KST (today's files are made after 07:00 KST and a window holding today could miss them). first_day is the start of the history the daily changes are kept for (a public implementer read files back to 2020; a window answered E1001 moves the cursor on). The per-run cap is max_windows_per_run windows that held a file per request code and max_bytes_per_run over the whole run; a window without a file (one answer of 100 B per day, 1,000 B a window) is bounded only by the run's time: the codes take run_time_budget_seconds in turn, the n-th of N codes starting no window after n/N of it has passed, so time a code leaves goes to the next and none is starved. Measured 2026-11-10 23:30Z (the first run that read its answers): 120 windows, all of 2020-01-01..2020-10-26 and every day E1001, in 366 s, 3.05 s an ask at the 3 s spacing; under the old cap of 30 windows of any kind that history alone would have taken about 8 more daily runs to cross without landing a file (W61). 251 windows per code from first_day to 2026-11-09, 1,004 asks, take about 3,062 s, inside the 3,600 s budget; the ask in flight at the deadline (request_timeout_seconds) and its landing still end well inside the unit's 7,200 s. The cursor stops where the run stopped, so the next run goes on from there.",
     "first_day": "2020-01-01",
     "timezone": "Asia/Seoul",
     "max_windows_per_run": 30,
-    "max_bytes_per_run": 6000000000
+    "max_bytes_per_run": 6000000000,
+    "run_time_budget_seconds": 3600
   },
   "request_codes": {
     "300001": {

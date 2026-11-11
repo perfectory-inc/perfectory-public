@@ -28,6 +28,7 @@ foundation-release.sh env-set juso <그 파일>
 | 무엇 | 어디 |
 |---|---|
 | run 결과 한 줄 | `journalctl -u foundation-juso-electronic-map.service` — `waiting`(키 없음), `ok … {"requests", "bytes", "files", "stops"}`, `COLLECT FAILED …` |
+| 코드마다 멈춘 이유(manifest `stops`) | `Done`(어제까지 다 물음 또는 파일 있던 창 30 개), `ByteCap`(run 6 GB), `Deadline`(코드 몫의 시간 예산 — 파일 없는 창은 시간만 센다), 다음 run 이 이어 묻는다 |
 | 요청 코드마다 다음에 물을 날 | `/var/lib/foundation-platform/juso-electronic-map/collector/<cntc_cd>/cursor.json` |
 | run 의 manifest(물은 창·받은 파일·멈춘 이유) | `/var/lib/foundation-platform/juso-electronic-map/runs/<run>/collect/manifest.json` |
 | Bronze | `jusogokr__<kind>` 11 원천, 객체 이름 = 파일명·재반영·생성일 |

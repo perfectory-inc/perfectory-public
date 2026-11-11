@@ -6,7 +6,9 @@
 //! Each request code keeps a cursor, the next day to ask (`<code>/cursor.json` in the state
 //! directory). A run asks windows of at most ten days, oldest first, from the cursor to yesterday in
 //! KST, always naming the window (`req_dt`/`req_dt2`) so an ask can be repeated; it stops at the
-//! per-run cap (windows per code, bytes per run). An answer is a run of records, a 100-byte header
+//! per-run cap (windows that held a file, per code; bytes per run) or at the code's share of the
+//! run's time budget. A window without a file is one ~1 KB answer and counts only against the time:
+//! the first measured run spent its whole window cap on 300 empty days of 2020 (W61). An answer is a run of records, a 100-byte header
 //! and a zip each; a record with a blank file name is one day's own answer and carries no file (the
 //! provider's own client reads it so). An answer the collector cannot read is kept, as received, in
 //! the run directory's `quarantine/` before the run fails, so its real shape is evidence. Every zip lands, byte for byte, in the Bronze of every kind its request code
@@ -22,7 +24,7 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{bail, ensure, Context};
@@ -96,6 +98,7 @@ pub(crate) struct Backfill {
     pub(crate) first_day: NaiveDate,
     pub(crate) max_windows_per_run: usize,
     pub(crate) max_bytes_per_run: u64,
+    pub(crate) run_time_budget_seconds: u64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -298,17 +301,16 @@ pub(crate) fn take_records(
     Ok((out, at))
 }
 
-/// The windows a run asks for one request code: from `cursor` to `last`, `days` days each, at most
-/// `max` of them.
+/// The windows a run may ask for one request code: from `cursor` to `last`, `days` days each. The
+/// run's caps (`next_stop`) decide how many it asks.
 pub(crate) fn windows(
     cursor: NaiveDate,
     last: NaiveDate,
     days: u32,
-    max: usize,
 ) -> Vec<(NaiveDate, NaiveDate)> {
     let mut out = Vec::new();
     let mut from = cursor;
-    while from <= last && out.len() < max {
+    while from <= last {
         let to = (from + chrono::Days::new(u64::from(days) - 1)).min(last);
         out.push((from, to));
         from = to + chrono::Days::new(1);
@@ -836,14 +838,51 @@ struct Live {
 /// Why a request code stopped before its last window.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Stop {
-    /// Every window up to yesterday is asked, or the per-run window cap is reached.
+    /// Every window up to yesterday is asked, or `max_windows_per_run` windows held files.
     Done,
     /// The run's byte cap is reached; the next run goes on.
     ByteCap,
+    /// The code's share of the run's time budget is spent; the next run goes on.
+    Deadline,
     /// The provider refused the key or the code: the whole run stops.
     Refused(String),
     /// The provider failed; this code is asked again next run.
     Provider(String),
+}
+
+/// Whether a request code stops before its next window: after `with_files` windows that held files,
+/// `bytes` received in the whole run, at `now` against the code's `deadline`. Windows without a
+/// file are not counted: they cost one small answer each, so only the time bounds them.
+pub(crate) fn next_stop(
+    backfill: &Backfill,
+    with_files: usize,
+    bytes: u64,
+    now: Instant,
+    deadline: Instant,
+) -> Option<Stop> {
+    if with_files >= backfill.max_windows_per_run {
+        Some(Stop::Done)
+    } else if bytes >= backfill.max_bytes_per_run {
+        Some(Stop::ByteCap)
+    } else if now >= deadline {
+        Some(Stop::Deadline)
+    } else {
+        None
+    }
+}
+
+/// The instant a request code stops starting windows: the `index`-th of `codes` codes may run until
+/// `index + 1` shares of the budget have passed since `start`, so a code that finishes early leaves
+/// its time to the next and no code is starved by the ones before it.
+pub(crate) fn code_deadline(
+    start: Instant,
+    budget: Duration,
+    index: usize,
+    codes: usize,
+) -> Instant {
+    let codes = u32::try_from(codes.max(1)).unwrap_or(u32::MAX);
+    let share = u32::try_from(index + 1).unwrap_or(u32::MAX).min(codes);
+    start + budget * share / codes
 }
 
 /// One request code's run: its windows in order, each landed in full before the cursor moves.
@@ -857,6 +896,7 @@ async fn collect_code(
     requests: &mut usize,
     bytes: &mut u64,
     now: DateTime<Utc>,
+    deadline: Instant,
     landed: &mut Vec<JsonValue>,
     asked: &mut Vec<JsonValue>,
 ) -> anyhow::Result<Stop> {
@@ -867,14 +907,16 @@ async fn collect_code(
         .timeout(Duration::from_secs(contract.request_timeout_seconds))
         .build()
         .context("failed to build the juso HTTP client")?;
-    for window in windows(
-        cursor,
-        last_day(now),
-        contract.query.max_window_days,
-        contract.backfill.max_windows_per_run,
-    ) {
-        if *bytes >= contract.backfill.max_bytes_per_run {
-            return Ok(Stop::ByteCap);
+    let mut with_files = 0;
+    for window in windows(cursor, last_day(now), contract.query.max_window_days) {
+        if let Some(stop) = next_stop(
+            &contract.backfill,
+            with_files,
+            *bytes,
+            Instant::now(),
+            deadline,
+        ) {
+            return Ok(stop);
         }
         config.request_spacing.wait_before_request(*requests).await;
         *requests += 1;
@@ -916,7 +958,7 @@ async fn collect_code(
             "bytes": answer.bytes,
         }));
         match classify(&contract.result_codes, &code) {
-            Outcome::Ok => {}
+            Outcome::Ok => with_files += 1,
             Outcome::NoFiles => {
                 if live.is_some() {
                     write_cursor(&config.state_dir, request_code, window.1 + chrono::Days::new(1), now)?;
@@ -1025,7 +1067,10 @@ pub async fn run() -> anyhow::Result<()> {
     let mut stops = BTreeMap::new();
     let mut failed = Vec::new();
     let mut refused = None;
-    for request_code in contract.request_codes.keys() {
+    let start = Instant::now();
+    let budget = Duration::from_secs(contract.backfill.run_time_budget_seconds);
+    for (index, request_code) in contract.request_codes.keys().enumerate() {
+        let deadline = code_deadline(start, budget, index, contract.request_codes.len());
         let stop = collect_code(
             &contract,
             &config,
@@ -1035,6 +1080,7 @@ pub async fn run() -> anyhow::Result<()> {
             &mut requests,
             &mut bytes,
             now,
+            deadline,
             &mut landed,
             &mut asked,
         )
@@ -1048,7 +1094,7 @@ pub async fn run() -> anyhow::Result<()> {
                         break;
                     }
                     Stop::Provider(code) => failed.push(format!("{request_code}: provider {code}")),
-                    Stop::Done | Stop::ByteCap => {}
+                    Stop::Done | Stop::ByteCap | Stop::Deadline => {}
                 }
             }
             Err(error) => {

@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The 주소정보 전자지도 daily changes from the official 데이터 연계 of 주소기반산업지원서비스 (root ADR-0475; scripts/ops/juso-electronic-map-cycle.sh). For each request code (cntc_cd) of juso-electronic-map.contract.json, from its own cursor (the next day to ask, in the state directory) to yesterday in KST, it asks update.juso.go.kr/updateInfo.do with the approval key for windows of at most ten days, oldest first, always naming the window so an ask can be repeated. Every file of an answer (a 100-byte header and a zip) lands byte for byte in the Bronze of every kind its code serves (jusogokr__<kind>, the catalog's 11), named by the file, its retry flag and its making date, so landing it twice is the committer's idempotent success; the cursor moves only after a window's files are all committed. The history starts at 2020-01-01 (the contract's backfill.first_day): about 251 windows per code, 30 per run, so about nine daily runs catch up. Without the key (runtime-secrets group juso) the run asks nothing and ends waiting; a refusal (the key or a code not ours) stops every ask and fails the run so the unit's OnFailure raises the alert, and the next scheduled run asks again by itself. No Spark: the Silver per kind follows in its own change (root ADR-0475 §5).",
+      "description": "The 주소정보 전자지도 daily changes from the official 데이터 연계 of 주소기반산업지원서비스 (root ADR-0475; scripts/ops/juso-electronic-map-cycle.sh). For each request code (cntc_cd) of juso-electronic-map.contract.json, from its own cursor (the next day to ask, in the state directory) to yesterday in KST, it asks update.juso.go.kr/updateInfo.do with the approval key for windows of at most ten days, oldest first, always naming the window so an ask can be repeated. Every file of an answer (a 100-byte header and a zip) lands byte for byte in the Bronze of every kind its code serves (jusogokr__<kind>, the catalog's 11), named by the file, its retry flag and its making date, so landing it twice is the committer's idempotent success; the cursor moves only after a window's files are all committed. The history starts at 2020-01-01 (the contract's backfill.first_day): about 251 windows per code. Only windows that held a file count against the cap of 30 per code; a window without one is a 1 KB answer bounded by the contract's time budget (3,600 s, each code its share in turn), so the empty years are crossed in one run (W61: the first run that read its answers spent all 30 on 2020, every day E1001). Without the key (runtime-secrets group juso) the run asks nothing and ends waiting; a refusal (the key or a code not ours) stops every ask and fails the run so the unit's OnFailure raises the alert, and the next scheduled run asks again by itself. No Spark: the Silver per kind follows in its own change (root ADR-0475 §5).",
       "systemd_service": "foundation-juso-electronic-map.service",
       "systemd_timer": null,
       "state_paths": [
@@ -25,11 +25,15 @@
           "infra/lakehouse/contracts/juso-electronic-map.contract.json#/backfill/max_windows_per_run",
           "infra/lakehouse/contracts/juso-electronic-map.contract.json#/backfill/max_bytes_per_run"
         ],
-        "deadline": null,
-        "measured_run_seconds": null,
-        "first_run": {
-          "estimate_seconds": 2400,
-          "estimated_from": "computed, no neighbour asks this provider: 4 request codes x 30 windows = 120 asks at the contract's 3 s spacing (360 s), and at most the contract's 6,000,000,000 bytes per run received at about 20 MB/s (300 s) and written to R2 once per kind it serves (300001 twice, 300003 three times, 300006 five times: about 3.5 times the received bytes at the measured 50 MB/s of the data.go.kr file collector's 349 MB zip, about 420 s); 2,400 s is about twice that sum and a third of the 7,200 s limit. The first run with the key is the measurement (root ADR-0457 §3); runs that end waiting for the key are not"
+        "deadline": "infra/lakehouse/contracts/juso-electronic-map.contract.json#/backfill/run_time_budget_seconds",
+        "measured_run_seconds": {
+          "runs": 2,
+          "p50": 11,
+          "p90": 366,
+          "max": 366,
+          "timeouts": 0,
+          "from": "2026-11-10T21:14:35Z",
+          "to": "2026-11-11T00:54:54Z"
         }
       },
       "pool": "default_pool",
