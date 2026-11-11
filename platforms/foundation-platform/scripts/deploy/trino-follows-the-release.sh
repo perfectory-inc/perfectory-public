@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sourced by foundation-release.sh `trino` (it provides release_root and assert_current_release).
-# Trino follows the release (root ADR-0500). Its container mounts files of the release it was
+# Trino follows the release (root ADR-0504). Its container mounts files of the release it was
 # created from and nothing recreated it on deploy, so a merged memory limit waited for the next crash
 # (2026-11-11: the kernel killed Trino at 16.55GB under the old limits). This recreates it when what it
 # runs differs from this release: the compose config (the hash Compose itself compares; the catalog

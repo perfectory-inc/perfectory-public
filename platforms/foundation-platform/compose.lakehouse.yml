@@ -25,7 +25,7 @@ services:
     environment:
       # glibc makes up to 8 malloc arenas per core (160 on ai-server's 20); idle Trino held 164 of them,
       # 2.5GB outside the heap that Trino's memory accounting cannot see, and a query took the process
-      # past 16g (kernel kill 2026-11-11 01:25Z, root ADR-0500). Hadoop sets 4 for the same JVM-in-a-cap
+      # past 16g (kernel kill 2026-11-11 01:25Z, root ADR-0504). Hadoop sets 4 for the same JVM-in-a-cap
       # growth (HADOOP-7154).
       MALLOC_ARENA_MAX: "4"
     ports:
@@ -46,11 +46,11 @@ services:
       # the heap's floor equal its ceiling, so Trino held 12.9GiB of the 16g cap while idle (10.4GB
       # committed, 2.7GB used, 2026-10-29). The floor is 10% (1.6GB) and G1 returns unused heap
       # after a minute without a collection (G1PeriodicGCInterval, JEP 346). The ceiling is 70% (11.2GiB,
-      # root ADR-0500): 30% of the cap stays for what lives outside the heap. No comments in the file:
+      # root ADR-0504): 30% of the cap stays for what lives outside the heap. No comments in the file:
       # the launcher reads every line as a JVM option.
       - ./infra/lakehouse/trino/jvm.config:/etc/trino/jvm.config:ro
       # One ad hoc query (the trino CLI: operators, agents) at a time and under its own lower caps;
-      # services queue behind a cap instead of piling onto the one node (root ADR-0500).
+      # services queue behind a cap instead of piling onto the one node (root ADR-0504).
       - ./infra/lakehouse/trino/resource-groups.properties:/etc/trino/resource-groups.properties:ro
       - ./infra/lakehouse/trino/resource-groups.json:/etc/trino/resource-groups.json:ro
       - ./infra/lakehouse/trino/session-property-config.properties:/etc/trino/session-property-config.properties:ro

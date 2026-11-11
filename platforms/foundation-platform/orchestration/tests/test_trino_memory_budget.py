@@ -1,4 +1,4 @@
-"""One query cannot take Trino past its container cap (root ADR-0500).
+"""One query cannot take Trino past its container cap (root ADR-0504).
 
 2026-11-11 01:25Z: an unsampled holdout query ran on the one Trino node; the kernel killed the
 process at 16.55GB anon RSS inside the 16g cap (memory cgroup OOM), with the heap ceiling at 80%

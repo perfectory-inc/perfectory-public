@@ -1007,7 +1007,7 @@ prepare_spark_tmp() {
     "${release_root}/current/config/host-layout.contract.json")"
 }
 
-# Trino follows the release (root ADR-0500): scripts/deploy/trino-follows-the-release.sh.
+# Trino follows the release (root ADR-0504): scripts/deploy/trino-follows-the-release.sh.
 
 # The job state directories, each with its owner and mode, before any unit or container uses one
 # (orchestration/jobs.v1.json state_directories, rendered by foundation-jobs; root ADR-0270 §1). On

@@ -1,4 +1,4 @@
-# ADR 0500: 쿼리 하나가 Trino 를 컨테이너 상한 밖으로 밀지 못하고, Trino 는 릴리스를 따라간다
+# ADR 0504: 쿼리 하나가 Trino 를 컨테이너 상한 밖으로 밀지 못하고, Trino 는 릴리스를 따라간다
 
 - Status: Accepted
 - Date: 2026-11-11
