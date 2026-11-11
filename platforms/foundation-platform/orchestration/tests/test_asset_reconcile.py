@@ -792,6 +792,56 @@ class MissedStarts(unittest.TestCase):
         self.assertFalse({line.split()[1] for line in owed} & set(turns))
 
 
+class CodeChangedStarts(unittest.TestCase):
+    """Root ADR-0499, the 2026-11-10 replay: data_go_kr_file_data failed at 11:42Z on a CSV escape, the
+    fix (#1230) deployed at 13:42Z, and the job waited for 11-11 11:40Z. A failed run whose code version
+    the running release no longer has is owed one start; the same failure under the same version, never
+    again."""
+
+    JOB = "data_go_kr_file_data"
+    FAILED_AT = 1794310932  # 2026-11-10T11:42:12Z
+    OLD, NEW = "a" * 64, "b" * 64
+
+    @classmethod
+    def setUpClass(cls):
+        cls.jobs = json.loads(job_specs.JOBS.read_text(encoding="utf-8"))
+        cls.reconciler = next(job for job in cls.jobs["jobs"] if job["id"] == asset_reconcile.RECONCILER)
+
+    def owed(self, ran, version=NEW, queued=(), paused=(), running=False):
+        owed = asset_reconcile.code_changed_starts(self.jobs, self.reconciler, {self.JOB: ran}, lambda job: version,
+                                                   dict.fromkeys(queued, {}), lambda job: job in paused,
+                                                   lambda service: running)
+        return [line for line in owed if line.split()[1] == self.JOB]
+
+    def failed(self, version=OLD):
+        return {"outcome": "failed", "at": self.FAILED_AT, "code_version": version}
+
+    def test_a_failure_under_code_the_release_changed_is_started_once(self):
+        (line,) = self.owed(self.failed())
+        self.assertEqual(job_specs.owed_runs(line, (self.JOB,)), [(self.JOB, line.split()[2])])
+        self.assertEqual(self.owed(self.failed()), [line], "every tick keys it the same: the DAG starts it once")
+        self.assertNotEqual(self.owed(self.failed(), version="c" * 64), [line], "a further fix is a new start")
+
+    def test_the_same_code_a_success_or_a_line_without_a_version_owes_nothing(self):
+        self.assertEqual(self.owed(self.failed(self.NEW)), [], "it failed under this very code: no loop")
+        self.assertEqual(self.owed({"outcome": "changed", "at": self.FAILED_AT}), [])
+        self.assertEqual(self.owed({"outcome": "failed", "at": self.FAILED_AT}), [], "a line from before versions")
+        self.assertEqual(self.owed({}), [])
+
+    def test_what_another_rule_owns_or_that_runs_is_left_alone(self):
+        for case in ({"queued": [self.JOB]}, {"paused": [self.JOB]}, {"running": True}):
+            with self.subTest(**{key: str(value) for key, value in case.items()}):
+                self.assertEqual(self.owed(self.failed(), **case), [])
+
+    def test_only_the_jobs_the_reconciler_starts_again_and_never_a_takes_turns_one(self):
+        ran = {job["id"]: self.failed() for job in self.jobs["jobs"]}
+        owed = asset_reconcile.code_changed_starts(self.jobs, self.reconciler, ran, lambda job: self.NEW, {},
+                                                   lambda job: False, lambda service: False)
+        named = {line.split()[1] for line in owed}
+        self.assertEqual(named, set(job_specs.requeued(self.jobs, self.reconciler))
+                         - {job["id"] for job in self.jobs["jobs"] if job.get("takes_turns")})
+
+
 class FollowGate(unittest.TestCase):
     """scripts/ops/lane_follow_gate.py: the unit price lane bakes only a Gold built from the registers
     the building Gold the building lane serves was built from (root ADR-0190, ADR-0333)."""

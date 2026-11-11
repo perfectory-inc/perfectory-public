@@ -59,6 +59,18 @@ grep -E 'foundation_job_outcome_(met|expected)_seconds' /var/lib/foundation-jobs
 - **주간 화면 실패(`foundation-by-pnu-screen-probe.service`)**: 실패 줄이 레인과 판정을 말한다. `error` 는 엣지(그 레인 Worker),
   `missing` 은 표본 PNU 의 자기 레인이 404(서빙 모니터·굽기), `older than its freshness budget` 은 레인 신선도(루트 ADR-0444).
 
+## 실패한 작업이 혼자 다시 돌았을 때
+
+실패한 run 의 원장 줄은 그 작업의 코드 버전을 싣는다(루트 ADR-0499). 그 작업이 닿는 파일을 바꾼 릴리스가 배포되면, 조정기가 다음 틱에
+한 번 시작한다. 조정기 저널에 `failed under other code <job>: failed at … under …, this release has …; started once for it` 가 남는다.
+같은 코드로 또 실패하면 다음 릴리스까지 다시 시작하지 않는다.
+
+```sh
+# 작업이 닿는 파일과 지금 버전 (읽기만)
+python3 /opt/foundation-platform/current/orchestration/dags/job_code_version.py <job id> --files
+python3 /opt/foundation-platform/current/orchestration/dags/job_code_version.py <job id>
+```
+
 ## 기대를 바꿀 때
 
 정의 파일만 고치고 `python3 scripts/catalog/declared_definitions.py generate` 로 생성본을 다시 만든다.

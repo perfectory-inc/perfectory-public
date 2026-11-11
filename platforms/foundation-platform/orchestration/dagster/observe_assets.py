@@ -10,9 +10,13 @@ Dagster's materialization is the same fact as Airflow's asset event, read from t
 (`job_specs.load_specs`, which foundation_jobs.py builds the DAGs from). The two orchestrators
 cannot drift: a job or edge changes both or neither.
 
-In this stage Dagster only observes (airlift's "observe" step): Airflow runs every job.
+In this stage Dagster only observes (airlift's "observe" step): Airflow runs every job. Each asset a
+job writes carries that job's code version (job_code_version.py, root ADR-0499), so Dagster shows a
+release that changed what writes it, and AutomationCondition.code_version_changed() reads the same
+version on the day the job moves here; the asset reconciler starts a failed job again on it now.
 """
 
+import hashlib
 import json
 import pathlib
 import sys
@@ -24,6 +28,7 @@ DAGS = pathlib.Path(__file__).resolve().parents[1] / "dags"
 if str(DAGS) not in sys.path:
     sys.path.insert(0, str(DAGS))
 
+import job_code_version  # noqa: E402
 import job_specs  # noqa: E402  (beside foundation_jobs.py; it adds infra/datahub to the path)
 from dataset_names import name_of, platform_of  # noqa: E402
 
@@ -116,8 +121,32 @@ def feedback_edges(graph):
     return feedback
 
 
-def observed_assets(jobs=None, graph=None, definitions=None):
-    """One AssetSpec per pipeline-graph node; the nodes a job writes are mapped to its publish task."""
+def code_versions(jobs, graph, version_of=job_code_version.version):
+    """Pipeline-graph node id -> the code version of what writes it: its writer's, or for a node several
+    jobs write, the digest of their ids and versions."""
+    listing = {job["id"]: job for job in jobs["jobs"]}
+    written: dict[str, list] = {}
+    for job_id, (_, outputs) in job_specs.job_nodes(jobs, graph).items():
+        for node_id in outputs:
+            written.setdefault(node_id, []).append(job_id)
+    versions = {}
+    for job_id in sorted({j for ids in written.values() for j in ids}):
+        try:
+            versions[job_id] = version_of(listing[job_id])
+        except (OSError, ValueError, KeyError):
+            continue  # no version is shown rather than no code location: the job list's own checks refuse it
+    found = {}
+    for node_id, ids in written.items():
+        if any(job_id not in versions for job_id in ids):
+            continue
+        parts = sorted((job_id, versions[job_id]) for job_id in ids)
+        found[node_id] = parts[0][1] if len(parts) == 1 else hashlib.sha256(json.dumps(parts).encode()).hexdigest()
+    return found
+
+
+def observed_assets(jobs=None, graph=None, definitions=None, version_of=job_code_version.version):
+    """One AssetSpec per pipeline-graph node; the nodes a job writes are mapped to its publish task and
+    carry its code version."""
     if jobs is None or graph is None:
         jobs, graph = contracts()
     keys = node_keys(graph)
@@ -127,6 +156,7 @@ def observed_assets(jobs=None, graph=None, definitions=None):
     for edge in graph["edges"]:
         (fed_back if edge["id"] in feedback else deps).setdefault(edge["to"], set()).add(edge["from"])
     written = writers(jobs, graph)
+    versions = code_versions(jobs, graph, version_of)
     assets = []
     for node in graph["nodes"]:
         dataset = (platform_of(node), name_of(node))
@@ -135,6 +165,7 @@ def observed_assets(jobs=None, graph=None, definitions=None):
             deps=[keys[source] for source in sorted(deps.get(node["id"], ()))],
             description=node.get("title"),
             group_name=groups[node["id"]],
+            code_version=versions.get(node["id"]),
             kinds={dataset[0]},
             metadata={"pipeline_graph_node": node["id"], "node_type": node["type"],
                       "dataset": job_specs.asset_uri(dataset),

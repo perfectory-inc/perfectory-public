@@ -69,6 +69,7 @@ import by_pnu_kinds  # noqa: E402
 import gold_rebuild  # noqa: E402
 import iceberg_metadata  # noqa: E402
 import job_specs  # noqa: E402
+import job_code_version  # noqa: E402
 import job_outcomes  # noqa: E402
 import job_units  # noqa: E402
 import lane_follow_gate  # noqa: E402
@@ -539,6 +540,43 @@ def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None,
     return owed, metrics
 
 
+def code_changed_starts(jobs: dict, reconciler: dict, ran: dict, version_of, queued: dict, paused, running):
+    """Owed lines: each job the reconciler starts again (job_specs.requeued) whose newest run failed
+    under a code version (job_units.record_outcome) the running release no longer has, owed one start
+    keyed by that failure and the new version (root ADR-0499). Dagster's
+    AutomationCondition.code_version_changed(), on the version job_code_version.py infers.
+
+    2026-11-10: data_go_kr_file_data failed at 11:42Z on a CSV escape; the fix deployed at 13:42Z and
+    the job waited for its next slot, 11-11 11:40Z, as did the zoning bake fixed at 15:51Z. A job that
+    fails again under the new version is not owed again until another release changes it: a failure
+    is retried once per fix, never in a loop. A queued job is the queue's, a takes_turns job's start is
+    its rule's (root ADR-0138), a paused or running one starts nothing; a failed line from before the
+    lines carried a version is not judged."""
+    listing = {job["id"]: job for job in jobs["jobs"]}
+    owed = []
+    for job_id in job_specs.requeued(jobs, reconciler):
+        last = ran.get(job_id) or {}
+        job = listing[job_id]
+        if last.get("outcome") != "failed" or not last.get("code_version"):
+            continue
+        if job.get("takes_turns") or job_id in queued or paused(job_id):
+            continue
+        if any(running(service) for service in filter(None, (job["systemd_service"], job.get("check_service")))):
+            continue
+        try:
+            now_version = version_of(job)
+        except (OSError, ValueError, KeyError) as error:
+            print(f"failed under other code {job_id}: no code version now ({error})")
+            continue
+        if now_version == last["code_version"]:
+            continue
+        key = hashlib.sha256(json.dumps({"failed": job_id, "at": last["at"], "code": now_version}).encode()).hexdigest()[:16]
+        owed.append(f"foundation-asset-owed {job_id} {key}")
+        print(f"failed under other code {job_id}: failed at {last['at']} under {last['code_version'][:12]},"
+              f" this release has {now_version[:12]}; started once for it")
+    return owed
+
+
 def versions_key(owed: dict) -> str:
     """The key of a job's owed versions: one asset's versions alone, several by asset."""
     keyed = next(iter(owed.values())) if len(owed) == 1 else owed
@@ -905,6 +943,10 @@ def main() -> int:
             summary = {}
         records, summary["offset"] = job_units.outcomes_after(int(summary.get("offset", 0)))
         summary = job_outcomes.fold_current(job_outcomes.fold(summary, records), current, now)
+        changed_owed = code_changed_starts(jobs, next(job for job in jobs["jobs"] if job["id"] == RECONCILER),
+                                           summary.get("ran", {}), job_code_version.version, job_units.queued(),
+                                           lambda job_id: (switches / job_id).exists(), running)
+        owed += [line for line in changed_owed if line.split()[1] not in {held.split()[1] for held in owed}]
         write_replacing(metrics_file.with_name(job_outcomes.METRICS_NAME),
                         job_outcomes.textfile(jobs["jobs"], summary, job_specs.service_unit_text))
         write_replacing(state_dir / job_outcomes.SUMMARY_FILE, json.dumps(summary, sort_keys=True) + "\n")

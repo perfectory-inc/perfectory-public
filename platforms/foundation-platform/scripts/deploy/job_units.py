@@ -309,9 +309,27 @@ def outcomes_path() -> str:
     return os.path.join(queue_dir(), OUTCOMES)
 
 
-def record_outcome(job_id, line, now, via="run", invocation="") -> dict:
+def failed_code_version(job_id: str) -> str | None:
+    """The code version of `job_id` in this file's own release (orchestration/dags/job_code_version.py,
+    root ADR-0499): the runner runs the job from the tree it runs from. None when it cannot be made."""
+    dags = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "orchestration", "dags")
+    if dags not in sys.path:
+        sys.path.insert(0, dags)
+    try:
+        import job_code_version  # noqa: PLC0415 - only for a failed run's line
+
+        return job_code_version.version(job_code_version.job_of(job_id))
+    except (ImportError, OSError, ValueError, KeyError) as error:
+        print(f"job_units: no code version for {job_id}: {error}", file=sys.stderr)
+        return None
+
+
+def record_outcome(job_id, line, now, via="run", invocation="", code_version=failed_code_version) -> dict:
     """Appends what a run of `job_id` said, its `foundation-job-outcome <word> [reason]` line, or a
-    check's `foundation-job-check <answer>` (via `check`). One line, never rewritten (append-only)."""
+    check's `foundation-job-check <answer>` (via `check`). One line, never rewritten (append-only).
+
+    A run that failed carries its job's code version (root ADR-0499): the asset reconciler starts it
+    once more when a later release changes that version, where it would wait for its next slot."""
     if not JOB_ID.fullmatch(job_id):
         raise KeyError(f"{job_id} is not a job id")
     words = str(line).strip().split(" ", 2)
@@ -328,6 +346,8 @@ def record_outcome(job_id, line, now, via="run", invocation="") -> dict:
               "reason": (words[2] if len(words) > 2 else "")[:300]}
     if invocation:
         record["invocation"] = str(invocation)
+    if via == "run" and outcome == "failed" and (version := code_version(job_id)):
+        record["code_version"] = version
     os.makedirs(queue_dir(), mode=0o755, exist_ok=True)
     new = not os.path.exists(outcomes_path())
     with open(outcomes_path(), "a", encoding="utf-8") as handle:
