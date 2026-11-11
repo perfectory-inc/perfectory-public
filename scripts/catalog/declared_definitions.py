@@ -298,9 +298,18 @@ def lane_index(documents):
             "bake_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers(set(serving))],
             "rebuild_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers(set(gold))],
         })
+    # The map's tile layers, the other half of what users see (root ADR-0522): each `tiles` surface's
+    # publication unit (its key in the runtime manifest) and the table whose snapshot a release names.
+    tile_units = [{
+        "unit": node["publication_unit"]["key"],
+        "serving_node": node["id"],
+        "snapshot_table": node["publication_unit"]["snapshot_table"],
+        "bake_jobs": [{"id": job["id"], "systemd_service": job["systemd_service"]} for job in writers({node["id"]})],
+    } for node in graph["nodes"] if node.get("surface_kind") == "tiles"]
     return {"schema_version": LANE_INDEX_SCHEMA,
             "generated_by": "scripts/catalog/declared_definitions.py (root ADR-0418); never edited, never committed",
-            "lanes": lanes}
+            "lanes": lanes,
+            "tile_units": tile_units}
 
 
 def load_module(name, path, search):

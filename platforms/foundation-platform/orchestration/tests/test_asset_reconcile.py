@@ -881,3 +881,80 @@ class FollowGate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ServedSurfaces(unittest.TestCase):
+    """Root ADR-0522. 2026-11-11 parcel-nearby and parcel-real-transaction were registered lanes with
+    enabled bakes and no serving monitor, so no series named them; and no tile layer had a freshness
+    series: the parcels unit served a 2026-09-28 release while its Gold had changed since 10-15."""
+
+    INDEX = {
+        "lanes": [
+            {"lane": "parcel-nearby", "bake_jobs": [{"id": "nearby_bake"}]},
+            {"lane": "parcel-court-auction", "bake_jobs": [{"id": "court_bake"}]},
+        ],
+        "tile_units": [
+            {"unit": "parcels", "snapshot_table": "gold.parcels"},
+            {"unit": "admin", "snapshot_table": "gold.admin"},
+            {"unit": "complex", "snapshot_table": "gold.complex"},
+            {"unit": "zoning", "snapshot_table": "silver.zoning"},
+        ],
+    }
+    JOBS = {"jobs": [
+        {"id": "nearby_bake", "enabled": True, "enabled_since": "2026-11-09T18:00:00Z"},
+        {"id": "court_bake", "enabled": False},
+    ]}
+    TABLES = {
+        # Served 1, then a row change at minute 10 and a compaction at 20.
+        "gold.parcels": table(snap("1", None, 0), snap("2", "1", 10), snap("3", "2", 20, operation="replace", added=0)),
+        # Served its head.
+        "gold.admin": table(snap("7", None, 0)),
+        # The served snapshot expired: the oldest kept change (minute 30) is a lower bound.
+        "gold.complex": table(snap("9", "8", 30), snap("10", "9", 40)),
+    }
+
+    def lines(self, units, now=T0 + 3600):
+        def read(name):
+            if name not in self.TABLES:
+                raise OSError(f"no {name}")
+            return self.TABLES[name]
+        return asset_reconcile.served_surfaces(now, self.INDEX, self.JOBS, 48, read, units)
+
+    def manifest(self, **served):
+        return lambda: {"publication_units": {key: {"canonical_iceberg_snapshot_id": value} for key, value in served.items()}}
+
+    def test_every_lane_says_since_when_it_is_meant_to_be_served(self):
+        lines = self.lines(self.manifest())
+        self.assertIn("foundation_serving_freshness_budget_seconds 172800", lines)
+        self.assertIn('foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-nearby"} 1794247200', lines)
+        # No enabled bake: an unmeasured lane is said at once.
+        self.assertIn('foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-court-auction"} 0', lines)
+
+    def test_a_tile_unit_is_behind_since_the_oldest_change_its_release_does_not_serve(self):
+        lines = self.lines(self.manifest(parcels="1", admin="7", complex="5", zoning="1"))
+        self.assertIn('foundation_tile_unit_behind_seconds{unit="parcels"} 3000', lines)
+        self.assertIn('foundation_tile_unit_behind_seconds{unit="admin"} 0', lines)
+        self.assertIn('foundation_tile_unit_behind_seconds{unit="complex"} 1800', lines)
+        # Its snapshot table unreadable: served, but no data time.
+        self.assertIn('foundation_tile_unit_served{unit="zoning"} 1', lines)
+        self.assertFalse(any(line.startswith('foundation_tile_unit_behind_seconds{unit="zoning"}') for line in lines))
+
+    def test_a_unit_the_runtime_manifest_lacks_is_not_served(self):
+        lines = self.lines(self.manifest(admin="7"))
+        self.assertIn('foundation_tile_unit_served{unit="parcels"} 0', lines)
+        self.assertIn('foundation_tile_unit_served{unit="admin"} 1', lines)
+
+    def test_an_unreadable_runtime_manifest_measures_no_unit_and_keeps_the_lanes(self):
+        def broken():
+            raise OSError("connection refused")
+        lines = self.lines(broken)
+        self.assertFalse(any(line.startswith("foundation_tile_unit_") for line in lines))
+        self.assertTrue(any(line.startswith("foundation_by_pnu_lane_registered_since") for line in lines))
+
+    def test_the_real_index_names_every_tiles_surface_and_its_route_resolves(self):
+        index = json.loads(asset_reconcile.LANE_INDEX.read_text(encoding="utf-8"))
+        graph = json.loads(job_specs.GRAPH.read_text(encoding="utf-8"))
+        tiles = {node["id"] for node in graph["nodes"] if node.get("surface_kind") == "tiles"}
+        self.assertEqual({unit["serving_node"] for unit in index["tile_units"]}, tiles)
+        self.assertEqual(len({unit["unit"] for unit in index["tile_units"]}), len(tiles))
+        self.assertTrue(callable(asset_reconcile.runtime_manifest_reader()))

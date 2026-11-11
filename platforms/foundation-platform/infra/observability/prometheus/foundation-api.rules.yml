@@ -520,6 +520,61 @@ groups:
         annotations:
           summary: '{{ $labels.lane }} 레인의 서빙 모니터가 {{ humanizeDuration $value }}째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
           runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+      # Root ADR-0522. The two rules above hold only lanes a serving monitor measures, and a monitor's
+      # timer is turned on by a lane's first publish: 2026-11-11 parcel-nearby and parcel-real-transaction
+      # had been registered with enabled bakes for two days, served nothing, and no series named them.
+      # Every lane of the lane index says since when it is meant to be served (asset_reconcile.py
+      # served_surfaces); unmeasured past the freshness budget, it is as stale as a lane past it.
+      - alert: FoundationByPnuLaneUnmeasured
+        expr: >-
+          (
+            time() - foundation_by_pnu_lane_registered_since_timestamp_seconds
+            > on() group_left() foundation_serving_freshness_budget_seconds
+          )
+          unless on(lane) foundation_by_pnu_served_manifest_age_seconds
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '{{ $labels.lane }} 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
+          runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+      # Root ADR-0522. The map's tile layers had no freshness series at all: 2026-11-11 the parcels unit
+      # served its 2026-09-28 release while gold.parcel_boundary_served had changed rows since 10-15, and
+      # the zoning unit's bake failed daily on an unchanged Silver snapshot. Behind its snapshot table,
+      # not old (root ADR-0444's rule): admin and complex serve releases weeks old that hold every change.
+      - alert: FoundationTileUnitBehind
+        expr: >-
+          foundation_tile_unit_behind_seconds
+          > on() group_left() foundation_serving_freshness_budget_seconds
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '지도 타일 {{ $labels.unit }} 이 입력보다 {{ humanizeDuration $value }} 뒤처진 릴리스를 보여 주고 있어요(예산을 넘김) — 그 뒤 타일 굽기·릴리스가 발행하지 못했어요. 레인 색인(config/by-pnu-lane-index.v1.json tile_units)의 그 유닛 굽기 작업 journalctl 과 거부 이유를 보세요'
+          runbook: docs/runbooks/parcel-tile-bake.md
+      - alert: FoundationTileUnitNotServed
+        # A tile layer the definitions declare that the runtime manifest users' maps read lacks.
+        expr: foundation_tile_unit_served == 0
+        for: 30m
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '지도 타일 {{ $labels.unit }} 이 정의에는 있는데 지도가 읽는 런타임 manifest 에 없어요 — 그 층이 지도에 안 나와요. /catalog/v1/vector-tiles/runtime-manifest 의 publication_units 와 그 유닛의 승격 기록을 보세요'
+          runbook: docs/runbooks/parcel-tile-bake.md
+      - alert: FoundationTileUnitUnmeasured
+        # A served unit whose snapshot table cannot be read, or no unit at all when the runtime
+        # manifest cannot be read: a stale layer would then say nothing.
+        expr: >-
+          (foundation_tile_unit_served == 1 unless on(unit) foundation_tile_unit_behind_seconds)
+          or absent(foundation_tile_unit_served)
+        for: 1h
+        labels:
+          severity: ticket
+          service: serving-freshness
+        annotations:
+          summary: '지도 타일{{ if $labels.unit }} {{ $labels.unit }}{{ end }}의 신선도를 1시간째 재지 못했어요 — 뒤처진 릴리스를 보여 줘도 알 수 없어요. journalctl -u foundation-asset-reconcile.service 의 "could not read the tile runtime manifest" 나 "could not read" 줄을 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
       # Root ADR-0490 §7. The map and every parcel panel serve one cadastral edition. 2026-11-11 it was
       # still 202606, from before the 2026-07-01 reorganization, while 202609 had been in Silver since
       # 2026-10-05: 37 days, and resolvers failed on every code changed since. Nothing said so.
