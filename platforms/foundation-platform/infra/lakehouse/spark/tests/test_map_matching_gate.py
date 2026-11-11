@@ -68,6 +68,24 @@ class ParcelGateTest(unittest.TestCase):
             },
         )
 
+    def test_a_dong_renumbered_after_the_edition_is_allowed_under_its_successor(self):
+        # 2026-11-11: 202609 holds 22,738 parcels of a 면 renumbered on 2026-09-30, after the edition was
+        # cut; the zero-tolerance gate refused the whole edition for them. Here 병동 (abolished) was
+        # renumbered into 갑동, which exists and has its boundary.
+        admin = {"9999910100"}
+        moved = [pnu("9999920100", 1), pnu("9999920100", 2)]
+        report = gate.check_parcels(moved, OFFICIAL, admin, None, {"9999920100": "9999910100"})
+        self.assertTrue(report.passed, report.as_dict())
+        self.assertEqual(report.as_dict()["allowed"], {gate.RENUMBERED_LEGAL_DONG: 2})
+        # Without the pair, or into a code the list does not hold, it is refused as before.
+        for renumbered in (None, {"9999920100": "9999930100"}):
+            with self.subTest(renumbered=renumbered):
+                refused = gate.check_parcels(moved, OFFICIAL, admin, None, renumbered).as_dict()["violations"]
+                self.assertEqual(refused[gate.NO_LEGAL_DONG]["count"], 2)
+        # The successor's own boundary is what the parcel needs.
+        refused = gate.check_parcels(moved, OFFICIAL, set(), None, {"9999920100": "9999910100"}).as_dict()
+        self.assertEqual(set(refused["violations"]), {gate.NO_BOUNDARY})
+
 
 class AttributeGateTest(unittest.TestCase):
     def test_a_value_left_behind_under_the_old_number_refuses_and_a_missing_one_is_allowed(self):

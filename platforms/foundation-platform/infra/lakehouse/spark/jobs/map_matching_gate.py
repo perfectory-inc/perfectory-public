@@ -26,6 +26,11 @@ NO_LEGAL_DONG = "legal dong not existing in the official list"
 NO_BOUNDARY = "no administrative boundary for the parcel's 읍면동"
 NO_CURRENT_ID = "no current parcel id"
 ID_ON_TWO_PARCELS = "parcel id on two parcels"
+# Allowed, and counted: the parcel's legal dong was renumbered 1:1 after the provider cut the edition, by an
+# official pair in force (legal_dong_code_change_views.renumbered_into, root ADR-0329). Its place is the
+# successor's, checked like any other; readers place it under the served edition's code form (ADR-0482).
+# 2026-11-11: 202609 holds 22,738 parcels of 대구 달성군 구지면, renumbered on 2026-09-30, after the edition.
+RENUMBERED_LEGAL_DONG = "legal dong renumbered since the edition, checked under its successor"
 
 
 def attribute_held_elsewhere(name: str) -> str:
@@ -111,12 +116,15 @@ def check_parcels(
     official: Mapping[str, tuple[str, str]],
     admin_codes: set[str],
     current_ids: Mapping[str, str] | None = None,
+    renumbered: Mapping[str, str] | None = None,
 ) -> GateReport:
     """Every parcel polygon has its legal dong, that dong's boundary and one current parcel id.
 
     `admin_codes` are the served administrative codes (읍면동, `xxxxxxxx00`); a parcel's boundary is
     its 읍면동, since rural parcels carry a 리 in the last two digits. `current_ids` is the folded
-    registry (PNU -> parcel_id), or None when the region has no registry yet.
+    registry (PNU -> parcel_id), or None when the region has no registry yet. `renumbered` is
+    {legal dong: the existing code an official 1:1 pair renumbered it into}: such a parcel is allowed as
+    `RENUMBERED_LEGAL_DONG` and its boundary is its successor's.
     """
 
     report = GateReport()
@@ -126,9 +134,15 @@ def check_parcels(
         if len(pnu) != 19 or not pnu.isdigit():
             report.refuse(MALFORMED_PNU, pnu)
             continue
-        if official.get(pnu[:10], ("", ""))[1] != EXISTS:
-            report.refuse(NO_LEGAL_DONG, pnu)
-        if pnu[:8] + "00" not in admin_codes:
+        dong = pnu[:10]
+        if official.get(dong, ("", ""))[1] != EXISTS:
+            successor = (renumbered or {}).get(dong, "")
+            if official.get(successor, ("", ""))[1] == EXISTS:
+                report.allow(RENUMBERED_LEGAL_DONG)
+                dong = successor
+            else:
+                report.refuse(NO_LEGAL_DONG, pnu)
+        if dong[:8] + "00" not in admin_codes:
             report.refuse(NO_BOUNDARY, pnu)
         if current_ids is not None:
             pid = current_ids.get(pnu)
