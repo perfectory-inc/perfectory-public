@@ -140,9 +140,21 @@ pub const SILVER_UNIVERSITY: LakehouseTableContract =
 /// PNU its road address resolved to.
 pub const SILVER_SUBWAY_STATION: LakehouseTableContract =
     table("silver.subway_station", PARCEL_COLUMNS, true);
+/// 국토교통부 표준지공시지가, one row per 표준지 (its PNU), with the current PNU the place-identity
+/// resolver made of 토지대장번호(PNU); a year's price is the key's newer row.
+pub const SILVER_STANDARD_LAND_PRICE: LakehouseTableContract =
+    table("silver.standard_land_price", PARCEL_COLUMNS, false);
+/// 한국승강기안전공단 승강기 설치 현황, one row per (승강기고유번호, 검사결과이력조회코드), with the PNU its
+/// 건물주소 resolved to.
+pub const SILVER_ELEVATOR_INSTALLATION: LakehouseTableContract =
+    table("silver.elevator_installation", PARCEL_COLUMNS, false);
+/// 한국산업단지공단 전국지식산업센터현황, keyed by the row's SHA-256 (no provider key), with the PNU its
+/// 지번 then 도로명 address resolved to.
+pub const SILVER_KNOWLEDGE_INDUSTRY_CENTER: LakehouseTableContract =
+    table("silver.knowledge_industry_center", PARCEL_COLUMNS, true);
 
-/// The eleven tables, in the contract's file order.
-pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 11] = [
+/// The fourteen tables, in the contract's file order.
+pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 14] = [
     SILVER_HIGHWAY_ACCESS_POINT,
     SILVER_HOUSEHOLD_COUNT,
     SILVER_DONG_POPULATION,
@@ -154,4 +166,7 @@ pub const DATA_GO_KR_FILE_DATA_TABLES: [LakehouseTableContract; 11] = [
     SILVER_SCHOOL_LOCATION,
     SILVER_UNIVERSITY,
     SILVER_SUBWAY_STATION,
+    SILVER_STANDARD_LAND_PRICE,
+    SILVER_ELEVATOR_INSTALLATION,
+    SILVER_KNOWLEDGE_INDUSTRY_CENTER,
 ];

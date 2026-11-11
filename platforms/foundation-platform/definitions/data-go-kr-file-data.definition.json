@@ -8,7 +8,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit. The three 표준데이터 (school location, university, subway station) come through the dataset page's own keyless download (root ADR-0453): the current table and its column list, then every page of a pass, landed only when its rows changed; the OpenAPI is only a cross-check when a registered key is set. Their per-run cap is max_pages in the contract (3, 1 and 1 pages of 10,000): measured 2026-11-09, a pass of all three is 12,004, 1,995 and 898 rows in 4 pages plus 3 column lists, about 9.1 MB of JSON (1 MB gzipped) and under 2 s of answers, about 35 s with the 5 s spacing, so the limit holds. A failed collection still lets the load run for the files that landed; the run fails at the end.",
+      "description": "The other public bulk files of the data.go.kr file data (root ADR-0401; scripts/ops/data-go-kr-file-data-cycle.sh). Collect: for every file of data-go-kr-file-data.contract.json but the registered factory (its own job collects it), ask the portal once which file is current and, only when it is new, land it in Bronze under its own source (datagokr__<dataset_slug>); each file commits on its own. Load: plan-silver-load-objects names, per table, the Bronze files no commit of its table records, and one Spark run loads each into silver.<dataset_slug>: the header and encoding checked against the contract, one row per line keyed by the provider key or the row's SHA-256 with every raw column kept, linked by the contract's place_link (address_pnu, the place-identity resolver, 법정동 names, or the 행정동 code), and only new or changed keys and removal markers appended. The Spark run happens every day: when reference.legal_dong_code_change moved since a table's last linking, only the rows under the changed codes (and the unlinked ones) are linked again (ADR-0329 §3). Measured 2026-11-04: all eight files new is about 365 MB (the 349 MB 상가(상권) zip in 59 s); staging the 2,753,778 상가 rows took 62 s and building their keys and raw columns 77 s on a 4-core laptop, so a first run of all eight fits well inside the limit. The three 표준데이터 (school location, university, subway station) come through the dataset page's own keyless download (root ADR-0453): the current table and its column list, then every page of a pass, landed only when its rows changed; the OpenAPI is only a cross-check when a registered key is set. Their per-run cap is max_pages in the contract (3, 1 and 1 pages of 10,000): measured 2026-11-09, a pass of all three is 12,004, 1,995 and 898 rows in 4 pages plus 3 column lists, about 9.1 MB of JSON (1 MB gzipped) and under 2 s of answers, about 35 s with the 5 s spacing, so the limit holds. Three files a broker shows a buyer joined on 2026-11-11 (the W68 data landscape): 표준지공시지가 (139.5 MB CSV, 600,000 rows), 승강기 설치 현황 (33 MB zip, 893,715 rows) and 전국지식산업센터현황 (0.1 MB, 1,549 rows), so a run that finds every file new lands about 538 MB; the 표준지 file is yearly and the other two irregular, so a usual run lands none of them. A failed collection still lets the load run for the files that landed; the run fails at the end.",
       "systemd_service": "foundation-data-go-kr-file-data.service",
       "systemd_timer": null,
       "state_paths": [
@@ -25,8 +25,8 @@
         "deadline": null,
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 1800,
-          "estimated_from": "computed from the description's 2026-11-04 measurement: all eight files new about 365 MB (the 349 MB zip in 59 s), staging 2,753,778 rows 62 s and their keys and raw columns 77 s on a 4-core laptop, and the three standard datasets about 35 s (2026-11-09); 1,800 s leaves the Spark start and the place linking about ten times that"
+          "estimate_seconds": 2700,
+          "estimated_from": "computed from the description's 2026-11-04 measurement: all eight files new about 365 MB (the 349 MB zip in 59 s), staging 2,753,778 rows 62 s and their keys and raw columns 77 s on a 4-core laptop, and the three standard datasets about 35 s (2026-11-09); 1,800 s leaves the Spark start and the place linking about ten times that; the three files added 2026-11-11 add about 173 MB to download (the 상가 zip of 349 MB took 59 s, so about 30 s at that rate) and 1,495,264 rows, about half the 상가 rows, to stage and link; 2,700 s keeps the same margin inside the 90-minute limit"
         }
       },
       "pool": "spark",
@@ -43,7 +43,10 @@
         "source-data-go-kr-file-data-to-silver-adm-dong-code-linkage",
         "source-data-go-kr-file-data-to-silver-school-location",
         "source-data-go-kr-file-data-to-silver-university",
-        "source-data-go-kr-file-data-to-silver-subway-station"
+        "source-data-go-kr-file-data-to-silver-subway-station",
+        "source-data-go-kr-file-data-to-silver-standard-land-price",
+        "source-data-go-kr-file-data-to-silver-elevator-installation",
+        "source-data-go-kr-file-data-to-silver-knowledge-industry-center"
       ],
       "enabled": true,
       "pool_slots": 3,
@@ -277,6 +280,63 @@
           "value": "silver.university"
         }
       ]
+    },
+    {
+      "id": "silver-standard-land-price",
+      "type": "silver_table",
+      "title": "표준지공시지가",
+      "description": "국토교통부 표준지공시지가(15004246), 가격기준일(1월 1일)마다 한 판, 표준지(PNU)마다 한 행. 제공자의 19자리 토지대장번호(PNU)를 복사하지 않고 place-identity 해석기로 현재 PNU 를 정한다(19자리가 아닌 사업지구 블록 번호는 못 찾은 채 남긴다). 다음 해 가격은 같은 키의 새 행이다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 중개사가 고객에게 설명하는 자료로 받는다(산업용 부동산 데이터 지형 조사 W68). 읽는 소비자(by-PNU 종류)가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.standard_land_price",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.standard_land_price"
+        }
+      ]
+    },
+    {
+      "id": "silver-elevator-installation",
+      "type": "silver_table",
+      "title": "승강기 설치 현황",
+      "description": "한국승강기안전공단 승강기 설치 현황(15112638), (승강기고유번호, 검사결과이력조회코드)마다 한 행. 승강기종류(화물용·자동차용 등)·적재하중·운행층수가 건물의 하역 제원이다. 건물주소(도로명)를 address_pnu 로 PNU 에 잇는다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 중개사가 고객에게 설명하는 자료로 받는다(산업용 부동산 데이터 지형 조사 W68). 읽는 소비자(by-PNU 종류)가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.elevator_installation",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.elevator_installation"
+        }
+      ]
+    },
+    {
+      "id": "silver-knowledge-industry-center",
+      "type": "silver_table",
+      "title": "지식산업센터",
+      "description": "한국산업단지공단 전국지식산업센터현황(15117154). 제공자 키가 없어 행의 SHA-256 이 행 키다. 공장대표주소 지번을 먼저, 못 찾으면 도로명을 address_pnu 로 PNU 에 잇는다. 용지·건축·제조면적과 분양형태가 구분 공장 매물 비교의 바탕이다. 판마다 행 키로 현재 행과 비교해 새 키·바뀐 키와 사라진 키의 삭제 표지만 쌓고, 원문 칸은 머리줄 이름 그대로 provider_fields_json 에 모두 둔다(루트 ADR-0401 §3). 중개사가 고객에게 설명하는 자료로 받는다(산업용 부동산 데이터 지형 조사 W68). 읽는 소비자(by-PNU 종류)가 아직 없어 contract_only 다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/data-go-kr-file-data.contract.json"
+      ],
+      "table_name": "silver.knowledge_industry_center",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.knowledge_industry_center"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -461,6 +521,54 @@
         "datagokr__university"
       ],
       "description": "표준데이터 내려받기의 새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-standard-land-price",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_identity_resolver.py"
+      ],
+      "source_slugs": [
+        "datagokr__standard_land_price"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-elevator-installation",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+      ],
+      "source_slugs": [
+        "datagokr__elevator_installation"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
+    },
+    {
+      "from": "source-data-go-kr-file-data",
+      "to": "silver-knowledge-industry-center",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "collect-data-go-kr-file-data",
+        "platforms/foundation-platform/scripts/ops/data-go-kr-file-data-cycle.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/data_go_kr_file_data.py",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/address_pnu.py"
+      ],
+      "source_slugs": [
+        "datagokr__knowledge_industry_center"
+      ],
+      "description": "새 판을 Bronze 에서 받아 바뀐 행만 쌓고, 법정동 코드 변경표가 바뀌면 바뀐 코드 아래 행만 다시 잇는다(루트 ADR-0401 §3–4)."
     }
   ],
   "host_memory": {

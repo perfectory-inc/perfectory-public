@@ -85,8 +85,8 @@ last_reviewed: 2026-11-09
 |---|---|---|---|
 | `legal_dong_by_names` | highway_access_point | 도·시군구·읍면동 → 현재 법정동 코드 | 844 중 634(75.1%) |
 | `adm_dong_via_linkage` | household_count, dong_population | 행정동 코드를 두고, 읽을 때 `silver.adm_dong_code_linkage` 현재 행으로 | 3,620 중 3,547(98.0%)이 2026-10-01 연계에 있음 |
-| `address_pnu` | railway_station, airport, port | 지번 → 도로명 | 역 215 중 116(54.0%), 공항 14 중 6, 항만 72 중 0(위치가 시도·시군구뿐) |
-| `place_identity` | commercial_district | 지번코드 → place-identity 해석기 → 현재 필지 | 표본 2,000 중 1,980(99.0%) |
+| `address_pnu` | railway_station, airport, port, elevator_installation, knowledge_industry_center | 지번 → 도로명 | 역 215 중 116(54.0%), 공항 14 중 6, 항만 72 중 0(위치가 시도·시군구뿐); 승강기 표본 3,000 중 2,910 이 도로명으로 읽히고 그 (시도, 시군구, 도로명, 건물번호) 2,829 가운데 2,551(90.2%)이 PNU 하나(2026-11-11) |
+| `place_identity` | commercial_district, standard_land_price | 지번코드·토지대장번호(PNU) → place-identity 해석기 → 현재 필지 | 상가 표본 2,000 중 1,980(99.0%); 표준지 19자리 표본 2,994 중 2,990(2026-11-11), 19자리가 아닌 사업지구 블록 1,902행(0.32%)은 못 찾음 |
 | `is_the_bridge` | adm_dong_code_linkage | 행정동코드·법정동코드 그대로 | — |
 
 | 계약 `files` | data.go.kr | 형식 | 2026-11-04 실측 |
@@ -99,12 +99,16 @@ last_reviewed: 2026-11-09
 | `airport` | 15002851 한국공항공사_공항 위치정보 | CSV CP949 | 1 KB, 14행 |
 | `commercial_district` | 15083033 소상공인시장진흥공단_상가(상권)정보 | ZIP(시도별 CSV 16개, UTF-8), 분기 | 349 MB, 2,753,778행, 59초 |
 | `adm_dong_code_linkage` | 15136368 국가데이터처_법정동 연계정보 | CSV UTF-8 | 12 MB, 130,193행 |
+| `standard_land_price` | 15004246 국토교통부_표준지공시지가 | CSV CP949, 해마다(가격기준일 1월 1일) | 139.5 MB, 600,000행, 43칸(2026-11-11) |
+| `elevator_installation` | 15112638 한국승강기안전공단_승강기 설치 현황 | ZIP(CSV 2개, UTF-8), 수시 | 33 MB, 893,715행, 29칸(2026-11-11) |
+| `knowledge_industry_center` | 15117154 한국산업단지공단_전국지식산업센터현황 | ZIP(CSV 1개 CP949 + 데이터 사전), 수시 | 0.1 MB, 1,549행, 22칸(2026-11-11) |
 
 카탈로그의 `public-bulk-railway_station_line`(역↔노선) 은 따로 받는 파일이 아니라 철도역 파일의 `관련노선` 칸이다. 그래서
 두 endpoint 가 같은 Bronze 원천(`datagokr__railway_station`)을 가리킨다.
 
-- run 당 상한은 파일 자체다: 8개가 모두 새 판이면 약 365 MB, 요청 간격(5초)을 넣어 3분 안팎. 상가(상권) zip 만 계약에
-  자기 시간 한도(`request_timeout_seconds` 900)를 둔다. 상가 판의 UTF-8 사본(약 1.5 GB)은 실행 폴더에 잠시 놓였다가 지워진다.
+- run 당 상한은 파일 자체다: 8개가 모두 새 판이면 약 365 MB, 요청 간격(5초)을 넣어 3분 안팎. 2026-11-11 에 더한 중개 설명
+  자료 3개(표준지·승강기·지식산업센터)가 모두 새 판이면 약 173 MB 가 더해진다(표준지는 해마다, 나머지는 수시라 보통 run 은 하나도
+  받지 않는다). 상가(상권) zip(900)·표준지 CSV(900)·승강기 zip(600)이 계약에 자기 시간 한도(`request_timeout_seconds`)를 둔다. 상가 판의 UTF-8 사본(약 1.5 GB)은 실행 폴더에 잠시 놓였다가 지워진다.
 - 한 파일이 실패해도(HTTP 오류, 로그인 화면) 다른 파일은 받는다. run 은 끝에 실패한 파일을 모두 적고 실패한다. 상태:
   `/var/lib/foundation-platform/data-go-kr-file-data/`(`collector/<dataset_slug>/accepted.json`, `journal.log`).
 - 받지 않을 파일이 생기면(제공 중단) 계약에서 지우는 PR. 같은 파일을 다시 받게 하려면 그 파일의 `accepted.json` 을 지운다
