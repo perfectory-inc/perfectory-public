@@ -343,7 +343,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # collector does (root ADR-0475).
 # 167 -> 168: the ILIS notice collector embeds its source contract once
 # (industryland-or-kr.contract.json), as the court auction collector does (root ADR-0484).
-COMPILE_TIME_READ_BASELINE="${3:-168}"
+# 168 -> 169: the 건축물대장 오수정화시설 lane embeds its source contract once, as every hub part lane
+# does (root ADR-0496).
+COMPILE_TIME_READ_BASELINE="${3:-169}"
 
 cd "$repo_root"
 

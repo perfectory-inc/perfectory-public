@@ -35,6 +35,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     PermitStructureLedger,
     PermitFloorOverview,
     PermitTemporaryBuilding,
+    RegisterSewageFacility,
     PermitSiteLocation,
     MaintenanceRegularInspection,
     LandCharacteristic,
@@ -49,7 +50,7 @@ pub(in crate::remote_lakehouse_job) enum Lane {
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 29] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 30] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -68,6 +69,7 @@ impl Lane {
         Self::PermitStructureLedger,
         Self::PermitFloorOverview,
         Self::PermitTemporaryBuilding,
+        Self::RegisterSewageFacility,
         Self::PermitSiteLocation,
         Self::MaintenanceRegularInspection,
         Self::LandCharacteristic,
@@ -103,6 +105,7 @@ impl Lane {
             Self::PermitStructureLedger => "building-permit-structure-ledger",
             Self::PermitFloorOverview => "building-permit-floor-overview",
             Self::PermitTemporaryBuilding => "building-permit-temporary-building",
+            Self::RegisterSewageFacility => "building-register-sewage-facility",
             Self::PermitSiteLocation => "building-permit-site-location",
             Self::MaintenanceRegularInspection => "building-maintenance-regular-inspection-history",
             Self::LandCharacteristic => "land-characteristic",
@@ -209,6 +212,10 @@ impl Lane {
             Self::PermitTemporaryBuilding => (
                 "hub-building-permit-temporary-building-source-objects.json",
                 crate::building_permit_temporary_building_silver_export::CONTRACT_JSON,
+            ),
+            Self::RegisterSewageFacility => (
+                "hub-building-register-sewage-facility-source-objects.json",
+                crate::building_register_sewage_facility_silver_export::CONTRACT_JSON,
             ),
             Self::PermitSiteLocation => (
                 "hub-building-permit-site-location-source-objects.json",
@@ -332,6 +339,9 @@ impl ExportKind {
             },
             "export-building-permit-temporary-building-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_TEMPORARY_BUILDING",
+            },
+            "export-building-register-sewage-facility-silver-handoff" => Self::HubParts {
+                env_prefix: "FOUNDATION_PLATFORM_REGISTER_SEWAGE_FACILITY",
             },
             "export-building-permit-site-location-silver-handoff" => Self::HubParts {
                 env_prefix: "FOUNDATION_PLATFORM_PERMIT_SITE_LOCATION",

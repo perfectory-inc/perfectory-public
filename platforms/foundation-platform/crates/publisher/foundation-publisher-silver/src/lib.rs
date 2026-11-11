@@ -63,6 +63,9 @@ pub mod building_maintenance_regular_inspection_history_silver_export;
 /// Headerless HUB 총괄표제부 ZIP to partitioned Silver handoff (root ADR-0357).
 pub mod building_register_master_silver_export;
 
+/// Headerless HUB 건축물대장 오수정화시설 ZIP to partitioned Silver handoff, keyed by row (root ADR-0496).
+pub mod building_register_sewage_facility_silver_export;
+
 /// Headerless HUB 부속지번 ZIP to partitioned Silver handoff, two PNUs a row (root ADR-0395).
 pub mod building_register_sub_parcel_silver_export;
 

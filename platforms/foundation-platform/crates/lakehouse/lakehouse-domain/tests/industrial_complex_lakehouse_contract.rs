@@ -342,6 +342,8 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name
                 == lakehouse_domain::SILVER_BUILDING_PERMIT_TEMPORARY_BUILDING.table_name
             || contract.table_name
+                == lakehouse_domain::SILVER_BUILDING_REGISTER_SEWAGE_FACILITY.table_name
+            || contract.table_name
                 == lakehouse_domain::SILVER_BUILDING_PERMIT_SITE_LOCATION.table_name
             || contract.table_name
                 == lakehouse_domain::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY
