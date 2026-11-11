@@ -51,7 +51,8 @@
         "by_pnu_parcel_demolitions_bake",
         "by_pnu_parcel_factories_bake",
         "by_pnu_parcel_register_masters_bake",
-        "by_pnu_parcel_real_transaction_bake"
+        "by_pnu_parcel_real_transaction_bake",
+        "by_pnu_parcel_utility_bake"
       ],
       "enabled": true,
       "enabled_since": "2026-10-29T12:00:00Z",

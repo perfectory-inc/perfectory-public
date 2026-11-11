@@ -297,7 +297,9 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
                           # Root ADR-0468 (revised 2026-11-10): switched on behind the loaders that fill them.
                           "by_pnu_parcel_ownership_bake", "by_pnu_parcel_sub_parcels_bake", "by_pnu_parcel_energy_bake",
                           "by_pnu_parcel_demolitions_bake", "by_pnu_parcel_factories_bake",
-                          "by_pnu_parcel_register_masters_bake", "by_pnu_parcel_real_transaction_bake"})
+                          "by_pnu_parcel_register_masters_bake", "by_pnu_parcel_real_transaction_bake",
+                          # Root ADR-0491: switched on behind the 오수정화시설 loader that fills it.
+                          "by_pnu_parcel_utility_bake"})
         # Every enabled job that serves a by-PNU lane is reconciled (2026-10-29: the panel bake was not).
         # A job listed off is not (the reconciler starts enabled `inputs` jobs only); the change that
         # switches it on lists it here (the ownership bake, root ADR-0361).

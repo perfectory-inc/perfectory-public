@@ -25,6 +25,7 @@ const reads = vi.hoisted(() => ({
   buildingPermits: null as unknown,
   nearby: null as unknown,
   realTransaction: null as unknown,
+  utility: null as unknown,
 }));
 // The regulation zones read is the real one (its fetch stubbed below): the panel must answer from
 // the lane, never from a map.
@@ -83,6 +84,10 @@ vi.mock("@/components/panels/parcel/queries", async (importOriginal) => ({
   parcelRealTransactionQuery: (pnu: string) => ({
     queryKey: ["panel", "parcel", "real-transaction", pnu],
     queryFn: async () => reads.realTransaction,
+  }),
+  parcelUtilityQuery: (pnu: string) => ({
+    queryKey: ["panel", "parcel", "utility", pnu],
+    queryFn: async () => reads.utility,
   }),
 }));
 
@@ -322,6 +327,27 @@ describe("parcel panel sections", () => {
       expect(group.textContent).not.toContain("건축HUB");
     } finally {
       reads.energy = null;
+    }
+  });
+
+  it("shows the 오수정화방식 the registers list in their words, most facilities first", async () => {
+    reads.utility = {
+      sewage: {
+        treatment_plant_connection: true,
+        facility_total: 3,
+        methods: [
+          { code: "300", name: "하수종말처리장연결", facilities: 2 },
+          { code: "201", name: "부패탱크방법", facilities: 1 },
+        ],
+      },
+    };
+    try {
+      renderPanel(parcel());
+      expect(await screen.findByText("하수종말처리장연결 · 부패탱크방법")).toBeTruthy();
+      expect(screen.getByText("오수정화방식")).toBeTruthy();
+      expect(anchors()).toContain("인입 가능성");
+    } finally {
+      reads.utility = null;
     }
   });
 

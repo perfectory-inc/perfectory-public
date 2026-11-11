@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_utility_by_pnu",
+  "description": "What the public registers say about whether a parcel is reached by a utility line (root ADR-0490, ADR-0491): from the parcel's 건축물대장 오수정화시설 rows with a 오수정화방식, the facilities counted per method (code and the provider's name), most first, at most 20, how many there are, and whether one is 하수종말처리장연결 (300) or 마을하수처리장연결 (400).",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_utility_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "utility": {
+      "type": "object",
+      "properties": {
+        "sewage": {
+          "type": "object",
+          "properties": {
+            "treatment_plant_connection": {
+              "description": "True when a facility's 오수정화방식 is 하수종말처리장연결 (300) or 마을하수처리장연결 (400).",
+              "type": "boolean"
+            },
+            "facility_total": {
+              "type": "integer"
+            },
+            "methods": {
+              "description": "The parcel's facilities per 오수정화방식, most first, at most 20.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "facilities": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "code",
+                  "facilities"
+                ]
+              }
+            }
+          },
+          "required": [
+            "treatment_plant_connection",
+            "facility_total",
+            "methods"
+          ]
+        }
+      },
+      "required": [
+        "sewage"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "utility"
+  ]
+}

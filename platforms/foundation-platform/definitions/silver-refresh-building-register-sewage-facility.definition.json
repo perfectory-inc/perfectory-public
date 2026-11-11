@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "Silver refresh of the 오수정화시설 lane `building-register-sewage-facility` (root ADR-0169 ②, ADR-0496): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_sewage_facility already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in sixteen buckets (the first hex digit of each row's SHA-256 key) and append to main only the rows it has not held and a removal marker per row it no longer holds (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
+      "description": "Silver refresh of the 오수정화시설 lane `building-register-sewage-facility` (root ADR-0169 ②, ADR-0490): pick the newest complete hub.go.kr release in the Bronze ledger and, unless silver.building_register_sewage_facility already records it or a newer one (`unchanged`), export it, stage it on a load branch, compare it with the table's current rows in sixteen buckets (the first hex digit of each row's SHA-256 key) and append to main only the rows it has not held and a removal marker per row it no longer holds (lane contract compare.content_columns; root ADR-0318), and read it back (`changed`). Started when a source_sweep run lands new files, and daily as the fallback (root ADR-0171). One lane runs at a time: each takes the compose `spark` cap.",
       "systemd_service": "foundation-silver-refresh@building-register-sewage-facility.service",
       "check_service": "foundation-silver-refresh-plan@building-register-sewage-facility.service",
       "systemd_timer": null,
@@ -51,12 +51,12 @@
       "id": "silver-building-register-sewage-facility",
       "type": "silver_table",
       "title": "건축물대장 오수정화시설",
-      "description": "건축물대장의 오수정화시설마다 한 행: 오수정화방식(하수종말처리장연결·마을하수처리장연결·부패탱크방법·접촉폭기방법 등)·용량·대장종류. 필지의 하수 신호다 — 하수처리장연결은 공공하수도에 이어진 증거, 그 밖의 방식은 개인하수처리시설이다. 한 건물에 시설이 여럿이라 행 글자의 SHA-256 이 키다. 원문 29칸 보존. 읽는 소비자(필지 by-PNU 종류)는 다음 PR 이라 그때까지 섬으로 둔다(루트 ADR-0496).",
-      "status": "contract_only",
+      "description": "건축물대장의 오수정화시설마다 한 행: 오수정화방식(하수종말처리장연결·마을하수처리장연결·부패탱크방법·접촉폭기방법 등)·용량·대장종류. 필지의 하수 신호다 — 하수처리장연결은 공공하수도에 이어진 증거, 그 밖의 방식은 개인하수처리시설이다. 한 건물에 시설이 여럿이라 행 글자의 SHA-256 이 키다. 원문 29칸 보존. 필지 by-PNU 종류 parcel-utility 가 행의 PNU 로 필지의 인입 가능성 문서에 싣는다(루트 ADR-0490, ADR-0491).",
+      "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [
         "platforms/foundation-platform/infra/lakehouse/contracts/hub-building-register-sewage-facility-source-objects.json",
-        "docs/adr/0496-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md"
+        "docs/adr/0490-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md"
       ],
       "table_name": "silver.building_register_sewage_facility",
       "runtime_bindings": [
@@ -81,8 +81,8 @@
       "source_slugs": [
         "hubgokr__building_register_sewage_facility"
       ],
-      "description": "건축물대장 오수정화시설(mart_djy_07) 29칸을 행마다 새 행·사라진 행만 append-only Silver 로 쌓는다(루트 ADR-0496).",
-      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0496)"
+      "description": "건축물대장 오수정화시설(mart_djy_07) 29칸을 행마다 새 행·사라진 행만 append-only Silver 로 쌓는다(루트 ADR-0490).",
+      "pnu_resolution": "pnu composed at Silver by the Rust hub/VWorld export (export-*-silver-handoff, standard_pnu_from_hub_register_codes / ADR-0145), not a raw provider code; parcels since merged, split or recoded are carried to the current pnu by the consumer through the place-identity resolver and views.changed_codes (ADR-0288, ADR-0329, ADR-0490)"
     }
   ],
   "host_memory": {

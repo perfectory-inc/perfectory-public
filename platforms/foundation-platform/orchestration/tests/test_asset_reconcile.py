@@ -88,6 +88,8 @@ class Reconciler(unittest.TestCase):
             "gold.parcel_factories": table(snap("705", None, 0)),
             "gold.parcel_register_masters": table(snap("706", None, 0)),
             "gold.parcel_real_transaction": table(snap("707", None, 0)),
+            # The 인입 가능성 lane (root ADR-0491), caught up.
+            "gold.parcel_utility": table(snap("708", None, 0)),
         }
         self.reads = {"parcel-public-auction": {"read_snapshot_id": "101", "outcome": "served"},
                       "parcel-court-auction": {"read_snapshot_id": "401", "outcome": "served"},
@@ -101,7 +103,8 @@ class Reconciler(unittest.TestCase):
                       "parcel-demolitions": {"read_snapshot_id": "704", "outcome": "served"},
                       "parcel-factories": {"read_snapshot_id": "705", "outcome": "served"},
                       "parcel-register-masters": {"read_snapshot_id": "706", "outcome": "served"},
-                      "parcel-real-transaction": {"read_snapshot_id": "707", "outcome": "served"}}
+                      "parcel-real-transaction": {"read_snapshot_id": "707", "outcome": "served"},
+                      "parcel-utility": {"read_snapshot_id": "708", "outcome": "served"}}
         self.running, self.full, self.unpublished = set(), set(), set()
 
     def tick(self, now_minutes=40, state=None, panel=False, current=None):
@@ -167,7 +170,7 @@ class Reconciler(unittest.TestCase):
                                             "by_pnu_parcel_building_permits_bake", "by_pnu_parcel_nearby_bake",
                                             *(f"by_pnu_parcel_{kind}_bake" for kind in (
                                                 "ownership", "sub_parcels", "energy", "demolitions", "factories",
-                                                "register_masters", "real_transaction"))})
+                                                "register_masters", "real_transaction", "utility"))})
         # Every lane the panel bake serves is an asset of its own, fed from its one Gold table; inside
         # the one unit the kinds follow the parcel lane by run order, so none follows across jobs.
         self.assertEqual({lane: (asset.lane_table, asset.follows, asset.uri) for lane, asset in self.lanes.items()},

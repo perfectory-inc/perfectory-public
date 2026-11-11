@@ -565,6 +565,7 @@ class JobsStartedByTheirInputs(unittest.TestCase):
         self.assertEqual(specs["by_pnu_parcel_building_permits_bake"].producers,
                          ("gold_parcel_building_permits_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_nearby_bake"].producers, ("gold_parcel_nearby_rebuild",))
+        self.assertEqual(specs["by_pnu_parcel_utility_bake"].producers, ("gold_parcel_utility_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_demolitions_bake"].producers, ("gold_parcel_demolitions_rebuild",))
         self.assertEqual(specs["by_pnu_parcel_real_transaction_bake"].producers,
                          ("gold_parcel_real_transaction_rebuild",))

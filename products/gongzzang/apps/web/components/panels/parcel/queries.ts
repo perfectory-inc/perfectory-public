@@ -14,6 +14,7 @@ import { fetchRealTransaction } from "@/lib/api/real-transaction";
 import { fetchRegisterMasters } from "@/lib/api/register-masters";
 import { fetchRegulationZones } from "@/lib/api/regulation-zones";
 import { fetchSubParcels } from "@/lib/api/sub-parcels";
+import { fetchUtility } from "@/lib/api/utility";
 import { fetchListings } from "@/lib/listings/api";
 
 export const parcelBuildingsQuery = (pnu: string) => ({
@@ -80,6 +81,13 @@ export const parcelNearbyQuery = (pnu: string) => ({
   queryKey: ["panel", "parcel", "nearby", pnu] as const,
   queryFn: ({ signal }: { signal: AbortSignal }) => fetchNearby(pnu, signal),
   // Computed in Gold from facility files that change a few times a year and monthly 상가 (ADR-0465).
+  staleTime: 60 * 60_000,
+});
+
+export const parcelUtilityQuery = (pnu: string) => ({
+  queryKey: ["panel", "parcel", "utility", pnu] as const,
+  queryFn: ({ signal }: { signal: AbortSignal }) => fetchUtility(pnu, signal),
+  // Built from the monthly 건축물대장 오수정화시설 file (root ADR-0491).
   staleTime: 60 * 60_000,
 });
 
