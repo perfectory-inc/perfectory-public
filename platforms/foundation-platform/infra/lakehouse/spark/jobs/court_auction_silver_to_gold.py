@@ -49,6 +49,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from functools import reduce
 from typing import Any
 
@@ -66,6 +67,20 @@ CODE_CHANGE_SOURCE = "reference.legal_dong_code_change"
 PHOTO_SOURCE = "silver.court_auction_item_photo"
 # A case's photos: the 물건상세 lists them per (court office, case), for every property of it.
 CASE = ("court_office_code", "case_no")
+PROPERTY = (*CASE, "property_seq")
+# The 물건상세's documents (root ADR-0540 §4-§5), one Silver table each: a round's `detail`. The case
+# and its 감정요항표 are a case's; the rest a property's.
+CASE_DOC = "silver.court_auction_case"
+SPEC_DOC = "silver.court_auction_item_spec"
+SCHEDULE_DOC = "silver.court_auction_item_schedule"
+OBJECT_DOC = "silver.court_auction_item_object"
+ANNEX_DOC = "silver.court_auction_item_annex"
+APPRAISAL_DOC = "silver.court_auction_appraisal_point"
+DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC)
+CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC)
+# The site's names of the codes a detail carries (courtauction-go-kr.contract.json `code_names`).
+CODE_NAMES = json.loads((Path(__file__).resolve().parents[2] / "contracts" / "courtauction-go-kr.contract.json")
+                        .read_text(encoding="utf-8"))["code_names"]["groups"]
 PHOTO_STRUCT = ("array<struct<sha256:string,media_kind:string,kind_code:string,sequence:int,title:string,"
                 "media_format:string,size_bytes:bigint>>")
 # The code change rows a build reads, the parcel panel's (`changed_codes` compares them).
@@ -93,7 +108,7 @@ ROUND_FIELDS = (
     "usage_lcls_code", "usage_mcls_code", "usage_scls_code",
     "appraisal_amount_krw", "minimum_bid_price_krw", "sale_amount_krw",
     "sale_date", "sale_time_raw", "sale_decision_date", "sale_place", "failed_bid_count",
-    "photos",
+    "photos", "detail",
 )
 # A served sale result's values (root ADR-0454): the item's identifiers, the court, the address, the
 # status and usage codes, money and the sale it reports. Measured 2026-11-09 on production Silver:
@@ -123,15 +138,17 @@ def lane_inputs(lane: str) -> tuple[tuple[str, ...], dict[str, str], str, tuple[
     are: a new edition or link moves items the item rows do not name."""
     del lane
     return ((PARCEL_SOURCE, ITEM_SOURCE, SALE_RESULT_SOURCE, CODE_CHANGE_SOURCE, *place_id_join.INPUTS),
-            {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos"}, PARCEL_SOURCE,
+            {LINEAGE_SOURCE: "--no-carry-lineage", PHOTO_SOURCE: "--no-photos",
+             **{source: "--no-documents" for source in DOCUMENT_SOURCES}}, PARCEL_SOURCE,
             (PARCEL_SOURCE, LINEAGE_SOURCE))
 
 
-def declared_sources(lane: str, carry_lineage: bool, photos: bool = True) -> tuple[str, ...]:
+def declared_sources(lane: str, carry_lineage: bool, photos: bool = True, documents: bool = True) -> tuple[str, ...]:
     """Every Silver source this build pins: exactly what the rebuild harness pins from `lane_inputs`
     (`load_source_snapshot_pins` rejects any mismatch, the 2026-10-27 공매 crash)."""
     required, _optional, _anchor, _whole = lane_inputs(lane)
-    return (*required, *((LINEAGE_SOURCE,) if carry_lineage else ()), *((PHOTO_SOURCE,) if photos else ()))
+    return (*required, *((LINEAGE_SOURCE,) if carry_lineage else ()), *((PHOTO_SOURCE,) if photos else ()),
+            *(DOCUMENT_SOURCES if documents else ()))
 
 
 def photos_by_case(photo_rows: Any) -> Any:
@@ -159,6 +176,90 @@ def with_photos(round_rows: Any, photo_rows: Any | None) -> Any:
         return round_rows.withColumn("photos", empty)
     return (round_rows.join(photos_by_case(photo_rows), list(CASE), "left")
             .withColumn("photos", F.coalesce(F.col("photos"), empty)))
+
+
+def code_name(column: str, group: str) -> Any:
+    """The site's own name of the code in `column` (the contract's `code_names`, root ADR-0540 §5), or
+    null for a code its table lacks."""
+    from itertools import chain  # noqa: PLC0415
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    names = CODE_NAMES[group]
+    lookup = F.create_map(*chain.from_iterable((F.lit(code), F.lit(name)) for code, name in sorted(names.items())))
+    return F.when(F.col(column).isin(sorted(names)), lookup[F.col(column)])
+
+
+def _listed(frame: Any, group: tuple[str, ...], order: tuple[str, ...], fields: list[Any], name: str) -> Any:
+    """`frame`'s rows as one array per `group`, in `order`."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    keyed = F.struct(*[F.col(c).alias(f"_o{n}") for n, c in enumerate(order)], F.struct(*fields).alias("_e"))
+    return frame.groupBy(*group).agg(F.array_sort(F.collect_list(keyed)).getField("_e").alias(name))
+
+
+def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
+    """Each document table's current rows (root ADR-0540 §4) as one column per property or case:
+    `_case` and `_spec` structs, `_schedule`, `_objects`, `_annexes` and `_appraisal_points` arrays in
+    the site's order. The codes keep their codes and gain the site's names."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+    from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
+
+    def current(source: str) -> Any:
+        return current_rows(frames[source], load_lakehouse_contract(source))
+
+    case = current(CASE_DOC).select(*CASE, F.struct(
+        "case_name", "case_received_date", "commencement_date", "claim_amount_krw", "department_name",
+        "department_phone", "dividend_demand_deadline").alias("_case"))
+    spec = current(SPEC_DOC).select(*PROPERTY, F.struct(
+        "spec_written_date", "assumed_rights", "superficies", "spec_remarks", "first_rank_setting", "item_remarks",
+        "item_usage_code", code_name("item_usage_code", "PGJ-AUCTN_GDS_USG_CD").alias("item_usage_name"),
+        "bid_kind_code", code_name("bid_kind_code", "PGJ-BID_DVS_CD").alias("bid_kind_name"),
+        "bid_start_date", "bid_end_date", "sale_decision_date", "sale_decision_time_raw", "sale_decision_place",
+        "deposit_rate_percent").alias("_spec"))
+    schedule = _listed(current(SCHEDULE_DOC), PROPERTY, ("schedule_seq",), [
+        "schedule_date", "schedule_time_raw", "schedule_kind_code",
+        code_name("schedule_kind_code", "PGJ-AUCTN_DXDY_KND_CD").alias("schedule_kind_name"), "schedule_place",
+        "result_code", code_name("result_code", "LJH-AUCTN_DXDY_RSLT_CD").alias("result_name"),
+        "minimum_bid_price_krw", "sale_amount_krw"], "_schedule")
+    objects = _listed(current(OBJECT_DOC), PROPERTY, ("object_seq",), [
+        "object_seq", "list_kind_code", code_name("list_kind_code", "LJH-AUCTN_LST_DVS_CD").alias("list_kind_name"),
+        "realty_kind", "building_structure", "area_raw", "land_category", "appraisal_amount_krw", "print_address_raw",
+        "building_unit_raw", "share_numerator", "share_denominator"], "_objects")
+    annexes = _listed(current(ANNEX_DOC), PROPERTY, ("object_seq", "annex_seq"), [
+        "object_seq", "usage_raw", "structure_raw", "area_raw", "appraisal_amount_krw", "remarks"], "_annexes")
+    points = _listed(current(APPRAISAL_DOC), CASE, ("point_seq",), [
+        "table_code", code_name("table_code", "PGJ-AEE_WEVL_MNPNT_TBLT_DVS_CD").alias("table_name"),
+        "item_code", code_name("item_code", "PGJ-AEE_WEVL_MNPNT_ITM_CD").alias("item_name"), "content"],
+        "_appraisal_points")
+    return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
+            "appraisal_points": points}
+
+
+def with_detail(round_rows: Any, frames: dict[str, Any], spark: Any = None) -> Any:
+    """Each round with its `detail` (root ADR-0540 §5): its case, its 매각물건명세서 summary and its
+    lists, null for a property whose 물건상세 was never read (or a build without the documents:
+    `--no-documents`, every detail null), so every served round carries the field."""
+    from pyspark.sql import functions as F  # noqa: PLC0415
+    from platform_contracts import load_lakehouse_contract, spark_sql_type  # noqa: PLC0415
+
+    if not all(source in frames for source in DOCUMENT_SOURCES):
+        session = spark or round_rows.sparkSession
+        frames = {source: session.createDataFrame([], ", ".join(
+            f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in load_lakehouse_contract(source)["columns"]))
+            for source in DOCUMENT_SOURCES}
+    parts = detail_parts(frames)
+    joined = round_rows
+    for name, part in parts.items():
+        on = [c for c in part.columns if not c.startswith("_")]
+        joined = joined.join(part, on, "left")
+    lists = ("schedule", "objects", "annexes", "appraisal_points")
+    typed = {name: parts[name].schema[f"_{name}"].dataType.simpleString() for name in lists}
+    present = F.col("_case").isNotNull() | F.col("_spec").isNotNull()
+    detail = F.struct(F.col("_case").alias("case"), F.col("_spec").alias("spec"), *[
+        F.coalesce(F.col(f"_{name}"), F.expr(f"CAST(array() AS {typed[name]})")).alias(name) for name in lists])
+    return (joined.withColumn("detail", F.when(present, detail))
+            .drop(*[f"_{name}" for name in parts]))
 
 
 def located(items: Any, remap: dict[str, str]) -> Any:
@@ -299,8 +400,8 @@ def placement(frames: dict[str, Any], how: Placement) -> Any:
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     served = served_rounds(rounds(frames[ITEM_SOURCE]), F.to_date(F.to_timestamp(F.lit(how.as_of))))
-    return onbid.placed(with_photos(served, frames.get(PHOTO_SOURCE)), frames[PARCEL_SOURCE], how.candidates,
-                        how.merges)
+    return onbid.placed(with_detail(with_photos(served, frames.get(PHOTO_SOURCE)), frames), frames[PARCEL_SOURCE],
+                        how.candidates, how.merges)
 
 
 def sale_placement(frames: dict[str, Any], how: Placement) -> Any:
@@ -320,9 +421,10 @@ def gold_rows(located: Any, located_sales: Any, as_of: str, source_snapshot_id: 
 
 def items_of(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
     """`frames` with the item and sale-result rows cut to the items of `keys` (every version of each)
-    and the photo rows to their cases."""
-    cut = {ITEM_SOURCE: keys.select(*KEY), SALE_RESULT_SOURCE: keys.select(*KEY),
-           PHOTO_SOURCE: keys.select(*CASE).distinct()}
+    and the photo and document rows to their cases."""
+    cases = keys.select(*CASE).distinct()
+    cut = {ITEM_SOURCE: keys.select(*KEY), SALE_RESULT_SOURCE: keys.select(*KEY), PHOTO_SOURCE: cases,
+           **{source: cases for source in DOCUMENT_SOURCES}}
     return {name: frame.join(cut[name], cut[name].columns, "left_semi") if name in cut else frame
             for name, frame in frames.items()}
 
@@ -373,6 +475,12 @@ def affected_pnus(old: dict[str, Any], new: dict[str, Any], how: Placement, curr
         # A photo row is its case's: every property of the case serves it.
         cases = incremental.changed_rows(old[PHOTO_SOURCE], new[PHOTO_SOURCE], (*CASE, "sha256")).select(*CASE).distinct()
         touched.append(new[ITEM_SOURCE].join(cases, list(CASE), "left_semi").select(*KEY))
+    for source in DOCUMENT_SOURCES:
+        if source in changed and source in old and source in new:
+            # A document row is its property's, or its case's (every property of it serves it).
+            by = CASE if source in CASE_DOCUMENTS else PROPERTY
+            owners = incremental.changed_rows(old[source], new[source], by).select(*by).distinct()
+            touched.append(new[ITEM_SOURCE].join(owners, list(by), "left_semi").select(*KEY))
     today = F.to_date(F.to_timestamp(F.lit(how.as_of)))
     passed = rounds(new[ITEM_SOURCE]).where(F.col("sale_date").isNotNull() & (F.col("sale_date") < today))
     if previous_as_of is not None:
@@ -405,6 +513,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                         help="Place a retired PNU's item under itself, flagged, instead of following the lineage.")
     parser.add_argument("--no-photos", dest="photos", action="store_false",
                         help="Serve every round with an empty photos array, without the photo table.")
+    parser.add_argument("--no-documents", dest="documents", action="store_false",
+                        help="Serve every round with a null detail, without the 물건상세 document tables.")
     parser.add_argument("--summary-output")
     parser.add_argument("--lineage-output")
     # The harness passes the section-coverage flags to every kind producer (gold_rebuild.plan, root
@@ -466,6 +576,11 @@ def read_inputs(spark: Any, args: argparse.Namespace, pins: dict[str, str], coun
         frames[PHOTO_SOURCE] = versions(pins, PHOTO_SOURCE).cache()
         if old is not None and previous is not None and PHOTO_SOURCE in previous:
             old[PHOTO_SOURCE] = versions(previous, PHOTO_SOURCE)
+    for source in DOCUMENT_SOURCES if args.documents else ():
+        if source in pins:
+            frames[source] = versions(pins, source).cache()
+            if old is not None and previous is not None and source in previous:
+                old[source] = versions(previous, source)
     placed_pnus = frames[ITEM_SOURCE].select("pnu").unionByName(frames[SALE_RESULT_SOURCE].select("pnu"))
     named = placed_pnus.select(F.col("pnu").alias("predecessor_pnu")).where(F.col("predecessor_pnu").isNotNull()).distinct()
     sources = {r.predecessor_pnu for r in named.collect()}
@@ -517,7 +632,7 @@ def main(argv=None) -> int:
         raise ValueError(f"{args.lane} names producer {kind.producer}, not {JOB_NAME}")
     args.published_at_utc = panel.normalize_utc_timestamp(args.published_at_utc)
     _required, _optional, anchor, whole = lane_inputs(args.lane)
-    sources = declared_sources(args.lane, args.carry_lineage, args.photos)
+    sources = declared_sources(args.lane, args.carry_lineage, args.photos, args.documents)
     pins = load_source_snapshot_pins("iceberg", args.source_snapshots_path, sources, anchor, args.iceberg_snapshot_id)
     previous = incremental.validate_arguments(args, sources)
     contract = load_lakehouse_contract(kind.gold_table)
