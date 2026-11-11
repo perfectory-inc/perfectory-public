@@ -22,7 +22,7 @@ LOC는 구현 파일(wrapper + checker + 그 가드가 소유한 helper/contract
 
 | id | 가드(경로) | LOC | 자기 시험 LOC | 검사 | 배선 | 사고 명시 | 분류 | 대체(정본 또는 OSS 규칙) | 병렬 | 크기 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| G001 | no-subdir-github<br>scripts/guard/no-subdir-github.sh | 12 | 0 | 루트 밖에 중첩된 `.github/workflows`가 없는지 검사 | CI repo(always) | 예 2026-07-19 (전 영역 CI 먹통) | R-OSS | `**/.github` 디렉터리를 금지하는 ls-lint 규칙 | 예 | S |
+| G001 **끝남(W32d: Opengrep `no-subdir-github.yml`, generic — 워크플로의 `on:` 키를 영역 아래 .github/workflows 에서 읽음)** | no-subdir-github<br>scripts/guard/no-subdir-github.sh | 12 | 0 | 루트 밖에 중첩된 `.github/workflows`가 없는지 검사 | CI repo(always) | 예 2026-07-19 (전 영역 CI 먹통) | R-OSS | `**/.github` 디렉터리를 금지하는 ls-lint 규칙 | 예 | S |
 | G002 | technology-version-consistency<br>scripts/guard/technology-version-consistency.sh | 227 | 137 | compose/runtime/JS/Rust 고정값이 tools/technology-versions.contract.json과 일치하는지 검사 | CI repo(paths) + pre-push | 아니오 (드리프트; ADR-0097) | E-SSOT | `technology-versions.contract.json`(또는 Renovate 그룹)에서 고정값 생성 | 예 | M |
 | G003 | static-release-toolchain-ssot<br>scripts/guard/static-release-toolchain-ssot.sh (+1 files) | 121 | 114 | static-release 도구 버전/다이제스트가 JSON 계약 밖에서 재기술되지 않는지 검사 | CI repo(always) | 아니오 | E-SSOT | 계약이 SSOT; 계약 밖 다이제스트는 잔여 Semgrep pattern-regex | 예 | M |
 | G004 | foundation-kafka-contract<br>scripts/guard/foundation-kafka-contract.sh | 105 | 0 | Kafka 레인 타깃 이름이 xtask/`live.rs`·테스트·CI cleanup 전체에서 일치하는지 검사 | CI repo(paths) | 아니오 | E-SSOT | 레인 소속을 테스트 이름/속성 + nextest filterset `test(/^live_kafka/)`에서 도출 | 예 | M |

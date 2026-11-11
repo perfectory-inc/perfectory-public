@@ -1,0 +1,18 @@
+# GitHub runs only the workflows under the repository root's .github/workflows.
+#
+# Prevents: silently inert CI. On 2026-07-19 all four areas' pipelines were dead because their
+# workflows lived under products/<area>/.github/workflows and platforms/<area>/.github/workflows,
+# which GitHub never reads (root ADR-0001). A workflow file always declares its triggers (`on:`), so
+# the rule reads that key in any workflow file below an area; `generic`, as the file is never parsed.
+rules:
+  - id: no-workflow-outside-the-root-github-directory
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      GitHub never runs a workflow outside the repository root's .github/workflows (2026-07-19: every
+      area's CI was dead from products/*/.github and platforms/*/.github). Move it to /.github/workflows.
+    paths:
+      include:
+        - "/products/**/.github/workflows/*"
+        - "/platforms/**/.github/workflows/*"
+    pattern-regex: '(?m)^["'']?on["'']?\s*:'

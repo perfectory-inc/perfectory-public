@@ -1,0 +1,11 @@
+# A workflow under an area's .github/workflows: GitHub never runs it.
+name: area-ci
+# ruleid: no-workflow-outside-the-root-github-directory
+on:
+  push:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # ok: no-workflow-outside-the-root-github-directory
+      - run: echo "only the trigger key is read"
