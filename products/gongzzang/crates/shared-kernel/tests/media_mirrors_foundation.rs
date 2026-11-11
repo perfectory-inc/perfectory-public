@@ -28,9 +28,22 @@ fn the_formats_are_the_foundation_ones() {
         .map(|(body, _)| body)
         .expect("foundation MediaFormat::sniff");
     let photo = regex::Regex::new(r"Some\(Self::(\w+)\)").expect("regex");
+    // A photo foundation never serves (`is_served`: BMP, TIFF, root ADR-0503) stands in the served
+    // store as its PNG display master, so gongzzang never meets it and has no copy of it.
+    let unserved_body = source
+        .split_once("pub const fn is_served(")
+        .and_then(|(_, rest)| rest.split_once("pub "))
+        .map(|(body, _)| body)
+        .expect("foundation MediaFormat::is_served");
+    let unserved: Vec<String> = regex::Regex::new(r"Self::(\w+)")
+        .expect("regex")
+        .captures_iter(unserved_body)
+        .map(|capture| capture[1].to_owned())
+        .collect();
     let photos: Vec<String> = photo
         .captures_iter(sniff)
         .map(|capture| capture[1].to_owned())
+        .filter(|variant| !unserved.contains(variant))
         .collect();
     let arm = regex::Regex::new(r#"Self::(\w+) => "([^"]+)","#).expect("regex");
     let mut arms: Vec<(String, Vec<String>)> = Vec::new();
