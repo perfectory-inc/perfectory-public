@@ -112,6 +112,8 @@ const SERVED_SUMMARY_V2: &str = "foundation-platform.polygon_served_gold.v2";
 const SERVED_SRIDS: [i32; 2] = [4326, 5186];
 const MAP_EDIT_GATEWAY_BASE_URL_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_GATEWAY_BASE_URL";
 const MAP_EDIT_WRITE_TOKEN_ENV: &str = "FOUNDATION_PLATFORM_MAP_EDIT_WRITE_TOKEN";
+/// tippecanoe's tile detail when `--full-detail` is not given: an extent of 4096.
+const DEFAULT_TILE_DETAIL: u8 = 12;
 /// How many ids a gate failure names; the counts are always complete.
 const NAMED_IDS: usize = 5;
 /// The most missing ids the gate reads geometry for (ADR-0262); 202609 at detail 12 missed 542.
@@ -1061,6 +1063,28 @@ fn unchanged(unit: &str, snapshot: &str) {
     println!("lakehouse-tile-bake-unchanged unit={unit} gold_snapshot={snapshot} reason=\"the tiles already show this snapshot under this bake recipe\"");
 }
 
+/// Root ADR-0485: the maxzoom tiles are drawn up to `render_max_zoom`, overzoomed, so one maxzoom
+/// tile unit must be at most one pixel (of a 256-pixel tile) there: `2^detail >= 256 x
+/// 2^(render_max_zoom - tile_max_zoom)`. The 2026-11-09 audit measured `complex` (z16 tiles drawn to
+/// 22 at tippecanoe's default 12) off its Gold boundary by one unit, 4 px at zoom 22; a unit missing
+/// from the contract's `maxzoom_detail` no longer bakes like that.
+pub fn ensure_maxzoom_detail_reaches_render_max_zoom(
+    layer: &ServedLayer,
+    maxzoom_detail: Option<u8>,
+) -> anyhow::Result<()> {
+    let detail = maxzoom_detail.unwrap_or(DEFAULT_TILE_DETAIL);
+    let needed = 8 + layer.render_max_zoom.saturating_sub(layer.tile_max_zoom);
+    ensure!(
+        detail >= needed,
+        "{} tiles end at z{} and are drawn to z{}: one unit at maxzoom detail {detail} is {} px there;          the contract's maxzoom_detail must give it at least {needed} (root ADR-0485)",
+        layer.source_layer,
+        layer.tile_max_zoom,
+        layer.render_max_zoom,
+        1_u32 << (needed - detail)
+    );
+    Ok(())
+}
+
 /// GDAL then tippecanoe in `work`: `served.csv` in, `unit.pmtiles` out.
 async fn bake_unit(
     config: &Config,
@@ -1070,6 +1094,7 @@ async fn bake_unit(
     srid: i32,
     layer: &ServedLayer,
 ) -> anyhow::Result<()> {
+    ensure_maxzoom_detail_reaches_render_max_zoom(layer, config.maxzoom_detail)?;
     let source_srs = format!("EPSG:{srid}");
     let project = config.container_project.as_deref();
     let mut gdal = run_args(work, &images.gdal, project);
