@@ -30,10 +30,13 @@ PY=(python3 -E -s)
 work="$(mktemp -d)"
 trap 'rm -rf -- "${work}"' EXIT
 
+# One statement through --execute, as the other host readers send it: --file refuses a statement with no
+# terminating `;` ("Non-terminated statement"). From 2026-11-04 to 2026-11-11 every run left Silver unmeasured
+# that way, and 202609 stayed `not ready: silver` (root ADR-0379 §2).
 partitions=()
-if printf '%s\n' 'SELECT partition.source_snapshot_id, record_count FROM silver."parcel_boundaries$partitions"' |
-  timeout 120 docker exec -i "${TRINO_CONTAINER}" trino --server localhost:8080 --catalog r2 --output-format CSV \
-    --file /dev/stdin > "${work}/partitions.csv" 2> "${work}/trino.err"; then
+if timeout 120 docker exec "${TRINO_CONTAINER}" trino --server localhost:8080 --catalog r2 --output-format CSV \
+    --execute 'SELECT partition.source_snapshot_id, record_count FROM silver."parcel_boundaries$partitions"' \
+    > "${work}/partitions.csv" 2> "${work}/trino.err"; then
   partitions=(--partitions "${work}/partitions.csv")
 else
   echo "parcel-edition-readiness: silver not measured: $(tail -1 "${work}/trino.err")" >&2
