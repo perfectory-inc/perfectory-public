@@ -361,6 +361,9 @@ pub struct StartLakehouseBakeCommand {
     /// SRID, arguments; root ADR-0316). Recorded on the release it promotes, so a recipe change
     /// rebakes the snapshot the input already serves. `None`: the recipe is not recorded.
     pub bake_inputs_sha256: Option<String>,
+    /// The maxzoom the archive is cut to when it differs from the input release's (root
+    /// ADR-0492); the promoted release's layer carries it. `None`: the input's.
+    pub tile_max_zoom: Option<u8>,
 }
 
 /// The Silver snapshot a lakehouse bake read and the ADR-0113 §7 verdict that let it be baked.
@@ -391,8 +394,12 @@ impl StartLakehouseBakeCommand {
                 .text(&source.matching_verdict_sha256),
             None => builder,
         };
-        match &self.bake_inputs_sha256 {
-            Some(recipe) => builder.text(recipe).finish(),
+        let builder = match &self.bake_inputs_sha256 {
+            Some(recipe) => builder.text(recipe),
+            None => builder,
+        };
+        match self.tile_max_zoom {
+            Some(zoom) => builder.integer(u64::from(zoom)).finish(),
             None => builder.finish(),
         }
     }

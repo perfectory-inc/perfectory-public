@@ -942,3 +942,47 @@ fn the_real_contract_bakes_parcels_from_editions_and_refuses_a_bound_above_one(
     assert!(SampleContract::parse(&value.to_string()).is_err());
     Ok(())
 }
+
+#[test]
+fn a_new_archive_cut_a_zoom_deeper_is_compared_at_the_zooms_both_carry() -> anyhow::Result<()> {
+    // Root ADR-0492: parcels move from z16 to z17 tiles; the active release has no z17 to compare
+    // with, and the id gate already reads every tile of the new maxzoom.
+    let (active, _, _) = pair(&[inside("9999911111")]);
+    let child = |tile: u64| -> anyhow::Result<u64> {
+        let (_, x, y) = tile_zxy(tile)?;
+        Ok(tile_id(3, 2 * x, 2 * y))
+    };
+    let (deep_5, deep_6) = (child(5)?, child(6)?);
+    let new = archive(
+        1,
+        3,
+        &[
+            (1, mvt(&[inside("9999911111"), inside("9999922222")])),
+            (5, mvt(&[inside("9999911111")])),
+            (6, mvt(&[inside("9999922222")])),
+            (deep_5, mvt(&[inside("9999911111")])),
+            (deep_6, mvt(&[inside("9999922222")])),
+        ],
+    );
+    let mut collector = SampleCollector::new(&contract(), "parcels");
+    collector.observe(deep_5, "9999911111")?;
+    collector.observe(deep_6, "9999922222")?;
+    let outcome = first_release_gate(
+        Cursor::new(active),
+        Cursor::new(new),
+        &contract(),
+        ("parcels", "pnu"),
+        (1, 3),
+        &collector,
+        &served(&[]),
+    )?;
+    let evidence = verdict(&outcome, "synthetic.json")?;
+    assert_eq!(evidence["missing"]["count"], 0, "{evidence}");
+    for region in ["9999911", "9999922"] {
+        assert!(
+            evidence["regions"][region]["sampled"].as_u64().unwrap_or(0) > 0,
+            "{evidence}"
+        );
+    }
+    Ok(())
+}

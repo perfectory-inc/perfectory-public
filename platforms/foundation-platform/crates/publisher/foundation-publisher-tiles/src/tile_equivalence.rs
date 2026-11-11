@@ -995,13 +995,22 @@ pub fn first_release_gate<A: Read + Seek, B: Read + Seek>(
 ) -> anyhow::Result<Equivalence> {
     let mut active = Archive::open(active).context("the active archive")?;
     let mut new = Archive::open(new).context("the new archive")?;
+    // Root ADR-0492: a release cut deeper than the one it replaces is compared at the zooms both
+    // carry. Its own maxzoom is the id gate's, which reads every tile of it.
+    let collected_at = max_zoom;
+    let max_zoom = max_zoom.min(active.header().max_zoom);
+    ensure!(
+        min_zoom <= max_zoom,
+        "the active archive ends at z{max_zoom}, before the new one starts at z{min_zoom}"
+    );
+    let (regions, reservoir) = collected_at_zoom(collector, collected_at, max_zoom)?;
     let densest = densest_tiles(&mut active, max_zoom, contract.densest_tiles)?;
     let samples = sample_tiles(
         contract,
         (min_zoom, max_zoom),
-        &collector.regions,
+        &regions,
         &densest,
-        &collector.reservoir,
+        &reservoir,
     )?;
     let mut outcome = compare_archives(
         &mut active,
@@ -1035,6 +1044,36 @@ pub fn first_release_gate<A: Read + Seek, B: Read + Seek>(
             .bounds = *edition;
     }
     Ok(outcome)
+}
+
+/// The collector's region extents and sampled tiles, gathered at `from`, as the tiles that hold
+/// them at `to` (`to <= from`).
+fn collected_at_zoom(
+    collector: &SampleCollector,
+    from: u8,
+    to: u8,
+) -> anyhow::Result<(BTreeMap<String, Extent>, Vec<u64>)> {
+    let shift = from - to;
+    let regions = collector
+        .regions
+        .iter()
+        .map(|(key, extent)| {
+            let scaled = Extent {
+                min: (extent.min.0 >> shift, extent.min.1 >> shift),
+                max: (extent.max.0 >> shift, extent.max.1 >> shift),
+            };
+            (key.clone(), scaled)
+        })
+        .collect();
+    let mut reservoir = Vec::with_capacity(collector.reservoir.len());
+    for tile in &collector.reservoir {
+        let (_, x, y) = tile_zxy(*tile)?;
+        let parent = tile_id(to, x >> shift, y >> shift);
+        if !reservoir.contains(&parent) {
+            reservoir.push(parent);
+        }
+    }
+    Ok((regions, reservoir))
 }
 
 /// The gate's verdict: the evidence when it passed, a refusal naming the counts when it did not.

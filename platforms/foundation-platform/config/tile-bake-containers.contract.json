@@ -18,11 +18,17 @@
     }
   },
   "maxzoom_detail": {
-    "complex": 14,
-    "parcels": 14,
-    "zoning": 16
+    "complex": 13,
+    "parcels": 13,
+    "zoning": 13
   },
   "maxzoom_detail_reason": "Root ADR-0262. tippecanoe's --full-detail for a unit, the maxzoom tile extent being 2^detail. At the default 12 (extent 4096, about 10 cm per unit at z16 in Korea) the national 202609 bake lost 542 parcels tippecanoe's polygon cleaning collapsed, slivers up to 16 px wide at render_max_zoom 22 among them. At 14 (extent 16384) one unit is one pixel at zoom 22, and every parcel still lost in the measurement is sub-pixel there, which the maxzoom id gate allows by id. zoning bakes its maxzoom at z14, so the default 12 makes one unit 16 px at render_max_zoom 22: from 2026-11-03 every zoning bake was refused, its z14 tiles missing 642 zones that are not sub-pixel (1.3 to 12 px wide at z22). Re-baking the 11,706 zones under 32 px wide of the 2026-11-07 handoff with the pinned tippecanoe lost 689 such zones at 12, 279 at 13, 52 at 14, 1 at 15 and none at 16, where one unit is again one pixel at zoom 22; that sample archive grew 17% (2.25 to 2.64 MB), and only the z14 tiles change, --full-detail being the maxzoom detail. Root ADR-0485 makes the rule every unit's, checked by every bake: 2^detail >= 256 x 2^(render_max_zoom - tile_max_zoom), one maxzoom unit at most one pixel at render_max_zoom. complex (tiles to z16, drawn to 22) baked at the default 12 measured 2026-11-09 off its Gold boundary by up to one unit at z16 (0.12 m, 4 px at zoom 22), so it is 14 like parcels; its archive is 6 MB. admin is drawn only to its tile maxzoom 16 and keeps 12. A unit not listed keeps 12.",
+  "tile_max_zoom": {
+    "complex": 17,
+    "parcels": 17,
+    "zoning": 17
+  },
+  "tile_max_zoom_reason": "Root ADR-0492. The zoom a unit listed here is cut to, in place of the active release's; the release the bake promotes carries it (catalog.vector_tile_build_job.tile_max_zoom). mapbox-gl re-quantises every tile to its own 8192-unit extent, so a z16 tile drawn at render_max_zoom 22 is two pixels per unit there and its edges step by up to a pixel, however fine the archive's own detail (W41, 2026-11-09). Cut to z17 at maxzoom_detail 13 (extent 8192), the archive's unit is the renderer's unit: nothing is rounded twice, a unit is one pixel at z22, and the ground precision is what z16 at detail 14 (parcels, complex) and z14 at detail 16 (zoning) gave, about 3 cm in Korea. A unit not listed keeps its active release's maxzoom.",
   "partition_by_feature_id_prefix": {
     "parcels": 2,
     "zoning": 4
@@ -33,7 +39,7 @@
       "source_layer": "zoning",
       "feature_id_property": "zone_id",
       "tile_min_zoom": 10,
-      "tile_max_zoom": 14,
+      "tile_max_zoom": 17,
       "render_min_zoom": 10,
       "render_max_zoom": 22,
       "feature_filter_properties": ["layer_code", "layer_name", "zone_code", "zone_name"],
