@@ -53,11 +53,12 @@
       "id": "source-building-hub-bulk",
       "type": "source_group",
       "title": "건축HUB 파일",
-      "description": "일일 원천 수집이 57개 파일을 매달 받는다(2026-10-30 장부: 다섯 판 78.16 GB, 최신 판 16.04 GB). 연도별 에너지 2개는 제공자 목록에 없다. 표제부·층·호·면적·공동주택가격·전유부(기본개요는 호 레인의 입력)에 Silver 레인이 있다. 나머지의 판정과 연결 순서(인허가 기본개요→총괄표제부→부속지번→월별 에너지→철거멸실)는 루트 ADR-0355 에 있다.",
+      "description": "일일 원천 수집이 57개 파일을 매달 받는다(2026-10-30 장부: 다섯 판 78.16 GB, 최신 판 16.04 GB). 연도별 에너지 2개는 제공자 목록에 없다. 표제부·층·호·면적·공동주택가격·전유부(기본개요는 호 레인의 입력)에 Silver 레인이 있다. 나머지의 판정과 연결 순서는 루트 ADR-0355 와 ADR-0402 에 있다. 주택인허가 16·건축인허가 나머지 7 은 루트 ADR-0511 이 지금 연결로 올렸다. 폐쇄(말소)대장 10 은 Bronze 보관만이다(제품 결정, ADR-0511 §5): 사라진 건물의 사실은 철거멸실 레인이 보여 주고, 건물 수명 화면을 만들 때 다시 판정한다.",
       "status": "partial",
       "owner": "foundation-platform",
       "evidence_refs": [
-        "docs/adr/0355-the-building-hub-juso-map-and-other-bulk-sources-are-judged-one-by-one-and-connected-in-order.md"
+        "docs/adr/0355-the-building-hub-juso-map-and-other-bulk-sources-are-judged-one-by-one-and-connected-in-order.md",
+        "docs/adr/0511-housing-permits-and-the-rest-of-the-collected-files-reach-silver-and-the-permit-panel-shows-housing-permits.md"
       ],
       "endpoint_catalog_group": "building_hub_bulk",
       "unmapped_status": "collected_only"
