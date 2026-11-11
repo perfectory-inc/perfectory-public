@@ -34,6 +34,37 @@ def drop_outranked_code_changes_frame(lineage: DataFrame) -> DataFrame:
             .drop("_ranked", "_rank", "_best"))
 
 
+def rows_reaching(lineage: DataFrame, sources: set[str], hops: int) -> list[dict]:
+    """The lineage rows a carry walk from `sources` reads (root ADR-0113 §6), collected: every row of
+    each successor at most `hops` links forward of a source, with its outranked code changes dropped
+    on the executors first (`drop_outranked_code_changes_frame`, which needs the whole table).
+
+    `carry_candidates` walks back from a successor through its incoming links; a candidate whose
+    source is in `sources` passes only successors that many hops forward of it, and those successors'
+    rows are all here, so the walk over these rows gives the same such candidates as the walk over the
+    table. The whole table is millions of code-change rows: on 2026-11-10 the real-transaction Gold
+    collected it all beside its 13.5M deals and its Spark container was killed for memory, twice."""
+
+    lineage = drop_outranked_code_changes_frame(lineage.distinct())
+    links = (lineage.where((F.coalesce(F.col("predecessor_pnu"), F.lit("")) != "")
+                           & (F.col("predecessor_pnu") != F.col("successor_pnu")))
+             .select("predecessor_pnu", "successor_pnu").distinct())
+    spark = lineage.sparkSession
+    reached: set[str] = set()
+    frontier = set(sources)
+    for _hop in range(hops):
+        if not frontier:
+            break
+        ends = F.broadcast(spark.createDataFrame(sorted((p,) for p in frontier), "predecessor_pnu string"))
+        frontier = {r["successor_pnu"] for r in links.join(ends, "predecessor_pnu", "left_semi")
+                    .select("successor_pnu").distinct().collect()} - reached
+        reached |= frontier
+    if not reached:
+        return []
+    wanted = F.broadcast(spark.createDataFrame(sorted((p,) for p in reached), "successor_pnu string"))
+    return [row.asDict() for row in lineage.join(wanted, "successor_pnu", "left_semi").collect()]
+
+
 def build_lineage(lineage: DataFrame | None, spark: SparkSession) -> DataFrame:
     """Each parcel's lineage edges as values, both directions (root ADR-0113 §1): `lineage_json` of
     a PNU lists every edge it is the predecessor or the successor of.

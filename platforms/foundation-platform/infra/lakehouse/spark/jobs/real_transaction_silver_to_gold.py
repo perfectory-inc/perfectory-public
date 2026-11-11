@@ -210,12 +210,15 @@ def masked_deals(deals: Any) -> Any:
 
 
 def lineage_candidates(lineage: Any, sources: list[str]) -> Any:
-    """The lineage's carry candidates from `sources` (the parcel panel's walk, root ADR-0113 §6)."""
+    """The lineage's carry candidates from `sources` (the parcel panel's walk, root ADR-0113 §6), walked
+    over only the rows a walk from them reads (`parcel_lineage_section.rows_reaching`)."""
+    import parcel_attribute_carry as carry  # noqa: PLC0415
+    import parcel_lineage_section as section  # noqa: PLC0415
     import parcel_panel_silver_to_gold as panel  # noqa: PLC0415
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     wanted = set(sources)
-    rows = [row.asDict() for row in lineage.distinct().collect()]
+    rows = section.rows_reaching(lineage, wanted, carry.MAX_HOPS)
     links = [panel.Link(r["predecessor_pnu"] or "", r["successor_pnu"], r["relation"], r["grade"], "")
              for r in panel.steward_resolved(rows)]
     candidates, _stopped = panel.carry_candidates(links)
