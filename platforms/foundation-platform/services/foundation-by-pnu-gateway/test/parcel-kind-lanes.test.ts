@@ -4,6 +4,7 @@ import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { LANES, resolveLane } from "../src/lane";
+import { subjectOfLane } from "../src/schemas";
 import { startGateway } from "./miniflare";
 
 // A lane written as a host and a kind (root ADR-0193 §4) is served by its host's Worker under its
@@ -19,12 +20,15 @@ const ZONING = LANES.find((lane) => lane.name === "parcel-zoning");
 const fixtures = new URL("fixtures/section-packs/", import.meta.url);
 
 function manifest(unit: string, withPacks: boolean): string {
+  // A lane the schema registry lists serves only its subject's strings (root ADR-0336).
+  const subject = subjectOfLane(unit.replace(/-by-pnu$/, ""));
+  const documentSchema = subject === null ? "foundation-platform.synthetic_by_pnu.v1" : `${subject.subject}.v1`;
   return `${JSON.stringify({
     schema_version: 2,
     unit,
     base_generation: 1,
     base_object_count: 0,
-    document_schema_version: "foundation-platform.synthetic_by_pnu.v1",
+    document_schema_version: documentSchema,
     gold_table: "gold.synthetic",
     gold_iceberg_snapshot_id: "999990000000000001",
     reflected_gold_iceberg_snapshot_id: "999990000000000001",
@@ -38,7 +42,7 @@ function manifest(unit: string, withPacks: boolean): string {
             schema_version: PACK_POLICY.manifest_section_packs_schema_version,
             format_version: PACK_POLICY.format_version,
             unit_prefix_length: PACK_POLICY.unit_prefix_length,
-            document_schema_version: "foundation-platform.synthetic_by_pnu.v1",
+            document_schema_version: documentSchema,
             gold_table: "gold.synthetic",
             reflected_gold_iceberg_snapshot_id: "999990000000000001",
             document_count: 2,

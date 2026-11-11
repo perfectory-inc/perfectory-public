@@ -187,7 +187,8 @@ mod tests {
         assert_eq!(subject.current().revision, 4);
         assert_eq!(subject.current().schema_version, format!("{name}.v1"));
         assert_eq!(subject.written_revision(), Some(4));
-        assert!(subject_of_lane("parcel-zoning")?.is_none());
+        // A lane written whole keeps its own document schema until it moves (root ADR-0336).
+        assert!(subject_of_lane("unit-price")?.is_none());
         Ok(())
     }
 }
