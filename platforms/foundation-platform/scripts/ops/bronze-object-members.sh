@@ -32,7 +32,8 @@ set -euo pipefail
 log() { printf '%s bronze-object-members: %s\n' "$(date -u +%FT%TZ)" "$*" >&2; }
 refuse() { log "refused: $1"; exit "${2:-64}"; }
 
-DEFAULT_SOURCES='vworldkr__land*,hubgokr__*'
+# jusogokr__electronic_map_base: the juso base's 시도 zips, whose kinds are read by member (root ADR-0494 §3).
+DEFAULT_SOURCES='vworldkr__land*,hubgokr__*,jusogokr__electronic_map_base'
 
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/database-url.sh"
