@@ -14,7 +14,7 @@
 | 공짱 웹·API·이벤트 발행 | 직원 콘솔 화면 (더니어 — [루트 ADR-0114](../../docs/adr/0114-dawneer-is-the-staff-console-built-new-in-the-monorepo.md)) |
 
 Catalog 데이터는 Foundation Platform 공개 계약(API·이벤트·불변 산출물)으로만 소비한다. 허용·금지 목록은
-[데이터 원천 README](./docs/data-sources/README.md#catalog-원천-경계), 파일 단위 경로 소유권은
+[데이터 원천 README](./docs/data-sources/README.md#카탈로그-원천-경계), 파일 단위 경로 소유권은
 [foundation-platform-boundary.v1.json](./docs/architecture/foundation-platform-boundary.v1.json)이 정본이다.
 
 ## 코드 지도
