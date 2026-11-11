@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: README
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-11
 ---
 
 # Foundation 카탈로그
@@ -28,5 +28,6 @@ last_reviewed: 2026-11-05
 - [건축물대장 일관성 규칙(초안)](./building-register-consistency-rules.v1.draft.md)
 - [건축물대장 필드 매핑(초안)](./building-register-field-mapping.v1.draft.md)
 - [필지 기반시설 인입 가능성 원천 조사(제안)](./parcel-utility-connectivity-sources.md)
+- [산업용 부동산 데이터 지형 조사(제안)](./industrial-real-estate-data-landscape.md)
 
 실행 절차는 [Foundation 런북](../runbooks/README.md), 구조는 [아키텍처](../architecture/README.md)가 소유한다.
