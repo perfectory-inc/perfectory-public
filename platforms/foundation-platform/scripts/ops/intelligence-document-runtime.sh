@@ -16,6 +16,10 @@ intelligence_document_run_dir() {
   export FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
   work="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}/runs/$1-${run_id}"
   container_work="/workspace/target/lakehouse/runs/$1-${run_id}"
+  # The job makes its own lakehouse directory: the release cannot, because systemd-tmpfiles refuses
+  # to step from /data/foundation-platform (the operator's) into STATE_ROOT (ours), and that refusal
+  # stopped every deploy from 2026-11-11 15:34Z (exit 73).
+  install -d -m 0777 "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}"
   # The Spark container (uid 185) writes the plan; the image (uid 10001) writes its rows.
   mkdir -p -m 0777 "${work}" "${work}/plan" "${work}/out"
   chmod 0777 "${work}" "${work}/plan" "${work}/out"
