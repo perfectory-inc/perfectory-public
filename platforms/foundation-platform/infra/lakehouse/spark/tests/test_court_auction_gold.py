@@ -331,7 +331,6 @@ def versioned(case, pnu_value, snap, sale_date, row_state=None):
     return ("B", case, 1, 1, pnu_value, row_state, snap, "Y", sale_date)
 
 
-@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 def document_frames(spark, round_row):
     """One synthetic row in each 물건상세 document table for `round_row`'s property (root ADR-0540)."""
     from platform_contracts import load_lakehouse_contract, spark_sql_type
@@ -357,6 +356,7 @@ def document_frames(spark, round_row):
     return frames
 
 
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class DetailSparkTest(unittest.TestCase):
     """Root ADR-0540 §5: a round carries its 물건상세's documents."""
 
@@ -394,6 +394,7 @@ class DetailSparkTest(unittest.TestCase):
         self.assertIsNone(job.with_detail(rounds, {}).first().detail)
 
 
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class AffectedSparkTest(unittest.TestCase):
     """Root ADR-0312 §2: only the PNUs an item change or a passed sale date reaches are rebuilt."""
 
