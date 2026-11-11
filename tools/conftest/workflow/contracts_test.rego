@@ -87,6 +87,16 @@ test_the_apt_install_script_and_a_comment_naming_apt_are_accepted if {
 	accepted(one(with_job("test", "steps", [{"run": "# apt-get once spent 4m07s here\nbash \"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh\" postgresql-client"}])))
 }
 
+test_playwright_with_deps_is_refused if {
+	refused(one(with_job("test", "steps", [{"run": "pnpm exec playwright install chromium --with-deps"}])))
+}
+
+test_playwright_install_deps_is_refused if refused(one(with_job("test", "steps", [{"run": "pnpm exec playwright install-deps chromium"}])))
+
+test_playwright_install_deps_dry_run_is_accepted if {
+	accepted(one(with_job("test", "steps", [{"run": "pnpm exec playwright install-deps --dry-run chromium"}])))
+}
+
 test_strict_or_is_accepted if accepted(one(with_job("test", "steps", [{"run": "cargo check --workspace || exit 1"}])))
 
 test_secret_reference_is_refused if {

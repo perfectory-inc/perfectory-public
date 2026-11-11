@@ -212,6 +212,27 @@ deny contains msg if {
 	msg := sprintf("%s: install Debian packages with bash \"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh\", not apt (%v)", [path, location])
 }
 
+# Playwright's `--with-deps` and `install-deps` run their own `apt-get update`; its `--dry-run` only
+# names the packages, for apt-install.sh to install.
+deny contains msg if {
+	some [path, document] in workflows
+	walk(document, [location, value])
+	count(location) > 0
+	location[count(location) - 1] == "run"
+	is_string(value)
+	some line in split(value, "\n")
+	not startswith(trim_space(line), "#")
+	playwright_runs_apt(line)
+	msg := sprintf("%s: Playwright installs no system packages itself; pass `install-deps --dry-run`'s list to scripts/ci/apt-install.sh (%v)", [path, location])
+}
+
+playwright_runs_apt(line) if contains(line, "--with-deps")
+
+playwright_runs_apt(line) if {
+	contains(line, "install-deps")
+	not contains(line, "--dry-run")
+}
+
 deny contains msg if {
 	some [path, document] in workflows
 	walk(document, [location, _])
