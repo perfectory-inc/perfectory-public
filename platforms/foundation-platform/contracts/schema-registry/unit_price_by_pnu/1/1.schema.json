@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.unit_price_by_pnu",
+  "description": "One building's priced units on one PNU (root ADR-0190, ADR-0204): each unit's official price history (공동주택·개별 호 공시가격), newest first, as gold.unit_price.units_json holds it. The building is its catalog id, the nil UUID for units no building holds.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.unit_price_by_pnu.v1"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "building_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "official_price_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "base_date": {
+                  "type": "string",
+                  "pattern": "^[0-9]{8}$"
+                },
+                "price_won": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "base_date",
+                "price_won"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "official_price_history"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "building_id",
+    "units"
+  ]
+}

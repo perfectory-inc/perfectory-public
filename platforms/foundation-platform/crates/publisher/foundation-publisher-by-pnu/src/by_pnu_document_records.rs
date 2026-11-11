@@ -30,11 +30,11 @@ type Shape = BTreeMap<String, bool>;
 
 const RULE: &str = "A by-PNU document gained, lost or renamed a field, or changed whether one is \
     required, under the schema version it already had. The bake rewrites a whole generation only \
-    when the version changes. A kind lane's document is a subject of the schema registry: add a \
+    when the version changes. A pack lane's document is a subject of the schema registry: add a \
     revision to it in the lane's definition (published_schemas) with its schema file under \
-    platforms/foundation-platform/contracts/schema-registry/ (root ADR-0336). A lane written whole \
-    bumps its schema version (PARCEL_DOCUMENT_SCHEMA_VERSION, BUILDING_DOCUMENT_SCHEMA_VERSION, or \
-    its line's document_schema_version) and commits the new version's file under \
+    platforms/foundation-platform/contracts/schema-registry/ (root ADR-0336). The parcel and \
+    building documents bump their schema version (PARCEL_DOCUMENT_SCHEMA_VERSION or \
+    BUILDING_DOCUMENT_SCHEMA_VERSION) and commit the new version's file under \
     platforms/foundation-platform/contracts/by-pnu-documents/ with the fields printed above. \
     Never edit an existing version's file: the documents served under it have its fields.";
 

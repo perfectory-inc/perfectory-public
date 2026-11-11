@@ -216,7 +216,23 @@ pub fn resolve_lane_entry(
         return Err(format!("by_pnu_lanes.{name} is not an object"));
     };
     let Some(host) = fields.get("host") else {
-        return Ok(entry.clone());
+        // A lane written whole (root ADR-0190) states its own gateway block, but not its document
+        // schema: that is its subject in the schema registry, as a kind line's is.
+        let mut whole = entry.clone();
+        let whole_fields = whole
+            .as_object_mut()
+            .ok_or_else(|| format!("by_pnu_lanes.{name} is not an object"))?;
+        if let Some(field) = REGISTRY_SCHEMA_FIELDS
+            .iter()
+            .find(|field| whole_fields.contains_key(**field))
+        {
+            return Err(format!(
+                "by_pnu_lanes.{name}.{field}: a lane's document schema is its subject in the schema \
+                 registry, declared in the lane's definition (published_schemas, root ADR-0336)"
+            ));
+        }
+        insert_registry_schema(name, whole_fields)?;
+        return Ok(whole);
     };
     if let Some(field) = fields
         .keys()
@@ -268,26 +284,7 @@ pub fn resolve_lane_entry(
         .as_object_mut()
         .ok_or_else(|| format!("{host} is not an object"))?;
     derived.insert("pack_only".to_owned(), json!(true));
-    // A kind's document schema is its subject in the schema registry (root ADR-0336), declared in
-    // the lane's definition, and the line states none: the version it bakes is the current
-    // revision's string, and every other string of the same major is one it expands (FULL
-    // compatible by the registry's check). A kind the registry does not list resolves without one,
-    // which `PackLane` refuses.
-    if let Some(subject) =
-        crate::schema_registry::subject_of_lane(name).map_err(|error| error.to_string())?
-    {
-        let current = &subject.current().schema_version;
-        let expands = subject
-            .wire_versions(subject.major)
-            .into_iter()
-            .filter(|version| version != current)
-            .collect::<Vec<_>>();
-        derived.insert("document_schema_version".to_owned(), json!(current));
-        derived.insert("document_schema_expands".to_owned(), json!(expands));
-        if let Some(revision) = subject.written_revision() {
-            derived.insert("document_schema_revision".to_owned(), json!(revision));
-        }
-    }
+    insert_registry_schema(name, derived)?;
     derived.insert("gold_table".to_owned(), json!(format!("gold.{snake}")));
     derived.insert("latency_baseline_lane".to_owned(), json!(host_lane));
     derived.insert("documents_follow_lane".to_owned(), json!(host_lane));
@@ -315,6 +312,42 @@ pub fn resolve_lane_entry(
         }
     }
     Ok(block)
+}
+
+/// The fields a lane's document schema resolves to, which no lane line states.
+const REGISTRY_SCHEMA_FIELDS: [&str; 4] = [
+    "document_schema_version",
+    "document_schema_version_reason",
+    "document_schema_expands",
+    "document_schema_revision",
+];
+
+/// A pack lane's document schema is its subject in the schema registry (root ADR-0336), declared in
+/// the lane's definition: the version it bakes is the current revision's string, and every other
+/// string of the same major is one it expands (FULL compatible by the registry's check). A lane the
+/// registry does not list resolves without one, which `PackLane` refuses.
+fn insert_registry_schema(
+    name: &str,
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    use serde_json::json;
+    let Some(subject) =
+        crate::schema_registry::subject_of_lane(name).map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    let current = &subject.current().schema_version;
+    let expands = subject
+        .wire_versions(subject.major)
+        .into_iter()
+        .filter(|version| version != current)
+        .collect::<Vec<_>>();
+    fields.insert("document_schema_version".to_owned(), json!(current));
+    fields.insert("document_schema_expands".to_owned(), json!(expands));
+    if let Some(revision) = subject.written_revision() {
+        fields.insert("document_schema_revision".to_owned(), json!(revision));
+    }
+    Ok(())
 }
 
 /// `path` with `{kind}/` inserted before its last `segment` segment.
@@ -345,7 +378,7 @@ struct PackLaneEntry {
     /// cut-over gate.
     pack_only: bool,
     gold_table: String,
-    /// A whole line's own; a kind line's from its subject in the schema registry.
+    /// From the lane's subject in the schema registry, never from the line.
     #[serde(default)]
     document_schema_version: String,
     /// The earlier document versions `document_schema_version` only adds optional fields to (root
@@ -497,7 +530,9 @@ fn pack_lane(name: &str, entry: PackLaneEntry) -> Result<PackLane, String> {
     }
     if entry.document_schema_version.trim().is_empty() || entry.gateway.section_packs.is_none() {
         return Err(format!(
-            "by_pnu_lanes.{name} names no document schema or no section packs: a kind lane's              document schema is its subject in the schema registry, declared in the lane's              definition (published_schemas, root ADR-0336)"
+            "by_pnu_lanes.{name} names no document schema or no section packs: a pack lane's \
+             document schema is its subject in the schema registry, declared in the lane's \
+             definition (published_schemas, root ADR-0336)"
         ));
     }
     let key_suffix = match entry.document_key_suffix {
@@ -1297,12 +1332,22 @@ mod tests {
                 "{field}"
             );
         }
-        // A lane written whole (root ADR-0190) is read as it is written.
+        // A lane written whole (root ADR-0190) is read as it is written, its document schema
+        // added from its subject; a schema stated on it is refused like a kind line's.
         let whole = json!({"pack_only": true, "worker_name": "w"});
+        let resolved = resolve_lane_entry("unit-price", &whole, &contract)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        assert_eq!(resolved["worker_name"], "w");
+        let prices = crate::schema_registry::subject_of_lane("unit-price")?
+            .context("the registry lists the unit price subject")?;
         assert_eq!(
-            resolve_lane_entry("unit-price", &whole, &contract),
-            Ok(whole)
+            resolved["document_schema_version"],
+            json!(prices.current().schema_version)
         );
+        assert_eq!(resolved["document_schema_expands"], json!([]));
+        let mut stated = whole.clone();
+        stated["document_schema_version"] = json!(prices.current().schema_version);
+        assert!(resolve_lane_entry("unit-price", &stated, &contract).is_err());
         Ok(())
     }
 

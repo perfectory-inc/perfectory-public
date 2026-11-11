@@ -281,8 +281,6 @@ def check_subject(platform: pathlib.Path, entry: dict[str, Any], connections: di
     line = lanes.get(lane)
     if line is None:
         fail(f"owner.lane {lane!r} is no by_pnu_lanes line of config/r2-connections.contract.json")
-    elif "host" not in line:
-        fail(f"by_pnu_lanes.{lane} is written whole; the registry takes over kind lines (a host and a kind) only so far")
     else:
         stated = sorted(f for f in ("document_schema_version", "document_schema_version_reason", "document_schema_expands") if f in line)
         if stated:
@@ -408,12 +406,12 @@ def check(platform: pathlib.Path = PLATFORM, base: str | None = None) -> list[st
         out.append("registry.json: two subjects name the same owner lane or surface")
     for entry in registry["subjects"]:
         out += check_subject(platform, entry, connections)
-    # A kind lane's document schema is its subject here and nowhere else (root ADR-0336): the lane
-    # rule derives no version for a kind the registry does not list.
+    # A pack lane's document schema is its subject here and nowhere else (root ADR-0336): the lane
+    # derives no version for a lane the registry does not list.
     owned = {(entry.get("owner") or {}).get("lane") for entry in registry["subjects"]}
     for lane, line in connections["by_pnu_lanes"].items():
-        if isinstance(line, dict) and "host" in line and lane not in owned:
-            out.append(f"by_pnu_lanes.{lane} is a kind lane whose subject the registry does not list; declare it in the lane's definition (published_schemas)")
+        if isinstance(line, dict) and lane not in owned:
+            out.append(f"by_pnu_lanes.{lane} is a pack lane whose subject the registry does not list; declare it in the lane's definition (published_schemas)")
     listed = {schema_file(e["subject"], r).as_posix() for e in registry["subjects"] for r in e.get("revisions") or []
               if isinstance(r.get("major"), int) and isinstance(r.get("revision"), int)}
     for path in sorted((platform / REGISTRY).rglob("*.schema.json")):

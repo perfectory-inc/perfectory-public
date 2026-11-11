@@ -2,6 +2,7 @@
 import type { Miniflare } from "miniflare";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
+import { subjectOfLane } from "../src/schemas";
 import { startGateway } from "./miniflare";
 
 // A pack-only lane of the contract's `by_pnu_lanes` (root ADR-0190): it never had objects, so a
@@ -10,6 +11,8 @@ import { startGateway } from "./miniflare";
 // namespaces (`scripts/guard/public-fixture-safety.py`).
 const PNU = "9999900000100000000";
 const GATEWAY = connectionContract.by_pnu_lanes["unit-price"];
+// The lane's document schema is its subject in the schema registry (root ADR-0336).
+const DOCUMENT_SCHEMA = `${subjectOfLane("unit-price")?.subject}.v1`;
 // Root ADR-0204: a unit price document is one building of one PNU, requested as <pnu>/<building id>.
 const BUILDING = "00000000-0000-0000-0000-00000000000b";
 const URL_OF_PNU = `https://unit-prices.example.test${GATEWAY.request_path.prefix}${PNU}/${BUILDING}`;
@@ -20,7 +23,7 @@ function envelope(): string {
     unit: "unit-price-by-pnu",
     base_generation: 1,
     base_object_count: 0,
-    document_schema_version: GATEWAY.document_schema_version,
+    document_schema_version: DOCUMENT_SCHEMA,
     gold_table: GATEWAY.gold_table,
     gold_iceberg_snapshot_id: "999990000000000001",
     reflected_gold_iceberg_snapshot_id: "999990000000000001",
