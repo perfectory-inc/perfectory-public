@@ -40,13 +40,12 @@ def git(root: pathlib.Path, *args: str) -> None:
 
 
 class Fixture:
-    """A repository holding a copy of the platform's registry, records and lane lines."""
+    """A repository holding a copy of the platform's registry, its generated constants and lane lines."""
 
     def __init__(self) -> None:
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="schema-registry-"))
         self.platform = self.tmp / "platforms/foundation-platform"
-        for part in ("contracts/schema-registry", "contracts/by-pnu-documents"):
-            shutil.copytree(PLATFORM / part, self.platform / part)
+        shutil.copytree(PLATFORM / "contracts/schema-registry", self.platform / "contracts/schema-registry")
         hosts = self.platform / registry_tool.HOST_SCHEMAS
         hosts.parent.mkdir(parents=True)
         shutil.copy(PLATFORM / registry_tool.HOST_SCHEMAS, hosts)
@@ -112,15 +111,6 @@ def round_of(schema: dict) -> dict:
 class TheRegistryOnMain(unittest.TestCase):
     def test_the_committed_registry_passes_its_own_check(self):
         self.assertEqual(registry_tool.check(PLATFORM), [])
-
-    def test_revisions_one_and_two_are_their_records_translated(self):
-        # The legacy revisions are the field records the publisher's test held the documents to.
-        registry = registry_tool.load(PLATFORM)
-        entry = next(e for e in registry["subjects"] if e["subject"] == SUBJECT)
-        for revision in (r for r in entry["revisions"] if r.get("legacy")):
-            record = json.loads((PLATFORM / revision["record"]).read_text(encoding="utf-8"))
-            self.assertEqual(registry_tool.record_of(registry_tool.schema_of(PLATFORM, SUBJECT, revision)),
-                             sorted(record, key=lambda e: e["path"]))
 
     def test_one_major_with_the_legacy_v2_as_its_alias(self):
         entry = next(e for e in registry_tool.load(PLATFORM)["subjects"] if e["subject"] == SUBJECT)

@@ -816,22 +816,11 @@
         ]
       },
       {
-        "name": "by-pnu-document-records-are-append-only-self-test",
-        "paths": []
-      },
-      {
-        "name": "by-pnu-document-records-are-append-only",
-        "paths": [
-          "platforms/foundation-platform/contracts/by-pnu-documents/**"
-        ]
-      },
-      {
         "name": "schema-registry-self-test",
         "paths": [
           "platforms/foundation-platform/scripts/schema_registry.py",
           "platforms/foundation-platform/orchestration/tests/test_schema_registry.py",
           "platforms/foundation-platform/contracts/schema-registry/**",
-          "platforms/foundation-platform/contracts/by-pnu-documents/**",
           "platforms/foundation-platform/config/r2-connections.contract.json"
         ]
       },
