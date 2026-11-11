@@ -264,6 +264,12 @@
                           "null"
                         ]
                       },
+                      "department_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
                       "department_phone": {
                         "type": [
                           "string",
