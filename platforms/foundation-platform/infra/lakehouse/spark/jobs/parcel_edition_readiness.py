@@ -378,7 +378,7 @@ CONTROLLER = "edition-controller"
 
 
 def controller_request(contract: Mapping[str, Any], report: Mapping[str, Any], now: datetime | None = None) -> dict[str, str] | None:
-    """The request the judgement makes itself (root ADR-0485 §5): the newest edition newer than the served
+    """The request the judgement makes itself (root ADR-0490 §5): the newest edition newer than the served
     one that the report holds `ready`, once per edition and contract (its id names both), or None.
 
     Like Argo Rollouts promoting a canary its analysis passed: the verdict, not a person, asks. A console
@@ -391,7 +391,7 @@ def controller_request(contract: Mapping[str, Any], report: Mapping[str, Any], n
         return None
     name = max(ready)
     return {"request": f"{CONTROLLER}-{name}-{str(report.get('contract_sha256'))[:12]}", "actor": CONTROLLER,
-            "requested_at": _iso(now), "reason": f"{name} passed every readiness stage (root ADR-0485 §5)",
+            "requested_at": _iso(now), "reason": f"{name} passed every readiness stage (root ADR-0490 §5)",
             "job": PROMOTION_JOB, "expires_at": _iso(now + timedelta(hours=1)), "edition": name}
 
 
@@ -458,7 +458,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--requests", help="grant: the console's promotion requests (switches/promote.d)")
     parser.add_argument("--answers", help="grant: where each answer and granted contract is kept")
     parser.add_argument("--controller", action="store_true",
-                        help="grant: also promote the newest ready edition on the judgement's own request (ADR-0485 §5)")
+                        help="grant: also promote the newest ready edition on the judgement's own request (ADR-0490 §5)")
     parser.add_argument("--previous", help="readiness: the report the last run wrote, if any")
     parser.add_argument("--inputs", help="readiness: the per-edition input digests beside it; rewritten")
     parser.add_argument("--output", help="evidence, readiness: where to write (stdout without); lag: the .prom file")

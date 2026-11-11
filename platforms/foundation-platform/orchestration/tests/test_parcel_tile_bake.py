@@ -101,7 +101,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.candidate = min(name for name in contract["editions"] if name > self.served_name)
         self.readiness = self.root / "readiness.json"
         self.env["FOUNDATION_PARCEL_EDITION_READINESS_PATH"] = str(self.readiness)
-        # The real ledger's only entry is the bootstrap edition, which the half never bakes (root ADR-0485 §4);
+        # The real ledger's only entry is the bootstrap edition, which the half never bakes (root ADR-0490 §4);
         # the served path is exercised on a copy whose served edition came through a gated promotion.
         promoted = json.loads(json.dumps(contract))
         promoted["promotions"][0]["readiness"] = {"checked_at_utc": "2099-01-01T00:00:00Z", "contract_sha256": "0" * 64,
@@ -171,7 +171,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual(result.stdout.strip().splitlines()[-1], "foundation-job-outcome changed")
 
 
-    # Root ADR-0485 §4: 2026-10-15..11-11 the one rehearsal a person ran failed and nobody ran another,
+    # Root ADR-0490 §4: 2026-10-15..11-11 the one rehearsal a person ran failed and nobody ran another,
     # so 202609 never became ready. The job's halves now rehearse the judgement's candidate themselves.
     def wait_for_rehearsal(self):
         self.readiness.write_text(json.dumps({"editions": [

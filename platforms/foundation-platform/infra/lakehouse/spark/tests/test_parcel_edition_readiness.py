@@ -292,7 +292,7 @@ class LagTest(unittest.TestCase):
         with self.assertRaises(editions.EditionError):
             editions.validate(held)
 class ControllerTest(unittest.TestCase):
-    """Root ADR-0485 §5: a ready edition is promoted on the judgement's own request, with no person.
+    """Root ADR-0490 §5: a ready edition is promoted on the judgement's own request, with no person.
     2026-10-05..11-11 the console was asked nothing and 202609 was never promoted."""
 
     def run_grant(self, found: dict) -> tuple[list[str], Path, dict]:

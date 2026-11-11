@@ -110,7 +110,7 @@ fi
 # The edition, its snapshot id, its 시도 and the data-disk work root, from the contracts this
 # release ships: none of them is written down here. A rehearsal's Gold half bakes the edition it
 # names, which the contract must hold. `served` also answers whether the served edition is the
-# ledger's first, served by the release from before the lakehouse bake (root ADR-0485 §4), and the
+# ledger's first, served by the release from before the lakehouse bake (root ADR-0490 §4), and the
 # candidate the readiness judgement names: the newest edition newer than the served one whose source
 # and Silver passed and whose rehearsal has not (READINESS, written by parcel-edition-readiness.sh).
 READINESS="${FOUNDATION_PARCEL_EDITION_READINESS_PATH:-/var/lib/foundation-platform/parcel-editions/readiness.json}"
@@ -185,7 +185,7 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
       served_done="the Gold of ${snapshot} waits for the bake"
     fi
     if [[ -n "${served_done}" ]]; then
-      # Root ADR-0485 §4: with nothing to do for the served edition, the half rehearses the candidate.
+      # Root ADR-0490 §4: with nothing to do for the served edition, the half rehearses the candidate.
       # A rehearsal that did not pass is tried again after REHEARSAL_RETRY_DAYS, not on every release (the
       # host deploys several a day, and a rehearsal is about 100 minutes of the spark pool). 2026-10-15..
       # 11-11 the one rehearsal a person ran failed and nobody ran another.
@@ -257,13 +257,13 @@ if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   job_journal "${journal}" "${MODE}: served Gold of ${snapshot} in $((SECONDS - step))s, handoff $(du -sb "${work}/served" | cut -f1) bytes, total $((SECONDS - started))s"
   printf '%s %s\n' "${snapshot}" "${work}" >"${ready_file}.tmp"
   mv "${ready_file}.tmp" "${ready_file}"
-  # A rehearsal the job started hands its Gold to the bake half like a served one (root ADR-0485 §4).
+  # A rehearsal the job started hands its Gold to the bake half like a served one (root ADR-0490 §4).
   if [[ "${MODE}" == gold || -n "${REHEARSED_BY_JOB:-}" ]]; then echo "foundation-job-outcome changed"; else echo "foundation-job-outcome unchanged"; fi
   exit 0
 fi
 
 # bake / rehearsal-bake
-# Root ADR-0485 §4: the bake half bakes the served Gold first; with none waiting, the candidate's rehearsal.
+# Root ADR-0490 §4: the bake half bakes the served Gold first; with none waiting, the candidate's rehearsal.
 # A rehearsal bake that did not pass waits for the next rehearsal Gold, not the next day.
 if [[ "${MODE}" == bake && ! -s "${ready_file}" && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
   if [[ -s "${STATE_ROOT}/rehearsal-bake-attempted" ]] \

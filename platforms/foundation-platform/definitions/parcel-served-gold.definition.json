@@ -11,7 +11,7 @@
       "full_tracked_by": "root ADR-0322 §4 and its progress notes (a fingerprint per 시도 so the gate and the served Gold redo only the 시도 whose inputs changed); its tracking PR #953 was folded there",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. With nothing to do for the served edition (its tiles serve it, its Gold waits, or it is the ledger's first edition, served by the release from before the lakehouse bake), it rehearses the readiness judgement's candidate instead, serving nothing, and tries a rehearsal that did not pass again after seven days (root ADR-0485 §4). Nothing reads PostGIS.",
+      "description": "The first half of the national parcel tile bake from the lakehouse (root ADR-0133 §7, ADR-0194 5, ADR-0253): when the source contract's served cadastral edition is neither the one the tiles serve nor the one already waiting for its bake, run the ADR-0113 §7 matching gate over every 시도 of it and, on a pass, build gold.parcel_boundary_served and its handoff parts (scripts/ops/parcel-tile-bake.sh gold). A refusal writes nothing. A ready run starts parcel_tile_bake. With nothing to do for the served edition (its tiles serve it, its Gold waits, or it is the ledger's first edition, served by the release from before the lakehouse bake), it rehearses the readiness judgement's candidate instead, serving nothing, and tries a rehearsal that did not pass again after seven days (root ADR-0490 §4). Nothing reads PostGIS.",
       "systemd_service": "foundation-parcel-tile-bake@gold.service",
       "systemd_timer": null,
       "state_paths": [
@@ -29,7 +29,7 @@
         "measured_run_seconds": null,
         "first_run": {
           "estimate_seconds": 1800,
-          "estimated_from": "the one rehearsal run of this half, 2026-10-15 (journal of foundation-parcel-tile-bake, edition 202609): the matching gate and the served Gold of 39,876,546 parcels in 866 s. About twice that, 1,800 s, for a gate that also reads the registry and the code changes (root ADR-0485), inside the 6,210 s share of the 115-minute limit"
+          "estimated_from": "the one rehearsal run of this half, 2026-10-15 (journal of foundation-parcel-tile-bake, edition 202609): the matching gate and the served Gold of 39,876,546 parcels in 866 s. About twice that, 1,800 s, for a gate that also reads the registry and the code changes (root ADR-0490), inside the 6,210 s share of the 115-minute limit"
         }
       },
       "pool": "spark",
