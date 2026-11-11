@@ -385,7 +385,7 @@ MAIN_LOT_GROUP = "inferred_same_main_lot_group"
 INFERRED_GRADES = ("inferred_ownership_change", "inferred_attributes", MAIN_LOT_GROUP)
 # The 본번 group level linking a dataset whose measurement is under the bar, only while the owner's one
 # switch (`place_inference.below_bar.shown`, root ADR-0483 §4) shows it: the screen says its label
-# (`below_bar.label_ko`, 추정 · 정확도 약 95%) instead of 추정 · 같은 본번.
+# (`below_bar.label_ko`, 추정 · 정확도 약 <the newest measured %>, below_bar_label) instead of 추정 · 같은 본번.
 MAIN_LOT_GROUP_BELOW_BAR = "inferred_same_main_lot_group_below_bar"
 GROUP_GRADES = (MAIN_LOT_GROUP, MAIN_LOT_GROUP_BELOW_BAR)
 # A PNU's 법정동 (10), 산 flag (1) and 본번 (4): the key of its 본번 필지 묶음.
@@ -456,6 +456,25 @@ def below_bar_level(inference: Mapping[str, Any], dataset: str) -> dict[str, Any
     if level is None:
         raise ValueError(f"place_inference.below_bar shows {MAIN_LOT_GROUP}, which no level names")
     return {**level, "grade": MAIN_LOT_GROUP_BELOW_BAR}
+
+
+def latest_below_bar_measurement(inference: Mapping[str, Any], dataset: str) -> Mapping[str, Any]:
+    """The newest of a dataset's below-bar measurements: the gating one and every fresh holdout after it,
+    by `measured_on` (a later entry wins a tie)."""
+
+    measured = inference["below_bar"]["measured"][dataset]
+    every = [measured, *measured.get("holdouts", [])]
+    return max(enumerate(every), key=lambda pair: (pair[1]["measured_on"], pair[0]))[1]
+
+
+def below_bar_label(inference: Mapping[str, Any], dataset: str) -> str:
+    """What the screen says for a below-bar link (root ADR-0483 §6): `label_ko_template` with the newest
+    measurement's same-parcel precision as a whole percent, so a new measurement changes the words with
+    it. The contract's `label_ko` and the web's message must equal this (the tests compare them)."""
+
+    below = inference["below_bar"]
+    precision = float(latest_below_bar_measurement(inference, dataset)["precision"])
+    return below["label_ko_template"].format(percent=round(precision * 100))
 
 
 def unique_pick(candidates: Iterable[str]) -> tuple[str | None, str | None, int]:

@@ -81,16 +81,22 @@ class BelowBarSwitchTest(unittest.TestCase):
         off = {**inference, "below_bar": {**inference["below_bar"], "shown": False}}
         self.assertEqual(resolver.enabled_levels(off, "real_transaction_land_trade"), [])
 
-    def test_the_label_says_the_measured_precision_not_a_written_number(self):
-        import re
-
-        below = self.contract()["below_bar"]
-        [percent] = re.findall(r"(\d+)%", below["label_ko"])
+    def test_the_label_says_the_newest_measured_precision_not_a_written_number(self):
+        inference = self.contract()
+        below = inference["below_bar"]
         for dataset, measured in below["measured"].items():
-            self.assertEqual(int(percent), round(measured["precision"] * 100), dataset)
+            self.assertEqual(below["label_ko"], resolver.below_bar_label(inference, dataset), dataset)
             for holdout in measured.get("holdouts", []):
                 for right, low in (("right", "precision_wilson_low"), ("group_right", "group_precision_wilson_low")):
                     self.assertAlmostEqual(wilson_low(holdout[right], holdout["rows"]), holdout[low], places=4)
+
+    def test_a_newer_measurement_changes_the_label(self):
+        inference = self.contract()
+        below = inference["below_bar"]
+        land = below["measured"]["real_transaction_land_trade"]
+        newer = {**land, "holdouts": [*land.get("holdouts", []), {"precision": 0.8649, "measured_on": "2099-01-01"}]}
+        planted = {**inference, "below_bar": {**below, "measured": {"real_transaction_land_trade": newer}}}
+        self.assertEqual(resolver.below_bar_label(planted, "real_transaction_land_trade"), "추정 · 정확도 약 86%")
 
     def test_shown_it_links_the_land_deals_by_the_group_level_under_its_own_grade(self):
         inference = self.contract()
