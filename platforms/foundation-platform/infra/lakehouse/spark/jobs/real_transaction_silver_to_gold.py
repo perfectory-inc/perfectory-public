@@ -525,14 +525,18 @@ def under(frame: Any, column: str, dongs: Any) -> Any:
 
 def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
     """The input rows the Gold rows of the PNUs `keys` are built from: everything under their
-    법정동s and under the 법정동s of the parcels the lineage carries onto them; the code tables and
-    the lineage whole (a few thousand rows, read by every deal)."""
+    법정동s and under the 법정동s of the parcels the lineage carries onto them, each with every form
+    of its code a recorded pair gives (`code_forms`); the code tables and the lineage whole (a few
+    thousand rows, read by every deal)."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     dongs = keys.select(F.substring("pnu", 1, 10).alias("legal_dong"))
     if LINEAGE_SOURCE in frames:
         sources = frames[LINEAGE_SOURCE].join(keys.withColumnRenamed("pnu", "successor_pnu"), "successor_pnu", "left_semi")
         dongs = dongs.unionByName(sources.select(F.substring("predecessor_pnu", 1, 10).alias("legal_dong")))
+    if CODE_CHANGE_SOURCE in frames:
+        forms = F.broadcast(code_forms(keys.sparkSession, [r.asDict() for r in frames[CODE_CHANGE_SOURCE].collect()]))
+        dongs = dongs.unionByName(dongs.join(forms, "legal_dong").select(F.col("_form").alias("legal_dong")))
     dongs = dongs.distinct().cache()
     out = {name: under(frames[name], "pnu", dongs) for name in (*PNU_INPUTS, place_id_join.BRIDGE_SOURCE)
            if name in frames}
@@ -541,6 +545,26 @@ def restrict_inputs(frames: dict[str, Any], keys: Any) -> dict[str, Any]:
         if name in frames:
             out[name] = frames[name]
     return out
+
+
+def code_form_pairs(change_rows: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """(legal_dong, another code its parcels and deals may stand under), both ways. The served edition
+    and the land, title and ownership files can name a code from before a change while a deal names its
+    current one (the 2026-07-01 전남광주 pairs: the served 4611010100… and the deals' 1211010100…), so a
+    restriction to a 법정동 keeps its current code and its earlier forms
+    (`place_identity_resolver.served_forms`, root ADR-0482 §1)."""
+    import legal_dong_code_change_views as views  # noqa: PLC0415
+    import place_identity_resolver as resolver  # noqa: PLC0415
+
+    remap, _ambiguous = resolver.code_crosswalk((p["old_code"], p["new_code"]) for p in views.pair_rows(change_rows))
+    pairs = set(remap.items()) | {(code, form) for code, form, _rank in resolver.served_forms(remap)}
+    pairs |= {(b, a) for a, b in pairs}
+    return sorted(p for p in pairs if p[0] != p[1])
+
+
+def code_forms(spark: Any, change_rows: list[dict[str, Any]]) -> Any:
+    """`code_form_pairs` as a frame of `legal_dong, _form`."""
+    return spark.createDataFrame(code_form_pairs(change_rows), "legal_dong string, _form string")
 
 
 def affected_dongs(changed: list[str], appended: list[str], *, old: Any, new: dict[str, Any], appended_deals: Any,
@@ -783,7 +807,12 @@ def main(argv=None) -> int:
                 inputs[place_id_join.BRIDGE_SOURCE], content, columns),
             restrict=restrict_inputs, affected=affected, validate=validate_gold,
             content_columns=content, gold_columns=columns,
-            append_inputs={RT_SOURCE: rt_table, place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)})
+            append_inputs={RT_SOURCE: rt_table, place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)},
+            # The first national build ran past its 150 min unit four times (2026-11-10 21:26 to
+            # 2026-11-11 06:09, killed in validation each time, nothing kept): one 시도 at a time, each
+            # staged, so a killed run resumes (root ADR-0440). restrict_inputs keeps every code form
+            # of a 시도's 법정동s, so the 12… deals of the 46…/29… served parcels are in their shard.
+            full_shard_keys=lambda inputs: inputs[PARCEL_SOURCE])
         coverage = section_coverage.guard_from_arguments(spark, args, table, {SECTION: kind.columns[0]},
                                                          frames[CODE_CHANGE_SOURCE], shares=False)
         outcome = incremental.build_or_merge(spark, args, lane, frames, pins, previous, table, validate_gold,

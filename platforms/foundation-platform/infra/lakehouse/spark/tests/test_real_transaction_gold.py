@@ -120,6 +120,23 @@ class InputsTest(unittest.TestCase):
         self.assertIn((OLD_NAME, OLD, OLD), job.address_codes(SNAPSHOT, [])[0])
 
 
+class ShardedFullBuildTest(unittest.TestCase):
+    """2026-11-10/11: the first national build ran past its 150 min unit four times and kept nothing."""
+
+    def test_a_dongs_restriction_keeps_every_form_of_its_code(self):
+        # Synthetic: 99999 old dong carried to 99998 (a 시도 merge, as 46…→12… on 2026-07-01).
+        rows = [{"kind": "pair", "old_code": "9999911010", "new_code": "9999812010", "source": "t",
+                 "effective_date": "20990701", "level": "eupmyeondong", "rule_verdict": "", "change_key": "k"}]
+        pairs = job.code_form_pairs(rows)
+        self.assertIn(("9999911010", "9999812010"), pairs, "a served old-code shard reads the deals of the current code")
+        self.assertIn(("9999812010", "9999911010"), pairs, "a current-code shard reads the files still on the old one")
+        self.assertEqual(job.code_form_pairs([]), [])
+
+    def test_the_full_build_is_staged_one_shard_at_a_time(self):
+        source = (Path(__file__).resolve().parents[1] / "jobs/real_transaction_silver_to_gold.py").read_text(encoding="utf-8")
+        self.assertIn("full_shard_keys=lambda inputs: inputs[PARCEL_SOURCE]", source)
+
+
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
 class DocumentSparkTest(unittest.TestCase):
     @classmethod
