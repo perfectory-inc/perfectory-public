@@ -263,8 +263,18 @@ pub fn job_unit_line_problems(file: &str, unit: &str) -> Vec<String> {
 
 /// Every way the state directories disagree with the jobs' `state_paths`. Empty is a pass.
 ///
+/// The host's data disk root for jobs, owned by the operator account and not by the job user.
+/// `systemd-tmpfiles` refuses to walk from it through a directory another user owns ("unsafe path
+/// transition"), so a state directory here is one level below it and a job makes anything deeper
+/// itself: 2026-11-11 `.../intelligence-documents/lakehouse` stopped every deploy from 15:34Z with
+/// exit 73 and the host stayed on the release before it.
+const DATA_ROOT: &str = "/data/foundation-platform/";
+
+/// Every way the job list's state directories break their rules.
+///
 /// Each job state path is a state directory or is named in `state_paths_not_created_here`; each
-/// state directory is a job state path or lies under one; a mode is four octal digits.
+/// state directory is a job state path or lies under one; a mode is four octal digits; one under
+/// [`DATA_ROOT`] is its direct child.
 #[must_use]
 pub fn state_directory_problems(list: &JobList) -> Vec<String> {
     let state_paths: BTreeSet<&str> = list
@@ -284,6 +294,14 @@ pub fn state_directory_problems(list: &JobList) -> Vec<String> {
             problems.push(format!(
                 "{path}: mode {} is not four octal digits",
                 directory.mode
+            ));
+        }
+        if path
+            .strip_prefix(DATA_ROOT)
+            .is_some_and(|rest| rest.contains('/'))
+        {
+            problems.push(format!(
+                "{path}: under {DATA_ROOT} a state directory is its direct child; make deeper ones in the job"
             ));
         }
         let under_a_state_path = state_paths
@@ -572,6 +590,21 @@ mod tests {
             "{rendered_owned}"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_state_directory_deeper_than_one_level_under_the_data_root_is_refused() {
+        let jobs = with_state(
+            &["/data/foundation-platform/job"],
+            &[
+                ("/data/foundation-platform/job", "0755"),
+                ("/data/foundation-platform/job/lakehouse", "0777"),
+            ],
+            &[],
+        );
+        let problems = state_directory_problems(&jobs);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].starts_with("/data/foundation-platform/job/lakehouse: under"));
     }
 
     #[test]

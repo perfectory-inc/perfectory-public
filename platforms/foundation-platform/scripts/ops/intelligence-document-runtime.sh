@@ -16,9 +16,10 @@ intelligence_document_run_dir() {
   export FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}/lakehouse"
   work="${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}/runs/$1-${run_id}"
   container_work="/workspace/target/lakehouse/runs/$1-${run_id}"
-  # The Spark container (uid 185) writes the plan; the image (uid 10001) writes its rows.
-  mkdir -p -m 0777 "${work}" "${work}/plan" "${work}/out"
-  chmod 0777 "${work}" "${work}/plan" "${work}/out"
+  # The Spark container (uid 185) writes the plan; the image (uid 10001) writes its rows. The job
+  # makes its lakehouse root itself: tmpfiles may not walk below the state directory on /data.
+  mkdir -p -m 0777 "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}" "${work}" "${work}/plan" "${work}/out"
+  chmod 0777 "${FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT}" "${work}" "${work}/plan" "${work}/out"
   run_log="${work}/run.log"
 }
 
