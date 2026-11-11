@@ -35,6 +35,7 @@ futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 geo-types = { version = "0.7", features = ["rstar_0_12"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
+half = { version = "2", features = ["num-traits"] }
 hashbrown = { version = "0.17" }
 http = { version = "1" }
 httparse = { version = "1" }

@@ -68,6 +68,7 @@ fn the_maps_and_360_photos_are_media_too_and_land_beside_their_field() {
             media_format: "jpg".to_owned(),
             size_bytes: 5,
             longest_px: None,
+            source: None,
         },
     )]);
     let line = json!({"body": detail(item).to_string()}).to_string();
@@ -171,6 +172,7 @@ fn an_original_lands_beside_its_thumbnail_unless_it_is_the_same_file() {
         media_format: "jpg".to_owned(),
         size_bytes: size,
         longest_px: None,
+        source: None,
     };
     let resolved = HashMap::from([
         (THUMBNAIL.to_owned(), stored('a', 10)),
@@ -234,6 +236,7 @@ fn rewrite_points_resolved_media_at_its_hash_and_leaves_the_rest() {
             media_format: "jpg".to_owned(),
             size_bytes: 10,
             longest_px: None,
+            source: None,
         },
     );
     resolved.insert(
@@ -243,6 +246,7 @@ fn rewrite_points_resolved_media_at_its_hash_and_leaves_the_rest() {
             media_format: "pdf".to_owned(),
             size_bytes: 20,
             longest_px: None,
+            source: None,
         },
     );
 
@@ -341,6 +345,7 @@ async fn a_line_settles_whole_reuses_stored_urls_and_stops_at_a_line_boundary() 
             media_format: "jpg".to_owned(),
             size_bytes: 9,
             cltr_mng_no: "K".to_owned(),
+            source: None,
         },
     );
     let lines = vec![
@@ -690,5 +695,186 @@ async fn a_thumbnail_sized_original_is_counted_and_the_ladder_is_made_from_the_t
         .as_str(),
     )?;
     assert!(!manifest.is_empty());
+    Ok(())
+}
+
+/// A real Windows bitmap of `width` x `height`.
+fn bmp(width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(width, height, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap_or(0),
+            u8::try_from(y % 256).unwrap_or(0),
+            7,
+        ])
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Bmp)
+        .unwrap_or_default();
+    out
+}
+
+/// One run of a line whose photo answers `thumbnail` at its URL and `original` at its original's.
+async fn one_run(
+    thumbnail: ResponseTemplateBytes,
+    original: ResponseTemplateBytes,
+) -> anyhow::Result<(super::Mirrored, foundation_outbox::FileObjectStorage)> {
+    use super::{mirror_detail_lines, MirrorSettings};
+    use crate::data_go_kr_onbid_collect::RenditionBudget;
+    use std::collections::BTreeMap;
+    use std::time::{Duration, Instant};
+    use wiremock::matchers::{method, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    let server = MockServer::start().await;
+    for (kind, (content_type, bytes)) in [("THNL_NM", thumbnail), ("CLG_FILE_NM", original)] {
+        Mock::given(method("GET"))
+            .and(query_param("downloadImageKind", kind))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(bytes, content_type))
+            .mount(&server)
+            .await;
+    }
+    let base = server.uri();
+    let host = reqwest::Url::parse(&base)?
+        .host_str()
+        .unwrap_or_default()
+        .to_owned();
+    let url = THUMBNAIL.replace("https://www.onbid.co.kr", &base);
+    let body = detail(json!({"cltrMngNo": "A", "pbctCdtnNo": 1, "potoUrlList": [{"urlAdr": url}]}));
+    let lines = [json!({"body": body.to_string()}).to_string()];
+    let root = std::env::temp_dir().join(format!("onbid-media-{}", uuid::Uuid::new_v4()));
+    let storage = foundation_outbox::FileObjectStorage::new(&root)?;
+    let media_fields = fields();
+    let budget = RenditionBudget {
+        per_run_limit: 10,
+        concurrency: 2,
+        run_time_budget_seconds: 60,
+    };
+    let settings = MirrorSettings {
+        object_prefix: "onbid/media",
+        url_host: &host,
+        max_file_bytes: 1 << 20,
+        daily_limit: 100,
+        per_run_limit: 10,
+        concurrency: 2,
+        deadline: Instant::now() + Duration::from_secs(60),
+        fields: &media_fields,
+        renditions: Some(&budget),
+    };
+    let mirrored = mirror_detail_lines(
+        &lines,
+        &[],
+        &mut BTreeMap::new(),
+        &settings,
+        0,
+        &storage,
+        &reqwest::Client::new(),
+    )
+    .await;
+    Ok((mirrored, storage))
+}
+
+type ResponseTemplateBytes = (&'static str, Vec<u8>);
+
+// Incident 2026-11-11 (root ADR-0503): 공매 photos uploaded as BMP are served as the BMP itself at
+// both the thumbnail and the original URL (75 of the 84 originals the rule "missed"), and were
+// dropped as an unknown format, so they never showed.
+#[tokio::test]
+async fn a_bitmap_photo_is_kept_as_received_and_shown_through_its_png_master() -> anyhow::Result<()>
+{
+    use foundation_shared_kernel::{
+        content_addressed_key, rendition_manifest_key, source_key, MediaFormat, ObjectKeyPrefix,
+        Sha256Hex,
+    };
+
+    // Larger than the provider thumbnail (178), as every measured BMP was (587 to 1400 px).
+    let received = bmp(300, 200);
+    let (mirrored, storage) = one_run(
+        ("application/octet-stream", received.clone()),
+        ("application/octet-stream", received.clone()),
+    )
+    .await?;
+    let report = &mirrored.report;
+    assert_eq!(
+        (
+            report.originals_attempted,
+            report.originals_rule_mismatched,
+            report.skipped_unknown_format
+        ),
+        (1, 0, 0)
+    );
+    assert_eq!(report.ladders_written, 1);
+    assert!(mirrored.outcomes[0].complete);
+    let record: serde_json::Value = serde_json::from_str(&mirrored.lines[0])?;
+    let response: serde_json::Value =
+        serde_json::from_str(record["body"].as_str().unwrap_or_default())?;
+    let photo = &response["body"]["items"]["item"]["potoUrlList"][0];
+    // The line names the PNG master, with the received bitmap beside it.
+    assert_eq!(photo["media_format"], json!("png"));
+    let source = Sha256Hex::of(&received);
+    assert_eq!(photo["source_sha256"], json!(source.as_str()));
+    assert_eq!(photo["source_media_format"], json!("bmp"));
+    assert_eq!(photo["source_size_bytes"], json!(received.len()));
+    let prefix = ObjectKeyPrefix::parse("onbid/media")?;
+    // The bitmap is kept byte for byte, outside the served store.
+    assert_eq!(
+        storage.get_object_bytes(source_key(&prefix, &source, MediaFormat::Bmp)?.as_str())?,
+        received
+    );
+    let master_hash = Sha256Hex::parse(photo["sha256"].as_str().unwrap_or_default())?;
+    let master = storage.get_object_bytes(
+        content_addressed_key(&prefix, &master_hash, MediaFormat::Png)?.as_str(),
+    )?;
+    assert_eq!(
+        image::load_from_memory(&master)?.to_rgb8(),
+        image::load_from_memory(&received)?.to_rgb8()
+    );
+    // Its ladder is made from the master.
+    assert!(!storage
+        .get_object_bytes(
+            rendition_manifest_key(
+                &prefix,
+                &crate::media_renditions::spec()?.version,
+                &master_hash
+            )?
+            .as_str()
+        )?
+        .is_empty());
+    Ok(())
+}
+
+// Incident 2026-11-11 (root ADR-0503): 4 of the 84 "rule misses" were photos the provider has no file
+// for: an HTML page at the thumbnail URL and at the original's. No rule reaches those.
+#[tokio::test]
+async fn an_original_missing_with_its_thumbnail_is_the_providers_gap_not_the_rules(
+) -> anyhow::Result<()> {
+    let page = b"<html><meta name=x></html>".to_vec();
+    let (mirrored, _) = one_run(
+        ("text/html; charset=utf-8", page.clone()),
+        ("text/html; charset=utf-8", page),
+    )
+    .await?;
+    let report = &mirrored.report;
+    assert_eq!(
+        (
+            report.originals_attempted,
+            report.originals_rule_mismatched,
+            report.originals_provider_missing
+        ),
+        (1, 0, 1)
+    );
+    // The thumbnail landed but its original is a page: that is the rule's miss.
+    let (mirrored, _) = one_run(
+        ("image/jpeg", jpeg(178, 134)),
+        ("text/html; charset=utf-8", b"<html></html>".to_vec()),
+    )
+    .await?;
+    assert_eq!(
+        (
+            mirrored.report.originals_rule_mismatched,
+            mirrored.report.originals_provider_missing
+        ),
+        (1, 0)
+    );
     Ok(())
 }

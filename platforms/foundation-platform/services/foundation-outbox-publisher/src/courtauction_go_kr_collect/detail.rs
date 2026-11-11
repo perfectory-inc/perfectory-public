@@ -367,30 +367,53 @@ pub(crate) async fn rewrite_photos(
             photo[fields.file_field.as_str()] = JsonValue::Null;
             continue;
         }
-        let sha256 = hex(&Sha256::digest(&bytes));
-        if let Some(storage) = storage {
-            match store_bytes(&bytes, prefix, storage, fields.max_file_bytes).await? {
+        // What the line names is what was stored: for a raster no screen reads, its display master,
+        // with the received file beside it (root ADR-0503).
+        let (sha256, media_format, size_bytes, source) = if let Some(storage) = storage {
+            let media = match store_bytes(&bytes, prefix, storage, fields.max_file_bytes).await? {
                 Stored::New(media) => {
                     report.stored += 1;
                     report.bytes_stored += media.size_bytes;
+                    media
                 }
-                Stored::Deduplicated(_) => report.deduplicated += 1,
+                Stored::Deduplicated(media) => {
+                    report.deduplicated += 1;
+                    media
+                }
                 Stored::Oversize | Stored::UnknownFormat | Stored::Gone => {
                     report.not_stored += 1;
                     photo[fields.file_field.as_str()] = JsonValue::Null;
                     continue;
                 }
-            }
-            if report.seen.insert(sha256.clone()) {
+            };
+            if report.seen.insert(media.sha256.clone()) {
                 report
                     .sources
-                    .push((sha256.clone(), format.extension().to_owned()));
+                    .push((media.sha256.clone(), media.media_format.clone()));
             }
-        }
+            (
+                media.sha256,
+                media.media_format,
+                media.size_bytes,
+                media.source,
+            )
+        } else {
+            (
+                hex(&Sha256::digest(&bytes)),
+                format.extension().to_owned(),
+                bytes.len() as u64,
+                None,
+            )
+        };
         photo[fields.file_field.as_str()] = json!(format!("sha256:{sha256}"));
         photo["sha256"] = json!(sha256);
-        photo["media_format"] = json!(format.extension());
-        photo["size_bytes"] = json!(bytes.len() as u64);
+        photo["media_format"] = json!(media_format);
+        photo["size_bytes"] = json!(size_bytes);
+        if let Some(source) = source {
+            photo["source_sha256"] = json!(source.sha256);
+            photo["source_media_format"] = json!(source.media_format);
+            photo["source_size_bytes"] = json!(source.size_bytes);
+        }
     }
     Ok(count)
 }
