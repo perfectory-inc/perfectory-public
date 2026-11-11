@@ -12,7 +12,8 @@
       "systemd_service": "foundation-parcel-edition-readiness.service",
       "systemd_timer": null,
       "state_paths": [
-        "/var/lib/foundation-platform/parcel-editions"
+        "/var/lib/foundation-platform/parcel-editions",
+        "/var/lib/foundation-jobs/metrics"
       ],
       "schedule": "10 8 * * *",
       "started_by": "schedule",
