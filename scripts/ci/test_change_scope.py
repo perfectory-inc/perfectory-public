@@ -117,6 +117,19 @@ class GlobTest(unittest.TestCase):
 
 
 class DecideTest(unittest.TestCase):
+    def test_a_declared_crate_read_must_name_a_file_or_directory(self) -> None:
+        fixture = Fixture(self)
+        fixture.contract["crates"]["reads"] = {"$comment": "why", "kernel": ["platforms/example/src"]}
+        self.assertEqual(fixture.errors(), [])
+        fixture.contract["crates"]["reads"] = {"kernel": ["platforms/example/gone"], "api": []}
+        self.assertEqual(
+            fixture.errors(),
+            [
+                "crates.reads.api must be a non-empty list of paths",
+                "crates.reads.kernel: `platforms/example/gone` names no file or directory of the checkout (stale)",
+            ],
+        )
+
     def test_untouched_area_does_not_run(self) -> None:
         # A path an unscoped workflow owns is answered for; it needs no scoped run.
         self.assertFalse(Fixture(self).decide("pull_request", {"docs/guide.md"}))
@@ -415,6 +428,37 @@ class CratesTest(unittest.TestCase):
         tracked = [source, "platforms/ws/config/routes.json", "platforms/ws/migrations/0001_a.sql"]
         reads = cs.member_reads(root, self.WS, self.MEMBERS, tracked)
         self.assertEqual(reads["api"], {"platforms/ws/config/routes.json", "platforms/ws/migrations"})
+
+    def test_a_declared_directory_selects_its_reader_for_a_file_its_sources_do_not_quote(self) -> None:
+        # 2026-11-11 (#1268, run 42959846237): foundation-jobs opens infra/systemd by the job list's
+        # names and quotes two test units, so a third unit's edit selected nothing and main failed.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source = "platforms/ws/tools/tool/src/lib.rs"
+        (root / source).parent.mkdir(parents=True)
+        (root / source).write_text(
+            'pub const UNIT_DIR: &str = "infra/systemd";\n#[test]\nfn t() { name("a.service"); }\n', encoding="utf-8"
+        )
+        tracked = [source, "platforms/ws/infra/systemd/a.service", "platforms/ws/infra/systemd/b.service"]
+        reads = cs.member_reads(root, self.WS, self.MEMBERS, tracked)
+        changed = {"platforms/ws/infra/systemd/b.service"}
+        self.assertEqual(self.decide(changed, reads=reads)[0], set())
+        contract = {"crates": {**self.CONTRACT["crates"], "reads": {"tool": ["platforms/ws/infra/systemd"], "other-ws": ["x"]}}}
+        for name, paths in cs.declared_reads(contract, self.MEMBERS, reads).items():
+            reads[name] |= paths
+        self.assertEqual(cs.decide_crates(contract, self.WS, "pull_request", changed, self.MEMBERS, reads)[0], {"tool"})
+
+    def test_a_generated_artifact_is_read_like_a_tracked_file(self) -> None:
+        # A job list change (a definition, root ADR-0418) reaches the crates that quote the job list.
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source = "platforms/ws/tools/tool/src/lib.rs"
+        (root / source).parent.mkdir(parents=True)
+        (root / source).write_text('pub const JOB_LIST: &str = "orchestration/jobs.v1.json";\n', encoding="utf-8")
+        generated = "platforms/ws/orchestration/jobs.v1.json"
+        self.assertEqual(cs.member_reads(root, self.WS, self.MEMBERS, [source])["tool"], set())
+        self.assertEqual(cs.member_reads(root, self.WS, self.MEMBERS, [source, generated])["tool"], {generated})
+        self.assertIn("platforms/foundation-platform/orchestration/jobs.v1.json", cs.checkout_files(cs.ROOT))
 
     def test_a_test_that_walks_every_crate_reads_every_crate(self) -> None:
         root = Path(tempfile.mkdtemp())
