@@ -3,6 +3,8 @@
 
     edition_lockstep_gate.py <lane>       prints `ok` or `waiting <reason>`; exits 65 when it cannot tell
     edition_lockstep_gate.py tiles        the parcel tile bake, before it promotes a release (root ADR-0490 §6)
+    edition_lockstep_gate.py edition <lane>   the served edition, when the lane is built from the served parcels;
+                                          nothing otherwise (its publish records it, root ADR-0490 §7)
 
 A promotion moves `served_edition`; each Gold that reads the parcels then rebuilds, only the PNUs the two
 editions differ in (gold_rebuild.plan, gold_incremental), and records the edition it was built from on
@@ -91,9 +93,25 @@ def verdict(lane: str, contract: Mapping[str, Any], history: Callable[[str], dic
     return f"waiting the served edition moved to {served}; not rebuilt on it yet: {', '.join(behind)}"
 
 
+def lane_edition(lane: str, contract: Mapping[str, Any]) -> str:
+    """The served edition a lane of the barrier publishes once the gate opens, or "" for a lane outside
+    it. by-pnu-serving-bake.sh records it with the lane's publish and with a refused one, so a refusal
+    of the first publish of a promotion is that edition's (root ADR-0490 §7), and another lane's is none."""
+
+    return editions.served(contract) if lane in lockstep_tables() else ""
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 2 and argv[0] == "edition":
+        try:
+            print(lane_edition(argv[1], editions.load()))
+        except (OSError, KeyError, ValueError, editions.EditionError) as error:
+            print(f"edition_lockstep_gate: cannot tell the edition {argv[1]} publishes: {type(error).__name__}: {error}",
+                  file=sys.stderr)
+            return 65
+        return 0
     if len(argv) != 1:
-        print("usage: edition_lockstep_gate.py <lane>", file=sys.stderr)
+        print("usage: edition_lockstep_gate.py <lane> | edition <lane>", file=sys.stderr)
         return 64
     try:
         catalog = iceberg_metadata.Catalog("FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN", "foundation-edition-lockstep-gate")

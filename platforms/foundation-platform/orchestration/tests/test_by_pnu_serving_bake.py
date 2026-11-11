@@ -296,9 +296,9 @@ class ByPnuServingBake(unittest.TestCase):
             shutil.copytree(job_specs.PLATFORM_ROOT / part, release / part, dirs_exist_ok=True,
                             ignore=shutil.ignore_patterns("__pycache__", "tests"))
         # The lockstep gate reads the catalog (its own test, test_edition_lockstep_gate.py); here it
-        # answers FAKE_LOCKSTEP, `ok` unless a case says otherwise (root ADR-0381).
+        # answers FAKE_LOCKSTEP, `ok` unless a case says otherwise (root ADR-0381); `edition`, 209909.
         (release / "scripts/ops/edition_lockstep_gate.py").write_text(
-            "import os\nprint(os.environ.get('FAKE_LOCKSTEP', 'ok'))\n")
+            "import os, sys\nprint('209909' if sys.argv[1:2] == ['edition'] else os.environ.get('FAKE_LOCKSTEP', 'ok'))\n")
         (base / "current").symlink_to(pathlib.Path("releases") / RELEASE_ID)
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
@@ -972,6 +972,9 @@ class ByPnuServingBake(unittest.TestCase):
         self.assertEqual(self.refusal(), "not_a_delta")
         self.assertEqual(self.published(calls), [])
         self.assertEqual(self.exports(calls), [])
+        # Root ADR-0490 §7: recorded with the edition it was to publish, so a promotion can be rolled back.
+        last = json.loads((self.state_root / "parcel/reads.jsonl").read_text().splitlines()[-1])
+        self.assertEqual([last.get(k) for k in ("outcome", "edition", "refused")], ["failed", "209909", "not_a_delta"])
         # The served documents hold the schema the export bakes: no revision is stated.
         [delta] = [call for call in calls if call["command"] == "delta"]
         self.assertEqual(delta["options"]["--document-schema-revision"], "")

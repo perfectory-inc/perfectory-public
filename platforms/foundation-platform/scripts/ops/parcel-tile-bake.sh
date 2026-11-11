@@ -126,8 +126,10 @@ chosen = editions.served(contract) if sys.argv[2] == "served" else sys.argv[2]
 if chosen not in contract["editions"]:
     sys.exit(f"parcel-tile-bake: refused: the source contract holds no edition {chosen}")
 bake = json.loads((release / "config/tile-bake-containers.contract.json").read_text(encoding="utf-8"))
-ledger = contract["promotions"]
-bootstrap = len(ledger) == 1 and ledger[0]["readiness"] is None and ledger[0]["edition"] == chosen
+# The ledger's first edition, whatever came after it: a rollback to it (root ADR-0490 §7) serves it again,
+# and while the tile bake never promoted a release (no baked-edition) the PostGIS-era release still serves it.
+first = contract["promotions"][0]
+bootstrap = first["readiness"] is None and first["edition"] == chosen
 candidate = ""
 report = pathlib.Path(sys.argv[3])
 if report.is_file():
@@ -182,7 +184,11 @@ spark() {
 if [[ "${MODE}" == gold || "${MODE}" == rehearsal-gold ]]; then
   if [[ "${MODE}" == gold && -z "${FORCE}" ]]; then
     served_done=""
-    if [[ "${served_kind}" == bootstrap ]]; then
+    # Not the ledger's length: a promotion rolled back before its tiles were baked (root ADR-0490 §7) is
+    # still served by the PostGIS-era release, and baking it from the lakehouse would be a national bake
+    # (about 85 minutes, 5.5 GB) that changes nothing. Once a lakehouse bake has been promoted, a return to
+    # the first edition is baked like any other.
+    if [[ "${served_kind}" == bootstrap && ! -s "${baked_file}" ]]; then
       served_done="${snapshot} is the ledger's first edition, served by the release from before the lakehouse bake"
     elif [[ -s "${baked_file}" && "$(cat "${baked_file}")" == "${snapshot}" ]]; then
       served_done="the parcel tiles already serve ${snapshot}"

@@ -12,6 +12,7 @@ import json
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -411,6 +412,99 @@ class HostLedgerTest(unittest.TestCase):
         mount = f"/var/lib/foundation-platform/parcel-editions}}:{Path(declared['container_path']).parent.as_posix()}:ro"
         self.assertEqual(Path(declared["path"]).parent.as_posix(), "/var/lib/foundation-platform/parcel-editions")
         self.assertEqual(compose.count(mount), 2, "both Spark services mount the host ledger")
+
+
+class RollbackTest(unittest.TestCase):
+    """Root ADR-0490 §7: a promotion whose first publish a lane's gate refused is rolled back by one more
+    ledger line, with no person; the controller then never asks for that edition again. Before it the
+    ledger accepted a rollback line and nothing wrote one (W58c)."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        held = contract()
+        report = self.root / "readiness.json"
+        report.write_text(json.dumps(readiness.readiness(held, evidence(), datetime.now(timezone.utc))), encoding="utf-8")
+        self.ledger = self.root / "served-ledger.jsonl"
+        readiness.grant(held, report, self.root / "promote.d", self.root / "promotions", controller=True, ledger=self.ledger)
+        self.held = held
+        self.promoted = editions.overlay(held, editions.read_ledger(self.ledger))
+        self.since = readiness._utc(self.promoted["promotions"][-1]["promoted_at_utc"], "promoted_at_utc")
+
+    def at(self, minutes: int) -> str:
+        return readiness._iso(self.since + timedelta(minutes=minutes))
+
+    def refused(self, minutes: int = 30, **fields) -> dict:
+        return {"at": self.at(minutes), "lane": "parcel", "read_snapshot_id": "101", "outcome": "failed",
+                "exit_code": 1, "edition": CANDIDATE, "refused": "not_a_delta", **fields}
+
+    def test_a_refused_first_publish_returns_to_the_edition_the_promotion_left(self):
+        rolled = readiness.rollback(self.promoted, {"parcel": [self.refused()]})
+        self.assertIsNotNone(rolled)
+        editions.validate(rolled)
+        self.assertEqual(editions.served(rolled), SERVED)
+        back = rolled["promotions"][-1]
+        self.assertEqual((back["from_edition"], back["rollback_of"], back["by"]),
+                         (CANDIDATE, self.promoted["promotions"][-1]["promoted_at_utc"], readiness.CONTROLLER))
+        self.assertIn("parcel lane's first publish", back["cause"])
+        self.assertIn("not_a_delta", back["cause"])
+        # It is appended to the host ledger like a promotion, and every reader serves the edition again.
+        readiness.append_promotion(self.ledger, rolled)
+        path = self.root / "contract.json"
+        path.write_text(json.dumps(self.held), encoding="utf-8")
+        self.assertEqual(editions.served(editions.load(path, self.ledger)), SERVED)
+        # A rollback is not rolled back.
+        self.assertIsNone(readiness.rollback(rolled, {"parcel": [self.refused()]}))
+
+    def test_only_a_refused_first_publish_of_the_promoted_edition_rolls_back(self):
+        cases = {
+            "a crash names no refusal": [self.refused(refused=None)],
+            "a refusal that says nothing of the edition": [self.refused(refused="no_comparison_snapshot")],
+            "a lane outside the barrier names no edition": [self.refused(edition=None)],
+            "another edition's": [self.refused(edition=SERVED)],
+            "before the promotion": [self.refused(minutes=-30)],
+            "after the lane served the edition": [
+                {"at": self.at(10), "lane": "parcel", "read_snapshot_id": "202", "outcome": "served", "edition": CANDIDATE},
+                self.refused(minutes=30)],
+        }
+        for why, records in cases.items():
+            with self.subTest(why):
+                self.assertIsNone(readiness.rollback(self.promoted, {"parcel": records}))
+        # The ledger's first entry, served before readiness gated promotion, is never rolled back.
+        self.assertIsNone(readiness.rollback(self.held, {"parcel": [self.refused()]}))
+
+    def test_the_controller_never_asks_for_a_rolled_back_edition_again(self):
+        rolled = readiness.rollback(self.promoted, {"parcel": [self.refused()]})
+        self.assertEqual(readiness.rolled_back(rolled), {CANDIDATE})
+        report = readiness.readiness(rolled, evidence(), datetime.now(timezone.utc))
+        self.assertTrue(row(report, CANDIDATE)["ready"], "still ready: only the controller's request is held back")
+        self.assertIsNone(readiness.controller_request(rolled, report))
+        self.assertIsNotNone(readiness.controller_request(self.held, readiness.readiness(self.held, evidence(),
+                                                                                           datetime.now(timezone.utc))))
+
+    def test_the_lane_records_are_read_from_the_bake_state_root(self):
+        lane = self.root / "bake" / "parcel"
+        lane.mkdir(parents=True)
+        (lane / "reads.jsonl").write_text(json.dumps(self.refused()) + "\n{torn\n", encoding="utf-8")
+        found = readiness.lane_records(self.root / "bake")
+        self.assertEqual(list(found), ["parcel"])
+        self.assertEqual(len(found["parcel"]), 1)
+        self.assertEqual(readiness.lane_records(self.root / "absent"), {})
+
+    def test_the_command_appends_the_rollback_once(self):
+        lane = self.root / "bake" / "parcel"
+        lane.mkdir(parents=True)
+        (lane / "reads.jsonl").write_text(json.dumps(self.refused()) + "\n", encoding="utf-8")
+        path = self.root / "contract.json"
+        path.write_text(json.dumps(self.held), encoding="utf-8")
+        args = ["rollback", "--contract", str(path), "--bake-root", str(self.root / "bake"), "--ledger", str(self.ledger)]
+        with unittest.mock.patch.dict("os.environ", {editions.LEDGER_ENV: str(self.ledger)}):
+            self.assertEqual(readiness.main(args), 0)
+            self.assertEqual(readiness.main(args), 0)
+        lines = self.ledger.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(json.loads(lines[-1])["edition"], SERVED)
 
 
 class CommandLineTest(unittest.TestCase):

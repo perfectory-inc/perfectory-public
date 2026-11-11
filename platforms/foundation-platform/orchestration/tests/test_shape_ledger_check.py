@@ -290,6 +290,24 @@ class WriterKey(unittest.TestCase):
         self.assertEqual(key["endpoint"], "https://acct.r2.cloudflarestorage.com")
         self.assertTrue(check.OBJECTS.startswith(writer.PREFIX) and check.HEAD.startswith(writer.PREFIX))
 
+    def test_the_promotions_ledger_unit_gets_a_key_to_its_own_prefix_only(self):
+        # Root ADR-0490 §5: the readiness job copies the host promotions ledger under parcel-editions/.
+        asked = []
+
+        def call(token, method, path, body=None):
+            asked.append(body)
+            if path == "/user/tokens/verify":
+                return 200, {"result": {"id": "token-id"}}
+            return 200, {"success": True, "result": {"accessKeyId": "a", "secretAccessKey": "s", "sessionToken": "t"}}
+
+        key = writer.mint("tok", "acct", "ledger-bucket", call, prefix="parcel-editions/")
+        self.assertEqual((asked[1]["prefixes"], key["prefix"]), (["parcel-editions/"], "parcel-editions/"))
+        with self.assertRaisesRegex(RuntimeError, "no key is minted for the prefix"):
+            writer.mint("tok", "acct", "ledger-bucket", call, prefix="")
+        unit = (PLATFORM / "infra/systemd/foundation-parcel-edition-readiness.service").read_text(encoding="utf-8")
+        self.assertIn("scripts/ops/shape-ledger-writer-key.py parcel-editions/\n", unit)
+        self.assertIn("RuntimeDirectory=foundation-parcel-edition-readiness\n", unit)
+
     def test_a_refusal_names_the_status_and_codes_never_a_value(self):
         def call(token, method, path, body=None):
             return (200, {"result": {"id": "token-id"}}) if "verify" in path else (403, {"errors": [{"code": 10000}]})
