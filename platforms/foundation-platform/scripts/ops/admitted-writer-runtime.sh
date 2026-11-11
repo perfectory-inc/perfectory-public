@@ -94,6 +94,12 @@ if [[ "${admitted_writer_require_current}" == yes && -n "${RUNTIME_DIRECTORY:-}"
   printf '%s\n' "${RELEASE_ROOT}" >"${RUNTIME_DIRECTORY%%:*}/release" ||
     admitted_writer_refuse 'cannot record the run release in RUNTIME_DIRECTORY'
 fi
+# Every step this run starts is of the same run (root ADR-0441): a child script that sources this
+# file again is admitted on this release after a deploy moved `current` on, as an operator's run is.
+# 2026-11-11 04:31Z the source sweep's members step (bronze-object-members.sh, its own --current
+# check) was refused when the 04:2xZ deploy switched `current` mid-sweep, and the whole sweep failed.
+# Only a release whose build output was verified above is named; the name admits nothing else.
+export FOUNDATION_RUN_RELEASE="${RELEASE_ID}"
 # One Spark run of a job from this release's compose.lakehouse.yml: the write check
 # (lakehouse-target-init), then the job, each its own one-off `run --rm --no-deps` container that
 # Compose names <project>-<service>-run-<id>, so jobs started together share no container. The check
