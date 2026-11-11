@@ -71,7 +71,7 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         artifacts = base / "artifacts" / RELEASE_ID
         artifacts.mkdir(parents=True)
         publisher = artifacts / "foundation-outbox-publisher"
-        publisher.write_text("#!/bin/sh\necho lakehouse-tile-bake-rehearsal synthetic\nexit 0\n")
+        publisher.write_text("#!/bin/sh\n[ -z \"$FAKE_PUBLISHER_FAIL\" ] || exit 1\necho lakehouse-tile-bake-rehearsal synthetic\nexit 0\n")
         publisher.chmod(0o555)
         (artifacts / "build.json").write_text(json.dumps({
             "source": RELEASE_ID, "publisher_image": "sha256:" + "a" * 64, "tippecanoe_image": "sha256:" + "d" * 64,
@@ -203,20 +203,29 @@ class ParcelTileBakeGoldHalf(unittest.TestCase):
         self.assertEqual(len(calls_after), len(calls))
         self.assertIn("again after 7 days", (self.state / "journal.log").read_text())
 
-    def test_the_bake_half_bakes_the_rehearsal_when_no_served_gold_waits_and_only_once(self):
+    def test_the_bake_half_bakes_the_rehearsal_when_no_served_gold_waits(self):
         self.wait_for_rehearsal()
         self.run_half("gold", "pass", bootstrap=True)
-        (self.state / "rehearsal-ready").write_text((self.state / "rehearsal-ready").read_text())
         result, _ = self.run_half("bake", "pass", bootstrap=True)
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
         journal = (self.state / "journal.log").read_text()
         self.assertIn("rehearsal baked", journal)
         self.assertFalse((self.state / "baked-edition").exists(), "a rehearsal bakes nothing served")
-        # A rehearsal Gold baked once and left (a failed bake keeps it) is not baked again.
-        shutil.copy(self.state / "rehearsal-bake-attempted", self.state / "rehearsal-ready")
+        self.assertFalse((self.state / "rehearsal-ready").exists(), "a baked rehearsal Gold is used up")
+        # A rehearsal bake that failed keeps its Gold and is not baked again from it.
+        self.run_half("gold", "pass", bootstrap=True)
+        self.assertFalse((self.state / "rehearsal-ready").exists(), "tried today: no second rehearsal Gold")
+
+    def test_a_failed_rehearsal_bake_is_not_baked_again_from_the_same_gold(self):
+        self.wait_for_rehearsal()
+        self.run_half("gold", "pass", bootstrap=True)
+        self.env["FAKE_PUBLISHER_FAIL"] = "1"
+        failed, _ = self.run_half("bake", "pass", bootstrap=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertTrue((self.state / "rehearsal-ready").exists())
         again, _ = self.run_half("bake", "pass", bootstrap=True)
         self.assertEqual(again.returncode, 0, again.stderr)
-        self.assertIn("was baked once", (self.state / "journal.log").read_text())
+        self.assertIn("failed; the next rehearsal makes another", (self.state / "journal.log").read_text())
 
 
 if __name__ == "__main__":

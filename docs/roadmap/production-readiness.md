@@ -225,7 +225,7 @@ last_reviewed: 2026-11-07
 | 토지 | 필지별 토지이용계획 (`silver.land_use_plan`) | `parcel` | — | 화면 |
 | 토지 | 용도지역지구 구역 (`silver.land_use_zone_area`) | `parcel-regulation-zones (꺼짐)` | `zoning-overlay-tiles` | 화면 |
 | 토지 | 용도지역 코드 사전 (`silver.land_use_zone_code`) | `parcel` | — | 화면 |
-| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles` | 화면 |
+| 토지 | 필지 경계 (`silver.parcel_boundaries`) | `parcel`<br>`parcel-nearby`<br>`parcel-real-transaction`<br>`parcel-regulation-zones (꺼짐)` | `parcel-tiles (꺼짐)` | 화면 |
 | 토지 | 필지 계보 (`silver.parcel_lineage`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 건물 | 건물 전기 사용량(월별) (`silver.building_energy_monthly_electricity`) | `parcel-energy` | — | 화면 |
 | 건물 | 건물 가스 사용량(월별) (`silver.building_energy_monthly_gas`) | `parcel-energy` | — | 화면 |
@@ -273,7 +273,7 @@ last_reviewed: 2026-11-07
 | 주변 생활 | 행정동 성별 연령별 인구 (`silver.dong_population`) | — | — | 없음 |
 | 주변 생활 | 행정동 세대원수별 세대수 (`silver.household_count`) | — | — | 없음 |
 | 행정·내부 | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | `admin-tiles` | 화면 |
-| 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles` | 화면 |
+| 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles (꺼짐)` | 화면 |
 | 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
 | 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |

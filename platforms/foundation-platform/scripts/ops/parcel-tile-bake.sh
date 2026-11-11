@@ -160,6 +160,11 @@ run_log=/dev/null
 on_error() {
   job_journal "${journal}" "${MODE} ${snapshot} FAILED at line $1 (log ${run_log})" >&2
   job_run_log_tail "${run_log}"
+  # A rehearsal bake that failed is not baked again from the same Gold (root ADR-0490 §4); one that only
+  # deferred partitions to its next run (ADR-0493) did not fail and continues.
+  if [[ "${MODE}" == rehearsal-bake && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
+    cp -- "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed" || true
+  fi
 }
 trap 'on_error ${LINENO}' ERR
 
@@ -264,14 +269,13 @@ fi
 
 # bake / rehearsal-bake
 # Root ADR-0490 §4: the bake half bakes the served Gold first; with none waiting, the candidate's rehearsal.
-# A rehearsal bake that did not pass waits for the next rehearsal Gold, not the next day.
+# A rehearsal bake that failed waits for the next rehearsal Gold, not the next day.
 if [[ "${MODE}" == bake && ! -s "${ready_file}" && -s "${STATE_ROOT}/rehearsal-ready" ]]; then
-  if [[ -s "${STATE_ROOT}/rehearsal-bake-attempted" ]] \
-    && cmp -s "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-attempted"; then
-    job_journal "${journal}" "nothing to do: the rehearsal Gold $(cut -d' ' -f1 "${STATE_ROOT}/rehearsal-ready") was baked once; the next rehearsal makes another"
+  if [[ -s "${STATE_ROOT}/rehearsal-bake-failed" ]] \
+    && cmp -s "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-failed"; then
+    job_journal "${journal}" "nothing to do: the bake of the rehearsal Gold $(cut -d' ' -f1 "${STATE_ROOT}/rehearsal-ready") failed; the next rehearsal makes another"
     echo "foundation-job-outcome unchanged"; exit 0
   fi
-  cp -- "${STATE_ROOT}/rehearsal-ready" "${STATE_ROOT}/rehearsal-bake-attempted"
   MODE=rehearsal-bake
   ready_file="${STATE_ROOT}/rehearsal-ready"
 fi
