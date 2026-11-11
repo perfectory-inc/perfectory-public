@@ -408,6 +408,12 @@ def check(platform: pathlib.Path = PLATFORM, base: str | None = None) -> list[st
         out.append("registry.json: two subjects name the same owner lane or surface")
     for entry in registry["subjects"]:
         out += check_subject(platform, entry, connections)
+    # A kind lane's document schema is its subject here and nowhere else (root ADR-0336): the lane
+    # rule derives no version for a kind the registry does not list.
+    owned = {(entry.get("owner") or {}).get("lane") for entry in registry["subjects"]}
+    for lane, line in connections["by_pnu_lanes"].items():
+        if isinstance(line, dict) and "host" in line and lane not in owned:
+            out.append(f"by_pnu_lanes.{lane} is a kind lane whose subject the registry does not list; declare it in the lane's definition (published_schemas)")
     listed = {schema_file(e["subject"], r).as_posix() for e in registry["subjects"] for r in e.get("revisions") or []
               if isinstance(r.get("major"), int) and isinstance(r.get("revision"), int)}
     for path in sorted((platform / REGISTRY).rglob("*.schema.json")):

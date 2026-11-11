@@ -116,8 +116,8 @@ class ParcelKindSparkTest(unittest.TestCase):
 
     def test_every_kind_writes_the_fields_its_document_record_holds(self):
         # A kind's document carries its section's JSON as this job wrote it, so the keys written are
-        # the document's fields: they must be its record's (contracts/by-pnu-documents), and a key
-        # gained, lost or renamed is a new document version. Every value of NEW 1 is present here,
+        # the document's fields: they must be its subject's current revision in the schema registry
+        # (root ADR-0336), and a key gained, lost or renamed is a new revision. Every value of NEW 1 is present here,
         # since a null field is left out of the JSON.
         import by_pnu_kinds
 
