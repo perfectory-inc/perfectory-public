@@ -345,7 +345,7 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (industryland-or-kr.contract.json), as the court auction collector does (root ADR-0484).
 # 168 -> 169: the 주택인허가 기본개요 lane embeds its source contract once, as every hub part lane does
 # (root ADR-0511).
-# 169 -> 170: the Silver refresh\'s 중개사무소 lane compiles in its source contract
+# 169 -> 170: the Silver refresh's 중개사무소 lane compiles in its source contract
 # (vworld-real-estate-broker-office-source-objects.json, root ADR-0511), as each land lane does.
 COMPILE_TIME_READ_BASELINE="${3:-170}"
 
