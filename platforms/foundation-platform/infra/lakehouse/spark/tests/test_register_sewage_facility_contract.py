@@ -1,4 +1,4 @@
-"""The HUB 오수정화시설 lane keys each row by its content and keeps its raw row (root ADR-0490)."""
+"""The HUB 오수정화시설 lane keys each row by its content and keeps its raw row (root ADR-0496)."""
 
 import json
 from pathlib import Path

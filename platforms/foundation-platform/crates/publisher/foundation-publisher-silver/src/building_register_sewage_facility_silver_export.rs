@@ -1,4 +1,4 @@
-//! Headerless HUB 건축물대장 오수정화시설 through the shared streaming engine (root ADR-0490).
+//! Headerless HUB 건축물대장 오수정화시설 through the shared streaming engine (root ADR-0496).
 
 use crate::hub_register_silver_export::{self, Layout};
 

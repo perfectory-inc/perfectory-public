@@ -1,4 +1,4 @@
-//! HUB 건축물대장 오수정화시설: one row per sewage treatment facility a building register lists (root ADR-0490).
+//! HUB 건축물대장 오수정화시설: one row per sewage treatment facility a building register lists (root ADR-0496).
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
@@ -15,7 +15,7 @@ const fn text(name: &'static str) -> LakehouseColumn {
 }
 
 const COLUMNS: &[LakehouseColumn] = &[
-    // The SHA-256 of the row: a building's 관리건축물대장PK repeats across its facilities (root ADR-0490).
+    // The SHA-256 of the row: a building's 관리건축물대장PK repeats across its facilities (root ADR-0496).
     text("mgmt_key"),
     text("building_mgmt_key"),
     text("register_kind_code"),

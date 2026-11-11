@@ -41,7 +41,7 @@ VWorld 토지 레인의 판은 장부 옆 ZIP 안 이름(`catalog.bronze_object_
 | `building-permit-structure-ledger` | `silver.building_permit_structure_ledger` | 공작물관리대장 `mart_kcy_06` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
 | `building-permit-floor-overview` | `silver.building_permit_floor_overview` | 건축인허가 층별개요 `mart_kcy_03` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 층만 main 에 (`compare`, 묶음 = 관리층별개요PK 앞 두 자리) |
 | `building-permit-temporary-building` | `silver.building_permit_temporary_building` | 가설건축물 `mart_kcy_08` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음) |
-| `building-register-sewage-facility` | `silver.building_register_sewage_facility` | 건축물대장 오수정화시설 `mart_djy_07` (루트 ADR-0490) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 묶음 = 키 앞 한 자리) |
+| `building-register-sewage-facility` | `silver.building_register_sewage_facility` | 건축물대장 오수정화시설 `mart_djy_07` (루트 ADR-0496) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 묶음 = 키 앞 한 자리) |
 | `building-permit-site-location` | `silver.building_permit_site_location` | 건축인허가 대지위치 `mart_kcy_16` (루트 ADR-0402) | 부분을 load branch 에 쌓고 바뀐 대지 행만 main 에 (`compare`, 묶음 = 관리대지위치관리번호 앞 두 자리) |
 | `building-maintenance-regular-inspection-history` | `silver.building_maintenance_regular_inspection_history` | 건축물 정기점검이력 `mart_ll_02` (루트 ADR-0402) | 부분을 load branch 에 쌓고 새 행·사라진 행만 main 에 (`compare`, 키 = 행 SHA-256, 한 묶음; pnu 없음 — 표제부로 잇는다, 루트 ADR-0404) |
 | `building-permit-basis-outline` | `silver.building_permit_basis_outline` | 건축인허가 기본개요 `mart_kcy_01` (루트 ADR-0356) | 부분을 load branch 에 쌓고 바뀐 허가만 main 에 (`compare`, 묶음 = 관리번호 앞 두 자리) |

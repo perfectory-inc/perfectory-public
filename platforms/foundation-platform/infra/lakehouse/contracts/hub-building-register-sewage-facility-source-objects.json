@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "decision": "docs/adr/0490-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md",
+  "decision": "docs/adr/0496-the-sewage-facility-register-lands-in-silver-as-the-parcels-sewer-signal.md",
   "source": "bronze/source=hubgokr__building_register_sewage_facility",
   "measured_at_utc": "2026-11-11",
   "dataset_series": "mart_djy_07",
@@ -83,7 +83,7 @@
   "rows_per_part": 1000000,
   "max_row_bytes": 1048576,
   "silver_refresh": {
-    "$comment": "foundation-silver-refresh@building-register-sewage-facility.service 의 실행 값(root ADR-0169 §3, ADR-0490). 판은 장부가 정한다. 칸 0(관리건축물대장PK)은 모든 행에 있지만 6,616,909 행에 6,567,455 값이라 행을 가르지 못해 mgmt_key 는 행 글자의 SHA-256 이다(row_key, ADR-0397). 건물 키는 building_mgmt_key 로 남긴다. compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 커밋하고, 다 되면 main 으로 한 번에 발행한다(ADR-0318). 원문이 1.6 GB 라 ADR-0402 §6 대로 나눠 비교한다: 키가 SHA-256 16진수라 앞 한 자리로 16 묶음(묶음당 약 41만 행)이다. 2026-09 → 2026-10 은 새 행 22,165·사라진 행 11,289 이다.",
+    "$comment": "foundation-silver-refresh@building-register-sewage-facility.service 의 실행 값(root ADR-0169 §3, ADR-0496). 판은 장부가 정한다. 칸 0(관리건축물대장PK)은 모든 행에 있지만 6,616,909 행에 6,567,455 값이라 행을 가르지 못해 mgmt_key 는 행 글자의 SHA-256 이다(row_key, ADR-0397). 건물 키는 building_mgmt_key 로 남긴다. compare 가 main 의 현재 행과 키마다 비교해 새 행과 사라진 행의 삭제 표시만 changes branch 에 커밋하고, 다 되면 main 으로 한 번에 발행한다(ADR-0318). 원문이 1.6 GB 라 ADR-0402 §6 대로 나눠 비교한다: 키가 SHA-256 16진수라 앞 한 자리로 16 묶음(묶음당 약 41만 행)이다. 2026-09 → 2026-10 은 새 행 22,165·사라진 행 11,289 이다.",
     "table": "silver.building_register_sewage_facility",
     "roles": {
       "source": "hubgokr__building_register_sewage_facility"
