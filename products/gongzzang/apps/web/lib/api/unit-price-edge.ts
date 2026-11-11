@@ -1,20 +1,17 @@
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { type OfficialPriceHistory, OfficialPriceHistorySchema, PnuSchema } from "./building-edge";
+import { UnitPriceByPnuSchema as Generated } from "./unit-price.generated";
 
 // A unit's official price history is its own by-PNU document, apart from the building document
 // (root ADR-0190): a monthly price vintage never rebuilds the buildings. The two join here by
 // unit id. A document is one building of one PNU (root ADR-0204: a large complex's PNU outgrew
 // the edge's whole-read bound), keyed by the building's id, or the nil UUID for the units no
 // building holds.
-export const UnitPriceDocumentSchema = z.object({
-  schema_version: z.literal("foundation-platform.unit_price_by_pnu.v1"),
+// The document's shape is the schema registry's (root ADR-0336), narrowed to what the panel reads;
+// this file only tightens the PNU and the price history to the building document's.
+export const UnitPriceDocumentSchema = Generated.extend({
   pnu: PnuSchema,
-  source: z.object({
-    table: z.literal("gold.unit_price"),
-    iceberg_snapshot_id: z.string().min(1),
-  }),
-  building_id: z.string().uuid(),
   units: z.array(
     z.object({ id: z.string().uuid(), official_price_history: OfficialPriceHistorySchema }),
   ),

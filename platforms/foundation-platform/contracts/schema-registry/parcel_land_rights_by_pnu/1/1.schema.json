@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_land_rights_by_pnu",
+  "description": "A parcel's land rights (대지권, root ADR-0093), each belonging to one unit; land_right_total counts every row.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_land_rights_by_pnu.v1"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "land_rights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "right_serial_no": {
+            "type": "string"
+          },
+          "building_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dong_name": {
+            "type": "string"
+          },
+          "floor_name": {
+            "type": "string"
+          },
+          "ho_name": {
+            "type": "string"
+          },
+          "room_name": {
+            "type": "string"
+          },
+          "right_ratio": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closure_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closure_kind_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "right_serial_no"
+        ]
+      }
+    },
+    "land_right_total": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "land_rights"
+  ]
+}

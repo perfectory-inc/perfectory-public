@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_characteristics_by_pnu",
+  "description": "A parcel's newest cadastral characteristics (토지특성, root ADR-0087), each name exactly as the source wrote it.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_characteristics_by_pnu.v1"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "characteristics": {
+      "type": "object",
+      "properties": {
+        "land_category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "area_m2": {
+          "type": "number"
+        },
+        "land_use_situation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terrain_height": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terrain_shape": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "road_contact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "area_m2"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "characteristics"
+  ]
+}

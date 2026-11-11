@@ -18,8 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 CONTRACT_PATH = Path(__file__).resolve().parents[4] / "config" / "r2-connections.contract.json"
-# Each by-PNU document's fields per schema version (the publisher's by_pnu_document_records.rs).
-RECORDS_PATH = Path(__file__).resolve().parents[4] / "contracts" / "by-pnu-documents"
+PLATFORM_PATH = Path(__file__).resolve().parents[4]
 # The panel each host's kinds are sections of, and which the kinds follow while it is served.
 HOST_PANELS = {"parcel_by_pnu_gateway": "gold.parcel_panel", "building_by_pnu_gateway": "gold.building_panel"}
 # The join columns a parcel kind may carry, in their Gold order (lakehouse-domain by_pnu_kind.rs).
@@ -95,28 +94,21 @@ def lane_fields(lane: str, path: Path = CONTRACT_PATH) -> dict[str, str]:
             "monitor_group": "by-pnu-kind-serving-monitor", "own_producer": found.producer or ""}
 
 
-def document_record(document: str, path: Path = RECORDS_PATH) -> set[str]:
+def document_record(document: str, platform: Path = PLATFORM_PATH) -> set[str]:
     """The field paths of the document the publisher bakes now, so a Gold JSON column the document
-    carries as written is held to it here: a subject the schema registry lists (root ADR-0336) by its
-    current revision, any other document by the newest committed record
-    (`foundation-platform.<document>.v<n>.json`, which the publisher's test holds to be the version
-    it bakes)."""
+    carries as written is held to it here: its subject's current revision in the schema registry
+    (root ADR-0336), where every kind lane's document is registered."""
     import importlib.util  # noqa: PLC0415 - the registry tool is read by tests, never by a Spark run
 
-    tool = path.parents[1] / "scripts" / "schema_registry.py"
+    tool = platform / "scripts" / "schema_registry.py"
     spec = importlib.util.spec_from_file_location("schema_registry", tool)
     registry_tool = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(registry_tool)
-    platform = path.parents[1]
     for entry in registry_tool.load(platform)["subjects"]:
         if entry["subject"] == f"foundation-platform.{document}":
             schema = registry_tool.schema_of(platform, entry["subject"], registry_tool.current(entry))
             return {field["path"] for field in registry_tool.record_of(schema)}
-    versions = {int(p.name.removesuffix(".json").rsplit(".v", 1)[1]): p
-                for p in path.glob(f"foundation-platform.{document}.v*.json")}
-    if not versions:
-        raise ValueError(f"no record of the {document} document under {path}")
-    return {entry["path"] for entry in json.loads(versions[max(versions)].read_text(encoding="utf-8"))}
+    raise ValueError(f"the schema registry lists no subject foundation-platform.{document}")
 
 
 def json_paths(value: object, at: str) -> set[str]:

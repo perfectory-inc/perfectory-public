@@ -228,7 +228,7 @@ class UnitPricePanelIcebergTest(unittest.TestCase):
         self.assertEqual(sorted(b for p, b in before if p == pnu(200)), sorted([ta, tb, job.UNLINKED_BUILDING_ID]))
         self.assertEqual([len(before[(pnu(200), b)][0]) for b in (ta, tb, job.UNLINKED_BUILDING_ID)], [2, 1, 1])
         # The lane's document carries units_json as written and no Rust type writes it: the keys
-        # written are the document's fields, its record's (contracts/by-pnu-documents).
+        # written are the document's fields, its subject's in the schema registry (root ADR-0336).
         import by_pnu_kinds
 
         written = {p for units, _, _ in before.values() for p in by_pnu_kinds.json_paths(units, "units")}
