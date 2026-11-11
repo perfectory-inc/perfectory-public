@@ -1072,3 +1072,15 @@ fn media_ladder_backlog_command_is_explicit() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn real_estate_broker_office_export_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-real-estate-broker-office-silver-handoff"
+        ])?,
+        Command::ExportRealEstateBrokerOfficeSilverHandoff
+    );
+    Ok(())
+}

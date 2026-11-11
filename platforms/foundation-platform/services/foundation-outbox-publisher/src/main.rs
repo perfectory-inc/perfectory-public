@@ -223,6 +223,7 @@ enum Command {
     ExportLandTransferHistorySilverHandoff,
     ExportLandRightRegistrationSilverHandoff,
     ExportLandOwnershipSilverHandoff,
+    ExportRealEstateBrokerOfficeSilverHandoff,
     EvaluateLakehouseQualityRules,
     IngestBuildingHubBulkCollection,
     IngestBuildingHubBulkFile,
@@ -469,6 +470,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         }
         Command::ExportLandOwnershipSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_ownership())
+        }
+        Command::ExportRealEstateBrokerOfficeSilverHandoff => {
+            Box::pin(land_use_silver_export::run_real_estate_broker_office())
         }
         Command::ExportLandTransferHistorySilverHandoff => {
             Box::pin(land_use_silver_export::run_land_transfer_history())
@@ -844,6 +848,9 @@ where
         }
         Some("export-land-ownership-silver-handoff") => {
             Ok(Command::ExportLandOwnershipSilverHandoff)
+        }
+        Some("export-real-estate-broker-office-silver-handoff") => {
+            Ok(Command::ExportRealEstateBrokerOfficeSilverHandoff)
         }
         Some("export-land-transfer-history-silver-handoff") => {
             Ok(Command::ExportLandTransferHistorySilverHandoff)
