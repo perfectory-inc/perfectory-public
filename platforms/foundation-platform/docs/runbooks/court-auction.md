@@ -2,7 +2,7 @@
 status: current
 owner: foundation-platform
 doc_type: runbook
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-11
 ---
 
 # 법원경매정보 (courtauction.go.kr) — 수집·적재 런북
@@ -16,7 +16,7 @@ last_reviewed: 2026-11-08
 | 작업 | 단위 | 하는 일 |
 |---|---|---|
 | `court_auction_collect` (작업 등록부 일정, default_pool) | `foundation-court-auction-collect.service` → `scripts/ops/court-auction-collect.sh` | `collect-courtauction-go-kr`: 물건 검색 네 조합 → 매각결과 검색 두 조합. 조합마다 첫 쪽으로 쪽 수를 알고, 나머지 쪽은 계약 `collection.pace` 의 폭만큼 동시에. 검색 하나에 gzip JSON Lines Bronze 객체 하나 |
-| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만 |
+| `court_auction_silver` (spark 3칸) | `foundation-court-auction-silver-load.service` → `scripts/ops/court-auction-silver-load.sh` | `plan-silver-load-objects` 가 R2 만 보고 검색마다 표의 커밋 요약이 아직 기록하지 않은 객체를 받고(계약 `silver_load`), `courtauction_go_kr.py load`: 주소로 PNU, `silver.court_auction_item`·`silver.court_auction_sale_result` 에 바뀐 행만. 물건상세 객체는 사진, 문서 여섯 표(사건·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표, 루트 ADR-0540)의 바뀐 것, 읽은 기록 순으로 커밋한다. 계획은 읽은 기록 표와 마지막 문서 표 둘 다 기준이라, 새 문서 표는 창 안의 물건상세 객체로 처음 채워진다 |
 
 상태: `/var/lib/foundation-platform/court-auction/`(`journal.log`, 실행마다 `runs/<실행>/run.log`). 다음 실행을 막는 상태 파일은 없다.
 
@@ -70,6 +70,12 @@ last_reviewed: 2026-11-08
 
 원천의 출처 표시 의무(대한민국법원 법원경매정보, 저작권 보호정책)는 ODCS 목적 칸과 Silver 행의 원천·Bronze 키에
 남는다(ADR-0281 §6). 공짱 화면은 출처를 보이지 않는다(루트 ADR-0428).
+
+## 개인정보 (루트 ADR-0540)
+
+받은 응답은 Bronze 에 바이트 그대로 있다. 사람 이름이 있는 칸(지분 서술 `dspslStkCtt`, 사법보좌관 `jdgeAojAsstnNm` 등)은
+Silver 칸이 없고, Silver 가 싣는 서술(명세서 요약·비고·감정요항표)은 계약 `personal_names` 규칙으로 이름을 `○○○` 로 가린다.
+가림이 놓친 이름을 보면 그 낱말 자리(앞뒤 낱말)를 계약에 더하고, 다음 물건상세 읽기부터 고쳐진다(바뀐 판만 새로 붙는다).
 
 ## 법정동 코드 변경 따라가기
 
