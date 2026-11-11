@@ -43,6 +43,8 @@ DOCUMENT = document({"pnu": PNU})
 WITH_PHOTO = document({"pnu": PNU, "public_auction": {"rounds": [{"photos": [{"sha256": SHA, "media_format": "jpg"}]}]}})
 PHOTO_ANSWER = (200, {"Content-Type": "image/jpeg"}, PHOTO)
 SERVER_ERROR = (500, {"Content-Type": "text/plain"}, b"")
+# The connection closed with no answer, as a read that times out gets none.
+NO_ANSWER = None
 
 
 def prefix(lane):
@@ -56,7 +58,11 @@ class Edge(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - the http.server name
         Edge.seen.append((self.path, self.headers.get("User-Agent")))
         answers = Edge.routes.get(self.path, [(404, {}, b"")])
-        status, headers, body = answers.pop(0) if len(answers) > 1 else answers[0]
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if answer is NO_ANSWER:
+            self.close_connection = True
+            return
+        status, headers, body = answer
         self.send_response(status)
         for name, value in headers.items():
             self.send_header(name, value)
@@ -124,6 +130,33 @@ class TheProbe(EdgeFixture):
         Edge.routes[f"{prefix('parcel')}{PNU}"] = [DOCUMENT, DOCUMENT, SERVER_ERROR]
         self.assertEqual(self.run_probe(), 1)
         self.assertIn("(read 2 of 2) answered 500", self.output)
+
+    def test_2026_11_10_a_gzip_encoded_blob_is_held_to_its_name_by_its_decoded_bytes(self):
+        # CloudFront gzips a PDF for a client that accepts gzip; the PDF is whole, its encoding is not it.
+        Edge.routes[BLOB] = [(200, {"Content-Type": "image/jpeg", "Content-Encoding": "gzip"}, gzip.compress(PHOTO))]
+        self.assertEqual(self.run_probe(), 0, self.output)
+        Edge.routes[BLOB] = [(200, {"Content-Type": "image/jpeg", "Content-Encoding": "gzip"}, gzip.compress(b"other"))]
+        self.assertEqual(self.run_probe(), 1)
+        self.assertIn(f"not the {SHA} in the name", self.output)
+
+    def test_2026_11_11_a_read_with_no_answer_is_asked_again_and_an_answer_is_judged_at_once(self):
+        path = f"{prefix('parcel')}{PNU}"
+        # The scan's read, read 1, then read 2 gets no answer once: asked again, it passes.
+        Edge.routes[path] = [DOCUMENT, DOCUMENT, NO_ANSWER, DOCUMENT]
+        self.assertEqual(self.run_probe(), 0, self.output)
+        self.assertEqual(self.reads(path), 1 + POLICY["reads"] + 1)
+        self.assertIn("no answer", self.output)
+        # No answer every time is a failure after transport_tries asks.
+        Edge.seen = []
+        Edge.routes[path] = [DOCUMENT, DOCUMENT, *[NO_ANSWER] * POLICY["transport_tries"], NO_ANSWER]
+        self.assertEqual(self.run_probe(), 1)
+        self.assertIn(f"(read 2 of 2) answered", self.output)
+        self.assertIn(f"({POLICY['transport_tries']} tries)", self.output)
+        # An answer, even a 500, is the edge's: never asked again.
+        Edge.seen = []
+        Edge.routes[path] = [DOCUMENT, DOCUMENT, SERVER_ERROR]
+        self.assertEqual(self.run_probe(), 1)
+        self.assertEqual(self.reads(path), 1 + POLICY["reads"])
 
     def test_a_blob_whose_bytes_do_not_hash_to_its_name_fails(self):
         Edge.routes[BLOB] = [(200, {"Content-Type": "image/jpeg"}, b"other bytes")]

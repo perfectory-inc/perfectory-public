@@ -563,6 +563,8 @@
           "reads": 2,
           "reads_reason": "2026-10-29: every onbid photo GET after the first answered 500 on catalog.perfectory.io (the version header was set on a cache hit's immutable headers), while the HEAD check after the change and every first read passed. The edge copy is shared by every version, so the first read of a version may already be a hit and the second always is: each probe reads a document and a blob twice with GET and holds both answers",
           "read_timeout_seconds": 20,
+          "transport_tries": 3,
+          "transport_tries_reason": "a read that gets no answer at all (a timeout, a reset connection) says nothing about the edge and is asked again, at most this many times, before it is a failure; any answer, whatever its status, type or bytes, is judged at once. 2026-11-11 01:37Z: the parcel gateway's preview deploy of 789e7bfd rolled back because read 2 of 2 of its factories document timed out at 20 s while read 1 passed and the Worker answers in 6 to 33 ms (Server-Timing total, measured at 03:10Z), as Argo Rollouts keeps a measurement error (consecutiveErrorLimit) apart from a failed measurement",
           "user_agent": "perfectory-edge-probe/1 (root ADR-0327)",
           "scan_documents": 20,
           "scan_documents_reason": "the probe reads a lane's gate sample (written on the host at the cut-over, so no PNU enters the repository) in order and holds the first entry the edge does not answer 404: a public auction ends and its PNU's document goes, so the first entry alone would alert on a lane that serves. At most this many single reads before the lane is a failure",
