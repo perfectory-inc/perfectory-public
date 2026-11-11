@@ -7,6 +7,7 @@
 //! load has no watermark and reads every office: the declared exception.
 
 use std::collections::BTreeSet;
+use std::io::Write as _;
 
 use anyhow::{bail, Context};
 use catalog_domain::real_estate_broker::{name_key, number_key};
@@ -286,10 +287,10 @@ pub async fn run() -> anyhow::Result<()> {
     .await?;
     let changed: BTreeSet<OfficeKey> = office_keys.union(&member_keys).cloned().collect();
     if changed.is_empty() {
-        println!(
+        outcome(&format!(
             "real-estate-broker-lookup-load unchanged office_snapshot={} member_snapshot={}",
             office.snapshot_id, member.snapshot_id
-        );
+        ))?;
         return Ok(());
     }
     let first = last.is_none();
@@ -298,8 +299,43 @@ pub async fn run() -> anyhow::Result<()> {
     let members: Vec<MemberRow> =
         current_rows(&container, &member, MEMBER_COLUMNS, &changed, first).await?;
 
+    let (office_lines, office_skipped) = office_copy_lines(&offices);
+    let (member_lines, member_skipped) = member_copy_lines(&members);
+    let skipped = office_skipped + member_skipped;
+
+    let office_watermark = office_newest
+        .or_else(|| last.as_ref().map(|(office, _)| office.clone()))
+        .context("silver.real_estate_broker_office has no rows")?;
+    let member_watermark = member_newest
+        .or_else(|| last.as_ref().map(|(_, member)| member.clone()))
+        .context("silver.real_estate_broker_member has no rows")?;
+
+    let load = Load {
+        office: &office,
+        member: &member,
+        office_watermark: &office_watermark,
+        member_watermark: &member_watermark,
+        changed: &changed,
+        office_lines: &office_lines,
+        member_lines: &member_lines,
+    };
+    let (load_id, retired) = write_load(&mut conn, &load).await?;
+    outcome(&format!(
+        "real-estate-broker-lookup-load changed load={load_id} first={first} changed_offices={} \
+         offices={} members={} retired={retired} skipped={skipped} office_snapshot={} member_snapshot={}",
+        changed.len(),
+        office_lines.len(),
+        member_lines.len(),
+        office.snapshot_id,
+        member.snapshot_id
+    ))?;
+    Ok(())
+}
+
+/// The COPY lines of the office rows, and how many had no comparable 등록번호.
+fn office_copy_lines(offices: &[OfficeRow]) -> (Vec<String>, usize) {
     let mut skipped = 0_usize;
-    let office_lines: Vec<String> = offices
+    let lines = offices
         .iter()
         .filter_map(|row| {
             let Some(registration_key) = number_key(&row.registration_no) else {
@@ -317,7 +353,13 @@ pub async fn run() -> anyhow::Result<()> {
             ]))
         })
         .collect();
-    let member_lines: Vec<String> = members
+    (lines, skipped)
+}
+
+/// The COPY lines of the people, and how many had no name or no comparable 등록번호.
+fn member_copy_lines(members: &[MemberRow]) -> (Vec<String>, usize) {
+    let mut skipped = 0_usize;
+    let lines = members
         .iter()
         .filter_map(|row| {
             let (Some(registration_key), Some(name), Some(name_key)) = (
@@ -345,14 +387,23 @@ pub async fn run() -> anyhow::Result<()> {
             ]))
         })
         .collect();
+    (lines, skipped)
+}
 
-    let office_watermark = office_newest
-        .or_else(|| last.as_ref().map(|(office, _)| office.clone()))
-        .context("silver.real_estate_broker_office has no rows")?;
-    let member_watermark = member_newest
-        .or_else(|| last.as_ref().map(|(_, member)| member.clone()))
-        .context("silver.real_estate_broker_member has no rows")?;
+/// One load, everything read and ready to write.
+struct Load<'a> {
+    office: &'a Pinned,
+    member: &'a Pinned,
+    office_watermark: &'a str,
+    member_watermark: &'a str,
+    changed: &'a BTreeSet<OfficeKey>,
+    office_lines: &'a [String],
+    member_lines: &'a [String],
+}
 
+/// Writes one load in one transaction: retire the changed offices' rows, insert their current
+/// rows, record the load. Returns the load id and the rows retired.
+async fn write_load(conn: &mut PgConnection, load: &Load<'_>) -> anyhow::Result<(i64, u64)> {
     let mut tx = conn.begin().await?;
     let load_id: i64 = sqlx::query_scalar(
         "SELECT nextval(pg_get_serial_sequence('catalog.real_estate_broker_lookup_load', 'id'))",
@@ -362,7 +413,8 @@ pub async fn run() -> anyhow::Result<()> {
     sqlx::query("CREATE TEMP TABLE changed_broker_office (sigungu_code text, registration_no text) ON COMMIT DROP")
         .execute(&mut *tx)
         .await?;
-    let key_lines: Vec<String> = changed
+    let key_lines: Vec<String> = load
+        .changed
         .iter()
         .map(|(sigungu, registration)| copy_line(&[Some(sigungu), Some(registration)]))
         .collect();
@@ -391,10 +443,10 @@ pub async fn run() -> anyhow::Result<()> {
     for (table, columns, lines) in [
         ("real_estate_broker_office",
          "sigungu_code, registration_no, registration_key, office_name, status_code, status_name, data_reference_date",
-         &office_lines),
+         load.office_lines),
         ("real_estate_broker_member",
          "sigungu_code, registration_no, registration_key, member_name, name_key, member_kind_code, member_kind_name, license_no, license_key, position_code, position_name, data_reference_date",
-         &member_lines),
+         load.member_lines),
     ] {
         sqlx::query(&format!(
             "CREATE TEMP TABLE stage_{table} ON COMMIT DROP AS SELECT {columns} FROM catalog.{table} WITH NO DATA"
@@ -409,7 +461,7 @@ pub async fn run() -> anyhow::Result<()> {
         .execute(&mut *tx)
         .await?;
     }
-    let inserted = office_lines.len() + member_lines.len();
+    let inserted = load.office_lines.len() + load.member_lines.len();
     sqlx::query(
         "INSERT INTO catalog.real_estate_broker_lookup_load
              (id, office_snapshot_id, member_snapshot_id, office_watermark, member_watermark,
@@ -417,26 +469,22 @@ pub async fn run() -> anyhow::Result<()> {
          OVERRIDING SYSTEM VALUE VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(load_id)
-    .bind(office.snapshot_id)
-    .bind(member.snapshot_id)
-    .bind(&office_watermark)
-    .bind(&member_watermark)
-    .bind(i32::try_from(changed.len())?)
+    .bind(load.office.snapshot_id)
+    .bind(load.member.snapshot_id)
+    .bind(load.office_watermark)
+    .bind(load.member_watermark)
+    .bind(i32::try_from(load.changed.len())?)
     .bind(i32::try_from(inserted)?)
     .bind(i32::try_from(retired)?)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    println!(
-        "real-estate-broker-lookup-load changed load={load_id} first={first} changed_offices={} \
-         offices={} members={} retired={retired} skipped={skipped} office_snapshot={} member_snapshot={}",
-        changed.len(),
-        office_lines.len(),
-        member_lines.len(),
-        office.snapshot_id,
-        member.snapshot_id
-    );
-    Ok(())
+    Ok((load_id, retired))
+}
+
+/// The run's result line, which the job script reads (`real-estate-broker-lookup-load ...`).
+fn outcome(line: &str) -> anyhow::Result<()> {
+    writeln!(std::io::stdout().lock(), "{line}").context("failed to write the outcome line")
 }
 
 #[cfg(test)]

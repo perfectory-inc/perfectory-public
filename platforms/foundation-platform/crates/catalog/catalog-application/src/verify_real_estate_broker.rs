@@ -40,7 +40,10 @@ pub struct VerifyRealEstateBroker {
 impl VerifyRealEstateBroker {
     /// Creates the use case; `live` is none where the deployment holds no VWorld key.
     #[must_use]
-    pub fn new(roster: Arc<dyn BrokerRegister>, live: Option<Arc<dyn BrokerRegister>>) -> Self {
+    pub const fn new(
+        roster: Arc<dyn BrokerRegister>,
+        live: Option<Arc<dyn BrokerRegister>>,
+    ) -> Self {
         Self { roster, live }
     }
 
