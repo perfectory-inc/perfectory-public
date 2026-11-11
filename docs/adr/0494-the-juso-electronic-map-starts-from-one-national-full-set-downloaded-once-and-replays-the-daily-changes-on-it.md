@@ -88,6 +88,14 @@ binlog 위치부터 스트리밍), AWS DMS 의 full load + CDC, Kafka 의 compac
 7. **저장 위치: R2 그대로.** 보안각서의 국외 반출 금지 조항을 알고, 사장 결정(2026-11-11)으로 R2 APAC 를 받아들인다 — Cloudflare
    API 실측으로 모든 R2 버킷이 location APAC·jurisdiction default(한국 지역 없음)이다. juso 기초·변동·Silver 모두
    `foundation-platform-lakehouse-prod` 에 둔다.
+8. **Silver 내보내기는 종류의 레이어 하나, 시도 zip 하나씩이다(W61c).** `export-juso-electronic-map-base-silver-handoff`
+   (`foundation-publisher-silver::juso_electronic_map_base_silver_export`)가 계약을 내장해 종류의 레이어(`base.layers`)·키
+   (`base.keys`, 없으면 `kinds.*.key`)·법정동 칸(`kinds.*.legal_code`)을 읽고, zip 의 `<시도코드>/<레이어>.shp`·`.dbf` 와 맨 위
+   `base.projection_member` 만 연다. DBF 칸은 제공처 이름 그대로(소문자) 모두 싣고, 옆에 `row_key`·`legal_code`·도형(WKB, EPSG:4326)·
+   상자·계보를 붙인다. 레이어 안에서 키가 겹치면 내보내기가 실패한다(재생이 그 키로 덮는다). 공유 SHP 리더는 UTM-K(EPSG:5179)와
+   점·선을 읽게 넓혔다(면 파일의 동작은 그대로). 기초 키 실측: `building` 은 연계 키의 `ADR_MNG_NO` 가 기초에 없고 도로명주소 다섯 칸은
+   4,269,964 번 겹쳐(한 주소의 여러 건물) `BD_MGT_SN`(건물관리번호, 10,684,580 행 유일)이 키다; 나머지 9 종은 연계 키 그대로
+   유일하다. 연계 변동의 건물 키와 `BD_MGT_SN` 의 대응은 첫 변동 파일이 실린 뒤 잰다.
 
 ## Consequences
 

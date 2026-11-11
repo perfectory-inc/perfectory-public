@@ -141,6 +141,16 @@ pub mod remote_lakehouse_job;
 )]
 pub mod land_use_silver_export;
 
+/// 주소정보 전자지도 base Silver handoff export (root ADR-0494 §6): one kind's layer of one 시도 zip.
+#[allow(
+    clippy::nursery,
+    clippy::pedantic,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    missing_docs
+)]
+#[cfg_attr(test, allow(clippy::panic, clippy::unwrap_used))]
+pub mod juso_electronic_map_base_silver_export;
 /// 용도지역지구 도형 Silver handoff export (root ADR-0362), run by the Silver refresh like the land
 /// CSV exports above.
 #[allow(

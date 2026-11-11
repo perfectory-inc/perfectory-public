@@ -1053,3 +1053,15 @@ fn media_ladder_backlog_command_is_explicit() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn juso_electronic_map_base_silver_handoff_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "export-juso-electronic-map-base-silver-handoff"
+        ])?,
+        Command::ExportJusoElectronicMapBaseSilverHandoff
+    );
+    Ok(())
+}
