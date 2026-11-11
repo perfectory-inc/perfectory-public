@@ -12,8 +12,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    evidence_etag, Candidate, ItemKind, LegalDongCandidate, LegalDongEvidence, ReviewStatus,
-    StewardshipError,
+    evidence_etag, Candidate, ItemKind, LegalDongCandidate, LegalDongEvidence,
+    PlaceReferenceEvidence, ReviewStatus, StewardshipError,
 };
 
 /// The only schema this loader reads.
@@ -48,7 +48,7 @@ pub struct HandoffItem {
 pub struct ReviewHandoff {
     /// Must be [`HANDOFF_SCHEMA_VERSION`].
     pub schema_version: String,
-    /// `parcel` or `legal_dong`.
+    /// `parcel`, `legal_dong` or `place_reference`.
     pub unit: String,
     /// When the queue job published it.
     pub published_at_utc: DateTime<Utc>,
@@ -117,6 +117,18 @@ pub fn parse_handoff(text: &str) -> Result<ReviewHandoff, StewardshipError> {
                     return Err(invalid(format!(
                         "{code}: {} is not a candidate code",
                         bad.code
+                    )));
+                }
+            }
+            ItemKind::PlaceReference => {
+                let evidence = serde_json::from_str::<PlaceReferenceEvidence>(
+                    &item.candidates_json,
+                )
+                .map_err(|error| invalid(format!("{code}: evidence does not parse: {error}")))?;
+                if evidence.subject_code() != *code {
+                    return Err(invalid(format!(
+                        "{code}: its evidence names {}",
+                        evidence.subject_code()
                     )));
                 }
             }

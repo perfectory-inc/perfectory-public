@@ -13,6 +13,7 @@ import {
   levelLabel,
   officialHistoryLabel,
   OUTCOME_LABEL,
+  placeReferenceReasonLabel,
   REASON_LABEL,
   STATUS_LABEL,
 } from "../lib/labels";
@@ -33,6 +34,8 @@ function message(error: unknown): string {
 
 /** A 법정동 item only a steward may pair; a split or one awaiting data is the data's (root ADR-0144 §4). */
 function stewardMayPair(item: ReviewItem): boolean {
+  // A place reference is read, not linked: a resolver rule or the source's value settles it (root ADR-0483 §5).
+  if (item.kind === "place_reference") return false;
   return item.kind === "parcel" || item.status === "steward";
 }
 
@@ -161,7 +164,9 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
         </span>
       </div>
 
-      {data.legal_dong ? (
+      {data.place_reference ? (
+        <PlaceReferencePanel item={data} />
+      ) : data.legal_dong ? (
         <LegalDongPanel item={data} chosen={chosen} onChoose={choose} />
       ) : (
         <ParcelCandidates item={data} chosen={chosen} onChoose={choose} />
@@ -178,7 +183,9 @@ export function ReviewItemPage({ client, itemId, me }: { client: DawneerClient; 
         <h2 className="font-semibold">결정</h2>
         {!mayPair && (
           <p className="text-sm text-amber-700">
-            {STATUS_LABEL[data.status]} 항목은 데이터가 정합니다. 승인·거절할 수 없고, 모르겠음·조정자에게 넘김만 남길 수 있습니다.
+            {data.kind === "place_reference"
+              ? "못 놓인 원천 행은 해석기 규칙이나 원천 값이 고칩니다. 승인·거절할 수 없고, 모르겠음·조정자에게 넘김만 남길 수 있습니다."
+              : `${STATUS_LABEL[data.status]} 항목은 데이터가 정합니다. 승인·거절할 수 없고, 모르겠음·조정자에게 넘김만 남길 수 있습니다.`}
           </p>
         )}
         <div className="flex flex-wrap gap-4 text-sm">
@@ -280,6 +287,31 @@ function ParcelCandidates({ item, chosen, onChoose }: { item: ReviewItem; chosen
 }
 
 /** What the pairing run recorded for an abolished 법정동 code, and the new codes it offers. */
+/** What the place-reference queue recorded: which source, why, which 법정동, how many rows, a few keys. */
+export function PlaceReferencePanel({ item }: { item: ReviewItem }) {
+  const evidence = item.place_reference;
+  if (!evidence) return null;
+  return (
+    <div className="space-y-2 rounded-lg bg-white p-4 text-sm shadow-sm">
+      <h2 className="font-semibold">근거</h2>
+      <dl className="grid grid-cols-[8rem_1fr] gap-y-1">
+        <dt className="text-slate-500">원천</dt>
+        <dd className="font-mono">{evidence.source}</dd>
+        <dt className="text-slate-500">이유</dt>
+        <dd>
+          {placeReferenceReasonLabel(evidence.reason)} <span className="font-mono text-slate-400">{evidence.reason}</span>
+        </dd>
+        <dt className="text-slate-500">법정동</dt>
+        <dd className="font-mono">{evidence.legal_dong_code ?? "없음"}</dd>
+        <dt className="text-slate-500">행 수</dt>
+        <dd>{evidence.rows.toLocaleString("ko-KR")}행</dd>
+        <dt className="text-slate-500">예시 행 키</dt>
+        <dd className="font-mono">{evidence.sample_row_keys.length ? evidence.sample_row_keys.join(", ") : "—"}</dd>
+      </dl>
+    </div>
+  );
+}
+
 export function LegalDongPanel({ item, chosen, onChoose }: { item: ReviewItem; chosen: string; onChoose: (code: string) => void }) {
   const evidence = item.legal_dong;
   if (!evidence) return null;

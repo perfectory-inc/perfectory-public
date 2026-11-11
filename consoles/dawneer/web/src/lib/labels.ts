@@ -19,7 +19,23 @@ export const DATA_DECIDED_FILTER_LABEL = `${STATUS_LABEL.split}·${STATUS_LABEL.
 export const KIND_LABEL: Record<S["LineageReviewKind"], string> = {
   parcel: "필지 계보",
   legal_dong: "법정동 짝",
+  place_reference: "못 놓인 원천 행",
 };
+
+// The resolver's `pnu_unresolved_reason` codes (root ADR-0288 §4); an unknown code reads as itself.
+const PLACE_REFERENCE_REASON_LABEL: Record<string, string> = {
+  jibun_masked: "지번 가림 (원천이 가림)",
+  no_address: "주소 없음",
+  no_jibun: "지번 없음",
+  no_source_code: "원천 코드 없음",
+  parcel_absent: "필지 판에 없음",
+  road_ambiguous: "도로명 주소가 여러 필지",
+  road_not_found: "도로명 주소 못 찾음",
+};
+
+export function placeReferenceReasonLabel(reason: string): string {
+  return PLACE_REFERENCE_REASON_LABEL[reason] ?? reason;
+}
 
 /** A 법정동 decision is a pair approved or refused, so its outcomes read differently. */
 export const LEGAL_DONG_OUTCOME_LABEL: Record<S["LineageDecisionOutcome"], string> = {
@@ -95,6 +111,11 @@ export function formatDay(day: string): string {
 
 /** A review item's subject or candidate code as staff read it: a PNU split, a 법정동 code as is. */
 export function formatCode(kind: S["LineageReviewKind"], code: string): string {
+  if (kind === "place_reference") {
+    // `<source table>|<reason>|<법정동 code or ->`, as the queue writes it.
+    const [source = "", reason = "", dong = "-"] = code.split("|");
+    return [source.replace(/^silver\./, ""), placeReferenceReasonLabel(reason), dong === "-" ? "법정동 없음" : dong].join(" · ");
+  }
   return kind === "parcel" ? formatPnu(code) : code;
 }
 

@@ -214,11 +214,21 @@ fi
 # unit place_reference 에 (원천, 이유, 법정동) 항목으로 세운다. 지난 큐 뒤 스냅숏이 움직인 원천만 읽고,
 # 그 원천의 항목만 MERGE 한다. 실패해도 위 단계는 그대로 두고 회차 끝에 실패로 낸다.
 reference_rc=0
-spark place_reference_queue_to_gold.py --allow-non-smoke-write   --summary-output "${container_work}/place-reference.json" || reference_rc=$?
+# 3c. 그 목록을 스튜어드 DB 로 (같은 load-lineage-review-items, unit 째로 바꿈): 큐가 바뀌었거나 DB 가 아직 받은 적이
+# 없을 때만. 받은 기록은 적재가 성공한 뒤에만 남는다 — 그래야 더니어 검토 화면이 같은 목록을 본다.
+last_reference_load="${STATE_ROOT}/last-place-reference-load.json"
+spark place_reference_queue_to_gold.py --allow-non-smoke-write   --summary-output "${container_work}/place-reference.json" \
+  --handoff-output "${container_work}/place-reference-handoff.json" || reference_rc=$?
 reference_wrote=0
 if [ "${reference_rc}" = 0 ]; then
   [ "$(json_field "${work}/place-reference.json" '["outcome"]')" = written ] && reference_wrote=1
   job_journal "${journal}" "place-reference queue run=${run_id} read=$(json_field "${work}/place-reference.json" '["read"]') open=$(json_field "${work}/place-reference.json" '["open"]')"
+  if [ "${reference_wrote}" = 1 ] || [ ! -s "${last_reference_load}" ]; then
+    FOUNDATION_PLATFORM_LINEAGE_REVIEW_HANDOFF_INPUT="${work}/place-reference-handoff.json" \
+    FOUNDATION_PLATFORM_LINEAGE_REVIEW_LOAD_CONFIRM=true \
+      "${PUBLISHER_BIN}" load-lineage-review-items >> "${run_log}" 2>&1 || reference_rc=$?
+    if [ "${reference_rc}" = 0 ]; then cp "${work}/place-reference.json" "${last_reference_load}"; fi
+  fi
 fi
 
 # 4. 요약

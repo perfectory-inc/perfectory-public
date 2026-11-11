@@ -548,3 +548,80 @@ async fn legal_dong_pairs_are_decided_on_the_same_tables_and_exported_for_the_pa
     })
     .await
 }
+
+/// Root ADR-0483 §5: a parcel source's unplaced rows, as the place-reference queue hands them off.
+fn place_reference_handoff() -> String {
+    use stewardship_domain::handoff::HANDOFF_SCHEMA_VERSION;
+
+    let item = |subject: &str, status: &str, n: u128| {
+        let mut parts = subject.split('|');
+        let (source, reason, dong) = (
+            parts.next().unwrap_or_default(),
+            parts.next().unwrap_or_default(),
+            parts.next().unwrap_or_default(),
+        );
+        let evidence = serde_json::json!({"source": source, "reason": reason, "legal_dong_code": (dong != "-").then_some(dong),
+                                          "rows": 7, "sample_row_keys": ["99999-a"]})
+        .to_string();
+        let etag = stewardship_domain::status_from_wire(status)
+            .map(|s| stewardship_domain::evidence_etag(s, &evidence))
+            .unwrap_or_default();
+        serde_json::json!({"item_id": Uuid::from_u128(n), "subject_code": subject, "status": status,
+                           "candidates_json": evidence, "evidence_etag": etag, "from_snapshot_id": null, "to_snapshot_id": "1"})
+    };
+    serde_json::json!({
+        "schema_version": HANDOFF_SCHEMA_VERSION, "unit": "place_reference",
+        "published_at_utc": "2099-09-01T00:00:00Z", "item_count": 2,
+        "items": [item("silver.real_transaction|jibun_masked|9999910100", "awaiting_data", 401),
+                  item("silver.registered_factory|road_not_found|-", "steward", 402)]
+    })
+    .to_string()
+}
+
+#[tokio::test]
+#[ignore = "requires PostgreSQL 17 with permission to create disposable databases"]
+async fn place_references_load_beside_the_other_kinds_and_take_only_notes() -> TestResult {
+    use stewardship_domain::handoff::parse_handoff;
+    use stewardship_domain::ItemKind;
+
+    run_in_disposable_database("steward_place_reference", |pool| async move {
+        migrate(&pool).await?;
+        let store = PgLineageStewardshipStore::new(pool.clone());
+        store.replace_review_items(&parse_handoff(&place_reference_handoff())?).await?;
+        let (_parcel, _) = item(&pool, NEW_A, ReviewStatus::Pending, false).await?;
+        let listed = store
+            .list_items(ReviewItemFilter { kind: Some(ItemKind::PlaceReference), limit: 10, ..ReviewItemFilter::default() }, now())
+            .await?;
+        assert_eq!(
+            listed.iter().map(|v| v.item.subject_code.as_str()).collect::<Vec<_>>(),
+            ["silver.real_transaction|jibun_masked|9999910100", "silver.registered_factory|road_not_found|-"]
+        );
+        let actionable = store
+            .list_items(ReviewItemFilter { kind: Some(ItemKind::PlaceReference), actionable_only: true, limit: 10, ..ReviewItemFilter::default() }, now())
+            .await?;
+        assert_eq!(actionable.len(), 1, "a masked lot waits for the source; the default list hides it");
+        let factory = &listed[1].item;
+        assert_eq!(factory.place_reference()?.map(|e| e.rows), Some(7));
+
+        let alice = Uuid::from_u128(1);
+        let mut link = decide(factory.item_id, &factory.evidence_etag(), alice, "reference-link-0001", Outcome::Link);
+        link.draft.candidate_code = Some(NEW_A.to_owned());
+        assert!(matches!(store.decide(link).await, Err(StewardshipError::InvalidInput(_))), "a place reference takes no link");
+        let mut note = decide(factory.item_id, &factory.evidence_etag(), alice, "reference-note-0001", Outcome::Escalate);
+        note.draft.note = "해석기 규칙 필요".to_owned();
+        assert!(matches!(store.decide(note).await?, DecideOutcome::Recorded(_)), "a note is recorded");
+        assert!(store.foldable_decisions().await?.is_empty(), "a place-reference note never folds into parcel lineage");
+
+        let wrong = sqlx::query(
+            "INSERT INTO catalog.lineage_review_item (item_id, unit, subject_code, status, candidates_json, evidence_etag, queue_published_at)
+             VALUES ($1, 'place_reference', 'real_transaction|x|-', 'steward', '{}', $2, now())",
+        )
+        .bind(Uuid::from_u128(499))
+        .bind("0".repeat(64))
+        .execute(&pool)
+        .await;
+        assert!(wrong.is_err(), "the table refuses a place reference without its silver. table");
+        Ok(())
+    })
+    .await
+}
