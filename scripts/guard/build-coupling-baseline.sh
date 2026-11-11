@@ -341,7 +341,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # read goes to the door's origin hostname instead of CloudFront's cached public one (root ADR-0461).
 # 166 -> 167: the 주소정보 전자지도 collector embeds its source contract once, as the data.go.kr file
 # collector does (root ADR-0475).
-COMPILE_TIME_READ_BASELINE="${3:-167}"
+# 167 -> 168: the 주소정보 전자지도 base Silver export embeds the same source contract, so the kind's
+# layer, key and legal-code column it reads are the ones the collector landed by (root ADR-0494 §6).
+COMPILE_TIME_READ_BASELINE="${3:-168}"
 
 cd "$repo_root"
 

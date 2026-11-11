@@ -95,6 +95,7 @@ use foundation_publisher_core::by_pnu_gateway_contract;
 #[cfg(test)]
 use foundation_publisher_core::test_support;
 mod handoff_object_support;
+mod juso_electronic_map_base;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
 mod lineage_review_items_load;
@@ -214,6 +215,7 @@ enum Command {
     ExportLandUsePlanSilverHandoff,
     ExportLandUseZoneCodeSilverHandoff,
     ExportLandUseZoneAreaSilverHandoff,
+    ExportJusoElectronicMapBaseSilverHandoff,
     ExportLandIndividualPriceSilverHandoff,
     ExportLandCharacteristicSilverHandoff,
     ExportLandForestSilverHandoff,
@@ -455,6 +457,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportLandUseZoneAreaSilverHandoff => {
             Box::pin(foundation_publisher_silver::land_use_zone_area_silver_export::run())
         }
+        Command::ExportJusoElectronicMapBaseSilverHandoff => Box::pin(
+            foundation_publisher_silver::juso_electronic_map_base_silver_export::run(),
+        ),
         Command::ExportLandRightRegistrationSilverHandoff => {
             Box::pin(land_use_silver_export::run_land_right_registration())
         }
@@ -823,6 +828,9 @@ where
         }
         Some("export-land-use-zone-area-silver-handoff") => {
             Ok(Command::ExportLandUseZoneAreaSilverHandoff)
+        }
+        Some("export-juso-electronic-map-base-silver-handoff") => {
+            Ok(Command::ExportJusoElectronicMapBaseSilverHandoff)
         }
         Some("export-land-right-registration-silver-handoff") => {
             Ok(Command::ExportLandRightRegistrationSilverHandoff)

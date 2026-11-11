@@ -39,7 +39,7 @@ use collection_domain::{
     SourceCatalogEntry, SourcePayloadFormat,
 };
 use collection_infrastructure::PgBronzeIngestUnitOfWork;
-use foundation_outbox::ObjectStorageService;
+use foundation_outbox::{ObjectStorageService, ObjectStorageStreamingService};
 use foundation_shared_kernel::ids::{BronzeObjectId, IngestionRunId, SourceCatalogId};
 use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
@@ -47,9 +47,10 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::bronze_object_storage::{
-    live_write_bronze_object_storage_from_env, live_write_target_preflight,
-    BronzeObjectStorageWriter,
+    live_write_bronze_object_storage_from_env, live_write_bronze_streaming_object_storage_from_env,
+    live_write_target_preflight, BronzeObjectStorageWriter,
 };
+use crate::juso_electronic_map_base::{self as base_load, BaseContract};
 use crate::provider_request_spacing::ProviderRequestSpacing;
 use crate::public_data_control_support::{optional_env_value, required_env_value, write_json_file};
 
@@ -125,6 +126,9 @@ pub(crate) struct SourceContract {
     pub(crate) result_codes: ResultCodes,
     pub(crate) backfill: Backfill,
     pub(crate) request_codes: BTreeMap<String, RequestCode>,
+    /// The one full set each kind's Silver starts from (root ADR-0494); read by
+    /// `juso_electronic_map_base`.
+    pub(crate) base: JsonValue,
     /// Keyed by the catalog's dataset slug; `$comment` is not a kind.
     pub(crate) kinds: BTreeMap<String, JsonValue>,
 }
@@ -735,7 +739,7 @@ fn bronze_object_record(
     }
 }
 
-fn source_catalog_entry(
+pub(crate) fn source_catalog_entry(
     contract: &SourceContract,
     kind_slug: &str,
     kind: &Kind,
@@ -803,10 +807,11 @@ struct Config {
     live_write: bool,
     output_dir: PathBuf,
     state_dir: PathBuf,
+    base_inbox: PathBuf,
 }
 
 impl Config {
-    fn from_env(contract: &SourceContract) -> anyhow::Result<Self> {
+    fn from_env(contract: &SourceContract, base: &BaseContract) -> anyhow::Result<Self> {
         Ok(Self {
             base_uri: optional_env_value(&format!("{PREFIX}_BASE_URI"))?
                 .unwrap_or_else(|| contract.base_url.clone())
@@ -826,6 +831,8 @@ impl Config {
             ),
             output_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?),
             state_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_STATE_DIR"))?),
+            base_inbox: optional_env_value(&format!("{PREFIX}_BASE_INBOX"))?
+                .map_or_else(|| base.inbox.clone(), PathBuf::from),
         })
     }
 }
@@ -833,6 +840,8 @@ impl Config {
 struct Live {
     uow: PgBronzeIngestUnitOfWork,
     storage: Box<dyn ObjectStorageService>,
+    /// The base files are gigabytes: they stream from the disk (root ADR-0494).
+    streaming: Box<dyn ObjectStorageStreamingService>,
 }
 
 /// Why a request code stopped before its last window.
@@ -1024,12 +1033,16 @@ async fn collect_code(
 /// written. A refusal stops every ask at once; a provider failure stops only its code.
 pub async fn run() -> anyhow::Result<()> {
     let contract = source_contract()?;
-    let config = Config::from_env(&contract)?;
+    let base = BaseContract::of(&contract)?;
+    let config = Config::from_env(&contract, &base)?;
     let now = Utc::now();
     std::fs::create_dir_all(&config.output_dir)
         .with_context(|| format!("failed to create {}", config.output_dir.display()))?;
     let manifest_path = config.output_dir.join("manifest.json");
-    let Some(app_key) = config.app_key.clone() else {
+    // The base needs no key: a placed file lands even while the key is missing (root ADR-0494).
+    let base_pending = base_load::pending(&base, &config.base_inbox, &config.state_dir)?;
+    let base_waiting = base_pending.files.is_empty() && base_pending.refused.is_empty();
+    if config.app_key.is_none() && base_waiting {
         write_json_file(
             &manifest_path,
             &json!({"schema_version": MANIFEST_SCHEMA, "collected_at_utc": now.to_rfc3339(), "inert": true,
@@ -1042,7 +1055,7 @@ pub async fn run() -> anyhow::Result<()> {
             "foundation-job-outcome waiting for the juso approval key (runtime-secrets group juso)"
         );
         return Ok(());
-    };
+    }
     std::fs::create_dir_all(&config.state_dir)
         .with_context(|| format!("failed to create {}", config.state_dir.display()))?;
     let live = if config.live_write {
@@ -1056,6 +1069,9 @@ pub async fn run() -> anyhow::Result<()> {
             storage: live_write_bronze_object_storage_from_env()
                 .await
                 .context("failed to configure object storage for juso electronic map collection")?,
+            streaming: live_write_bronze_streaming_object_storage_from_env()
+                .await
+                .context("failed to configure streaming object storage for the juso base")?,
         })
     } else {
         None
@@ -1067,14 +1083,42 @@ pub async fn run() -> anyhow::Result<()> {
     let mut stops = BTreeMap::new();
     let mut failed = Vec::new();
     let mut refused = None;
+    let (base_manifest, base_refused) = if base_waiting {
+        (
+            json!({"inbox": config.base_inbox.display().to_string(), "landed": [], "refused": []}),
+            Vec::new(),
+        )
+    } else {
+        base_load::land(
+            &contract,
+            &base,
+            &config.base_inbox,
+            &config.state_dir,
+            live.as_ref().map(|live| base_load::Ports {
+                uow: &live.uow,
+                storage: live.streaming.as_ref(),
+            }),
+            now,
+        )
+        .await?
+    };
+    let base_landed = base_manifest["landed"]
+        .as_array()
+        .is_some_and(|landed| !landed.is_empty());
     let start = Instant::now();
     let budget = Duration::from_secs(contract.backfill.run_time_budget_seconds);
-    for (index, request_code) in contract.request_codes.keys().enumerate() {
+    for (index, request_code) in contract
+        .request_codes
+        .keys()
+        .enumerate()
+        .filter(|_| config.app_key.is_some())
+    {
+        let app_key = config.app_key.as_deref().unwrap_or_default();
         let deadline = code_deadline(start, budget, index, contract.request_codes.len());
         let stop = collect_code(
             &contract,
             &config,
-            &app_key,
+            app_key,
             live.as_ref(),
             request_code,
             &mut requests,
@@ -1108,7 +1152,7 @@ pub async fn run() -> anyhow::Result<()> {
         &manifest_path,
         &json!({"schema_version": MANIFEST_SCHEMA, "collected_at_utc": now.to_rfc3339(), "inert": false,
                 "requests": requests, "bytes": bytes, "files": landed, "asked": asked, "stops": stops,
-                "refused": refused, "failed": failed}),
+                "refused": refused, "failed": failed, "base": base_manifest}),
     )?;
     if let Some(refused) = refused {
         bail!("juso refused the approval key or a request code ({refused}); every ask stopped");
@@ -1119,9 +1163,16 @@ pub async fn run() -> anyhow::Result<()> {
             failed.join("; ")
         );
     }
+    if !base_refused.is_empty() {
+        bail!(
+            "the juso base inbox {} holds what is no placed file: {}",
+            config.base_inbox.display(),
+            base_refused.join("; ")
+        );
+    }
     println!(
         "foundation-job-outcome {}",
-        if landed.is_empty() {
+        if landed.is_empty() && !base_landed {
             "unchanged"
         } else {
             "changed"
