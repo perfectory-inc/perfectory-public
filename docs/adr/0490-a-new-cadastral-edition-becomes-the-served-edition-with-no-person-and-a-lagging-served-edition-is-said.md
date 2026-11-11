@@ -1,4 +1,4 @@
-# ADR 0485: 새 지적 판은 사람 없이 서빙판이 되고, 서빙판이 Silver 의 최신 판보다 뒤처지면 알린다
+# ADR 0490: 새 지적 판은 사람 없이 서빙판이 되고, 서빙판이 Silver 의 최신 판보다 뒤처지면 알린다
 
 - Status: Accepted
 - Date: 2026-11-11
@@ -56,7 +56,7 @@ dbt 시험의 `warn_if`/`error_if` 와 Deequ 제약의 비율 경계는 "몇 건
    `parcel_registry` 작업이 후보 판으로 덧붙인다. 등록부를 접는 모든 읽기는 "판 X 까지"(`to_snapshot_id` ≤ X)로 접는다.
    서빙판을 읽는 쪽(place-identity, ADR-0288)은 승격 전까지 그대로이고, 후보의 대조 관문은 후보까지 접는다.
    Iceberg 의 WAP 가지(branch)처럼 쓰되 가지 대신 판 열로 가른다. 판이 이미 파티션 열이기 때문이다(ADR-0316).
-5. **준비된 후보는 판정이 스스로 승격한다(다음 PR).** 판정 작업이 후보를 `ready` 로 보면 자기 이름("edition controller, ADR-0485")으로
+5. **준비된 후보는 판정이 스스로 승격한다(다음 PR).** 판정 작업이 후보를 `ready` 로 보면 자기 이름("edition controller, ADR-0490")으로
    `promote` 를 부른다. 콘솔 요청(ADR-0381 §4)은 예외 경로로 남는다. 승격의 효력은 호스트의 덧붙이기 원장으로 낸다.
    - `vworld_parcel_editions.load()` 와 Rust `served_edition_view` 가 계약 원장 위에 호스트 원장을 겹쳐 읽는다.
    - 원장은 계약 원장의 마지막 항목을 이어야 하고, 항목마다 준비 판정을 싣는다(ADR-0379 §4 규칙 그대로).

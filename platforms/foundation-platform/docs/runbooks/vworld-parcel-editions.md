@@ -97,7 +97,7 @@ Silver 적재가 작업 안에 없는 이유: 판은 저장소의 정본(계약)
 배포 뒤 필지를 읽는 Gold 가 두 판이 다른 PNU 만 다시 짓고, by-PNU 레인은 모두 지어질 때까지 기다렸다가 함께 내보낸다
 (`edition_lockstep_gate.py`, 기다리는 동안 결과는 `waiting the served edition moved to ...`).
 
-### 서빙판이 뒤처졌다는 알림 (root ADR-0485 §7)
+### 서빙판이 뒤처졌다는 알림 (root ADR-0490 §7)
 
 | 알림 | 뜻 | 볼 곳 |
 | --- | --- | --- |

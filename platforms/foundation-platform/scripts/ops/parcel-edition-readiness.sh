@@ -25,7 +25,7 @@ TRINO_CONTAINER="${FOUNDATION_PARCEL_EDITION_TRINO_CONTAINER:-foundation-platfor
 # and keeps its answers beside the report.
 REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/promote.d"
 # How long the newest edition in Silver has waited to be served, as node-exporter textfile series for
-# FoundationParcelServedEditionBehind (root ADR-0485 §7): 202609 waited 37 days and nothing said so.
+# FoundationParcelServedEditionBehind (root ADR-0490 §7): 202609 waited 37 days and nothing said so.
 METRICS_DIR="${FOUNDATION_PARCEL_EDITION_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
 ANSWERS="$(dirname "${OUT}")/promotions"
 PY=(python3 -E -s)

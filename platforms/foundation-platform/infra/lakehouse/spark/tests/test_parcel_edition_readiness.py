@@ -263,7 +263,7 @@ class ConsoleRequestTest(unittest.TestCase):
 
 
 class LagTest(unittest.TestCase):
-    """Root ADR-0485 §7: 202609, measured 2026-10-05, waited 37 days unserved and nothing said so."""
+    """Root ADR-0490 §7: 202609, measured 2026-10-05, waited 37 days unserved and nothing said so."""
 
     def test_the_newest_edition_in_silver_waits_from_its_measurement(self):
         found = readiness.lag(contract(), readiness.readiness(contract(), evidence(), NOW), NOW)

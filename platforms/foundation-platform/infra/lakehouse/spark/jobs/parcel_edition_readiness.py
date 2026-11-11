@@ -296,7 +296,7 @@ def promote(contract: Mapping[str, Any], report: Mapping[str, Any], name: str, b
 
 
 def lag(contract: Mapping[str, Any], report: Mapping[str, Any], now: datetime | None = None) -> dict[str, Any]:
-    """How far the served edition is behind the newest edition Silver holds (root ADR-0485 §7).
+    """How far the served edition is behind the newest edition Silver holds (root ADR-0490 §7).
 
     `newest` is the newest edition the report found rows of in Silver; it has been available since its
     objects were measured (`measured_at_utc`, when the collection proposed it). `behind_seconds` is 0 when
@@ -324,7 +324,7 @@ def lag_series(found: Mapping[str, Any], now: datetime | None = None) -> list[st
     at = (now or _now()).timestamp()
     labels = f'served="{found["served"]}",newest="{found["newest"]}"'
     return [
-        "# HELP foundation_parcel_served_edition_behind_seconds How long the newest cadastral edition Silver holds has waited to be served (root ADR-0485).",
+        "# HELP foundation_parcel_served_edition_behind_seconds How long the newest cadastral edition Silver holds has waited to be served (root ADR-0490).",
         "# TYPE foundation_parcel_served_edition_behind_seconds gauge",
         f"foundation_parcel_served_edition_behind_seconds{{{labels}}} {found['behind_seconds']}",
         "# HELP foundation_parcel_served_edition_behind_budget_seconds How long a new edition may wait before it is said (readiness.max_served_lag_days).",
