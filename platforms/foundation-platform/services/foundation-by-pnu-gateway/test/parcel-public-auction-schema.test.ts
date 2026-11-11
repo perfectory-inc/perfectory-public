@@ -75,9 +75,9 @@ describe("the public auction subject's majors come from the registry (root ADR-0
       }),
     ).toBe(false);
     expect(recordsReadableDocuments("parcel-public-auction", {})).toBe(false);
-    // A lane the registry does not list keeps its earlier mechanism.
-    expect(subjectOfLane("parcel-zoning")).toBeNull();
-    expect(recordsReadableDocuments("parcel-zoning", { document_schema_version: "anything" })).toBe(true);
+    // A lane written whole the registry does not list yet keeps its earlier mechanism.
+    expect(subjectOfLane("unit-price")).toBeNull();
+    expect(recordsReadableDocuments("unit-price", { document_schema_version: "anything" })).toBe(true);
     expect(documentSchemas("parcel-public-auction")).toEqual({ [SUBJECT]: [1] });
     expect(documentSchemas("parcel")).toEqual({});
   });
