@@ -278,8 +278,9 @@ class JusoRoads(NamedTuple):
 
 
 def lakehouse_juso_roads(spark: Any, catalog: str, road_names: Iterable[str] | None = None) -> JusoRoads | None:
-    """The 주소DB ledger, or None before its first load. ``road_names`` cuts it to the roads a run asks
-    about (root ADR-0390)."""
+    """The 주소DB ledger, or None before its first load, cached: a run joins it once per object, and its
+    current rows are a window over every version. ``road_names`` cuts it to the roads a run asks about
+    (root ADR-0390)."""
 
     from legal_dong_code_change_views import region_pairs  # noqa: PLC0415
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
@@ -293,7 +294,7 @@ def lakehouse_juso_roads(spark: Any, catalog: str, road_names: Iterable[str] | N
     if road_names is not None:
         names = sorted(set(road_names))
         roads = roads.where(F.col("road_name").isin(names) if names else F.lit(False))
-    roads = roads.select("sigungu_code", "road_name", "building_main_no", "building_sub_no", "pnu")
+    roads = roads.select("sigungu_code", "road_name", "building_main_no", "building_sub_no", "pnu").cache()
     names, changes = code_table(spark, catalog)
     index = sigungu_index([(c, f) for c, f, s in names if s == "존재"], [(c, f) for c, f, s in names if s != "존재"],
                           region_pairs(changes, 5))

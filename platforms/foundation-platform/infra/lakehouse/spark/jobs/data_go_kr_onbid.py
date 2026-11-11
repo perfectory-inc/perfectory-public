@@ -618,7 +618,6 @@ def address_inputs(spark: Any, catalog: str, rows: Sequence[Mapping[str, Any]], 
     titles = titles.where(named.isin(sorted(roads)) if roads else F.lit(False)).cache()
     juso = address_pnu.lakehouse_juso_roads(spark, catalog, roads)
     if juso is not None:
-        juso = address_pnu.JusoRoads(juso.roads.cache(), juso.sigungus)
         jibun |= {row["pnu"] for row in juso.roads.select("pnu").distinct().collect()}
     return jibun, titles, juso
 
