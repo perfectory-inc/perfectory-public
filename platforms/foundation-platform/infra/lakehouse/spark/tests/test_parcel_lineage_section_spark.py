@@ -101,6 +101,54 @@ class LineageSectionSparkTest(unittest.TestCase):
         kept = drop_outranked_code_changes_frame(self.spark.createDataFrame(rows, SCHEMA)).collect()
         self.assertEqual(sorted((r.predecessor_pnu or "", r.successor_pnu) for r in kept), sorted([("", F), (A, C), (D, E)]))
 
+    def test_a_walk_from_some_sources_reads_only_their_rows_and_finds_what_the_whole_table_finds(self):
+        # 2026-11-10: the real-transaction Gold collected the whole lineage for a few retired PNUs and
+        # its Spark container was killed for memory twice. The rows reaching the sources must give the
+        # same candidates from them as the whole table, through merges, steward decisions, outranked
+        # code changes, cycles, a chain longer than the walk, and the links before a source.
+        import parcel_attribute_carry as carry
+        from lineage_review_queue import STEWARD, fingerprint, steward_resolved
+        from parcel_lineage import Link
+        from parcel_lineage_section import rows_reaching
+
+        n = iter(range(100, 200))
+        s1, s2, s3, s4, s5, p0, x1, x2, m, q, y, b, c, z, u1, u2 = (pnu(next(n)) for _ in range(16))
+        long = [s4, *(pnu(next(n)) for _ in range(10))]
+        derived = [edge(s2, y, "other", "evidence_weak"), edge(q, y, "other", "needs_review")]
+        keys = ("predecessor_pnu", "successor_pnu", "relation", "cardinality", "effective_date", "grade",
+                "evidence_kind", "evidence_ref")
+        etag = fingerprint([dict(zip(keys, row)) for row in derived])[2]
+        rows = [
+            edge(p0, s1, "code_change", "official"), edge(s1, x1, "code_change", "official"),
+            edge(x1, x2, "split", "official"), edge(s1, m, "merge", "official"), edge(q, m, "merge", "official"),
+            *derived, edge(s2, y, "split", "official", kind=STEWARD,
+                           ref=json.dumps({"evidence_etag": etag, "decided_at": "2099-09-01", "decision_id": "d1"})),
+            edge(s3, b, "code_change", "code_derived", kind="same_lot_paired_dong", ref="derived:code-go-kr:date+name:20990701"),
+            edge(s3, c, "code_change", "code_derived", kind="same_lot_paired_dong", ref="official:parcel-history"),
+            *(edge(a, z_, "code_change", "official") for a, z_ in zip(long, long[1:])),
+            edge(s5, z, "code_change", "official"), edge(z, s5, "code_change", "official"),
+            edge(u1, u2, "code_change", "official"), edge(None, u2, "other", "pending", cardinality=None, when=None),
+        ]
+        sources = {s1, s2, s3, s4, s5}
+
+        def walk(found):
+            links = [Link(r["predecessor_pnu"] or "", r["successor_pnu"], r["relation"], r["grade"], "")
+                     for r in steward_resolved(found)]
+            return sorted((k.successor_pnu, k.source_pnu, k.hop, k.path)
+                          for k in carry.carry_candidates(links)[0] if k.source_pnu in sources)
+
+        frame = self.spark.createDataFrame(rows, SCHEMA)
+        whole = walk([r.asDict() for r in frame.collect()])
+        read = rows_reaching(frame, sources, carry.MAX_HOPS)
+        self.assertEqual(walk(read), whole)
+        self.assertIn((x2, s1, 2, "origin:split:official"), whole)
+        self.assertIn((c, s3, 1, "lineage:code_derived"), whole)
+        self.assertNotIn(b, {k[0] for k in whole})
+        self.assertEqual(max(k[2] for k in whole if k[1] == s4), carry.MAX_HOPS)
+        self.assertFalse({u1, u2, long[-1]} & {r["successor_pnu"] for r in read},
+                         "rows no walk from the sources reads stay on the executors")
+        self.assertEqual(rows_reaching(frame, set(), carry.MAX_HOPS), [])
+
     def test_a_run_without_the_lineage_has_an_empty_section(self):
         from parcel_lineage_section import build_lineage
 
