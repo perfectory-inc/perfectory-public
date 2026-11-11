@@ -83,6 +83,8 @@ run_log="${STATE_ROOT}/last-run.log"
 plan_path="${STATE_ROOT}/building-hub-plan.json"
 evidence_path="${STATE_ROOT}/building-hub-evidence.json"
 vworld_plan_path="${STATE_ROOT}/vworld-plan.json"
+# Since when each listed file the provider did not serve has been unserved (kept across runs, ADR-0500).
+vworld_unserved_path="${STATE_ROOT}/vworld-unserved.json"
 vworld_inventory_path="${STATE_ROOT}/vworld-inventory.json"
 vworld_evidence_path="${STATE_ROOT}/vworld-evidence.json"
 raon_summary_path="${STATE_ROOT}/raon-summary.json"
@@ -178,10 +180,15 @@ cat "${members_output_path}" >> "${run_log}" 2>/dev/null || true
 summary="$(python3 - "${evidence_path}" "${hub_rc}" "${vworld_evidence_path}" "${vworld_rc}" \
   "${vworld_plan_path}" "${vworld_inventory_path}" \
   "${raon_deferred}" "${raon_rc}" "${raon_summary_path}" "${raon_budget}" \
-  "${members_output_path}" "${members_rc}" "${account_action}" <<'PY'
-import json, os, sys
+  "${members_output_path}" "${members_rc}" "${account_action}" "${vworld_unserved_path}" "${CATALOG}" <<'PY'
+import json, os, sys, time
 (hub_path, hub_rc, vworld_path, vworld_rc, plan_path, inventory_path, raon_deferred, raon_rc, raon_path,
- raon_budget, members_path, members_rc, account_action) = sys.argv[1:14]
+ raon_budget, members_path, members_rc, account_action, unserved_path, catalog_path) = sys.argv[1:16]
+now = int(time.time())
+# How long a listed file the provider does not serve may stay so before the lane fails (the catalog's
+# daily collection, ADR-0500): the sweep asks for it on every run until then.
+unserved_fail_after_hours = int(json.load(open(catalog_path, encoding="utf-8"))["daily_collections"]["source_sweep"]
+                                ["unserved_file_fail_after_hours"])
 
 # Failed files and their reasons, per failed lane, for the unit's journal: the evidence naming them
 # is in the state directory, which an operator cannot read. job_failed_files masks and cuts them.
@@ -223,6 +230,7 @@ else:
 
 vworld = load(vworld_path)
 account_waiting = None
+unserved_waiting = None
 if vworld_rc == "77" and account_action:
     # The provider refuses the account (root ADR-0363): paged with its owner action; the lane waits
     # for the owner, it is not a fault of this run.
@@ -254,8 +262,30 @@ else:
     if isinstance(notice, int) and landed_bytes > notice:
         info.append(f"ℹ️ daily-source-sweep: VWorld 레인이 한 실행에 {len(landed)}건 {gib(landed_bytes)}을 받았다 — "
                     f"평소보다 많다(안내 기준 {gib(notice)}). 막지 않았다; 제공자가 과거 판을 다시 올렸는지 볼 것 (ADR-0172)")
-    if vworld_rc != "0" or vworld.get("failed_file_count"):
+    def ident(f):
+        return f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}"
+    unserved = [f for f in files if f.get("status") == "provider_unavailable"]
+    ours = [f for f in files if f.get("status") in ("failed", "provider_acquisition_blocked")]
+    # Files the provider listed and did not serve, every other file landed or held (root ADR-0363
+    # amended by ADR-0500): the provider's side, so the lane does not fail; each is asked again on every
+    # run, since Bronze lacks it, and one still unserved past the catalog's bound fails the lane.
+    # 2026-11-11 two files of 10,979 answered empty on both runs and failed the whole sweep twice.
+    provider_only = vworld_rc in ("0", "75") and unserved and not ours and not vworld.get("failed_file_count")
+    first_unserved = load(unserved_path) or {}
+    first_unserved = {ident(f): int(first_unserved.get(ident(f), now)) for f in unserved}
+    with open(unserved_path, "w", encoding="utf-8") as handle:
+        json.dump(first_unserved, handle, sort_keys=True)
+    overdue = [f for f in unserved if now - first_unserved[ident(f)] > unserved_fail_after_hours * 3600]
+    if provider_only and not overdue:
+        vworld_line += f" unserved={len(unserved)}"
+        unserved_waiting = (f"VWorld 가 파일 {len(unserved)}건을 내놓지 않았다(빈 응답·공급자 측) — 다음 실행이 다시 받는다; "
+                            f"{unserved_fail_after_hours}시간 넘게 계속되면 실패로 알린다: "
+                            + ", ".join(ident(f) for f in unserved[:FAILED_FILES_PER_LANE]))
+        info.append(f"ℹ️ daily-source-sweep: {unserved_waiting}")
+    elif vworld_rc != "0" or vworld.get("failed_file_count") or unserved:
         failed.append("vworld")
+        if overdue:
+            notes.append(f"VWorld 파일 {len(overdue)}건이 {unserved_fail_after_hours}시간 넘게 공급자에게서 오지 않는다")
         # A file the provider blocked fails the lane too unless the ingest deferred it (status says so).
         collect_failures("vworld", (
             (f"{f.get('source_slug')}:{f.get('download_ds_id')}-{f.get('file_no')}",
@@ -336,7 +366,7 @@ names = ", ".join(new_names[:10]) + (f" 외 {len(new_names) - 10}건" if len(new
 if account_waiting:
     notes.append(account_waiting)
 print(json.dumps({"line": f"{hub_line} | {vworld_line} | {raon_line} | {members_line}", "failed": failed,
-                  "waiting": account_waiting or "",
+                  "waiting": account_waiting or unserved_waiting or "",
                   "new": len(new_names), "names": names, "notes": notes, "info": info,
                   "failed_files": failed_files}, ensure_ascii=False))
 PY
@@ -366,7 +396,8 @@ if [ "${new_count}" != "0" ]; then
   # 새 파일이 Bronze 에 왔다: 이 원천을 읽는 Silver 레인이 바로 시작된다(루트 ADR-0171).
   echo "foundation-job-outcome changed"
 elif [ -n "$(field waiting)" ]; then
-  # Root ADR-0363: nothing new and the VWorld lane waits on the account's owner, who is paged.
+  # Root ADR-0363: nothing new and the VWorld lane waits on the account's owner, who is paged, or on
+  # files the provider listed and did not serve, which the next run asks for again (ADR-0500).
   echo "foundation-job-outcome waiting $(field waiting)"
 else
   echo "foundation-job-outcome unchanged"

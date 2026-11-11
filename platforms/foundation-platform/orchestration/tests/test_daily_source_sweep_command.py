@@ -323,6 +323,51 @@ class SweepCommand(unittest.TestCase):
         self.assertIn("  | hub ingest died", result.stderr, "the end of the run log is relayed")
         self.assertNotIn("planted-", result.stdout + result.stderr)
 
+    UNSERVED = {"outcome": "provider_unavailable",
+                "message": "VWorld dataset file ingest: 2 of 3 files met a provider that did not serve"}
+
+    def test_2026_11_11_files_the_provider_did_not_serve_leave_the_sweep_green_and_are_asked_again(self):
+        # Two files of 10,979 answered empty on both runs and failed the whole sweep twice.
+        self.scenario(vworld={"evidence": vworld_evidence(
+            [vfile("7", "succeeded"), vfile("20", "provider_unavailable"), vfile("21", "provider_unavailable")]),
+            "rc": 75, "outcome": self.UNSERVED})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "foundation-job-outcome changed")
+        self.assertIn("unserved=2", self.journal().splitlines()[-1])
+        slack = self.read("slack.log")
+        self.assertIn("vworldkr__synthetic:9991-20", slack)
+        self.assertNotIn("🔴", slack)
+        first = json.loads((self.state / "vworld-unserved.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(first), {"vworldkr__synthetic:9991-20", "vworldkr__synthetic:9991-21"})
+        # The next run keeps when each was first unserved, and forgets one that landed.
+        self.scenario(vworld={"evidence": vworld_evidence(
+            [vfile("20", "provider_unavailable"), vfile("21", "succeeded")]), "rc": 75, "outcome": self.UNSERVED})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        again = json.loads((self.state / "vworld-unserved.json").read_text(encoding="utf-8"))
+        self.assertEqual(again, {"vworldkr__synthetic:9991-20": first["vworldkr__synthetic:9991-20"]})
+
+    def test_a_day_with_only_unserved_files_waits_and_one_unserved_past_the_bound_fails(self):
+        self.scenario(vworld={"evidence": vworld_evidence(
+            [vfile("8", "skipped_existing"), vfile("20", "provider_unavailable")]), "rc": 75, "outcome": self.UNSERVED})
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(job_specs.job_outcome(result.stdout), "waiting")
+        bound = json.loads(CATALOG.read_text(encoding="utf-8"))["daily_collections"]["source_sweep"][
+            "unserved_file_fail_after_hours"]
+        (self.state / "vworld-unserved.json").write_text(json.dumps(
+            {"vworldkr__synthetic:9991-20": int(datetime.datetime.now().timestamp()) - bound * 3600 - 60}))
+        result = self.run_job()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("vworld", result.stderr)
+        self.assertIn("🔴", self.read("slack.log"))
+
+    def test_our_own_failure_beside_unserved_files_is_still_red(self):
+        self.scenario(vworld={"evidence": vworld_evidence(
+            [vfile("19", "failed"), vfile("20", "provider_unavailable")]), "rc": 1})
+        self.assertEqual(self.run_job().returncode, 1)
+
     TERMS_CHANGED = {"outcome": "provider_account_action_required", "provider": "vworld.kr", "reason": "useChk",
                      "message": "VWorld dataset login failed result=useChk message=이용약관 변경안내 페이지로 이동합니다."}
 
