@@ -1387,7 +1387,7 @@ class TheWholeDeploy(unittest.TestCase):
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
                          ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
-                          "observability", "datahub"])
+                          "observability", "datahub", "trino"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
         # Nothing was deferred, so nothing is started out of its schedule (root ADR-0260).
@@ -1399,6 +1399,16 @@ class TheWholeDeploy(unittest.TestCase):
         result = self.deploy(FIXTURE_FAIL_AT="datahub")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.released()[-2:], ["observability", "datahub"])
+        self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
+                                       **{job: "pause" for job in self.DISABLED}})
+        self.assertNotIn("DONE: production runs", result.stdout)
+
+    def test_a_query_engine_that_does_not_answer_fails_the_deploy_after_the_dags_are_back(self):
+        # Root ADR-0500: Trino follows the release last, after the catalog; one that does not answer
+        # after its recreate alerts without holding any job.
+        result = self.deploy(FIXTURE_FAIL_AT="trino")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released()[-3:], ["observability", "datahub", "trino"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
         self.assertNotIn("DONE: production runs", result.stdout)

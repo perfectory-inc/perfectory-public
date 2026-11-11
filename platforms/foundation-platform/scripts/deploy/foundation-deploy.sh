@@ -392,5 +392,11 @@ log "9. the data catalog's containers follow the release (only services whose co
 deploy_metric_phase datahub
 "${release}" datahub
 
+log "10. the query engine follows the release (only when its compose config or a mounted file changed)"
+# After the DAGs are back, as the catalog: a recreate drops the queries in flight, which retry, and a
+# Trino that does not answer fails the deploy and alerts (root ADR-0500).
+deploy_metric_phase trino
+"${release}" trino
+
 log "DONE: production runs ${sha}"
 readlink "${release_root}/current"
