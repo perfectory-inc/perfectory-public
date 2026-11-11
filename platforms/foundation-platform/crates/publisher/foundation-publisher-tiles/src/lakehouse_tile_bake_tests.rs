@@ -518,14 +518,16 @@ fn the_real_handoff_reader_classifies_a_missing_rows_geometry() -> anyhow::Resul
 }
 
 #[test]
-fn the_contract_bakes_parcels_at_maxzoom_detail_14_and_refuses_another_range() -> anyhow::Result<()>
+fn the_contract_bakes_parcels_at_maxzoom_detail_13_and_refuses_another_range() -> anyhow::Result<()>
 {
     let contract = BakeContract::parse(CONTRACT_JSON)?;
-    assert_eq!(contract.maxzoom_detail.get("parcels"), Some(&14));
-    assert_eq!(contract.maxzoom_detail.get("complex"), Some(&14));
-    // 2026-11-03 to 11-07: zoning at z14 and the default 12 lost 642 zones wider than a pixel at
-    // zoom 22, and the gate refused every bake; at 16 one unit is one pixel there, as for parcels.
-    assert_eq!(contract.maxzoom_detail.get("zoning"), Some(&16));
+    // Root ADR-0492: cut to z17 at detail 13, the archive's unit is mapbox-gl's 8192-unit extent and
+    // one pixel at zoom 22; the ground precision of z16 at 14 (parcels, complex) and of z14 at 16
+    // (zoning, which lost 642 zones wider than a pixel at the default 12 from 2026-11-03 to 11-07).
+    for unit in ["parcels", "complex", "zoning"] {
+        assert_eq!(contract.maxzoom_detail.get(unit), Some(&13), "{unit}");
+        assert_eq!(contract.tile_max_zoom.get(unit), Some(&17), "{unit}");
+    }
     let args: Vec<String> = tippecanoe_args(
         &parcel_layer(14, 16),
         &["pnu".to_owned()],
@@ -971,7 +973,7 @@ fn the_contract_registers_zoning_partitioned_by_its_layer_code() -> anyhow::Resu
             "zone_name"
         ]
     );
-    assert_eq!((layer.tile_min_zoom, layer.tile_max_zoom), (10, 14));
+    assert_eq!((layer.tile_min_zoom, layer.tile_max_zoom), (10, 17));
     let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
     value["units_born_from_a_lakehouse_bake"]["zoning"]["feature_filter_properties"] =
         json!(["zone_name", "layer_code"]);
@@ -1071,7 +1073,7 @@ fn only_zoning_has_a_feature_filter_and_other_units_bake_as_before() -> anyhow::
 #[test]
 fn a_feature_min_zoom_outside_the_layer_or_on_another_property_is_refused() -> anyhow::Result<()> {
     for (path, bad) in [
-        ("/feature_min_zoom/zoning/min_zoom/D142", json!(15)),
+        ("/feature_min_zoom/zoning/min_zoom/D142", json!(18)),
         ("/feature_min_zoom/zoning/default", json!(9)),
         ("/feature_min_zoom/zoning/property", json!("sigungu_code")),
     ] {
@@ -1255,16 +1257,36 @@ fn a_maxzoom_unit_is_at_most_a_pixel_at_render_max_zoom() -> anyhow::Result<()> 
     let mut admin = complex_layer();
     admin.render_max_zoom = admin.tile_max_zoom;
     ensure_maxzoom_detail_reaches_render_max_zoom(&admin, None)?;
-    // Every unit the contract names bakes under the rule with its contract detail.
+    // Every unit the contract names bakes under the rule with its contract zoom and detail.
     let contract = BakeContract::parse(CONTRACT_JSON)?;
     let zoning = contract.units_born_from_a_lakehouse_bake["zoning"].served_layer();
-    ensure_maxzoom_detail_reaches_render_max_zoom(
-        &zoning,
-        contract.maxzoom_detail.get("zoning").copied(),
-    )?;
-    ensure_maxzoom_detail_reaches_render_max_zoom(
-        &complex,
-        contract.maxzoom_detail.get("complex").copied(),
-    )?;
+    for (unit, mut layer) in [
+        ("zoning", zoning),
+        ("complex", complex),
+        ("parcels", parcel_layer(14, 16)),
+    ] {
+        if let Some(zoom) = contract.tile_max_zoom.get(unit) {
+            layer.tile_max_zoom = *zoom;
+        }
+        ensure_maxzoom_detail_reaches_render_max_zoom(
+            &layer,
+            contract.maxzoom_detail.get(unit).copied(),
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn a_contract_maxzoom_is_a_web_mercator_zoom_and_agrees_with_the_unit_it_bears(
+) -> anyhow::Result<()> {
+    for bad in [0, 23] {
+        let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+        value["tile_max_zoom"]["parcels"] = json!(bad);
+        assert!(BakeContract::parse(&value.to_string()).is_err(), "z{bad}");
+    }
+    // A born unit's first release is cut where its birth says; a second number would disagree.
+    let mut value: Value = serde_json::from_str(CONTRACT_JSON)?;
+    value["tile_max_zoom"]["zoning"] = json!(16);
+    assert!(BakeContract::parse(&value.to_string()).is_err());
     Ok(())
 }

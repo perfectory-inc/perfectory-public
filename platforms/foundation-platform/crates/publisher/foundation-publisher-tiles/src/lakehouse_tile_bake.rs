@@ -118,6 +118,8 @@ const DEFAULT_TILE_DETAIL: u8 = 12;
 const NAMED_IDS: usize = 5;
 /// The most missing ids the gate reads geometry for (ADR-0262); 202609 at detail 12 missed 542.
 const MAX_CLASSIFIED_MISSING: usize = 100_000;
+/// The deepest zoom a unit may be cut to: the render zooms Catalog accepts end at 22.
+const MAX_TILE_ZOOM: u8 = 22;
 /// Range size for reading the active archive: one directory or a few tiles per request.
 const EQUIVALENCE_READ_CHUNK_BYTES: usize = 256 * 1024;
 
@@ -149,6 +151,10 @@ pub struct BakeContract {
     /// W42: a unit listed here is refused when any stored (compressed) tile exceeds these bytes.
     #[serde(default)]
     pub tile_bytes_budget: std::collections::BTreeMap<String, u64>,
+    /// Root ADR-0492: the zoom a unit listed here is cut to, in place of the active release's;
+    /// the release the bake promotes carries it.
+    #[serde(default)]
+    pub tile_max_zoom: std::collections::BTreeMap<String, u8>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,6 +232,19 @@ impl BakeContract {
             contract.tile_bytes_budget.values().all(|bytes| *bytes > 0),
             "a tile_bytes_budget is positive"
         );
+        for (unit, zoom) in &contract.tile_max_zoom {
+            ensure!(
+                (1..=MAX_TILE_ZOOM).contains(zoom),
+                "{unit}'s tile_max_zoom {zoom} is not between 1 and {MAX_TILE_ZOOM}"
+            );
+            if let Some(newborn) = contract.units_born_from_a_lakehouse_bake.get(unit) {
+                ensure!(
+                    newborn.served_layer().tile_max_zoom == *zoom,
+                    "{unit} is born at z{} but its tile_max_zoom is {zoom}",
+                    newborn.served_layer().tile_max_zoom
+                );
+            }
+        }
         Ok(contract)
     }
 
@@ -682,6 +701,8 @@ struct Config {
     low_zoom_generalization: Option<LowZoomGeneralization>,
     /// W42: the contract's largest stored tile for this unit, if it sets one.
     tile_bytes_budget: Option<u64>,
+    /// Root ADR-0492: the contract's maxzoom for this unit, if it sets one.
+    tile_max_zoom: Option<u8>,
 }
 
 /// `{PREFIX}_REHEARSAL`: unset or `0` is a bake, `1` a rehearsal; anything else is refused, so a
@@ -749,12 +770,15 @@ impl Config {
             feature_min_zoom: None,
             low_zoom_generalization: None,
             tile_bytes_budget: None,
+            tile_max_zoom: None,
         })
     }
 }
 
 struct ActiveStatic {
     release_id: VectorTileReleaseId,
+    /// The tile zooms the active release is cut at; `layer` carries the ones this bake cuts.
+    served_tile_zoom: (u8, u8),
     origin: ActiveOrigin,
     pmtiles_object_key: String,
     serving_generation: ServingGeneration,
@@ -772,7 +796,10 @@ impl ActiveStatic {
     }
 }
 
-async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<ActiveStatic> {
+/// The active release, with `layer` the one the bake produces: the served layer, cut to the
+/// contract's `tile_max_zoom` when it sets one (root ADR-0492).
+async fn read_active_static(pool: &PgPool, config: &Config) -> anyhow::Result<ActiveStatic> {
+    let unit_key = config.unit_key.as_str();
     let row = sqlx::query(
         "SELECT unit.active_release_id, unit.serving_generation, release.source_kind,
                 release.canonical_iceberg_snapshot_id, release.pmtiles_object_key,
@@ -811,8 +838,17 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
             .map(|map| map.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default(),
     );
+    let tile_min_zoom = u8::try_from(row.try_get::<i16, _>("tile_min_zoom")?)?;
+    let served_max_zoom = u8::try_from(row.try_get::<i16, _>("tile_max_zoom")?)?;
+    let render_max_zoom = u8::try_from(row.try_get::<i16, _>("render_max_zoom")?)?;
+    let tile_max_zoom = config.tile_max_zoom.unwrap_or(served_max_zoom);
+    ensure!(
+        (tile_min_zoom..=render_max_zoom).contains(&tile_max_zoom),
+        "{unit_key} cannot be cut to z{tile_max_zoom}: its tiles start at z{tile_min_zoom} and are drawn to z{render_max_zoom}"
+    );
     Ok(ActiveStatic {
         release_id: VectorTileReleaseId::new(row.try_get("active_release_id")?),
+        served_tile_zoom: (tile_min_zoom, served_max_zoom),
         origin: if row.try_get("produced_by_lakehouse_bake")? {
             ActiveOrigin::LakehouseBake
         } else {
@@ -830,9 +866,9 @@ async fn read_active_static(pool: &PgPool, unit_key: &str) -> anyhow::Result<Act
         layer: ServedLayer {
             source_layer: row.try_get("source_layer")?,
             feature_id_property,
-            tile_min_zoom: u8::try_from(row.try_get::<i16, _>("tile_min_zoom")?)?,
-            tile_max_zoom: u8::try_from(row.try_get::<i16, _>("tile_max_zoom")?)?,
-            render_max_zoom: u8::try_from(row.try_get::<i16, _>("render_max_zoom")?)?,
+            tile_min_zoom,
+            tile_max_zoom,
+            render_max_zoom,
             properties,
         },
     })
@@ -1210,6 +1246,7 @@ pub async fn run() -> anyhow::Result<()> {
         .get(&config.unit_key)
         .cloned();
     config.tile_bytes_budget = contract.tile_bytes_budget.get(&config.unit_key).copied();
+    config.tile_max_zoom = contract.tile_max_zoom.get(&config.unit_key).copied();
     let samples = SampleContract::parse(tile_equivalence::SAMPLE_CONTRACT_JSON)?;
     let summary: ServedSummary =
         serde_json::from_str(&std::fs::read_to_string(&config.served_summary)?)
@@ -1321,7 +1358,7 @@ async fn bake_in(
         )
         .await;
     }
-    let active = read_active_static(&pool, &config.unit_key).await?;
+    let active = read_active_static(&pool, config).await?;
     let srid = summary.geometry_srid;
     let inputs = bake_inputs(&contract.images, srid, &active.layer, &prepared.0, config);
     let recipe = recipe_digest(&inputs);
@@ -1360,6 +1397,8 @@ async fn bake_in(
                 summary.bound_silver_snapshot(),
             )?,
             bake_inputs_sha256: Some(recipe),
+            tile_max_zoom: (active.layer.tile_max_zoom != active.served_tile_zoom.1)
+                .then_some(active.layer.tile_max_zoom),
         })
         .await?;
 

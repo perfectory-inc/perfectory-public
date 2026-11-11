@@ -99,8 +99,10 @@ pub(super) async fn start(
          (id, publication_unit_id, input_release_id, input_data_revision,
           frozen_source_snapshot_id, status, idempotency_key, kind,
           input_serving_generation, output_data_revision, source_snapshot_id,
-          matching_verdict, matching_verdict_sha256, bound_source_record_id, bake_inputs_sha256)
-         VALUES ($1, $2, $3, $4, $5, 'running', $6, 'lakehouse_bake', $7, $8, $9, $10, $11, $12, $13)",
+          matching_verdict, matching_verdict_sha256, bound_source_record_id, bake_inputs_sha256,
+          tile_max_zoom)
+         VALUES ($1, $2, $3, $4, $5, 'running', $6, 'lakehouse_bake', $7, $8, $9, $10, $11, $12, $13,
+                 $14)",
     )
     .bind(build_job_id.as_uuid())
     .bind(publication_unit_id)
@@ -118,6 +120,7 @@ pub(super) async fn start(
     .bind(silver.map(|source| source.matching_verdict_sha256.as_str()))
     .bind(bound_source_record_id)
     .bind(command.bake_inputs_sha256.as_deref())
+    .bind(command.tile_max_zoom.map(i16::from))
     .execute(&mut *tx)
     .await
     .map_err(map_sqlx)?;

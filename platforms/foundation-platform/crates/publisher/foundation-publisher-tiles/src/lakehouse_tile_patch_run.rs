@@ -134,7 +134,18 @@ pub async fn try_patch(
 ) -> anyhow::Result<bool> {
     let unit = config.unit_key.as_str();
     let pool = PgPool::connect(&required_env_value("DATABASE_URL")?).await?;
-    let active = read_active_static(&pool, unit).await?;
+    let active = read_active_static(&pool, config).await?;
+    let cut = (active.layer.tile_min_zoom, active.layer.tile_max_zoom);
+    if cut != active.served_tile_zoom {
+        // Root ADR-0492: a patch replaces tiles of its base; a base cut at other zooms is a new base.
+        return full(
+            unit,
+            &format!(
+                "the contract cuts z{}..{}, the base is cut z{}..{}",
+                cut.0, cut.1, active.served_tile_zoom.0, active.served_tile_zoom.1
+            ),
+        );
+    }
     let storage = TileDerivativeR2Config::from_env()?;
     let reader = R2ObjectStorage::from_config(storage.reader_config());
     let base_source_id = static_release_martin_source_id(unit, active.release_id);

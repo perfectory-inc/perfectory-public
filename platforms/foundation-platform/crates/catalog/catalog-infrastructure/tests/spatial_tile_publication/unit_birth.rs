@@ -105,6 +105,7 @@ async fn a_unit_is_born_static_beside_the_units_it_carries_and_then_bakes_like_a
                 operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
                 silver_source: None,
                 bake_inputs_sha256: None,
+                tile_max_zoom: None,
             })
             .await?;
         Ok(())

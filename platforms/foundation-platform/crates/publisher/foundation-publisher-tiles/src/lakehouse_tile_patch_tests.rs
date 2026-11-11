@@ -543,8 +543,9 @@ fn a_changed_zone_re_tiles_only_the_tiles_it_touches() -> anyhow::Result<()> {
         dirty.is_disjoint(&untouched),
         "the unchanged zone's tiles are not re-tiled"
     );
-    // One small zone touches a handful of tiles per zoom, far below the 5% patch bound of a base.
-    assert!(dirty.len() <= 40, "{} dirty tiles", dirty.len());
+    // One small zone touches a handful of tiles per zoom (z10..17 since root ADR-0492), far below
+    // the 5% patch bound of a base.
+    assert!(dirty.len() <= 120, "{} dirty tiles", dirty.len());
     assert!(diff(&new, &new).is_empty());
     Ok(())
 }

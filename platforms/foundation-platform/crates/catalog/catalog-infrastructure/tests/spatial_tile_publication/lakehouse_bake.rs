@@ -26,6 +26,7 @@ fn bake_command(
         operator_staff_id: StaffId::new(OPERATOR_STAFF_ID),
         silver_source: None,
         bake_inputs_sha256: None,
+        tile_max_zoom: None,
     })
 }
 
@@ -221,8 +222,10 @@ async fn a_lakehouse_bake_rebakes_the_served_snapshot_only_under_a_new_recipe() 
             "a refused start writes nothing"
         );
 
+        // Root ADR-0492: the new recipe cuts the unit one zoom deeper than the release it replaces.
         let rebake = StartLakehouseBakeCommand {
             bake_inputs_sha256: Some("b".repeat(64)),
+            tile_max_zoom: Some(17),
             ..bake_command(baked.active_release_id, GOLD_SNAPSHOT, "recipe-2")?
         };
         let rebake_job = lifecycle.start_lakehouse_bake(rebake).await?;
@@ -247,6 +250,24 @@ async fn a_lakehouse_bake_rebakes_the_served_snapshot_only_under_a_new_recipe() 
         );
         let row = release_json(&pool, rebaked.active_release_id).await?;
         assert_eq!(row["bake_inputs_sha256"], "b".repeat(64));
+        let (before, after) = (&baked.layers["complex"], &rebaked.layers["complex"]);
+        assert_eq!(
+            after.tile_max_zoom, 17,
+            "the release says the zoom its archive was cut to"
+        );
+        assert_eq!(
+            (
+                after.tile_min_zoom,
+                after.render_min_zoom,
+                after.render_max_zoom
+            ),
+            (
+                before.tile_min_zoom,
+                before.render_min_zoom,
+                before.render_max_zoom
+            ),
+            "only the maxzoom moves"
+        );
         Ok(())
     })
     .await
