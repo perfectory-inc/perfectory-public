@@ -571,6 +571,27 @@ def queued_starts(now: float, jobs: dict, queued: dict, last_started: dict, runn
     return owed, metrics
 
 
+def claim_metrics(now: float, jobs: dict, claims: list[dict], running_units) -> list[str]:
+    """Metric lines for each live claim on a pool (job_units.live_claims): how long it has been queued,
+    and how many of the units it holds the pool for run (job_units.claim_work: the pool's jobs it waits
+    for, and its own Spark steps' units).
+
+    A claim holds the pool only for a Spark step (root ADR-0462); one that holds it while none of those
+    runs keeps every start of a lower class out for nothing (2026-11-09 06:13Z..07:10Z a claim held
+    through a latency step and refused ten Silver loads; 2026-11-11 08:13Z.. 18 queued starts waited
+    behind the cut-over's claim up to 3.7 hours), and FoundationCapacityClaimHeldWithoutSpark says so (root ADR-0521)."""
+    metrics = []
+    for claim in claims:
+        labels = (f'claimant="{claim["claimant"]}",pool="{claim["pool"]}",'
+                  f'priority_class="{claim["priority_class"]}"')
+        working = running_units(job_units.claim_work(jobs, claim["claimant"]))
+        metrics.append(f"foundation_capacity_claim_age_seconds{{{labels}}} {max(now - (claim.get('since') or now), 0):.0f}")
+        metrics.append(f"foundation_capacity_claim_work_units{{{labels}}} {len(working)}")
+        print(f"capacity claim {claim['claimant']} ({claim.get('unit')}): queued {now - (claim.get('since') or now):.0f}s ago,"
+              f" {len(working)} of its work units run{': ' + ' '.join(sorted(working)) if working else ''}")
+    return metrics
+
+
 def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None, queued: dict, paused, running):
     """(owed lines, metric lines): each job the reconciler starts again (job_specs.requeued) whose newest
     scheduled slot, at least MISSED_START_GRACE old and after it was switched on, no start followed, owed
@@ -671,6 +692,10 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_job_queue_wait_budget_seconds gauge
 # HELP foundation_job_queue_last_wait_seconds How long the job's last start that had been queued waited.
 # TYPE foundation_job_queue_last_wait_seconds gauge
+# HELP foundation_capacity_claim_age_seconds How long ago a live claim on a pool was queued (root ADR-0435, ADR-0462).
+# TYPE foundation_capacity_claim_age_seconds gauge
+# HELP foundation_capacity_claim_work_units How many of the units a live claim holds its pool for run: the pool's jobs it waits for and its own Spark steps' units; 0 is a claim that holds the pool for nothing.
+# TYPE foundation_capacity_claim_work_units gauge
 # HELP foundation_job_missed_start_seconds How long ago the job's newest scheduled slot passed with no start after it (root ADR-0467); absent once one starts.
 # TYPE foundation_job_missed_start_seconds gauge
 # HELP foundation_serving_freshness_budget_seconds The age past which a served lane or tile layer is stale (r2-connections by_pnu_section_packs.freshness_budget_hours, root ADR-0306).
@@ -969,6 +994,10 @@ def main() -> int:
         queued_owed, queued_metrics = [], []
     owed = [line for line in owed if line.split()[1] not in {queued.split()[1] for queued in queued_owed}] + queued_owed
     metrics += queued_metrics
+    try:
+        metrics += claim_metrics(now, jobs, job_units.live_claims(jobs, now=now), job_units.running)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        errors.append(f"the capacity claims: {type(error).__name__}: {error}")
     switches = Path(os.environ.get("FOUNDATION_JOB_SWITCHES_DIR") or SWITCHES_DIR)
     try:
         missed_owed, missed_metrics = missed_starts(

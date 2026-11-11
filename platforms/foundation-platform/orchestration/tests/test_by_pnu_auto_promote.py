@@ -156,6 +156,43 @@ class AutoPromotion(unittest.TestCase):
         self.assertEqual(self.run_controller(NIGHT + 900)[1], [])
         self.assertEqual(self.run_controller(NIGHT + 3600)[1], ["parcel-sub-parcels cutover 1 --auto"])
 
+    def test_a_gold_that_failed_after_holding_the_pool_backs_off_across_releases(self):
+        # 2026-11-11: parcel-real-transaction's first full Gold died of `Java heap space` after 47 to 147
+        # minutes at 03:42Z, 08:15Z and 10:14Z; each new release reset its backoff, so it took the whole
+        # spark pool again within the hour and 18 queued starts waited up to 3.7 hours.
+        lane = "parcel-real-transaction"
+        self.pending(lane)
+        self.marks.mkdir(parents=True)
+        starts = [NIGHT - 8 * 3600, NIGHT - 4 * 3600, NIGHT - 2 * 3600]
+        marks = [{"at": start, "lane": lane, "generation": 1, "release": f"r{n}"} for n, start in enumerate(starts)]
+        (self.marks / f"{lane}.jsonl").write_text("".join(json.dumps(m) + "\n" for m in marks))
+        for start, seconds in zip(starts, (8839, 5807, 2815)):
+            run = datetime.datetime.fromtimestamp(start + 1, datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            steps = [{"lane": lane, "step": "preview", "outcome": "passed", "seconds": 6, "reason": "", "generation": 1},
+                     {"lane": lane, "step": "gold", "outcome": "failed", "seconds": seconds, "reason": "",
+                      "generation": 1}]
+            (self.bake / f"cutover/{run}.jsonl").write_text("".join(json.dumps(s) + "\n" for s in steps))
+        # Three costly failures under three other releases: four hours from the last, not now.
+        self.assertEqual(self.run_controller()[1], [])
+        self.assertEqual(self.run_controller(starts[-1] + 4 * 3600 - 60)[1], [])
+        self.assertEqual(self.run_controller(starts[-1] + 4 * 3600)[1], [f"{lane} cutover 1 --auto"])
+
+    def test_a_fast_failure_under_an_earlier_release_still_holds_no_backoff_beside_a_costly_one(self):
+        # A costly failure counts under every release; one of the 11-08 kind (1 s) only under its own.
+        lane = "parcel-sub-parcels"
+        self.pending(lane)
+        self.marks.mkdir(parents=True)
+        starts = [NIGHT - 6 * 3600, NIGHT - 900]
+        marks = [{"at": start, "lane": lane, "generation": 1, "release": "older"} for start in starts]
+        (self.marks / f"{lane}.jsonl").write_text("".join(json.dumps(m) + "\n" for m in marks))
+        for start, seconds in zip(starts, (4553, 1)):
+            run = datetime.datetime.fromtimestamp(start + 1, datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            step = {"lane": lane, "step": "gold", "outcome": "failed", "seconds": seconds, "reason": "", "generation": 1}
+            (self.bake / f"cutover/{run}.jsonl").write_text(json.dumps(step) + "\n")
+        # One counted attempt: an hour from the last attempt (the fast one), not two.
+        self.assertEqual(self.run_controller()[1], [])
+        self.assertEqual(self.run_controller(NIGHT - 900 + 3600)[1], [f"{lane} cutover 1 --auto"])
+
     def test_after_a_deploy_the_lane_tried_least_still_goes_first(self):
         # 2026-11-08 23:12Z: a deploy reset every wait, and parcel-regulation-zones (five attempts, first
         # in the contract) restarted ahead of parcel-sub-parcels (three).

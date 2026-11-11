@@ -445,6 +445,19 @@ groups:
         annotations:
           summary: '{{ $labels.job }} 의 시작이 {{ $labels.pool }} 풀 대기열에서 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). journalctl -u foundation-asset-reconcile.service 의 queued start 줄과 무엇이 풀을 잡고 있는지 보세요'
           runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationCapacityClaimHeldWithoutSpark
+        # Root ADR-0462: a claim holds its pool only for a Spark step. One live for 15 minutes while
+        # none of the units it holds the pool for runs keeps every lower start out for nothing
+        # (2026-11-09 06:13Z..07:10Z a cut-over's claim held through a latency step and refused ten
+        # Silver loads).
+        expr: foundation_capacity_claim_work_units == 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.claimant }} 의 {{ $labels.pool }} 풀 claim 이 살아 있는데 그 claim 이 기다리거나 돌리는 Spark 유닛이 하나도 없어요. 낮은 등급의 시작이 이유 없이 막혀 있어요. journalctl -u foundation-asset-reconcile.service 의 capacity claim 줄과 /var/lib/foundation-run-now/capacity/ 를 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
       - alert: FoundationJobMissedStartNotTaken
         # Root ADR-0467: the reconciler starts a slot no start followed once, keyed by the slot; still
         # missed two hours later, the start it asked for did not run (2026-11-09 11:40Z
