@@ -4,7 +4,7 @@ set -euo pipefail
 
 # The 2026-10-28 shape.
 # ruleid: pipefail-pipe-has-no-early-exit-reader
-printf '%s\n' a b | grep -qxF -- b || exit 1 # verification-judgment: reviewed-pipeline (fixture text)
+printf '%s\n' a b | grep -qxF -- b || exit 1
 # grep -Eq after a continued line.
 if ! printf x \
   # ruleid: pipefail-pipe-has-no-early-exit-reader
