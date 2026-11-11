@@ -31,6 +31,10 @@ ID_ON_TWO_PARCELS = "parcel id on two parcels"
 # successor's, checked like any other; readers place it under the served edition's code form (ADR-0482).
 # 2026-11-11: 202609 holds 22,738 parcels of 대구 달성군 구지면, renumbered on 2026-09-30, after the edition.
 RENUMBERED_LEGAL_DONG = "legal dong renumbered since the edition, checked under its successor"
+# Allowed only up to the caller's bound, and sampled for the steward: a legal dong the list does not hold and
+# no official pair explains (a provider's stray code). Over the bound every one is NO_LEGAL_DONG again. Such a
+# parcel has no place, so its boundary is not checked. 2026-11-11: 2 of 202609's 39,876,546 parcels.
+UNEXPLAINED_LEGAL_DONG = "legal dong the list does not hold and no official pair explains, within the bound"
 
 
 def attribute_held_elsewhere(name: str) -> str:
@@ -46,6 +50,7 @@ class GateReport:
     checked: int = 0
     violations: dict[str, list[str]] = field(default_factory=lambda: collections.defaultdict(list))
     allowed: dict[str, int] = field(default_factory=lambda: collections.defaultdict(int))
+    unexplained: list[str] = field(default_factory=list)
 
     def refuse(self, reason: str, item: str) -> None:
         self.violations[reason].append(item)
@@ -58,12 +63,15 @@ class GateReport:
         return not any(self.violations.values())
 
     def as_dict(self) -> dict:
-        return {
+        found = {
             "passed": self.passed,
             "checked": self.checked,
             "violations": {r: {"count": len(v), "sample": sorted(v)[:SAMPLE]} for r, v in sorted(self.violations.items()) if v},
             "allowed": dict(sorted(self.allowed.items())),
         }
+        if self.unexplained:
+            found["unexplained_sample"] = sorted(self.unexplained)[:SAMPLE]
+        return found
 
     def message(self) -> str:
         parts = [f"{r}: {len(v)} (e.g. {', '.join(sorted(v)[:3])})" for r, v in sorted(self.violations.items()) if v]
@@ -117,6 +125,7 @@ def check_parcels(
     admin_codes: set[str],
     current_ids: Mapping[str, str] | None = None,
     renumbered: Mapping[str, str] | None = None,
+    unexplained_bound: int = 0,
 ) -> GateReport:
     """Every parcel polygon has its legal dong, that dong's boundary and one current parcel id.
 
@@ -124,11 +133,14 @@ def check_parcels(
     its 읍면동, since rural parcels carry a 리 in the last two digits. `current_ids` is the folded
     registry (PNU -> parcel_id), or None when the region has no registry yet. `renumbered` is
     {legal dong: the existing code an official 1:1 pair renumbered it into}: such a parcel is allowed as
-    `RENUMBERED_LEGAL_DONG` and its boundary is its successor's.
+    `RENUMBERED_LEGAL_DONG` and its boundary is its successor's. Up to `unexplained_bound` parcels whose
+    dong nothing explains are allowed as `UNEXPLAINED_LEGAL_DONG` (their PNUs in `report.unexplained`);
+    more, and each is refused as `NO_LEGAL_DONG`.
     """
 
     report = GateReport()
     id_count: collections.Counter[str] = collections.Counter()
+    unexplained: list[str] = []
     for pnu in pnus:
         report.checked += 1
         if len(pnu) != 19 or not pnu.isdigit():
@@ -141,8 +153,9 @@ def check_parcels(
                 report.allow(RENUMBERED_LEGAL_DONG)
                 dong = successor
             else:
-                report.refuse(NO_LEGAL_DONG, pnu)
-        if dong[:8] + "00" not in admin_codes:
+                unexplained.append(pnu)
+                dong = ""
+        if dong and dong[:8] + "00" not in admin_codes:
             report.refuse(NO_BOUNDARY, pnu)
         if current_ids is not None:
             pid = current_ids.get(pnu)
@@ -153,6 +166,12 @@ def check_parcels(
     for pid, n in id_count.items():
         if n > 1:
             report.refuse(ID_ON_TWO_PARCELS, pid)
+    if len(unexplained) > unexplained_bound:
+        for pnu in unexplained:
+            report.refuse(NO_LEGAL_DONG, pnu)
+    elif unexplained:
+        report.allowed[UNEXPLAINED_LEGAL_DONG] += len(unexplained)
+        report.unexplained = sorted(unexplained)[:SAMPLE]
     return report
 
 

@@ -160,6 +160,12 @@ class ParcelGateSparkTest(unittest.TestCase):
                 renumbered = self.spark.createDataFrame(sorted(pairs.items()), "renumbered_from string, renumbered_to string")
                 self.assertEqual(job.check_parcels(parcels, official, admin, None, renumbered), expected)
         self.assertTrue(gate.check_parcels(moved, OFFICIAL, ADMIN, None, cases["into 갑동"]).passed)
+        # A stray code is allowed and sampled within the bound, refused past it, as the pure gate does.
+        for bound in (1, 2):
+            with self.subTest(bound=bound):
+                expected = gate.check_parcels(moved, OFFICIAL, ADMIN, None, None, bound).as_dict()
+                parcels, official, admin, _ = self.frames(moved)
+                self.assertEqual(job.check_parcels(parcels, official, admin, None, None, bound), expected)
 
     def test_a_clean_snapshot_passes(self):
         clean = [pnu(GAP, n) for n in range(1, 27)]

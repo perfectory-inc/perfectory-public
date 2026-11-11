@@ -52,7 +52,9 @@ class ParcelGateTest(unittest.TestCase):
         ok = [pnu("9999910100", 1), pnu("9999910121", 2)]
         self.assertTrue(gate.check_parcels(ok, OFFICIAL, admin, {ok[0]: "x", ok[1]: "y"}).passed)
         bad = gate.check_parcels(
-            [pnu("9999920100", 1), pnu("9999910100", 2), pnu("9999910100", 3), "99999101001 00010000"],
+            # 병동 is abolished (no place, so no boundary is asked of it); 합성시 exists without a boundary.
+            [pnu("9999920100", 1), pnu("9999900000", 1), pnu("9999910100", 2), pnu("9999910100", 3),
+             "99999101001 00010000"],
             OFFICIAL,
             admin,
             {pnu("9999910100", 2): "same", pnu("9999910100", 3): "same"},
@@ -82,6 +84,14 @@ class ParcelGateTest(unittest.TestCase):
             with self.subTest(renumbered=renumbered):
                 refused = gate.check_parcels(moved, OFFICIAL, admin, None, renumbered).as_dict()["violations"]
                 self.assertEqual(refused[gate.NO_LEGAL_DONG]["count"], 2)
+        # A stray code nothing explains is allowed up to the caller's bound, and sampled; past it, refused.
+        within = gate.check_parcels(moved, OFFICIAL, admin, None, None, unexplained_bound=2).as_dict()
+        self.assertTrue(within["passed"], within)
+        self.assertEqual(within["allowed"], {gate.UNEXPLAINED_LEGAL_DONG: 2})
+        self.assertEqual(within["unexplained_sample"], sorted(moved))
+        over = gate.check_parcels(moved, OFFICIAL, admin, None, None, unexplained_bound=1).as_dict()
+        self.assertEqual(over["violations"][gate.NO_LEGAL_DONG]["count"], 2)
+        self.assertEqual(over["allowed"], {})
         # The successor's own boundary is what the parcel needs.
         refused = gate.check_parcels(moved, OFFICIAL, set(), None, {"9999920100": "9999910100"}).as_dict()
         self.assertEqual(set(refused["violations"]), {gate.NO_BOUNDARY})
