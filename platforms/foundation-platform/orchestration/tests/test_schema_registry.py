@@ -47,12 +47,17 @@ class Fixture:
         self.platform = self.tmp / "platforms/foundation-platform"
         for part in ("contracts/schema-registry", "contracts/by-pnu-documents"):
             shutil.copytree(PLATFORM / part, self.platform / part)
+        hosts = self.platform / registry_tool.HOST_SCHEMAS
+        hosts.parent.mkdir(parents=True)
+        shutil.copy(PLATFORM / registry_tool.HOST_SCHEMAS, hosts)
         (self.platform / "config").mkdir(parents=True)
         contract = json.loads((PLATFORM / "config/r2-connections.contract.json").read_text(encoding="utf-8"))
-        # The lane lines, and the serving blocks a subject not by PNU names as its owner (root ADR-0456).
+        # The lane lines, the host lanes' gateway blocks, and the serving blocks a subject not by PNU
+        # names as its owner (root ADR-0456).
         self.write("config/r2-connections.contract.json", {
             "by_pnu_lanes": contract["by_pnu_lanes"],
             **{name: contract[name] for name in ("industrial_complex_documents", "profile_gateway")},
+            **{f"{lane}_by_pnu_gateway": contract[f"{lane}_by_pnu_gateway"] for lane in registry_tool.HOST_LANES},
         })
         git(self.tmp, "init", "-q")
         self.commit()
@@ -243,6 +248,26 @@ class Compatibility(unittest.TestCase):
         failures = self.fixture.check()
         self.assertRefused(failures, "web.ts", "by hand")
         self.assertFalse(any("web.test.ts" in f for f in failures), failures)
+
+
+    def test_the_host_lanes_constants_are_what_the_registry_generates(self):
+        # The parcel and building documents are written by Rust types: their strings are compiled in
+        # from the registry (HOST_SCHEMAS), so a revision added without regenerating them fails.
+        hosts = self.fixture.platform / registry_tool.HOST_SCHEMAS
+        self.assertIn("pub const PARCEL_DOCUMENT_SCHEMA_VERSION", hosts.read_text(encoding="utf-8"))
+        hosts.write_text("// edited by hand\n", encoding="utf-8")
+        self.assertRefused(self.fixture.check(), "is not what the registry generates")
+
+    def test_only_a_host_lane_has_parts_and_one_subject_each(self):
+        registry = self.fixture.registry()
+        registry["subjects"][0]["owner"]["part"] = "page"
+        self.fixture.write("contracts/schema-registry/registry.json", registry)
+        self.assertRefused(self.fixture.check(), "only a host lane's documents have parts")
+        registry = self.fixture.registry()
+        parcel = next(e for e in registry["subjects"] if e["owner"].get("lane") == "parcel")
+        registry["subjects"].append({**copy.deepcopy(parcel), "subject": "foundation-platform.parcel_twice"})
+        self.fixture.write("contracts/schema-registry/registry.json", registry)
+        self.assertRefused(self.fixture.check(), "two subjects name the same owner lane")
 
 
 class AppendOnly(unittest.TestCase):

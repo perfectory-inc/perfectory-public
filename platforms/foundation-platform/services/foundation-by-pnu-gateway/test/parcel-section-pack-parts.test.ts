@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import connectionContract from "../../../config/r2-connections.contract.json";
 import { fetchByPnu } from "../src/index";
 import { fnv1a32, forgetPacks, partsKey } from "../src/packs";
+import { subjectOfLane } from "../src/schemas";
 
 // The parcel lane reads parts with the same code as the building lane (root ADR-0160, ADR-0163);
 // these hold it to the parcel block: its pack root and its manifest unit, in the index too. The
@@ -63,6 +64,8 @@ function manifest(index: string): string {
       schema_version: PACK_POLICY.manifest_section_packs_parted_schema_version,
       format_version: PACK_POLICY.format_version,
       unit_prefix_length: PACK_POLICY.unit_prefix_length,
+      // The parcel document's schema is its subject in the schema registry (root ADR-0336).
+      document_schema_version: `${subjectOfLane("parcel")?.subject}.v1`,
       sections: PACKS.sections.map((name) => ({
         name,
         generation: 1,

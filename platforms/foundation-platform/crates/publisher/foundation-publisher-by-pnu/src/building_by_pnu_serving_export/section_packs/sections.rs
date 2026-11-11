@@ -295,7 +295,9 @@ pub fn join_any(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parcel_by_pnu_serving_export::parcel_document::PARCEL_DOCUMENT_SCHEMA_VERSION;
+    use crate::parcel_by_pnu_serving_export::parcel_document::{
+        PARCEL_DOCUMENT_SCHEMA_EXPANDS, PARCEL_DOCUMENT_SCHEMA_VERSION,
+    };
 
     pub fn fixture_document() -> anyhow::Result<BuildingByPnuDocument> {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")?;
@@ -367,7 +369,7 @@ mod tests {
     fn a_served_document_is_held_to_the_schema_its_state_records() -> anyhow::Result<()> {
         let parcel = Renderer::Parcel.render(&parcel_provenance(), &parcel_row())?;
         let mut older: JsonValue = serde_json::from_slice(&parcel.bytes)?;
-        let recorded = "foundation-platform.parcel_by_pnu_profile.v1";
+        let recorded = PARCEL_DOCUMENT_SCHEMA_EXPANDS[0];
         assert_ne!(recorded, PARCEL_DOCUMENT_SCHEMA_VERSION);
         older["schema_version"] = JsonValue::from(recorded);
         let older = serde_json::to_vec(&older)?;

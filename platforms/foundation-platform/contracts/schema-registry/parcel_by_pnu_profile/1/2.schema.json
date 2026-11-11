@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_by_pnu_profile",
+  "description": "A parcel's document on the parcel edge (root ADR-0096): its zonings, official land price, cadastral characteristics, forest ledger, transfer history and land rights from gold.parcel_panel, with the Gold snapshot it was read from. Revision 2 adds the legal dong's names and the forest ledger's ownership kind name, both optional.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_by_pnu_profile.v1",
+        "foundation-platform.parcel_by_pnu_profile.v2"
+      ]
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        },
+        "metadata_location": {
+          "type": "string"
+        },
+        "manifest_list_location": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id",
+        "metadata_location",
+        "manifest_list_location"
+      ]
+    },
+    "legal_dong": {
+      "description": "The 법정동 the PNU's first ten digits are, by the code list's own names (root ADR-0113 §5); absent when the newest code list does not hold the code.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "lowest_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "kind": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "area_m2": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "zonings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "anchor_code": {
+            "type": "string"
+          },
+          "inclusion_code": {
+            "type": "string"
+          },
+          "zone_code": {
+            "type": "string"
+          },
+          "zone_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "zone_code",
+          "anchor_code",
+          "inclusion_code"
+        ]
+      }
+    },
+    "price": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "announced_date": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_month": {
+          "type": "integer"
+        },
+        "base_year": {
+          "type": "integer"
+        },
+        "price_per_m2": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "price_per_m2",
+        "base_year",
+        "base_month"
+      ]
+    },
+    "characteristics": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "area_m2": {
+          "type": "number"
+        },
+        "land_category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "land_use_situation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "road_contact": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terrain_height": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "terrain_shape": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "area_m2"
+      ]
+    },
+    "forest_ledger": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "area_m2": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "co_owner_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "land_category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownership_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownership_kind_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "transfer_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "area_m2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "closure_seq": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "erased_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "history_seq": {
+            "type": "integer"
+          },
+          "land_category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "moved_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parcel_history_seq": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "history_seq",
+          "parcel_history_seq"
+        ]
+      }
+    },
+    "land_rights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "building_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closure_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closure_kind_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dong_name": {
+            "type": "string"
+          },
+          "floor_name": {
+            "type": "string"
+          },
+          "ho_name": {
+            "type": "string"
+          },
+          "right_ratio": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "right_serial_no": {
+            "type": "string"
+          },
+          "room_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "right_serial_no"
+        ]
+      }
+    },
+    "land_right_total": {
+      "type": "integer"
+    },
+    "attached_via": {
+      "description": "The sections that came from an older PNU through the parcel lineage, by section name (root ADR-0113 §6); absent when every section is the PNU's own.",
+      "type": "object"
+    },
+    "lineage": {
+      "description": "The parcel's lineage edges, both directions (root ADR-0113 §1); absent when it has none.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "predecessor_pnu": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "successor_pnu": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string"
+          },
+          "cardinality": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "grade": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "successor_pnu",
+          "relation",
+          "grade"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "zonings",
+    "transfer_history",
+    "land_rights",
+    "land_right_total"
+  ]
+}

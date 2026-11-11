@@ -139,7 +139,8 @@ pub struct ParcelInfo {
 /// Which Foundation contract and data snapshot a parcel answer came from (root ADR-0223).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParcelSource {
-    /// Foundation document contract, e.g. `foundation-platform.parcel_by_pnu_profile.v1`.
+    /// Foundation document contract: its subject and major in the foundation's schema registry,
+    /// `<subject>.v<major>` (root ADR-0336).
     pub contract: String,
     /// Iceberg snapshot of the Gold table the document was baked from: the data's as-of.
     pub snapshot_id: String,
