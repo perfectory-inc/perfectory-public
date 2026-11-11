@@ -50,7 +50,11 @@
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [],
-      "surface_kind": "tiles"
+      "surface_kind": "tiles",
+      "publication_unit": {
+        "key": "parcels",
+        "snapshot_table": "gold.parcel_boundary_served"
+      }
     }
   ],
   "dependencies": [

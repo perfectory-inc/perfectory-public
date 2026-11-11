@@ -260,6 +260,107 @@ tests:
               summary: 'parcel 레인의 서빙 모니터가 4h 0m 0s째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@parcel.timer 를 보세요'
               runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
 
+  # Root ADR-0521. 2026-11-11 parcel-nearby had been registered (its bake enabled) with no serving
+  # monitor and no series. Past the 48-hour budget unmeasured it pages; a lane registered 40 hours ago
+  # and a lane its monitor measures stay quiet; a lane with no enabled bake (since 0) is said at once
+  # once nothing measures it.
+  - interval: 1h
+    input_series:
+      - series: 'foundation_serving_freshness_budget_seconds'
+        values: '172800x60'
+      - series: 'foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-nearby"}'
+        values: '0x60'
+      - series: 'foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-real-transaction"}'
+        values: '36000x60'
+      - series: 'foundation_by_pnu_lane_registered_since_timestamp_seconds{lane="parcel-court-auction"}'
+        values: '0x60'
+      - series: 'foundation_by_pnu_served_manifest_age_seconds{lane="parcel-court-auction"}'
+        values: '16000x60'
+    alert_rule_test:
+      - eval_time: 47h
+        alertname: FoundationByPnuLaneUnmeasured
+        exp_alerts: []
+      - eval_time: 50h
+        alertname: FoundationByPnuLaneUnmeasured
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: serving-freshness
+              lane: parcel-nearby
+            exp_annotations:
+              summary: 'parcel-nearby 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@parcel-nearby.timer 를 보세요'
+              runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+
+  # Root ADR-0521. 2026-11-11 the parcels tiles served a 2026-09-28 release about 26 days behind
+  # gold.parcel_boundary_served; admin served a 10-16 release that held every change (0, quiet); the
+  # zoning unit the runtime manifest lacks is not on the map; complex's table could not be read.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_serving_freshness_budget_seconds'
+        values: '172800x90'
+      - series: 'foundation_tile_unit_behind_seconds{unit="parcels"}'
+        values: '2300000x90'
+      - series: 'foundation_tile_unit_behind_seconds{unit="admin"}'
+        values: '0x90'
+      - series: 'foundation_tile_unit_served{unit="parcels"}'
+        values: '1x90'
+      - series: 'foundation_tile_unit_served{unit="admin"}'
+        values: '1x90'
+      - series: 'foundation_tile_unit_served{unit="complex"}'
+        values: '1x90'
+      - series: 'foundation_tile_unit_served{unit="zoning"}'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FoundationTileUnitBehind
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: serving-freshness
+              unit: parcels
+            exp_annotations:
+              summary: '지도 타일 parcels 이 입력보다 26d 14h 53m 20s 뒤처진 릴리스를 보여 주고 있어요(예산을 넘김) — 그 뒤 타일 굽기·릴리스가 발행하지 못했어요. 레인 색인(config/by-pnu-lane-index.v1.json tile_units)의 그 유닛 굽기 작업 journalctl 과 거부 이유를 보세요'
+              runbook: docs/runbooks/parcel-tile-bake.md
+      - eval_time: 20m
+        alertname: FoundationTileUnitNotServed
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: FoundationTileUnitNotServed
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: serving-freshness
+              unit: zoning
+            exp_annotations:
+              summary: '지도 타일 zoning 이 정의에는 있는데 지도가 읽는 런타임 manifest 에 없어요 — 그 층이 지도에 안 나와요. /catalog/v1/vector-tiles/runtime-manifest 의 publication_units 와 그 유닛의 승격 기록을 보세요'
+              runbook: docs/runbooks/parcel-tile-bake.md
+      - eval_time: 61m
+        alertname: FoundationTileUnitUnmeasured
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+              unit: complex
+            exp_annotations:
+              summary: '지도 타일 complex의 신선도를 1시간째 재지 못했어요 — 뒤처진 릴리스를 보여 줘도 알 수 없어요. journalctl -u foundation-asset-reconcile.service 의 "could not read the tile runtime manifest" 나 "could not read" 줄을 보세요'
+              runbook: docs/runbooks/asset-reconcile.md
+
+  # The runtime manifest unreadable: no unit series at all, said once.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_serving_freshness_budget_seconds'
+        values: '172800x90'
+    alert_rule_test:
+      - eval_time: 61m
+        alertname: FoundationTileUnitUnmeasured
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+            exp_annotations:
+              summary: '지도 타일의 신선도를 1시간째 재지 못했어요 — 뒤처진 릴리스를 보여 줘도 알 수 없어요. journalctl -u foundation-asset-reconcile.service 의 "could not read the tile runtime manifest" 나 "could not read" 줄을 보세요'
+              runbook: docs/runbooks/asset-reconcile.md
+
   # Root ADR-0490 §7: 202609 waited 37 days past its measurement while 202606 was served, against a
   # 14-day budget; a newer edition five days in is the work, not a stall.
   - interval: 1m

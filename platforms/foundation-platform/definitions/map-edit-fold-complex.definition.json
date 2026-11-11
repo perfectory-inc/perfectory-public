@@ -60,7 +60,11 @@
       "status": "implemented",
       "owner": "foundation-platform",
       "evidence_refs": [],
-      "surface_kind": "tiles"
+      "surface_kind": "tiles",
+      "publication_unit": {
+        "key": "complex",
+        "snapshot_table": "gold.industrial_complex_boundary_served"
+      }
     },
     {
       "id": "gold-industrial-complex-boundary-served",

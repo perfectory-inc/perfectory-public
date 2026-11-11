@@ -101,3 +101,20 @@ ADR-0194 5.2). 승격은 하지 않았다. 대조 관문이 판을 거부했고(
 - 작업 디스크: 핸드오프 25.0GB에 대해 최대 43.7GB였다(1.75배, 핸드오프 포함 2.75배). 계약의 배수 8은 넉넉하다.
 - 대조 관문은 202606을 거부했다. 공식 목록(2026-10-04)에 없는 법정동이 6,483,504필지, 읍면동 경계가 없는 필지가
   6,460,785필지다(2026-07 개편 지역). 202609는 22,740 + 2필지다. ADR-0133 §5에 따라 이 판으로는 굽지 않는다.
+
+## 5. 지도 타일 신선도 경보
+
+[루트 ADR-0521](../../../../docs/adr/0521-every-served-lane-and-tile-layer-of-the-lane-index-is-held-to-the-freshness-budget-even-when-nothing-else-measures-it.md).
+레인 색인의 `tile_units`(정의의 `surface_kind: tiles` 자산과 그 `publication_unit`) 마다 자산 조정기가 5분마다 잰다:
+지도가 읽는 런타임 manifest(`/catalog/v1/vector-tiles/runtime-manifest`)의 그 유닛 `canonical_iceberg_snapshot_id` 뒤로
+`snapshot_table` 에서 행이 바뀐 가장 오래된 커밋부터 지금까지(`foundation_tile_unit_behind_seconds`). 행정경계·산단처럼
+입력이 그대로면 릴리스가 몇 주 묵어도 0 이다(루트 ADR-0444 의 규칙).
+
+- `FoundationTileUnitBehind`(page): 그 값이 `by_pnu_section_packs.freshness_budget_hours` 를 넘었다. 그 유닛 굽기 작업
+  (`tile_units[].bake_jobs`)의 일지에서 거부 이유를 본다. 굽기 작업이 꺼져 있으면(필지 타일, 판 리허설 중) 그것이 원인이다.
+- `FoundationTileUnitNotServed`(page): 정의에 있는 유닛이 런타임 manifest 에 없다 — 그 층이 지도에 안 나온다.
+- `FoundationTileUnitUnmeasured`(ticket): 런타임 manifest 나 그 스냅샷 표를 못 읽었다. `journalctl -u foundation-asset-reconcile.service`.
+
+지금 값: `grep -E '^foundation_tile_unit_' /var/lib/foundation-jobs/metrics/asset-reconcile.prom`.
+패치(루트 ADR-0323)가 서빙하는 스냅샷은 런타임 manifest 에 없다: 패치가 나간 유닛은 기본 릴리스의 스냅샷부터 재므로
+실제보다 뒤처져 보일 수 있다(그때는 패치 manifest 의 `gold_snapshot` 을 대조한다).
