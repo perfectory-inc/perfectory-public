@@ -55,7 +55,8 @@ def contract(*names: str, served: str | None = None) -> dict:
     return {"schema_version": 2, "load_granularity": "sigungu", "snapshot_id_prefix": "vworldkr__parcel-",
             "served_edition": served, "handoff_suffix": ".jsonl.gz", "editions": held,
             "new_edition_bounds": {"max_sido_set_difference": 3, "max_sigungu_count_change_share": 0.05},
-            "readiness": {"max_row_loss_fraction": 0.01, "max_report_age_hours": 48},
+            "readiness": {"max_row_loss_fraction": 0.01, "max_report_age_hours": 48, "max_served_lag_days": 14,
+                          "max_served_lag_days_reason": "synthetic"},
             "promotions": [{"edition": served, "from_edition": None, "promoted_at_utc": "2026-10-05T00:00:00Z",
                             "by": "synthetic", "reason": "synthetic", "readiness": None}]}
 

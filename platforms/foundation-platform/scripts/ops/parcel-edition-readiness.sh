@@ -24,6 +24,9 @@ TRINO_CONTAINER="${FOUNDATION_PARCEL_EDITION_TRINO_CONTAINER:-foundation-platfor
 # The console's promotion requests (foundation-api writes them, root ADR-0381); this job only reads them,
 # and keeps its answers beside the report.
 REQUESTS="${FOUNDATION_PLATFORM_JOB_SWITCHES_DIR:-/var/lib/foundation-jobs/switches}/promote.d"
+# How long the newest edition in Silver has waited to be served, as node-exporter textfile series for
+# FoundationParcelServedEditionBehind (root ADR-0485 §7): 202609 waited 37 days and nothing said so.
+METRICS_DIR="${FOUNDATION_PARCEL_EDITION_METRICS_DIR:-/var/lib/foundation-jobs/metrics}"
 ANSWERS="$(dirname "${OUT}")/promotions"
 PY=(python3 -E -s)
 
@@ -65,6 +68,9 @@ for row in json.load(open(sys.argv[1], encoding="utf-8"))["editions"]:
     print(row["edition"], "ready" if row["ready"] else "not ready: " + row["first_failing_stage"], file=sys.stderr)' "${work}/readiness.json"
 mv -f -- "${work}/readiness.json" "${OUT}"
 mv -f -- "${work}/inputs.json" "${OUT}.inputs.json"
+# Never fails the judgement: an unwritten series ages, and FoundationParcelEditionReadinessSilent says so.
+"${PY[@]}" "${JOBS}/parcel_edition_readiness.py" lag --report "${OUT}" --output "${METRICS_DIR}/parcel-edition-lag.prom" \
+  || echo "parcel-edition-readiness: lag series not written" >&2
 # The outcome (root ADR-0171): the report moved only when an edition was judged again.
 judged="$(cat "${work}/judged")"
 if [ -z "${judged}" ] && [ -z "${answered}" ]; then

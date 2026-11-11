@@ -259,3 +259,64 @@ tests:
             exp_annotations:
               summary: 'parcel 레인의 서빙 모니터가 4h 0m 0s째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@parcel.timer 를 보세요'
               runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+
+  # Root ADR-0485 §7: 202609 waited 37 days past its measurement while 202606 was served, against a
+  # 14-day budget; a newer edition five days in is the work, not a stall.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_parcel_served_edition_behind_seconds{served="202606",newest="202609"}'
+        values: '3196800x5'
+      - series: 'foundation_parcel_served_edition_behind_seconds{served="209906",newest="209909"}'
+        values: '432000x5'
+      - series: 'foundation_parcel_served_edition_behind_budget_seconds'
+        values: '1209600x5'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FoundationParcelServedEditionBehind
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: serving-freshness
+              served: '202606'
+              newest: '202609'
+            exp_annotations:
+              summary: '지도와 필지 패널이 202606 판을 보여 주는데, Silver 에 있는 새 판 202609 가 37d 0h 0m 0s째 승격되지 못했어요 — 그 사이 바뀐 법정동 코드의 필지는 화면에서 못 찾아요. 판 준비 판정(journalctl -u foundation-parcel-edition-readiness.service)이 어느 단계에서 멈췄는지 보세요'
+              runbook: docs/runbooks/vworld-parcel-editions.md
+
+  # 2026-11-04..11 every judgement left Silver unmeasured: said after an hour, not taken for no lag.
+  - interval: 1m
+    input_series:
+      - series: 'foundation_parcel_edition_silver_measured'
+        values: '0x90'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: FoundationParcelEditionSilverUnmeasured
+        exp_alerts: []
+      - eval_time: 61m
+        alertname: FoundationParcelEditionSilverUnmeasured
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+            exp_annotations:
+              summary: '판 준비 판정이 Silver 의 판별 행 수를 읽지 못했어요 — 새 판이 준비됐는지, 서빙판이 뒤처졌는지 모르는 상태예요. journalctl -u foundation-parcel-edition-readiness.service 의 "silver not measured" 이유를 보세요'
+              runbook: docs/runbooks/vworld-parcel-editions.md
+
+  # The daily judgement that stopped running is said after three days.
+  - interval: 1h
+    input_series:
+      - series: 'foundation_parcel_edition_readiness_timestamp_seconds'
+        values: '0x100'
+    alert_rule_test:
+      - eval_time: 2d
+        alertname: FoundationParcelEditionReadinessSilent
+        exp_alerts: []
+      - eval_time: 4d
+        alertname: FoundationParcelEditionReadinessSilent
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              service: serving-freshness
+            exp_annotations:
+              summary: '판 준비 판정이 4d 0h 0m 0s째 돌지 않았어요 — 서빙판이 뒤처져도 알 수 없어요. systemctl status foundation-parcel-edition-readiness.service 를 보세요'
+              runbook: docs/runbooks/vworld-parcel-editions.md

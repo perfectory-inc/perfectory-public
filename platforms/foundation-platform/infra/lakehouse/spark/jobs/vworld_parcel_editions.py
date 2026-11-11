@@ -130,6 +130,8 @@ def validate_promotions(contract: Mapping[str, Any]) -> None:
     gate = contract.get("readiness") or {}
     if not 0 < float(gate.get("max_row_loss_fraction", 0)) < 1 or float(gate.get("max_report_age_hours", 0)) <= 0:
         raise EditionError("the source contract's readiness names max_row_loss_fraction (0..1) and max_report_age_hours")
+    if float(gate.get("max_served_lag_days", 0)) <= 0 or not gate.get("max_served_lag_days_reason"):
+        raise EditionError("the source contract's readiness names max_served_lag_days and why (root ADR-0485 §7)")
     ledger = contract.get("promotions")
     if not isinstance(ledger, list) or not ledger:
         raise EditionError("the source contract holds no promotions ledger; served_edition is set only by a promotion")
