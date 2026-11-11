@@ -330,6 +330,89 @@ class ControllerTest(unittest.TestCase):
             self.assertEqual(readiness.grant(held, report, root / "promote.d", root / "promotions"), [])
 
 
+class HostLedgerTest(unittest.TestCase):
+    """Root ADR-0490 §5: a granted promotion takes effect through the host's append-only ledger, with no
+    pull request. 2026-10-21..11-11 a grant could only become a contract file a person had to turn into a
+    reviewed change, and none was ever opened."""
+
+    def granted(self) -> tuple[dict, Path, dict]:
+        held = contract()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        report = root / "readiness.json"
+        report.write_text(json.dumps(readiness.readiness(held, evidence(), datetime.now(timezone.utc))), encoding="utf-8")
+        self.request_twice(root)
+        ledger = root / "served-ledger.jsonl"
+        answered = readiness.grant(held, report, root / "promote.d", root / "promotions", controller=True, ledger=ledger)
+        self.assertEqual(len(answered), 2)
+        return held, ledger, json.loads(report.read_text(encoding="utf-8"))
+
+    def request_twice(self, root: Path) -> None:
+        (root / "promote.d").mkdir()
+        ConsoleRequestTest.request(self, root / "promote.d", "console", reason="asked in the console too")
+
+    def test_a_grant_is_appended_and_every_reader_serves_it(self):
+        held, ledger, report = self.granted()
+        lines = ledger.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)  # the console's request after the controller's is one promotion too many
+        self.assertEqual(json.loads(lines[0])["by"], readiness.CONTROLLER)
+        outcome = {row["request"]: row["outcome"] for row in report["promotion_requests"]}
+        self.assertTrue(outcome["console"].startswith("refused: ") and "already the served edition" in outcome["console"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "contract.json"
+            path.write_text(json.dumps(held), encoding="utf-8")
+            served = editions.load(path, ledger)
+            self.assertEqual(editions.served(served), CANDIDATE)
+            self.assertEqual([entry["edition"] for entry in served["promotions"]], [SERVED, CANDIDATE])
+            self.assertEqual(editions.served(editions.load(path, Path(tmp) / "absent.jsonl")), SERVED)
+
+    def test_a_promotion_copied_into_the_contract_is_not_counted_twice(self):
+        held, ledger, _ = self.granted()
+        copied = editions.overlay(held, editions.read_ledger(ledger))
+        self.assertEqual(editions.overlay(copied, editions.read_ledger(ledger))["promotions"], copied["promotions"])
+
+    def test_a_ledger_that_does_not_continue_the_contract_stops_every_reader(self):
+        held, ledger, _ = self.granted()
+        entry = json.loads(ledger.read_text(encoding="utf-8"))
+        with self.assertRaises(editions.EditionError):
+            editions.validate(editions.overlay(held, [{**entry, "from_edition": CANDIDATE}]))
+        with self.assertRaises(editions.EditionError):
+            editions.validate(editions.overlay(held, [{**entry, "readiness": None}]))
+        torn = ledger.with_name("torn.jsonl")
+        torn.write_text("{", encoding="utf-8")
+        with self.assertRaises(editions.EditionError):
+            editions.read_ledger(torn)
+
+    def test_the_ledger_is_readable_by_the_spark_containers(self):
+        if sys.platform == "win32":
+            self.skipTest("POSIX modes")
+        _, ledger, _ = self.granted()
+        self.assertEqual(ledger.stat().st_mode & 0o777, 0o644)
+
+    def test_a_rollback_returns_to_the_edition_the_promotion_left(self):
+        held, ledger, _ = self.granted()
+        promoted = editions.overlay(held, editions.read_ledger(ledger))
+        last = promoted["promotions"][-1]
+        back = {"edition": SERVED, "from_edition": CANDIDATE, "promoted_at_utc": "2100-01-01T00:00:00Z",
+                "by": readiness.CONTROLLER, "reason": "the first publish after the promotion failed",
+                "rollback_of": last["promoted_at_utc"], "cause": "edge probe 3 of 5 failed", "readiness": None}
+        rolled = editions.overlay(promoted, [back])
+        editions.validate(rolled)
+        self.assertEqual(editions.served(rolled), SERVED)
+        for wrong in ({"rollback_of": "2000-01-01T00:00:00Z"}, {"cause": ""}, {"edition": CANDIDATE}):
+            with self.assertRaises(editions.EditionError):
+                editions.validate(editions.overlay(promoted, [{**back, **wrong}]))
+
+    def test_the_real_contract_names_where_the_host_ledger_lives(self):
+        declared = json.loads(editions.CONTRACT_PATH.read_text(encoding="utf-8"))["host_promotions_ledger"]
+        self.assertEqual(Path(declared["path"]).name, Path(declared["container_path"]).name)
+        compose = (editions.CONTRACT_PATH.parents[3] / "compose.lakehouse.yml").read_text(encoding="utf-8")
+        mount = f"/var/lib/foundation-platform/parcel-editions}}:{Path(declared['container_path']).parent.as_posix()}:ro"
+        self.assertEqual(Path(declared["path"]).parent.as_posix(), "/var/lib/foundation-platform/parcel-editions")
+        self.assertEqual(compose.count(mount), 2, "both Spark services mount the host ledger")
+
+
 class CommandLineTest(unittest.TestCase):
     def test_the_command_refuses_an_incomplete_edition_and_leaves_the_contract(self):
         with tempfile.TemporaryDirectory() as tmp:

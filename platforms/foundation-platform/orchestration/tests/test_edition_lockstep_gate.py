@@ -65,6 +65,30 @@ class LockstepGateTest(unittest.TestCase):
         histories = {table: gold(NEW) for table in tables}
         self.assertEqual({gate.verdict(lane, self.promoted, histories.__getitem__) for lane in self.tables}, {"ok"})
 
+    def test_the_tiles_and_the_panels_move_together(self):
+        """Root ADR-0490 §6: before it, the lockstep barrier held only the by-PNU Golds, and the map's tiles
+        were promoted on their own (the PostGIS-era release served 202606 beside any Gold)."""
+        everyone_new = {table: gold(NEW) for table in self.tables.values()}
+        # Golds rebuilt, tiles still on the old edition: no by-PNU lane publishes, the tiles may.
+        for lane in self.tables:
+            verdict = gate.verdict(lane, self.promoted, everyone_new.__getitem__, tiles=OLD)
+            self.assertTrue(verdict.startswith("waiting") and f"{gate.TILES_LANE} ({OLD})" in verdict, verdict)
+        self.assertEqual(gate.verdict(gate.TILES_LANE, self.promoted, everyone_new.__getitem__, tiles=OLD), "ok")
+        # One Gold still on the old edition: the tiles wait for it, never for themselves.
+        partway = {**everyone_new, gate.PARCEL_PANEL: gold(OLD)}
+        verdict = gate.verdict(gate.TILES_LANE, self.promoted, partway.__getitem__, tiles=OLD)
+        self.assertTrue(verdict.startswith("waiting") and gate.TILES_LANE + " (" not in verdict, verdict)
+        # Tiles promoted: every lane publishes.
+        self.assertEqual({gate.verdict(lane, self.promoted, everyone_new.__getitem__, tiles=NEW) for lane in self.tables}, {"ok"})
+
+    def test_the_tiles_serve_the_ledgers_first_edition_until_a_bake_is_promoted(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(gate.tiles_edition(self.promoted, root), OLD)
+            (root / "baked-edition").write_text(NEW + "\n", encoding="utf-8")
+            self.assertEqual(gate.tiles_edition(self.promoted, root), NEW)
+
     def test_a_day_without_a_promotion_never_waits(self):
         # Golds committed before the record: the ledger says 209906 was served then, and still is.
         histories = {table: gold(None, "2099-10-01T00:00:00Z") for table in self.tables.values()}
