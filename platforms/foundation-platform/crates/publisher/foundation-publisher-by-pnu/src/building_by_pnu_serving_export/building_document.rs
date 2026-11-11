@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
 
-pub use foundation_contracts::building_panel::{
+/// The document's and its pages' schemas: their subjects in the schema registry (root ADR-0336),
+/// compiled in. A page is a whole document of its own schema (root ADR-0325), so a reader that knows
+/// only the whole document refuses a page instead of taking it as whole.
+pub use foundation_publisher_core::host_document_schemas::{
     BUILDING_DOCUMENT_SCHEMA_EXPANDS, BUILDING_DOCUMENT_SCHEMA_VERSION,
     BUILDING_PAGE_SCHEMA_VERSION,
 };
@@ -44,8 +47,8 @@ pub struct ServingSource {
 }
 
 /// One PNU's served building document, typed. Its field order is the served JSON's key order.
-/// Its fields are recorded per schema version (`contracts/by-pnu-documents`): a field gained, lost
-/// or renamed here or in `foundation-contracts` is a new `BUILDING_DOCUMENT_SCHEMA_VERSION`.
+/// Its fields are its subject's current revision in the schema registry (root ADR-0336): a field
+/// gained, lost or renamed here or in `foundation-contracts` is a new revision there.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(test, derive(utoipa::ToSchema))]

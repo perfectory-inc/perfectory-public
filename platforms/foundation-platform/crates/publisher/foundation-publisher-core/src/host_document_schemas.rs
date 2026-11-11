@@ -3,6 +3,26 @@
 //! write. Do not edit; change the subject's revisions in its definition (published_schemas) and
 //! regenerate. `scripts/schema_registry.py check` holds this file to the registry.
 
+/// `foundation-platform.building_by_pnu_profile` major 5, revision 2: what its documents carry in
+/// `schema_version`.
+pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v4";
+
+/// The other strings of the major: documents the export reads and patches over (root ADR-0320).
+pub const BUILDING_DOCUMENT_SCHEMA_EXPANDS: &[&str] = &["foundation-platform.building_by_pnu_profile.v5", "foundation-platform.building_by_pnu_profile.v2"];
+
+/// The `schema_revision` its documents carry: none while the current revision is legacy.
+pub const BUILDING_DOCUMENT_SCHEMA_REVISION: Option<u32> = None;
+
+/// `foundation-platform.building_by_pnu_page` major 1, revision 1: what its documents carry in
+/// `schema_version`.
+pub const BUILDING_PAGE_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_page.v1";
+
+/// The other strings of the major: documents the export reads and patches over (root ADR-0320).
+pub const BUILDING_PAGE_SCHEMA_EXPANDS: &[&str] = &[];
+
+/// The `schema_revision` its documents carry: none while the current revision is legacy.
+pub const BUILDING_PAGE_SCHEMA_REVISION: Option<u32> = None;
+
 /// `foundation-platform.parcel_by_pnu_profile` major 1, revision 2: what its documents carry in
 /// `schema_version`.
 pub const PARCEL_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.parcel_by_pnu_profile.v2";

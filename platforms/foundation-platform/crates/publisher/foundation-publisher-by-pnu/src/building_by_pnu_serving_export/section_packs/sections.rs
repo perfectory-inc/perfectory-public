@@ -295,6 +295,7 @@ pub fn join_any(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::building_by_pnu_serving_export::building_document::BUILDING_DOCUMENT_SCHEMA_EXPANDS;
     use crate::parcel_by_pnu_serving_export::parcel_document::{
         PARCEL_DOCUMENT_SCHEMA_EXPANDS, PARCEL_DOCUMENT_SCHEMA_VERSION,
     };
@@ -387,7 +388,11 @@ mod tests {
 
         let building = fixture_document()?;
         let mut stamped = building.clone();
-        stamped.schema_version = "foundation-platform.building_by_pnu_profile.v2".to_owned();
+        // The oldest string of the major still served (the legacy v2).
+        stamped.schema_version = BUILDING_DOCUMENT_SCHEMA_EXPANDS
+            .last()
+            .context("the building major has an earlier string")?
+            .to_string();
         let older = pack_document(&stamped)?;
         join(
             ByPnuLane::Building,

@@ -5,26 +5,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Wire version of one baked building panel.
-///
-/// v4 is v2 with the register's names beside its codes (`purpose_name`, `structure_name`); v3
-/// stays reserved for v2 without the unit prices (root ADR-0190, ADR-0252). Every version's
-/// fields: `contracts/by-pnu-documents`.
-pub const BUILDING_DOCUMENT_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_profile.v4";
-
-/// The earlier versions v4 only adds optional fields to (root ADR-0320).
-///
-/// A served base of one of them takes v4 patches, and its documents stay served beside them until the next whole
-/// generation. v3 has no record of its fields, so a v3 base is still rebaked whole.
-pub const BUILDING_DOCUMENT_SCHEMA_EXPANDS: &[&str] =
-    &["foundation-platform.building_by_pnu_profile.v2"];
-
-/// Wire version of one page of a building document too large for one request (root ADR-0325).
-///
-/// The document's fields cut into pages, each naming its index and the page count. Its own schema,
-/// so a reader that knows only the whole document refuses a page instead of taking it as whole.
-pub const BUILDING_PAGE_SCHEMA_VERSION: &str = "foundation-platform.building_by_pnu_page.v1";
-
 /// Canonical building response.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct BuildingPanelBuilding {

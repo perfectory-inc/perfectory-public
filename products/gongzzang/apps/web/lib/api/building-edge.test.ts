@@ -69,18 +69,20 @@ const document = () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe("building edge document mappings", () => {
-  it("reads a v2 document with embedded prices and a v3 document without them", () => {
+  it("reads a unit without prices, and no string outside the registry's major (v3 was never kept)", () => {
     const { official_price_history: _embedded, ...withoutPrices } = unit(
       "00000000-0000-8000-8000-000000000002",
       buildingId,
     );
     expect(EdgeUnitSchema.safeParse(withoutPrices).success).toBe(true);
-    const v3 = {
+    const v4 = {
       ...document(),
-      schema_version: "foundation-platform.building_by_pnu_profile.v3",
+      schema_version: "foundation-platform.building_by_pnu_profile.v4",
       unlinked_units: [withoutPrices],
     };
-    expect(EdgeBuildingProfileSchema.safeParse(v3).success).toBe(true);
+    expect(EdgeBuildingProfileSchema.safeParse(v4).success).toBe(true);
+    const v3 = { ...v4, schema_version: "foundation-platform.building_by_pnu_profile.v3" };
+    expect(EdgeBuildingProfileSchema.safeParse(v3).success).toBe(false);
   });
   it("preserves absent facts, nested floors and unlinked units without mutation", () => {
     const profile = EdgeBuildingProfileSchema.parse(document());
@@ -172,7 +174,8 @@ describe("building edge transport", () => {
       }),
       joined: {
         ...whole,
-        schema_version: "foundation-platform.building_by_pnu_profile.v4",
+        // Joined, the pages are a document of the subject's major (root ADR-0336).
+        schema_version: "foundation-platform.building_by_pnu_profile.v5",
         buildings: [{ ...building, units: [firstUnit, secondUnit] }],
       },
     };

@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use utoipa::ToSchema;
 
 use crate::building_by_pnu_serving_export::building_document::{
-    BuildingByPnuDocument, BuildingByPnuPage, BUILDING_PAGE_SCHEMA_VERSION,
+    BuildingByPnuDocument, BuildingByPnuPage,
 };
 use crate::by_pnu_gateway_contract::{ByPnuLane, PackLane};
 use crate::by_pnu_serving_manifest_publish::{
@@ -212,12 +212,16 @@ fn check(version: &str, shape: &Shape, held: &[String]) -> anyhow::Result<()> {
     newest(version)
 }
 
-/// A registered subject's current revision as fields (root ADR-0336): the registry's schema file,
-/// walked as a type's schema is. `None` for a lane whose subject the registry does not list.
+/// A registered lane's current revision as fields (root ADR-0336). `None` for a lane whose subject
+/// the registry does not list.
 fn registered(lane: &str) -> anyhow::Result<Option<(String, Shape)>> {
-    let Some(subject) = schema_registry::subject_of_lane(lane)? else {
-        return Ok(None);
-    };
+    schema_registry::subject_of_lane(lane)?
+        .map(current_shape)
+        .transpose()
+}
+
+/// A subject's current revision as fields: the registry's schema file, walked as a type's schema is.
+fn current_shape(subject: &schema_registry::Subject) -> anyhow::Result<(String, Shape)> {
     let current = subject.current();
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../contracts/schema-registry")
@@ -235,7 +239,7 @@ fn registered(lane: &str) -> anyhow::Result<Option<(String, Shape)>> {
     .with_context(|| format!("{} is not JSON", path.display()))?;
     let mut shape = Shape::new();
     walk(&schema, "", &BTreeMap::new(), &mut shape)?;
-    Ok(Some((path.display().to_string(), shape)))
+    Ok((path.display().to_string(), shape))
 }
 
 /// Holds `shape` to `recorded` (what `source` holds), the subtrees of `held` taken as recorded.
@@ -432,11 +436,10 @@ fn every_by_pnu_document_has_the_fields_its_schema_version_recorded() -> anyhow:
     }
     // A building document past one request is served as pages of their own schema (root
     // ADR-0325), beside the lane's whole documents.
-    if let Err(error) = check(
-        BUILDING_PAGE_SCHEMA_VERSION,
-        &shape_of::<BuildingByPnuPage>()?,
-        &[],
-    ) {
+    let pages = schema_registry::subject_of_part(ByPnuLane::Building.name(), "page")?
+        .context("the registry lists the building pages' subject")?;
+    let (source, revision) = current_shape(pages)?;
+    if let Err(error) = compare(&revision, &shape_of::<BuildingByPnuPage>()?, &[], &source) {
         failures.push(format!("building lane pages: {error:#}"));
     }
     ensure!(failures.is_empty(), "{}\n\n{RULE}", failures.join("\n\n"));
