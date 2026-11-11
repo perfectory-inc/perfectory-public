@@ -231,8 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         lineage_runs: list[str] = []
         counts: dict[str, int] = {}
         if chosen == "bootstrap":
-            issue = F.udf(lambda pnu: pi.parcel_id_for(pnu, args.to_date), "string")
-            rows = after.select(issue("pnu").alias("parcel_id"), "pnu", F.lit(pi.CURRENT).alias("status"),
+            rows = after.select(frames.parcel_id_expr(F.col("pnu"), args.to_date).alias("parcel_id"), "pnu", F.lit(pi.CURRENT).alias("status"),
                                 F.lit(args.to_date).alias("valid_from"), F.lit(None).cast("string").alias("valid_to"),
                                 F.lit(None).cast("string").alias("redirect_to"))
         else:

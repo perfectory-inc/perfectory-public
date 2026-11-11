@@ -145,6 +145,24 @@ def carrying(resolved: Any) -> tuple[Any, int, list[str]]:
     return candidates.join(once, "predecessor_pnu", "left_semi"), conflicts.count() if sample else 0, sample
 
 
+# uuid.NAMESPACE_URL's bytes: `parcel_identity.parcel_id_for` is uuid5 under it.
+_NAMESPACE_URL_HEX = "6ba7b8119dad11d180b400c04fd430c8"
+
+
+def parcel_id_expr(pnu: Any, first_seen: str) -> Any:
+    """`parcel_identity.parcel_id_for(pnu, first_seen)` as a column expression: uuid5 (RFC 4122 §4.3) is the
+    SHA-1 of the namespace and the name, with the version and variant bits set. On the executors without a
+    Python UDF: the job's modules are not shipped to them (2026-11-11 CI: `No module named parcel_identity`)."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    name = F.concat(F.lit("parcel:"), pnu, F.lit(f":{first_seen}"))
+    h = F.sha1(F.concat(F.unhex(F.lit(_NAMESPACE_URL_HEX)), F.encode(name, "UTF-8")))
+    variant = F.lower(F.hex((F.conv(F.substring(h, 17, 1), 16, 10).cast("int").bitwiseAND(3)).bitwiseOR(8)))
+    return F.concat(F.substring(h, 1, 8), F.lit("-"), F.substring(h, 9, 4), F.lit("-5"), F.substring(h, 14, 3),
+                    F.lit("-"), variant, F.substring(h, 18, 3), F.lit("-"), F.substring(h, 21, 12))
+
+
 def _rows(frame: Any, status: str, *, opened: Any = None, closed: Any = None, redirect: Any = None) -> Any:
     from pyspark.sql import functions as F  # noqa: PLC0415
 
@@ -168,9 +186,8 @@ def advance_rows(current: Any, after: Any, carry: Any, to_date: str) -> tuple[An
     carried = (carry.join(new.withColumnRenamed("pnu", "successor_pnu"), "successor_pnu", "left_semi")
                .join(gone.withColumnRenamed("pnu", "predecessor_pnu"), "predecessor_pnu")
                .persist())
-    issue = F.udf(lambda pnu: pi.parcel_id_for(pnu, to_date), "string")
     issued = (new.join(carried.select(F.col("successor_pnu").alias("pnu")), "pnu", "left_anti")
-              .withColumn("parcel_id", issue("pnu")))
+              .withColumn("parcel_id", parcel_id_expr(F.col("pnu"), to_date)))
     retired = gone.join(carried.select(F.col("predecessor_pnu").alias("pnu")), "pnu", "left_anti")
     rows = (_rows(carried.withColumnRenamed("predecessor_pnu", "pnu"), pi.HISTORIC, closed=day)
             .unionByName(_rows(carried.withColumnRenamed("successor_pnu", "pnu"), pi.CURRENT, opened=day))
