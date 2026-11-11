@@ -1,8 +1,8 @@
-# ADR 0492: 한전 분산전원연계정보는 시군구마다 받고, 사장이 전력데이터 개방포털 인증키를 받으면 첫 실호출로 칸을 정한다
+# ADR 0498: 한전 분산전원연계정보는 시군구마다 받고, 사장이 전력데이터 개방포털 인증키를 받으면 첫 실호출로 칸을 정한다
 
 - Status: Accepted
 - Date: 2026-11-11
-- Builds on: ADR-0400(수집 완전성 판정표 — `waiting_on_owner_application`), ADR-0491 §7(지역 단위 신호는 필지 문서에 넣지 않는다),
+- Builds on: ADR-0400(수집 완전성 판정표 — `waiting_on_owner_application`), ADR-0497 §7(지역 단위 신호는 필지 문서에 넣지 않는다),
   ADR-0329 §3(`views.changed_codes`), ADR-0312(부분 처리), ADR-0406(한전 업종별 전력사용량은 받지 않는다 — 다른 API)
 
 ## Context
@@ -35,7 +35,7 @@ W63 조사(`platforms/foundation-platform/docs/catalog/parcel-utility-connectivi
 5. **법정동 코드 변경을 따라간다.** 조회 인자는 시도·시군구 코드다. 그 코드는 `reference.legal_dong_code_change` 의 지금 서 있는 짝
    (`views.changed_codes`, ADR-0329 §3)에서 매 바퀴 다시 뽑는다. 개편으로 사라진 시군구 코드는 그 바퀴에서 빠지고 새 코드가 들어온다.
    적재 때 한 번 풀고 멈추지 않는다.
-6. **화면.** 값은 시군구·변전소 단위라 필지 문서(ADR-0491 `parcel-utility`)에 넣지 않는다(ADR-0491 §7). 지역 단위 서빙은 수집이 선 뒤
+6. **화면.** 값은 시군구·변전소 단위라 필지 문서(ADR-0497 `parcel-utility`)에 넣지 않는다(ADR-0497 §7). 지역 단위 서빙은 수집이 선 뒤
    따로 정한다.
 
 ## Consequences
