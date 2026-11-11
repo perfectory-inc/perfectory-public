@@ -381,7 +381,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the lineage's derive.sql, and renumbered_into.sql); the publisher compiles in the parcel source contract
 # (the served edition) and the Gold rebuild contract (the kinds' row-loss bound) it reads; the stage's test
 # compiles in the document's registry schema and the file contract's headers it holds the build to.
-COMPILE_TIME_READ_BASELINE="${3:-201}"
+# 201 -> 202: the 주소정보 전자지도 base Silver export embeds the same source contract, so the kind's
+# layer, key and legal-code column it reads are the ones the collector landed by (root ADR-0494 §8).
+COMPILE_TIME_READ_BASELINE="${3:-202}"
 
 cd "$repo_root"
 
