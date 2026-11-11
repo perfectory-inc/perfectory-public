@@ -410,9 +410,10 @@ pub const SILVER_COURT_AUCTION_ITEM_SCHEDULE: LakehouseTableContract = Lakehouse
     load: OBJECT_LOAD,
 };
 
-/// A property's 목록내역 (`gdsDspslObjctLst`): each listed parcel or building with its kind,
-/// structure, area, 지목 and appraisal. The share is kept as numbers only; the share text names its
-/// holders and stays in Bronze (root ADR-0540 §4).
+/// A property's 목록내역 (`gdsDspslObjctLst`): each listed parcel or building.
+///
+/// Its kind, structure, area, 지목 and appraisal. The share is kept as numbers only; the share text
+/// names its holders and stays in Bronze (root ADR-0540 §4).
 pub const SILVER_COURT_AUCTION_ITEM_OBJECT: LakehouseTableContract = LakehouseTableContract {
     table_name: "silver.court_auction_item_object",
     layer: LakehouseLayer::Silver,

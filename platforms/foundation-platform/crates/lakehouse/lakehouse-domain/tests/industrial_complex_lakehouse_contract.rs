@@ -288,6 +288,16 @@ fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
 }
 
 /// The versioned tables, and only they, say which row is current (root ADR-0267).
+/// The 법원경매 tables whose newest row per key is current and where none vanishes (root ADR-0384,
+/// ADR-0454, ADR-0540).
+const COURT_AUCTION_NEWEST_PER_KEY: [&str; 5] = [
+    SILVER_COURT_AUCTION_SALE_RESULT.table_name,
+    SILVER_COURT_AUCTION_ITEM_DETAIL.table_name,
+    SILVER_COURT_AUCTION_ITEM_PHOTO.table_name,
+    lakehouse_domain::SILVER_COURT_AUCTION_CASE.table_name,
+    lakehouse_domain::SILVER_COURT_AUCTION_ITEM_SPEC.table_name,
+];
+
 #[test]
 fn only_versioned_tables_define_a_current_row_rule() {
     for contract in industrial_complex_lakehouse_contracts() {
@@ -363,11 +373,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 .is_some_and(|latest| latest.removal_column.is_some()));
         } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name
             || contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
-            || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
-            || contract.table_name == SILVER_COURT_AUCTION_ITEM_DETAIL.table_name
-            || contract.table_name == SILVER_COURT_AUCTION_ITEM_PHOTO.table_name
-            || contract.table_name == lakehouse_domain::SILVER_COURT_AUCTION_CASE.table_name
-            || contract.table_name == lakehouse_domain::SILVER_COURT_AUCTION_ITEM_SPEC.table_name
+            || COURT_AUCTION_NEWEST_PER_KEY.contains(&contract.table_name)
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_BID_RESULT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name

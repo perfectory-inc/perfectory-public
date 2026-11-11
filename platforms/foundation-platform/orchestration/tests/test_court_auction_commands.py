@@ -53,7 +53,8 @@ prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
 assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auction_item"},
                          {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"},
-                         {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"}), (table, slug)
+                         {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"},
+                         {"silver.court_auction_appraisal_point": "courtauctiongokr__auction_item_detail"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
