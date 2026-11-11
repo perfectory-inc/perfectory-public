@@ -260,6 +260,10 @@ pub(crate) struct State {
     /// footnote 2026-10-29). Pruned like `items`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) photos_landed: BTreeMap<String, ItemMark>,
+    /// Items that left the list before their 물건상세 landed → asks so far (root ADR-0542,
+    /// `closed.rs`). Not pruned by the list: that is what they left.
+    #[serde(default, with = "keyed", skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) closed_owed: BTreeMap<ItemKey, u32>,
     /// Open items whose 물건상세 입찰정보 was received (root ADR-0340 §3): the same unit and the same
     /// "changed" rule as `items`, without media. Pruned each run to the still-listed items.
     #[serde(default)]
@@ -484,7 +488,7 @@ pub(crate) fn item_key(item: &JsonValue) -> anyhow::Result<ItemKey> {
 }
 
 /// Item conditions open in the previous complete pass and absent from this one: their bidding
-/// ended. Added to the owed results once each.
+/// ended. Added to the owed results once each (and to the closed items, root ADR-0542).
 pub(crate) fn close_vanished(
     state: &mut State,
     current: BTreeSet<ItemKey>,
@@ -507,6 +511,7 @@ pub(crate) fn close_vanished(
         })
         .unwrap_or_default();
     let count = vanished.len();
+    closed::owe_vanished(state, &current);
     state
         .pending_results
         .extend(vanished.into_iter().map(|key| PendingResult {
@@ -536,6 +541,8 @@ struct Config {
     state_dir: PathBuf,
     /// The node-exporter textfile directory for the coverage series; none, none written.
     metrics_dir: Option<PathBuf>,
+    /// A JSON list of item keys to owe as closed items (root ADR-0542 §3); none, none seeded.
+    closed_owed_seed: Option<PathBuf>,
 }
 
 impl Config {
@@ -563,6 +570,9 @@ impl Config {
             output_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_OUTPUT_DIR"))?),
             state_dir: PathBuf::from(required_env_value(&format!("{PREFIX}_STATE_DIR"))?),
             metrics_dir: optional_env_value(&format!("{PREFIX}_METRICS_DIR"))?
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from),
+            closed_owed_seed: optional_env_value(&format!("{PREFIX}_CLOSED_OWED_SEED"))?
                 .filter(|value| !value.trim().is_empty())
                 .map(PathBuf::from),
         })
@@ -742,6 +752,8 @@ pub(crate) struct RunReport {
     /// The announcement details received: (pbancMngNo, row digest, line), for the media step.
     #[serde(skip)]
     pub(crate) announcements_fetched: Vec<(String, String, usize)>,
+    /// The closed items' share of the run (root ADR-0542).
+    pub(crate) closed: closed::ClosedReport,
 }
 
 /// Runs every due request. Mutates the state only in memory; the caller saves it.
@@ -958,6 +970,15 @@ pub(crate) async fn collect(
         }
         // Not counting this run's; `run` adds back those whose media did not all land.
         report.details_owed = owed_total - report.details_received;
+        closed::collect_closed_details(
+            fetcher,
+            state,
+            &open,
+            per_run.saturating_sub(report.details_received),
+            now,
+            &mut report,
+        )
+        .await;
 
         follow_ups::collect_bid_infos(contract, fetcher, state, &open, now, &mut report).await;
     }
@@ -1253,6 +1274,8 @@ pub async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("failed to create {}", config.state_dir.display()))?;
     let state_path = config.state_dir.join("state.json");
     let mut state = State::load(&state_path)?;
+    // Root ADR-0542 §3: the closed items from before the collector kept them, once.
+    let seeded = closed::load_seed(&mut state, config.closed_owed_seed.as_deref())?;
     let before = state.clone();
     let mut fetcher = Fetcher::new(
         &contract,
@@ -1271,6 +1294,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
     };
 
+    report.closed.seeded = seeded;
     let mut objects = Vec::new();
     let mut media_report: Option<crate::onbid_media::MediaReport> = None;
     let mut announcement_media_report: Option<crate::onbid_media::MediaReport> = None;
@@ -1332,6 +1356,7 @@ pub async fn run() -> anyhow::Result<()> {
                         .saturating_sub(mirrored.downloads_today.saturating_sub(before));
                     report.details_completed =
                         settle_details(&mut state, &report.fetched, &mirrored.outcomes);
+                    closed::settle_closed(&mut state, &mut report.closed, &mirrored.outcomes);
                     report.details_owed += report.details_received - report.details_completed;
                     media_report = Some(mirrored.report);
                     fetcher.lines.insert(Api::ItemDetail, mirrored.lines);
@@ -1460,6 +1485,7 @@ pub async fn run() -> anyhow::Result<()> {
 mod coverage;
 mod media_contract;
 pub(crate) use media_contract::{Media, MediaFields, OriginalRule, RenditionBudget};
+mod closed;
 mod follow_ups;
 #[cfg(test)]
 pub(crate) use coverage::{kst14, kst14_of, MEDIA_FIELDS};
