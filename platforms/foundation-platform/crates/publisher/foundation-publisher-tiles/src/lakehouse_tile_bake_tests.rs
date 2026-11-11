@@ -1290,3 +1290,45 @@ fn a_contract_maxzoom_is_a_web_mercator_zoom_and_agrees_with_the_unit_it_bears(
     assert!(BakeContract::parse(&value.to_string()).is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn a_run_past_its_budget_defers_the_partitions_left_and_the_next_run_bakes_only_those(
+) -> anyhow::Result<()> {
+    // Root ADR-0493: the national parcel bake (2026-10-13: GDAL 60 min and tippecanoe 109 min) does
+    // not fit one 115-minute run; a run stops between partitions and the next one continues.
+    let work = tempfile::tempdir()?;
+    let root = work.path().join("parcels-partitions");
+    let (_, parts) = partitioned(
+        &[("p.jsonl", &["9999900101100010000", "9999910101100010000"])],
+        &work.path().join("csv"),
+    )?;
+    let copy = |dir: PathBuf| async move {
+        std::fs::copy(dir.join("served.csv"), dir.join("unit.pmtiles"))?;
+        Ok(())
+    };
+    let past = std::time::Instant::now();
+    let deferred = warm_partitions(work.path(), &root, &parts, "inputs", past, copy).await?;
+    assert_eq!(
+        deferred,
+        Warmed::Deferred {
+            baked: vec![],
+            remaining: vec!["999990".to_owned(), "999991".to_owned()]
+        }
+    );
+    // One partition already in the cache from an earlier run: only the other is baked.
+    let first = partition_archive(&root, &parts[0], "inputs");
+    std::fs::create_dir_all(first.parent().context("archive dir")?)?;
+    std::fs::write(&first, b"earlier run")?;
+    let later = std::time::Instant::now() + Duration::from_secs(3600);
+    assert_eq!(
+        warm_partitions(work.path(), &root, &parts, "inputs", later, copy).await?,
+        Warmed::All
+    );
+    assert_eq!(std::fs::read(&first)?, b"earlier run");
+    assert!(partition_archive(&root, &parts[1], "inputs").is_file());
+    // The CSVs stay for the bake that joins the cached archives.
+    assert!(parts.iter().all(|part| part.csv.is_file()));
+    let (_, baked) = stub_bake(work.path(), &root, parts, "inputs").await?;
+    assert!(baked.is_empty(), "{baked:?}");
+    Ok(())
+}
