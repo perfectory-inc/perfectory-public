@@ -189,6 +189,22 @@ class InfersInSpark(unittest.TestCase):
         # Evidence leaving no parcel links no group.
         self.assertEqual((got[4]["pnu_group"], got[4]["pnu_unresolved_reason"]), (None, "inference_no_candidate"))
 
+    def test_a_deal_under_the_current_code_finds_parcels_still_under_the_old_one(self) -> None:
+        # 2026-11-11: the deals name the current code (2026-07-01 pairs) while the land file and the
+        # served edition still name the old one; without the crosswalk no parcel was a candidate.
+        from pyspark.sql import functions as F
+
+        deals, parcels, titles, owners = self.frames()
+        current = deals.withColumn("legal_dong_code", F.lit("9999833021"))
+        levels = [{"grade": "inferred_attributes", "evidence": ["lot_range", "zone", "land_area", "registers_agree"]}]
+        apart = r.infer_masked(current, parcels, titles, owners, levels, 0.05, (0, 120), INFERENCE["ownership_causes"])
+        self.assertEqual({row["row_id"]: row["pnu_unresolved_reason"] for row in apart.collect()}[1], "inference_no_candidate")
+        out = r.infer_masked(current, parcels, titles, owners, levels, 0.05, (0, 120), INFERENCE["ownership_causes"],
+                             remap={"9999933021": "9999833021"})
+        got = {row["row_id"]: row.asDict() for row in out.collect()}
+        # The pick is the pnu the served edition names, under the old code.
+        self.assertEqual((got[1]["pnu"], got[1]["place_identity_grade"]), ("9999933021103010000", "inferred_attributes"))
+
     def test_the_group_is_drawn_from_the_served_parcels(self) -> None:
         level = {"grade": r.MAIN_LOT_GROUP, "evidence": ["lot_range", "zone", "land_area", "ownership_change"]}
         served = self.spark.createDataFrame([("9999933021101020000",), ("9999933021101020002",),

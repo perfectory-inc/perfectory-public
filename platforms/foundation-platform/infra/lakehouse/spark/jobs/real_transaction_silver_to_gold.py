@@ -255,7 +255,7 @@ def placed_deals(frames: dict[str, Any], inference: dict[str, Any]) -> Any:
             inferred.append(resolver.infer_masked(
                 masked.where(F.col("dataset_slug") == dataset), land, frames[TITLE_SOURCE], frames[OWNERSHIP_SOURCE],
                 levels, float(inference["area_tolerance_m2"]), tuple(inference["ownership_window_days"]),
-                inference["ownership_causes"], parcels).where(F.col("pnu").isNotNull() | F.col("pnu_group").isNotNull()))
+                inference["ownership_causes"], parcels, remap).where(F.col("pnu").isNotNull() | F.col("pnu_group").isNotNull()))
     if inferred:
         found = inferred[0]
         for frame in inferred[1:]:
