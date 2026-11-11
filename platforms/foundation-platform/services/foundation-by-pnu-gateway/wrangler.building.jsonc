@@ -16,10 +16,6 @@
   },
   "routes": [
     {
-      "pattern": "buildings.perfectory.io",
-      "custom_domain": true
-    },
-    {
       "pattern": "buildings.gongzzang.app",
       "custom_domain": true
     },

@@ -35,13 +35,13 @@
     "buildings": {
       "gateway": "building_by_pnu_gateway",
       "origin_hostname": "buildings-origin.perfectory.io",
-      "answered_by": "cloudflare",
+      "answered_by": "cloudfront",
       "caching": "origin"
     },
     "unit_prices": {
       "gateway": "by_pnu_lanes.unit-price",
       "origin_hostname": "unit-prices-origin.perfectory.io",
-      "answered_by": "cloudflare",
+      "answered_by": "cloudfront",
       "caching": "origin"
     },
     "web_preview": {
