@@ -126,8 +126,13 @@ class DocumentSparkTest(unittest.TestCase):
     def setUpClass(cls):
         from pyspark.sql import SparkSession
 
+        # A build here is ~300 small stages over a few rows: Spark's 200 shuffle partitions and AQE's
+        # re-planning after each stage made the file 596-702 s in CI (merge-queue run 42925292330),
+        # 2.2x a build's time locally. Neither changes a row.
         cls.spark = (SparkSession.builder.master("local[2]").appName("real-transaction-gold")
-                     .config("spark.sql.session.timeZone", "UTC").getOrCreate())
+                     .config("spark.sql.session.timeZone", "UTC").config("spark.ui.enabled", "false")
+                     .config("spark.sql.shuffle.partitions", "2").config("spark.sql.adaptive.enabled", "false")
+                     .getOrCreate())
 
     @classmethod
     def tearDownClass(cls):

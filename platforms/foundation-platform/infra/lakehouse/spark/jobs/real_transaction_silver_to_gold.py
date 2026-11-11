@@ -245,7 +245,11 @@ def placed_deals(frames: dict[str, Any], inference: dict[str, Any]) -> Any:
     land = frames[LAND_SOURCE].join(parcels, "pnu", "left_semi")
     masked = masked_deals(deals)
     inferred = []
-    for dataset in sorted(r["dataset_slug"] for r in masked.select("dataset_slug").distinct().collect()):
+    # The datasets the contract measured a level for, read from the contract: no Spark job over the
+    # deals just to list the datasets present (one whole scan of the Silver per build).
+    measured = {dataset for level in inference["levels"] for dataset in (level.get("measured") or {})}
+    measured |= set(((inference.get("below_bar") or {}).get("measured") or {}))
+    for dataset in sorted(measured):
         levels = resolver.enabled_levels(inference, dataset)
         if levels:
             inferred.append(resolver.infer_masked(

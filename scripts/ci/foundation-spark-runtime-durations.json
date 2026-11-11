@@ -1,5 +1,5 @@
 {
-  "$comment": "Seconds per runtime-gated Spark test file, from the log's 'durations, slowest first' table (Foundation CI job 124333935740, 2026-10-30, ubuntu-24.04, two files at a time). foundation_spark_shards.py balances the shards with them, and its split floor is in these seconds. Refresh by copying a recent table; a file missing here counts as the median. A split file's pieces may be listed by unittest name; the gold_incremental methods are PR #985's shard logs (run 41138647882) scaled to this table's file time.",
+  "$comment": "Seconds per runtime-gated Spark test file, from the log's 'durations, slowest first' table (Foundation CI job 124333935740, 2026-10-30, ubuntu-24.04, two files at a time). foundation_spark_shards.py balances the shards with them, and its split floor is in these seconds. Refresh by copying a recent table; a file missing here counts as the median. A split file's pieces may be listed by unittest name; the gold_incremental methods are PR #985's shard logs (run 41138647882) scaled to this table's file time. test_real_transaction_gold.py was missing (so it counted as the median, ~12 s, and was never split while it ran 596-702 s); its time is PR #1270's shard 2 log (run 42941816135, two shuffle partitions).",
   "seconds": {
     "test_address_pnu_spark.py": 6,
     "test_building_parent_links_spark.py": 19,
@@ -50,6 +50,7 @@
     "test_unit_price_panel_iceberg.py": 96,
     "test_vintage_versions_iceberg.py": 17,
     "test_vintage_versions_spark.py": 25,
-    "test_vworld_parcel_number_change_history.py": 6
+    "test_vworld_parcel_number_change_history.py": 6,
+    "test_real_transaction_gold.py": 319
   }
 }
