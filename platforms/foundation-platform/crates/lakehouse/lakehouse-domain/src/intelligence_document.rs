@@ -173,11 +173,11 @@ pub const INTELLIGENCE_DOCUMENT_FACT_OUTCOME: LakehouseTableContract = Lakehouse
     load: LakehouseLoadUnit::Run { column: "run_id" },
 };
 
-/// Foundation's own read of the facts (root ADR-0477 §1): per industrial complex, the facts its
-/// panel may state, from the kinds the hand-checked gate admits (§5), each from the newest notice
-/// that states it with the page it was read on. Written only by the fact job's fold step, which
-/// appends a row for each complex whose attachments got facts in the run; the newest row per
-/// complex is the one served.
+/// Foundation's own read of the facts for each industrial complex's panel (root ADR-0477 §1).
+///
+/// Only the kinds the hand-checked gate admits (§5), each from the newest notice that states it
+/// with the page it was read on. Written only by the fact job's fold step, which appends a row for
+/// each complex whose attachments got facts in the run; the newest row per complex is served.
 pub const GOLD_COMPLEX_DOCUMENT_FACTS: LakehouseTableContract = LakehouseTableContract {
     table_name: "gold.complex_document_facts",
     layer: LakehouseLayer::Gold,
