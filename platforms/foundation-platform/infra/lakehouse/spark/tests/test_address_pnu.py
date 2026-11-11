@@ -110,10 +110,10 @@ class CandidateTest(unittest.TestCase):
         self.assertEqual(a.candidates("합성도 새시 사아동 4-1", PREFIXES, DONGS)["jibun_pnu"], "9999931101100040001")
 
     def test_a_metropolitan_address_without_its_district_finds_the_one_code(self) -> None:
-        dongs = a.legal_dong_index([("9811010100", "합성특별시 동녘구 금빛로1가"), ("9811010200", "합성특별시 동녘구 같은동"),
-                                    ("9812010200", "합성특별시 서녘구 같은동")])
-        prefixes = {"합성특별": "98"}
-        self.assertEqual(a.candidates("합성특별시 금빛로1가 12-3", prefixes, dongs)["jibun_pnu"], "9811010100100120003")
+        dongs = a.legal_dong_index([("9999961010", "합성특별시 동녘구 금빛로1가"), ("9999961020", "합성특별시 동녘구 같은동"),
+                                    ("9999962020", "합성특별시 서녘구 같은동")])
+        prefixes = {"합성특별": "99"}
+        self.assertEqual(a.candidates("합성특별시 금빛로1가 12-3", prefixes, dongs)["jibun_pnu"], "9999961010100120003")
         self.assertEqual(a.candidates("합성특별시 같은동 1", prefixes, dongs)["reason"], "no_legal_dong")
 
     def test_what_neither_reading_takes_says_why(self) -> None:
@@ -126,22 +126,22 @@ class FormerNameTest(unittest.TestCase):
     """Root ADR-0329: an address keeps the name its place had before a recorded code change (a
     district split or renamed on 2026-07-01), and reads as the current code the pairs lead to."""
 
-    CURRENT = [("9912510700", "합성도 새구 송림동"), ("9927510600", "합성도 바다구 가정동"),
-               ("9927510700", "합성도 바다구 나눔동"), ("9927610700", "합성도 숲구 나눔동"),
-               ("9914010900", "합성도 옛구 남은동")]
-    FORMER = [("9914010700", "합성도 옛구 송림동"), ("9926010800", "합성도 서녘구 가정동"),
-              ("9926010900", "합성도 서녘구 나눔동"), ("9926011000", "합성도 서녘구 잃은동"),
-              ("9914010800", "합성도 옛구 남은동")]
-    PAIRS = [("9914010700", "9912510700"), ("9926010800", "9927510600"),
-             ("9926010900", "9927510700"), ("9926010900", "9927610700"), ("9914010800", "9999999999")]
+    CURRENT = [("9999951070", "합성도 새구 송림동"), ("9999952060", "합성도 바다구 가정동"),
+               ("9999952070", "합성도 바다구 나눔동"), ("9999953070", "합성도 숲구 나눔동"),
+               ("9999954090", "합성도 옛구 남은동")]
+    FORMER = [("9999954070", "합성도 옛구 송림동"), ("9999955080", "합성도 서녘구 가정동"),
+              ("9999955090", "합성도 서녘구 나눔동"), ("9999955100", "합성도 서녘구 잃은동"),
+              ("9999954080", "합성도 옛구 남은동")]
+    PAIRS = [("9999954070", "9999951070"), ("9999955080", "9999952060"),
+             ("9999955090", "9999952070"), ("9999955090", "9999953070"), ("9999954080", "9999999999")]
 
     def dongs(self, pairs=None):
         return a.legal_dong_index(self.CURRENT, self.FORMER, self.PAIRS if pairs is None else pairs)
 
     def test_a_former_district_name_reads_as_the_code_its_pair_leads_to(self) -> None:
         offer = a.candidates("합성도 옛구 송림동 12-3", PREFIXES, self.dongs())
-        self.assertEqual((offer["legal_dong_code"], offer["jibun_pnu"]), ("9912510700", "9912510700100120003"))
-        self.assertEqual(a.candidates("합성도 서녘구 가정동 7", PREFIXES, self.dongs())["legal_dong_code"], "9927510600")
+        self.assertEqual((offer["legal_dong_code"], offer["jibun_pnu"]), ("9999951070", "9999951070100120003"))
+        self.assertEqual(a.candidates("합성도 서녘구 가정동 7", PREFIXES, self.dongs())["legal_dong_code"], "9999952060")
 
     def test_a_split_place_is_not_guessed(self) -> None:
         self.assertEqual(a.candidates("합성도 서녘구 나눔동 7", PREFIXES, self.dongs())["reason"], "no_legal_dong")
@@ -151,7 +151,7 @@ class FormerNameTest(unittest.TestCase):
         self.assertEqual(a.candidates("합성도 옛구 송림동 7", PREFIXES, self.dongs([]))["reason"], "no_legal_dong")
 
     def test_a_current_name_wins_over_a_former_one(self) -> None:
-        self.assertEqual(a.candidates("합성도 옛구 남은동 7", PREFIXES, self.dongs())["legal_dong_code"], "9914010900")
+        self.assertEqual(a.candidates("합성도 옛구 남은동 7", PREFIXES, self.dongs())["legal_dong_code"], "9999954090")
 
 
 class SigunguIndexTest(unittest.TestCase):
