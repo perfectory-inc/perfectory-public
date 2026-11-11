@@ -129,15 +129,18 @@ def item_row(item: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def offer(row: Mapping[str, Any], prefixes: Mapping[str, str], dongs: Mapping[tuple[str, str], str]) -> dict[str, Any]:
-    """What a row's address offers the joins: the names with the lot as a jibun address, else the
-    road name with the building number."""
+    """What a row's address offers the joins: the names with the lot as a jibun address, and the road
+    name with the building number, which the joins ask when the jibun places nothing (root ADR-0495)."""
 
     names = [row[k] for k in ("address_sido_name", "address_sigungu_name", "address_dong_name", "address_ri_name") if row[k]]
     jibun = address_pnu.candidates(" ".join([*names, row["representative_lot_raw"] or ""]), prefixes, dongs)
-    if jibun["jibun_pnu"] or jibun["reason"] == "no_legal_dong" or not row["road_name"]:
+    if not row["road_name"]:
         return jibun
-    road = " ".join(n for n in (*names[:2], row["road_name"], row["building_no_raw"] or "") if n)
-    return address_pnu.candidates(road, prefixes, dongs)
+    road = address_pnu.candidates(
+        " ".join(n for n in (*names[:2], row["road_name"], row["building_no_raw"] or "") if n), prefixes, dongs)
+    if jibun["jibun_pnu"] or jibun["reason"] == "no_legal_dong":
+        return {**jibun, "road": road["road"]}
+    return road
 
 
 def answer_rows(line: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -348,7 +351,7 @@ def offered_schema(contract: Mapping[str, Any]) -> tuple[list[str], str]:
 
 
 def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
-         crosswalk: tuple[Mapping[str, str], Any]) -> Any:
+         crosswalk: tuple[Mapping[str, str], Any], juso: Any = None) -> Any:
     """The offered rows with their PNU: the code path (``place_identity_resolver.resolve`` with
     ``crosswalk``) first, the address joins (``address_pnu.resolve``) for what it leaves unresolved.
     A night's load and a code-change follow both link through here (root ADR-0382, ADR-0416)."""
@@ -358,7 +361,7 @@ def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
     remap, ambiguous = crosswalk
     resolved = address_pnu.resolve(
         offered.withColumnRenamed("road_name", "road_name_raw").withColumnRenamed("road_name_key", "road_name"),
-        parcels, titles, remap)
+        parcels, titles, remap, juso)
     if "source_code_pnu_raw" in names:
         by_code = place_identity_resolver.resolve(
             offered.select("row_id", F.col("source_code_pnu_raw").alias("pnu")), remap, ambiguous, parcels
@@ -383,7 +386,7 @@ def link(offered: Any, names: Sequence[str], parcels: Any, titles: Any,
 
 def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: Mapping[str, Any], parcels: Any,
                    titles: Any, current: Any, snapshot_id: str, now: datetime,
-                   crosswalk: tuple[Mapping[str, str], Any] = ({}, ())) -> tuple[Any, Any]:
+                   crosswalk: tuple[Mapping[str, str], Any] = ({}, ()), juso: Any = None) -> tuple[Any, Any]:
     """(staged rows, the rows to append) for one search of one night.
 
     The rows go through the code path (``place_identity_resolver.resolve`` with ``crosswalk``, the
@@ -401,7 +404,7 @@ def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: M
     offered = spark.createDataFrame(
         [tuple(n if name == "row_id" else row.get(name) for name in names) for n, row in enumerate(search["rows"])],
         schema=ddl)
-    resolved = link(offered, names, parcels, titles, crosswalk)
+    resolved = link(offered, names, parcels, titles, crosswalk, juso)
     staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
               .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
     changes = release_changes(staged, current, key=KEY, content=content_columns(contract), removal="row_state",
@@ -468,7 +471,7 @@ def relinked_rows(rows: Sequence[Mapping[str, Any]], record: str, snapshot: str,
 
 def follow_code_changes(spark: Any, catalog: str, table: str, contract: Mapping[str, Any], prefixes: Mapping[str, str],
                         dongs: Mapping[tuple[str, str], str], parcels: Any, titles: Any, now: datetime,
-                        crosswalk: tuple[Mapping[str, str], Any] = ({}, ())) -> dict[str, Any] | None:
+                        crosswalk: tuple[Mapping[str, str], Any] = ({}, ()), juso: Any = None) -> dict[str, Any] | None:
     """Re-link the current rows the 법정동 code changes since the table's last follow can move, and
     append only the ones whose link moved (root ADR-0329 §3, ADR-0416). None when there is nothing
     to follow (no change table, or the links are as of its newest snapshot)."""
@@ -498,7 +501,7 @@ def follow_code_changes(spark: Any, catalog: str, table: str, contract: Mapping[
         names, ddl = offered_schema(contract)
         offered = spark.createDataFrame(
             [tuple(n if name == "row_id" else row.get(name) for name in names) for n, row in enumerate(rows)], schema=ddl)
-        resolved = link(offered, names, parcels, titles, crosswalk)
+        resolved = link(offered, names, parcels, titles, crosswalk, juso)
         staged = (resolved.drop("road_name").withColumnRenamed("road_name_raw", "road_name")
                   .withColumn("row_state", F.lit(None).cast("string")).select(*columns))
         # Same keys on both sides: only the rows whose link moved are appended, and no removal marker.
@@ -552,11 +555,12 @@ def _load(argv: Sequence[str]) -> int:
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     try:
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS `{args.iceberg_catalog_name}`.`silver`")
-        dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+        dongs = address_pnu.lakehouse_legal_dong_index(spark, args.iceberg_catalog_name)
         parcels, titles = address_pnu.lakehouse_inputs(spark, args.iceberg_catalog_name)
         prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
         # ADR-0288 §1: the code pairs are read once for the run, as every parcel source does.
         crosswalk = place_identity_resolver.pairs_from_lakehouse(spark, args.iceberg_catalog_name)
+        juso = address_pnu.lakehouse_juso_roads(spark, args.iceberg_catalog_name)
         for entry in objects:
             search = read_object(entry, source, prefixes, dongs, now)
             role = entry["role"]
@@ -573,9 +577,11 @@ def _load(argv: Sequence[str]) -> int:
             if search["rows"]:
                 current = current_rows(spark.table(table), contract)
                 staged, changes = search_changes(spark, role, search, contract, parcels, titles, current,
-                                                 entry["source_snapshot_id"], now, crosswalk)
+                                                 entry["source_snapshot_id"], now, crosswalk, juso)
                 changes = changes.withColumn("source_record_id", F.lit(entry["object_key"])).select(*columns).cache()
-                counts.update(changes=changes.count(), with_pnu=staged.where(F.col("pnu").isNotNull()).count())
+                counts.update(changes=changes.count(), with_pnu=staged.where(F.col("pnu").isNotNull()).count(),
+                              by_basis={row["pnu_basis"] or "none": row["count"]
+                                        for row in staged.groupBy("pnu_basis").count().collect()})
                 if "row_state" in columns:
                     counts["removed"] = changes.where(F.col("row_state") == REMOVED).count()
             else:
@@ -591,7 +597,7 @@ def _load(argv: Sequence[str]) -> int:
             table = f"`{args.iceberg_catalog_name}`.`silver`.`{contract_table.split('.', 1)[1]}{args.table_suffix}`"
             if spark.catalog.tableExists(table.replace("`", "")):
                 followed = follow_code_changes(spark, args.iceberg_catalog_name, table, contract, prefixes, dongs,
-                                               parcels, titles, now, crosswalk)
+                                               parcels, titles, now, crosswalk, juso)
                 if followed:
                     summary["follows"].append(followed)
     finally:

@@ -328,6 +328,7 @@ class LinkInputs:
     def __init__(self, spark: Any, catalog: str) -> None:
         self.spark, self.catalog = spark, catalog
         self._prefixes = self._dongs = self._lakehouse = self._pairs = None
+        self._juso: Any = False
 
     @property
     def prefixes(self) -> dict[str, str]:
@@ -343,7 +344,7 @@ class LinkInputs:
         import address_pnu  # noqa: PLC0415
 
         if self._dongs is None:
-            self._dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(self.spark, self.catalog))
+            self._dongs = address_pnu.lakehouse_legal_dong_index(self.spark, self.catalog)
         return self._dongs
 
     @property
@@ -353,6 +354,15 @@ class LinkInputs:
         if self._lakehouse is None:
             self._lakehouse = address_pnu.lakehouse_inputs(self.spark, self.catalog)
         return self._lakehouse
+
+    @property
+    def juso(self) -> Any:
+        """The 주소DB road ledger, or None before its first load (root ADR-0495)."""
+        import address_pnu  # noqa: PLC0415
+
+        if self._juso is False:
+            self._juso = address_pnu.lakehouse_juso_roads(self.spark, self.catalog)
+        return self._juso
 
     @property
     def pairs(self) -> tuple[dict[str, str], set[str]]:
@@ -399,7 +409,7 @@ def link(frame: Any, entry: Mapping[str, Any], inputs: LinkInputs) -> Any:
         offers = spark.createDataFrame(offered, "row_id int, row_key string, jibun_pnu string, legal_dong_code string, "
                                                 "reason string, road_sido string, road_sigungu string, road_name string, "
                                                 "road_main_no int, road_sub_no int")
-        resolved = address_pnu.resolve(offers, *inputs.lakehouse, inputs.pairs[0]).select(
+        resolved = address_pnu.resolve(offers, *inputs.lakehouse, inputs.pairs[0], inputs.juso).select(
             "row_key", "pnu", "pnu_basis", "pnu_unresolved_reason",
             F.coalesce(F.col("legal_dong_code"), F.substring("pnu", 1, 10)).alias("legal_dong_code"))
         return frame.join(resolved, "row_key", "left")

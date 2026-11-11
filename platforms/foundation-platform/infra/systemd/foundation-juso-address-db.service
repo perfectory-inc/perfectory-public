@@ -1,5 +1,5 @@
 [Unit]
-Description=Foundation Platform 주소DB from the juso.go.kr public download, no login: the monthly full once as the base, then each day's change file into Bronze (root ADR-0495)
+Description=Foundation Platform 주소DB from the juso.go.kr public download, no login: the monthly full once as the base, then each day's change file into Bronze, and silver.juso_road_address from them (root ADR-0495)
 Documentation=file:///opt/foundation-platform/current/docs/runbooks/juso-address-db.md
 X-Foundation-Owner=collection
 Requires=docker.service
@@ -14,8 +14,10 @@ Group=foundation-platform
 WorkingDirectory=/opt/foundation-platform/current
 EnvironmentFile=/etc/foundation-platform/recovery.env
 EnvironmentFile=/etc/foundation-platform/source-sweep.env
+EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
+EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/juso-address-db-cycle.sh
-TimeoutStartSec=1h
+TimeoutStartSec=90m
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

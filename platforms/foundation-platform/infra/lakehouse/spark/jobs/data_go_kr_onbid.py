@@ -559,7 +559,7 @@ OFFER_SCHEMA = ("row_id int, jibun_pnu string, reason string, road_sido string, 
 
 def placed_items(frame: Any, rows: Sequence[Mapping[str, Any]], remap: Mapping[str, str], ambiguous: Any,
                  parcels: Any, titles: Any, prefixes: Mapping[str, str],
-                 dongs: Mapping[tuple[str, str], str]) -> Any:
+                 dongs: Mapping[tuple[str, str], str], juso: Any = None) -> Any:
     """``frame`` (with ``_row``, the index of each row in ``rows``) placed: the provider's code first
     (`place_identity_resolver.resolve`), then, for what it leaves, the address the item name gives
     (`address_pnu.resolve`, with the served edition's earlier code forms). Sets `pnu_basis` and
@@ -579,7 +579,7 @@ def placed_items(frame: Any, rows: Sequence[Mapping[str, Any]], remap: Mapping[s
     if not left:
         return by_code
     offered = frame.sparkSession.createDataFrame(address_offers(rows, left, prefixes, dongs), OFFER_SCHEMA)
-    by_address = (address_pnu.resolve(offered, parcels, titles, remap)
+    by_address = (address_pnu.resolve(offered, parcels, titles, remap, juso)
                   .select(F.col("row_id").alias("_row"), F.col("pnu").alias("_address_pnu"),
                           F.col("pnu_basis").alias("_address_basis"),
                           F.col("pnu_unresolved_reason").alias("_address_reason")))
@@ -595,10 +595,10 @@ def placed_items(frame: Any, rows: Sequence[Mapping[str, Any]], remap: Mapping[s
 
 
 def address_inputs(spark: Any, catalog: str, rows: Sequence[Mapping[str, Any]], prefixes: Mapping[str, str],
-                   dongs: Mapping[tuple[str, str], str]) -> tuple[set[str], Any]:
-    """(the jibun PNUs the item names offer, the building register titles their road addresses can
-    name), read once for the run and cut to these rows (root ADR-0390: the whole register is not
-    carried past the scan)."""
+                   dongs: Mapping[tuple[str, str], str]) -> tuple[set[str], Any, Any]:
+    """(the jibun and 주소DB PNUs the item names offer, the building register titles their road
+    addresses can name, the 주소DB ledger of those roads), read once for the run and cut to these rows
+    (root ADR-0390: the whole register is not carried past the scan; root ADR-0495)."""
 
     import address_pnu  # noqa: PLC0415
     from platform_contracts import current_rows, load_lakehouse_contract  # noqa: PLC0415
@@ -616,7 +616,10 @@ def address_inputs(spark: Any, catalog: str, rows: Sequence[Mapping[str, Any]], 
                           load_lakehouse_contract("silver.building_register_titles")).select("pnu", "road_address_raw")
     named = F.regexp_extract("road_address_raw", address_pnu.REGISTER_ROAD, 2)
     titles = titles.where(named.isin(sorted(roads)) if roads else F.lit(False)).cache()
-    return jibun, titles
+    juso = address_pnu.lakehouse_juso_roads(spark, catalog, roads)
+    if juso is not None:
+        jibun |= {row["pnu"] for row in juso.roads.select("pnu").distinct().collect()}
+    return jibun, titles, juso
 
 
 def ensure_table(spark: Any, args: argparse.Namespace, contract_table: str) -> tuple[str, dict[str, Any], list[str], str]:
@@ -685,9 +688,9 @@ def _load(argv: Sequence[str]) -> int:
             items = [row for entry in objects if entry["role"] == "item_list"
                      for row in read_object(entry, source, now)["rows"]]
             # Root ADR-0482 §2: the address each item name gives, for what the code path leaves.
-            dongs = address_pnu.legal_dong_index(address_pnu.current_legal_dongs(spark, args.iceberg_catalog_name))
+            dongs = address_pnu.lakehouse_legal_dong_index(spark, args.iceberg_catalog_name)
             prefixes = address_pnu.lakehouse_sido_prefixes(spark, args.iceberg_catalog_name)
-            jibun, titles = address_inputs(spark, args.iceberg_catalog_name, items, prefixes, dongs)
+            jibun, titles, juso = address_inputs(spark, args.iceberg_catalog_name, items, prefixes, dongs)
             wanted = place_identity_resolver.candidate_pnus([*(row["pnu"] for row in items), *jibun], remap, ambiguous)
             del items
             parcels = place_identity_resolver.served_parcels_among(spark, args.iceberg_catalog_name, wanted)
@@ -709,7 +712,7 @@ def _load(argv: Sequence[str]) -> int:
                 # address the item name gives does, or the row keeps null with why (ADR-0482 §2).
                 indexed = spark.createDataFrame([(*(r.get(c) for c in columns), n) for n, r in enumerate(rows)],
                                                 schema=f"{schema}, _row int")
-                resolved = placed_items(indexed, rows, remap, ambiguous, parcels, titles, prefixes, dongs).cache()
+                resolved = placed_items(indexed, rows, remap, ambiguous, parcels, titles, prefixes, dongs, juso).cache()
                 graded = {row["pnu_basis"] or f"unresolved:{row['pnu_unresolved_reason']}": row["count"]
                           for row in resolved.groupBy("pnu_basis", "pnu_unresolved_reason").count().collect()}
                 staged = resolved.select(*columns)

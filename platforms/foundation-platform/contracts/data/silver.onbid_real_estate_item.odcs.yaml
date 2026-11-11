@@ -328,4 +328,5 @@ customProperties:
       - "pbct_cdtn_no"
   - property: "upstreamDatasets"
     value:
+      - "silver.juso_road_address"
       - "source-data-go-kr-onbid"

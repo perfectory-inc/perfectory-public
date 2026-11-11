@@ -218,4 +218,5 @@ customProperties:
       - "case_no"
   - property: "upstreamDatasets"
     value:
+      - "silver.juso_road_address"
       - "source-courtauction-go-kr"
