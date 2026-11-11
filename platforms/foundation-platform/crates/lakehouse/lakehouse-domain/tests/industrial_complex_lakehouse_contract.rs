@@ -288,6 +288,16 @@ fn parcel_boundary_partitions_hold_enough_rows_to_fill_a_file() {
 }
 
 /// The versioned tables, and only they, say which row is current (root ADR-0267).
+/// The 법원경매 tables whose newest row per key is current and where none vanishes (root ADR-0384,
+/// ADR-0454, ADR-0540).
+const COURT_AUCTION_NEWEST_PER_KEY: [&str; 5] = [
+    SILVER_COURT_AUCTION_SALE_RESULT.table_name,
+    SILVER_COURT_AUCTION_ITEM_DETAIL.table_name,
+    SILVER_COURT_AUCTION_ITEM_PHOTO.table_name,
+    lakehouse_domain::SILVER_COURT_AUCTION_CASE.table_name,
+    lakehouse_domain::SILVER_COURT_AUCTION_ITEM_SPEC.table_name,
+];
+
 #[test]
 fn only_versioned_tables_define_a_current_row_rule() {
     for contract in industrial_complex_lakehouse_contracts() {
@@ -363,9 +373,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
                 .is_some_and(|latest| latest.removal_column.is_some()));
         } else if contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM_PHOTO.table_name
             || contract.table_name == SILVER_ONBID_ITEM_BID_RESULT.table_name
-            || contract.table_name == SILVER_COURT_AUCTION_SALE_RESULT.table_name
-            || contract.table_name == SILVER_COURT_AUCTION_ITEM_DETAIL.table_name
-            || contract.table_name == SILVER_COURT_AUCTION_ITEM_PHOTO.table_name
+            || COURT_AUCTION_NEWEST_PER_KEY.contains(&contract.table_name)
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_BID_RESULT.table_name
             || contract.table_name == SILVER_ONBID_ANNOUNCEMENT_DETAIL.table_name
@@ -381,7 +389,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             // A closed round's result is asked again only when the provider had none yet; the
             // newest answer is current, and a result never vanishes (root ADR-0280).
             // A 물건상세 read and a case's photo are appended; the newest per key is current, and none
-            // vanishes (root ADR-0384).
+            // vanishes (root ADR-0384); so are the case and spec a read states (root ADR-0540).
             // An item's media index: the newest run that recorded a (item, hash) wins, and a
             // photo reference never vanishes (root ADR-0298). A notice read and its attachments
             // likewise (root ADR-0484). A document's text, pages and facts are read once per

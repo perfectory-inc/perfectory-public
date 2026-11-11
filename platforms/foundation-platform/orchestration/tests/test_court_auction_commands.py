@@ -53,7 +53,8 @@ prefix = "FOUNDATION_PLATFORM_SILVER_LOAD_"
 table, slug = os.environ[prefix + "TABLE"], os.environ[prefix + "SOURCE_SLUGS"]
 assert {table: slug} in ({"silver.court_auction_item": "courtauctiongokr__auction_item"},
                          {"silver.court_auction_sale_result": "courtauctiongokr__auction_sale_result"},
-                         {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"}), (table, slug)
+                         {"silver.court_auction_item_detail": "courtauctiongokr__auction_item_detail"},
+                         {"silver.court_auction_appraisal_point": "courtauctiongokr__auction_item_detail"}), (table, slug)
 assert (os.environ[prefix + "WINDOW_DAYS"], os.environ[prefix + "MAX_OBJECTS"]) == ("7", "7")
 out = os.environ[prefix + "OUTPUT_DIR"]
 os.makedirs(out, exist_ok=True)
@@ -180,8 +181,9 @@ class CourtAuctionCommands(unittest.TestCase):
         self.assertEqual(self.copies(), [])
         call = (self.fake / "docker.log").read_text().splitlines()[-1].split()
         plans = [call[i + 1].rsplit("/", 1)[1] for i, arg in enumerate(call) if arg == "--plan-dir"]
-        # The 물건상세 objects are planned against their read record (root ADR-0384).
-        self.assertEqual(plans, ["items", "results", "details"])
+        # The 물건상세 objects are planned against their read record (root ADR-0384) and their last
+        # document table, so a new document table is filled from the window's objects (root ADR-0540).
+        self.assertEqual(plans, ["items", "results", "details", "documents"])
 
 
 if __name__ == "__main__":

@@ -125,6 +125,14 @@
       "mountain_ledger_kind": "2"
     }
   },
+  "personal_names": {
+    "$comment": "Root ADR-0540 §4. The free text a Silver table keeps (매각물건명세서 인수되는 권리·지상권 개요·비고·최선순위 설정, 물건 비고, 제시외건물 비고, 감정요항표) sometimes names a person: measured 2026-10-21 on the prototype's 39,296 물건상세, 258 of 4,269 filled 인수되는 권리, 2,381 of 20,267 명세서 비고 and 154 of 29,275 최선순위 설정 matched a name pattern (\"갑구 제14번 ○○○지분\", \"소유자 ○○○\"), most of the 비고 hits being 공유 지분 words, not names. A name is a 2-4 syllable word right before one of `before`, or right after one of `after` where that word starts a word and is set off by a space, colon or bracket (with the names a comma joins to it), followed by a particle or the end; one of `not_names` (judged without a trailing particle) is not a name. A name is replaced by `mask`. A pattern-and-context recognizer as Microsoft Presidio's PatternRecognizer is; Bronze keeps the text as received. The Silver load (courtauction_go_kr.py mask_names) and its tests read this; nothing else restates it.",
+    "mask": "○○○",
+    "name_syllables": [2, 4],
+    "before": ["지분"],
+    "after": ["소유자", "채무자", "임차인", "채권자", "점유자", "가처분권자", "가등기권자", "근저당권자", "전세권자", "공유자", "임대인", "세대주", "전입자", "신청채권자", "압류권자"],
+    "not_names": ["토지", "건물", "대지", "대지권", "공유", "전부", "일부", "나머지", "해당", "전체", "본건", "본인", "소유", "소유권", "구분", "구분소유", "목록", "각자", "등기", "미상", "불명", "없음", "있음", "이며", "으로", "에게", "이고", "이나", "측", "등", "겸", "및", "외", "지분", "주택", "상가", "점포", "공장", "창고", "임야", "전답", "도로", "아파트", "법인", "회사", "주식회사", "은행", "금고", "조합", "공사", "국가", "대한민국", "지방자치단체", "있을", "있으며", "있는", "있고", "없는", "없으며", "없고", "제시외", "포함", "권리", "원고", "피고", "시설물", "별도", "확인", "모두", "전원", "다수", "현황", "불명확", "들", "각각", "우선", "우선매수", "맹지", "대항력", "매각", "도로", "전입", "점유", "보증금", "배당"]
+  },
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): objects of each search that no commit of its table records, landed within window_days, oldest first, at most max_objects per table (a week of nights). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",
     "window_days": 7,

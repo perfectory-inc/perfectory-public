@@ -194,6 +194,66 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/place_id_join.py"
       ],
       "description": "발행이 덧붙인 변경 이력 행의 코드(옛·새)만 다시 계산한다(루트 ADR-0483): 이력은 append-only 라 고정한 스냅숏 뒤에 붙은 행만 읽는다."
+    },
+    {
+      "from": "silver-court-auction-case",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+      ],
+      "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-item-spec",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+      ],
+      "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-item-schedule",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+      ],
+      "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-item-object",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+      ],
+      "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-item-annex",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+      ],
+      "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
+    },
+    {
+      "from": "silver-court-auction-appraisal-point",
+      "to": "gold-parcel-court-auction",
+      "relation": "feeds",
+      "status": "planned",
+      "via": [
+        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+      ],
+      "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     }
   ],
   "by_pnu_lanes": {

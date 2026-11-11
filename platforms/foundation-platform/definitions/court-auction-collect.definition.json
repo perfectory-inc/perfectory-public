@@ -130,6 +130,120 @@
           "value": "silver.court_auction_item_photo"
         }
       ]
+    },
+    {
+      "id": "silver-court-auction-case",
+      "type": "silver_table",
+      "title": "법원경매 사건",
+      "description": "물건상세가 밝히는 사건 기본(사건명·접수일·개시결정일·청구금액·담당계·배당요구종기)을 사건마다 내용이 바뀔 때 쌓는다. 사람 이름은 싣지 않는다(루트 ADR-0540).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_case",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_case"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-item-spec",
+      "type": "silver_table",
+      "title": "법원경매 매각물건명세서 요약",
+      "description": "물건상세의 매각물건명세서 요약(작성일·인수되는 권리·지상권 개요·비고·최선순위 설정)과 물건 비고·매각결정기일·보증금률을 물건마다 바뀔 때 쌓는다. 서술 속 사람 이름은 가린다(루트 ADR-0540).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_item_spec",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_item_spec"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-item-schedule",
+      "type": "silver_table",
+      "title": "법원경매 기일내역",
+      "description": "물건상세의 기일내역(기일·종류·장소·결과·최저매각가격)을 물건마다 한 판으로, 목록이 바뀐 때만 통째로 쌓는다(루트 ADR-0540).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_item_schedule",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_item_schedule"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-item-object",
+      "type": "silver_table",
+      "title": "법원경매 목록내역",
+      "description": "물건상세의 목록내역(구분·구조·면적·지목·감정가·용도·법정동 코드·지번)을 물건마다 한 판으로, 바뀐 때만 쌓는다. 지분은 숫자만 싣고 지분 서술(이름)은 Bronze 에만 둔다(루트 ADR-0540).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_item_object",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_item_object"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-item-annex",
+      "type": "silver_table",
+      "title": "법원경매 제시외건물",
+      "description": "물건상세의 제시외건물(용도·구조·면적·감정가)을 물건마다 한 판으로, 바뀐 때만 쌓는다(루트 ADR-0540).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_item_annex",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_item_annex"
+        }
+      ]
+    },
+    {
+      "id": "silver-court-auction-appraisal-point",
+      "type": "silver_table",
+      "title": "법원경매 감정요항표",
+      "description": "물건상세의 감정요항표(표·항목·내용)를 사건마다 한 판으로, 바뀐 때만 쌓는다. 서술 속 사람 이름은 가린다(루트 ADR-0540).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/foundation-platform/infra/lakehouse/contracts/courtauction-go-kr.contract.json"
+      ],
+      "table_name": "silver.court_auction_appraisal_point",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "silver.court_auction_appraisal_point"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -209,6 +323,102 @@
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/courtauction_go_kr_collect/detail.rs"
       ],
       "description": "수집기가 매 실행 이 표의 마지막 읽음으로 물어볼 물건상세를 계산한다(진행 중 목록 행과 맞춰, 한 번도 읽지 않은 것 먼저, 재수집 규칙이 부르는 것을 매각기일 순으로; 루트 ADR-0352, ADR-0384)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-case",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세가 밝히는 사건 기본(사건명·접수일·개시결정일·청구금액·담당계·배당요구종기)을 사건마다 내용이 바뀔 때 쌓는다. 사람 이름은 싣지 않는다(루트 ADR-0540)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-item-spec",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세의 매각물건명세서 요약(작성일·인수되는 권리·지상권 개요·비고·최선순위 설정)과 물건 비고·매각결정기일·보증금률을 물건마다 바뀔 때 쌓는다. 서술 속 사람 이름은 가린다(루트 ADR-0540)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-item-schedule",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세의 기일내역(기일·종류·장소·결과·최저매각가격)을 물건마다 한 판으로, 목록이 바뀐 때만 통째로 쌓는다(루트 ADR-0540)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-item-object",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세의 목록내역(구분·구조·면적·지목·감정가·용도·법정동 코드·지번)을 물건마다 한 판으로, 바뀐 때만 쌓는다. 지분은 숫자만 싣고 지분 서술(이름)은 Bronze 에만 둔다(루트 ADR-0540)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-item-annex",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세의 제시외건물(용도·구조·면적·감정가)을 물건마다 한 판으로, 바뀐 때만 쌓는다(루트 ADR-0540)."
+    },
+    {
+      "from": "source-courtauction-go-kr",
+      "to": "silver-court-auction-appraisal-point",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "collect-courtauction-go-kr",
+        "platforms/foundation-platform/scripts/ops/court-auction-collect.sh",
+        "platforms/foundation-platform/scripts/ops/court-auction-silver-load.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/courtauction_go_kr.py"
+      ],
+      "source_slugs": [
+        "courtauctiongokr__auction_item_detail"
+      ],
+      "description": "물건상세의 감정요항표(표·항목·내용)를 사건마다 한 판으로, 바뀐 때만 쌓는다. 서술 속 사람 이름은 가린다(루트 ADR-0540)."
     }
   ],
   "asset_checks": [

@@ -263,7 +263,13 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 사건 사진 (`silver.court_auction_item_photo`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 감정요항표 (`silver.court_auction_appraisal_point`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 사건 (`silver.court_auction_case`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 제시외건물 (`silver.court_auction_item_annex`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 목록내역 (`silver.court_auction_item_object`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 기일내역 (`silver.court_auction_item_schedule`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 매각물건명세서 요약 (`silver.court_auction_item_spec`) | — | — | 없음 |
 | 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby` | — | 화면 |
