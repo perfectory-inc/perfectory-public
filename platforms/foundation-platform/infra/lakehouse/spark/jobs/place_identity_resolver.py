@@ -469,7 +469,8 @@ def unique_pick(candidates: Iterable[str]) -> tuple[str | None, str | None, int]
 
 def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, levels: Sequence[Mapping[str, Any]],
                  tolerance_m2: float, ownership_window_days: tuple[int, int], ownership_causes: Sequence[str],
-                 group_parcels: Any | None = None, remap: Mapping[str, str] | None = None) -> Any:
+                 group_parcels: Any | None = None, remap: Mapping[str, str] | None = None,
+                 zone_subdivisions: Mapping[str, Sequence[str]] | None = None) -> Any:
     """The inferred pnu of each masked deal, by the first level that leaves exactly one candidate.
 
     ``deals``: `row_id`, `legal_dong_code` (current), `lot_mountain`, `lot_low`, `lot_high`, `zone`,
@@ -485,6 +486,8 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     current one is the deal's, and it stays the pnu its own edition names (root ADR-0482 §1). On
     2026-11-11 the 2026-07-01 전남광주 pairs left 1,547,762 masked 토지 deals (all of 12…) with no
     parcel of their 법정동: the land file and the served edition still name 46…/29….
+    ``zone_subdivisions``: a deal's 용도지역 → the ones it was split into since (the contract's
+    `place_inference.zone_subdivisions`); a parcel zoned as any of them matches.
     Returns `row_id`, `pnu`, `pnu_group` (the sorted current parcels of the 본번 group, only for
     `MAIN_LOT_GROUP`; `pnu` is then null), `place_identity_grade`, `pnu_unresolved_reason`,
     `pnu_candidate_count`.
@@ -518,9 +521,12 @@ def infer_masked(deals: Any, parcels: Any, titles: Any, ownership: Any | None, l
     else:
         candidates = candidates.withColumn("_owner_ok", F.lit(False))
     near = lambda a, b: F.abs(F.col(a) - F.col(b)) < F.lit(tolerance_m2)  # noqa: E731
+    # "<deal zone>|<parcel zone>" for every zone the deal's has been split into since.
+    split_zones = sorted(f"{zone}|{part}" for zone, parts in (zone_subdivisions or {}).items() for part in parts) or [""]
     checks = {
         "lot_range": F.lit(True),
-        "zone": F.col("zone").isNull() | (F.col("zone_name_1") == F.col("zone")),
+        "zone": F.col("zone").isNull() | (F.col("zone_name_1") == F.col("zone"))
+        | F.concat_ws("|", "zone", "zone_name_1").isin(*split_zones),
         "jimok": F.col("jimok").isNull() | (F.col("land_category") == F.col("jimok")),
         "land_area": F.col("land_area_m2").isNotNull() & near("area_m2", "land_area_m2"),
         "building_year": F.col("building_year").isNotNull() & F.array_contains(F.coalesce("_years", F.array()), F.col("building_year")),
