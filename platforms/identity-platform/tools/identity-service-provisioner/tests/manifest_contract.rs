@@ -34,7 +34,13 @@ fn committed_policy_is_the_least_privilege_ssot() -> Result<(), Box<dyn std::err
     assert_eq!(
         actual,
         vec![
-            ("gongzzang-api", vec!["foundation.catalog:read"]),
+            (
+                "gongzzang-api",
+                vec![
+                    "foundation.catalog:read",
+                    "foundation.real_estate_broker:verify"
+                ]
+            ),
             (
                 "gongzzang-outbox-publisher",
                 vec!["foundation.lakehouse:write"]

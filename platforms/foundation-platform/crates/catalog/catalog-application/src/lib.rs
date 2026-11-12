@@ -48,6 +48,9 @@ pub mod rollback_tile_layer_source;
 /// Use case for rolling back the active static vector tile manifest.
 pub mod rollback_vector_tile_manifest;
 
+/// Use case for checking one person against the 부동산중개업 roster (root ADR-0550).
+pub mod verify_real_estate_broker;
+
 /// Use case for updating an industrial complex.
 pub mod update_complex;
 

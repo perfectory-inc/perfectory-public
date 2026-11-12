@@ -120,6 +120,18 @@ fn unit_official_price_projection_command_is_explicit() -> anyhow::Result<()> {
 }
 
 #[test]
+fn real_estate_broker_lookup_load_command_is_explicit() -> anyhow::Result<()> {
+    assert_eq!(
+        parse_command([
+            "foundation-outbox-publisher",
+            "load-real-estate-broker-lookup"
+        ])?,
+        Command::LoadRealEstateBrokerLookup
+    );
+    Ok(())
+}
+
+#[test]
 fn lineage_review_load_command_is_explicit() -> anyhow::Result<()> {
     assert_eq!(
         parse_command(["foundation-outbox-publisher", "load-lineage-review-items"])?,

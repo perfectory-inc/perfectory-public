@@ -8,6 +8,11 @@ READINESS_TIMEOUT_SECONDS="${READINESS_TIMEOUT_SECONDS:-90}"
 # The migrator must apply every migration the area ships: the expected count is the
 # migrations directory, never a number written here.
 MIGRATIONS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../migrations" && pwd)"
+# The workload provisioner grants every capability the principal policy lists, so the count is the
+# policy's, not a number here: 2026-11-12 #1335 gave gongzzang-api a second capability and a
+# hard-coded 4 refused the grant it made.
+WORKLOAD_POLICY="$(cd "$(dirname "${BASH_SOURCE[0]}")/../config" && pwd)/workload-principal-policy.v1.json"
+EXPECTED_WORKLOAD_GRANTS="$(python3 -c 'import json, sys; print(sum(len(p["capabilities"]) for p in json.load(open(sys.argv[1]))["principals"]))' "${WORKLOAD_POLICY}")"
 expected_migration_count="$(find "${MIGRATIONS_DIR}" -maxdepth 1 -name '*.sql' | wc -l | tr -d ' ')"
 
 compose_args=()
@@ -128,9 +133,9 @@ postcondition() {
     identity-workload-provisioner)
       database_bool "
         SELECT (SELECT count(*) FROM identity.service_principal) = 4
-          AND (SELECT count(*) FROM identity.service_capability_grant) = 4
+          AND (SELECT count(*) FROM identity.service_capability_grant) = ${EXPECTED_WORKLOAD_GRANTS}
           AND (SELECT count(*) FROM identity.outbox_event
-               WHERE type = 'identity.service_principal.capability_granted.v1') >= 4
+               WHERE type = 'identity.service_principal.capability_granted.v1') >= ${EXPECTED_WORKLOAD_GRANTS}
           AND NOT EXISTS (
             SELECT 1
             FROM identity.service_principal AS principal

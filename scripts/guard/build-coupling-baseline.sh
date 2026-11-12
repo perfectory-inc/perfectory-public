@@ -348,7 +348,10 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 169 -> 170: the Silver refresh's 중개사무소 lane compiles in its source contract
 # (vworld-real-estate-broker-office-source-objects.json, root ADR-0511), as each land lane does.
 # 170 -> 171: its 소속 인원 lane does the same (vworld-real-estate-broker-member-source-objects.json).
-COMPILE_TIME_READ_BASELINE="${3:-171}"
+# 171 -> 172: foundation-api's live VWorld broker register reads its credential names from the
+# naming contract (environment-variable-naming.contract.json), as the collection adapter does
+# (root ADR-0550 §5).
+COMPILE_TIME_READ_BASELINE="${3:-172}"
 
 cd "$repo_root"
 
