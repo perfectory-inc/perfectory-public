@@ -113,6 +113,10 @@ jobs:
       # Which failed runs the scheduled rerun-runner-failures workflow re-runs (root ADR-0421).
       - name: Runner-failure re-run tests
         run: python3 scripts/ci/test_rerun_runner_failures.py -v
+      - name: Dropped queue run and queue front lane tests
+        run: |
+          python3 scripts/ci/test_cancel_superseded_queue_runs.py -v
+          python3 scripts/github/test_merge_queue_enqueue.py -v
       # Root ADR-0207: on a pull request and in the merge queue (root ADR-0313) the runner keeps the
       # guards whose inputs changed (tools/ci/change-scope.json `guards`); a push to main the queue
       # already passed on the same tree runs none (the token reads the queue's runs); every other
