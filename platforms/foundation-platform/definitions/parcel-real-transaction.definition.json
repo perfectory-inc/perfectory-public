@@ -21,10 +21,18 @@
         "unit": "run",
         "limits": [],
         "deadline": null,
-        "measured_run_seconds": null,
-        "first_run": {
-          "estimate_seconds": 3600,
-          "estimated_from": "computed, never run: the build places every deal from its address and lot on each run (root ADR-0351 §3), 13,476,265 Silver deals on 2026-11-10 (about 50 million once the 250 months of every dataset are in, root ADR-0371), against the served parcels (39,861,511) and the owner rows its 공장창고 inference windows (about 120 million); the same unit template's parcel-ownership full build over those owner rows measured 1,602 s (2026-11-05, its cut-over's gold step), so about two such passes, 3,600 s, inside the 8,100 s share of the 150-minute limit; a first run past it is stopped by TimeoutStartSec and the auto-promotion's gold step resumes it"
+        "measured_run_seconds": {
+          "runs": 5,
+          "p50": 2799,
+          "p90": 9008,
+          "max": 9008,
+          "timeouts": 1,
+          "from": "2026-11-10T21:26:44Z",
+          "to": "2026-11-12T15:28:13Z"
+        },
+        "open_exception": {
+          "why": "The first full build did not fit one unit and its growth will not either. Measured 2026-11-12 (12,094,440 rows from 13.5 million Silver deals): 17 시도 shards 8,309 s (the longest 963 s) after 233 s of inputs, then the commit 2,447 s (overwrite-diff 1,180 s, overwrite 1,268 s): about 11,000 s against the 9,000 s limit. The run of 10:23Z staged every shard and was stopped at 9,008 s in its commit; the next (13:01Z, the cut-over's gold step) read the stages back in 406 s and committed at 14:00:40Z. The build is staged by its plan (Stages, root ADR-0440), so a stopped run loses only the step in flight; but after the lane's first publish nothing starts the second unit before the next day's schedule (a retry would hold the whole spark pool twice in every other job's wait bound, job_specs.pool_starvation), and the first unit ends as a timeout. The four earlier runs (1,921 s to 2,994 s) failed on driver memory before #1346 and #1361. No changed-keys run has been measured yet: the first is the schedule's of 2026-11-13 09:50Z.",
+          "tracked_by": "docs/roadmap/production-readiness.md (수집 run 당 상한): the build ends at a stage boundary by itself (a deadline pointer, as ADR-0391's Silver refresh) or leaves Spark with the Gold that moves to DuckDB (root ADR-0559); measure the changed-keys run after 2026-11-13 09:50Z and state it here"
         }
       },
       "pool": "spark",
