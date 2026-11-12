@@ -547,7 +547,8 @@ pub(crate) fn read_result(detail: &ItemDetail, body: &str) -> Result<JsonValue, 
 /// What the detail phase of one run did.
 #[derive(Debug, Default)]
 pub(crate) struct DetailResult {
-    pub(crate) lines: Vec<String>,
+    /// The night's lines, gzipped as they come (a few MB of text each before the photos leave).
+    pub(crate) lines: super::GzLines,
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
@@ -756,7 +757,7 @@ pub(crate) async fn collect_details(
                 result.asked += 1;
                 result.failed += u32::from(failed);
                 result.photos.absorb(photos);
-                result.lines.push(line);
+                result.lines.push(&line)?;
             }
         }
     }

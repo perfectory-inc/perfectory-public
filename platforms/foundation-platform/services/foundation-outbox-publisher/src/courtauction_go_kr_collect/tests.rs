@@ -16,8 +16,9 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 use super::{
-    asked_condition, collect, in_window, may_ask, night_summary, operator_window, session_pool,
-    source_contract, with_night, Asking, FailedPage, SourceContract, Stop, Window,
+    asked_condition, collect, gzip_lines, in_window, may_ask, night_summary, operator_window,
+    session_pool, source_contract, with_night, Asking, FailedPage, GzLines, SourceContract, Stop,
+    Window,
 };
 
 // Synthetic only: made-up case numbers and court codes (public repository).
@@ -478,6 +479,39 @@ async fn the_details_ride_the_same_pool_a_block_renews_and_photos_become_hashes(
         (stop, result.asked),
         (Some(Stop::TimeBudget), 0),
         "the detail deadline ends the asking; the rest is due again next run"
+    );
+    Ok(())
+}
+
+#[test]
+fn lines_held_gzipped_land_as_the_same_object_as_lines_held_as_text() -> anyhow::Result<()> {
+    use std::io::Read as _;
+
+    let lines = vec![
+        r#"{"operation":"selectAuctnCsSrchRslt","n":1}"#.to_owned(),
+        r#"{"operation":"selectAuctnCsSrchRslt","n":2}"#.to_owned(),
+    ];
+    let mut held = GzLines::default();
+    for line in &lines {
+        held.push(line)?;
+    }
+    assert_eq!(held.len(), 2);
+    let bytes = held.finish()?;
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(bytes.as_slice()).read_to_string(&mut text)?;
+    assert_eq!(
+        text,
+        format!(
+            "{}
+{}
+",
+            lines[0], lines[1]
+        )
+    );
+    assert_eq!(
+        bytes,
+        gzip_lines(&lines)?,
+        "one way to write a Bronze object"
     );
     Ok(())
 }

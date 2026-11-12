@@ -511,12 +511,58 @@ pub(crate) async fn collect(
 }
 
 pub(crate) fn gzip_lines(lines: &[String]) -> anyhow::Result<Vec<u8>> {
-    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut gz = GzLines::default();
     for line in lines {
-        encoder.write_all(line.as_bytes())?;
-        encoder.write_all(b"\n")?;
+        gz.push(line)?;
     }
-    Ok(encoder.finish()?)
+    gz.finish()
+}
+
+/// Bronze lines gzipped as they are added: a night's 물건상세 lines are held compressed until the
+/// commit, not as text. On 2026-11-12 the first night that asked every in-progress property held
+/// them as text and the unit was killed at its 1G cap after 2 h 9 min (memory peak 1,023.9M), so
+/// nothing of the night landed.
+pub(crate) struct GzLines {
+    encoder: flate2::write::GzEncoder<Vec<u8>>,
+    count: usize,
+}
+
+impl Default for GzLines {
+    fn default() -> Self {
+        Self {
+            encoder: flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()),
+            count: 0,
+        }
+    }
+}
+
+impl std::fmt::Debug for GzLines {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GzLines")
+            .field("count", &self.count)
+            .finish()
+    }
+}
+
+impl GzLines {
+    pub(crate) fn push(&mut self, line: &str) -> anyhow::Result<()> {
+        self.encoder.write_all(line.as_bytes())?;
+        self.encoder.write_all(b"\n")?;
+        self.count += 1;
+        Ok(())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.count
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub(crate) fn finish(self) -> anyhow::Result<Vec<u8>> {
+        Ok(self.encoder.finish()?)
+    }
 }
 
 /// The run's id and every object's `source_snapshot_id`: when the run started.
@@ -604,7 +650,32 @@ where
     Uow: BronzeIngestUnitOfWork + ?Sized,
     Storage: ObjectStorageService + ?Sized,
 {
-    let bytes = gzip_lines(lines)?;
+    persist_gzipped(
+        search,
+        output_dir,
+        gzip_lines(lines)?,
+        lines.len(),
+        at,
+        night,
+        live,
+    )
+    .await
+}
+
+/// [`persist`] for lines already gzipped (`count` of them).
+pub(crate) async fn persist_gzipped<Uow, Storage>(
+    search: &Search,
+    output_dir: &Path,
+    bytes: Vec<u8>,
+    count: usize,
+    at: DateTime<Utc>,
+    night: &JsonValue,
+    live: Option<(&Uow, &Storage)>,
+) -> anyhow::Result<JsonValue>
+where
+    Uow: BronzeIngestUnitOfWork + ?Sized,
+    Storage: ObjectStorageService + ?Sized,
+{
     let Some((uow, storage)) = live else {
         let plan = plan(search, bytes, IngestionRunId::new(Uuid::new_v4()), at)?;
         let local = write_local_copy(output_dir, &plan)?;
@@ -640,12 +711,12 @@ where
                     source_partition_key: Some(plan.source_partition_key.clone()),
                     source_identity_key: plan.source_identity_key.clone(),
                     dedupe_key: plan.dedupe_key.clone(),
-                    request_params: with_night(&plan.request_params, lines.len(), night),
+                    request_params: with_night(&plan.request_params, count, night),
                     object_key: plan.object_key.clone(),
                     checksum_sha256: plan.checksum_sha256.clone(),
                     content_type: plan.content_type.clone(),
                     size_bytes: plan.size_bytes,
-                    logical_record_count: u64::try_from(lines.len()).ok(),
+                    logical_record_count: u64::try_from(count).ok(),
                     collected_at: at,
                     snapshot_period: plan.snapshot_period.clone(),
                     snapshot_date: plan.snapshot_date,
@@ -671,7 +742,7 @@ where
         id: run.id,
         status: IngestionRunStatus::Succeeded,
         finished_at: Utc::now(),
-        logical_records_seen: u64::try_from(lines.len()).unwrap_or(u64::MAX),
+        logical_records_seen: u64::try_from(count).unwrap_or(u64::MAX),
         objects_written: 1,
         error_message: None,
     })
@@ -916,10 +987,12 @@ pub async fn run() -> anyhow::Result<()> {
     let detail_report = match details {
         Some((result, report)) if !result.lines.is_empty() => {
             let search = contract.item_detail.as_search();
-            let mut entry = persist(
+            let count = result.lines.len();
+            let mut entry = persist_gzipped(
                 &search,
                 &config.output_dir,
-                &result.lines,
+                result.lines.finish()?,
+                count,
                 started,
                 &night,
                 live,
