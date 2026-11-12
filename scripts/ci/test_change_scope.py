@@ -347,6 +347,29 @@ class ReadScanTest(unittest.TestCase):
         self.assertTrue(any("reads `platforms/other/contract.json`" in e for e in errors), errors)
         self.assertFalse(any("unread.json" in e or "reads `platforms/other`" in e for e in errors), errors)
 
+    def test_a_path_from_the_package_directory_joined_at_run_time_is_refused(self) -> None:
+        # 2026-11-11: gongzzang's media_mirrors_foundation.rs, the read #1302 broke without running it.
+        errors = self.scan(
+            "platforms/example/crates/kernel/tests/mirror.rs",
+            'fn other(path: &str) -> String {\n'
+            '    std::fs::read_to_string(PathBuf::from("../../../other").join(path)).unwrap()\n'
+            "}\n"
+            'fn t() { other("crates/kernel/src/media.rs"); }\n',
+            {
+                "platforms/example/crates/kernel/Cargo.toml": "[package]\n",
+                "platforms/other/crates/kernel/src/media.rs": "",
+                "platforms/other/crates/kernel/src/unread.rs": "",
+            },
+        )
+        self.assertTrue(any("reads `platforms/other/crates/kernel/src/media.rs`" in e for e in errors), errors)
+        self.assertFalse(any("unread.rs" in e for e in errors), errors)
+
+    def test_the_package_directory_is_the_nearest_manifest_above_the_source(self) -> None:
+        tracked = {"a/Cargo.toml", "a/b/package.json", "a/b/src/x.ts", "a/c/src/y.rs", "z/q.py"}
+        self.assertEqual(cs.package_dir("a/b/src/x.ts", tracked), "a/b")
+        self.assertEqual(cs.package_dir("a/c/src/y.rs", tracked), "a")
+        self.assertIsNone(cs.package_dir("z/q.py", tracked))
+
     def test_comment_is_not_a_read(self) -> None:
         self.assertEqual(self.scan("platforms/example/src/a.rs", '// see "docs/guide.md"\n'), [])
 

@@ -390,8 +390,28 @@ def source_reads(
     return reads
 
 
+# The directory a test or script runs from is its package's: `cargo test` starts each test there, and
+# an npm script starts in the directory of its package.json.
+PACKAGE_MANIFESTS = ("Cargo.toml", "package.json", "pyproject.toml")
+
+
+def package_dir(source: str, tracked: set[str]) -> str | None:
+    """The nearest directory above `source` that holds a package manifest."""
+    for parent in PurePosixPath(source).parents:
+        if str(parent) != "." and any(f"{parent}/{manifest}" in tracked for manifest in PACKAGE_MANIFESTS):
+            return str(parent)
+    return None
+
+
 def unlisted_reads(root: Path, workflow: str, globs: list[str], tracked: list[str]) -> list[str]:
-    """Every repository path an area's sources read must be one of the workflow's inputs."""
+    """Every repository path an area's sources read must be one of the workflow's inputs.
+
+    A quoted path is also resolved from the source's package directory. 2026-11-11: a gongzzang test
+    opened `../../../../platforms/foundation-platform` (from its crate) joined with
+    `crates/foundation-shared-kernel/src/media.rs`; resolved from the source's own directory that
+    named nothing, the file was no input of gongzzang-ci.yml, #1302 changed it without running that
+    test, and every later queue entry that ran it failed (8 != 6) until #1342.
+    """
     inputs = workflow_inputs(root, workflow, globs)
     tracked_set = set(tracked)
     tracked_dirs = {p for t in tracked for p in map(str, PurePosixPath(t).parents) if p != "."}
@@ -408,7 +428,7 @@ def unlisted_reads(root: Path, workflow: str, globs: list[str], tracked: list[st
             text = (root / source).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for path in source_reads(source, text, tracked_set, tracked_dirs):
+        for path in source_reads(source, text, tracked_set, tracked_dirs, package_dir(source, tracked_set)):
             probe = path if path in tracked_set else f"{path}/x"
             if not matches(probe, inputs):
                 errors.add(f"{workflow}: {source} reads `{path}`, which is not an input; add it to `paths`")
@@ -680,7 +700,7 @@ def dependency_graph(
                 for word in QUOTED_MODULE.findall(code):
                     imported |= by_name.get(word, set())
         quoted: set[str] = set()
-        for path in source_reads(source, text, tracked_set, tracked_dirs):
+        for path in source_reads(source, text, tracked_set, tracked_dirs, package_dir(source, tracked_set)):
             quoted |= {t for t in tracked_set if t == path or t.startswith(path + "/")}
         for name in QUOTED_NAME.findall(code):
             quoted |= by_basename.get(name, set())
