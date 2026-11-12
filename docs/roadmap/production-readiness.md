@@ -250,6 +250,7 @@ last_reviewed: 2026-11-07
 | 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits`<br>`parcel-real-transaction`<br>`unit-price` | — | 화면 |
 | 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |
 | 건물 | 건물 호별 정보 (`silver.building_register_units`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 주택인허가 기본개요 (`silver.housing_permit_basis_outline`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 건축인허가 지역지구구역 (`silver.building_permit_district_zone`) | — | — | 없음 |
 | 건물 | 건축인허가 전유공용면적 (`silver.building_permit_exclusive_common_area`) | — | — | 없음 |
@@ -262,7 +263,6 @@ last_reviewed: 2026-11-07
 | 건물 | 주택인허가 행위호전유공용면적 (`silver.housing_permit_act_unit_exclusive_common_area`) | — | — | 없음 |
 | 건물 | 주택인허가 부대시설 (`silver.housing_permit_ancillary_facility`) | — | — | 없음 |
 | 건물 | 주택인허가 부설주차장 (`silver.housing_permit_annex_parking`) | — | — | 없음 |
-| 건물 | 주택인허가 기본개요 (`silver.housing_permit_basis_outline`) | — | — | 없음 |
 | 건물 | 주택인허가 동별개요 (`silver.housing_permit_building_outline`) | — | — | 없음 |
 | 건물 | 주택인허가 지역지구구역 (`silver.housing_permit_district_zone`) | — | — | 없음 |
 | 건물 | 주택인허가 전유공용면적 (`silver.housing_permit_exclusive_common_area`) | — | — | 없음 |
@@ -304,7 +304,6 @@ last_reviewed: 2026-11-07
 | 주변 생활 | 행정동 성별 연령별 인구 (`silver.dong_population`) | — | — | 없음 |
 | 주변 생활 | 행정동 세대원수별 세대수 (`silver.household_count`) | — | — | 없음 |
 | 행정·내부 | 행정경계(읍면동) (`silver.administrative_boundaries`) | — | `admin-tiles` | 화면 |
-| 행정·내부 | 주택인허가 기본개요 (`silver.housing_permit_basis_outline`) | `parcel-building-permits` | — | 화면 |
 | 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles` | 화면 |
 | 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
