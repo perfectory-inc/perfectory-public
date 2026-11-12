@@ -1,4 +1,4 @@
-//! VWorld's live 중개업자 register, `getEBBrokerInfo`, asked on a roster miss (root ADR-0550 §5).
+//! `VWorld`'s live 중개업자 register, `getEBBrokerInfo`, asked on a roster miss (root ADR-0550 §5).
 //!
 //! The daily national file the roster is loaded from trails the register by a day or two. The
 //! API filters by 중개업자명 (`brkrNm`) and 등록번호 (`jurirno`) but returns the 자격증번호
@@ -14,7 +14,7 @@ use catalog_domain::real_estate_broker::{
 use reqwest::{Client, Url};
 use serde_json::Value;
 
-/// Where the VWorld credential names are decided (canonical first, then deprecated aliases); the
+/// Where the `VWorld` credential names are decided (canonical first, then deprecated aliases); the
 /// same contract the collection adapters read, so this file names none of them.
 const NAMING_CONTRACT: &str =
     include_str!("../../../config/environment-variable-naming.contract.json");
@@ -26,7 +26,7 @@ const MAX_PAGES: usize = 3;
 /// The whole live question, every page included.
 const BUDGET: Duration = Duration::from_secs(3);
 
-/// The live register, present only where the deployment holds a VWorld key.
+/// The live register, present only where the deployment holds a `VWorld` key.
 pub struct VworldBrokerRegister {
     client: Client,
     api_key: String,
@@ -116,7 +116,7 @@ impl BrokerRegister for VworldBrokerRegister {
     }
 }
 
-/// The value of one VWorld credential (`api_key`, `domain`) by the naming contract: its canonical
+/// The value of one `VWorld` credential (`api_key`, `domain`) by the naming contract: its canonical
 /// name, else a deprecated alias, whose name (never its value) is warned about.
 fn credential(which: &str) -> anyhow::Result<Option<String>> {
     let contract: Value = serde_json::from_str(NAMING_CONTRACT)?;
@@ -150,7 +150,7 @@ fn credential(which: &str) -> anyhow::Result<Option<String>> {
     Ok(None)
 }
 
-/// The rows of one page: the one array inside the answer's one top-level object, as every VWorld
+/// The rows of one page: the one array inside the answer's one top-level object, as every `VWorld`
 /// NED operation answers (`{"<list>": {"<list>": [..], "totalCount": ..}}`). An answer with no rows
 /// carries no array.
 fn page_rows(body: &Value) -> Result<Vec<&serde_json::Map<String, Value>>, BrokerRegisterError> {

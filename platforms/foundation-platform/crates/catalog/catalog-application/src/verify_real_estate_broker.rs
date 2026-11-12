@@ -1,6 +1,6 @@
 //! Use case for checking one person against the 부동산중개업 roster (root ADR-0550 §4, §5).
 //!
-//! The roster loaded from Silver answers first. On a miss the live VWorld register is asked, when
+//! The roster loaded from Silver answers first. On a miss the live `VWorld` register is asked, when
 //! the deployment has it, because the daily file trails the register by a day or two (0.16% of
 //! the people of one 시군구 on 2026-11-11). A live answer is not written back: the next file
 //! reaches the roster through Silver.
@@ -38,7 +38,7 @@ pub struct VerifyRealEstateBroker {
 }
 
 impl VerifyRealEstateBroker {
-    /// Creates the use case; `live` is none where the deployment holds no VWorld key.
+    /// Creates the use case; `live` is none where the deployment holds no `VWorld` key.
     #[must_use]
     pub const fn new(
         roster: Arc<dyn BrokerRegister>,
@@ -101,15 +101,15 @@ mod tests {
         }
     }
 
-    fn found() -> Option<BrokerMatch> {
-        Some(BrokerMatch {
+    fn found() -> BrokerMatch {
+        BrokerMatch {
             member_kind_name: Some("공인중개사".to_owned()),
             position_name: Some("대표".to_owned()),
             registration_no: "99999-2026-00001".to_owned(),
             office_name: None,
             office_status_name: None,
             data_reference_date: None,
-        })
+        }
     }
 
     fn query() -> BrokerVerifyQuery {
@@ -128,7 +128,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_roster_answers_first_and_the_live_register_only_on_a_miss() {
-        let hit = verify(Fixed(Ok(found())), Some(Fixed(Err(()))))
+        let hit = verify(Fixed(Ok(Some(found()))), Some(Fixed(Err(()))))
             .execute(&query())
             .await;
         assert_eq!(
@@ -136,7 +136,7 @@ mod tests {
             Some(vec![BrokerSource::Registry])
         );
 
-        let live = verify(Fixed(Ok(None)), Some(Fixed(Ok(found()))))
+        let live = verify(Fixed(Ok(None)), Some(Fixed(Ok(Some(found())))))
             .execute(&query())
             .await;
         let live = live.ok();

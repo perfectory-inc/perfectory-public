@@ -111,7 +111,7 @@ pub struct BrokerMatch {
 pub enum BrokerSource {
     /// The roster loaded from Silver.
     Registry,
-    /// VWorld's live `getEBBrokerInfo`, asked on a roster miss.
+    /// `VWorld`'s live `getEBBrokerInfo`, asked on a roster miss.
     VworldLive,
 }
 
