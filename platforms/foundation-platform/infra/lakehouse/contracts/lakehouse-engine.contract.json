@@ -59,6 +59,11 @@
   "engines": {
     "decision": "docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md",
     "purpose": "Which engine runs what, and the ledger of what is still on Spark (root ADR-0559). DuckDB inside the Rust publisher is the engine of every transform and query; Spark's one standing role is table maintenance, started once a day. `spark_sessions` lists every file of infra/lakehouse/spark/jobs that starts a Spark session, itself or through a session builder (test_engine_ledger.SESSION_START). No file joins it. A file leaves Spark by changing its line from `wave` to `moved`: the `engine_equality` verdict it moved on (the pull request, the rows compared, and the fingerprint both engines produced). 2026-11-11: the 실거래 Gold failed 26 times at a 20 GB JVM, the rt-molit Silver load ran out of heap, Trino was killed at its container cap, and one Spark pool held 18 jobs waiting.",
+    "merge_commit": {
+      "decision": "docs/adr/0561-a-gold-that-merges-leaves-spark-by-becoming-a-table-of-appended-row-versions-the-publisher-commits.md",
+      "status": "proposed",
+      "purpose": "How a file whose commit is a MERGE leaves this ledger. The publisher's Iceberg commit only appends (root ADR-0560), so moving such a producer's compute leaves its Spark session in place. Proposed: the two Golds that do not exist yet (gold.parcel_nearby, gold.parcel_real_transaction) are born as tables of appended row versions (row_versions LatestPerKey with a removal column, root ADR-0286) that the publisher commits, and the existing Replaced Golds are decided after those two are measured. Nothing is built until the owner accepts it; until then these files move compute only."
+    },
     "waves": {
       "1": "Failing on JVM memory today: moved first.",
       "2": "The 16 GB Gold producers and the jobs that hold the pool longest.",
