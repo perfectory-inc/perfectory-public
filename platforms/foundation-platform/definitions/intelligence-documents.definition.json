@@ -51,7 +51,7 @@
       "scope": "new-objects",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "The cited facts of the notice attachments' text (root ADR-0477 §5; scripts/ops/intelligence-document-fact.sh): the hashes with a text outcome of the fact version's text version and no intelligence.document_fact_outcome of the fact version, newest text first, at most document_fact.per_run_limit and until its run_time_budget_seconds. Rules first with their table totals; only the land-use tables the rules cannot close go to the local model (MODEL_RUNTIME_*, root ADR-0478), at most model_pages_per_run pages, and an OCR'd value is kept only if its table closes or the local vision model reads the same digits on the drawn page. Facts are appended before their outcomes. It runs the model runtime unit for as long as it runs and holds every spark slot meanwhile, so the model never holds memory beside Spark.",
+      "description": "The cited facts of the notice attachments' text (root ADR-0477 §5; scripts/ops/intelligence-document-fact.sh): the hashes with a text outcome of the fact version's text version and no intelligence.document_fact_outcome of the fact version, newest text first, at most document_fact.per_run_limit and until its run_time_budget_seconds. Rules first with their table totals; only the land-use tables the rules cannot close go to the local model (MODEL_RUNTIME_*, root ADR-0478), at most model_pages_per_run pages, and an OCR'd value is kept only if its table closes or the local vision model reads the same digits on the drawn page. Facts are appended before their outcomes; then the complexes whose attachments got facts in the run get one gold.complex_document_facts row each with the facts their panel may show (fold-complex-facts: only the kinds the hand-checked gate admits, each from the newest notice stating it; every complex when the gate or fact version changed). It runs the model runtime unit for as long as it runs and holds every spark slot meanwhile, so the model never holds memory beside Spark.",
       "systemd_service": "foundation-intelligence-document-fact.service",
       "systemd_timer": null,
       "state_paths": [
@@ -71,8 +71,8 @@
         "deadline": "../intelligence-platform/config/document-extraction.contract.json#/document_fact/run_time_budget_seconds",
         "measured_run_seconds": null,
         "first_run": {
-          "estimate_seconds": 3900,
-          "estimated_from": "computed from its own bounds: documents stop starting at run_time_budget_seconds (3,300 s); rules take milliseconds and the model is asked at most model_pages_per_run (60) pages, each call bounded by model_timeout_seconds (600 s; 13.3 s a notice measured on ai-server, root ADR-0478), so the call in flight finishes after the budget; plus the model runtime's start (up to 120 s, its unit) and the plan and append Spark steps (about 300 s). About 3,300 + 200 + 120 + 300 = 3,900 s, inside the 4,320 s share of the 80-minute limit."
+          "estimate_seconds": 4100,
+          "estimated_from": "computed from its own bounds: documents stop starting at run_time_budget_seconds (3,300 s); rules take milliseconds and the model is asked at most model_pages_per_run (60) pages, each call bounded by model_timeout_seconds (600 s; 13.3 s a notice measured on ai-server, root ADR-0478), so the call in flight finishes after the budget; plus the model runtime's start (up to 120 s, its unit), the plan and append Spark steps (about 300 s) and the fold step (one more spark-small session over the run's complexes, about 180 s). About 3,300 + 200 + 120 + 300 + 180 = 4,100 s, inside the 4,320 s share of the 80-minute limit."
         }
       },
       "pool": "spark",
@@ -81,7 +81,10 @@
       "retries": 0,
       "pipeline_graph_edges": [
         "intelligence-document-text-page-to-intelligence-document-fact",
-        "intelligence-document-text-page-to-intelligence-document-fact-outcome"
+        "intelligence-document-text-page-to-intelligence-document-fact-outcome",
+        "intelligence-document-fact-to-gold-complex-document-facts",
+        "silver-industrial-complex-notice-attachment-to-gold-complex-document-facts",
+        "silver-industrial-complex-notice-detail-to-gold-complex-document-facts"
       ],
       "enabled": true,
       "started_once_after_deploy": false,
@@ -200,6 +203,25 @@
           "value": "intelligence.document_fact_outcome"
         }
       ]
+    },
+    {
+      "id": "gold-complex-document-facts",
+      "type": "gold_table",
+      "title": "산업단지 고시에서 읽은 사실(패널용)",
+      "description": "단지마다 패널이 말해도 되는 사실: 손 확인 정밀도 관문을 넘은 사실 종류(루트 ADR-0477 §5)만, 종류마다 그것을 말하는 가장 새 고시의 첨부 하나에서, 읽은 쪽과 함께. 사실 작업의 접기 단계가 그 run 에 사실이 쌓인 첨부의 단지만 한 줄씩 쌓고, 단지마다 가장 새 줄이 현재다. 관문이나 사실 판이 바뀌면 전부 다시 접는다(선언된 예외). 첫 run 전이라 아직 흐르지 않는다.",
+      "status": "contract_only",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "platforms/foundation-platform/infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json",
+        "platforms/intelligence-platform/config/document-extraction.contract.json"
+      ],
+      "table_name": "gold.complex_document_facts",
+      "runtime_bindings": [
+        {
+          "kind": "lakehouse_contract",
+          "value": "gold.complex_document_facts"
+        }
+      ]
     }
   ],
   "dependencies": [
@@ -250,6 +272,39 @@
         "platforms/intelligence-platform/jobs/document_text/document_text/fact_run.py"
       ],
       "description": "사실 판마다 문서 하나를 읽은 기록을 사실보다 뒤에 쌓는다. 첫 run 전이라 아직 흐르지 않는다."
+    },
+    {
+      "from": "intelligence-document-fact",
+      "to": "gold-complex-document-facts",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py"
+      ],
+      "description": "인용 달린 사실 가운데 관문이 들인 (종류, 방법, 쪽 방법)만 단지의 패널 문서로 접는다(루트 ADR-0477 §1·§5). 첫 run 전이라 아직 흐르지 않는다."
+    },
+    {
+      "from": "silver-industrial-complex-notice-attachment",
+      "to": "gold-complex-document-facts",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py"
+      ],
+      "description": "사실의 첨부 해시를 그 단지 코드와 첨부 순서로 잇는다. 첫 run 전이라 아직 흐르지 않는다."
+    },
+    {
+      "from": "silver-industrial-complex-notice-detail",
+      "to": "gold-complex-document-facts",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/intelligence-document-fact.sh",
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/intelligence_documents.py"
+      ],
+      "description": "고시 번호·제목·고시일: 종류마다 가장 새 고시를 고르고 출처로 적는다. 첫 run 전이라 아직 흐르지 않는다."
     }
   ]
 }

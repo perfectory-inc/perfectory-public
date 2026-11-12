@@ -14831,6 +14831,77 @@
         "unit": "run",
         "column": "run_id"
       }
+    },
+    "gold.complex_document_facts": {
+      "table_name": "gold.complex_document_facts",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "official_complex_code"
+        ],
+        "newest_first": [
+          "run_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "document_facts_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "fact_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "fact_extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "accuracy_gate_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "folded_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "run_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "official_complex_code"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(official_complex_code, run_id) unique",
+        "every fact's (fact_kind, method, page_method) is in the row's accuracy_gate_json",
+        "fact_count is the number of facts in document_facts_json"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "run_id"
+      }
     }
   },
   "jsonl_transports": {
