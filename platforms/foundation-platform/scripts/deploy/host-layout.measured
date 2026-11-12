@@ -1,0 +1,8 @@
+# The directories of the host the release's tmpfiles lines are made under, as they are before a
+# release touches them: path, mode, owner, and the owner's uid where it was measured.
+# Measured read-only on ai-server, 2026-11-12 (`stat -c '%U %a %n'`, `id -u perfectory`).
+# scripts/deploy/host-config-check.sh builds its throwaway root from this (root ADR-0555).
+/data 0755 perfectory 1000
+/data/foundation-platform 0775 perfectory 1000
+/var/lib/foundation-platform 0750 foundation-platform
+/var/lib/foundation-jobs 0755 root

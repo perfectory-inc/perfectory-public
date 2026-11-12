@@ -512,12 +512,31 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.deployed(), [released])
         self.assertEqual(self.series(), {'foundation_autodeploy_tick_timestamp_seconds{reason=""}': "now"})
 
+    def test_a_second_commit_whose_deploy_fails_is_counted_and_a_success_clears_it(self):
+        # 2026-11-11 15:34Z and 15:41Z: two commits in a row failed on the same tmpfiles line.
+        name = "foundation_autodeploy_failed_deploys_in_a_row"
+        first, second, third = "1" * 40, "2" * 40, "3" * 40
+        self.assertEqual(self.tick(head=first, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.assertEqual(self.series().get(name), 1)
+        self.assertEqual(self.tick(head=second, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.assertEqual(self.series().get(name), 2)
+        # A later tick that deploys nothing still says so: the page stays until a deploy succeeds.
+        self.assertEqual(self.tick(head=second).returncode, 0)
+        self.assertEqual(self.series().get(name), 2)
+        # The success is newer than both failures (file times have whole-second steps on some hosts).
+        for failed in (first, second):
+            os.utime(self.state / "failed" / failed, (1_700_000_000, 1_700_000_000))
+        self.assertEqual(self.tick(head=third).returncode, 0)
+        self.assertEqual(self.deployed(), [first, second, third])
+        self.assertNotIn(name, self.series())
+
     def test_a_failing_deploy_says_so_and_the_host_stays_behind(self):
         (head,) = self.main_with((self.IN_SCOPE, 1_700_000_000))
         self.assertEqual(self.tick(head=head, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
         self.assertEqual(self.series(), {
             'foundation_autodeploy_tick_timestamp_seconds{reason="deploy_failed"}': "now",
             f'foundation_autodeploy_behind_since_timestamp_seconds{{reason="deploy_failed",commit="{head[:12]}"}}': 1_700_000_000,
+            "foundation_autodeploy_failed_deploys_in_a_row": 1,
         })
         self.assertEqual(self.tick(head=head).returncode, 0)
         self.assertEqual(list(self.series())[0], 'foundation_autodeploy_tick_timestamp_seconds{reason="every_newer_commit_refused_or_failed"}')

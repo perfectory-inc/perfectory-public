@@ -235,6 +235,19 @@ groups:
         annotations:
           summary: '호스트가 main 보다 {{ humanizeDuration $value }} 뒤처져 있어요(가장 오래된 미배포 커밋 {{ $labels.commit }}) — 이유: {{ $labels.reason }}. 런북의 이유 표를 보세요'
           runbook: docs/runbooks/deploy-alerts.md
+      # Two commits in a row could not be deployed (root ADR-0555). One failed deploy is that
+      # commit's and reaches Slack through the unit's OnFailure; a second commit failing means the
+      # host itself refuses releases, and every merge after it stays off the host. 2026-11-11: the
+      # deploys of 9ded86a4 (15:34Z) and the next commit (15:41Z) failed on the same tmpfiles line;
+      # this fires at the second, 7 minutes in, where FoundationHostBehindMain waits 6 hours.
+      - alert: FoundationDeployFailedTwice
+        expr: foundation_autodeploy_failed_deploys_in_a_row >= 2
+        labels:
+          severity: page
+          service: deploy
+        annotations:
+          summary: '배포가 연달아 {{ $value }}번 실패했어요 — 호스트가 새 릴리스를 받지 못하고 있고, 뒤에 병합되는 것도 전부 운영에 닿지 않아요. journalctl -u foundation-autodeploy.service 의 마지막 실패를 보고, 고치는 PR 에 hotfix:deploy-stop 라벨을 붙여 큐 앞에 세우세요'
+          runbook: docs/runbooks/deploy-alerts.md
       - alert: FoundationAutodeployStopped
         # The two above are written by the autodeploy's ticks; without ticks they cannot fire. A deploy
         # holds the tick lock while it runs, and FoundationDeployLong speaks for that time.
