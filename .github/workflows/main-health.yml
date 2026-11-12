@@ -1,0 +1,39 @@
+name: main-health
+# Says when main is red: a pull request and the merge queue run only what a change reaches, and a
+# push to main repeats nothing the queue passed, so a break past the selection shows nowhere on main
+# itself (root ADR-0554). Every 10 minutes this reads the runs GitHub already made and keeps one
+# issue labelled main-red open while a job fails on main or for two pull requests in a row in the
+# queue. It gates no pull request.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  watch:
+    name: Main health
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The only job that writes: issues, nothing else, on main only (root ADR-0554).
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/main_health.py
+            tools/ci/change-scope.json
+          sparse-checkout-cone-mode: false
+      - name: Keep the one issue in step
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/main_health.py
