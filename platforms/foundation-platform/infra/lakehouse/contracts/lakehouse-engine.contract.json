@@ -55,5 +55,190 @@
     "max_row_group_bytes": 268435456,
     "row_group_check_min_records": 1,
     "row_group_check_max_records": 16
+  },
+  "engines": {
+    "decision": "docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md",
+    "purpose": "Which engine runs what, and the ledger of what is still on Spark (root ADR-0559). DuckDB inside the Rust publisher is the engine of every transform and query; Spark's one standing role is table maintenance, started once a day. `spark_sessions` lists every file of infra/lakehouse/spark/jobs that starts a Spark session, itself or through a session builder (test_engine_ledger.SESSION_START). No file joins it. A file leaves Spark by changing its line from `wave` to `moved`: the `engine_equality` verdict it moved on (the pull request, the rows compared, and the fingerprint both engines produced). 2026-11-11: the 실거래 Gold failed 26 times at a 20 GB JVM, the rt-molit Silver load ran out of heap, Trino was killed at its container cap, and one Spark pool held 18 jobs waiting.",
+    "waves": {
+      "1": "Failing on JVM memory today: moved first.",
+      "2": "The 16 GB Gold producers and the jobs that hold the pool longest.",
+      "3": "The other Gold producers: the same build_or_merge seam as wave 2, so they follow its commit path.",
+      "4": "Bronze-to-Silver loads, exports and gates.",
+      "5": "Geometry handoffs and served-boundary Golds that feed the tile and boundary publish.",
+      "6": "Table DDL, once every writer of a table is off Spark."
+    },
+    "spark_sessions": {
+      "administrative_boundaries_handoff_to_silver": {
+        "wave": 5
+      },
+      "administrative_boundary_served_gold": {
+        "wave": 5
+      },
+      "building_demolition_silver_to_gold": {
+        "wave": 3
+      },
+      "building_energy_silver_to_gold": {
+        "wave": 3
+      },
+      "building_panel_silver_to_gold": {
+        "wave": 2
+      },
+      "building_permit_silver_to_gold": {
+        "wave": 3
+      },
+      "building_register_floor_history": {
+        "wave": 4
+      },
+      "building_register_master_silver_to_gold": {
+        "wave": 3
+      },
+      "building_register_unit_floor_resolution_export": {
+        "wave": 4
+      },
+      "building_register_unit_proposal_context_export": {
+        "wave": 4
+      },
+      "building_sub_parcel_silver_to_gold": {
+        "wave": 3
+      },
+      "by_pnu_kind_silver_to_gold": {
+        "wave": 2
+      },
+      "by_pnu_kind_sizes": {
+        "wave": 2
+      },
+      "by_pnu_panel_delta": {
+        "wave": 2
+      },
+      "court_auction_silver_to_gold": {
+        "wave": 3
+      },
+      "courtauction_go_kr": {
+        "wave": 4
+      },
+      "data_go_kr_file_data": {
+        "wave": 4
+      },
+      "data_go_kr_onbid": {
+        "wave": 4
+      },
+      "data_go_kr_registered_factory": {
+        "wave": 4
+      },
+      "gold_rebuild": {
+        "wave": 2
+      },
+      "industrial_complex_boundaries_handoff_to_silver": {
+        "wave": 5
+      },
+      "industrial_complex_boundaries_silver_to_postgis_handoff": {
+        "wave": 5
+      },
+      "industrial_complex_boundary_served_gold": {
+        "wave": 5
+      },
+      "industrial_complex_bronze_to_silver": {
+        "wave": 4
+      },
+      "industrial_complex_silver_to_gold": {
+        "wave": 3
+      },
+      "industryland_or_kr": {
+        "wave": 4
+      },
+      "intelligence_documents": {
+        "wave": 4
+      },
+      "lakehouse_maintenance": {
+        "stays": "maintenance"
+      },
+      "lakehouse_schema_migrate": {
+        "wave": 6
+      },
+      "land_ownership_silver_to_gold": {
+        "wave": 2
+      },
+      "land_use_zone_area_tile_handoff": {
+        "wave": 5
+      },
+      "legal_dong_code_change_pairs": {
+        "wave": 4
+      },
+      "legal_dong_code_snapshot_to_reference": {
+        "wave": 4
+      },
+      "lineage_review_queue_to_gold": {
+        "wave": 3
+      },
+      "lineage_steward_fold_to_silver": {
+        "wave": 4
+      },
+      "onbid_public_auction_silver_to_gold": {
+        "wave": 3
+      },
+      "parcel_boundary_served_gold": {
+        "wave": 5
+      },
+      "parcel_lineage_scheduled": {
+        "wave": 4
+      },
+      "parcel_lineage_to_silver": {
+        "wave": 4
+      },
+      "parcel_matching_gate": {
+        "wave": 4
+      },
+      "parcel_nearby_silver_to_gold": {
+        "wave": 1
+      },
+      "parcel_panel_silver_to_gold": {
+        "wave": 2
+      },
+      "parcel_registry_to_silver": {
+        "wave": 4
+      },
+      "place_id_release_to_gold": {
+        "wave": 3
+      },
+      "place_reference_queue_to_gold": {
+        "wave": 3
+      },
+      "real_transaction_silver_to_gold": {
+        "wave": 1
+      },
+      "registered_factory_silver_to_gold": {
+        "wave": 3
+      },
+      "regulation_zones_silver_to_gold": {
+        "wave": 2
+      },
+      "rt_molit_real_transaction": {
+        "wave": 1
+      },
+      "silver_release_compare": {
+        "wave": 4
+      },
+      "silver_scalar_handoff_to_lakehouse": {
+        "wave": 4
+      },
+      "spatial_silver_handoff": {
+        "wave": 5
+      },
+      "unit_official_price": {
+        "wave": 3
+      },
+      "unit_price_panel_silver_to_gold": {
+        "wave": 2
+      },
+      "vintage_versions": {
+        "wave": 4
+      },
+      "vworld_parcel_boundaries_handoff_to_silver": {
+        "wave": 5
+      },
+      "vworld_parcel_number_change_history": {
+        "wave": 4
+      }
+    }
   }
 }
