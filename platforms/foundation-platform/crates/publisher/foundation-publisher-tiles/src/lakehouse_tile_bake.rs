@@ -103,7 +103,7 @@ pub use partitions::{
     PartitionedCsv, Warmed,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
-use upload::{bake_and_upload, compared_with, rehearse, Upload};
+use upload::{bake_and_upload, compared_with, ensure_comparable, rehearse, Upload};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const CONTRACT_JSON: &str = include_str!("../../../../config/tile-bake-containers.contract.json");
@@ -1366,6 +1366,11 @@ async fn bake_in(
         unchanged(&config.unit_key, &active.snapshot);
         return Ok(());
     }
+    ensure_comparable(
+        &config.unit_key,
+        compared_with(&active),
+        config.low_zoom_generalization.as_ref(),
+    )?;
     if let Some(parts) = prepared.2.as_deref() {
         let unbaked = (&contract.images, prepared.0.as_slice(), srid, &active.layer);
         if partitions::deferred(config, work, parts, &inputs, &summary, unbaked).await? {

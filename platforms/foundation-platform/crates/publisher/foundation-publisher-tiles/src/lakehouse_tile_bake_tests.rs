@@ -377,6 +377,21 @@ fn an_active_release_baked_from_the_lakehouse_skips_the_first_release_gate() {
     assert!(tile_equivalence::skipped(ActiveOrigin::OtherOven).is_none());
 }
 
+#[test]
+fn a_bake_whose_gate_could_not_match_ids_is_refused_before_it_bakes() -> anyhow::Result<()> {
+    let contract = BakeContract::parse(CONTRACT_JSON)?;
+    let generalized = contract.low_zoom_generalization.get("zoning");
+    assert!(generalized.is_some(), "zoning is generalized below maxzoom");
+    let active = Some("gold/vector-tiles/releases/zoning-synthetic.pmtiles");
+    let refusal = ensure_comparable("zoning", active, generalized)
+        .expect_err("another oven's release cannot be compared with a generalized archive");
+    assert!(refusal.to_string().contains("nothing was baked"));
+    // Nothing to compare (a lakehouse-baked active release), or every zoom keeps its id.
+    ensure_comparable("zoning", None, generalized)?;
+    ensure_comparable("parcels", active, None)?;
+    Ok(())
+}
+
 fn two_zoom_archive(min: u8, max: u8) -> Vec<u8> {
     archive(
         min,
