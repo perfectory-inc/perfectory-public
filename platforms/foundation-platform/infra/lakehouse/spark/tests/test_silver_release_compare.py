@@ -90,6 +90,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.land_use_plan": "source_snapshot_id",
             "silver.land_use_zone_area": "source_snapshot_id",
             "silver.land_use_zone_code": None,
+            "silver.real_estate_broker_member": "source_snapshot_id",
             "silver.real_estate_broker_office": "source_snapshot_id",
         })
 

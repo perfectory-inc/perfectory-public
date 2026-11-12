@@ -347,7 +347,8 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (root ADR-0511).
 # 169 -> 170: the Silver refresh's 중개사무소 lane compiles in its source contract
 # (vworld-real-estate-broker-office-source-objects.json, root ADR-0511), as each land lane does.
-COMPILE_TIME_READ_BASELINE="${3:-170}"
+# 170 -> 171: its 소속 인원 lane does the same (vworld-real-estate-broker-member-source-objects.json).
+COMPILE_TIME_READ_BASELINE="${3:-171}"
 
 cd "$repo_root"
 
