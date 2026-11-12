@@ -1,6 +1,6 @@
 [Unit]
 Description=Foundation Platform broker sign-up roster: load the offices whose Silver rows changed since the last load into catalog.real_estate_broker_office and _member (root ADR-0550)
-Documentation=file:///opt/foundation-platform/current/docs/adr/0550-a-broker-sign-up-is-checked-against-a-postgres-roster-loaded-by-changed-office-and-a-miss-asks-vworld-live.md
+Documentation=file:///opt/foundation-platform/current/docs/runbooks/real-estate-broker-lookup.md
 X-Foundation-Owner=lakehouse
 Requires=docker.service
 After=docker.service network-online.target

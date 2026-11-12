@@ -96,6 +96,10 @@
           "mode": "0777"
         },
         {
+          "path": "/var/lib/foundation-platform/real-estate-broker-lookup",
+          "mode": "0755"
+        },
+        {
           "path": "/var/lib/foundation-platform/industrial-complex-notice",
           "mode": "0755"
         },

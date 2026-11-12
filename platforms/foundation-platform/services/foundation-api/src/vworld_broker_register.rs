@@ -233,7 +233,7 @@ mod tests {
         json!({"EDBrokers": {"field": [
             {"brkrNm": "홍길동", "crqfcNo": "99999-0001", "jurirno": "99999-2026-00001",
              "brkrAsortCodeNm": "공인중개사", "ofcpsSeCodeNm": "대표", "bsnmCmpnm": "합성중개"},
-            {"brkrNm": "홍 길동", "crqfcNo": "99999-0002", "jurirno": "99999-2026-00002"}
+            {"brkrNm": " 홍길동 ", "crqfcNo": "99999-0002", "jurirno": "99999-2026-00002"}
         ], "totalCount": "2", "pageNo": "1", "numOfRows": "1000"}})
     }
 

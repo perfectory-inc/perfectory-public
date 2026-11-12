@@ -2,9 +2,11 @@
 //!
 //! The changed offices are the keys of the Silver rows at or after the last load's watermark, read
 //! at one pinned snapshot of each table; their current rows come from the contract's newest-per-key
-//! rule, rendered by `LakehouseCurrentRowLatest::trino_current_rows_sql`. One transaction retires
-//! the roster rows of those offices, inserts their current rows and records the load. The first
-//! load has no watermark and reads every office: the declared exception.
+//! rule, rendered by `LakehouseCurrentRowLatest::trino_current_rows_sql`. Each batch of offices is
+//! one transaction that retires their roster rows, inserts their current rows and records the
+//! batch; the last batch completes the load. A run stopped at its limit keeps its batches and the
+//! next run goes on with the offices they did not hold (root ADR-0457). The first load has no
+//! watermark and reads every office: the declared exception.
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
@@ -24,6 +26,11 @@ const TRINO_CONTAINER_ENV: &str = "FOUNDATION_PLATFORM_REAL_ESTATE_BROKER_LOOKUP
 const TRINO_CATALOG: &str = "r2";
 /// Changed offices per Trino query, so one statement stays a few tens of kilobytes.
 const KEYS_PER_QUERY: usize = 500;
+/// Offices per committed batch: the first load's 106,429 offices are six batches, and a run stopped
+/// at its limit keeps every batch it committed (root ADR-0457).
+const OFFICES_PER_BATCH: usize = 20_000;
+/// The watermark of a load that has not completed once: every Silver row is at or after it.
+const UNLOADED_WATERMARK: &str = "1970-01-01 00:00:00";
 
 const OFFICE_COLUMNS: &[&str] = &[
     "sigungu_code",
@@ -263,14 +270,22 @@ pub async fn run() -> anyhow::Result<()> {
     let container = optional_env_value(TRINO_CONTAINER_ENV)?
         .unwrap_or_else(|| "foundation-platform-trino".to_owned());
     let mut conn = PgConnection::connect(&required_env_value("DATABASE_URL")?).await?;
-    let last = sqlx::query(
-        "SELECT office_watermark, member_watermark FROM catalog.real_estate_broker_lookup_load
-         ORDER BY id DESC LIMIT 1",
+    let completed = sqlx::query(
+        "SELECT id, office_watermark, member_watermark FROM catalog.real_estate_broker_lookup_load
+         WHERE completes_load ORDER BY id DESC LIMIT 1",
     )
     .fetch_optional(&mut conn)
     .await?
-    .map(|row| -> Result<(String, String), sqlx::Error> { Ok((row.try_get(0)?, row.try_get(1)?)) })
+    .map(|row| -> Result<(i64, String, String), sqlx::Error> {
+        Ok((row.try_get(0)?, row.try_get(1)?, row.try_get(2)?))
+    })
     .transpose()?;
+    let last = completed
+        .as_ref()
+        .map(|(_, office, member)| (office.clone(), member.clone()));
+    // The batches a stopped run committed after the last completed load: their offices are loaded
+    // already, and this run goes on with the rest.
+    let resumed = loaded_since(&mut conn, completed.as_ref().map(|(id, _, _)| *id)).await?;
     let office = pin(&container, &SILVER_REAL_ESTATE_BROKER_OFFICE).await?;
     let member = pin(&container, &SILVER_REAL_ESTATE_BROKER_MEMBER).await?;
     let (office_keys, office_newest) = changed_offices(
@@ -285,8 +300,12 @@ pub async fn run() -> anyhow::Result<()> {
         last.as_ref().map(|(_, member)| member.as_str()),
     )
     .await?;
-    let changed: BTreeSet<OfficeKey> = office_keys.union(&member_keys).cloned().collect();
-    if changed.is_empty() {
+    let changed: BTreeSet<OfficeKey> = office_keys
+        .union(&member_keys)
+        .filter(|key| !resumed.contains(*key))
+        .cloned()
+        .collect();
+    if changed.is_empty() && resumed.is_empty() {
         outcome(&format!(
             "real-estate-broker-lookup-load unchanged office_snapshot={} member_snapshot={}",
             office.snapshot_id, member.snapshot_id
@@ -299,41 +318,105 @@ pub async fn run() -> anyhow::Result<()> {
     let members: Vec<MemberRow> =
         current_rows(&container, &member, MEMBER_COLUMNS, &changed, first).await?;
 
-    let (office_lines, office_skipped) = office_copy_lines(&offices);
-    let (member_lines, member_skipped) = member_copy_lines(&members);
-    let skipped = office_skipped + member_skipped;
-
     let office_watermark = office_newest
         .or_else(|| last.as_ref().map(|(office, _)| office.clone()))
         .context("silver.real_estate_broker_office has no rows")?;
     let member_watermark = member_newest
         .or_else(|| last.as_ref().map(|(_, member)| member.clone()))
         .context("silver.real_estate_broker_member has no rows")?;
+    // A batch before the last carries the watermarks the load started from: a run stopped after it
+    // reads the same changes again and skips the offices it committed (`resumed`).
+    let (start_office, start_member) = last
+        .clone()
+        .unwrap_or_else(|| (UNLOADED_WATERMARK.to_owned(), UNLOADED_WATERMARK.to_owned()));
 
-    let load = Load {
-        office: &office,
-        member: &member,
-        office_watermark: &office_watermark,
-        member_watermark: &member_watermark,
-        changed: &changed,
-        office_lines: &office_lines,
-        member_lines: &member_lines,
-    };
-    let (load_id, retired) = write_load(&mut conn, &load).await?;
+    let keys: Vec<&OfficeKey> = changed.iter().collect();
+    let mut batches: Vec<&[&OfficeKey]> = keys.chunks(OFFICES_PER_BATCH).collect();
+    if batches.is_empty() {
+        // Every changed office was committed by a stopped run: this run only completes the load.
+        batches.push(&[]);
+    }
+    let (mut retired, mut offices_written, mut members_written, mut skipped) = (0, 0, 0, 0);
+    let mut load_id = 0;
+    for (index, batch) in batches.iter().enumerate() {
+        let completes = index + 1 == batches.len();
+        let in_batch: BTreeSet<&OfficeKey> = batch.iter().copied().collect();
+        let key_of = |sigungu: &String, registration: &String| {
+            in_batch.contains(&(sigungu.clone(), registration.clone()))
+        };
+        let batch_offices: Vec<&OfficeRow> = offices
+            .iter()
+            .filter(|row| key_of(&row.sigungu_code, &row.registration_no))
+            .collect();
+        let batch_members: Vec<&MemberRow> = members
+            .iter()
+            .filter(|row| key_of(&row.sigungu_code, &row.registration_no))
+            .collect();
+        let (office_lines, office_skipped) = office_copy_lines(&batch_offices);
+        let (member_lines, member_skipped) = member_copy_lines(&batch_members);
+        let load = Load {
+            office: &office,
+            member: &member,
+            office_watermark: if completes {
+                &office_watermark
+            } else {
+                &start_office
+            },
+            member_watermark: if completes {
+                &member_watermark
+            } else {
+                &start_member
+            },
+            changed: batch,
+            office_lines: &office_lines,
+            member_lines: &member_lines,
+            completes,
+        };
+        let (id, batch_retired) = write_load(&mut conn, &load).await?;
+        load_id = id;
+        retired += batch_retired;
+        offices_written += office_lines.len();
+        members_written += member_lines.len();
+        skipped += office_skipped + member_skipped;
+    }
     outcome(&format!(
         "real-estate-broker-lookup-load changed load={load_id} first={first} changed_offices={} \
-         offices={} members={} retired={retired} skipped={skipped} office_snapshot={} member_snapshot={}",
+         resumed_offices={} batches={} offices={offices_written} members={members_written} \
+         retired={retired} skipped={skipped} office_snapshot={} member_snapshot={}",
         changed.len(),
-        office_lines.len(),
-        member_lines.len(),
+        resumed.len(),
+        batches.len(),
         office.snapshot_id,
         member.snapshot_id
     ))?;
     Ok(())
 }
 
+/// The offices whose current roster rows a load after `completed` wrote: the batches of a run that
+/// stopped before its last batch (every office when no load has completed).
+async fn loaded_since(
+    conn: &mut PgConnection,
+    completed: Option<i64>,
+) -> anyhow::Result<BTreeSet<OfficeKey>> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT sigungu_code, registration_no FROM (
+             SELECT sigungu_code, registration_no, loaded_by_load_id
+             FROM catalog.real_estate_broker_office WHERE retired_by_load_id IS NULL
+             UNION ALL
+             SELECT sigungu_code, registration_no, loaded_by_load_id
+             FROM catalog.real_estate_broker_member WHERE retired_by_load_id IS NULL
+         ) AS current WHERE loaded_by_load_id > $1",
+    )
+    .bind(completed.unwrap_or(0))
+    .fetch_all(&mut *conn)
+    .await?;
+    rows.into_iter()
+        .map(|row| Ok((row.try_get(0)?, row.try_get(1)?)))
+        .collect()
+}
+
 /// The COPY lines of the office rows, and how many had no comparable 등록번호.
-fn office_copy_lines(offices: &[OfficeRow]) -> (Vec<String>, usize) {
+fn office_copy_lines(offices: &[&OfficeRow]) -> (Vec<String>, usize) {
     let mut skipped = 0_usize;
     let lines = offices
         .iter()
@@ -357,7 +440,7 @@ fn office_copy_lines(offices: &[OfficeRow]) -> (Vec<String>, usize) {
 }
 
 /// The COPY lines of the people, and how many had no name or no comparable 등록번호.
-fn member_copy_lines(members: &[MemberRow]) -> (Vec<String>, usize) {
+fn member_copy_lines(members: &[&MemberRow]) -> (Vec<String>, usize) {
     let mut skipped = 0_usize;
     let lines = members
         .iter()
@@ -396,13 +479,15 @@ struct Load<'a> {
     member: &'a Pinned,
     office_watermark: &'a str,
     member_watermark: &'a str,
-    changed: &'a BTreeSet<OfficeKey>,
+    changed: &'a [&'a OfficeKey],
     office_lines: &'a [String],
     member_lines: &'a [String],
+    /// The load's last batch: its watermarks are the ones the next load reads from.
+    completes: bool,
 }
 
-/// Writes one load in one transaction: retire the changed offices' rows, insert their current
-/// rows, record the load. Returns the load id and the rows retired.
+/// Writes one batch of a load in one transaction: retire the batch's offices' rows, insert their
+/// current rows, record the batch. Returns the load id and the rows retired.
 async fn write_load(conn: &mut PgConnection, load: &Load<'_>) -> anyhow::Result<(i64, u64)> {
     let mut tx = conn.begin().await?;
     let load_id: i64 = sqlx::query_scalar(
@@ -416,7 +501,9 @@ async fn write_load(conn: &mut PgConnection, load: &Load<'_>) -> anyhow::Result<
     let key_lines: Vec<String> = load
         .changed
         .iter()
-        .map(|(sigungu, registration)| copy_line(&[Some(sigungu), Some(registration)]))
+        .map(|(sigungu, registration)| {
+            copy_line(&[Some(sigungu.as_str()), Some(registration.as_str())])
+        })
         .collect();
     copy_rows(
         &mut tx,
@@ -465,8 +552,8 @@ async fn write_load(conn: &mut PgConnection, load: &Load<'_>) -> anyhow::Result<
     sqlx::query(
         "INSERT INTO catalog.real_estate_broker_lookup_load
              (id, office_snapshot_id, member_snapshot_id, office_watermark, member_watermark,
-              changed_offices, inserted_rows, retired_rows)
-         OVERRIDING SYSTEM VALUE VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+              changed_offices, inserted_rows, retired_rows, completes_load)
+         OVERRIDING SYSTEM VALUE VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
     )
     .bind(load_id)
     .bind(load.office.snapshot_id)
@@ -476,6 +563,7 @@ async fn write_load(conn: &mut PgConnection, load: &Load<'_>) -> anyhow::Result<
     .bind(i32::try_from(load.changed.len())?)
     .bind(i32::try_from(inserted)?)
     .bind(i32::try_from(retired)?)
+    .bind(load.completes)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;

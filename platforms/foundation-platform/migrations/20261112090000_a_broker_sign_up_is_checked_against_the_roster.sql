@@ -19,6 +19,10 @@ CREATE TABLE catalog.real_estate_broker_lookup_load (
     changed_offices integer NOT NULL CHECK (changed_offices >= 0),
     inserted_rows integer NOT NULL CHECK (inserted_rows >= 0),
     retired_rows integer NOT NULL CHECK (retired_rows >= 0),
+    -- A load is written in batches of offices, each committed alone (root ADR-0457: a run stopped at its
+    -- limit keeps what it committed). Only the last batch completes it: its watermarks are the ones the
+    -- next load reads from; an earlier batch carries the watermarks it started from.
+    completes_load boolean NOT NULL,
     loaded_at timestamptz NOT NULL DEFAULT now()
 );
 

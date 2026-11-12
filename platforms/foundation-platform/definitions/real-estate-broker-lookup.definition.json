@@ -6,8 +6,8 @@
     {
       "id": "real_estate_broker_lookup_load",
       "scope": "changed-keys",
-      "interruptible": false,
-      "commits": "at_end",
+      "interruptible": true,
+      "commits": "as_it_goes",
       "description": "Load the broker sign-up roster (root ADR-0550 §2): pin the current snapshots of silver.real_estate_broker_office and silver.real_estate_broker_member, take the offices with a Silver row at or after the last load's watermark (every office on the first load, the declared exception), read their current rows by the contracts' newest-per-key rule, and in one transaction retire those offices' roster rows, insert their current rows into catalog.real_estate_broker_office and catalog.real_estate_broker_member and record the load in catalog.real_estate_broker_lookup_load (`changed`); with no changed office it writes nothing (`unchanged`). foundation-api answers the Gongzzang sign-up's one-person check from it (POST /internal/real-estate-brokers/verify). Started when either broker Silver lane changed, and daily as the fallback (root ADR-0171). A stopped run writes nothing and the next reads from the same watermark.",
       "systemd_service": "foundation-real-estate-broker-lookup-load.service",
       "systemd_timer": null,
@@ -26,7 +26,7 @@
         "measured_run_seconds": null,
         "first_run": {
           "estimate_seconds": 120,
-          "estimated_from": "computed (root ADR-0386): the first load reads 106,429 offices and 179,124 people, a few tens of MB through the Trino CLI as unit_official_price_projection_load reads, and COPYs them; later runs read a few hundred offices"
+          "estimated_from": "computed (root ADR-0386): the first load reads 106,429 offices and 179,124 people, a few tens of MB through the Trino CLI as unit_official_price_projection_load reads, and COPYs them; later runs read a few hundred offices; the load commits a batch of 20,000 offices at a time, so a first run stopped at its limit keeps what it committed and the next run goes on (root ADR-0457)"
         }
       },
       "pool": "default_pool",
