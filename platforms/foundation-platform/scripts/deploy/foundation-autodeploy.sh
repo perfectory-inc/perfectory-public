@@ -66,7 +66,7 @@ write_metrics() {
     # A commit's failed deploy is never retried, so each file under failed/ newer than the newest
     # under deployed/ is one more commit that could not be deployed.
     local last_deployed="" failed_in_a_row=0
-    last_deployed="$(find "${state}/deployed" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -n 1 | cut -d' ' -f2-)" \
+    last_deployed="$(find "${state}/deployed" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | sed -n 1p | cut -d' ' -f2-)" \
       || last_deployed=""
     if [[ -n "${last_deployed}" ]]; then
       failed_in_a_row="$(find "${state}/failed" -type f -newer "${last_deployed}" 2>/dev/null | wc -l)" || failed_in_a_row=0
