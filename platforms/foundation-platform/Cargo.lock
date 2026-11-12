@@ -2748,6 +2748,7 @@ dependencies = [
  "sha2 0.10.9",
  "shapefile",
  "sqlx",
+ "stewardship-domain",
  "tempfile",
  "tokio",
  "tracing",

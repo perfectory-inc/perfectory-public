@@ -349,7 +349,8 @@
       "status": "implemented",
       "via": [
         "platforms/foundation-platform/services/foundation-outbox-publisher/src/lineage_steward_fold.rs",
-        "platforms/foundation-platform/infra/lakehouse/spark/jobs/lineage_steward_fold_to_silver.py"
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-silver/src/lineage_steward_fold_stage.rs",
+        "platforms/foundation-platform/crates/publisher/foundation-publisher-core/src/lakehouse_data_commit.rs"
       ],
       "description": "서 있는 스튜어드 결정을 evidence_kind=steward 계보 행으로 접는다. 모든 계보 소비자는 steward_resolved 로 읽는다(루트 ADR-0115 9항)."
     },
