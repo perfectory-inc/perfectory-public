@@ -76,6 +76,7 @@ Valkey, Kafka, Identity, Spark/Trino compute처럼 실제 production endpoint가
 | error boundary, Suspense 경계, loading flash 방지, client-only 렌더 | [@suspensive/react](https://github.com/toss/suspensive) `3.21.3` | 클래스 컴포넌트로 boundary를 매번 새로 짠다. reset·selective catch·중첩 boundary는 대개 빠진 채로 남는다 |
 | 모달·다이얼로그·시트를 여닫고 결과를 돌려받기 | [overlay-kit](https://github.com/toss/overlay-kit) | 화면마다 `isOpen` state와 콜백이 흩어지고, 오버레이 UI가 그것을 띄운 화면에 묶여 재사용이 안 된다 |
 | 노드·간선 그림(파이프라인 지도, 계보)과 그 자동 배치 | [@xyflow/react](https://github.com/xyflow/xyflow) `12.12.0` 위에 [elkjs](https://github.com/kieler/elkjs) `0.12.0`(layered) — root ADR-0188 | 좌표를 손으로 계산하는 배치가 화면마다 생기고, 순환·떨어진 노드·단계 열 순서에서 조용히 틀린다 |
+| Iceberg 표에 데이터 스냅샷을 커밋(매니페스트·매니페스트 목록·커밋 본문·충돌 재적용) | [apache/iceberg-rust](https://github.com/apache/iceberg-rust)(`iceberg`·`iceberg-catalog-rest`·`iceberg-storage-opendal` 의 S3 만; 정확한 판은 [Foundation Cargo workspace](../platforms/foundation-platform/Cargo.toml)가 소유) — 발행기의 `lakehouse_data_commit` 하나만 부른다. 추가(append)만 한다. root [ADR-0560](./adr/0560-the-publisher-commits-duckdb-staged-parquet-with-iceberg-rust-fast-append-and-only-tables-whose-commit-is-an-append-move-off-spark.md) | Avro 매니페스트·순번·요약 집계·낙관적 커밋 재시도를 손으로 다시 만들게 된다. 읽기와 태그·가지 옮기기는 지금의 `iceberg_rest_catalog.rs`·`lakehouse_snapshot_scan` 그대로다 |
 | 초성 검색, 조사(은/는·이/가) 자동 선택, 한글 분해·조합 | [es-hangul](https://github.com/toss/es-hangul) | 자모 배열과 유니코드 산술을 손으로 적게 된다. 한국어가 1차 언어인 제품에서 가장 조용히 틀리는 자리다 |
 
 운영 규칙:

@@ -101,6 +101,10 @@ pub mod serving_scratch;
 /// Shared FLOOR producer and native resource contract support.
 pub mod lakehouse_engine_contract;
 
+/// `DuckDB` computes a transform's rows and stages them as Parquet an Iceberg table can adopt
+/// (root ADR-0559, ADR-0560).
+pub mod duckdb_parquet_stage;
+
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).
 #[allow(
