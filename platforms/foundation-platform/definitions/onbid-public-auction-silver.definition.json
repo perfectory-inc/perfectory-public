@@ -41,7 +41,7 @@
       },
       "pool": "spark",
       "pool_slots": 1,
-      "priority_weight": 10,
+      "priority_weight": 100,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-data-go-kr-onbid-to-silver-onbid-real-estate-item",

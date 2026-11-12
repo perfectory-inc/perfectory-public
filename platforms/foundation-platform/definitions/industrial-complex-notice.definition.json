@@ -81,7 +81,7 @@
       },
       "pool": "spark",
       "pool_slots": 1,
-      "priority_weight": 10,
+      "priority_weight": 100,
       "retries": 0,
       "pipeline_graph_edges": [
         "source-ilis-to-silver-industrial-complex-notice-detail",

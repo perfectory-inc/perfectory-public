@@ -32,7 +32,7 @@
         }
       },
       "pool": "documents",
-      "priority_weight": 1,
+      "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-industrial-complex-notice-attachment-to-intelligence-document-text-outcome",
@@ -77,7 +77,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 1,
+      "priority_weight": 10,
       "retries": 0,
       "pipeline_graph_edges": [
         "intelligence-document-text-page-to-intelligence-document-fact",
