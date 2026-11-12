@@ -262,6 +262,7 @@ last_reviewed: 2026-11-07
 | 건물 | 주택인허가 행위호전유공용면적 (`silver.housing_permit_act_unit_exclusive_common_area`) | — | — | 없음 |
 | 건물 | 주택인허가 부대시설 (`silver.housing_permit_ancillary_facility`) | — | — | 없음 |
 | 건물 | 주택인허가 부설주차장 (`silver.housing_permit_annex_parking`) | — | — | 없음 |
+| 건물 | 주택인허가 기본개요 (`silver.housing_permit_basis_outline`) | — | — | 없음 |
 | 건물 | 주택인허가 동별개요 (`silver.housing_permit_building_outline`) | — | — | 없음 |
 | 건물 | 주택인허가 지역지구구역 (`silver.housing_permit_district_zone`) | — | — | 없음 |
 | 건물 | 주택인허가 전유공용면적 (`silver.housing_permit_exclusive_common_area`) | — | — | 없음 |
