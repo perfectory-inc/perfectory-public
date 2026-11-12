@@ -22,6 +22,8 @@ EnvironmentFile=/etc/foundation-platform/map-edit-fold.env
 EnvironmentFile=/etc/foundation-platform/lakehouse-reader.env
 ExecStart=/opt/foundation-platform/current/scripts/ops/intelligence-document-fact.sh
 TimeoutStartSec=80m
+# A stop appends the finished documents first (the script's TERM trap), under stop_grace_minutes.
+TimeoutStopSec=4min
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

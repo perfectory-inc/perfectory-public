@@ -44,8 +44,19 @@ if [ "${planned}" = 0 ]; then
 fi
 
 intelligence_document_fetch_media "${work}/plan/media.tsv"
-intelligence_document_fact_run
+# Like the text job: a stop or a failed image still appends the documents it finished (the image
+# writes each as it ends), then the unit ends failed; the fold waits for the next run.
+stopping=0
+trap 'stopping=1' TERM
+fact_rc=0
+intelligence_document_fact_run || fact_rc=$?
 intelligence_document_spark append-facts --run-dir "${container_work}/out" --run-id "${run_id}"
+trap - TERM
+if [ "${stopping}" = 1 ] || [ "${fact_rc}" != 0 ]; then
+  job_journal "${journal}" "intelligence document fact $([ "${stopping}" = 1 ] && echo stopped || echo "FAILED: the image exited ${fact_rc}"); its finished documents were appended run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
+  exit "$([ "${stopping}" = 1 ] && echo 143 || echo "${fact_rc}")"
+fi
 fold_complex_facts
 
 read_summary="$(python3 -I -c '
