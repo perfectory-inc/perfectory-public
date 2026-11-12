@@ -515,6 +515,17 @@ if ! "$checker" "$test_root/issue-writer" "$test_root/ruleset.json" "$test_root/
   echo "FAIL workflow-policy-self-test: rejected the advisory workflow's job-level issues: write" >&2
   exit 1
 fi
+# Root ADR-0554: the schedule-only main-health.yml holds the same job-level grant, under the same
+# trigger rule.
+issue_writer_fixture main-health main-health.yml
+if ! "$checker" "$test_root/main-health" "$test_root/ruleset.json" "$test_root/actions.json" \
+  --semantic-self-test >/dev/null 2>&1; then
+  echo "FAIL workflow-policy-self-test: rejected the main-health workflow's job-level issues: write" >&2
+  exit 1
+fi
+issue_writer_fixture main-health-push main-health.yml
+sed -i '/^  workflow_dispatch:$/a\  push:\n    branches: [main]' "$test_root/main-health-push/main-health.yml"
+expect_rejected main-health-with-push-trigger "$test_root/main-health-push"
 issue_writer_fixture issue-writer-other-file other-report.yml
 expect_rejected issue-write-in-another-workflow "$test_root/issue-writer-other-file"
 issue_writer_fixture issue-writer-push

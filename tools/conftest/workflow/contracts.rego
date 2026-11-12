@@ -102,7 +102,7 @@ release_trigger(document) if {
 }
 
 extra_writes(path, document) := {"issues"} if {
-	file_name(path) == "dependency-advisories.yml"
+	file_name(path) in {"dependency-advisories.yml", "main-health.yml"}
 	schedule_only(document)
 } else := {"id-token", "attestations", "packages"} if {
 	file_name(path) == "foundation-release-build.yml"
