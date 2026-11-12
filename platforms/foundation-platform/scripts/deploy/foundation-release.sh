@@ -1111,6 +1111,26 @@ migrate_lakehouse() {
   fi
 }
 
+# one-off: scripts/ops/redact-logged-credentials.py says when it ends; this goes with it. Once per
+# host, and again only when that script changes (deploy step redact-logged-credentials): every
+# credential of the host's environment files that a run log holds is blanked in place (2026-11-11:
+# Spark printed the catalog writer token into a Gold run log every account could read). A run that
+# could not read everything is not recorded, so the next deploy asks again; it never stops a deploy.
+redact_logged_credentials() {
+  local steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0
+  local script="${release_root}/current/scripts/ops/redact-logged-credentials.py"
+  [[ -f "${script}" && -f "${steps}" ]] || return 0
+  prepare_deploy_steps_state
+  python3 -I -B "${steps}" should-run "${release_root}/current" redact-logged-credentials || gate=$?
+  [[ "${gate}" != 3 ]] || return 0
+  if python3 -I -B "${script}" /var/lib/foundation-gold-panel-rebuild /var/lib/foundation-lakehouse-maintenance \
+      /var/lib/foundation-platform /var/lib/foundation-run-now /data/foundation-platform; then
+    python3 -I -B "${steps}" ran "${release_root}/current" redact-logged-credentials || true
+  else
+    printf 'redact-logged-credentials could not read everything; the next deploy runs it again\n' >&2
+  fi
+}
+
 # The data catalog's containers follow the release (root ADR-0117 §7): DataHub is its own Compose
 # project, run by datahub-runtime.sh from secrets only root reads, so a merged change to
 # infra/datahub/compose.yml used to wait for someone with sudo (2026-10-16, #628). This recreates
@@ -1338,6 +1358,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     prepare_job_state_directories
     prepare_spark_tmp
     install_host_retention
+    redact_logged_credentials
     # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
     # and their kept CI runs (root ADR-0209). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks

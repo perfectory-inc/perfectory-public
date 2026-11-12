@@ -205,6 +205,7 @@ mkdir -p "${work}"
 chmod 0777 "${STATE_ROOT}" "${work}"
 
 spark() {
+  lakehouse_run_log "${work}/$1.log"
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${STATE_ROOT}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   lakehouse_spark_run "foundation-gold-rebuild-${INVOCATION_ID}" -v "${SCRATCH}:/scratch" \

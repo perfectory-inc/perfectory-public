@@ -15,6 +15,7 @@ mkdir -p "${work}"
 chmod 0777 "${work}" # the Spark container writes as uid 185
 
 status=0
+lakehouse_run_log "${work}/run.log"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${work}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute -v "${SCRATCH}:/scratch" \
