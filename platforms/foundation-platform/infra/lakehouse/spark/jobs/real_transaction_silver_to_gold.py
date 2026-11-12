@@ -736,7 +736,8 @@ def main(argv=None) -> int:
     import rt_molit_real_transaction as rt  # noqa: PLC0415
     import section_coverage  # noqa: PLC0415
     from gold_rebuild import assert_minimum_row_count, pins_properties  # noqa: PLC0415
-    from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
+    from lakehouse_engine import (NO_AUTO_BROADCAST, SHUFFLE_SETTINGS, apply_catalog_settings,  # noqa: PLC0415
+                                  assert_catalog_env)
     from lakehouse_snapshot_pins import load_source_snapshot_pins  # noqa: PLC0415
     from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract  # noqa: PLC0415
 
@@ -760,8 +761,9 @@ def main(argv=None) -> int:
     region_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{REGION_TABLE.split('.', 1)[1]}`"
     rt_table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{RT_SOURCE.split('.', 1)[1]}"
     assert_catalog_env(args.iceberg_catalog_name)
-    spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
-                                   .config("spark.sql.session.timeZone", "UTC"), args.iceberg_catalog_name).getOrCreate()
+    builder = (SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}").config("spark.sql.session.timeZone", "UTC")
+               .config(map={**SHUFFLE_SETTINGS, **NO_AUTO_BROADCAST}))
+    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     counters: dict[str, int] = {}
     try:
         # The registers only the inference reads stay uncached: with no level enabled they are never

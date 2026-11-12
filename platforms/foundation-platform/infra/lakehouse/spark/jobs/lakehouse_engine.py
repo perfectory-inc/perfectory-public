@@ -288,6 +288,17 @@ SHUFFLE_SETTINGS = {
 }
 
 
+# No join is broadcast unless a job hints it. A broadcast hash relation is built outside Spark's
+# memory accounting and takes at least one page (spark.buffer.pageSize, 64 MiB at a 16g driver)
+# however few its rows, and a plan holds every relation of its stages at once. 2026-11-11 the
+# 실거래 Gold's first 시도 shard broadcast 341 such relations in 17 minutes (152 in one minute, 9.7
+# GiB) and died of heap with 422 page allocations refused; a sort-merge join spills instead.
+NO_AUTO_BROADCAST = {
+    "spark.sql.autoBroadcastJoinThreshold": "-1",
+    "spark.sql.adaptive.autoBroadcastJoinThreshold": "-1",
+}
+
+
 def apply_catalog_settings(builder: Any, catalog: str, lookup: Any = None) -> Any:
     """Add the catalog settings to a Spark builder."""
     for key, value in catalog_settings(catalog, lookup).items():
