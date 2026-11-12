@@ -15,4 +15,4 @@ pub use industrial_complex_transaction::{
 pub use job_switch_board::{FileJobSwitchBoard, UnconfiguredJobSwitchBoard};
 pub use operator_action_ledger::PgOperatorActionLedger;
 pub use sqlx_repository::PgCatalogRepository;
-pub use unit_of_work::PgCatalogUnitOfWork;
+pub use unit_of_work::{PgCatalogUnitOfWork, RELEASE_IS_LAKEHOUSE_MADE_SQL};
