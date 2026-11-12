@@ -11,6 +11,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -333,6 +334,33 @@ def change_record_versions(table: str) -> dict[str, Any]:
     if not table.startswith("gold."):
         raise ValueError(f"{table}: only a Gold table has a change record")
     return {"kind": "events", "canonical_reader": None}
+
+
+_RFC3339 = re.compile(r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|z|[+-]\d{2}:\d{2})?")
+
+
+def rfc3339_utc(value: Any) -> datetime | None:
+    """An RFC 3339 time as a naive UTC datetime (the tables' timestamp form); None when it is not one.
+
+    The Rust collectors write chrono's `to_rfc3339`, whose fraction has as many digits as it needs
+    (up to nine). The Spark image's Python 3.10 `datetime.fromisoformat` reads only three or six
+    digits and no `Z`, so the fraction is cut or padded to microseconds first. Without it the
+    ILIS notice Silver load (2026-11-12 03:21Z) read 1 of 363 notice lines and dropped the rest.
+    """
+
+    if not value:
+        return None
+    match = _RFC3339.fullmatch(str(value).strip())
+    if match is None:
+        return None
+    seconds, fraction, offset = match.groups()
+    micros = (fraction or "")[:6].ljust(6, "0")
+    zone = "+00:00" if offset in (None, "Z", "z") else offset
+    try:
+        parsed = datetime.fromisoformat(f"{seconds.replace(' ', 'T')}.{micros}{zone}")
+    except ValueError:
+        return None
+    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def admit_write(contract_table: str, intent: str, *, target: str | None = None, branch: str | None = None) -> None:
