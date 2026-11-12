@@ -63,7 +63,7 @@ fn the_staged_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
 
     assert_eq!(
         staged.derivation_run_id,
-        "steward-fold-efe4ec7e0977fcd2b96cdeee"
+        "steward-fold-9a1f51f60e851145d5e6b3fe"
     );
     assert_eq!(staged.decision_ids.len(), 120);
     assert_eq!(staged.decision_ids[0], handoff.rows[0].decision_id);
