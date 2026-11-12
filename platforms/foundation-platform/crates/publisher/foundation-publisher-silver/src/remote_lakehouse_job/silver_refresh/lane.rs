@@ -47,10 +47,11 @@ pub(in crate::remote_lakehouse_job) enum Lane {
     LandUsePlan,
     LandUseZoneArea,
     LandUseZoneCode,
+    RealEstateBrokerOffice,
 }
 
 impl Lane {
-    pub(in crate::remote_lakehouse_job) const ALL: [Self; 30] = [
+    pub(in crate::remote_lakehouse_job) const ALL: [Self; 31] = [
         Self::Titles,
         Self::Units,
         Self::UnitAreas,
@@ -81,6 +82,7 @@ impl Lane {
         Self::LandUsePlan,
         Self::LandUseZoneArea,
         Self::LandUseZoneCode,
+        Self::RealEstateBrokerOffice,
     ];
 
     /// The systemd instance name (`foundation-silver-refresh@<id>.service`): hyphens, because
@@ -117,6 +119,7 @@ impl Lane {
             Self::LandUsePlan => "land-use-plan",
             Self::LandUseZoneArea => "land-use-zone-area",
             Self::LandUseZoneCode => "land-use-zone-code",
+            Self::RealEstateBrokerOffice => "real-estate-broker-office",
         }
     }
 
@@ -260,6 +263,10 @@ impl Lane {
             Self::LandUseZoneCode => (
                 "vworld-land-use-zone-code-source-objects.json",
                 include_str!("../../../../../../infra/lakehouse/contracts/vworld-land-use-zone-code-source-objects.json"),
+            ),
+            Self::RealEstateBrokerOffice => (
+                "vworld-real-estate-broker-office-source-objects.json",
+                include_str!("../../../../../../infra/lakehouse/contracts/vworld-real-estate-broker-office-source-objects.json"),
             ),
         }
     }

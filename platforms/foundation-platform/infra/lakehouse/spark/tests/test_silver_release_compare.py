@@ -90,6 +90,7 @@ class VersionOrderTest(unittest.TestCase):
             "silver.land_use_plan": "source_snapshot_id",
             "silver.land_use_zone_area": "source_snapshot_id",
             "silver.land_use_zone_code": None,
+            "silver.real_estate_broker_office": "source_snapshot_id",
         })
 
     def test_an_order_a_release_loaded_again_would_tie_on_is_refused(self):

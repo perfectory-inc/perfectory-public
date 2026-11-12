@@ -19,7 +19,7 @@ use super::*;
 const PRICE: &str = "vworldkr__land_individual_price";
 const ZONE: &str = "vworldkr__land_use_zone_code";
 
-const LAND_LANES: [Lane; 9] = [
+const LAND_LANES: [Lane; 10] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -29,6 +29,7 @@ const LAND_LANES: [Lane; 9] = [
     Lane::LandUsePlan,
     Lane::LandUseZoneArea,
     Lane::LandUseZoneCode,
+    Lane::RealEstateBrokerOffice,
 ];
 
 fn rule() -> LandRule {
@@ -577,6 +578,10 @@ fn members(lane: Lane) -> (&'static str, &'static [&'static str]) {
         Lane::LandTransferHistory => ("AL_D157_97_20991231.csv", &["CH_D157_97_20991231.csv"]),
         Lane::LandUsePlan => ("AL_D155_97_20991231.csv", &["AL_D154_97_20991231.shp"]),
         Lane::LandUseZoneArea => ("AL_D032_00_20991231.shp", &["AL_D032_00_20991231.dbf"]),
+        Lane::RealEstateBrokerOffice => (
+            "AL_D171_00_20991231.csv",
+            &["AL_D172_00_20991231.csv", "AL_D170_00_20991231.shp"],
+        ),
         _ => ("LART_LMISZONE.csv", &["[Content_Types].xml"]),
     }
 }
@@ -915,7 +920,7 @@ fn a_failed_region_export_fails_the_release() {
 
 /// The land lanes whose table marks vanished keys append each release's changes (root ADR-0275,
 /// ADR-0311); the other two state why they still write whole.
-const COMPARING_LANES: [Lane; 9] = [
+const COMPARING_LANES: [Lane; 10] = [
     Lane::LandCharacteristic,
     Lane::LandForestLedger,
     Lane::LandIndividualPrice,
@@ -925,6 +930,7 @@ const COMPARING_LANES: [Lane; 9] = [
     Lane::LandUsePlan,
     Lane::LandUseZoneArea,
     Lane::LandUseZoneCode,
+    Lane::RealEstateBrokerOffice,
 ];
 
 #[test]
@@ -1120,10 +1126,13 @@ fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> a
             }
             Completeness::National => 0,
             // The layer code, `D032`: each layer is compared and committed alone (root ADR-0362).
-            Completeness::Listed => {
-                assert_eq!(latest.key.first(), Some(&"layer_code"), "{}", lane.id());
-                4
-            }
+            // A one-file national lane keyed by the 시군구 that registered the row compares its 시도,
+            // the code's first two digits (the 부동산중개업 lanes, root ADR-0511 §4).
+            Completeness::Listed => match latest.key.first() {
+                Some(&"layer_code") => 4,
+                Some(&"sigungu_code") => 2,
+                other => anyhow::bail!("{}: a listed lane keyed by {other:?}", lane.id()),
+            },
         };
         assert_eq!(
             contract.compare_bucket_prefix_length,

@@ -41,6 +41,7 @@ mod land_use_zone_area;
 mod onbid_public_auction;
 mod parcel_number_change_history;
 mod parcel_panel;
+mod real_estate_broker;
 mod real_transaction;
 mod real_transaction_region_stats;
 mod real_transaction_rejected;
@@ -155,5 +156,6 @@ pub use lakehouse_run_summary::{
     SparkRunSummary, SparkRunSummaryError, SparkRunTarget, SparkRunWriteDisposition,
     SparkRunWriteMode, SPARK_RUN_SUMMARY_SCHEMA_VERSION,
 };
+pub use real_estate_broker::SILVER_REAL_ESTATE_BROKER_OFFICE;
 pub use unit_official_price::{SILVER_UNIT_OFFICIAL_PRICE, SILVER_UNIT_OFFICIAL_PRICE_VERSIONS};
 pub use unit_price_panel::GOLD_UNIT_PRICE_PANEL;
