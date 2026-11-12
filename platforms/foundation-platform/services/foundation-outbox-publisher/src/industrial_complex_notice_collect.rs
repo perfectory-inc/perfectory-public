@@ -261,8 +261,11 @@ async fn settled_from_lakehouse(detail: &NoticeDetail) -> anyhow::Result<HashSet
         detail.read_from,
         SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
     );
+    // Read only, with the operations map's reader token, as the court auction collector does: the
+    // writer token is not this unit's, and with it every run from 2026-11-12 00:20Z got a 401.
     let catalog = IcebergRestCatalog::new(
-        LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
+        LakehouseCatalogConfig::reader_from_env()
+            .context("failed to configure the Iceberg catalog")?,
     )
     .context("failed to build the Iceberg catalog client")?;
     let Some(snapshot) = catalog
