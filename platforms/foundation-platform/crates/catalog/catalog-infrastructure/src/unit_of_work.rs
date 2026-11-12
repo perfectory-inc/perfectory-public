@@ -59,6 +59,7 @@ mod dynamic_release;
 mod industrial_complex_upsert;
 mod lakehouse_bake;
 mod lakehouse_unit_birth;
+pub use lakehouse_unit_birth::RELEASE_IS_LAKEHOUSE_MADE_SQL;
 mod manifest_promotion;
 mod mutation_claim;
 mod readdress;

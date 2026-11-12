@@ -4,6 +4,7 @@
 use super::readdress::seed_static_release;
 use super::*;
 use catalog_application::ports::{RegisterLakehouseTileUnitCommand, StartLakehouseBakeCommand};
+use catalog_infrastructure::RELEASE_IS_LAKEHOUSE_MADE_SQL;
 
 /// The Silver snapshot the first zoning archive was baked from (synthetic).
 const ZONING_SNAPSHOT: &str = "841361364657368701";
@@ -79,6 +80,21 @@ async fn a_unit_is_born_static_beside_the_units_it_carries_and_then_bakes_like_a
             .await?
             .iter()
             .any(|kind| kind == RUNTIME_MANIFEST_PUBLISHED_V2));
+
+        // The birth release has no build row, and a bake still reads it as lakehouse-made; the
+        // carried unit's release, seeded by another oven, is not.
+        let lakehouse_made: Vec<(String, bool)> = sqlx::query_as(&format!(
+            "SELECT unit.unit_key, {RELEASE_IS_LAKEHOUSE_MADE_SQL}
+             FROM catalog.vector_tile_publication_unit AS unit
+             JOIN catalog.vector_tile_release AS release ON release.id = unit.active_release_id
+             WHERE unit.unit_key IN ('zoning', 'complex') ORDER BY unit.unit_key"
+        ))
+        .fetch_all(&pool)
+        .await?;
+        assert_eq!(
+            lakehouse_made,
+            [("complex".to_owned(), false), ("zoning".to_owned(), true)]
+        );
 
         // A retry with the same key answers with the same manifest and writes nothing.
         let replay = uow.register_lakehouse_tile_unit(command.clone()).await?;
