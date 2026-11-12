@@ -19,6 +19,8 @@ Both are a Foundation Platform tree (the running one is /opt/foundation-platform
   `table_name` of where an edge goes (orchestration/jobs.v1.json, docs/catalog/pipeline-graph.v1.json
   of the new release);
 - the jobs the graph names no table for, which a caller must count as writers of every table.
+  A job whose every edge lands in a source group (Bronze objects and their ledger) writes no
+  lakehouse table and is neither (root ADR-0557).
 
 With --host, the running release is the baseline only when this host's record says its migration
 ran against it (deploy_steps.py should-run answers skip for it): a migration that failed, a catalog
@@ -179,6 +181,10 @@ def writers(new: Path, tables: list[str], every_table: bool) -> tuple[list[str],
         made_from = {nodes[edge["from"]].get("table_name") for edge in carried if edge["from"] in nodes} - {None}
         asset = written or made_from
         if job.get("reconciles") and not carried:
+            continue
+        # A job whose every edge lands in a source group writes Bronze objects and their ledger, no
+        # lakehouse table: a table change does not hold it, a Postgres migration does (root ADR-0557).
+        if not every_table and carried and all(nodes.get(edge["to"], {}).get("type") == "source_group" for edge in carried):
             continue
         if not asset:
             unknown.append(job["id"])
