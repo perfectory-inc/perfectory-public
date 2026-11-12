@@ -59,6 +59,8 @@ pub mod building_permit_site_location_silver_export;
 
 /// Headerless HUB 주택인허가 기본개요 ZIP to partitioned Silver handoff, keyed by 관리주택대장PK (root ADR-0511).
 pub mod housing_permit_basis_outline_silver_export;
+/// Every HUB family lane's headerless ZIP to partitioned Silver handoff (root ADR-0551).
+pub mod hub_family_silver_export;
 
 /// Headerless HUB 건축물 정기점검이력 ZIP to partitioned Silver handoff (root ADR-0402).
 pub mod building_maintenance_regular_inspection_history_silver_export;

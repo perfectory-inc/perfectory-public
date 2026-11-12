@@ -214,6 +214,8 @@ enum Command {
     ExportParcelByPnuServing,
     ExportBuildingByPnuServing,
     SectionPacks(building_by_pnu_serving_export::section_packs::PackCommand),
+    /// `export-<lane>-silver-handoff` of a HUB family lane (root ADR-0551), by its lane id.
+    ExportHubFamilySilverHandoff(&'static str),
     ExportVWorldCadastralShapefileSilverHandoff,
     ExportVWorldCadastralSilverHandoffShard,
     ExportLandUsePlanSilverHandoff,
@@ -453,6 +455,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::ExportBuildingPermitTemporaryBuildingSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_temporary_building_silver_export::run(),
         ),
+        Command::ExportHubFamilySilverHandoff(lane) => {
+            Box::pin(foundation_publisher_silver::hub_family_silver_export::run(lane))
+        }
         Command::ExportBuildingPermitSiteLocationSilverHandoff => Box::pin(
             foundation_publisher_silver::building_permit_site_location_silver_export::run(),
         ),
@@ -915,9 +920,14 @@ where
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),
-        Some(other) => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
-            .map(Command::SectionPacks)
-            .with_context(|| format!("unknown outbox-publisher command '{other}'")),
+        Some(other) => {
+            match foundation_publisher_silver::hub_family_silver_export::lane_id_of_export(other) {
+                Some(lane) => Ok(Command::ExportHubFamilySilverHandoff(lane)),
+                None => building_by_pnu_serving_export::section_packs::PackCommand::parse(other)
+                    .map(Command::SectionPacks)
+                    .with_context(|| format!("unknown outbox-publisher command '{other}'")),
+            }
+        }
     }
 }
 

@@ -48,10 +48,23 @@ DEFINITION_SUFFIX = ".definition.json"
 PLATFORM_DEFINITION = "platform.definition.json"
 
 
+FAMILY_CONTRACTS = job_specs.PLATFORM_ROOT / "infra" / "lakehouse" / "contracts"
+FAMILY_GLOB = "hub-lane-family-*.v1.json"
+
+
 def declared_definitions():
-    """group -> its definition, the files jobs.v1.json and the pipeline graph are generated from."""
-    return {path.name[: -len(DEFINITION_SUFFIX)]: json.loads(path.read_text(encoding="utf-8"))
-            for path in sorted(DEFINITIONS.glob(f"*{DEFINITION_SUFFIX}")) if path.name != PLATFORM_DEFINITION}
+    """group -> its definition, the files jobs.v1.json and the pipeline graph are generated from.
+
+    A HUB family lane has no file: scripts/catalog/declared_definitions.py derives its definition from
+    its family file entry (root ADR-0551). Its group and its one asset are both `silver-<lane>`, which
+    is all a group here needs (the family's one job group holds no asset).
+    """
+    definitions = {path.name[: -len(DEFINITION_SUFFIX)]: json.loads(path.read_text(encoding="utf-8"))
+                   for path in sorted(DEFINITIONS.glob(f"*{DEFINITION_SUFFIX}")) if path.name != PLATFORM_DEFINITION}
+    for path in sorted(FAMILY_CONTRACTS.glob(FAMILY_GLOB)):
+        for lane in json.loads(path.read_text(encoding="utf-8"))["lanes"]:
+            definitions[f"silver-{lane}"] = {"assets": [{"id": f"silver-{lane}"}]}
+    return definitions
 
 
 def asset_groups(definitions=None):

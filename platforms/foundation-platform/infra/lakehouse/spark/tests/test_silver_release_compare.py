@@ -1,4 +1,5 @@
 """What `silver_release_compare` refuses before it reads a row (root ADR-0275)."""
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -93,6 +94,19 @@ class VersionOrderTest(unittest.TestCase):
             "silver.real_estate_broker_member": "source_snapshot_id",
             "silver.real_estate_broker_office": "source_snapshot_id",
         })
+
+    def test_every_hub_family_lane_orders_its_versions_by_vintage(self):
+        # The family lanes (root ADR-0551) are entries of a family file, not lane files; each table is
+        # the HUB part lane shape, its versions ordered by the provider month.
+        from platform_contracts import current_row_latest
+
+        tables = [f"silver.{lane.replace('-', '_')}"
+                  for path in sorted(LANES.glob("hub-lane-family-*.v1.json"))
+                  for lane in json.loads(path.read_text(encoding="utf-8"))["lanes"]]
+        self.assertTrue(tables)
+        for table in tables:
+            latest = current_row_latest(load_lakehouse_contract(table))
+            self.assertEqual(job.edition_column(latest), "vintage", table)
 
     def test_an_order_a_release_loaded_again_would_tie_on_is_refused(self):
         # 2026-10-21: land_transfer_history ordered by the release id alone; vintage 20260930 loaded

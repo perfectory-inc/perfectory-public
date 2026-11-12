@@ -307,6 +307,15 @@ const HUB_APPENDING_LANES: &[lakehouse_domain::LakehouseTableContract] = &[
     lakehouse_domain::SILVER_BUILDING_PERMIT_SITE_LOCATION,
     lakehouse_domain::SILVER_BUILDING_MAINTENANCE_REGULAR_INSPECTION_HISTORY,
 ];
+/// A table of a family whose tables are declared together: data.go.kr files and HUB family lanes.
+fn appends_as_a_declared_family(table_name: &str) -> bool {
+    lakehouse_domain::DATA_GO_KR_FILE_DATA_TABLES
+        .iter()
+        .any(|table| table.table_name == table_name)
+        || lakehouse_domain::hub_family_lanes()
+            .iter()
+            .any(|lane| lane.table.table_name == table_name)
+}
 
 /// The versioned tables, and only they, say which row is current (root ADR-0267).
 /// The 법원경매 tables whose newest row per key is current and where none vanishes (root ADR-0384,
@@ -368,9 +377,7 @@ fn only_versioned_tables_define_a_current_row_rule() {
             || contract.table_name == SILVER_ONBID_REAL_ESTATE_ITEM.table_name
             || contract.table_name == SILVER_COURT_AUCTION_ITEM.table_name
             || contract.table_name == lakehouse_domain::SILVER_REAL_TRANSACTION.table_name
-            || lakehouse_domain::DATA_GO_KR_FILE_DATA_TABLES
-                .iter()
-                .any(|table| table.table_name == contract.table_name)
+            || appends_as_a_declared_family(contract.table_name)
         {
             // A lane that appends its changes marks vanished keys (root ADR-0275, ADR-0311, ADR-0318).
             assert_eq!(contract.current_row_predicate, None);
