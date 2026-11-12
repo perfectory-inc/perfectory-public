@@ -2,10 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-11-12
+- Amends: [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md) §2 의 "무게: FLOOR·계보 10, 접기 5, 굽기 1" 한 줄(손으로 적는 절대 무게 → 단계 + 계산). 나머지는 그대로다.
 - Builds on: [ADR-0138](./0138-scheduled-jobs-share-one-pool-sized-by-every-slot-combination.md)(한 풀과 `priority_weight`),
   [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md)(작업 사이 의존은 그래프의 간선에서 읽는다),
   [ADR-0462](./0462-a-start-its-pool-refused-waits-in-a-queue-that-ages-it-and-a-claim-holds-the-pool-only-for-a-spark-step.md)(호스트 대기열의 나이)
-- Supersedes: ADR-0138 §2 의 "무게: FLOOR·계보 10, 접기 5, 굽기 1" 한 줄(손으로 적는 절대 무게). 나머지는 그대로다.
 
 ## Context
 
