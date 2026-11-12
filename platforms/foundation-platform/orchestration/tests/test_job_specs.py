@@ -357,22 +357,22 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         # The bake runs up to 21 hours. Taking two of the three slots, the hourly folds (two each)
         # would wait behind it as well; with one, a fold always fits beside it (root ADR-0138).
         # Lighter and as wide as a fold, it never starts ahead of one, but one run of it can already
-        # hold the pool when a fold's turn comes: FLOOR, lineage and the other fold, then the bake.
+        # hold the pool when a fold's turn comes: FLOOR and the other fold, then the bake.
         def both_slots(jobs):
             bake(jobs)["pool_slots"] = 2
         jobs = copy.deepcopy(real_inputs()[0])
         both_slots(jobs)
         problems = job_specs.pool_starvation(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2295 minutes for pool 'spark'")
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2030 minutes for pool 'spark'")
                             and "by_pnu_serving_bake" in problem for problem in problems), problems)
         self.refused(both_slots)
 
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
-        # FLOOR (3 slots, weight 10) can be held back once by lineage (same weight), once by each
-        # lighter job narrower than it, which may start in room FLOOR does not fit (both folds, each
-        # 1-slot bake run), and by what already holds the pool when its turn comes: one panel Gold
-        # rebuild (not retried, root ADR-0139), whose 165 minutes outlast any one Silver lane's 160.
-        # The hourly Onbid load (1 slot, weight 10, 40 + 5 minutes; root ADR-0280) may start ahead of
+        # FLOOR (3 slots, tier 100) can be held back once by each lighter job narrower than it, which
+        # may start in room FLOOR does not fit (both folds, each 1-slot bake run), and by what already
+        # holds the pool when its turn comes: lineage (lighter and as wide since root ADR-0557, retried
+        # once), whose 265 minutes outlast the panel Gold rebuild's 165 and any one Silver lane's 160.
+        # The hourly Onbid load (1 slot, tier 100, 40 + 5 minutes; root ADR-0280) may start ahead of
         # it once too, and so may the nightly 실거래가 load (the same shape, root ADR-0349) and the hourly
         # ILIS notice load (the same shape, root ADR-0484). The public-auction bake (1 slot, 115 + 30; root ADR-0303) and the unit price bake
         # (1 slot, 60 + 30; root ADR-0333) count like the serving bake, and so do the ownership bake
@@ -385,20 +385,20 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         wait, blockers = job_specs.longest_wait_minutes(floor, [job for job in spark if job is not floor], 3)
         lane_bakes = [job for job in spark if job["id"] in own_lane_bakes()]
         self.assertEqual({job["id"] for job in lane_bakes}, set(own_lane_bakes()), "every lane bake is in the spark pool")
-        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 165 + 1260 + 45 + 45 + 45
+        self.assertEqual(wait, 2 * 130 + 5 + 2 * (2 * 130 + 5) + 1260 + 45 + 45 + 45
                          + sum(job_specs.hold_minutes(job) for job in lane_bakes))
         self.assertEqual(set(blockers), {"lineage_stewardship", "map_edit_fold_admin", "map_edit_fold_complex",
-                                         "gold_panel_rebuild", "by_pnu_serving_bake",
+                                         "by_pnu_serving_bake",
                                          "onbid_public_auction_silver", "rt_molit_real_transaction_silver",
                                          "industrial_complex_notice_silver", *own_lane_bakes()})
         # A fold (2 slots) never waits for the bake (1): they fit together.
         fold = next(job for job in spark if job["id"] == "map_edit_fold_admin")
         wait, blockers = job_specs.longest_wait_minutes(fold, [job for job in spark if job is not fold], 3)
         self.assertNotIn("by_pnu_serving_bake", blockers)
-        # The panel Gold rebuild takes all three slots: a fold waits for one run of it, which fills
-        # the fold's bound to its limit (20 x 60 minutes).
-        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5) + 165)
-        self.assertEqual(wait, job_specs.STARVATION_CYCLES * 60)
+        # Lineage takes all three slots: a fold waits for FLOOR, the other fold and one run of
+        # lineage, inside its limit (20 x 60 minutes).
+        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
+        self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
 
     def test_a_retry_holds_the_slots_again(self):
         # Airflow retries a failed run: one run can hold its slots for (retries + 1) x its timeout.
@@ -411,7 +411,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
             next(job for job in jobs["jobs"] if job["id"] == "building_register_floor")["retries"] = 3
         jobs = copy.deepcopy(real_inputs()[0])
         retried(jobs)
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1710 minutes")
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1545 minutes")
                             for problem in job_specs.pool_starvation(jobs)))
         self.refused(retried)
 
@@ -422,8 +422,12 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.assertEqual(spec.retries, 0)
         self.assertTrue(bake(real_inputs()[0])["takes_turns"])
         weights = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs() if spec.pool == "spark"}
-        self.assertGreater(min(weights["building_register_floor"], weights["lineage_stewardship"]),
+        self.assertGreater(weights["building_register_floor"],
                            max(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"]))
+        # Lineage names no tier: its place is just above the Gold rebuilds that read what it writes
+        # (root ADR-0557), below the folds.
+        self.assertGreater(weights["map_edit_fold_admin"], weights["lineage_stewardship"])
+        self.assertGreater(weights["lineage_stewardship"], weights["gold_panel_rebuild"])
         self.assertGreater(weights["map_edit_fold_admin"], weights["by_pnu_serving_bake"])
 
     def test_invalid_retries_weight_or_turn_taking(self):
@@ -476,6 +480,41 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
     def test_an_enabled_job_that_still_carries_a_disabled_reason(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(disabled_reason="stale"))
+
+
+class AProducerOutranksItsConsumers(unittest.TestCase):
+    """Root ADR-0557. 2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the
+    spark pool's queue while gold_parcel_nearby_rebuild (weight 2), which reads the Silver tables only
+    it loads, ran ahead of it and failed on tables that did not exist yet."""
+
+    def test_no_job_of_the_real_list_waits_behind_a_job_that_reads_what_it_writes(self):
+        jobs, graph = real_inputs()
+        feeders = job_specs.producers(jobs, graph)
+        by_id = {entry["id"]: entry for entry in jobs["jobs"]}
+        weights = job_specs.queue_weights(jobs, feeders)
+        circles = [{"map_edit_fold_admin", "map_edit_fold_complex"}]  # they share one ledger
+        pairs = [(writer, reader) for reader, writers in feeders.items() for writer in writers
+                 if by_id[writer]["pool"] == by_id[reader]["pool"] and {writer, reader} not in circles]
+        self.assertGreater(len(pairs), 100)
+        self.assertEqual([pair for pair in pairs if weights[pair[0]] <= weights[pair[1]]], [])
+        self.assertEqual(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"])
+        # The incident's pair, and what Airflow is handed.
+        self.assertGreater(weights["data_go_kr_file_data"], weights["gold_parcel_nearby_rebuild"])
+        specs = {spec.job_id: spec.priority_weight for spec in job_specs.load_specs()}
+        self.assertEqual(specs, weights)
+
+    def test_a_weight_is_the_jobs_own_tier_until_a_reader_in_its_pool_raises_it(self):
+        def listed(job_id, weight, pool="spark"):
+            return {"id": job_id, "pool": pool, "priority_weight": weight}
+
+        jobs = {"jobs": [listed("load", 1), listed("gold", 20), listed("bake", 10), listed("alone", 40),
+                         listed("elsewhere", 90, "default_pool"), listed("fold_a", 50), listed("fold_b", 5),
+                         listed("after_folds", 70)]}
+        feeders = {"load": [], "gold": ["load"], "bake": ["gold"], "alone": [], "elsewhere": ["load", "alone"],
+                   "fold_a": ["fold_b"], "fold_b": ["fold_a"], "after_folds": ["fold_b"]}
+        self.assertEqual(job_specs.queue_weights(jobs, feeders),
+                         {"load": 21, "gold": 20, "bake": 10, "alone": 40, "elsewhere": 90,
+                          "fold_a": 71, "fold_b": 71, "after_folds": 70})
 
 
 def switch_off(entry, **fields):
@@ -685,34 +724,37 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
     def test_the_fold_waits_for_one_lane_at_most_and_still_fits_its_bound(self):
         jobs = copy.deepcopy(real_inputs()[0])
         wait, blockers = self.wait(jobs, "map_edit_fold_admin")
-        # FLOOR and lineage (heavier) and the other fold (as heavy) once each, then whatever holds
-        # the pool when its turn comes: the Gold rebuild's 165 minutes, longer than a lane's 160.
-        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5) + 165)
-        self.assertEqual(wait, job_specs.STARVATION_CYCLES * 60)
+        # FLOOR (heavier) and the other fold (as heavy) once each, then whatever holds the pool when
+        # its turn comes: lineage's 265 minutes (retried once), longer than the Gold rebuild's 165 and
+        # a lane's 160.
+        self.assertEqual(wait, (2 * 250 + 5) + (2 * 130 + 5) + (2 * 130 + 5))
+        self.assertLess(wait, job_specs.STARVATION_CYCLES * 60)
         self.assertFalse(set(ALL_LANES) & set(blockers))
         # Counted the way the bound counted before root ADR-0171, the five lanes would add up.
-        self.assertEqual(wait + 5 * 160, 2000)
+        self.assertEqual(wait + 5 * 160, 1835)
 
-    def test_a_lane_that_holds_its_slots_longer_than_the_gold_rebuild_starves_the_folds(self):
+    def test_a_lane_that_holds_its_slots_past_the_folds_room_starves_the_folds(self):
+        # The fold's bound has 430 minutes of room for whatever holds the pool when its turn comes
+        # (1,200 less FLOOR's 505 and the other fold's 265).
         jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[2])["stop_grace_minutes"] = 170 - job(jobs, LANES[2])["time_limit_minutes"]
+        job(jobs, LANES[2])["stop_grace_minutes"] = 435 - job(jobs, LANES[2])["time_limit_minutes"]
         problems = job_specs.pool_starvation(jobs)
         self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1205 minutes")
                             and LANES[2] in problem for problem in problems), problems)
         jobs = copy.deepcopy(real_inputs()[0])
-        job(jobs, LANES[0])["retries"] = 1  # a retry holds the slots again
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1360 minutes")
+        job(jobs, LANES[0])["retries"] = 2  # each retry holds the slots again: 3 x 160 + 2 x 5
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1260 minutes")
                             for problem in job_specs.pool_starvation(jobs)))
 
     def test_lanes_weighted_above_the_folds_starve_them(self):
-        # Heavier, every lane may start ahead of a waiting fold: five of them, then the Gold rebuild.
+        # Heavier, every lane may start ahead of a waiting fold: five of them, then lineage.
         jobs = copy.deepcopy(real_inputs()[0])
         for lane in LANES:
-            job(jobs, lane)["priority_weight"] = 6
+            job(jobs, lane)["priority_weight"] = 60
         wait, blockers = self.wait(jobs, "map_edit_fold_admin")
-        self.assertEqual(wait, 1035 + 5 * 160 + 165)
+        self.assertEqual(wait, 1035 + 5 * 160)
         self.assertLessEqual(set(LANES), set(blockers))
-        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 2000 minutes")
+        self.assertTrue(any(problem.startswith("map_edit_fold_admin may wait 1835 minutes")
                             for problem in job_specs.pool_starvation(jobs)))
 
     def test_the_bound_is_the_one_every_group_of_running_jobs_gives(self):
@@ -768,7 +810,7 @@ class TheSilverLanesInTheSparkPool(unittest.TestCase):
                        "industrial_complex_notice_silver", *own_lane_bakes()):
             self.assertIn(job_id, blockers)
         by_id = {job["id"]: job for job in jobs["jobs"]}
-        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 165 + 45 + 45 + 45
+        self.assertEqual(wait, 265 + 2 * 265 + 1260 + 45 + 45 + 45
                          + sum(job_specs.hold_minutes(by_id[job_id]) for job_id in own_lane_bakes()))
 
     def test_the_real_list_fits(self):

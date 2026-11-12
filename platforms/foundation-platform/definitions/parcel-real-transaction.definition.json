@@ -29,7 +29,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 2,
+      "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-real-transaction-to-gold-parcel-real-transaction",
@@ -83,7 +83,7 @@
       },
       "pool": "spark",
       "pool_slots": 2,
-      "priority_weight": 1,
+      "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [

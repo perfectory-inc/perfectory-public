@@ -35,7 +35,7 @@
       },
       "pool": "spark",
       "pool_slots": 2,
-      "priority_weight": 5,
+      "priority_weight": 50,
       "pipeline_graph_edges": [
         "map-edit-store-to-silver-map-edit-ledger",
         "silver-map-edit-ledger-to-gold-industrial-complex-boundary-served",

@@ -453,11 +453,55 @@ def retries(job):
 
 
 def priority_weight(job):
-    """Which waiting job Airflow starts first when slots free (`priority_weight`, 1 when absent)."""
+    """The job's tier in its pool's queue (`priority_weight`, 1 when absent); queue_weights raises it
+    above the jobs that read what the job writes, and that is the weight Airflow orders by."""
     value = job.get("priority_weight", 1)
     if type(value) is not int or value < 1:
         raise JobListError(f"{job['id']}: priority_weight must be a positive integer")
     return value
+
+
+def queue_weights(jobs, feeders):
+    """Job id -> the weight Airflow orders its pool's waiting tasks by (root ADR-0138, ADR-0557): the
+    job's own priority_weight, raised until it is above every job of its pool that reads what it
+    writes. The data dependency is the pipeline graph's (`feeders`, producers()), so no weight is kept
+    in step with it by hand; Airflow's own default rule does the same inside one DAG (`weight_rule`
+    "downstream": a task outranks what waits on it), and every job here is its own DAG. Jobs that read
+    each other's outputs in a circle (the two map-edit folds share one ledger) are one group with one
+    weight.
+
+    2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the spark pool's queue
+    while gold_parcel_nearby_rebuild (weight 2), which reads the eight Silver tables only it loads, ran
+    ahead of it and failed on tables that did not exist yet.
+    """
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    readers = {job_id: [] for job_id in by_id}
+    for reader, writers in feeders.items():
+        for writer in writers:
+            if by_id[writer]["pool"] == by_id[reader]["pool"]:
+                readers[writer].append(reader)
+
+    def reach(start):
+        seen, stack = set(), [start]
+        while stack:
+            for reader in readers[stack.pop()]:
+                if reader not in seen:
+                    seen.add(reader)
+                    stack.append(reader)
+        return seen
+
+    downstream = {job_id: reach(job_id) for job_id in by_id}
+    group = {job_id: frozenset({job_id} | {other for other in downstream[job_id] if job_id in downstream[other]})
+             for job_id in by_id}
+    weights = {}
+    # A group with fewer jobs downstream reads nothing of one with more, so each is weighed after
+    # everything that waits on it.
+    for members in sorted(set(group.values()), key=lambda members: len(downstream[min(members)] - members)):
+        waiting = {reader for member in members for reader in readers[member]} - members
+        weight = max([priority_weight(by_id[member]) for member in members]
+                     + [weights[reader] + 1 for reader in waiting])
+        weights.update(dict.fromkeys(members, weight))
+    return weights
 
 
 def priority_class(jobs, entry, name):
@@ -667,8 +711,11 @@ def pool_starvation(jobs, graph=None):
     """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs."""
     problems = []
     cycles = cycle_minutes(jobs, graph)
+    weights = queue_weights(jobs, producers(jobs, graph if graph is not None
+                                           else json.loads(GRAPH.read_text(encoding="utf-8"))))
     for pool, slots in declared_pools(jobs).items():
-        members = [job for job in jobs["jobs"] if job["pool"] == pool]
+        # Weighed as Airflow orders them: by the weight the data dependency raised (queue_weights).
+        members = [{**job, "priority_weight": weights[job["id"]]} for job in jobs["jobs"] if job["pool"] == pool]
         for starved in members:
             if pool_slots(starved) > slots:
                 problems.append(f"{starved['id']} takes {pool_slots(starved)} slots of pool {pool!r}, which has {slots}")
@@ -907,6 +954,9 @@ def load_specs(jobs=None, graph=None):
     found = datasets(jobs, graph)
     feeders = producers(jobs, graph)
     by_id = {job["id"]: job for job in jobs["jobs"]}
+    for job in jobs["jobs"]:
+        priority_weight(job)
+    weights = queue_weights(jobs, feeders)
 
     specs, seen_ids, seen_services = [], set(), set()
     for job in jobs["jobs"]:
@@ -1001,7 +1051,7 @@ def load_specs(jobs=None, graph=None):
                 pool=job["pool"],
                 pool_slots=pool_slots(job),
                 retries=retries(job),
-                priority_weight=priority_weight(job),
+                priority_weight=weights[job_id],
                 systemd_service=service,
                 systemd_timer=timer,
                 enabled=job["enabled"],
