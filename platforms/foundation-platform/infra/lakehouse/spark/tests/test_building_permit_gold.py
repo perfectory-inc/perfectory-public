@@ -218,6 +218,23 @@ class DocumentSparkTest(unittest.TestCase):
         self.assertEqual((listed["total"], len(dates)), (job.RECORD_BOUND + 2, job.RECORD_BOUND))
         self.assertEqual(dates, sorted(dates, reverse=True))
 
+    def test_housing_approvals_newest_approval_first_on_their_own_parcel(self):
+        # Root ADR-0511 §2: the 주택인허가 기본개요 is one more list of the same document.
+        source = "silver.housing_permit_basis_outline"
+        fields = job.DETAILS[source][1]
+        approval = fields.index("approval_date")
+
+        def approval_row(key: str, date: str) -> tuple:
+            values = ["공동주택"] * len(fields)
+            values[approval] = date
+            return (FACTORY, key, *values)
+
+        rows = [approval_row("h1", "20200101"), approval_row("h2", "20240101"), approval_row("h3", "")]
+        documents, _ = self.documents(self.frames([], details={source: rows}))
+        listed = documents[FACTORY][0]["housing_permits"]
+        self.assertEqual(listed["total"], 3)
+        self.assertEqual([r["approval_date"] for r in listed["records"]], ["20240101", "20200101", None])
+
     def test_an_inspection_reaches_the_one_title_its_key_names(self):
         columns = (*job.INSPECTION_COLUMNS, *job.DETAILS[job.INSPECTION_SOURCE][1])
         # 99999-123 names the 표제부 <4>1123 on FACTORY, which starts with 99999 (linked); 99999-77 names
