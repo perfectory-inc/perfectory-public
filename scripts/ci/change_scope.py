@@ -632,6 +632,13 @@ def decide_suites(
 # A Python module a source imports: `import a.b`, `from a.b import c, d`.
 PY_IMPORT = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import\s+([\w, ()]+)|import\s+([\w., ]+))", re.M)
 TEST_FILE = re.compile(r"(^|/)test_[^/]*\.py$")
+# A Python source that imports modules by name at run time (`importlib.import_module(name)` over a
+# quoted list) imports every tracked module one of its quoted bare words names. 2026-11-11: #1330
+# changed jobs/courtauction_go_kr.py; test_deferred_pyspark_names_resolve.py lists that module as
+# "courtauction_go_kr" and loads it with importlib, so the selection never reached the test, the
+# queue passed without it, and main failed on it for every later run that ran everything.
+PY_DYNAMIC_IMPORT = re.compile(r"\bimport_module\(|\b__import__\(")
+QUOTED_MODULE = re.compile(r"""["']([A-Za-z_][\w]*)["']""")
 # Sources whose quoted names are dependencies; only Python also has imports.
 GRAPH_SUFFIXES = (".py", ".sh", ".ts", ".tsx", ".js", ".mjs", ".cjs")
 
@@ -665,6 +672,9 @@ def dependency_graph(
         if source.endswith(".py"):
             for module, names, plain in PY_IMPORT.findall(code):
                 for word in filter(None, re.split(r"[\s,().]+", f"{module} {names} {plain}".strip())):
+                    imported |= by_name.get(word, set())
+            if PY_DYNAMIC_IMPORT.search(code):
+                for word in QUOTED_MODULE.findall(code):
                     imported |= by_name.get(word, set())
         quoted: set[str] = set()
         for path in source_reads(source, text, tracked_set, tracked_dirs):
