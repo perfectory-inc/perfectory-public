@@ -372,7 +372,11 @@ jobs:
     if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'static-release-toolchain-windows') }}
     name: Static-release executable toolchain (Windows)
     runs-on: windows-2022
-    timeout-minutes: 20
+    # This gate builds the publisher with no saved cache (root ADR-0269), so its limit follows the
+    # cold build: 12m21s with bundled DuckDB 2.0.0 (#1363), and past the old 20 minutes once the
+    # publisher's Iceberg commit (iceberg-rust with its own arrow/parquet, root ADR-0560) and
+    # DuckDB's Parquet writer joined it (#1366: cancelled at 20m06s).
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
