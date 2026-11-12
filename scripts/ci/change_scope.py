@@ -30,9 +30,12 @@ WORKFLOWS = ".github/workflows"
 # A change to how scope is decided can change every decision.
 RUN_ALL = frozenset({CONTRACT, SELECTOR})
 # A manual run and the nightly schedule run everything: the safety net under every narrowed run. The
-# merge queue narrows like a pull request, against its base, the main tip it builds on (root
-# ADR-0313): its head is that base plus every queued change ahead of it and this one, so the
-# comparison holds every change not yet on main.
+# merge queue narrows like a pull request, against its base (root ADR-0313). That base
+# (`merge_group.base_sha`) is the queue entry ahead of it, and main's tip only for the first entry
+# (measured 2026-11-12: #1332's run compared against #1331's queue commit while main was still one
+# behind). So a queue run verifies its own pull request's change and nothing ahead of it, which is
+# sound only because the queue merges a pull request whose own run is green (ALLGREEN, root
+# ADR-0552; scripts/guard/public-github-policy.sh refuses any other strategy).
 ALWAYS_RUN_EVENTS = frozenset({"workflow_dispatch", "schedule"})
 # The events that narrow; a scoped workflow that takes one also keeps a schedule (checked).
 NARROWED_EVENTS = frozenset({"pull_request", "merge_group"})
