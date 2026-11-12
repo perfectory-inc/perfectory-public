@@ -16,17 +16,20 @@ publish.workspace = true
 
 ### BEGIN HAKARI SECTION
 [dependencies]
+apache-avro = { version = "0.21", default-features = false, features = ["snappy", "zstandard"] }
 arrow-array = { version = "60", default-features = false, features = ["ffi"] }
 arrow-data = { version = "60", default-features = false, features = ["ffi"] }
 arrow-schema = { version = "60", default-features = false, features = ["ffi"] }
-base64-2b5c6dc72f624058 = { package = "base64", version = "0.23" }
-base64-3c51e837cfc5589a = { package = "base64", version = "0.22" }
+base64 = { version = "0.22" }
 bigdecimal = { version = "0.4", features = ["serde"] }
+brotli = { version = "8" }
+bytemuck = { version = "1", default-features = false, features = ["extern_crate_alloc"] }
 byteorder = { version = "1" }
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
 crc32fast = { version = "1" }
+crossbeam-epoch = { version = "0.9" }
 crossbeam-utils = { version = "0.8" }
-crypto-common = { version = "0.1", default-features = false, features = ["std"] }
+crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 either = { version = "1", features = ["serde", "use_std"] }
@@ -42,6 +45,7 @@ geo-types = { version = "0.7", features = ["rstar_0_12"] }
 half = { version = "2", features = ["num-traits"] }
 hashbrown = { version = "0.17" }
 indexmap = { version = "2", features = ["serde"] }
+itertools = { version = "0.13" }
 libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
@@ -51,10 +55,13 @@ num-integer = { version = "0.1", features = ["i128"] }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
+quick-xml = { version = "0.42", features = ["encoding", "serialize"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-lite = { version = "0.1" }
 regex-syntax = { version = "0.8" }
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
+serde_bytes = { version = "0.11" }
 serde_core = { version = "1", features = ["alloc", "rc"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 sha2 = { version = "0.10" }
@@ -77,17 +84,19 @@ uuid = { version = "1", features = ["serde", "v4", "v5", "v7"] }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 zeroize = { version = "1", features = ["derive"] }
 zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
+zstd = { version = "0.13" }
+zstd-safe = { version = "7", default-features = false, features = ["arrays", "legacy", "std", "zdict_builder"] }
 zstd-sys = { version = "2", default-features = false, features = ["legacy", "std", "zdict_builder"] }
 
 [build-dependencies]
-base64-3c51e837cfc5589a = { package = "base64", version = "0.22" }
+base64 = { version = "0.22" }
 bigdecimal = { version = "0.4", features = ["serde"] }
 byteorder = { version = "1" }
 cc = { version = "1", default-features = false, features = ["parallel"] }
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
 crc32fast = { version = "1" }
 crossbeam-utils = { version = "0.8" }
-crypto-common = { version = "0.1", default-features = false, features = ["std"] }
+crypto-common = { version = "0.1", default-features = false, features = ["getrandom", "std"] }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10", features = ["mac", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11", features = ["alloc", "mac", "oid"] }
 either = { version = "1", features = ["serde", "use_std"] }
@@ -101,6 +110,7 @@ futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 hashbrown = { version = "0.17" }
 indexmap = { version = "2", features = ["serde"] }
+itertools = { version = "0.13" }
 libc = { version = "0.2" }
 log = { version = "0.4", default-features = false, features = ["std"] }
 memchr = { version = "2" }
@@ -137,10 +147,10 @@ zlib-rs = { version = "0.6", default-features = false, features = ["std"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std", "prctl"] }
 rustix = { version = "1", features = ["fs", "process"] }
+simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp"] }
 tower-http = { version = "0.6", features = ["cors", "follow-redirect", "timeout", "trace"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
@@ -150,9 +160,9 @@ linux-raw-sys = { version = "0.12", default-features = false, features = ["auxve
 rustix = { version = "1", features = ["fs", "process"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
-getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std"] }
+simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp"] }
 tower-http = { version = "0.6", features = ["cors", "follow-redirect", "timeout", "trace"] }
 windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Credentials", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
 
