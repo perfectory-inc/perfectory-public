@@ -111,10 +111,10 @@ jobs:
           python3 scripts/ci/test_actions_cache_budget.py -v
           python3 scripts/ci/actions_cache_budget.py check
       # Which failed runs the scheduled rerun-runner-failures workflow re-runs (root ADR-0421).
-      - name: Runner-failure re-run tests
-        run: python3 scripts/ci/test_rerun_runner_failures.py -v
       - name: Main health tests
         run: python3 scripts/ci/test_main_health.py -v
+      - name: Runner-failure re-run tests
+        run: python3 scripts/ci/test_rerun_runner_failures.py -v
       # Root ADR-0207: on a pull request and in the merge queue (root ADR-0313) the runner keeps the
       # guards whose inputs changed (tools/ci/change-scope.json `guards`); a push to main the queue
       # already passed on the same tree runs none (the token reads the queue's runs); every other
