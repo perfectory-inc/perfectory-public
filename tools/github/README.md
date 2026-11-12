@@ -2,7 +2,7 @@
 status: current
 owner: repository-tooling
 doc_type: README
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-12
 ---
 
 # 공개 GitHub 저장소 정책
@@ -260,6 +260,28 @@ git -C public-clone status --short
 GitHub는 public 저장소의 pull-request 생성을 끌 수 없다. `CONTRIBUTING.md`에
 따라 외부 코드 기여는 서면 기여·양도 계약이 생길 때까지 받지 않으며, 원치 않는
 pull request가 이 정책을 바꾸지 않는다.
+
+## 머지 큐에 넣기
+
+풀 리퀘스트를 큐에 넣는 길은 하나다(루트 ADR-0553).
+
+```bash
+python3 scripts/github/merge_queue_enqueue.py <PR 번호>            # --dry-run 으로 먼저 볼 수 있다
+```
+
+| PR 의 라벨 | 하는 일 |
+|---|---|
+| 없음 | 큐 맨 뒤에 넣는다. 이미 큐에 있으면 아무것도 하지 않는다 |
+| `hotfix:main-red` (main 의 필수 검사를 고치는 PR) | 큐 맨 앞에 넣는다(GitHub `jump`) |
+| `hotfix:deploy-stop` (멈춘 배포를 고치는 PR) | 큐 맨 앞에 넣는다(GitHub `jump`) |
+
+- 앞에 세울 때 다른 PR 을 큐에서 빼지 않는다. 라벨이 붙은 PR 이 이미 뒤에 서 있으면 그 PR 하나만 빼서 앞에 다시 넣는다.
+- 이미 앞에 선 PR 은 다시 넣지 않는다. 뺐다 넣으면 그 PR 의 큐 실행이 처음부터 다시 돈다.
+- 앞에 선 PR 도 큐가 필수 검사를 전부 돌린다. 걸리는 시간은 큐 실행 한 번(22~35분)이다.
+- 앞에 세우면 그 PR 에 라벨 이름이 적힌 댓글이 남는다.
+- 큐를 손으로 비우지 않는다(`dequeuePullRequest` 를 다른 PR 에 쓰지 않는다).
+
+큐가 버린 커밋의 실행은 `rerun-runner-failures.yml` 이 5분마다 취소한다(`scripts/ci/cancel_superseded_queue_runs.py`).
 
 ## 조직 결제 게이트
 
