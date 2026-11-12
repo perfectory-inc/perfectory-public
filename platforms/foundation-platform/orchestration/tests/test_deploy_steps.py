@@ -26,6 +26,7 @@ RUNTIME_SECRETS = PLATFORM / "config/runtime-secrets.contract.json"
 CALLERS = {
     "lakehouse-migrate": PLATFORM / "scripts/deploy/foundation-release.sh",
     "postgres-chain": PLATFORM / "scripts/deploy/foundation-release.sh",
+    "redact-logged-credentials": PLATFORM / "scripts/deploy/foundation-release.sh",
 }
 START_ONCE = PLATFORM / "scripts/deploy/deploy-start-once.sh"
 SECRET = "do-not-print-0f3a"

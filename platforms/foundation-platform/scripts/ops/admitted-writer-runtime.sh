@@ -108,6 +108,13 @@ export FOUNDATION_RUN_RELEASE="${RELEASE_ID}"
 # tools/semgrep/rules/batch-containers.yml). The caller's FOUNDATION_PLATFORM_LAKEHOUSE_*
 # assignments before the call reach both containers.
 #   lakehouse_spark_run <compose project> [run options] <service> <command...>
+# A caller that keeps the run's output in a file makes the file first, with lakehouse_run_log: the
+# file is the job account's and its group's, no other account's. Spark's log is what the engine
+# chooses to print, and 2026-11-11 it printed the catalog writer token into a 0644 file under
+# directories every account could enter (orchestration/tests/test_spark_run_logs.py).
+#   lakehouse_run_log <file>
+# A file an earlier step of the run already made is closed to other accounts as it is.
+lakehouse_run_log() { [[ -e "$1" ]] || install -m 0640 /dev/null "$1"; [[ ! -f "$1" || ! -O "$1" ]] || chmod o-rwx "$1"; }
 lakehouse_spark_run() {
   local compose=(docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml"
     -p "$1" --profile lakehouse-batch run --rm --no-deps)

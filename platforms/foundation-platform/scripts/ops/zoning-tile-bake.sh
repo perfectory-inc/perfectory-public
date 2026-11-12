@@ -71,6 +71,7 @@ fi
 # 넘김 한 번: $1 은 파일 이름 앞부분, 나머지는 넘김 인자. 이미 나간 스냅숏이면 3 으로 끝난다.
 handoff() {
   local name="$1"; shift
+  lakehouse_run_log "${run_log}"
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${lakehouse_root}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   lakehouse_spark_run foundation-platform-compute \

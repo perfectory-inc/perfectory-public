@@ -49,6 +49,7 @@ print("http://" + r["listen"], r["chat_path"], r["model"])'
 intelligence_document_spark() {
   local command="$1"
   shift
+  lakehouse_run_log "${run_log}"
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   lakehouse_spark_run foundation-platform-compute \
     -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \

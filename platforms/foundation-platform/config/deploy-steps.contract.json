@@ -33,6 +33,10 @@
         "contracts": "infra/lakehouse/contracts/industrial_complex_lakehouse_contracts.json"
       }
     },
+    "redact-logged-credentials": {
+      "$comment": "one-off: scripts/ops/redact-logged-credentials.py says when it ends. Runs once per host (and again only if the script changes): blanks, in place, every credential of the host's environment files found in a run log (2026-11-11: Spark printed the catalog writer token into a world-readable Gold run log).",
+      "inputs": ["scripts/ops/redact-logged-credentials.py"]
+    },
     "postgres-chain": {
       "always": "The runtime image is the release's own and carries its migrations (sqlx::migrate!), so the chain postgres, bootstrap, migrate, grants, finalize, api runs each deploy; the chain is run to completion before the API is replaced (2026-10-14) and is asked for as an end state, never with --no-deps (2026-09-02, scripts/guard/the-deploy-does-not-restate-the-compose-chain.sh), so compose re-runs its idempotent one-shots once per `up`. Measured 77 s on 2026-10-27.",
       "budget_seconds": 150

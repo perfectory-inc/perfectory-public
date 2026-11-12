@@ -89,6 +89,7 @@ FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_BOUNDARY_SILVER_HANDOFF_SUMMARY_PATH="${w
 rm -rf "${work}/bronze"
 
 # 4. 적재. 같은 ZIP 의 두 번째 적재는 적재 기록이 막는다(append_batch_once).
+lakehouse_run_log "${run_log}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute \
