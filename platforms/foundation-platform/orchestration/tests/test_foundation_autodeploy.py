@@ -579,7 +579,7 @@ class TheWholeDeploy(unittest.TestCase):
     for real is the script's order of steps and what it does to the DAGs when one of them fails.
     """
 
-    ENABLED = ("source_sweep", "outbox_publish", "map_edit_fold_admin")
+    ENABLED = ("media_reconcile", "outbox_publish", "map_edit_fold_admin")
     DISABLED = ("vworld_parcel_edition",)
 
     def setUp(self):
@@ -591,11 +591,11 @@ class TheWholeDeploy(unittest.TestCase):
         running = release_root / "releases" / old
         (running / "orchestration").mkdir(parents=True)
         (running / "scripts/deploy").mkdir(parents=True)
-        once = {"source_sweep": 5, "outbox_publish": 1}
+        once = {"media_reconcile": 5, "outbox_publish": 1}
         jobs = [{"id": job, "enabled": job in self.ENABLED, "systemd_service": f"foundation-{job}.service",
                  "time_limit_minutes": once.get(job, 30), "stop_grace_minutes": 0,
                  "started_once_after_deploy": job in once,
-                 "interruptible": job == "source_sweep"}
+                 "interruptible": job == "media_reconcile"}
                 for job in self.ENABLED + self.DISABLED]
         (running / "orchestration/jobs.v1.json").write_text(json.dumps({"jobs": jobs}))
         # airflow-runtime.sh exec airflow-scheduler airflow <args>: record <args>; `dags list` answers
@@ -656,7 +656,7 @@ class TheWholeDeploy(unittest.TestCase):
             '[[ -z "${FIXTURE_NO_ANSWER:-}" ]] || exit 65\n'
             'count="$(grep -c running-jobs "$FIXTURE_ROOT/admission.log")"\n'
             'if ((count <= ${FIXTURE_BUSY_ANSWERS:-0})); then\n'
-            '  echo "${FIXTURE_BUSY_UNIT:-foundation-source_sweep.service} activating"; exit 75; fi\n')
+            '  echo "${FIXTURE_BUSY_UNIT:-foundation-media_reconcile.service} activating"; exit 75; fi\n')
         running_jobs.chmod(0o755)
         # The commit's checkout exists already, so step 1 only moves `current` to it.
         new = control_root / "releases" / HEAD / "platforms/foundation-platform/scripts/deploy"
@@ -850,12 +850,12 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertLess(result.stdout.index("2b. the schedule comes back"), result.stdout.index("4. activate"))
 
     def test_a_changed_table_holds_its_writers_and_the_jobs_the_graph_cannot_place(self):
-        # silver.building_register_floors: its writer is not on this fixture host; source_sweep and
+        # silver.building_register_floors: its writer is not on this fixture host; media_reconcile and
         # outbox_publish name no table in the graph, so they are held; the fold writes another table.
         self.commit_tells_what_it_changes("silver.building_register_floors")
         result = self.deploy(FIXTURE_FAIL_AT="migrate")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "source_sweep": "pause",
+        self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "media_reconcile": "pause",
                                        "outbox_publish": "pause", "vworld_parcel_edition": "pause"})
 
     def test_an_operators_unit_waits_the_deploy_only_when_the_release_holds_jobs(self):
@@ -883,9 +883,9 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn(f"{self.OPERATOR} writes {writes}, none of what", free.stderr)
 
     def test_an_operators_unit_that_writes_a_held_job_still_holds_the_deploy(self):
-        # source_sweep names no table in the graph, so every table change holds it.
+        # media_reconcile names no table in the graph, so every table change holds it.
         self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
-        held = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR, FIXTURE_OPERATOR_WRITES="source_sweep")
+        held = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR, FIXTURE_OPERATOR_WRITES="media_reconcile")
         self.assertEqual(held.returncode, 75, held.stdout + held.stderr)
         self.assertIn(f"waiting for the operator's {self.OPERATOR} (root ADR-0441)", held.stderr)
 
@@ -940,16 +940,16 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("no unheld DAG was paused", result.stdout)
 
     def test_a_registry_release_pauses_only_what_it_holds_and_never_waits_for_another_job(self):
-        # source_sweep and outbox_publish are held (the graph cannot place them); the fold is not,
+        # media_reconcile and outbox_publish are held (the graph cannot place them); the fold is not,
         # and its run goes on through the whole deploy.
         self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
         result = self.deploy(FIXTURE_BUSY_ANSWERS="1000", FIXTURE_BUSY_UNIT="foundation-map_edit_fold_admin.service")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(sorted(self.airflow_told("pause")), ["outbox_publish", "source_sweep"])
+        self.assertEqual(sorted(self.airflow_told("pause")), ["media_reconcile", "outbox_publish"])
         self.assertIn("no held job is running", result.stdout)
         self.assertFalse((self.root / "sleep.log").exists(), "an unheld job is not waited for")
-        self.assertEqual(sorted(self.airflow_told("unpause")), ["outbox_publish", "source_sweep"])
-        self.assertEqual(self.dags(), {"outbox_publish": "unpause", "source_sweep": "unpause"})
+        self.assertEqual(sorted(self.airflow_told("unpause")), ["media_reconcile", "outbox_publish"])
+        self.assertEqual(self.dags(), {"outbox_publish": "unpause", "media_reconcile": "unpause"})
         self.assertNotIn("dags pause foundation_vworld_parcel_edition", (self.root / "airflow.log").read_text())
 
     def test_a_held_job_that_is_not_interruptible_is_waited_for(self):
@@ -973,8 +973,8 @@ class TheWholeDeploy(unittest.TestCase):
         result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         stops = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("stop")]
-        self.assertEqual(stops, ["stop --no-block foundation-source_sweep.service"])
-        self.assertIn("stopped foundation-source_sweep.service", result.stdout)
+        self.assertEqual(stops, ["stop --no-block foundation-media_reconcile.service"])
+        self.assertIn("stopped foundation-media_reconcile.service", result.stdout)
 
     def test_a_stopped_job_is_owed_a_run_and_started_when_the_schedule_comes_back(self):
         # 2026-10-29 review: a `*` deploy (a Postgres migration) stops every interruptible job, and one
@@ -983,18 +983,18 @@ class TheWholeDeploy(unittest.TestCase):
         owed = self.owed_runs_are_recorded()
         result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(sorted(path.name for path in owed.iterdir()), ["source_sweep"],
+        self.assertEqual(sorted(path.name for path in owed.iterdir()), ["media_reconcile"],
                          "the record stays until the runner starts it")
         self.assertIn("it is owed a run, started when the deploy gives the schedule back", result.stdout)
         log = (self.root / "airflow.log").read_text().splitlines()
-        self.assertLess(log.index("dags unpause foundation_source_sweep"), log.index("dags trigger foundation_source_sweep"))
-        self.assertIn("started foundation_source_sweep", result.stdout)
+        self.assertLess(log.index("dags unpause foundation_media_reconcile"), log.index("dags trigger foundation_media_reconcile"))
+        self.assertIn("started foundation_media_reconcile", result.stdout)
 
     def test_a_stopped_job_is_started_again_when_the_deploy_stops_before_the_switch(self):
         owed = self.owed_runs_are_recorded()
         result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed), FIXTURE_FAIL_AT="prepare")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("dags trigger foundation_source_sweep", (self.root / "airflow.log").read_text())
+        self.assertIn("dags trigger foundation_media_reconcile", (self.root / "airflow.log").read_text())
 
     def test_a_job_that_cannot_be_recorded_as_owed_is_waited_for_not_stopped(self):
         # The running release has no job_units.py: nowhere to record the run it would lose.
@@ -1030,7 +1030,7 @@ class TheWholeDeploy(unittest.TestCase):
         (current / "config").mkdir()
         (current / "config/deploy-steps.contract.json").write_text(json.dumps({
             "state_directory": "/var/lib/perfectory/deploy-steps", "steps": {
-            "start-once.source_sweep": {"inputs": ["orchestration/jobs.v1.json"]},
+            "start-once.media_reconcile": {"inputs": ["orchestration/jobs.v1.json"]},
             "start-once.outbox_publish": {"inputs": ["scripts/deploy/airflow-runtime.sh"]}}}))
         starts = lambda: [line for line in (self.root / "systemctl.log").read_text().splitlines()  # noqa: E731
                           if line.startswith("start")]
@@ -1049,11 +1049,11 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(starts()[2:], ["start foundation-outbox_publish.service"],
                          "the one that succeeded is skipped; the one that failed starts again")
-        self.assertRegex(result.stdout, r"foundation-source_sweep\.service +skipped")
+        self.assertRegex(result.stdout, r"foundation-media_reconcile\.service +skipped")
         (current / "orchestration/jobs.v1.json").write_text((current / "orchestration/jobs.v1.json").read_text() + "\n")
         result = again()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("start foundation-source_sweep.service", starts()[3:], "a changed input starts it again")
+        self.assertIn("start foundation-media_reconcile.service", starts()[3:], "a changed input starts it again")
 
     def series(self, name):
         """The series of the deploy's metrics file, or of its copy at a step, without HELP/TYPE."""
@@ -1235,15 +1235,15 @@ class TheWholeDeploy(unittest.TestCase):
     def test_a_failed_post_deploy_run_leaves_every_enabled_dag_unpaused(self):
         # 2026-10-09, three deploys in a row: the sweep's post-deploy run failed, the deploy exited at
         # step 6 before step 7, and all 17 DAGs stayed paused for about three hours.
-        result = self.deploy(FIXTURE_FAILING="foundation-source_sweep.service")
+        result = self.deploy(FIXTURE_FAILING="foundation-media_reconcile.service")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("DONE: production runs", result.stdout)
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
-        self.assertIn(f"the post-deploy run did not succeed under {HEAD}: foundation-source_sweep.service",
+        self.assertIn(f"the post-deploy run did not succeed under {HEAD}: foundation-media_reconcile.service",
                       result.stderr)
         started = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("start")]
-        self.assertEqual(started, ["start foundation-source_sweep.service", "start foundation-outbox_publish.service"],
+        self.assertEqual(started, ["start foundation-media_reconcile.service", "start foundation-outbox_publish.service"],
                          "a failed run does not stop the next one from being started")
 
     def test_a_deploy_that_stops_before_the_switch_gives_the_running_release_its_schedule_back(self):
