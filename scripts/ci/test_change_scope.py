@@ -574,6 +574,9 @@ class SuiteModulesTest(unittest.TestCase):
         "platforms/ws/services/gw/package.json": "{}\n",
         "platforms/ws/services/gw/src/index.ts": 'readFileSync("platforms/ws/config/routes.json")\n',
         "platforms/ws/data/orphan.csv": "a,b\n",
+        "platforms/ws/jobs/listed.py": "Y = 3\n",
+        "platforms/ws/tests/test_listed_by_name.py": 'MODULES = ("listed",)\nimportlib.import_module(MODULES[0])\n',
+        "platforms/ws/tests/test_quotes_a_word.py": 'LABEL = "listed"\n',
     }
 
     def select(self, changed: set[str]):
@@ -591,6 +594,12 @@ class SuiteModulesTest(unittest.TestCase):
         self.assertIn("platforms/ws/tests/test_bake.py", tests, "test_bake starts bake.sh, which runs gold")
         self.assertNotIn("platforms/ws/tests/test_other.py", tests)
         self.assertEqual(nodes, set())
+
+    def test_a_module_loaded_by_its_quoted_name_selects_the_test_that_loads_it(self) -> None:
+        # 2026-11-11: #1330 and test_deferred_pyspark_names_resolve.py.
+        tests, _, _ = self.select({"platforms/ws/jobs/listed.py"})
+        self.assertIn("platforms/ws/tests/test_listed_by_name.py", tests)
+        self.assertNotIn("platforms/ws/tests/test_quotes_a_word.py", tests, "a quoted word alone imports nothing")
 
     def test_a_file_selects_the_tests_and_packages_that_name_it(self) -> None:
         tests, nodes, _ = self.select({"platforms/ws/config/routes.json"})
