@@ -35,8 +35,17 @@ if [ "${planned}" = 0 ]; then
 fi
 
 intelligence_document_fetch_media "${work}/plan/media.tsv"
-intelligence_document_text_run
+# The image writes each document's rows as it finishes it: a run that stops (its memory cap, its
+# time limit) still appends what it finished, then fails. 2026-11-12 three runs in a row were killed
+# at the cap after about a hundred documents each and appended none, so each next run read them again.
+text_rc=0
+intelligence_document_text_run || text_rc=$?
 intelligence_document_spark append-text --run-dir "${container_work}/out" --run-id "${run_id}"
+if [ "${text_rc}" != 0 ]; then
+  job_journal "${journal}" "intelligence document text FAILED: the image exited ${text_rc}; its finished documents were appended run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
+  exit "${text_rc}"
+fi
 
 read_summary="$(python3 -I -c '
 import json, sys
