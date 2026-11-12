@@ -44,6 +44,10 @@ log() { printf 'foundation-autodeploy: %s\n' "$*"; }
 #     the release's scope the host does not run: the merge time of the oldest one;
 #   foundation_autodeploy_release_missing_since_timestamp_seconds{commit}   while a commit in the
 #     scope newer than the newest released one has no release: the merge time of the oldest such.
+#   foundation_autodeploy_failed_deploys_in_a_row   while the last deploy failed: how many commits'
+#     deploys failed since the last one that succeeded (root ADR-0555). 2026-11-11: a tmpfiles line
+#     failed the deploy of every commit from 15:34Z; each failure was one Slack notice among the
+#     day's, the host-behind alert waits 6 hours, and the fix was opened 2.5 hours later.
 # A merge commit's committer time is when it reached main (the merge queue writes it).
 reason="" target="" released_known=0 host_commit=""
 in_scope="" # "<sha> <merge time>" lines, newest first: main's commits after the host in the scope
@@ -59,6 +63,16 @@ write_metrics() {
         missing="${sha}" missing_at="${at}"
       fi
     done <<<"${in_scope}"
+    # A commit's failed deploy is never retried, so each file under failed/ newer than the newest
+    # under deployed/ is one more commit that could not be deployed.
+    local last_deployed="" failed_in_a_row=0
+    last_deployed="$(find "${state}/deployed" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | sed -n 1p | cut -d' ' -f2-)" \
+      || last_deployed=""
+    if [[ -n "${last_deployed}" ]]; then
+      failed_in_a_row="$(find "${state}/failed" -type f -newer "${last_deployed}" 2>/dev/null | wc -l)" || failed_in_a_row=0
+    else
+      failed_in_a_row="$(find "${state}/failed" -type f 2>/dev/null | wc -l)" || failed_in_a_row=0
+    fi
     mkdir -p "$(dirname "${metrics}")"
     {
       echo "# HELP foundation_autodeploy_tick_timestamp_seconds When the autodeploy last decided, and why the host is not on main (root ADR-0345)."
@@ -72,6 +86,9 @@ write_metrics() {
       echo "# TYPE foundation_autodeploy_release_missing_since_timestamp_seconds gauge"
       [[ -z "${missing}" ]] \
         || printf 'foundation_autodeploy_release_missing_since_timestamp_seconds{commit="%s"} %s\n' "${missing:0:12}" "${missing_at}"
+      echo "# HELP foundation_autodeploy_failed_deploys_in_a_row Commits whose deploy failed since the last deploy that succeeded (root ADR-0555)."
+      echo "# TYPE foundation_autodeploy_failed_deploys_in_a_row gauge"
+      ((failed_in_a_row == 0)) || printf 'foundation_autodeploy_failed_deploys_in_a_row %s\n' "${failed_in_a_row}"
     } >"${metrics}.next"
     chmod 0644 "${metrics}.next"
     mv -f "${metrics}.next" "${metrics}"
