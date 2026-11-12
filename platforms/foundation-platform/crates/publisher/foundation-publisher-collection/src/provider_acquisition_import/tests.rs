@@ -851,3 +851,164 @@ impl BronzeIngestUnitOfWork for RecordingBronzeUow {
         Ok(profile.clone())
     }
 }
+
+/// A provider that answers each connection with the next scripted response and then closes it, so
+/// a response can declare more bytes than it sends (the RAON handler on 2026-11-12, root ADR-0562).
+/// Returns its base URL and the request heads it read, in order.
+async fn cutting_provider(
+    responses: Vec<(String, Vec<u8>)>,
+) -> (String, std::sync::Arc<Mutex<Vec<String>>>) {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the test provider");
+    let base = format!("http://{}", listener.local_addr().expect("its address"));
+    let heads = std::sync::Arc::new(Mutex::new(Vec::new()));
+    let recorded = heads.clone();
+    tokio::spawn(async move {
+        for (head, body) in responses {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 1024];
+            while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = socket.read(&mut buffer).await.expect("read the request");
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..read]);
+            }
+            recorded
+                .lock()
+                .expect("heads")
+                .push(String::from_utf8_lossy(&request).to_ascii_lowercase());
+            socket
+                .write_all(head.as_bytes())
+                .await
+                .expect("write the head");
+            socket.write_all(&body).await.expect("write the body");
+            socket.shutdown().await.ok();
+        }
+    });
+    (base, heads)
+}
+
+fn cut_replay_request(base: &str, size: usize) -> ProviderAcquisitionReplayRequest {
+    ProviderAcquisitionReplayRequest {
+        schema_version: "foundation-platform.provider_acquisition_replay_request.v1".to_owned(),
+        landing_object_key:
+            "landing/provider=vworldkr/acquisition=raon_kupload_browser/job_id=job-cut/file.zip"
+                .to_owned(),
+        replay_url: format!("{base}/vwDnMng/raonkupload/handler/raonkhandler.jsp?k00=secret"),
+        method: "GET".to_owned(),
+        request_content_type: String::new(),
+        post_data: String::new(),
+        provider_declared_size_bytes: Some(size as u64),
+        expected_size_bytes: None,
+        cookie_header: None,
+        user_agent: None,
+        referer_url: None,
+    }
+}
+
+fn large_zip() -> Vec<u8> {
+    let content: Vec<u8> = (0..200_000_u32).flat_map(u32::to_le_bytes).collect();
+    zip_with_entry("data.bin", &content)
+}
+
+#[tokio::test]
+async fn a_body_the_provider_closed_early_resumes_from_where_it_ended() {
+    // 2026-11-12: AL_D155_41 (926 MB) ended after six minutes with `end of file before message
+    // length reached` and the run failed it from zero. A provider that serves ranges continues.
+    let zip_bytes = large_zip();
+    let half = zip_bytes.len() / 2;
+    let total = zip_bytes.len();
+    let (base, heads) = cutting_provider(vec![
+        (
+            format!("HTTP/1.1 200 OK\r\ncontent-type: application/zip\r\naccept-ranges: bytes\r\ncontent-length: {total}\r\nconnection: close\r\n\r\n"),
+            zip_bytes[..half].to_vec(),
+        ),
+        (
+            format!("HTTP/1.1 206 Partial Content\r\ncontent-type: application/zip\r\ncontent-range: bytes {half}-{}/{total}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", total - 1, total - half),
+            zip_bytes[half..].to_vec(),
+        ),
+    ])
+    .await;
+    let storage = RecordingObjectStorage::default();
+
+    let report = stream_replay_request_to_landing(
+        &storage,
+        &cut_replay_request(&base, total),
+        &reqwest::Client::new(),
+    )
+    .await
+    .expect("the replay resumes");
+
+    let writes = storage.streaming_writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].body, zip_bytes);
+    assert_eq!(report.checksum_sha256, sha256_hex(&zip_bytes));
+    let heads = heads.lock().expect("heads").clone();
+    assert_eq!(heads.len(), 2);
+    assert!(!heads[0].contains("range:"), "{}", heads[0]);
+    assert!(
+        heads[1].contains(&format!("range: bytes={half}-")),
+        "{}",
+        heads[1]
+    );
+}
+
+#[tokio::test]
+async fn a_provider_that_serves_no_ranges_is_asked_again_from_the_first_byte() {
+    // 2026-11-12: AL_D155_47 ended two seconds in. Without a range the next answer is the whole
+    // body, written over what the first left.
+    let zip_bytes = large_zip();
+    let total = zip_bytes.len();
+    let whole = format!("HTTP/1.1 200 OK\r\ncontent-type: application/zip\r\ncontent-length: {total}\r\nconnection: close\r\n\r\n");
+    let (base, heads) = cutting_provider(vec![
+        (whole.clone(), zip_bytes[..1000].to_vec()),
+        (whole, zip_bytes.clone()),
+    ])
+    .await;
+    let storage = RecordingObjectStorage::default();
+
+    stream_replay_request_to_landing(
+        &storage,
+        &cut_replay_request(&base, total),
+        &reqwest::Client::new(),
+    )
+    .await
+    .expect("the second whole answer lands");
+
+    assert_eq!(storage.streaming_writes()[0].body, zip_bytes);
+    let heads = heads.lock().expect("heads").clone();
+    assert_eq!(heads.len(), 2);
+    assert!(!heads[1].contains("range:"), "{}", heads[1]);
+}
+
+#[tokio::test]
+async fn a_body_cut_on_every_attempt_fails_and_lands_nothing() {
+    let zip_bytes = large_zip();
+    let total = zip_bytes.len();
+    let cut = (
+        format!("HTTP/1.1 200 OK\r\ncontent-type: application/zip\r\ncontent-length: {total}\r\nconnection: close\r\n\r\n"),
+        zip_bytes[..1000].to_vec(),
+    );
+    let (base, heads) = cutting_provider(vec![cut.clone(), cut.clone(), cut.clone(), cut]).await;
+    let storage = RecordingObjectStorage::default();
+
+    let error = stream_replay_request_to_landing(
+        &storage,
+        &cut_replay_request(&base, total),
+        &reqwest::Client::new(),
+    )
+    .await
+    .expect_err("four cut answers fail the replay");
+
+    assert!(
+        format!("{error:#}").contains("ended early on all 4 attempts"),
+        "{error:#}"
+    );
+    assert!(storage.streaming_writes().is_empty());
+    assert_eq!(heads.lock().expect("heads").len(), 4);
+}
