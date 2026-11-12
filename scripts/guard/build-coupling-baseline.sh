@@ -20,158 +20,30 @@
 # would reopen it. That decision rests on these numbers being small. Nothing was
 # watching them.
 #
-# This is a ratchet, not a ban. Growing either number is allowed — it just has to
-# be a visible edit to this file rather than a side effect nobody priced. The
-# guard fails in BOTH directions: an unnoticed increase, and a baseline left high
+# This is a ratchet, not a ban. Growing either is allowed — it just has to be a
+# visible edit rather than a side effect nobody priced: the build-script number in
+# this file, and for the reads one line per source file in LEDGER (root ADR-0556).
+# The guard fails in BOTH directions: an unnoticed increase, and a declaration left
 # after the real count dropped. A ceiling that only ever rises is not a ratchet.
+#
+#   build-coupling-baseline.sh [<repo root> [<build scripts> [<total reads>]]]
+#   build-coupling-baseline.sh --write     rewrite LEDGER from the tree, to commit
+#
+# Until 2026-11-12 the reads were one number in this file. Every pull request that
+# added an `include_str!` edited that one line and appended its reason below it,
+# so any two of them conflicted and had to merge one after the other: the number
+# was raised 87 times, and on 2026-11-12 eight open pull requests each edited it.
+# A line per source file, sorted by path, is touched only by the pull request
+# that touches that file; the reason is the commit's.
 set -euo pipefail
 
-# Measured 2026-07-29, raised to 80 on 2026-07-30. Change deliberately, with the
-# reason in the commit message. They are parameters, not constants, for one reason:
-# a guard whose thresholds cannot be varied cannot have its own failure paths
-# tested. The defaults are the real repository's numbers; only the self-test passes
-# anything else.
-#
-# 79 -> 80: `catalog-infrastructure/tests/spatial_tile_publication.rs` declares a
-# second `sqlx::migrate!` in that crate. The v2 publication transaction has to be
-# proved against a migrated database, and the promotion gate counts publication
-# units globally, so the suite needs its own disposable database rather than the
-# shared harness one — which is what the migrator site is for.
-#
-# 80 -> 81: `foundation-outbox-publisher/tests/administrative_boundary_postgis_publish.rs`
-# declares the first `sqlx::migrate!` in that crate, for the same reason: the only
-# production writer of a projection load creates the `admin` publication unit, so
-# it cannot run against the shared harness database without failing every
-# promotion test. This cost one site, not two — the fixture's scratch directory
-# comes from `env::temp_dir()` at runtime rather than from the crate manifest
-# directory at compile time, which the first draft used and this guard priced.
-#
-# 81 -> 82: `catalog-infrastructure/tests/parcel_complex_membership.rs` declares a
-# third migrator site in that crate. ADR-0019's backfill is only observable on a
-# database that held parcels *before* the membership migration ran, so that test
-# applies the migrations in two passes and needs the migration set as a value it
-# can filter. Applying everything and inserting afterwards leaves the backfill
-# nothing to find, and such a test passes unchanged against a migration whose
-# `INSERT` was deleted — so the alternative is not a cheaper site but no assertion.
-#
-# 82 -> 83: `foundation-outbox-publisher/tests/parcel_boundary_publication.rs` declares
-# a second migrator site in that crate, for the same reason as the first: the only
-# production writer of the parcel serving projection creates the `parcels`
-# publication unit, and the promotion gate counts publication units globally, so a
-# unit left in the shared harness database fails every promotion test elsewhere while
-# reading as a promotion bug. One site, not two — the fixture keeps nothing on disk,
-# so it prices no crate-manifest-directory read.
-#
-# 83 -> 84: `foundation-outbox-publisher/tests/parcel_publication_source_evidence.rs`
-# declares the third migrator site in that crate. The sealed-evidence constraints and
-# append-only guards are PostgreSQL contracts, and the suite must prove them in a
-# disposable migrated database without leaving publication state in the shared
-# harness database.
-#
-# 84 -> 85: `catalog-infrastructure/tests/vector_tile_runtime_manifest_promote.rs`
-# owns one migrator site after terminal projection loads became immutable. The old shared-database
-# cleanup had to DELETE succeeded loads, which is now the forbidden behavior under test; one
-# migrated disposable database per test preserves both the invariant and isolation.
-#
-# 85 -> 86: `foundation-outbox-publisher/src/postgis_parcel_boundary_mirror_national_rebuild.rs`
-# owns one test-only migrator site. The provenance regression must call the production rebuild's
-# private staging and mirror-insert functions, then inspect both the run and every loaded row in one
-# disposable migrated database. An integration-test binary cannot reach those functions, while a
-# CLI test would replace the database proof with R2 and process-fixture coupling.
-#
-# 86 -> 87: `foundation-outbox-publisher/src/industrial_complex_address_source_collect/tests.rs`
-# reads the public source-endpoint catalog from the crate's own directory to prove every ILIS
-# dataset the collector declares is registered there. The catalog is the human-facing SSOT for what
-# we collect and from where; restating its three entries in the test would recreate exactly the
-# mirrored list the check exists to prevent, so the test reads the document instead of copying it.
-#
-# 87 -> 88: `foundation-outbox-publisher/tests/industrial_complex_boundary_publication.rs`
-# declares the fourth migrator site in that crate, for the reason the second one names. The only
-# production writer of the industrial-complex serving projection creates the `complex` publication
-# unit, and the promotion gate counts publication units globally — a unit left in the shared harness
-# database would fail every promotion test elsewhere while reading as a promotion bug. The suite also
-# has to reproject EPSG:5186 metres through PostGIS and watch an unpromoted load stay invisible, and
-# neither is answerable outside a migrated database.
-#
-# 88 -> 89: `foundation-outbox-publisher/src/static_release_toolchain.rs` embeds the
-# static-release executable identity contract. The publisher must verify the same
-# contract that owns installer and CI pins even when the working tree is absent at
-# runtime; reading a second runtime copy would permit the built binary and its
-# archive commands to disagree. This one explicit build input is therefore the
-# cost of preserving that contract as an SSOT and failing closed for stale binaries.
-#
-# 89 -> 91: the profile gateway embeds the versioned R2 serving policy in the
-# outbox publisher so deployed binaries cannot drift from canonical key/cache
-# metadata, and the Foundation API embeds the same contract's CORS corpus in its
-# grammar test. These are the two deliberate build inputs; layout tests consume
-# the typed embedded policy instead of rereading the JSON.
-#
-# 91 -> 92: `foundation-outbox-publisher/src/vworld_credentials.rs` embeds the
-# environment-variable naming contract. Rust and Python resolve the same canonical
-# VWorld names and temporary aliases from that one contract; embedding it keeps the
-# Rust binary fail-closed and avoids a second hand-written credential-name table.
-#
-# 92 -> 93: `foundation-outbox-publisher/src/lakehouse_engine_contract.rs` embeds the
-# lakehouse engine contract, which names the Iceberg version every Spark submission
-# loads. That version was written out in twelve places; raising it meant editing all
-# twelve, so it was never raised, and the deployment ran a build whose vectorized
-# reader crashed the JVM on our larger tables through five releases (root ADR-0065).
-# The submitter is Rust and the jobs are Python, so the one thing that keeps them
-# from loading different engines is reading the same file. Embedded rather than read
-# at run time so a submitter that cannot find its contract fails to build instead of
-# failing in front of a load that has already started.
-#
-# 93 -> 94: a test in `vworld_cadastral_shapefile_silver_export.rs` embeds its own
-# source to check that the conversion finishes the gzip stream rather than dropping
-# the encoder. A dropped encoder writes no trailer, and it cannot report that: the
-# object is simply short, and the rows past the cut are gone with nothing saying so.
-# No run of the code distinguishes the two — both produce an object — so the only
-# thing left to check is the source, and reading it at run time would let a test pass
-# against a tree other than the one that was compiled.
-#
-# 94 -> 95: `foundation-api/src/lib.rs` embeds the migration directory. The runner
-# always embedded it; what is new is that the definition moved into the library so
-# `/readyz` can compare the running database against the same list the runner
-# applies. For six weeks the database held 4 of 33 migrations while readiness asked
-# only `SELECT 1`, and every probe passed (root ADR-0071). Embedded rather than read
-# at run time for the same reason the migrator itself embeds: the comparison must be
-# against what this binary was built with, not whatever directory happens to be
-# mounted beside it.
-#
-# 95 -> 98: `foundation-outbox-publisher/src/parcel_characteristic_projection_tests.rs`
-# embeds the source-object contract and the price/characteristic migrations. The
-# contract check must reject an unmeasured inventory instead of copying its contents
-# into a fixture. The disposable PostgreSQL proof must exercise the exact serving
-# schemas shipped with this binary when checking price vintage, COPY, merge and
-# rollback. These are three test-only inputs; no schema is restated in test SQL.
-#
-# 98 -> 97: the land-characteristic lane moved from the anonymous AL_D194 shapefile
-# to the provider's named AL_D195 CSV (root ADR-0087, CSV revision). Its projection
-# test no longer embeds the price migration it needed only to cross-check the
-# shapefile's anonymous 공시지가 column against the price serving schema; with named
-# CSV headers that verification is gone, so one test-only embedded input fell away.
-#
-# 97 -> 99: the forest-ledger projection tests embed its measured source inventory
-# and shipped migration to verify complete-vintage selection and transactional COPY
-# against the same inputs the production command uses (root ADR-0088).
-#
-# 99 -> 101: the transfer-event projection tests embed the measured AL_D157
-# source inventory and shipped migration. COPY must exercise the real composite
-# key to prove duplicate-event refusal and rollback (root ADR-0089).
-#
-# That count is a text search, so a comment naming one of these macros is counted
-# like a call site. It is not a bug to fix here: these guards deliberately do not
-# parse Rust, because a second analyzer of the language is a larger liability than
-# an occasional reworded comment. Write about the macros without spelling them.
-# 101 -> 102: the transfer-event postgres proof now also embeds the ADR-0090 key
-# migration, so the disposable database exercises the exact re-keyed schema this
-# binary ships (three-sequence identity) rather than the superseded two-column key.
-# 102 -> 104: the land-right lane (root ADR-0091) embeds its measured AL_D006
-# inventory contract and its key migration in the projection proof, the same two
-# test-only inputs every attribute lane carries.
-# 104 -> 105: the land-right projection proof also embeds the ADR-0093 unit-key
-# migration, so the disposable database exercises the exact six-column identity
-# this binary ships rather than the superseded two-column key.
+# The thresholds are parameters, not constants, for one reason: a guard whose thresholds cannot be
+# varied cannot have its own failure paths tested. Only the self-test passes them.
+write=0
+if [ "${1:-}" = --write ]; then
+  write=1
+  shift
+fi
 script_dir="$(cd "$(dirname "$0")" && pwd -P)"
 repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 # Build scripts 1 -> 6: root ADR-0201 has CI keep the workspace crates main built,
@@ -183,171 +55,9 @@ repo_root="${1:-$(cd "$(dirname "$0")/../.." && pwd -P)}"
 # only builds a package's [build-dependencies] when it has a build script, so each carries an empty
 # `fn main() {}` that hakari writes. It reads nothing and writes nothing.
 BUILD_SCRIPT_BASELINE="${2:-10}"
-# 105 -> 106: ADR-0092 embeds the measured headerless HUB layout in the exporter.
-# The runtime reads that same contract for column positions instead of copying an index map.
-# 106 -> 107: ADR-0094 adds the exclusive-unit source contract as the second HUB lane.
-# The shared engine reads positions from that embedded contract; no second ZIP or upload engine.
-# 107 -> 108: ADR-0095's disposable projection test embeds the shipped migrations
-# to prove annual-price folding, replacement rollback and the repository read against real constraints.
-# 108 -> 109: root ADR-0096's parcel by-PNU serving lane embeds the R2 connection contract
-# (`parcel_by_pnu_gateway_contract.rs`), the same one-`include_str!`-per-gateway shape the
-# profile gateway already pays: the baker and the Worker must read one key grammar, not two.
-# 109 -> 110: root ADR-0100 adds the building by-PNU typed R2 contract reader;
-# one embedded contract supplies both the baker and generation manifest publisher.
-# 110 -> 112: ADR-0101's migration regression embeds the original annual table
-# migration and its dated successor to prove that upgrading preserves existing rows.
-# The full-chain migrator remains one site after moving into the PostgreSQL lane.
-# 112 -> 113: ADR-0103 Wave 1 embeds the 시군구 canonical crosswalk seed
-# (include_str! in the outbox publisher) so the PNU composer and the resolver
-# read one grammar, not two.
-# 113 -> 114: `knowledge-infrastructure/src/postgres_index.rs` declares one migrator site.
-# The knowledge index adapter runs the area's migrations when it connects, exactly as the
-# source-registry adapter beside it in the same crate already does. Both own tables in the
-# same schema, so a second adapter that connected without migrating would work on a machine
-# another adapter had already migrated, and fail on a fresh one.
-# 114 -> 104: root ADR-0109 retires the six parcel-detail projection loaders and their four
-# fixture-embedding proof tests. The loaders read R2 at runtime (no compile-time reads), but the
-# deleted tests embedded silver-handoff fixtures and the shipped migrations (10 sites:
-# transfer_event 3, characteristic 2, forest_ledger 2, land_right 3). Serving moved to the R2
-# edge (parcel by-PNU bake), so those postgres projections and their proofs are gone.
-# 104 -> 105: root ADR-0112's lakehouse tile bake embeds config/tile-bake-containers.contract.json,
-# the pinned GDAL and tippecanoe images, the way the static-release toolchain embeds its own
-# contract: the images a bake ran are part of the binary that ran it, not a file found at runtime.
-# 105 -> 106: ADR-0125 embeds building-unit-handoff.json once (now in building_link_evidence).
-# Catalog, recovery and Gold validators share its relationship evidence policy; embedding
-# keeps the validator's policy bound to its binary instead of a caller-selected runtime file.
-# 106 -> 110: the FLOOR remote command test embeds the native Compose resource contract.
-# Three test helpers locate the shared synthetic JSON through their crate manifest directory:
-# history_witness, remote command fixtures, and the native Compose mount test. This keeps
-# Rust and Python on one synthetic witness instead of copying its operationally shaped fields.
-# The historical production witness stays external deployment data, never an embedded capture.
-# 110 -> 111: root ADR-0133 §4's first-release equivalence gate embeds
-# config/tile-equivalence.contract.json beside the tile-bake contract, for the same reason:
-# the sample a bake compared is part of the binary that compared it.
-# 111 -> 110: root ADR-0141 reads both by-PNU gateway blocks through one module
-# (by_pnu_gateway_contract.rs) instead of one embedding of the R2 contract per lane.
-# 110 -> 111: root ADR-0142's 시도 tally embeds vworld-parcel-source-objects.json beside the
-# 시군구 crosswalk seed: the cadastral 시도 set a hub export was judged against is part of the
-# binary that judged it, and the parcel source contract is that set's only record.
-# 111 -> 113: root ADR-0143's code.go.kr collector embeds code-go-kr-legal-dong.contract.json, the
-# one record of the endpoints, form fields and request spacing that the Python parsers read too;
-# and its test reads the endpoint catalog from CARGO_MANIFEST_DIR to prove every dataset it lands
-# is registered there, as the ILIS collector's test does.
-# 113 -> 114: root ADR-0145 splits the 시군구 crosswalk seed in two: the 27 hand pairs stay as the
-# comparison baseline (sigungu-crosswalk-baseline.json) and the hub feed's placeholder codes and
-# absent-시도 bound move to hub-register-feed.contract.json, each embedded where it is judged.
-# 114 -> 115: root ADR-0153 makes config/runtime-secrets.contract.json the one source of host
-# environment files; the publisher embeds it to name the Cloudflare analytics file instead of
-# keeping a second copy of that path in r2-connections.contract.json.
-# 115 -> 118: root ADR-0169 step 2 gives the three hub register lanes the export had no contract
-# for (titles, units, unit areas) a source contract each, embedded once like the apartment-price and
-# exclusive-unit contracts: the Silver refresh reads its release rules from the same bytes the
-# export reads, and those two existing contracts are shared, not embedded a second time.
-# 118 -> 119: root ADR-0170's planner test embeds the provider-acquisition plan fixture the
-# Python RAON worker reads, so the Rust writer and the Python reader are held to one file.
-# 119 -> 126: root ADR-0169 step 3 embeds the seven VWorld land source contracts, once each, in the
-# Silver refresh's lane list: their release rules (member names, completeness) and runner values are
-# read from the bytes of the release that runs them, as the hub lanes' are. No other Rust code read
-# these contracts; the hand loaders that read them at run time (shell and Python) are retired.
-# 126 -> 127: root ADR-0193 §9 derives each by-PNU data kind's Gold table contract in lakehouse-domain
-# from its line in r2-connections.contract.json (`by_pnu_kind.rs`), so a kind is that one line and
-# never a hand-written table contract beside it. The publisher already embeds the same file.
-# 127 -> 128: the Silver refresh's lane test embeds orchestration/jobs.v1.json so `Lane::ALL` and
-# the job list's `foundation-silver-refresh@<lane>` instances are held equal; nothing compared them.
-# 128 -> 131: root ADR-0214 holds the policy names Foundation routes ask Identity for to one file:
-# foundation-api's route-policy test reads config/identity-route-policies.contract.json, its Identity
-# client test reads Identity's published OpenAPI, and Identity's authorization-domain test reads the
-# same contract, once each from CARGO_MANIFEST_DIR. They replace three unchecked hand copies.
-# 131 -> 133: root ADR-0215 moves the knowledge-source Avro schema from a string in the Intelligence
-# consumer to the Foundation file named after its topic. The consumer embeds that file (one read)
-# and its contract test reads it by topic name (one read), so the topic, the file and the codec
-# cannot drift apart.
-# 133 -> 134: root ADR-0223's listing integration test embeds the parcel-source migration and
-# replays its existing-row statements over an old-shape row, so the test runs the shipped SQL,
-# not a copy of it: a copy would pass while the migration left those listings unsaveable.
-# 134 -> 135: root ADR-0258's business-verification integration test embeds its migration and replays
-# the backfill section over old-shape user rows, so the test runs the shipped SQL, not a copy:
-# a copy could pass while the real migration dropped a verified business.
-# 135 -> 136: root ADR-0280's Onbid source contract restates the PNU rule for the Spark load; the
-# lakehouse-domain test reads that contract from CARGO_MANIFEST_DIR and holds it equal to Pnu::parse,
-# the rule's one definition, so the Python copy cannot drift from it unseen.
-# 136 -> 137: root ADR-0280's Onbid collector embeds data-go-kr-onbid.contract.json, the one record of
-# the endpoints, call limits and intervals that the Silver load (data_go_kr_onbid.py) reads too.
-# 137 -> 138: root ADR-0280's registered-factory collector embeds data-go-kr-registered-factory.contract.json,
-# the one record of the portal paths and the member rules that the Silver load reads too.
-# 138 -> 139: root ADR-0280's Silver load plan (plan-silver-load-objects) embeds
-# lakehouse-maintenance.contract.json to refuse a load window as long as the snapshot retention: an
-# expired snapshot takes its load record with it, and a longer window would append the object again.
-# 139 -> 141: root ADR-0281's court auction collector embeds courtauction-go-kr.contract.json (the
-# manners and refusal rules the Silver load reads beside it), and its test embeds the collector's own
-# source to hold it to the contract's forbidden names (no proxy, disguise or CAPTCHA, ADR-0281 §4).
-# 141 -> 142: the by-PNU publisher's test reads contracts/by-pnu-documents from CARGO_MANIFEST_DIR and
-# holds every document's fields, generated from its types, to the record of its schema version.
-# 142 -> 143: collection-domain's court auction test embeds courtauction-go-kr.contract.json and holds
-# its `collection` section to the rules' own types, so the contract values and the rules cannot drift
-# (root ADR-0289/0290).
-# 143 -> 144: the parcel tile bake embeds r2-connections.contract.json for `vector_tile_gateway.patches`,
-# the one policy the tile Worker serves patches by, so the bake and the Worker cannot read two (root ADR-0323).
-# 144 -> 145: the Silver refresh's lane test embeds infra/systemd/foundation-silver-refresh@.service
-# and holds the compare's last-bucket deadline under the unit's TimeoutStartSec, so a shorter unit
-# limit cannot kill a bucket that the deadline let start (root ADR-0318).
-# 145 -> 147: foundation-publisher-core embeds contracts/schema-registry/registry.json, the one place a
-# registered subject's versions live, so the publisher, the monitor and the manifest record read the
-# subject's major from the file the Worker and the web read too (root ADR-0336).
-# 147 -> 150: the 실거래가 bulk collector embeds rt-molit-real-transaction.contract.json (the manners,
-# datasets and refresh tiers the Silver load reads beside it), and its test embeds the collector's and
-# the export client's sources to hold them to root ADR-0281's forbidden names (root ADR-0348).
-# 150 -> 151: the 건축인허가 기본개요 lane embeds its source contract once, as every hub part lane does,
-# so the export's layout and the Silver refresh's release rules are the same bytes (root ADR-0356).
-# 151 -> 152: the 총괄표제부 lane embeds its source contract the same way (root ADR-0357).
-# 152 -> 153: the Silver refresh's land-ownership lane compiles in its source contract
-# (vworld-land-ownership-source-objects.json, root ADR-0360), as each land lane's include_str! does.
-# 153 -> 154: the Silver refresh compiles in the 용도지역지구 lane's contract
-# (vworld-land-use-zone-area-source-objects.json), as it does every lane's, so the run and the
-# contract cannot disagree on its layers (root ADR-0362).
-# 154 -> 155: the 철거멸실관리대장 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0397).
-# 155 -> 157: the 월별 전기·가스 lanes embed their two source contracts once each (root ADR-0396).
-# 157 -> 158: the 부속지번 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0395).
-# 158 -> 157: the retired data.go.kr API async executor's test read its own real_transaction.rs.
-# 157 -> 158: the 건축인허가 주차장 lane embeds its source contract once, as every hub part lane
-# does (root ADR-0402).
-# 158 -> 159: the tile patch test reads the golden tile ranges the Python by-tile membership also
-# computes (infra/lakehouse/spark/tests/fixtures/tile_range_golden.json) from CARGO_MANIFEST_DIR, so
-# the two languages' tile math cannot drift apart (root ADR-0375 §2).
-# 159 -> 157: the retired spatial tile WAP probe read its own source and its evidence contract.
-# 157 -> 158: the photo rendition step embeds the connection contract's ladder once
-# (parcel_media.renditions, root ADR-0427), as the publisher crates embed its other blocks.
-# 158 -> 159: the 건축인허가 부설주차장 lane embeds its source contract once, as every hub part lane
-# does (root ADR-0402).
-# 159 -> 160: the 건축인허가 동별개요 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 160 -> 161: the 대수선 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 161 -> 162: the 공작물관리대장 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 162 -> 163: the 건축인허가 층별개요 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 163 -> 164: the 가설건축물 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 164 -> 165: the 건축인허가 대지위치 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 165 -> 166: the 건축물 정기점검이력 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0402).
-# 166 -> 165: the Bronze-lane write guard leaves its Rust test (which embedded the two lane sources)
-# for the Semgrep rule tools/semgrep/rules/bronze-lane-writes.yml (root ADR-0422).
-# 165 -> 166: the by-PNU publisher embeds the Seoul front door contract once, so a version-pinned
-# read goes to the door's origin hostname instead of CloudFront's cached public one (root ADR-0461).
-# 166 -> 167: the 주소정보 전자지도 collector embeds its source contract once, as the data.go.kr file
-# collector does (root ADR-0475).
-# 167 -> 168: the ILIS notice collector embeds its source contract once
-# (industryland-or-kr.contract.json), as the court auction collector does (root ADR-0484).
-# 168 -> 169: the 주택인허가 기본개요 lane embeds its source contract once, as every hub part lane does
-# (root ADR-0511).
-# 169 -> 170: the Silver refresh's 중개사무소 lane compiles in its source contract
-# (vworld-real-estate-broker-office-source-objects.json, root ADR-0511), as each land lane does.
-COMPILE_TIME_READ_BASELINE="${3:-170}"
+# The self-test's total; without it the reads are held to LEDGER, file by file.
+COMPILE_TIME_READ_TOTAL="${3:-}"
+LEDGER=tools/build-coupling/compile-time-reads.txt
 
 cd "$repo_root"
 
@@ -366,6 +76,17 @@ compile_time_reads="$(
 compile_time_read_count="$(
   printf '%s\n' "$compile_time_reads" | awk -F: '{ total += $2 } END { print total + 0 }'
 )"
+
+if [ "$write" -eq 1 ]; then
+  mkdir -p "$(dirname "$LEDGER")"
+  {
+    echo "# Every Rust source file that reads a file at compile time, and how many times (root ADR-0556)."
+    echo "# Checked by scripts/guard/build-coupling-baseline.sh; rewrite with its --write and commit."
+    [ -z "$compile_time_reads" ] || printf '%s\n' "$compile_time_reads"
+  } >"$LEDGER"
+  echo "build-coupling-baseline: wrote $LEDGER ($compile_time_read_count compile-time reads)"
+  exit 0
+fi
 
 fail=0
 
@@ -386,8 +107,20 @@ report() {
 
 report "build scripts" "$build_script_count" "$BUILD_SCRIPT_BASELINE" \
   "Each one must be made hermetic by hand before any sandboxed build can run it."
-report "compile-time file reads" "$compile_time_read_count" "$COMPILE_TIME_READ_BASELINE" \
-  "Each site becomes an explicit data dependency the build system cannot infer."
+if [ -n "$COMPILE_TIME_READ_TOTAL" ]; then
+  report "compile-time file reads" "$compile_time_read_count" "$COMPILE_TIME_READ_TOTAL" \
+    "Each site becomes an explicit data dependency the build system cannot infer."
+else
+  declared="$(grep -v '^#' "$LEDGER" 2>/dev/null || true)"
+  if [ "$declared" != "$compile_time_reads" ]; then
+    echo "FAIL build-coupling-baseline: the compile-time file reads differ from $LEDGER" >&2
+    echo "    (< declared, > in the tree; each site is a data dependency the build system cannot infer):" >&2
+    diff <(printf '%s\n' "$declared") <(printf '%s\n' "$compile_time_reads") | grep '^[<>]' | sed 's/^/    /' >&2 || true
+    echo "    Run: bash scripts/guard/build-coupling-baseline.sh --write, commit $LEDGER," >&2
+    echo "    and say in the commit why the read is needed." >&2
+    fail=1
+  fi
+fi
 
 # The same reads, followed into each image that compiles them (build-coupling-baseline.py): every one
 # a Dockerfile's build compiles must be a file that image holds. 2026-10-29: the publisher image did
