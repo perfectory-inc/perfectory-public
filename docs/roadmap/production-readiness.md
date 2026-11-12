@@ -251,6 +251,28 @@ last_reviewed: 2026-11-07
 | 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |
 | 건물 | 건물 호별 정보 (`silver.building_register_units`) | `building`<br>`unit-price` | — | 화면 |
 | 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 건축인허가 지역지구구역 (`silver.building_permit_district_zone`) | — | — | 없음 |
+| 건물 | 건축인허가 전유공용면적 (`silver.building_permit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 건축인허가 주택유형 (`silver.building_permit_housing_type`) | — | — | 없음 |
+| 건물 | 건축인허가 도로명대장 (`silver.building_permit_road_ledger`) | — | — | 없음 |
+| 건물 | 건축인허가 오수정화시설 (`silver.building_permit_sewage_facility`) | — | — | 없음 |
+| 건물 | 건축인허가 호별전유공용면적 (`silver.building_permit_unit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 건축인허가 호별개요 (`silver.building_permit_unit_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 행위개요 (`silver.housing_permit_act_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 행위호전유공용면적 (`silver.housing_permit_act_unit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 주택인허가 부대시설 (`silver.housing_permit_ancillary_facility`) | — | — | 없음 |
+| 건물 | 주택인허가 부설주차장 (`silver.housing_permit_annex_parking`) | — | — | 없음 |
+| 건물 | 주택인허가 동별개요 (`silver.housing_permit_building_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 지역지구구역 (`silver.housing_permit_district_zone`) | — | — | 없음 |
+| 건물 | 주택인허가 전유공용면적 (`silver.housing_permit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 주택인허가 층별개요 (`silver.housing_permit_floor_overview`) | — | — | 없음 |
+| 건물 | 주택인허가 관리공동부대복리시설 (`silver.housing_permit_managed_communal_ancillary_welfare_facility`) | — | — | 없음 |
+| 건물 | 주택인허가 관리공동형별개요 (`silver.housing_permit_managed_communal_type_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 주차장 (`silver.housing_permit_parking`) | — | — | 없음 |
+| 건물 | 주택인허가 오수정화시설 (`silver.housing_permit_sewage_facility`) | — | — | 없음 |
+| 건물 | 주택인허가 대지위치 (`silver.housing_permit_site_location`) | — | — | 없음 |
+| 건물 | 주택인허가 호별개요 (`silver.housing_permit_unit_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 복리분양시설 (`silver.housing_permit_welfare_sale_facility`) | — | — | 없음 |
 | 거래·공매·경매 | 온비드 공고 (`silver.onbid_announcement`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고 입찰결과 (`silver.onbid_announcement_bid_result`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고상세 (`silver.onbid_announcement_detail`) | `parcel-public-auction` | — | 화면 |

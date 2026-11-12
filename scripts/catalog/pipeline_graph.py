@@ -104,11 +104,17 @@ def collection_classes(graph: dict, endpoints: list[dict]) -> dict[str, str]:
     return classes
 
 
+def family_files(root: Path) -> list[Path]:
+    """The HUB family files (root ADR-0551): each entry is a lane whose export the publisher resolves."""
+    return sorted((root / FOUNDATION / "infra/lakehouse/contracts").glob("hub-lane-family-*.v1.json"))
+
+
 def reconcile_inputs(root: Path) -> set[Path]:
     """Every file reconcile reads, relative to root: a self-test copies exactly these into its tree."""
     graph = load_json(root / GRAPH)
     paths = {GRAPH, ENDPOINTS, CONTRACTS, FOUNDATION / "services/foundation-outbox-publisher/src/main.rs"}
     paths.update(p.relative_to(root) for p in (root / FOUNDATION / "migrations").glob("*.sql"))
+    paths.update(p.relative_to(root) for p in family_files(root))
     paths.update(Path(step) for e in graph["edges"] for step in e.get("via", []) if (root / step).is_file())
     # Root ADR-0400: a collection_decision names a decision record that must exist.
     paths.update(Path(e["collection_decision"]["decision"]) for e in load_json(root / ENDPOINTS)["endpoints"]
@@ -225,6 +231,11 @@ def reconcile(root: Path, graph: dict | None = None) -> dict[str, int]:
             problems.append(f"collected endpoint still says it is not collected: {slug}")
     main = (root / FOUNDATION / "services/foundation-outbox-publisher/src/main.rs").read_text(encoding="utf-8")
     commands = set(re.findall(r'Some\("([^"\n]+)"\)', main))
+    # A HUB family lane's export is no literal there: the publisher resolves `export-<lane>-silver-handoff`
+    # through the family file entry (root ADR-0551, hub_family_silver_export::lane_id_of_export).
+    for family in family_files(root):
+        lanes = json.loads(family.read_text(encoding="utf-8"))["lanes"]
+        commands |= {f"export-{lane}-silver-handoff" for lane in lanes}
     bindings = []
     for node in nodes:
         kind = node["type"]

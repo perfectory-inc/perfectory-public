@@ -351,7 +351,9 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # 171 -> 172: foundation-api's live VWorld broker register reads its credential names from the
 # naming contract (environment-variable-naming.contract.json), as the collection adapter does
 # (root ADR-0550 §5).
-COMPILE_TIME_READ_BASELINE="${3:-172}"
+# 172 -> 174: lakehouse-domain compiles in the two HUB family files (hub-lane-family-*.v1.json, root
+# ADR-0551) once each; every lane they hold is an entry, so a new HUB lane no longer adds a read here.
+COMPILE_TIME_READ_BASELINE="${3:-174}"
 
 cd "$repo_root"
 

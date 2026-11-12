@@ -528,7 +528,9 @@ HUB_ADDED_LANES = ["silver_refresh_building_permit_basis_outline",
                    "silver_refresh_building_permit_site_location",
                    "silver_refresh_building_maintenance_regular_inspection_history",
                    "silver_refresh_housing_permit_basis_outline"]
-ALL_LANES = LANES + LAND_LANES + HUB_ADDED_LANES
+# The HUB family lanes (root ADR-0551) run as one job, whatever the number of family entries.
+FAMILY_LANES = ["silver_refresh_hub_lane_family"]
+ALL_LANES = LANES + LAND_LANES + HUB_ADDED_LANES + FAMILY_LANES
 
 
 class JobsStartedByTheirInputs(unittest.TestCase):

@@ -30,6 +30,7 @@ mod by_pnu_kind;
 mod court_auction;
 mod data_go_kr_file_data;
 mod housing_permit_basis_outline;
+mod hub_lane_family;
 mod industrial_complex_notice;
 mod intelligence_document;
 mod land_characteristic;
@@ -93,6 +94,10 @@ pub use data_go_kr_file_data::{
 };
 pub use errors::LakehouseError;
 pub use housing_permit_basis_outline::SILVER_HOUSING_PERMIT_BASIS_OUTLINE;
+pub use hub_lane_family::{
+    hub_family_lane_by_export, hub_family_lane_by_id, hub_family_lane_error, hub_family_lanes,
+    HubFamilyLane,
+};
 pub use industrial_complex_gold_pointer::{
     IndustrialComplexGoldPointer, IndustrialComplexGoldPointerPublished,
 };

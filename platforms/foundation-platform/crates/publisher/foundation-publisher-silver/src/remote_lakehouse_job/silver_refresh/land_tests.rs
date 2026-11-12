@@ -1003,7 +1003,7 @@ fn a_compare_the_table_cannot_answer_is_refused() -> anyhow::Result<()> {
 #[test]
 fn a_geometry_tolerance_is_measured_bounded_and_over_the_tables_geometry() -> anyhow::Result<()> {
     // The zone lane tolerates a provider's few-centimetre re-projection; no other lane does.
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         let expected = (lane == Lane::LandUseZoneArea)
             .then(|| "geometry_wkb,geometry_checksum_sha256,0.1".to_owned());
         assert_eq!(
@@ -1116,7 +1116,7 @@ fn a_release_compare_names_its_branch_release_and_every_object() -> anyhow::Resu
 #[test]
 fn a_sido_lane_compares_by_the_pnus_sido_and_a_national_lane_in_one_piece() -> anyhow::Result<()> {
     // ADR-0318: a 시도 lane's buckets are the PNU's 시도, its first two digits.
-    for lane in Lane::ALL {
+    for lane in Lane::all() {
         let contract = lane.contract()?;
         let (Some(rule), Some(_)) = (&contract.land, &contract.compare_content) else {
             continue;
