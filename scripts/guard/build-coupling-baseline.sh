@@ -353,7 +353,11 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # (root ADR-0550 §5).
 # 172 -> 174: lakehouse-domain compiles in the two HUB family files (hub-lane-family-*.v1.json, root
 # ADR-0551) once each; every lane they hold is an entry, so a new HUB lane no longer adds a read here.
-COMPILE_TIME_READ_BASELINE="${3:-174}"
+# 174 -> 178: the steward fold left Spark (root ADR-0560). foundation-publisher-silver compiles in
+# the two SQL files DuckDB runs for it (lineage_steward_fold_stage/refusals.sql, rows.sql: the SQL is
+# reviewed and compared as SQL, and the engine-equality verdict ran those files), and its test
+# compiles in the handoff fixture and the rows the Spark job built from it (fixtures/).
+COMPILE_TIME_READ_BASELINE="${3:-178}"
 
 cd "$repo_root"
 
