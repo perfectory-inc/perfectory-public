@@ -751,7 +751,8 @@
           "**/Cargo.toml",
           "**/Dockerfile*",
           "**/*.dockerignore",
-          "**/*compose*.yml"
+          "**/*compose*.yml",
+          "tools/build-coupling/compile-time-reads.txt"
         ]
       },
       {
