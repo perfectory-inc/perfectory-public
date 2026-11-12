@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 작성일 | 2026-05-14 |
-| 상태 | Accepted — 엔진 역할(Batch compute·SQL query·Local validation 줄, "왜 Spark 인가"·"왜 Trino 인가" 절)은 [루트 ADR-0557](../../../../docs/adr/0557-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md) 이 대체(2026-11-12) |
+| 상태 | Accepted — 엔진 역할(Batch compute·SQL query·Local validation 줄, "왜 Spark 인가"·"왜 Trino 인가" 절)은 [루트 ADR-0559](../../../../docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md) 이 대체(2026-11-12) |
 | 범위 | `foundation-platform` lakehouse compute layer, query engine, batch engine, control-plane 경계 |
 | 관련 ADR | [ADR 0006 - Lakehouse Table Format And Serving Architecture](0006-lakehouse-table-format-and-serving-architecture.md) |
 

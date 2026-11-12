@@ -1,4 +1,4 @@
-"""The engine-equality verdict, run on an engine that is neither side of a migration (root ADR-0557 §3).
+"""The engine-equality verdict, run on an engine that is neither side of a migration (root ADR-0559 §3).
 
 SQLite runs the same comparison text DuckDB, Spark SQL and Trino run: the verdict must not depend on
 either engine being compared. Rows are synthetic (PNU prefix 99999).
@@ -71,13 +71,13 @@ class Comparison(unittest.TestCase):
         found = self.compare({1: '{"distance_m":120}'}, {1: '{"distance_m":121}'})
         self.assertFalse(found.equal)
         self.assertEqual(found.different, 1)
-        self.assertEqual(found.written_differently, 0)
+        self.assertEqual(found.sampled_written_differently, 0)
         self.assertEqual(found.samples["different"][0]["candidate_document"], '{"distance_m":121}')
 
     def test_a_document_written_differently_is_still_not_equal_but_is_told_apart(self):
         found = self.compare({1: '{"area":10.0,"zone":null}', 2: '{"a":1,"b":2}'}, {1: '{"area":10}', 2: '{"b":2,"a":1}'})
         self.assertFalse(found.equal)
-        self.assertEqual((found.different, found.written_differently), (2, 2))
+        self.assertEqual((found.different, found.sampled_written_differently), (2, 2))
 
     def test_a_key_written_twice_is_refused_even_when_the_join_counts_agree(self):
         reference = rows_of({1: "a"})
@@ -85,6 +85,43 @@ class Comparison(unittest.TestCase):
         found = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb")
         self.assertEqual(found.duplicate_candidate_keys, 1)
         self.assertFalse(found.equal)
+
+    def test_the_same_digest_over_different_content_is_not_equal(self):
+        # A port that hashes fewer columns than it writes: the digests agree and the documents do not.
+        reference = [(pnu(1), '{"distance_m":120}', digest("same"))]
+        candidate = [(pnu(1), '{"distance_m":999}', digest("same"))]
+        connection = database(reference, candidate)
+        found = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb", ("document",))
+        self.assertEqual((found.same, found.different), (0, 1))
+        self.assertFalse(found.equal)
+        self.assertEqual(found.reference_fingerprint, found.candidate_fingerprint)
+
+    def test_a_table_without_a_digest_is_compared_on_its_content(self):
+        connection = database([(pnu(1), "a", None), (pnu(2), None, None)], [(pnu(1), "a", None), (pnu(2), "b", None)])
+        found = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb", ("document",), None)
+        self.assertEqual((found.same, found.different, found.reference_fingerprint), (1, 1, None))
+        self.assertFalse(found.equal)
+        with self.assertRaises(ValueError):
+            engine_equality.keyed_diff_sql("reference", "candidate", ("pnu",), (), None)
+
+    def test_a_column_null_on_both_sides_is_the_same_value(self):
+        rows = [(pnu(1), None, digest("a")), (pnu(2), "b", digest("b"))]
+        connection = database(rows, list(reversed(rows)))
+        found = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb", ("document",))
+        self.assertEqual((found.same, found.different), (2, 0))
+        self.assertTrue(found.equal)
+
+    def test_every_row_on_both_sides_is_either_same_or_different(self):
+        reference = [(pnu(1), None, digest("a")), (pnu(2), None, digest("b")), (pnu(3), "c", None), (pnu(4), "d", digest("d"))]
+        candidate = [(pnu(1), None, digest("a")), (pnu(2), "x", digest("b")), (pnu(3), "c", None), (pnu(4), "d", None)]
+        connection = database(reference, candidate)
+        found = engine_equality.compare(runner(connection), "reference", "candidate", ("pnu",), "duckdb", ("document",))
+        self.assertEqual((found.same, found.different), (2, 2))
+        self.assertEqual(found.same + found.different, found.reference_rows)
+
+    def test_a_number_json_cannot_hold_does_not_stop_the_sample(self):
+        self.assertFalse(engine_equality.written_alike('{"a":NaN}', '{"a":1}'))
+        self.assertTrue(engine_equality.written_alike('{"a":Infinity}', '{"a":Infinity}'))
 
     def test_two_empty_outputs_are_equal(self):
         self.assertTrue(self.compare({}, {}).equal)

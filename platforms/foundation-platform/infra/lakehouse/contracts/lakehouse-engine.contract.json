@@ -57,8 +57,8 @@
     "row_group_check_max_records": 16
   },
   "engines": {
-    "decision": "docs/adr/0557-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md",
-    "purpose": "Which engine runs what, and the ledger of what is still on Spark (root ADR-0557). DuckDB inside the Rust publisher is the engine of every transform and query; Spark's one standing role is table maintenance, started once a day. `spark_sessions` lists every file of infra/lakehouse/spark/jobs that starts a Spark session: a file leaves it only with an `engine_equality` verdict of equal against its DuckDB replacement on pinned inputs, and no file joins it (2026-11-11: the 실거래 Gold failed 26 times at a 20 GB JVM, the rt-molit Silver load ran out of heap, Trino was killed at its container cap, and one Spark pool held 18 jobs waiting).",
+    "decision": "docs/adr/0559-duckdb-in-the-publisher-runs-every-transform-and-query-spark-keeps-only-table-maintenance-and-a-transform-moves-only-on-an-engine-equality-verdict.md",
+    "purpose": "Which engine runs what, and the ledger of what is still on Spark (root ADR-0559). DuckDB inside the Rust publisher is the engine of every transform and query; Spark's one standing role is table maintenance, started once a day. `spark_sessions` lists every file of infra/lakehouse/spark/jobs that starts a Spark session, itself or through a session builder (test_engine_ledger.SESSION_START). No file joins it. A file leaves Spark by changing its line from `wave` to `moved`: the `engine_equality` verdict it moved on (the pull request, the rows compared, and the fingerprint both engines produced). 2026-11-11: the 실거래 Gold failed 26 times at a 20 GB JVM, the rt-molit Silver load ran out of heap, Trino was killed at its container cap, and one Spark pool held 18 jobs waiting.",
     "waves": {
       "1": "Failing on JVM memory today: moved first.",
       "2": "The 16 GB Gold producers and the jobs that hold the pool longest.",
@@ -127,6 +127,9 @@
       },
       "gold_rebuild": {
         "wave": 2
+      },
+      "industrial_complex_boundaries_handoff_to_silver": {
+        "wave": 5
       },
       "industrial_complex_boundaries_silver_to_postgis_handoff": {
         "wave": 5
@@ -229,6 +232,9 @@
       },
       "vintage_versions": {
         "wave": 4
+      },
+      "vworld_parcel_boundaries_handoff_to_silver": {
+        "wave": 5
       },
       "vworld_parcel_number_change_history": {
         "wave": 4
