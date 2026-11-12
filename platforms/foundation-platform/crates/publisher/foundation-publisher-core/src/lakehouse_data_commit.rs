@@ -36,7 +36,7 @@ use iceberg_storage_opendal::OpenDalStorageFactory;
 use lakehouse_domain::LakehouseTableContract;
 use lakehouse_infrastructure::{IcebergSnapshotManifestList, LakehouseCatalogConfig};
 use parquet::{
-    basic::{LogicalType, TimeUnit, Type as PhysicalType},
+    basic::{ConvertedType, LogicalType, TimeUnit, Type as PhysicalType},
     file::{
         metadata::ParquetMetaData,
         reader::{FileReader, SerializedFileReader},
@@ -384,23 +384,36 @@ fn batch_token(sorted_batch: &[String]) -> String {
         })
 }
 
-/// The Iceberg primitive a Parquet column of this physical and logical type holds, when the pair
-/// is one this path has a rule for.
+/// Whether a Parquet column of this physical type and annotation holds the Iceberg primitive.
+///
+/// A writer may annotate with the logical type, the older converted type, or both (`DuckDB` writes
+/// a string column with the converted type alone), so either is read.
 fn holds(column: &ColumnDescriptor, primitive: &PrimitiveType) -> bool {
     let logical = column.logical_type_ref();
+    let converted = column.converted_type();
     match (primitive, column.physical_type()) {
         (PrimitiveType::String, PhysicalType::BYTE_ARRAY) => {
-            matches!(logical, Some(LogicalType::String))
+            matches!(logical, Some(LogicalType::String)) || converted == ConvertedType::UTF8
         }
         (PrimitiveType::Long, PhysicalType::INT64) | (PrimitiveType::Int, PhysicalType::INT32) => {
-            matches!(logical, None | Some(LogicalType::Integer(_)))
+            matches!(logical, Some(LogicalType::Integer(_)))
+                || (logical.is_none()
+                    && matches!(
+                        converted,
+                        ConvertedType::NONE | ConvertedType::INT_32 | ConvertedType::INT_64
+                    ))
         }
-        (PrimitiveType::Date, PhysicalType::INT32) => matches!(logical, Some(LogicalType::Date)),
-        (PrimitiveType::Timestamptz, PhysicalType::INT64) => matches!(
-            logical,
-            Some(LogicalType::Timestamp(time))
-                if time.is_adjusted_to_u_t_c && time.unit == TimeUnit::MICROS
-        ),
+        (PrimitiveType::Date, PhysicalType::INT32) => {
+            matches!(logical, Some(LogicalType::Date)) || converted == ConvertedType::DATE
+        }
+        // The converted type cannot say "not UTC", so it only ever names an instant.
+        (PrimitiveType::Timestamptz, PhysicalType::INT64) => match logical {
+            Some(LogicalType::Timestamp(time)) => {
+                time.is_adjusted_to_u_t_c && time.unit == TimeUnit::MICROS
+            }
+            Some(_) => false,
+            None => converted == ConvertedType::TIMESTAMP_MICROS,
+        },
         (PrimitiveType::Timestamp, PhysicalType::INT64) => matches!(
             logical,
             Some(LogicalType::Timestamp(time))
@@ -584,11 +597,12 @@ fn column_facts(
         };
         ensure!(
             holds(&column, primitive),
-            "{}: column {} is {:?}/{:?} in the file and {primitive} in the table",
+            "{}: column {} is {:?}/{:?}/{:?} in the file and {primitive} in the table",
             local.display(),
             field.name,
             column.physical_type(),
-            column.logical_type_ref()
+            column.logical_type_ref(),
+            column.converted_type()
         );
         ensure!(
             facts.insert(field.id, ColumnFacts::default()).is_none(),

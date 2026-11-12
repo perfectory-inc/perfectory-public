@@ -375,7 +375,7 @@ jobs:
     # This gate builds the publisher with no saved cache (root ADR-0269), so its limit follows the
     # cold build: 12m21s with bundled DuckDB 2.0.0 (#1363), and past the old 20 minutes once the
     # publisher's Iceberg commit (iceberg-rust with its own arrow/parquet, root ADR-0560) and
-    # DuckDB's Parquet writer joined it (#1366: cancelled at 20m06s).
+    # DuckDB's Parquet writer joined it (cancelled at 20m06s; then 14m22s on #1366, 20m48s on #1367).
     timeout-minutes: 40
 
     steps:
@@ -537,7 +537,10 @@ jobs:
     if: ${{ needs.scope.outputs.affected == 'true' && !contains(fromJSON(needs.scope.outputs.skipped), 'postgres-integration') }}
     name: Postgres integration tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # A pull request that changes the lockfile builds every dependency here before a test runs:
+    # with iceberg-rust in the tree that took 23m22s (#1367) and was cancelled at the old 25
+    # minutes once (#1366).
+    timeout-minutes: 40
 
     services:
       postgres:
