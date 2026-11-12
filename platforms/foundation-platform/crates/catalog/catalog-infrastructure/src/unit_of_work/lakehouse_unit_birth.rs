@@ -20,14 +20,18 @@ use catalog_application::ports::{
     RegisterLakehouseTileUnitCommand, RuntimeManifestPublicationCapability,
 };
 
-/// SQL, true when a lakehouse bake made `release` of `unit` (the aliases of
-/// `catalog.vector_tile_release` and `catalog.vector_tile_publication_unit` in the query it is put
-/// in): a `lakehouse_bake` build produced it, or it is the release the unit was born with. A birth
-/// replaces nothing, so no build row names its release; what marks it is the unit's `born_from`
-/// and that no build of any kind produced it. 2026-11-08 13:02Z zoning was born this way; every
-/// later bake read its birth release as another oven's and ran the first-release equivalence gate
-/// against it, which a generalized archive cannot pass (2026-11-12 00:08Z: 67 minutes of the whole
-/// spark pool, then "a sampled feature has no zone_id").
+/// SQL that is true when a lakehouse bake made `release` of `unit`.
+///
+/// `release` and `unit` are the aliases of `catalog.vector_tile_release` and
+/// `catalog.vector_tile_publication_unit` in the query it is put in. A `lakehouse_bake` build
+/// produced the release, or it is the release the unit was born with: a birth replaces nothing, so
+/// no build row names its release, and what marks it is the unit's `born_from` and that no build of
+/// any kind produced it.
+///
+/// 2026-11-08 13:02Z `zoning` was born this way; every later bake read its birth release as another
+/// oven's and ran the first-release equivalence gate against it, which a generalized archive cannot
+/// pass (2026-11-12 00:08Z: 67 minutes of the whole spark pool, then "a sampled feature has no
+/// `zone_id`").
 pub const RELEASE_IS_LAKEHOUSE_MADE_SQL: &str =
     "(EXISTS (SELECT 1 FROM catalog.vector_tile_build_job AS build
                          WHERE build.result_release_id = release.id
