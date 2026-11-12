@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-11-12
 - Builds on: [ADR-0313](./0313-merge-queue-and-pull-requests-verify-only-what-changed-and-main-does-not-repeat-the-queue.md)(큐·PR 은 바뀐 것만, main 푸시는 큐를 되풀이하지 않는다),
-  [ADR-0271](./0271-a-security-advisory-that-arrives-without-a-commit-is-found-by-a-daily-run-and-kept-as-one-issue.md)(일정 전용 작업이 이슈 하나를 맞춰 둔다),
+  [ADR-0271](./0271-dependency-updates-arrive-as-renovate-pull-requests-and-main-keeps-one-advisory-issue.md)(일정 전용 작업이 이슈 하나를 맞춰 둔다),
   [ADR-0421](./0421-a-run-that-failed-only-because-its-runner-did-is-re-run-once-and-the-merge-queue-keeps-building-two.md)(러너 때문에만 실패한 실행은 판정이 아니다)
 
 ## Context
@@ -73,4 +73,4 @@ main 에 병합할 때마다 전체를 다시 돌리는 방법은 쓰지 않는�
   지금 처리량을 막는 것이 그 러너다.
 - **호스트(Alertmanager → Slack)에서 감시**: 호스트는 GitHub 을 익명으로 읽고 한도가 시간당 60번이다. 자동 배포의
   판정이 그 한도를 쓴다.
-- **큐 실패 하나로 알림**: 큐 실패의 대부분은 그 PR 자신의 것이다(11-11 하루 큐 실행 실패 13건 중 main 탓은 7건).
+- **큐 실패 하나로 알림**: 큐 실패의 대부분은 그 PR 자신의 것이다.
