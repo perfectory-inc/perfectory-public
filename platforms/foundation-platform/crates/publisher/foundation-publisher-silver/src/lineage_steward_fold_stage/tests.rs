@@ -17,11 +17,11 @@ use crate::duckdb_parquet_stage::DuckDbParquetStage;
 
 const HANDOFF: &str = include_str!("fixtures/handoff.json");
 const SPARK_ROWS: &str = include_str!("fixtures/spark_rows.txt");
-/// A staged row as one line of `spark_rows.txt`.
-const LINE: &str = "concat_ws('|', coalesce(predecessor_pnu, 'NULL'), successor_pnu, relation, \
-     coalesce(cardinality, 'NULL'), effective_date, grade, evidence_kind, evidence_ref, \
-     from_snapshot_id, to_snapshot_id, rules_version, derivation_run_id, \
-     CAST(epoch(derived_at_utc) AS BIGINT))";
+/// A staged row as one line of `spark_rows.txt`, less its last field.
+///
+/// That field is `derived_at_utc` as epoch seconds: the bundled `DuckDB` has no ICU to read a
+/// `TIMESTAMPTZ` back with, so the column is read from the file itself.
+const LINE: &str = "concat_ws('|', coalesce(predecessor_pnu, 'NULL'), successor_pnu, relation,      coalesce(cardinality, 'NULL'), effective_date, grade, evidence_kind, evidence_ref,      from_snapshot_id, to_snapshot_id, rules_version, derivation_run_id)";
 
 /// The table's columns with the field ids the lakehouse gives them (column order from 1).
 fn shape() -> anyhow::Result<TableShape> {
@@ -84,8 +84,31 @@ fn the_staged_rows_are_the_rows_the_spark_job_built() -> anyhow::Result<()> {
     let expected = SPARK_ROWS.lines().collect::<Vec<_>>();
     assert_eq!(lines.len(), expected.len());
     for (line, expected) in lines.iter().zip(expected) {
-        assert_eq!(line, expected);
+        let (row, derived_at) = expected.rsplit_once('|').context("a derived_at field")?;
+        assert_eq!(line, row);
+        assert_eq!(derived_at, "1794441600");
     }
+    // `derived_at_utc`: every row carries the instant the caller gave, as UTC microseconds.
+    let reader = parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder::try_new(
+        std::fs::File::open(&file.local_path)?,
+    )?
+    .build()?;
+    let mut stamped = 0;
+    for batch in reader {
+        let batch = batch?;
+        let column = batch
+            .column_by_name("derived_at_utc")
+            .context("derived_at_utc")?
+            .as_any()
+            .downcast_ref::<arrow_array::TimestampMicrosecondArray>()
+            .context("a microsecond timestamp column")?;
+        assert_eq!(column.timezone(), Some("UTC"));
+        for value in column {
+            assert_eq!(value, Some(1_794_441_600_000_000));
+            stamped += 1;
+        }
+    }
+    assert_eq!(stamped, 120);
 
     // The same decisions make the same run, whenever they are staged.
     let later = DateTime::from_timestamp(1_794_500_000, 0).context("later")?;
