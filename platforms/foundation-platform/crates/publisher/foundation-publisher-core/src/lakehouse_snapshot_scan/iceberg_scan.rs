@@ -11,8 +11,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use anyhow::{bail, ensure, Context};
 use apache_avro::{types::Value as AvroValue, Reader as AvroReader};
 use arrow_array::{
-    cast::AsArray, Array, BooleanArray, Date32Array, Decimal128Array, Int64Array, RecordBatch,
-    StringArray, TimestampMicrosecondArray,
+    cast::AsArray, Array, BooleanArray, Date32Array, Decimal128Array, Int32Array, Int64Array,
+    RecordBatch, StringArray, TimestampMicrosecondArray,
 };
 use arrow_schema::{DataType, TimeUnit};
 use bytes::Bytes;
@@ -649,6 +649,7 @@ fn decode_value(
     }
     match logical_type {
         "string" => decode_string(column_name, array, index),
+        "int" => decode_int(column_name, array, index),
         "long" => decode_long(column_name, array, index),
         "date" => decode_date(column_name, array, index),
         "timestamp" => decode_timestamp(column_name, array, index),
@@ -665,6 +666,17 @@ fn decode_string(column_name: &str, array: &dyn Array, index: usize) -> anyhow::
         .downcast_ref::<StringArray>()
         .with_context(|| format!("column {column_name} is not a Parquet string column"))?;
     Ok(JsonValue::String(values.value(index).to_owned()))
+}
+
+/// An Iceberg `int`: 2026-11-12 the ILIS notice collector read `silver.industrial_complex_notice_detail`
+/// (`http_status int`) through this scan and every hourly run from 04:20Z stopped with "unsupported
+/// contract type int".
+fn decode_int(column_name: &str, array: &dyn Array, index: usize) -> anyhow::Result<JsonValue> {
+    let values = array
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .with_context(|| format!("column {column_name} is not a Parquet 32-bit integer column"))?;
+    Ok(JsonValue::Number(values.value(index).into()))
 }
 
 fn decode_long(column_name: &str, array: &dyn Array, index: usize) -> anyhow::Result<JsonValue> {
@@ -931,6 +943,23 @@ mod tests {
                 RowSelector::skip(1),
             ])
         );
+        Ok(())
+    }
+
+    #[test]
+    fn an_int_column_decodes_and_a_long_one_is_not_read_as_int() -> anyhow::Result<()> {
+        use arrow_array::{Int32Array, Int64Array};
+        let ints = Int32Array::from(vec![Some(200), None]);
+        assert_eq!(
+            super::decode_value("int", "http_status", &ints, 0)?,
+            serde_json::json!(200)
+        );
+        assert_eq!(
+            super::decode_value("int", "http_status", &ints, 1)?,
+            serde_json::Value::Null
+        );
+        let longs = Int64Array::from(vec![7_i64]);
+        assert!(super::decode_value("int", "http_status", &longs, 0).is_err());
         Ok(())
     }
 
