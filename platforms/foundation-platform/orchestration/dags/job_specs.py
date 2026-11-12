@@ -462,7 +462,7 @@ def priority_weight(job):
 
 
 def queue_weights(jobs, feeders):
-    """Job id -> the weight Airflow orders its pool's waiting tasks by (root ADR-0138, ADR-0557): the
+    """Job id -> the weight Airflow orders its pool's waiting tasks by (root ADR-0138, ADR-0558): the
     job's own priority_weight, raised until it is above every job of its pool that reads what it
     writes. The data dependency is the pipeline graph's (`feeders`, producers()), so no weight is kept
     in step with it by hand; Airflow's own default rule does the same inside one DAG (`weight_rule`

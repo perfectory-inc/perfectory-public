@@ -370,7 +370,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
     def test_the_starvation_bound_counts_every_job_that_can_hold_it_back(self):
         # FLOOR (3 slots, tier 100) can be held back once by each lighter job narrower than it, which
         # may start in room FLOOR does not fit (both folds, each 1-slot bake run), and by what already
-        # holds the pool when its turn comes: lineage (lighter and as wide since root ADR-0557, retried
+        # holds the pool when its turn comes: lineage (lighter and as wide since root ADR-0558, retried
         # once), whose 265 minutes outlast the panel Gold rebuild's 165 and any one Silver lane's 160.
         # The hourly Onbid load (1 slot, tier 100, 40 + 5 minutes; root ADR-0280) may start ahead of
         # it once too, and so may the nightly 실거래가 load (the same shape, root ADR-0349) and the hourly
@@ -425,7 +425,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
         self.assertGreater(weights["building_register_floor"],
                            max(weights["map_edit_fold_admin"], weights["map_edit_fold_complex"]))
         # Lineage names no tier: its place is just above the Gold rebuilds that read what it writes
-        # (root ADR-0557), below the folds.
+        # (root ADR-0558), below the folds.
         self.assertGreater(weights["map_edit_fold_admin"], weights["lineage_stewardship"])
         self.assertGreater(weights["lineage_stewardship"], weights["gold_panel_rebuild"])
         self.assertGreater(weights["map_edit_fold_admin"], weights["by_pnu_serving_bake"])
@@ -483,7 +483,7 @@ class WhatTheJobListMayNotSay(unittest.TestCase):
 
 
 class AProducerOutranksItsConsumers(unittest.TestCase):
-    """Root ADR-0557. 2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the
+    """Root ADR-0558. 2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the
     spark pool's queue while gold_parcel_nearby_rebuild (weight 2), which reads the Silver tables only
     it loads, ran ahead of it and failed on tables that did not exist yet."""
 

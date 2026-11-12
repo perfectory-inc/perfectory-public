@@ -96,4 +96,4 @@ by-PNU 서빙 굽기(필지 ADR-0096, 건물 ADR-0100)를 Airflow 작업으로 �
 ## 개정 기록
 
 - 2026-10-10: 굶주림 상한의 셈법을 [ADR-0171](./0171-scheduled-jobs-are-chained-by-the-data-their-runs-changed.md) §5 가 고쳤다. 더 가볍고 슬롯이 같거나 많은 작업은 앞질러 시작하지 못하므로, 차례가 왔을 때 이미 돌고 있는 가장 나쁜 묶음으로 한 번만 센다. 입력으로 시작하는 작업의 주기는 먹이는 작업과 대체 시각 중 가장 짧은 것이다. 상한(20 주기)은 그대로다. 위 결정 본문은 고치지 않았다.
-- 2026-11-12: §2 의 "무게: FLOOR·계보 10, 접기 5, 굽기 1" 은 [ADR-0557](./0557-a-job-outranks-every-job-of-its-pool-that-reads-what-it-writes-from-the-pipeline-graph.md) 이 갈았다. 작업이 적는 무게는 열 칸씩 띄운 단계이고, Airflow 가 쓰는 무게는 파이프라인 그래프에서 계산한다(생산자가 소비자보다 앞). 계보 검토는 단계를 적지 않는다.
+- 2026-11-12: §2 의 "무게: FLOOR·계보 10, 접기 5, 굽기 1" 은 [ADR-0558](./0558-a-job-outranks-every-job-of-its-pool-that-reads-what-it-writes-from-the-pipeline-graph.md) 이 갈았다. 작업이 적는 무게는 열 칸씩 띄운 단계이고, Airflow 가 쓰는 무게는 파이프라인 그래프에서 계산한다(생산자가 소비자보다 앞). 계보 검토는 단계를 적지 않는다.
