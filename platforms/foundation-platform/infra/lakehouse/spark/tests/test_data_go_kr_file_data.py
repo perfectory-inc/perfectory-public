@@ -40,7 +40,7 @@ def csv_bytes(rows, encoding="cp949"):
 
 class Contract(unittest.TestCase):
     def test_every_file_but_the_registered_factory_is_loaded_into_its_own_table(self):
-        self.assertEqual(len(FILES), 11)
+        self.assertEqual(len(FILES), 14)
         self.assertNotIn("registered_factory", FILES)
         artifact = json.loads((job.CONTRACT_PATH.parent / "industrial_complex_lakehouse_contracts.json")
                               .read_text(encoding="utf-8"))["contracts"]

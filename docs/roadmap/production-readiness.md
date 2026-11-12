@@ -307,11 +307,14 @@ last_reviewed: 2026-11-07
 | 행정·내부 | 지도 편집 원장 (`silver.map_edit_ledger`) | — | `admin-tiles`<br>`complex-tiles`<br>`parcel-tiles` | 화면 |
 | 행정·내부 | 법정동 연계정보 (`silver.adm_dong_code_linkage`) | — | — | 없음 |
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
+| 행정·내부 | 승강기 설치 현황 (`silver.elevator_installation`) | — | — | 없음 |
+| 행정·내부 | 지식산업센터 (`silver.knowledge_industry_center`) | — | — | 없음 |
 | 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |
 | 행정·내부 | 필지 ID 원장 (`silver.parcel_registry`) | — | — | 없음 |
 | 행정·내부 | 중개사무소 소속 인원 (`silver.real_estate_broker_member`) | — | — | 없음 |
 | 행정·내부 | 중개사무소 등록 (`silver.real_estate_broker_office`) | — | — | 없음 |
 | 행정·내부 | 실거래가 적재 거부 줄 (`silver.real_transaction_rejected`) | — | — | 없음 |
+| 행정·내부 | 표준지공시지가 (`silver.standard_land_price`) | — | — | 없음 |
 | 행정·내부 | 세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | — | — | 없음 |
 
 <!-- END GENERATED showing-inventory -->
