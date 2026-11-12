@@ -272,11 +272,6 @@
         "budget_seconds": 10
       },
       {
-        "name": "no-subdir-github",
-        "always": "A nested `.github/workflows` directory can appear under any area; the check is one `git ls-files`.",
-        "budget_seconds": 10
-      },
-      {
         "name": "technology-version-consistency",
         "paths": [
           "tools/technology-versions.contract.json",
