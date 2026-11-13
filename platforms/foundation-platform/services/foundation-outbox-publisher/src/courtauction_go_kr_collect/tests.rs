@@ -467,9 +467,14 @@ async fn the_details_ride_the_same_pool_a_block_renews_and_photos_become_hashes(
         (2, 0, 2)
     );
     assert_eq!(asking.tally.counts().blocks, 1);
-    assert!(result
-        .lines
-        .iter()
+    let mut text = String::new();
+    std::io::Read::read_to_string(
+        &mut flate2::read::GzDecoder::new(result.lines.finish()?.as_slice()),
+        &mut text,
+    )?;
+    assert_eq!(text.lines().count(), 2);
+    assert!(text
+        .lines()
         .all(|line| line.contains("sha256:") && !line.contains("/9j/4AAQ")));
 
     let (result, stop) =
