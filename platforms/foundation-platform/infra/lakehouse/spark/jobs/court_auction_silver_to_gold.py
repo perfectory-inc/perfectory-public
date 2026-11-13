@@ -89,7 +89,11 @@ PARTY_DOC = "silver.court_auction_case_party"
 SURVEY_DOC = "silver.court_auction_survey"
 SURVEY_OBJECT_DOC = "silver.court_auction_survey_object"
 APPRAISAL_ROUND_DOC = "silver.court_auction_appraisal"
-CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SURVEY_OBJECT_DOC, APPRAISAL_ROUND_DOC)
+# A 감정평가 round's stored 감정평가서, in the shared content-addressed store the parcel edge serves.
+REPORT_DOC = "silver.court_auction_appraisal_report"
+REPORT_KEY = (*CASE, "round_seq", "appraisal_no", "written_date")
+CASE_DOCUMENT_SOURCES = (RELATED_DOC, CASE_OBJECT_DOC, PARTY_DOC, SURVEY_DOC, SURVEY_OBJECT_DOC, APPRAISAL_ROUND_DOC,
+                         REPORT_DOC)
 DOCUMENT_SOURCES = (CASE_DOC, SPEC_DOC, SCHEDULE_DOC, OBJECT_DOC, ANNEX_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 CASE_DOCUMENTS = (CASE_DOC, APPRAISAL_DOC, *CASE_DOCUMENT_SOURCES)
 # The site's 공통코드 (root ADR-0540 §5): the name of each code a document carries.
@@ -292,8 +296,11 @@ def detail_parts(frames: dict[str, Any]) -> dict[str, Any]:
             F.coalesce(F.col("_survey_objects"), F.expr(
                 "CAST(array() AS array<struct<object_seq:int,possession_text:string,lease_count:int,remarks:string>>)"))
             .alias("objects")).alias("_survey"))
-    appraisal = newest_round(current(APPRAISAL_ROUND_DOC)).select(*CASE, F.struct(
-        "round_seq", "appraisal_no", "price_basis_date", "written_date", "opinion").alias("_appraisal"))
+    reports = current(REPORT_DOC).select(*REPORT_KEY, F.struct(
+        "sha256", "media_format", F.col("size_bytes").cast("bigint").alias("size_bytes")).alias("report"))
+    appraisal = newest_round(current(APPRAISAL_ROUND_DOC)).join(reports, list(REPORT_KEY), "left").select(
+        *CASE, F.struct("round_seq", "appraisal_no", "price_basis_date", "written_date", "opinion", "report")
+        .alias("_appraisal"))
     return {"case": case, "spec": spec, "schedule": schedule, "objects": objects, "annexes": annexes,
             "appraisal_points": points, "related_cases": related, "parties": parties, "survey": survey,
             "appraisal": appraisal}
