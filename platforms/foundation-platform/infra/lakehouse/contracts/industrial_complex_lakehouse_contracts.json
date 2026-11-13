@@ -13100,6 +13100,7 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY pnu ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
       "row_versions": {
         "kind": "latest_per_key"
       },
@@ -13316,6 +13317,7 @@
         "removal_column": "row_state",
         "keep_ties": false
       },
+      "current_rows_sql": "SELECT {columns} FROM (SELECT *, rank() OVER (PARTITION BY dataset_slug, region_level, region_code, period_kind, period ORDER BY version_seq DESC NULLS LAST) AS foundation_current_rank FROM {source} WHERE {filter}) WHERE foundation_current_rank = 1 AND (row_state IS NULL OR row_state <> 'removed')",
       "row_versions": {
         "kind": "latest_per_key"
       },
