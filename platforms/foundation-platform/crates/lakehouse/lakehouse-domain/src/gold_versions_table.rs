@@ -15,14 +15,17 @@ use crate::lakehouse::{
 
 /// What the versions table is named after the table it replaces.
 pub const GOLD_VERSIONS_TABLE_SUFFIX: &str = "_versions";
-/// The table's commit number: the newest build commit's `foundation.version-seq` + 1, the same on
-/// every row of one commit. It orders a key's versions; neither `published_at_utc` (a string the
+/// The table's commit number, the same on every row of one commit.
+///
+/// The newest build commit's `foundation.version-seq` + 1. It orders a key's versions; neither `published_at_utc` (a string the
 /// producer stamps when it starts) nor the snapshot id (not in time order) does.
 pub const GOLD_VERSION_SEQ_COLUMN: &str = "version_seq";
 /// `removed` on the row a key that left appends (`REMOVED_MARKER`), null on every other row: the
 /// name Silver's removal markers use.
 pub const GOLD_VERSIONS_REMOVAL_COLUMN: &str = "row_state";
-/// The partition of a table keyed by PNU first: the 시도 (17 values). A by-PNU shard then skips
+/// The partition of a table keyed by PNU first: the 시도 (17 values).
+///
+/// A by-PNU shard then skips
 /// other 시도's appended files by manifest bounds, and compaction merges files across versions,
 /// which a partition per commit (`source_snapshot_id`) would forbid.
 pub const GOLD_VERSIONS_PNU_PARTITION: &str = "truncate(2, pnu)";
