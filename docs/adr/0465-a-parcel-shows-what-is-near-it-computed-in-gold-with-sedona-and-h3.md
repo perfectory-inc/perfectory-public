@@ -76,3 +76,7 @@
 - 릴리스가 jar 두 개(82,601,139 + 31,949,894 바이트)를 더 얼린다.
 - 거리는 필지 경계 중심 기준이다. 큰 필지는 경계까지보다 길게 나온다. 출입시설은 같은 시군구 목록이라 시군구 경계 바로 너머의 IC 는
   빠진다 — 원천에 위치가 생기면 KNN 으로 옮긴다.
+
+---
+
+개정 메모(2026-11-14): 계산 엔진과 표는 [ADR-0567](./0567-the-parcel-nearby-gold-is-born-on-duckdb-as-a-table-of-row-versions-with-the-exact-nearest-and-ties-broken-by-the-facility-key.md) 이 고쳤다 — Sedona `ST_KNN` 대신 발행기 안 DuckDB 의 정확한 최근접(같은 거리는 시설의 `row_key`), 표는 `gold.parcel_nearby_versions`. 문서의 모양은 그대로다.

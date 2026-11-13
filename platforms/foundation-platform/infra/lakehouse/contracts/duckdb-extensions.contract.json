@@ -5,8 +5,14 @@
   "duckdb_version": "v2.0.0",
   "platform": "linux_amd64",
   "directory": "duckdb-extensions",
-  "load_order": ["httpfs", "avro", "iceberg"],
-  "load_order_reason": "iceberg reads manifests through avro and data files through httpfs. With automatic loading off it does not load them itself, so they are loaded first.",
+  "load_order": [
+    "httpfs",
+    "avro",
+    "iceberg",
+    "spatial",
+    "h3"
+  ],
+  "load_order_reason": "iceberg reads manifests through avro and data files through httpfs. With automatic loading off it does not load them itself, so they are loaded first. spatial (geometries, the spheroid distance) and h3 (hexagon cells) stand alone; the parcel nearby Gold reads both (root ADR-0564 §9 turn 2).",
   "distributions": {
     "httpfs": {
       "extension_version": "77392a7207",
@@ -49,6 +55,36 @@
             "compression": "gzip",
             "sha256": "b93676e544e5c6843915fb3392e3b3c35859c065fa6ace7a26cb46ca4394e56d",
             "size": 57088302
+          }
+        }
+      }
+    },
+    "spatial": {
+      "extension_version": "a3dbcd1781",
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://extensions.duckdb.org/v2.0.0/linux_amd64/spatial.duckdb_extension.gz",
+          "sha256": "8d4bf1ab198806f123821d52ff5131745baaa19d5e91bd6b9772db922d31a228",
+          "file": {
+            "name": "spatial.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "8ec99d875355200316c743ede176e2cb50d2b712d2fa192ccbf19cc245a8d0bc",
+            "size": 108189118
+          }
+        }
+      }
+    },
+    "h3": {
+      "extension_version": "v1.5.6",
+      "platforms": {
+        "linux-x86_64": {
+          "url": "https://community-extensions.duckdb.org/v2.0.0/linux_amd64/h3.duckdb_extension.gz",
+          "sha256": "7514dc2834ca9c0af0962b796470a54c706ec69c82df4fb3cde1666045f41c2b",
+          "file": {
+            "name": "h3.duckdb_extension",
+            "compression": "gzip",
+            "sha256": "abba3f5702e6917804a1e05be20013b51d2174e296b175f0a3fdfc2eeffd6352",
+            "size": 520766
           }
         }
       }

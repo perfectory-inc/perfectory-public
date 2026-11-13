@@ -79,7 +79,7 @@ class Reconciler(unittest.TestCase):
             "reference.legal_dong_code_change": table(snap("61", None, 0)),
             # The building-permit and nearby lanes (root ADR-0468), caught up.
             "gold.parcel_building_permits": table(snap("501", None, 0)),
-            "gold.parcel_nearby": table(snap("601", None, 0)),
+            "gold.parcel_nearby_versions": table(snap("601", None, 0)),
             # The lanes switched on behind the loaders that fill them (root ADR-0468, revised 2026-11-10), caught up.
             "gold.parcel_ownership": table(snap("701", None, 0)),
             "gold.parcel_sub_parcels": table(snap("702", None, 0)),

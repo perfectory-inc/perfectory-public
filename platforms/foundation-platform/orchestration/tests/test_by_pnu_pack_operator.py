@@ -128,7 +128,7 @@ class OperatorHarness(unittest.TestCase):
         base = self.root / "opt/foundation-platform"
         release = base / "releases" / RELEASE_ID
         # What the operator reads from the release: its contracts, its secrets tool, its admission.
-        for part in ("config", "scripts/deploy", "infra/systemd", "infra/lakehouse/contracts", "orchestration"):
+        for part in ("config", "scripts/deploy", "infra/systemd", "infra/lakehouse/contracts", "orchestration", "docs/catalog"):
             shutil.copytree(PLATFORM / part, release / part)
         # The lanes' derived fields and the rebuild's tables (root ADR-0193 §9) are read through these.
         shutil.copytree(PLATFORM / "infra/lakehouse/spark/jobs", release / "infra/lakehouse/spark/jobs",

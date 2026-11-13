@@ -3,12 +3,12 @@
 apiVersion: "v3.1.0"
 kind: "DataContract"
 id: "gold.parcel_nearby"
-name: "필지 주변 by-PNU 표"
+name: "필지 주변 by-PNU 표(만들지 않는 옛 모양)"
 version: "1.0.0"
-status: "active"
+status: "draft"
 domain: "foundation-platform"
 description:
-  purpose: "서빙 필지판의 필지마다 그 중심에서 가장 가까운 공항·철도역·도시철도역·초중등학교·대학(이름과 회전타원체 거리), 둘레 H3 칸의 상가(상권) 수, 같은 시군구의 고속도로 출입시설을 담는 데이터 종류 표(루트 ADR-0465). Apache Sedona 의 ST_KNN·H3 함수로 Gold 에서 계산한다. 바뀐 상가 둘레와 바뀐 필지만 다시 계산하고, 시설 파일이 바뀌면 통째로 지어 digest 가 다른 문서만 발행한다."
+  purpose: "gold.parcel_nearby_versions 가 칸을 물려받는 계약의 모양이다. 판을 쌓는 표는 옛 표 옆에 태어나지만(루트 ADR-0564 §1) 주변 표는 옛 표 없이 태어났으므로 이 표는 만들지 않는다: Spark 생산자는 한 번도 커밋하지 못하고(160 분 상한에 네 번) 지워졌다."
 team:
   name: "foundation-platform"
 servers:
@@ -66,7 +66,7 @@ customProperties:
   - property: "pipelineGraphNode"
     value: "gold-parcel-nearby"
   - property: "declaredStatus"
-    value: "implemented"
+    value: "contract_only"
   - property: "servingRole"
     value: "Projection"
   - property: "physicalFormat"
@@ -75,15 +75,4 @@ customProperties:
     value:
       - "pnu"
   - property: "upstreamDatasets"
-    value:
-      - "gold.place_id_bridge"
-      - "gold.place_id_changelog"
-      - "reference.legal_dong_code_change"
-      - "silver.airport"
-      - "silver.commercial_district"
-      - "silver.highway_access_point"
-      - "silver.parcel_boundaries"
-      - "silver.railway_station"
-      - "silver.school_location"
-      - "silver.subway_station"
-      - "silver.university"
+    value: []
