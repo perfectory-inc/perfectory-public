@@ -66,7 +66,8 @@ class TheKernelsDeriveTheFixtureTheSqlIsHeldTo(unittest.TestCase):
     def test_the_rows_and_the_summary_are_the_expected_files(self):
         lines, summary = derived()
         self.assertEqual(lines, (FIXTURES / "spark_rows.txt").read_text(encoding="utf-8").splitlines())
-        self.assertEqual(summary, json.loads((FIXTURES / "summary.json").read_text(encoding="utf-8")))
+        expected = json.loads((FIXTURES / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(summary, {key: expected[key] for key in summary})
 
     def test_the_fixture_reaches_every_rule_the_schedule_applies(self):
         lines, summary = derived()
@@ -89,6 +90,7 @@ if __name__ == "__main__":
     if sys.argv[1:] == ["--write"]:
         rows, counts = derived()
         (FIXTURES / "spark_rows.txt").write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
+        counts = {"namespace": "synthetic: every parcel is under sido 99", **counts}
         (FIXTURES / "summary.json").write_text(json.dumps(counts, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
                                                encoding="utf-8", newline="\n")
         print(f"wrote {len(rows)} rows")

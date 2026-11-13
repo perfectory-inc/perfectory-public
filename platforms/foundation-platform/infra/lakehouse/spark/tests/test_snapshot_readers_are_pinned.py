@@ -34,8 +34,10 @@ READ = re.compile(
     r"|TIMESTAMP AS OF"
     r"|as-of-timestamp"
     r"|\.load_snapshot_manifest_list\("
+    # DuckDB inside the publisher (root ADR-0559): `table AT (VERSION => id)`, in SQL files it runs too.
+    r"|AT \(VERSION =>"
 )
-SOURCES = (".py", ".rs", ".sh")
+SOURCES = (".py", ".rs", ".sh", ".sql")
 SKIPPED_DIRS = {"tests", "target", "node_modules", "__pycache__", ".venv"}
 
 
@@ -97,7 +99,7 @@ class SnapshotReadersArePinned(unittest.TestCase):
         for line in ('spark.read.format("iceberg").option("snapshot-id", s)',
                      "SELECT * FROM t VERSION AS OF 1", "r2.t FOR VERSION AS OF 1",
                      "catalog.load_snapshot_manifest_list(table, id)",
-                     '.option( "start-snapshot-id", a)'):
+                     '.option( "start-snapshot-id", a)', "FROM lakehouse.silver.t AT (VERSION => 1)"):
             self.assertTrue(READ.search(line), line)
         for line in ("ALTER TABLE t CREATE TAG `x` AS OF VERSION 1", '{"snapshot-id": head}'):
             self.assertFalse(READ.search(line), line)

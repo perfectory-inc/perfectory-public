@@ -57,7 +57,13 @@ OWN_WRITERS = {
                                                          "test_both_tables_migrate_with_parity_and_a_second_run_appends_nothing",
     "silver.unit_official_price_versions": "test_vintage_versions_iceberg.VintageVersionsIcebergTest."
                                            "test_both_tables_migrate_with_parity_and_a_second_run_appends_nothing",
+    # Written by the publisher's own Iceberg append, not by Spark (root ADR-0560): DuckDB stages the rows
+    # and `lakehouse_data_commit` appends them. Its first append into the empty table is a Rust test on a
+    # real Iceberg table of this contract, named as rust:<file under the platform>::<test function>.
+    "silver.parcel_lineage": "rust:crates/publisher/foundation-publisher-silver/src/duckdb_parquet_stage/tests.rs::"
+                             "duckdb_staged_rows_are_appended_with_their_record_and_read_back",
 }
+RUST_TEST = "rust:"
 
 
 def silver_refresh_lanes(contracts_dir=CONTRACTS):
@@ -117,6 +123,17 @@ class FirstLoadCaseTableTest(unittest.TestCase):
 
         for table, target in OWN_WRITERS.items():
             with self.subTest(table=table):
+                if target.startswith(RUST_TEST):
+                    path, function = target.removeprefix(RUST_TEST).split("::")
+                    source = (AREA / path).read_text(encoding="utf-8")
+                    self.assertIn(f"async fn {function}(", source, target)
+                    # A real Iceberg table of this contract (the library's catalog over local files), and
+                    # the first snapshot of it: the append has no parent.
+                    self.assertIn("MemoryCatalogBuilder", source, f"{target} runs on real Iceberg")
+                    self.assertIn(f'contract("{table}")', source, f"{target} loads this table")
+                    body = source[source.index(f"async fn {function}("):]
+                    self.assertIn("(None, ", body[:body.index("\n}\n")], f"{target} appends into the empty table")
+                    continue
                 module, cls, method = target.split(".")
                 tree = ast.parse((Path(__file__).parent / f"{module}.py").read_text(encoding="utf-8"))
                 found = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == cls]
