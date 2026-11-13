@@ -21,6 +21,7 @@ the env file (or the contract) the entry names, so a pin still has one home.
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
 import http.client
 import json
@@ -240,6 +241,52 @@ def contract_pins(
     return pins
 
 
+def distribution_pin(
+    contract: pathlib.Path, name: str, system: str, machine: str
+) -> tuple[str, str, dict[str, Any] | None]:
+    """The (url, sha256, file) one distribution of a contract pins for a platform.
+
+    `file` is the pin of the one file the download unpacks to (a DuckDB extension is published
+    gzipped, root ADR-0559 §6), or None when the download itself is what the caller wants.
+    """
+    try:
+        distributions = json.loads(contract.read_text(encoding="utf-8"))["distributions"]
+    except (OSError, ValueError, KeyError) as error:
+        raise FetchError(f"cannot read the distributions of {contract}: {error}") from error
+    if name not in distributions:
+        raise FetchError(f"{contract.name} pins no distribution {name}; it lists {sorted(distributions)}")
+    artifact = distributions[name]["platforms"].get(f"{system}-{machine}")
+    if artifact is None:
+        raise FetchError(f"{name} is not pinned for {system}-{machine}")
+    return artifact["url"], _check_sha(artifact["sha256"]), artifact.get("file")
+
+
+def unpack_pinned_file(archive: pathlib.Path, file: Mapping[str, Any], output: pathlib.Path) -> None:
+    """Write the one file a verified download unpacks to, held to its own pinned size and SHA-256."""
+    if file.get("compression") != "gzip":
+        raise FetchError(f"{file.get('name')}: only gzip downloads unpack to one file, found {file.get('compression')!r}")
+    expected, size = _check_sha(file["sha256"]), file["size"]
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging = output.with_name(f".{output.name}.{os.getpid()}.partial")
+    digest, written = hashlib.sha256(), 0
+    try:
+        with gzip.open(archive, "rb") as source, staging.open("wb") as sink:
+            for chunk in iter(lambda: source.read(1 << 20), b""):
+                digest.update(chunk)
+                written += len(chunk)
+                sink.write(chunk)
+        if written != size or digest.hexdigest() != expected:
+            raise FetchError(
+                f"{file['name']} unpacked to {written} bytes sha256={digest.hexdigest()}; "
+                f"pinned {size} bytes sha256={expected}"
+            )
+        os.replace(staging, output)
+    except (OSError, EOFError, gzip.BadGzipFile) as error:
+        raise FetchError(f"{archive.name} does not unpack: {error}") from error
+    finally:
+        staging.unlink(missing_ok=True)
+
+
 def all_pins(registry: Mapping[str, Any], system: str, machine: str, root: pathlib.Path = ROOT) -> list[tuple[str, str, str]]:
     result: list[tuple[str, str, str]] = []
     for name in sorted(registry["tools"]):
@@ -312,6 +359,12 @@ def _parser() -> argparse.ArgumentParser:
     prefetch.add_argument(
         "--prune", action="store_true", help="also remove cached files no current pin names"
     )
+    distribution = commands.add_parser(
+        "distribution", help="fetch one distribution a contract pins for this platform"
+    )
+    distribution.add_argument("contract", type=pathlib.Path)
+    distribution.add_argument("name")
+    distribution.add_argument("--output", type=pathlib.Path, required=True)
     commands.add_parser("list", help="print every pin for this platform")
     return parser
 
@@ -330,6 +383,13 @@ def main(argv: Iterable[str] | None = None) -> int:
                 extract_member(archive, arguments.member, arguments.output)
             else:
                 _copy_out(archive, arguments.output)
+        elif arguments.command == "distribution":
+            url, sha256, file = distribution_pin(arguments.contract, arguments.name, system, machine)
+            archive = fetch(url, sha256)
+            if file is None:
+                _copy_out(archive, arguments.output)
+            else:
+                unpack_pinned_file(archive, file, arguments.output)
         elif arguments.command == "prefetch":
             pins = all_pins(registry, system, machine)
             for _, url, sha256 in pins:

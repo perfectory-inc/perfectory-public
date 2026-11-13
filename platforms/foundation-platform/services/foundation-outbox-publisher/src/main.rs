@@ -293,6 +293,7 @@ enum Command {
     SeedLakehouseRegistry,
     SmokeR2,
     VerifyStaticReleaseToolchain,
+    VerifyLakehouseEngineExtensions,
     VerifyLakehouseRegistry,
     VerifyR2Cleanup,
     ValidateTileDerivativeR2,
@@ -645,6 +646,9 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
                 .await
                 .map(|_| ())
         }),
+        Command::VerifyLakehouseEngineExtensions => {
+            Box::pin(async { foundation_publisher_silver::duckdb_extensions::verify() })
+        }
         Command::VerifyLakehouseRegistry => Box::pin(lakehouse_registry_control::verify()),
         Command::VerifyR2Cleanup => Box::pin(async { r2_cleanup_verify::run() }),
         Command::ValidateTileDerivativeR2 => {
@@ -920,6 +924,7 @@ where
         Some("seed-lakehouse-registry") => Ok(Command::SeedLakehouseRegistry),
         Some("smoke-r2") => Ok(Command::SmokeR2),
         Some("verify-static-release-toolchain") => Ok(Command::VerifyStaticReleaseToolchain),
+        Some("verify-lakehouse-engine-extensions") => Ok(Command::VerifyLakehouseEngineExtensions),
         Some("verify-lakehouse-registry") => Ok(Command::VerifyLakehouseRegistry),
         Some("verify-r2-cleanup") => Ok(Command::VerifyR2Cleanup),
         Some("validate-tile-derivative-r2") => Ok(Command::ValidateTileDerivativeR2),

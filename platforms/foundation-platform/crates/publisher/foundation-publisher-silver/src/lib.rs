@@ -105,6 +105,9 @@ pub mod lakehouse_engine_contract;
 /// (root ADR-0559, ADR-0560).
 pub mod duckdb_parquet_stage;
 
+/// The `DuckDB` extensions a release carries (root ADR-0559 §6).
+pub mod duckdb_extensions;
+
 /// Stages standing steward decisions as `silver.parcel_lineage` rows (root ADR-0115 §9).
 ///
 /// The first transform that left Spark with its commit (root ADR-0560).

@@ -357,7 +357,11 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # the two SQL files DuckDB runs for it (lineage_steward_fold_stage/refusals.sql, rows.sql: the SQL is
 # reviewed and compared as SQL, and the engine-equality verdict ran those files), and its test
 # compiles in the handoff fixture and the rows the Spark job built from it (fixtures/).
-COMPILE_TIME_READ_BASELINE="${3:-178}"
+# 178 -> 179: the publisher compiles in infra/lakehouse/contracts/duckdb-extensions.contract.json
+# (duckdb_extensions.rs, root ADR-0559 §6): the extension names and builds a publisher expects are the
+# ones it was built with. The directory is already an input of the publisher image
+# (Dockerfile.lakehouse-control copies infra/lakehouse/contracts).
+COMPILE_TIME_READ_BASELINE="${3:-179}"
 
 cd "$repo_root"
 
