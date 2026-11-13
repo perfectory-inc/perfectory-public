@@ -1041,7 +1041,7 @@ prepare_job_state_directories() {
 retire_hand_installed_ollama() {
   # The Ollama an operator installed on 2026-09-11 runs all day with no memory cap on 0.0.0.0:11434
   # (cgroup peak 29.7 GiB); intelligence-model-runtime-ollama.service replaces it under a cap and only
-  # while a spark-pool job needs it (root ADR-0478 §2). A model it holds is someone's request in
+  # while a job that claims its memory needs it (root ADR-0478 §2, ADR-0563). A model it holds is someone's request in
   # progress, so that deploy leaves it and the next one retires it. The unit file stays, disabled.
   local loaded running
   # The host's one answer to whether a unit runs (job_units.py); no answer retires nothing.
