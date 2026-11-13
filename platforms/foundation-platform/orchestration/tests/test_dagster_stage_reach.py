@@ -72,5 +72,30 @@ class TheOrderOfTheReconcilerAndWhatItStarts(unittest.TestCase):
         self.assertEqual(job_specs.owed_by_inputs([moved], changed, {}, set()), [])
 
 
+class OneRuleForAMissedTick(unittest.TestCase):
+    """Review M1: the reconciler's missed-start catch-up would start, 15 minutes after any slot, a job whose
+    own sensor decided not to run that missed tick. A job Dagster decides has its sensor's rule only."""
+
+    def test_the_reconciler_does_not_catch_up_a_job_dagster_decides(self):
+        sys.path.insert(0, str(PLATFORM / "scripts" / "ops"))
+        sys.path.insert(0, str(PLATFORM / "scripts" / "deploy"))
+        import asset_reconcile
+
+        jobs, _ = (copy.deepcopy(value) for value in real_inputs())
+        reconciler = next(job for job in jobs["jobs"] if job.get("requeues_refused_starts_in"))
+        candidates = [job_id for job_id in job_specs.requeued(jobs, reconciler)
+                      if not next(job for job in jobs["jobs"] if job["id"] == job_id).get("takes_turns")]
+        now = datetime.datetime(2099, 1, 2, tzinfo=datetime.UTC).timestamp()
+
+        def owed():
+            lines, _ = asset_reconcile.missed_starts(now, jobs, reconciler, {}, {}, lambda job_id: False,
+                                                     lambda service: False)
+            return {line.split()[1] for line in lines}
+
+        self.assertIn(candidates[0], owed())
+        next(job for job in jobs["jobs"] if job["id"] == candidates[0])["dagster_stage"] = "dagster"
+        self.assertNotIn(candidates[0], owed())
+
+
 if __name__ == "__main__":
     unittest.main()

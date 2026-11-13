@@ -77,9 +77,6 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         print(job["id"])
     elif which == "disabled" and not job["enabled"]:
         print(job["id"])
-    elif which == "dagster-decided" and job["enabled"] and job.get("dagster_stage", "airflow") == "dagster":
-        # Held, released and started through Dagster, not an Airflow DAG (job_orchestrator.py, root ADR-0565).
-        print(job["id"])
     elif which == "units":
         # What step 0 stops or waits for (root ADR-0301, ADR-0308); a registry before ADR-0301 says
         # nothing, and a job that says nothing is waited for.
@@ -89,6 +86,15 @@ for job in json.load(open(path, encoding="utf-8"))["jobs"]:
         # starts the unit itself, so it never waits for the host;
         # test_foundation_autodeploy holds the two to the same answer on the real list.
         print(job["systemd_service"], job["time_limit_minutes"] + job["stop_grace_minutes"], job["id"])
+if which == "dagster-decided":
+    # Held, released and started through Dagster, not an Airflow DAG: job_orchestrator.py's own answer
+    # (root ADR-0565); a release from before it has none.
+    import os
+    deploy = os.path.join(os.path.dirname(path), "..", "scripts", "deploy")
+    if os.path.isfile(os.path.join(deploy, "job_orchestrator.py")):
+        sys.path.insert(0, deploy)
+        from job_orchestrator import decided
+        print("\n".join(decided(json.load(open(path, encoding="utf-8")))))
 if which == "enabled-consumers-first":
     # Airflow drops an output event for a DAG that is still paused (root ADR-0179): the order is the
     # job registry's own dependency graph, consumers first (orchestration/dags/job_specs.py).

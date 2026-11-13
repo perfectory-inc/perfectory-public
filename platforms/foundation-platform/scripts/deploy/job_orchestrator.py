@@ -133,14 +133,18 @@ def pause(jobs, job_ids, post):
 
 
 def unpause(jobs, job_ids, post):
-    """Starts each job's sensor that is not running; the ids it started."""
-    states, started = sensor_states(post), []
+    """Starts each job's sensor that is not running; the ids it started. A sensor Dagster does not hold
+    fails the call, after every one it does hold is started: one missing job holds back no other."""
+    states, started, missing = sensor_states(post), [], []
     for job_id, sensor in _named(jobs, job_ids):
         if sensor not in states:
-            raise Unanswered(f"Dagster holds no sensor {sensor}: the code location has not loaded this release's job list")
-        if states[sensor][1] != "RUNNING":
+            missing.append(sensor)
+        elif states[sensor][1] != "RUNNING":
             _expect(post(START, {"sensor": {**REPOSITORY, "sensorName": sensor}})["startSensor"], "Sensor", f"starting {sensor}")
             started.append(job_id)
+    if missing:
+        raise Unanswered(f"Dagster holds no sensor {', '.join(missing)}: the code location has not loaded this "
+                         f"release's job list (started {' '.join(started) or 'none'})")
     return started
 
 

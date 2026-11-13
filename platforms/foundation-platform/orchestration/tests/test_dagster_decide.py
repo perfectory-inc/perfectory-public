@@ -128,6 +128,57 @@ class TheDecisionsTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
+class ARunCoversWhatCameBeforeItTest(unittest.TestCase):
+    """Root ADR-0565 §5: a run, whoever started it, covers every tick and input event from before it began."""
+
+    def decide(self, cursor, now, **kwargs):
+        import decide
+
+        spec = spec_of("gold_unit_price_rebuild")
+        return decide.decide(spec, limit_of(spec.job_id), cursor, now, kwargs.pop("held", False),
+                             kwargs.pop("events", []), kwargs.pop("newest_event_id", 0), (), **kwargs)
+
+    def test_a_sensor_stopped_for_weeks_does_not_replay_what_runs_it_did_not_start_did(self):
+        # Demoted to proxied and promoted again (review M2): Airflow's runs of the same Dagster job
+        # covered the ticks and events of the weeks the sensor was away.
+        import decide
+
+        left = at("2026-11-01T00:00:00")
+        _, cursor = self.decide(None, left)
+        back = at("2026-11-20T10:00:00")
+        requests, _ = self.decide(cursor, back, events=[(9, back - 3600)], last_run_at=back - 600)
+        self.assertEqual(requests, [])
+        # Without such a run the outage rules apply as before: one run (a missed tick that still fits, or
+        # the event), never one per thing missed.
+        requests, _ = self.decide(cursor, back, events=[(9, back - 3600)])
+        self.assertEqual(len(requests), 1)
+        self.assertIsInstance(cursor, decide.Cursor)
+
+    def test_a_run_the_deploy_or_an_operator_started_covers_the_tick_waiting_behind_it(self):
+        now = at("2026-11-09T10:00:00")
+        _, cursor = self.decide(None, now)
+        spec = spec_of("gold_unit_price_rebuild")
+        import dual_run
+
+        tick = dual_run.schedule_ticks(spec.schedule, now, now + 2 * 86400)[0]
+        _, cursor = self.decide(cursor, tick + STEP, held=True)
+        self.assertEqual(cursor.waiting, [tick])
+        self.assertEqual(self.decide(cursor, tick + 2 * STEP, last_run_at=tick + 1)[0], [])
+        self.assertEqual(len(self.decide(cursor, tick + 2 * STEP, last_run_at=tick - 1)[0]), 1)
+
+    def test_the_first_look_owes_one_run_for_an_input_newer_than_the_jobs_newest_run(self):
+        # The deploy that moves a job here paused its DAG; Airflow dropped the event (review M3, root ADR-0337).
+        now = at("2026-11-09T10:00:00")
+        _, cursor = self.decide(None, now, newest_event_id=7, newest_event_at=now - 60, last_run_at=now - 3600)
+        requests, _ = self.decide(cursor, now + STEP)
+        self.assertEqual([(request.key.split(":")[0], request.kind) for request in requests], [("inputs", "triggered")])
+        for last_run_at in (now - 30, None):
+            with self.subTest(last_run_at=last_run_at):
+                _, cursor = self.decide(None, now, newest_event_id=7, newest_event_at=now - 60, last_run_at=last_run_at)
+                self.assertEqual(self.decide(cursor, now + STEP)[0], [], "covered, or never run here: nothing owed")
+
+
+@unittest.skipUnless(HAS_DAGSTER, NEEDS_DAGSTER)
 class TheOwedRunsTest(unittest.TestCase):
     """Root ADR-0565 §4: what the reconciler's run says a job is owed starts the job from the job's own
     sensor, as the reconciler's DAG tasks `select` and `start` did for a job with a DAG."""

@@ -99,10 +99,11 @@ class TheJobsDagsterDecides(unittest.TestCase):
     def test_a_sensor_dagster_does_not_hold_is_an_error_when_releasing_and_nothing_when_holding(self):
         # The code location has not loaded the release that moved the job: nothing decides it, so a
         # deploy that "unpaused" it would leave it silently undecided. Holding it has nothing to stop.
-        dagster = Dagster({"foundation_decide__hourly": "RUNNING"})
+        dagster = Dagster({"foundation_decide__hourly": "STOPPED"})
         with self.assertRaises(job_orchestrator.Unanswered) as raised:
-            job_orchestrator.unpause(listed(), ["nightly"], dagster)
+            job_orchestrator.unpause(listed(), ["nightly", "hourly"], dagster)
         self.assertIn("foundation_decide__nightly", str(raised.exception))
+        self.assertEqual(dagster.sensors["foundation_decide__hourly"], "RUNNING", "the one it holds is started first")
         self.assertEqual(job_orchestrator.pause(listed(), ["nightly"], dagster), [])
 
     def test_a_job_airflow_decides_is_refused(self):

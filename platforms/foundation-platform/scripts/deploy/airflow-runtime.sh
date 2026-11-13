@@ -169,7 +169,8 @@ for name, pool in json.load(open(sys.argv[1]))["pools"].items():
 }
 
 # Paused or not is decided by orchestration/jobs.v1.json `enabled`, never by a click in the UI: the
-# release that switches a job on is the one that retires its systemd timer (ADR-0122 §4).
+# release that switches a job on is the one that retires its systemd timer (ADR-0122 §4). A job Dagster
+# decides (`dagster_stage: dagster`) has no DAG and is not listed here (root ADR-0565).
 sync_enabled() {
   local id enabled
   while read -r id enabled; do
@@ -184,7 +185,8 @@ sync_enabled() {
   done < <(python3 -c '
 import json, sys
 for job in json.load(open(sys.argv[1]))["jobs"]:
-    print(job["id"], str(job["enabled"]).lower())
+    if job.get("dagster_stage", "airflow") != "dagster":
+        print(job["id"], str(job["enabled"]).lower())
 ' "${jobs_file}")
 }
 
@@ -195,7 +197,8 @@ wait_for_declared_dags() {
       printf '%s' "${listing}" | python3 -c '
 import json, sys
 try:
-    expected = {"foundation_" + job["id"] for job in json.load(open(sys.argv[1]))["jobs"]}
+    expected = {"foundation_" + job["id"] for job in json.load(open(sys.argv[1]))["jobs"]
+                if job.get("dagster_stage", "airflow") != "dagster"}
     rows = json.load(sys.stdin)
     if not expected or not isinstance(rows, list) or any(
         not isinstance(row, dict) or not isinstance(row.get("dag_id"), str) for row in rows
@@ -314,6 +317,9 @@ sys.exit(0 if any(u.get("email") == os.environ["EMAIL"] for u in json.load(sys.s
 trigger() {
   (($# == 1)) || fail "usage: $0 trigger JOB"
   [[ "$1" =~ ^[a-z][a-z0-9_]*$ ]] || fail "job ids are lower_snake names"
+  if python3 -I -B "${root_dir}/scripts/deploy/job_orchestrator.py" decided "${jobs_file}" | grep -qx "$1"; then
+    fail "Dagster decides $1 and Airflow has no DAG for it: scripts/deploy/job_orchestrator.py start ${jobs_file} $1"
+  fi
   airflow_cli dags trigger "foundation_$1"
 }
 

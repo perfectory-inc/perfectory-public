@@ -39,6 +39,14 @@ Where Dagster does not do as Airflow did, by decision, with the incident each ru
   decides has no DAG for. A stopped sensor (a deploy holds the job) starts nothing owed either; the
   reconciler says it again on its next tick.
 
+- **A run covers every tick and input event from before it started** (root ADR-0565 §5): it read the inputs
+  as they were when it began. Whoever started it (this sensor, the deploy, an operator's run-now, Airflow
+  while the job was `proxied`), a tick or an event before the newest run's start starts nothing more. So a
+  sensor stopped by a deploy, or one whose job went back to `proxied` and came back weeks later, does not
+  replay what runs it did not start already did. And the first look of a job started by its inputs takes
+  an input event newer than the job's newest run as owed (the deploy that moves a job here pauses its DAG,
+  and Airflow drops an event for a paused DAG, root ADR-0337): one run, not the history.
+
 Each request's run key names its decision (`tick:<iso>`, `inputs:<latest event>`, `reconcile:<key>`), so a
 repeated evaluation never starts a decision twice.
 """
@@ -104,23 +112,33 @@ def _iso(at):
     return datetime.datetime.fromtimestamp(at, datetime.UTC).isoformat()
 
 
-def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0, owed=()):
+def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0, owed=(), last_run_at=None,
+           newest_event_at=None):
     """(requests, the next cursor) for one evaluation at `now`.
 
     `cursor` is the previous evaluation's (None on the first look), `held` whether a run of the job is
     open, `events` the (storage id, time) of the starting inputs' materializations after `cursor.event_id`,
-    `newest_event_id` the event log's newest storage id on the first look, where taking starts, and `owed`
-    the keys the reconciler's runs since the last look say the job is owed a run for, oldest first.
+    `newest_event_id` and `newest_event_at` the event log's newest storage id and its time on the first
+    look, where taking starts, `owed` the keys the reconciler's runs since the last look say the job is
+    owed a run for, oldest first, and `last_run_at` when the job's newest run started (None: never).
     """
+    inputs = spec.started_by == "inputs"
     if cursor is None:
-        # A sensor's first look starts from now: no tick or event from before it is a decision of its.
-        return [], Cursor(since=now, event_id=newest_event_id)
+        # A sensor's first look starts from now: no tick from before it is a decision of its (2026-11-05).
+        # An input that changed after the job's newest run is owed that one run (root ADR-0565 §5).
+        owed_input = (newest_event_at if inputs and newest_event_at is not None and last_run_at is not None
+                      and newest_event_at > last_run_at else None)
+        return [], Cursor(since=now, event_id=newest_event_id, pending=owed_input)
+
+    def uncovered(at):
+        return last_run_at is None or at > last_run_at
+
     gap = now - cursor.since > OUTAGE_SECONDS
     ticks = dual_run.schedule_ticks(spec.schedule, cursor.since, now) if spec.schedule else []
-    waiting = sorted({*cursor.waiting, *ticks})
+    waiting = sorted(tick for tick in {*cursor.waiting, *ticks} if uncovered(tick))
     event_id = max([cursor.event_id, *(storage_id for storage_id, _ in events)])
     newest = max([*(at for _, at in events), *([cursor.pending] if cursor.pending is not None else [])], default=None)
-    if newest is not None and spec.started_by != "inputs":
+    if newest is not None and (not inputs or not uncovered(newest)):
         newest = None
     if held:
         return [], Cursor(since=now, event_id=event_id, waiting=waiting, pending=newest)
@@ -141,12 +159,24 @@ def decide(spec, run_limit_seconds, cursor, now, held, events, newest_event_id=0
     return requests, Cursor(since=now, event_id=event_id)
 
 
-def _newest_event_id(instance, keys):
+def _newest_event(instance, keys):
+    """(storage id, time) of the newest materialization of any of `keys`; (0, None) when there is none."""
     from dagster import AssetRecordsFilter
 
-    found = [instance.fetch_materializations(AssetRecordsFilter(asset_key=key), limit=1, ascending=False).records
-             for key in keys]
-    return max((records[0].storage_id for records in found if records), default=0)
+    found = [records[0] for key in keys
+             for records in [instance.fetch_materializations(AssetRecordsFilter(asset_key=key), limit=1,
+                                                             ascending=False).records] if records]
+    newest = max(found, key=lambda record: record.storage_id, default=None)
+    return (newest.storage_id, newest.timestamp) if newest is not None else (0, None)
+
+
+def _last_run_at(instance, job_name):
+    """When the newest started run of `job_name` started, whoever launched it; None when none has."""
+    from dagster import RunsFilter
+
+    starts = [record.start_time for record in instance.get_run_records(RunsFilter(job_name=job_name), limit=5)
+              if record.start_time is not None]
+    return max(starts, default=None)
 
 
 def _events(instance, keys, after_id):
@@ -186,9 +216,10 @@ def evaluator(spec, run_limit_seconds, clock=time.time, reconcilers=()):
         held = context.instance.get_runs_count(RunsFilter(
             job_name=spec.dagster_job, statuses=[DagsterRunStatus(status) for status in OPEN_STATUSES])) > 0
         events = _events(context.instance, inputs, cursor.event_id) if cursor is not None else []
-        first = _newest_event_id(context.instance, inputs) if cursor is None else 0
+        first_id, first_at = _newest_event(context.instance, inputs) if cursor is None else (0, None)
         owed = _owed(context.instance, reconcilers, spec.job_id, cursor.since) if cursor is not None and not held else []
-        requests, cursor = decide(spec, run_limit_seconds, cursor, clock(), held, events, first, owed)
+        requests, cursor = decide(spec, run_limit_seconds, cursor, clock(), held, events, first_id, owed,
+                                  _last_run_at(context.instance, spec.dagster_job), first_at)
         context.update_cursor(cursor.dump())
         if not requests:
             return SkipReason("a run of the job is open; what is due waits" if held else "nothing is due")

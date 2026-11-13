@@ -45,9 +45,15 @@ for request in "${switches}/run-now.d"/*; do
 import json, sys
 for job in json.load(open(sys.argv[1], encoding="utf-8"))["jobs"]:
     if job["id"] == sys.argv[2]:
-        print(("dagster" if job.get("dagster_stage", "airflow") == "dagster" else "yes") if job["enabled"] else "no")
+        print("yes" if job["enabled"] else "no")
 PY
 )"
+  # Which jobs Dagster decides is job_orchestrator.py's answer (root ADR-0565).
+  orchestrator="${release_root}/current/scripts/deploy/job_orchestrator.py"
+  if [[ "${enabled}" == yes && -f "${orchestrator}" ]] \
+    && python3 -I -B "${orchestrator}" decided "${jobs_file}" | grep -qx "${job}"; then
+    enabled=dagster
+  fi
   case "${enabled}" in
     dagster)
       if python3 -I -B "${release_root}/current/scripts/deploy/job_orchestrator.py" start "${jobs_file}" \
