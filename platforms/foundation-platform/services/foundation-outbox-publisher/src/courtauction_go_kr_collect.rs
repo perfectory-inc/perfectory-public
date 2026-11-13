@@ -926,9 +926,14 @@ pub async fn run() -> anyhow::Result<()> {
     };
     let (results, mut stop) = collect(&contract, &asking, Utc::now).await?;
     // The lists commit as soon as they are read: a run killed later keeps them (root ADR-0540 §2).
-    let failed: BTreeMap<&str, &[FailedPage]> = results
+    // Owned, so the list lines can go once the detail frontier is read (below).
+    let failed_pages: BTreeMap<&str, Vec<FailedPage>> = results
         .iter()
-        .map(|(role, result)| (*role, result.failed.as_slice()))
+        .map(|(role, result)| (*role, result.failed.clone()))
+        .collect();
+    let failed: BTreeMap<&str, &[FailedPage]> = failed_pages
+        .iter()
+        .map(|(role, pages)| (*role, pages.as_slice()))
         .collect();
     let lists_night = night_summary(
         asking.tally.counts(),
@@ -969,6 +974,11 @@ pub async fn run() -> anyhow::Result<()> {
             .unwrap_or(deadline);
         let (asked, mut report) =
             detail_frontier(&contract, &results, live.map(|(_, s)| s)).await?;
+        // The list lines are in Bronze and the frontier is read from them: nothing reads them again,
+        // and the detail asking runs for hours. 2026-11-08 a run that read the lists only peaked at
+        // 546 MB, and from 11-10 the details were asked with the lists still held: 922 MB, then an
+        // OOM at the 1 GiB cap (11-12), then 2.07 GB held at MemoryHigh for five hours (11-13).
+        drop(results);
         let store = detail::PhotoStore {
             prefix: detail::photo_prefix(&contract.item_detail)?,
             storage: live.map(|(_, s)| s),
