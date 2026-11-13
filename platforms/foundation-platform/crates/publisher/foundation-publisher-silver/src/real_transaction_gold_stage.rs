@@ -13,17 +13,22 @@
 //! The caller loads `deals` (the Silver's current rows at the pin, with their current 법정동) and
 //! appends what the stage writes; nothing here reads the lakehouse or commits.
 
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 use chrono::{Datelike, NaiveDate};
 
 /// The months the trailing period covers (`REGION_MONTHS` of the Spark job).
 pub const REGION_MONTHS: u32 = 12;
 
 const REGION_STATS_SQL: &str = include_str!("real_transaction_gold_stage/region_stats.sql");
+/// The values `region_stats.sql` takes from its caller.
+const AS_OF: &str = "{as_of}";
+const TRAILING_FROM: &str = "{trailing_from}";
+const AS_OF_MONTH: &str = "{as_of_month}";
 
-/// Spark's `percentile(column, p)` (`Percentile.getPercentile`: linear between the two ranks
-/// around `(n - 1) * p`) over an ascending list, then Spark's `round(_, 1)` of a double (HALF_UP
-/// of its decimal text). NULL for no values.
+/// Spark's `percentile(column, p)` then `round(_, 1)`, over an ascending list.
+///
+/// `Percentile.getPercentile` is linear between the two ranks around `(n - 1) * p`; the rounding
+/// is `HALF_UP` of the double's decimal text. NULL for no values.
 const SPARK_PERCENTILE: &str = "CREATE OR REPLACE MACRO spark_percentile(l, p) AS \
     CASE WHEN l IS NULL OR len(l) = 0 THEN NULL ELSE \
     CAST(round(CAST(CAST((CASE \
@@ -70,17 +75,16 @@ pub fn define_macros(connection: &duckdb::Connection) -> anyhow::Result<()> {
 pub fn region_stats_query(as_of: NaiveDate) -> anyhow::Result<String> {
     let as_of = as_of
         .with_day(1)
-        .ok_or_else(|| anyhow::anyhow!("no first day of {as_of}"))?;
+        .with_context(|| format!("no first day of {as_of}"))?;
     let trailing_from = add_months(as_of, -i32::try_from(REGION_MONTHS)?)?;
     let query = REGION_STATS_SQL
-        .replace("{as_of}", &as_of.format("%Y-%m-%d").to_string())
-        .replace(
-            "{trailing_from}",
-            &trailing_from.format("%Y-%m-%d").to_string(),
-        )
-        .replace("{as_of_month}", &as_of.format("%Y-%m").to_string());
+        .replace(AS_OF_MONTH, &as_of.format("%Y-%m").to_string())
+        .replace(AS_OF, &as_of.format("%Y-%m-%d").to_string())
+        .replace(TRAILING_FROM, &trailing_from.format("%Y-%m-%d").to_string());
     ensure!(
-        !query.contains("{as_of") && !query.contains("{trailing_from}"),
+        [AS_OF, TRAILING_FROM, AS_OF_MONTH]
+            .iter()
+            .all(|value| !query.contains(value)),
         "region_stats.sql names a value the stage does not fill"
     );
     Ok(query)

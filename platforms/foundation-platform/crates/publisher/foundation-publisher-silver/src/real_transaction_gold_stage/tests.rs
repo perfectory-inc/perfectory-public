@@ -2,7 +2,7 @@
 //!
 //! The national verdict (module docs) is what moved the transform; this keeps the binary on the
 //! rules that verdict could only cover by the data it met: the quartile interpolation and its
-//! HALF_UP rounding, a cancelled deal counted but not priced, no building price for 토지, the
+//! `HALF_UP` rounding, a cancelled deal counted but not priced, no building price for 토지, the
 //! trailing window's bounds, the 시군구 level, and Java's text of a double past 10⁷ in the digest.
 
 use chrono::NaiveDate;
