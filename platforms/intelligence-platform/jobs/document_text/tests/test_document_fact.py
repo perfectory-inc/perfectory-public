@@ -222,6 +222,40 @@ class FactRunTest(unittest.TestCase):
         self.assertEqual((facts, outcomes), ([], []))
         self.assertEqual(summary["counts"]["deferred"], 1)
 
+    def test_every_document_meets_the_rules_before_the_model_is_asked_anything(self) -> None:
+        """2026-11-13: one loop read by rule and asked the model in turn; 19 model pages took the whole
+        3,815 s run and 27 of 2,000 planned documents were read. The document the rules close is
+        written before the model hears of the one they cannot, whichever sorts first."""
+        version = load_contract()["document_fact"]["text_extractor_version"]
+        needs_model, closes = "0" * 64, "f" * 64  # the one that needs the model sorts first
+        texts = {needs_model: "토지이용계획\n계 1,000 100.0\n산업시설용지 600 60.0\n공공시설용지 300 30.0",
+                 closes: "토지이용계획\n계 1,000 100.0\n산업시설용지 600 60.0\n공공시설용지 400 40.0"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "document_text_outcome.jsonl").write_text(
+                "".join(json.dumps({"sha256": sha, "extractor_version": version, "media_format": "pdf"}) + "\n" for sha in texts), encoding="utf-8")
+            (root / "document_text_page.jsonl").write_text(
+                "".join(json.dumps({"sha256": sha, "extractor_version": version, "page_number": p.page_number, "char_start": p.char_start,
+                                    "char_end": p.char_end, "method": p.method, "text": p.text}, ensure_ascii=False) + "\n"
+                        for sha, text in texts.items() for p in assemble([("text_layer", text)])), encoding="utf-8")
+            written_when_asked = []
+
+            def model(port, pages, unsolved, stats):
+                written_when_asked.append((root / "out" / "document_fact_outcome.jsonl").read_text(encoding="utf-8"))
+                stats["model_tables_rejected"] = 1
+                return []
+
+            with unittest.mock.patch.dict("os.environ", {}, clear=True), \
+                    unittest.mock.patch.object(fact_run.Port, "from_env", return_value=unittest.mock.Mock(model="m")), \
+                    unittest.mock.patch.object(fact_run, "land_use_by_model", side_effect=model):
+                fact_run.main(["--pages", str(root), "--out", str(root / "out")])
+            outcomes = [json.loads(l)["sha256"] for l in (root / "out" / "document_fact_outcome.jsonl").read_text(encoding="utf-8").splitlines()]
+            summary = json.loads((root / "out" / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(written_when_asked), 1)
+        self.assertIn(closes, written_when_asked[0])
+        self.assertEqual(outcomes, [closes, needs_model])
+        self.assertEqual(summary["counts"]["closed_by_rules"], 1)
+
     def test_an_ocr_value_without_a_total_waits_for_the_vision_check(self) -> None:
         facts, outcomes, _ = self.run_once([("ocr", "주요유치업종\n전기장비 제조업(28)")])
         self.assertEqual((facts, outcomes), ([], []))
