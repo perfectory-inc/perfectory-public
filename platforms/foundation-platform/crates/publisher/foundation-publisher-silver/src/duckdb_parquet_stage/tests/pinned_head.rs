@@ -1,4 +1,4 @@
-//! The commit of a table of appended row versions (root ADR-0561, ADR-0564 §3), against a real
+//! The commit of a table of appended row versions (root ADR-0564 §3), against a real
 //! Iceberg table: rows diffed against one head are appended only while `main` is that head, an
 //! append of no file records the new summary, and a file is one 시도 (`truncate(2, pnu)`).
 //!

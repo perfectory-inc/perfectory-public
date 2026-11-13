@@ -12,7 +12,7 @@
 //! and branch publishes stay in `lakehouse_infrastructure::IcebergRestCatalog`; nothing here reads
 //! rows.
 //!
-//! A table of appended row versions (root ADR-0561, ADR-0564 §3) is appended to with
+//! A table of appended row versions (root ADR-0564 §3) is appended to with
 //! [`LakehouseDataCommitter::append_at_head`]: its rows were diffed against one snapshot of `main`,
 //! so they are appended only while `main` is still that snapshot.
 
