@@ -143,11 +143,11 @@ fn day(value: &JsonValue) -> Option<NaiveDate> {
 
 fn report_of(row: &serde_json::Map<String, JsonValue>) -> Option<WantedReport> {
     Some(WantedReport {
-        court_office_code: text(&row["court_office_code"])?,
-        case_no: text(&row["case_no"])?,
-        round_seq: row["round_seq"].as_i64()?,
-        appraisal_no: text(&row["appraisal_no"])?,
-        written: day(&row["written_date"])?,
+        court_office_code: row.get("court_office_code").and_then(text)?,
+        case_no: row.get("case_no").and_then(text)?,
+        round_seq: row.get("round_seq").and_then(JsonValue::as_i64)?,
+        appraisal_no: row.get("appraisal_no").and_then(text)?,
+        written: row.get("written_date").and_then(day)?,
     })
 }
 
@@ -165,11 +165,12 @@ pub(crate) fn frontier<'a>(
     // The newest read of each report.
     let mut last: HashMap<WantedReport, (String, String, Option<NaiveDate>)> = HashMap::new();
     for row in reads {
-        let (Some(report), Some(snapshot)) = (report_of(row), text(&row["source_snapshot_id"]))
+        let (Some(report), Some(snapshot)) =
+            (report_of(row), row.get("source_snapshot_id").and_then(text))
         else {
             continue;
         };
-        let outcome = text(&row["outcome"]).unwrap_or_default();
+        let outcome = row.get("outcome").and_then(text).unwrap_or_default();
         let at = super::detail::run_day(&snapshot);
         match last.get(&report) {
             Some((seen, ..)) if *seen >= snapshot => {}

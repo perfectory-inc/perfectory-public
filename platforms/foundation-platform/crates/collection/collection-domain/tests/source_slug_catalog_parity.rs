@@ -103,8 +103,9 @@ fn catalog_source_slug_is_derived_from_generator() -> TestResult {
     // 158th is the courtauction.go.kr 물건상세, asked after the list searches in the same run (root ADR-0384);
     // the 159th is the ILIS 산업단지 고시 상세, whose attachments are collected whole (root ADR-0484);
     // the 160th is the courtauction.go.kr 공통코드, asked once a run for the codes' names (root ADR-0540 §5);
-    // the 161st–163rd are its 사건상세, 현황조사 and 감정평가, asked per case due (root ADR-0540 §1).
-    assert_eq!(checked, 163, "expected 163 in-scope catalog entries");
+    // the 161st–163rd are its 사건상세, 현황조사 and 감정평가, asked per case due (root ADR-0540 §1);
+    // the 164th is the 감정평가서 PDF the site's 감정평가 screen opens (root ADR-0540 §1).
+    assert_eq!(checked, 164, "expected 164 in-scope catalog entries");
     assert_eq!(
         skipped, 0,
         "expected no skipped mixed_public_source entries"
