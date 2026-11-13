@@ -671,7 +671,13 @@ def dagster_stage(job, jobs=None):
         raise JobListError(f"{job['id']}: dagster_stage {value} has no implementation yet (root ADR-0431 §5)")
     if value != "airflow" and not job["enabled"]:
         raise JobListError(f"{job['id']}: a switched-off job runs nowhere; it stays at dagster_stage airflow")
-    if value in ("proxied", "dagster") and jobs is not None and             ((jobs.get("observers") or {}).get("dagster") or {}).get("enabled") is not True:
+    observed = jobs is not None and ((jobs.get("observers") or {}).get("dagster") or {}).get("enabled") is True
+    if value == "airflow" and job["enabled"] and observed:
+        # 2026-11-13: 24 switched-on jobs (the own-producer lanes' Gold and bakes, the intelligence and notice
+        # jobs) had no stage, so Airflow alone decided them and the move gate had no line of theirs.
+        raise JobListError(f"{job['id']}: a switched-on job is in the dual run from its first release: "
+                           "dagster_stage shadow (root ADR-0458)")
+    if value in ("proxied", "dagster") and jobs is not None and not observed:
         raise JobListError(f"{job['id']}: dagster_stage {value} runs in Dagster, which observers.dagster.enabled leaves off")
     return value
 

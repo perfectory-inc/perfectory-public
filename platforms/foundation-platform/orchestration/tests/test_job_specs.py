@@ -1366,6 +1366,12 @@ class TheDagsterStage(unittest.TestCase):
         self.assertEqual({stages["gold_unit_price_rebuild"], stages["by_pnu_unit_price_bake"]}, {"shadow"})
         self.assertEqual(set(stages.values()), {"airflow", "shadow"})
 
+    def test_a_switched_on_job_is_born_in_the_dual_run(self):
+        # 2026-11-13: 24 switched-on jobs had no stage; Airflow alone decided them and no comparison was kept.
+        self.refused(lambda jobs: enabled(jobs).pop("dagster_stage"), "in the dual run from its first release")
+        stages = {job["id"]: job.get("dagster_stage", "airflow") for job in real_inputs()[0]["jobs"] if job["enabled"]}
+        self.assertNotIn("airflow", stages.values())
+
     def test_an_unknown_or_unimplemented_stage(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="both"), "must be one of")
         self.refused(lambda jobs: enabled(jobs).update(dagster_stage="dagster"), "no implementation yet")
