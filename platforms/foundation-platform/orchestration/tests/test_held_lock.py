@@ -45,6 +45,14 @@ class HeldLock(unittest.TestCase):
         # foundation-release.sh installs this drop-in on every registered data job's unit (root ADR-0134 §3).
         self.assertRegex(ADMISSION.read_text(encoding="utf-8"), r"(?m)^Environment=FOUNDATION_JOB_SERVICE=1$")
 
+    def test_a_run_the_deploy_stops_ends_waiting_not_failed(self):
+        # W83 (2026-10-20..11-13): 43 deploy stops ended `Failed with result 'signal'` and paged.
+        self.assertRegex(ADMISSION.read_text(encoding="utf-8"), r"(?m)^SuccessExitStatus=SIGTERM$")
+        deploy = (job_specs.PLATFORM_ROOT / "scripts/deploy/foundation-deploy.sh").read_text(encoding="utf-8")
+        recorded = deploy.index("foundation-job-outcome waiting stopped by the deploy")
+        self.assertLess(recorded, deploy.index('systemctl stop --no-block "${unit}"'),
+                        "the outcome is recorded before the stop")
+
     def test_no_job_ends_a_held_lock_as_a_failure(self):
         # A job's program that finds its lock held ends through the helper, never a bare 75.
         bare = re.compile(r"\b(exit|return)\s+75\b|flock -n.*\b75\b")
