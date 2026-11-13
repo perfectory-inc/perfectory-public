@@ -146,6 +146,21 @@ def stand_ins():
     return modules, built
 
 
+def staged(stage_of):
+    """job_specs.load_specs with each job at the `dagster_stage` `stage_of(spec)` names, as its definition would say."""
+    real = job_specs.load_specs
+
+    def load(*args, **kwargs):
+        return [dataclasses.replace(spec, dagster_stage=stage_of(spec)) for spec in real(*args, **kwargs)]
+    return mock.patch.object(job_specs, "load_specs", load)
+
+
+def run_by_airflow():
+    """Every job as Airflow runs it, its `run` task the forced command: the form a job has until it is
+    `proxied`, whichever jobs the real list has moved (AProxiedJobsRunIsDagsters has the other form)."""
+    return staged(lambda spec: "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage)
+
+
 def load_dag_file(modules):
     spec = importlib.util.spec_from_file_location("foundation_jobs_under_test", DAGS / "foundation_jobs.py")
     module = importlib.util.module_from_spec(spec)
@@ -162,7 +177,8 @@ class TheDagsTheJobListBuilds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         modules, built = stand_ins()
-        cls.module = load_dag_file(modules)
+        with run_by_airflow():
+            cls.module = load_dag_file(modules)
         cls.dags = {dag.dag_id: dag for dag in built["dags"]}
         cls.specs = job_specs.load_specs()
 
@@ -281,7 +297,8 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         modules, built = stand_ins()
-        load_dag_file(modules)
+        with run_by_airflow():
+            load_dag_file(modules)
         cls.dags = {dag.dag_id: dag for dag in built["dags"]}
         [cls.spec] = [spec for spec in job_specs.load_specs() if spec.reconciles]
         cls.tasks = {task.task_id: task for task in cls.dags[cls.spec.dag_id].tasks}
@@ -352,7 +369,8 @@ class TheCheckBeforeThePool(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         modules, built = stand_ins()
-        load_dag_file(modules)
+        with run_by_airflow():
+            load_dag_file(modules)
         cls.dags = {dag.dag_id: dag for dag in built["dags"]}
         cls.specs = job_specs.load_specs()
 
@@ -399,13 +417,9 @@ class TheCheckBeforeThePool(unittest.TestCase):
 
 
 def proxied(spec_ids):
-    """job_specs.load_specs with the jobs `spec_ids` at `dagster_stage: proxied`, as their definitions would say."""
-    real = job_specs.load_specs
-
-    def load(*args, **kwargs):
-        return [dataclasses.replace(spec, dagster_stage="proxied") if spec.job_id in spec_ids else spec
-                for spec in real(*args, **kwargs)]
-    return mock.patch.object(job_specs, "load_specs", load)
+    """job_specs.load_specs with the jobs `spec_ids`, and no other, at `dagster_stage: proxied`."""
+    return staged(lambda spec: "proxied" if spec.job_id in spec_ids
+                  else "shadow" if spec.dagster_stage == "proxied" else spec.dagster_stage)
 
 
 class ADagsterJobHasNoDag(unittest.TestCase):
@@ -415,9 +429,8 @@ class ADagsterJobHasNoDag(unittest.TestCase):
         spec = next(spec for spec in job_specs.load_specs() if spec.enabled)
         real = job_specs.load_specs
         modules, built = stand_ins()
-        with mock.patch.object(job_specs, "load_specs", lambda *a, **k: [
-                dataclasses.replace(other, dagster_stage="dagster") if other.job_id == spec.job_id else other
-                for other in real(*a, **k)]):
+        with staged(lambda other: "dagster" if other.job_id == spec.job_id
+                    else "shadow" if other.dagster_stage == "proxied" else other.dagster_stage):
             load_dag_file(modules)
         dags = {dag.dag_id for dag in built["dags"]}
         self.assertNotIn(spec.dag_id, dags)
