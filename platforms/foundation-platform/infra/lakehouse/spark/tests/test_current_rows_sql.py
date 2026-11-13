@@ -7,7 +7,7 @@ three times (4,326 rows) and the boundary release stopped. A reader that renders
 is that defect waiting for its table.
 
 The cases are the ones the Rust rule over scanned rows passes
-(`crates/lakehouse/lakehouse-domain/tests/current_rows.rs`), run here in SQLite: the text is
+(`crates/lakehouse/lakehouse-domain/tests/lakehouse_contract_artifact.rs`), run here in SQLite: the text is
 standard SQL, so the engine it is checked in is neither of the engines that run it in production.
 """
 from __future__ import annotations
@@ -24,8 +24,7 @@ sys.path.insert(0, str(JOBS))
 
 import platform_contracts  # noqa: E402
 
-CASES = (Path(__file__).resolve().parents[4] / "crates" / "lakehouse" / "lakehouse-domain" / "tests" / "fixtures"
-         / "current_rows_cases.json")
+CASES = Path(__file__).resolve().parent / "fixtures" / "current_rows_cases.json"
 
 
 def contracts() -> list[dict]:

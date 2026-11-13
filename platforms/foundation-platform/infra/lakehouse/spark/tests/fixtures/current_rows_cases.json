@@ -1,5 +1,5 @@
 {
-  "purpose": "One set of versions per case, and the rows that are current among them. The Rust rule over scanned rows (tests/current_rows.rs) and the SQL the contract artifact carries (infra/lakehouse/spark/tests/test_current_rows_sql.py, run in SQLite) must both pick `current` (root ADR-0564 §4). Synthetic keys only.",
+  "purpose": "One set of versions per case, and the rows that are current among them. The Rust rule over scanned rows (crates/lakehouse/lakehouse-domain/tests/lakehouse_contract_artifact.rs) and the SQL the contract artifact carries (infra/lakehouse/spark/tests/test_current_rows_sql.py, run in SQLite) must both pick `current` (root ADR-0564 §4). Synthetic keys only.",
   "cases": [
     {
       "name": "the newest version wins, a removed key has no row, a key removed and written again has its newest",

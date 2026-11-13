@@ -1,6 +1,9 @@
 //! The current rows of a versioned table are defined once (root ADR-0267, ADR-0564 §4): the SQL
 //! the contract artifact carries and the rule applied to scanned rows give the same answer.
 //!
+//! The cases both renderings must pick alike are a fixture the artifact test reads
+//! (`lakehouse_contract_artifact.rs`, beside the artifact that carries the SQL).
+//!
 //! The incident: on 2026-10-16 `silver.industrial_complexes` was read with no current-row rule and
 //! every complex came back three times (4,326 rows), which stopped the boundary release. A reader
 //! that picks the newest row by hand is the same defect waiting for its table.
@@ -8,7 +11,7 @@
 use lakehouse_domain::{
     industrial_complex_lakehouse_contracts, CurrentRowsError, LakehouseTableContract,
     CURRENT_ROWS_COLUMNS, CURRENT_ROWS_FILTER, CURRENT_ROWS_SOURCE, GOLD_COMPLEX_DOCUMENT_FACTS,
-    GOLD_LAND_USE_ZONE_AREA_BY_TILE, GOLD_PARCEL_PANEL, SILVER_INDUSTRIAL_COMPLEXES,
+    GOLD_PARCEL_PANEL, SILVER_INDUSTRIAL_COMPLEXES,
 };
 use serde_json::{json, Map, Value};
 
@@ -28,40 +31,6 @@ fn picked(contract: &LakehouseTableContract, rows: &[Map<String, Value>]) -> Vec
         .collect();
     picked.sort();
     picked
-}
-
-/// The cases the SQL rendering is held to as well (`test_current_rows_sql.py`).
-#[test]
-fn the_shared_cases_pick_the_same_rows_as_the_sql_does() -> Result<(), Box<dyn std::error::Error>> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/current_rows_cases.json");
-    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    let cases = fixture["cases"]
-        .as_array()
-        .ok_or("cases must be an array")?;
-    assert!(!cases.is_empty());
-    for case in cases {
-        let name = case["name"].as_str().unwrap_or_default();
-        let table = case["table"].as_str().ok_or("a case names its table")?;
-        let contract = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
-            .ok_or("a case names a contract table")?;
-        let versions = rows(case["rows"].as_array().ok_or("rows must be an array")?);
-        let mut expected: Vec<String> = case["current"]
-            .as_array()
-            .ok_or("current must be an array")?
-            .iter()
-            .map(Value::to_string)
-            .collect();
-        expected.sort();
-        assert_eq!(picked(contract, &versions), expected, "{name}");
-    }
-    assert_eq!(
-        GOLD_LAND_USE_ZONE_AREA_BY_TILE
-            .current_rows(&[])
-            .map(|rows| rows.len()),
-        Ok(0)
-    );
-    Ok(())
 }
 
 #[test]

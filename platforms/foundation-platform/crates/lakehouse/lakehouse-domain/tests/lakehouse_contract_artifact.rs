@@ -117,6 +117,50 @@ fn spark_artifact_exports_the_industrial_complex_value_domains() -> TestResult {
     Ok(())
 }
 
+/// The versions-and-current-rows cases the artifact's SQL passes in `test_current_rows_sql.py`
+/// (`SQLite`), applied here by the rule over scanned rows: one fixture holds both renderings of the
+/// contract's current-row rule to the same rows (root ADR-0564 §4).
+#[test]
+fn the_row_rule_picks_the_rows_the_artifact_sql_picks() -> TestResult {
+    let path = contract_artifact_path()?
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("the artifact lives under infra/lakehouse/contracts")?
+        .join("spark/tests/fixtures/current_rows_cases.json");
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    let cases = fixture["cases"]
+        .as_array()
+        .ok_or("cases must be an array")?;
+    assert!(!cases.is_empty());
+    for case in cases {
+        let name = case["name"].as_str().unwrap_or_default();
+        let table = case["table"].as_str().ok_or("a case names its table")?;
+        let contract = lakehouse_domain::industrial_complex_lakehouse_contract_by_table_name(table)
+            .ok_or("a case names a contract table")?;
+        let versions = case["rows"]
+            .as_array()
+            .ok_or("rows must be an array")?
+            .iter()
+            .map(|row| row.as_object().cloned().unwrap_or_default())
+            .collect::<Vec<_>>();
+        let mut picked = contract
+            .current_rows(&versions)?
+            .into_iter()
+            .map(|row| Value::Object(row.clone()).to_string())
+            .collect::<Vec<_>>();
+        picked.sort();
+        let mut expected = case["current"]
+            .as_array()
+            .ok_or("current must be an array")?
+            .iter()
+            .map(Value::to_string)
+            .collect::<Vec<_>>();
+        expected.sort();
+        assert_eq!(picked, expected, "{name}");
+    }
+    Ok(())
+}
+
 fn contract_artifact_path() -> Result<std::path::PathBuf, &'static str> {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
