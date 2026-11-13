@@ -1,6 +1,7 @@
 // apps/web/components/panels/parcel/court-auction.tsx
 "use client";
 import { useTranslations } from "next-intl";
+import type { ReactNode } from "react";
 import { PhotoGrid } from "@/components/media/photo-grid";
 import type {
   CourtAuction,
@@ -32,6 +33,7 @@ export function ParcelCourtAuctionCard({ data }: { data: CourtAuction }) {
               named: r,
               rows: roundRows(t, r),
               photos: r.photos ?? [],
+              detail: r.detail,
             }))}
           />
         </section>
@@ -52,12 +54,13 @@ type Translate = ReturnType<typeof useTranslations<"panels.parcel.courtAuction">
 type Named = Pick<CourtAuctionRound, "building_name" | "court_name" | "user_case_no" | "case_no">;
 
 type Photos = NonNullable<CourtAuctionRound["photos"]>;
-type Item = { named: Named; rows: [string, string][]; photos?: Photos };
+type Detail = NonNullable<CourtAuctionRound["detail"]>;
+type Item = { named: Named; rows: [string, string][]; photos?: Photos; detail?: Detail | null };
 
 function ItemList({ t, items }: { t: Translate; items: Item[] }) {
   return (
     <ul className="flex flex-col gap-2">
-      {items.map(({ named: r, rows, photos }, i) => (
+      {items.map(({ named: r, rows, photos, detail }, i) => (
         <li
           // biome-ignore lint/suspicious/noArrayIndexKey: a parcel's items carry no stable display id; their order is their identity.
           key={i}
@@ -73,14 +76,8 @@ function ItemList({ t, items }: { t: Translate; items: Item[] }) {
               </span>
             )}
           </div>
-          <dl className="mt-2 grid grid-cols-[6em_1fr] gap-x-3 gap-y-1 text-[var(--color-ink)] tabular-nums">
-            {rows.map(([label, value]) => (
-              <div key={label} className="contents">
-                <dt className="text-[var(--color-muted)]">{label}</dt>
-                <dd>{value}</dd>
-              </div>
-            ))}
-          </dl>
+          <Rows rows={rows} />
+          {detail && <RoundDetail t={t} detail={detail} />}
           {/* 경매 photos are in the 공매 store, each with its ladder (root ADR-0384, ADR-0427 §7). */}
           {photos && (
             <PhotoGrid
@@ -93,6 +90,145 @@ function ItemList({ t, items }: { t: Translate; items: Item[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function Rows({ rows }: { rows: [string, string][] }) {
+  if (rows.length === 0) return null;
+  return (
+    <dl className="mt-2 grid grid-cols-[6em_1fr] gap-x-3 gap-y-1 text-[var(--color-ink)] tabular-nums">
+      {rows.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-[var(--color-muted)]">{label}</dt>
+          <dd className="whitespace-pre-line">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mt-3 border-t border-[var(--color-hairline)] pt-2">
+      <h3 className="font-semibold text-[var(--color-ink)]">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** Pairs whose value is present, in order. */
+function present(pairs: [string, string | number | null | undefined][]): [string, string][] {
+  return pairs.flatMap(([label, value]) =>
+    value == null || value === "" ? [] : [[label, String(value)] as [string, string]],
+  );
+}
+
+/** An item's 물건상세 (root ADR-0540): its case, its 매각물건명세서, 기일내역, 목록내역, 제시외건물 and
+ * 감정평가요항표, in the site's words. Names of people are not in the document. */
+function RoundDetail({ t, detail }: { t: Translate; detail: Detail }) {
+  const c = detail.case;
+  const s = detail.spec;
+  const money = (v: number | null | undefined) => (v ? formatPriceKrw(v) : null);
+  const caseRows = present([
+    [t("detail.caseName"), c?.case_name],
+    [t("detail.caseReceived"), c?.case_received_date],
+    [t("detail.commencement"), c?.commencement_date],
+    [t("detail.claim"), money(c?.claim_amount_krw)],
+    [t("detail.dividendDeadline"), c?.dividend_demand_deadline],
+    [t("detail.saleDecisionDate"), s?.sale_decision_date],
+    [
+      t("detail.depositRate"),
+      s?.deposit_rate_percent
+        ? t("detail.depositRateValue", { rate: s.deposit_rate_percent })
+        : null,
+    ],
+    [t("detail.itemRemarks"), s?.item_remarks],
+  ]);
+  const specRows = present([
+    [t("detail.specWritten"), s?.spec_written_date],
+    [t("detail.firstRank"), s?.first_rank_setting],
+    [t("detail.assumedRights"), s?.assumed_rights],
+    [t("detail.superficies"), s?.superficies],
+    [t("detail.specRemarks"), s?.spec_remarks],
+  ]);
+  return (
+    <div className="mt-1">
+      <Rows rows={caseRows} />
+      {specRows.length > 0 && (
+        <Section title={t("detail.spec")}>
+          <Rows rows={specRows} />
+        </Section>
+      )}
+      {detail.schedule.length > 0 && (
+        <Section title={t("detail.schedule")}>
+          <table className="mt-1 w-full text-left tabular-nums">
+            <thead className="text-[var(--color-muted)]">
+              <tr>
+                <th className="font-normal">{t("detail.scheduleDate")}</th>
+                <th className="font-normal">{t("detail.schedulePlace")}</th>
+                <th className="font-normal">{t("detail.scheduleMinimum")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.schedule.map((step, i) => (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+                <tr key={i}>
+                  <td>{[step.schedule_date, step.schedule_time_raw].filter(Boolean).join(" ")}</td>
+                  <td>{step.schedule_place ?? ""}</td>
+                  <td>{money(step.minimum_bid_price_krw) ?? ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Section>
+      )}
+      {detail.objects.length > 0 && (
+        <Section title={t("detail.objects")}>
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.objects.map((o) => (
+              <li key={o.object_seq} className="whitespace-pre-line">
+                <span className="text-[var(--color-muted)]">
+                  {t("detail.objectNumber", { n: o.object_seq })}
+                </span>{" "}
+                {[o.realty_kind, o.land_category, o.area_raw, money(o.appraisal_amount_krw)]
+                  .filter(Boolean)
+                  .join(" · ")}
+                {o.building_structure ? `\n${o.building_structure}` : ""}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {detail.annexes.length > 0 && (
+        <Section title={t("detail.annexes")}>
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.annexes.map((a, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+              <li key={i}>
+                <span className="text-[var(--color-muted)]">
+                  {t("detail.objectNumber", { n: a.object_seq })}
+                </span>{" "}
+                {[a.usage_raw, a.structure_raw, a.area_raw].filter(Boolean).join(" · ")}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+      {detail.appraisal_points.length > 0 && (
+        <Section title={t("detail.appraisalPoints")}>
+          <ul className="mt-1 flex flex-col gap-1">
+            {detail.appraisal_points.map((p, i) =>
+              p.content ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: the site's list order is the row's identity.
+                <li key={i} className="whitespace-pre-line">
+                  {p.content}
+                </li>
+              ) : null,
+            )}
+          </ul>
+        </Section>
+      )}
+    </div>
   );
 }
 

@@ -46,13 +46,15 @@ class InputsTest(unittest.TestCase):
         self.assertEqual(set(required), {job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE,
                                          job.CODE_CHANGE_SOURCE, *job.place_id_join.INPUTS})
         # The case photos are optional, like 공매's media (root ADR-0384).
-        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos"})
+        # So are the 물건상세 documents, under one flag (root ADR-0540 §5).
+        self.assertEqual(optional, {job.LINEAGE_SOURCE: "--no-carry-lineage", job.PHOTO_SOURCE: "--no-photos",
+                                    **{source: "--no-documents" for source in job.DOCUMENT_SOURCES}})
         # The item table maps its changed keys to PNUs; a parcel edition or lineage change moves
         # items their rows do not name, so those two rebuild the kind whole (root ADR-0312 §2).
         self.assertEqual(set(whole), {job.PARCEL_SOURCE, job.LINEAGE_SOURCE})
         self.assertEqual(set(job.declared_sources("parcel-court-auction", True, True)), set(required) | set(optional),
                          "the harness pins every required input and every present optional")
-        self.assertEqual(job.declared_sources("parcel-court-auction", False, False),
+        self.assertEqual(job.declared_sources("parcel-court-auction", False, False, False),
                          (job.PARCEL_SOURCE, job.ITEM_SOURCE, job.SALE_RESULT_SOURCE, job.CODE_CHANGE_SOURCE,
                           *job.place_id_join.INPUTS))
 
@@ -253,6 +255,8 @@ class DocumentSparkTest(unittest.TestCase):
         # sale result, so are the 매각결과's (root ADR-0454).
         photo = F.expr(f"CAST(array(named_struct('sha256', repeat('a', 64), 'media_kind', 'photo', 'kind_code', '1', "
                        f"'sequence', 0, 'title', 'front', 'media_format', 'jpg', 'size_bytes', 100)) AS {job.PHOTO_STRUCT})")
+        # And its 물건상세 documents, one row each, so every detail path is written (root ADR-0540 §5).
+        rows = job.with_detail(rows, document_frames(self.spark, rows.first()))
         placed = (rows.withColumn("photos", photo).withColumn("pnu", F.col("source_pnu"))
                   .withColumn("attached_via", F.lit(None).cast("string")))
         sales = self.sales([sale_row("S", date(2099, 1, 1))])
@@ -325,6 +329,69 @@ CHANGE_SCHEMA = ("court_office_code string, case_no string, property_seq int, it
 
 def versioned(case, pnu_value, snap, sale_date, row_state=None):
     return ("B", case, 1, 1, pnu_value, row_state, snap, "Y", sale_date)
+
+
+def document_frames(spark, round_row):
+    """One synthetic row in each 물건상세 document table for `round_row`'s property (root ADR-0540)."""
+    from platform_contracts import load_lakehouse_contract, spark_sql_type
+
+    key = {"court_office_code": round_row["court_office_code"], "case_no": round_row["case_no"],
+           "property_seq": round_row["property_seq"], "source_record_id": "o", "source_line_number": 1,
+           "source_snapshot_id": "s1"}
+    values = {
+        job.CASE_DOC: {"case_name": "부동산임의경매", "claim_amount_krw": 150000000, "commencement_date": date(2099, 1, 1)},
+        job.SPEC_DOC: {"assumed_rights": "해당사항없음", "item_usage_code": "10", "bid_kind_code": "000331"},
+        job.SCHEDULE_DOC: {"schedule_seq": 1, "schedule_date": date(2099, 1, 2), "schedule_kind_code": "01",
+                           "result_code": "002", "minimum_bid_price_krw": 100},
+        job.OBJECT_DOC: {"object_seq": 1, "list_kind_code": "01", "land_category": "공장용지", "area_raw": "330㎡"},
+        job.ANNEX_DOC: {"object_seq": 1, "annex_seq": 1, "usage_raw": "창고"},
+        job.APPRAISAL_DOC: {"point_seq": 1, "table_code": "00082001", "item_code": "00083001", "content": "합성"},
+    }
+    frames = {}
+    for source, extra in values.items():
+        columns = load_lakehouse_contract(source)["columns"]
+        row = {**key, **extra}
+        frames[source] = spark.createDataFrame([tuple(row.get(c["name"]) for c in columns)],
+                                               ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in columns))
+    return frames
+
+
+@unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")
+class DetailSparkTest(unittest.TestCase):
+    """Root ADR-0540 §5: a round carries its 물건상세's documents."""
+
+    @classmethod
+    def setUpClass(cls):
+        from pyspark.sql import SparkSession
+
+        cls.spark = SparkSession.builder.master("local[2]").appName("court-auction-detail").getOrCreate()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.spark.stop()
+
+    def test_a_round_carries_its_detail_and_an_unread_one_none(self):
+        import json
+
+        from pyspark.sql import functions as F
+
+        rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5)), round_row("B", True, date(2099, 1, 5))],
+                                            ROUND_SCHEMA)
+        frames = document_frames(self.spark, rounds.where(F.col("case_no") == "A").first())
+        detailed = {r.case_no: r for r in job.with_detail(rounds, frames).collect()}
+        self.assertIsNone(detailed["B"].detail, "a property whose 물건상세 was never read has no detail")
+        detail = json.loads(job.with_detail(rounds, frames).where(F.col("case_no") == "A")
+                            .select(F.to_json("detail").alias("j")).first().j)
+        self.assertEqual(detail["case"]["claim_amount_krw"], 150000000)
+        [step] = detail["schedule"]
+        self.assertEqual((step["schedule_kind_code"], step["result_code"]), ("01", "002"), "codes stay codes")
+        self.assertEqual(detail["objects"][0]["land_category"], "공장용지")
+        self.assertEqual(detail["appraisal_points"][0]["content"], "합성")
+        self.assertEqual(detail["annexes"][0]["usage_raw"], "창고")
+
+    def test_a_build_without_the_documents_serves_every_detail_null(self):
+        rounds = self.spark.createDataFrame([round_row("A", True, date(2099, 1, 5))], ROUND_SCHEMA)
+        self.assertIsNone(job.with_detail(rounds, {}).first().detail)
 
 
 @unittest.skipUnless(os.environ.get("RUN_SPARK_TESTS") == "1", "requires the pinned Spark runtime")

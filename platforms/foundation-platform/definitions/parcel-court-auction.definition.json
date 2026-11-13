@@ -199,9 +199,9 @@
       "from": "silver-court-auction-case",
       "to": "gold-parcel-court-auction",
       "relation": "feeds",
-      "status": "planned",
+      "status": "implemented",
       "via": [
-        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     },
@@ -209,9 +209,9 @@
       "from": "silver-court-auction-item-spec",
       "to": "gold-parcel-court-auction",
       "relation": "feeds",
-      "status": "planned",
+      "status": "implemented",
       "via": [
-        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     },
@@ -219,9 +219,9 @@
       "from": "silver-court-auction-item-schedule",
       "to": "gold-parcel-court-auction",
       "relation": "feeds",
-      "status": "planned",
+      "status": "implemented",
       "via": [
-        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     },
@@ -229,9 +229,9 @@
       "from": "silver-court-auction-item-object",
       "to": "gold-parcel-court-auction",
       "relation": "feeds",
-      "status": "planned",
+      "status": "implemented",
       "via": [
-        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     },
@@ -239,9 +239,9 @@
       "from": "silver-court-auction-item-annex",
       "to": "gold-parcel-court-auction",
       "relation": "feeds",
-      "status": "planned",
+      "status": "implemented",
       "via": [
-        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     },
@@ -249,9 +249,9 @@
       "from": "silver-court-auction-appraisal-point",
       "to": "gold-parcel-court-auction",
       "relation": "feeds",
-      "status": "planned",
+      "status": "implemented",
       "via": [
-        "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md"
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/court_auction_silver_to_gold.py"
       ],
       "description": "진행 물건 회차의 detail(사건 기본·매각물건명세서 요약·기일내역·목록내역·제시외건물·감정요항표)로 싣는다. 레지스트리 개정 1.4, 바뀐 물건·사건의 PNU 만 다시 짓는다(루트 ADR-0540 §5)."
     }
@@ -320,13 +320,20 @@
           "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
           "decision": "docs/adr/0454-a-parcel-court-auction-document-carries-its-sale-results.md",
           "reason": "the document gains the parcel's 매각결과 (court_auction.sale_results, newest sale date first, at most 50, and court_auction.sale_result_total, both optional), from silver.court_auction_sale_result; a parcel with results and no item in progress has a document with empty rounds"
+        },
+        {
+          "major": 1,
+          "revision": 4,
+          "schema_version": "foundation-platform.parcel_court_auction_by_pnu.v1",
+          "decision": "docs/adr/0540-court-auction-loads-every-document-of-a-case-and-keeps-personal-names-in-bronze.md",
+          "reason": "each round gains its detail from the 물건상세 (rounds[].detail: case, 매각물건명세서 summary, 기일내역, 목록내역, 제시외건물, 감정요항표; codes stay codes), an optional field, null until read"
         }
       ],
       "consumers": [
         {
           "name": "web",
           "at": "products/gongzzang/apps/web/lib/api/court-auction.generated.ts",
-          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas)",
+          "reason": "the 경매 panel, its items in progress and its 매각결과 (root ADR-0454): generated from this list and the subject's current revision (pnpm gen:schemas); each item's 물건상세 (root ADR-0540): 사건·매각물건명세서·기일내역·목록내역·제시외건물·감정평가요항표",
           "reads": [
             {
               "path": "schema_version",
@@ -470,6 +477,146 @@
             },
             {
               "path": "court_auction.sale_result_total",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.case",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.case.case_name",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.case.case_received_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.case.commencement_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.case.claim_amount_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.case.dividend_demand_deadline",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.spec_written_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.first_rank_setting",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.assumed_rights",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.superficies",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.spec_remarks",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.item_remarks",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.sale_decision_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.spec.deposit_rate_percent",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule[].schedule_date",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule[].schedule_time_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule[].schedule_place",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.schedule[].minimum_bid_price_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].object_seq",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].realty_kind",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].land_category",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].area_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].building_structure",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.objects[].appraisal_amount_krw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.annexes",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].detail.annexes[].object_seq",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].detail.annexes[].usage_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.annexes[].structure_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.annexes[].area_raw",
+              "required": false
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal_points",
+              "required": true
+            },
+            {
+              "path": "court_auction.rounds[].detail.appraisal_points[].content",
               "required": false
             }
           ]

@@ -840,7 +840,32 @@
         "failedBids": "유찰",
         "failedBidsCount": "{count}회",
         "photoAltFallback": "경매 물건 사진",
-        "viewOriginal": "원본 보기"
+        "viewOriginal": "원본 보기",
+        "detail": {
+          "caseName": "사건명",
+          "caseReceived": "사건접수",
+          "commencement": "경매개시일",
+          "claim": "청구금액",
+          "dividendDeadline": "배당요구종기",
+          "saleDecisionDate": "매각결정기일",
+          "depositRate": "매수신청보증금",
+          "depositRateValue": "최저매각가격의 {rate}%",
+          "itemRemarks": "물건비고",
+          "spec": "매각물건명세서",
+          "specWritten": "작성일자",
+          "firstRank": "최선순위 설정",
+          "assumedRights": "매각으로 소멸되지 아니하는 것",
+          "superficies": "지상권의 개요",
+          "specRemarks": "비고란",
+          "schedule": "기일내역",
+          "scheduleDate": "기일",
+          "schedulePlace": "기일장소",
+          "scheduleMinimum": "최저매각가격",
+          "objects": "목록내역",
+          "objectNumber": "목록{n}",
+          "annexes": "제시외건물",
+          "appraisalPoints": "감정평가요항표"
+        }
       }
     },
     "complex": {
