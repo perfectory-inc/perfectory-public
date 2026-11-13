@@ -1,0 +1,89 @@
+{
+  "$schema": "scripts/catalog/definition.v1.schema.json",
+  "definition": "foundation-platform.definition.v1",
+  "group": "industrial-complex-edge",
+  "jobs": [
+    {
+      "id": "industrial_complex_edge_export",
+      "scope": "changed-keys",
+      "interruptible": true,
+      "commits": "as_it_goes",
+      "description": "The industrial-complex edge (root ADR-0456; its own job since root ADR-0563 §3; scripts/ops/industrial-complex-edge-export.sh): the publisher reads the current gold.complex_catalog and gold.complex_document_facts, writes a create-only profile only for the complexes whose content hash differs from the one the edge index holds, and publishes a new index generation only when an entry changed (`changed`); otherwise it writes nothing (`unchanged`). No Spark, so it holds no spark slot: started when a run of the lineage cycle (the complexes' region codes) or of the fact job (a complex's document facts) says it changed its table, and daily as the fallback for a hand-rebuilt Gold (root ADR-0171). A stopped run leaves profiles no index points at; the next run finds them byte-identical and publishes the index.",
+      "systemd_service": "foundation-industrial-complex-edge-export.service",
+      "systemd_timer": null,
+      "state_paths": [
+        "/var/lib/foundation-platform/industrial-complex-edge"
+      ],
+      "schedule": "10 7 * * *",
+      "started_by": "inputs",
+      "stop_grace_minutes": 5,
+      "wait_limit_minutes": 0,
+      "time_limit_minutes": 15,
+      "per_run_cap": {
+        "unit": "run",
+        "limits": [],
+        "deadline": null,
+        "measured_run_seconds": null,
+        "first_run": {
+          "estimate_seconds": 120,
+          "estimated_from": "computed (root ADR-0386): the same command as a step of lineage_stewardship, whose whole run with no lineage work took 222 s at p50 (30 runs, its measured_run_seconds); the export reads two Gold tables of one row per complex and the index, hashes each row, and writes only the changed complexes' profiles, eight at a time; its first run under this job writes the profiles of the complexes whose document facts were folded since the last lineage run (one on 2026-11-13)"
+        }
+      },
+      "pool": "default_pool",
+      "pool_slots": 1,
+      "priority_weight": 4,
+      "retries": 0,
+      "pipeline_graph_edges": [
+        "gold-complex-catalog-to-industrial-complex-edge-documents",
+        "gold-complex-document-facts-to-industrial-complex-edge-documents"
+      ],
+      "enabled": true,
+      "enabled_since": "2026-11-13T12:00:00Z",
+      "dagster_stage": "shadow",
+      "started_once_after_deploy": true,
+      "expected_outcome": {
+        "changes_within_hours": null,
+        "no_change_bound_reason": "Changes only when a complex's Gold row or its document facts change; a complex's region codes change a few times a year and facts arrive with new notices. That it keeps finishing is the done bound."
+      }
+    }
+  ],
+  "assets": [
+    {
+      "id": "industrial-complex-edge-documents",
+      "type": "serving_surface",
+      "title": "산업단지 엣지 문서(목록·프로필)",
+      "description": "필지 엣지(catalog.perfectory.io)가 서빙하는 산업단지 목록 한 장과 단지마다의 Gold 프로필(루트 ADR-0456). 프로필은 gold.complex_catalog 의 줄에, 관문을 넘은 문서 사실(gold.complex_document_facts, 루트 ADR-0477 §5)이 있으면 그것을 더한 것이다. 내용이 바뀐 단지만 새 프로필을 쓰고, 목록은 항목이 바뀌었을 때만 새 세대를 낸다. 둘 중 한 표가 바뀌면 바로 내보낸다(루트 ADR-0563 §3).",
+      "status": "implemented",
+      "owner": "foundation-platform",
+      "evidence_refs": [
+        "docs/adr/0456-industrial-complexes-are-served-from-the-catalog-edge-as-one-index-and-per-complex-profiles.md",
+        "platforms/foundation-platform/services/foundation-outbox-publisher/src/industrial_complex_gold_profile_export.rs"
+      ],
+      "surface_kind": "r2_baked_documents"
+    }
+  ],
+  "dependencies": [
+    {
+      "from": "gold-complex-catalog",
+      "to": "industrial-complex-edge-documents",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/industrial-complex-edge-export.sh",
+        "export-industrial-complex-gold-profiles"
+      ],
+      "description": "단지의 Gold 줄이 프로필의 본문이고 목록의 항목이다. 내용 해시가 바뀐 단지만 다시 쓴다."
+    },
+    {
+      "from": "gold-complex-document-facts",
+      "to": "industrial-complex-edge-documents",
+      "relation": "feeds",
+      "status": "partial",
+      "via": [
+        "platforms/foundation-platform/scripts/ops/industrial-complex-edge-export.sh",
+        "export-industrial-complex-gold-profiles"
+      ],
+      "description": "단지의 현재 문서 사실이 프로필의 document_facts 가 된다. 사실이 바뀐 단지는 내용 해시가 달라져 그 단지만 다시 쓴다."
+    }
+  ]
+}

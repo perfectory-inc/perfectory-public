@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 고시 첨부 텍스트에서 인용 달린 사실 (root ADR-0477 §5). 등록된 작업 intelligence_document_fact(spark 3칸 전부, 가중치 1)가
-# 텍스트 작업이 쪽을 쌓았다고 알리면, 그리고 일정마다 돌린다.
+# 고시 첨부 텍스트에서 인용 달린 사실 (root ADR-0477 §5). 등록된 작업 intelligence_document_fact(documents 1칸, spark 칸 없음)가
+# 텍스트 작업이 쪽을 쌓았다고 알리면, 그리고 매시 돌린다.
 #
-# 이 유닛은 로컬 모델 런타임(intelligence-model-runtime-ollama.service)을 Requires= 하므로 모델은 이 run 동안만 뜨고,
-# 이 작업이 spark 풀을 다 쥐므로 모델이 Spark 옆에서 메모리를 쥐지 않는다(root ADR-0478 §2).
+# 이 유닛은 로컬 모델 런타임(intelligence-model-runtime-ollama.service)을 Requires= 하므로 런타임은 이 run 동안만 뜨고,
+# 모델의 메모리는 이 작업의 memory_claim 이다: 시작할 때 호스트에 그만큼 남아 있어야 승인된다(root ADR-0563).
+# 접기가 gold.complex_document_facts 를 바꾸면 `changed` 가 industrial_complex_edge_export 를 시작시켜 패널에 닿는다.
 #
 # 1. intelligence_documents.py plan-facts 가 텍스트 결과가 있고 이 사실 판의 결과가 없는 해시를 고르고, 그 결과·쪽을
 #    run 폴더에 낸다. OCR 쪽이 있는 PDF 의 바이트만 받는다(비전 재독이 쪽 그림을 그린다).

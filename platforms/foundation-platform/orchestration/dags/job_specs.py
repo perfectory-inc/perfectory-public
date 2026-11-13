@@ -539,6 +539,33 @@ def inherited_class(job, by_id, found):
                            f"{other.get('priority_class', 'default')!r}, the class of {source} it takes it from")
 
 
+def memory_claims(jobs):
+    """Each job's `memory_claim` (root ADR-0563), checked: the systemd units whose MemoryMax its run
+    takes beyond what its pool's slots stand for, admitted against the host's available memory when it
+    starts (scripts/deploy/job_units.py memory_short). A claim needs the list's
+    `memory_claims.keep_available`, names units, and belongs to a job of a pool with one slot: two
+    claiming jobs started together would each be admitted against the same available memory."""
+    claiming = [job for job in jobs["jobs"] if "memory_claim" in job]
+    if not claiming:
+        return
+    keep = (jobs.get("memory_claims") or {}).get("keep_available")
+    if not isinstance(keep, str) or not re.fullmatch(r"[1-9][0-9]*[mg]", keep):
+        raise JobListError("memory_claims.keep_available must be a size like 6g when a job states a memory_claim")
+    for job in claiming:
+        claim = job["memory_claim"]
+        units = claim.get("units") if isinstance(claim, dict) else None
+        named = isinstance(units, list) and units and all(
+            isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+\.service", unit) for unit in units)
+        if not named or set(claim) != {"units"}:
+            raise JobListError(f"{job['id']}: memory_claim must be an object with only `units`, systemd service names")
+        if (jobs.get("pools") or {}).get(job["pool"], {}).get("slots") != 1:
+            raise JobListError(f"{job['id']}: a job with a memory_claim runs in a pool of one slot, so no two claims"
+                               " are admitted against the same available memory")
+    pools = {job["pool"] for job in claiming}
+    if len(pools) > 1:
+        raise JobListError(f"jobs with a memory_claim are in more than one pool ({sorted(pools)}); they must share one")
+
+
 def capacity_claimants(jobs, pools):
     """The work outside the job list that claims pool slots (root ADR-0435), each checked."""
     claimants = jobs.get("capacity_claimants") or {}
@@ -951,6 +978,7 @@ def load_specs(jobs=None, graph=None):
 
     pools = {DEFAULT_POOL, *declared_pools(jobs)}
     capacity_claimants(jobs, pools)
+    memory_claims(jobs)
     found = datasets(jobs, graph)
     feeders = producers(jobs, graph)
     by_id = {job["id"]: job for job in jobs["jobs"]}

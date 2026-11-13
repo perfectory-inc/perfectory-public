@@ -5,8 +5,8 @@ X-Foundation-Owner=intelligence
 Requires=docker.service
 After=docker.service network-online.target
 Wants=network-online.target
-# The model runs only while this job does, and stops with it (StopWhenUnneeded=, root ADR-0478 §2);
-# the job holds every spark slot meanwhile.
+# The model runtime runs only while this job does, and stops with it (StopWhenUnneeded=, root ADR-0478 §2).
+# Its memory is this job's memory_claim, admitted against the host's available memory at the start (root ADR-0563).
 Requires=intelligence-model-runtime-ollama.service
 After=intelligence-model-runtime-ollama.service
 OnFailure=foundation-unit-failed@%n.service
