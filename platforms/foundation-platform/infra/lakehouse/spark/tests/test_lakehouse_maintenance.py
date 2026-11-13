@@ -538,6 +538,14 @@ class CompactionReasonTest(unittest.TestCase):
         self.assertEqual(self.reasons(small=12, deletes=shape(oldest_days=30), share=0.71),
                          (maintenance.SMALL_FILES, maintenance.FOLD_DELETES, maintenance.OUT_OF_ORDER))
 
+    def test_a_compaction_of_a_table_with_deletes_folds_them(self):
+        import lakehouse_maintenance as maintenance
+
+        # 2026-11-13: a small-files rewrite of gold.parcel_panel left 17 deletes pointing at no file.
+        self.assertEqual(self.reasons(small=10, deletes=shape()), (maintenance.SMALL_FILES, maintenance.FOLD_DELETES))
+        self.assertEqual(self.reasons(deletes=shape(), share=1.0), (maintenance.FOLD_DELETES, maintenance.OUT_OF_ORDER))
+        self.assertEqual(self.reasons(small=10), (maintenance.SMALL_FILES,))
+
     def test_any_one_fold_bound_folds_and_names_itself(self):
         import lakehouse_maintenance as maintenance
 

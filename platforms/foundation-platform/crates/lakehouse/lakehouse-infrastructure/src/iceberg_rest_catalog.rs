@@ -390,10 +390,15 @@ impl IcebergRestCatalog {
     }
 
     /// The number of live rows of `snapshot_id`, as the table metadata records it: the snapshot
-    /// summary's `total-records` less its `total-position-deletes`, as `by_pnu_panel_delta.live_rows`
-    /// reads it (root ADR-0344). `total-records` counts a row a merge-on-read MERGE replaced until
-    /// compaction folds the delete in: on 2026-11-08 the parcel panel's merge of 69,211 changed PNUs
-    /// recorded 39,930,722 for a table of 39,861,511 rows, and the by-PNU bake refused its patch.
+    /// summary's `total-records` less its `total-position-deletes`, plus the dangling deletes among
+    /// them, as `by_pnu_panel_delta.live_rows` reads it (root ADR-0344). `total-records` counts a
+    /// row a merge-on-read MERGE replaced until compaction folds the delete in: on 2026-11-08 the
+    /// parcel panel's merge of 69,211 changed PNUs recorded 39,930,722 for a table of 39,861,511
+    /// rows, and the by-PNU bake refused its patch. A compaction (`replace`) that rewrites a data
+    /// file drops its deleted rows but may keep the delete file, whose deletes then point at no live
+    /// file and are still counted in `total-position-deletes` ([`dangling_position_deletes`]): on
+    /// 2026-11-13 the parcel panel's compaction left 17, and the bake read 39,861,494 rows for a
+    /// table of 39,861,511 and refused every run after.
     /// Equality deletes are refused: no Gold writer makes them, and their count is not one of rows.
     ///
     /// Returns `Ok(None)` when the table does not exist.
@@ -430,8 +435,13 @@ impl IcebergRestCatalog {
                 "{table_name} snapshot {snapshot_id} carries equality deletes; only position deletes are read"
             )));
         }
-        let count = read("total-records")
-            .and_then(|records| records.checked_sub(read("total-position-deletes").unwrap_or(0)));
+        let dangling = dangling_position_deletes(&payload.metadata, snapshot_id)
+            .map_err(|reason| LakehouseError::Upstream(format!("{table_name}: {reason}")))?;
+        let count = read("total-records").and_then(|records| {
+            records
+                .checked_sub(read("total-position-deletes").unwrap_or(0))?
+                .checked_add(dangling)
+        });
         count.map(Some).ok_or_else(|| {
             LakehouseError::Upstream(format!(
                 "{table_name} snapshot {snapshot_id} records no total-records in its summary"
@@ -1127,6 +1137,64 @@ fn branch_head(metadata: &IcebergTableMetadata, branch: &str) -> Option<i64> {
         .get(branch)
         .filter(|reference| reference.kind == "branch")
         .map(|reference| reference.snapshot_id)
+}
+
+fn summary_number(snapshot: &IcebergSnapshotMetadata, key: &str) -> u64 {
+    match snapshot.summary.get(key) {
+        Some(serde_json::Value::String(value)) => value.parse::<u64>().unwrap_or(0),
+        Some(serde_json::Value::Number(value)) => value.as_u64().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// How many of `snapshot_id`'s `total-position-deletes` point at no live data file.
+///
+/// A `replace` commit (a compaction: `rewrite_data_files`, `rewrite_position_delete_files`) keeps
+/// the table's live rows by Iceberg's definition. The data records it drops are rows a position
+/// delete had deleted; when the delete file stays, that delete is dangling, and the deletes it
+/// removes were dangling. So each `replace` adds `deleted-records - added-records` and takes away
+/// `removed-position-deletes - added-position-deletes`. Counted forward from the newest ancestor
+/// whose `total-position-deletes` is 0 (none dangle there), or from the oldest the metadata holds.
+///
+/// # Errors
+/// A commit other than `replace` that removes deletes while some dangle: it cannot tell which.
+fn dangling_position_deletes(
+    metadata: &IcebergTableMetadata,
+    snapshot_id: i64,
+) -> Result<u64, String> {
+    let mut chain: Vec<&IcebergSnapshotMetadata> = Vec::new();
+    for snapshot in lineage(metadata, Some(snapshot_id)) {
+        if summary_number(snapshot, "total-position-deletes") == 0 {
+            break;
+        }
+        chain.push(snapshot);
+    }
+    let mut dangling = 0_u64;
+    for snapshot in chain.into_iter().rev() {
+        let operation = snapshot
+            .summary
+            .get("operation")
+            .and_then(serde_json::Value::as_str);
+        let removed = summary_number(snapshot, "removed-position-deletes");
+        if operation == Some("replace") {
+            let dropped = summary_number(snapshot, "deleted-records")
+                .saturating_sub(summary_number(snapshot, "added-records"));
+            let folded = removed.saturating_sub(summary_number(snapshot, "added-position-deletes"));
+            dangling = (dangling + dropped).checked_sub(folded).ok_or_else(|| {
+                format!(
+                    "snapshot {} removes {folded} position deletes, more than the {} dangling ones",
+                    snapshot.snapshot_id,
+                    dangling + dropped
+                )
+            })?;
+        } else if dangling > 0 && removed > 0 {
+            return Err(format!(
+                "snapshot {} removes {removed} position deletes while {dangling} dangle; its row count                  cannot be read from the metadata until a compaction folds the deletes",
+                snapshot.snapshot_id
+            ));
+        }
+    }
+    Ok(dangling)
 }
 
 /// The snapshots from `head` back through each snapshot's parent, as far as the metadata still

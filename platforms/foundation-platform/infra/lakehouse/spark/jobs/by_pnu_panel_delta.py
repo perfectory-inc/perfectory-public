@@ -302,15 +302,23 @@ def unchanged_rest(current_rows: int, counts: dict[str, int]) -> int:
 
 
 def snapshot_rows(spark: Any, table: str, snapshot_id: str) -> int:
-    """The rows the snapshot holds, by its summary: its data files' records less its position deletes
-    (a merge-on-read commit's, root ADR-0344). Iceberg's `total-records` counts a deleted row until
-    compaction folds the delete in."""
-    row = spark.sql(f"SELECT summary['total-records'] AS rows, summary['total-position-deletes'] AS deletes, "
-                    f"summary['total-equality-deletes'] AS equality FROM {table}.snapshots "
-                    f"WHERE snapshot_id = {int(snapshot_id)}").first()
-    if row is None or row.rows is None:
+    """The rows the snapshot holds, by the table metadata: its data files' records less its position
+    deletes (a merge-on-read commit's, root ADR-0344), plus those deletes that point at no live file
+    (`dangling_deletes`). Iceberg's `total-records` counts a deleted row until compaction folds the
+    delete in. The twin of `IcebergRestCatalog::load_snapshot_record_count`."""
+    rows = spark.sql(f"SELECT snapshot_id, parent_id, operation, summary FROM {table}.snapshots").collect()
+    snapshots = {int(row.snapshot_id): (None if row.parent_id is None else int(row.parent_id), row.operation,
+                                        dict(row.summary or {})) for row in rows}
+    head = snapshots.get(int(snapshot_id))
+    if head is None or head[2].get("total-records") is None:
         raise Refusal(EXIT_NO_COMPARISON, f"{table} snapshot {snapshot_id} records no row count")
-    return live_rows(row.rows, row.deletes, row.equality)
+    summary = head[2]
+    try:
+        dangling = dangling_deletes(snapshots, int(snapshot_id))
+    except ValueError as error:
+        raise Refusal(EXIT_NO_COMPARISON, f"{table}: {error}") from error
+    return live_rows(summary["total-records"], summary.get("total-position-deletes"),
+                     summary.get("total-equality-deletes")) + dangling
 
 
 def live_rows(records: str, position_deletes: str | None, equality_deletes: str | None) -> int:
@@ -319,6 +327,42 @@ def live_rows(records: str, position_deletes: str | None, equality_deletes: str 
     if int(equality_deletes or 0):
         raise ValueError(f"the snapshot carries {equality_deletes} equality deletes; only position deletes are read")
     return int(records) - int(position_deletes or 0)
+
+
+def dangling_deletes(snapshots: dict[int, tuple[int | None, str | None, dict[str, str]]], head: int) -> int:
+    """How many of `head`'s `total-position-deletes` point at no live data file (`snapshots`: id ->
+    (parent id, operation, summary)).
+
+    A `replace` commit (a compaction) keeps the live rows by Iceberg's definition: the records it drops
+    were deleted by position, and when their delete file stays those deletes dangle. Each `replace`
+    adds `deleted-records - added-records` and takes away `removed-position-deletes -
+    added-position-deletes`, counted forward from the newest ancestor whose `total-position-deletes`
+    is 0, or from the oldest the metadata holds. Another commit that removes deletes while some dangle
+    is refused: which of them it removed cannot be told. 2026-11-13 a compaction of gold.parcel_panel
+    left 17 and the by-PNU bake read 17 rows fewer than the table holds."""
+    def number(summary: dict[str, str], key: str) -> int:
+        return int(summary.get(key) or 0)
+
+    chain, seen, current = [], set(), head
+    while current is not None and current in snapshots and current not in seen:
+        seen.add(current)
+        parent, operation, summary = snapshots[current]
+        if number(summary, "total-position-deletes") == 0:
+            break
+        chain.append((current, operation, summary))
+        current = parent
+    dangling = 0
+    for snapshot, operation, summary in reversed(chain):
+        removed = number(summary, "removed-position-deletes")
+        if operation == "replace":
+            dangling += max(number(summary, "deleted-records") - number(summary, "added-records"), 0)
+            dangling -= max(removed - number(summary, "added-position-deletes"), 0)
+            if dangling < 0:
+                raise ValueError(f"snapshot {snapshot} removes more position deletes than dangle")
+        elif dangling and removed:
+            raise ValueError(f"snapshot {snapshot} removes {removed} position deletes while {dangling} dangle; "
+                             "its row count cannot be read from the metadata until a compaction folds the deletes")
+    return dangling
 
 
 # Up to this many recorded PNUs are a filter Iceberg prunes data files with (its metrics evaluators

@@ -606,6 +606,60 @@ async fn a_branch_main_moved_away_from_is_never_published_and_is_removed_as_stal
     Ok(())
 }
 
+/// The parcel panel's commits of 2026-11-11..13: a merge-on-read MERGE, a compaction that rewrote
+/// the merged files and kept their delete files (17 deletes now point at no live file), and an
+/// empty append. Its rows stay 39,861,511; the summary arithmetic alone read 39,861,494.
+#[tokio::test]
+async fn a_compaction_that_keeps_its_delete_files_does_not_lose_rows() -> Result<(), Box<dyn Error>>
+{
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00003.json",
+            "metadata": {
+                "current-snapshot-id": 14,
+                "snapshots": [
+                    {"snapshot-id": 10, "summary": {"operation": "overwrite", "total-records": "39861511",
+                                                    "total-position-deletes": "0"}},
+                    {"snapshot-id": 12, "parent-snapshot-id": 10,
+                     "summary": {"operation": "overwrite", "added-records": "1389",
+                                 "added-position-deletes": "70600", "total-records": "39932111",
+                                 "total-position-deletes": "70600"}},
+                    {"snapshot-id": 13, "parent-snapshot-id": 12,
+                     "summary": {"operation": "replace", "deleted-records": "70600", "added-records": "70583",
+                                 "total-records": "39932094", "total-position-deletes": "70600"}},
+                    {"snapshot-id": 14, "parent-snapshot-id": 13,
+                     "summary": {"operation": "append", "total-records": "39932094",
+                                 "total-position-deletes": "70600"}},
+                    {"snapshot-id": 15, "parent-snapshot-id": 14,
+                     "summary": {"operation": "overwrite", "added-records": "5", "removed-position-deletes": "100",
+                                 "added-position-deletes": "105", "total-records": "39932099",
+                                 "total-position-deletes": "70605"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    for snapshot in [12, 13, 14] {
+        assert_eq!(
+            catalog
+                .load_snapshot_record_count("gold.parcel_panel", snapshot)
+                .await?,
+            Some(39_861_511),
+            "snapshot {snapshot}"
+        );
+    }
+    let refused = catalog
+        .load_snapshot_record_count("gold.parcel_panel", 15)
+        .await
+        .expect_err("a merge that removes deletes while some dangle was counted");
+    assert!(refused.to_string().contains("dangle"), "{refused}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Box<dyn Error>> {
     let server = MockServer::start().await;
