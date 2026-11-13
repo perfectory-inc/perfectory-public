@@ -654,9 +654,13 @@ async fn a_compaction_that_keeps_its_delete_files_does_not_lose_rows() -> Result
     }
     let refused = catalog
         .load_snapshot_record_count("gold.parcel_panel", 15)
-        .await
-        .expect_err("a merge that removes deletes while some dangle was counted");
-    assert!(refused.to_string().contains("dangle"), "{refused}");
+        .await;
+    assert!(
+        refused
+            .as_ref()
+            .is_err_and(|error| error.to_string().contains("dangle")),
+        "a merge that removes deletes while some dangle was counted: {refused:?}"
+    );
     Ok(())
 }
 
