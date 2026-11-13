@@ -1359,12 +1359,13 @@ class TheDagsterStage(unittest.TestCase):
             job_specs.load_specs(jobs, graph)
         self.assertIn(expected, str(raised.exception))
 
-    def test_the_unit_price_family_is_in_the_dual_run_and_no_job_is_past_it(self):
-        # Which jobs are in the dual run is each job's own definition (a family moves by its PR), not a
-        # list here; no job is past `shadow` until the move gate (ADR-0431 §4) says so.
+    def test_every_job_past_airflow_is_in_the_dual_run_and_none_is_decided_by_dagster(self):
+        # Which stage a job is at is its own definition (a family moves by its PR, when the move gate of
+        # ADR-0458 says so), not a list here. Airflow still decides every job, so every job past `airflow`
+        # is compared with it; `dagster` opens with the slice that moves what still finds a job by its DAG.
         stages = {spec.job_id: spec.dagster_stage for spec in job_specs.load_specs()}
-        self.assertEqual({stages["gold_unit_price_rebuild"], stages["by_pnu_unit_price_bake"]}, {"shadow"})
-        self.assertEqual(set(stages.values()), {"airflow", "shadow"})
+        self.assertLessEqual(set(stages.values()), {"airflow", *job_specs.COMPARED})
+        self.assertIn("proxied", stages.values())
 
     def test_an_unknown_or_unimplemented_stage(self):
         self.refused(lambda jobs: jobs["jobs"][0].update(dagster_stage="both"), "must be one of")
