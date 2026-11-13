@@ -459,19 +459,35 @@ async fn scan(
         config.lane.env("PNU_PREFIX")
     );
     rows.ensure_complete()?;
-    let kept_keys = rows
-        .rows
-        .iter()
-        .filter_map(|row| renderer.key(row).ok())
-        .collect::<Vec<_>>();
-    patch_export::refuse_live_deletes(config.patch.as_ref(), kept_keys.iter().map(String::as_str))?;
     let read = ShardRead {
         data_files: rows.data_file_count,
         skipped_data_files: rows.skipped_data_file_count,
         bytes_read: rows.read_file_bytes,
     };
-    let live = rows.live_record_count();
-    Ok((rows.rows, live, read))
+    let gold = sections::gold_table(config.lane);
+    // A table of appended row versions holds every version of a kept key: the documents are of its
+    // current rows, by the contract's one rule (root ADR-0564 §4), and its rows are the current rows
+    // the catalog records for the snapshot. A key whose newest row is a removal marker has none.
+    let (kept, live) = if gold.current_row_latest().is_some() {
+        let current = gold
+            .current_rows(&rows.rows)
+            .map_err(|error| anyhow::anyhow!("{error}"))?
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let live =
+            gate::gold_record_count(config.lane, &snapshot.snapshot_id.to_string(), None).await?;
+        (current, live)
+    } else {
+        let live = rows.live_record_count();
+        (rows.rows, live)
+    };
+    let kept_keys = kept
+        .iter()
+        .filter_map(|row| renderer.key(row).ok())
+        .collect::<Vec<_>>();
+    patch_export::refuse_live_deletes(config.patch.as_ref(), kept_keys.iter().map(String::as_str))?;
+    Ok((kept, live, read))
 }
 
 /// Whether the scan keeps `row`. The change set and the delete list name the lane's keys (root

@@ -664,6 +664,45 @@ async fn a_compaction_that_keeps_its_delete_files_does_not_lose_rows() -> Result
     Ok(())
 }
 
+/// Root ADR-0564 §5: a table of appended row versions holds every version of a key, and its rows
+/// are the current ones its producer records (`foundation.current-records`), past a compaction.
+#[tokio::test]
+async fn a_versions_table_s_record_count_is_its_current_rows() -> Result<(), Box<dyn Error>> {
+    let server = MockServer::start().await;
+    mount_catalog_config(&server, "cloudflare-catalog-prefix").await;
+    Mock::given(method("GET"))
+        .and(path(GOLD_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "metadata-location": "r2://lakehouse/gold/parcel_panel/metadata/00004.json",
+            "metadata": {
+                "current-snapshot-id": 23,
+                "snapshots": [
+                    {"snapshot-id": 21, "summary": {"operation": "append", "total-records": "100",
+                                                    "foundation.version-seq": "1",
+                                                    "foundation.current-records": "100"}},
+                    {"snapshot-id": 22, "parent-snapshot-id": 21,
+                     "summary": {"operation": "append", "total-records": "107",
+                                 "foundation.version-seq": "2", "foundation.current-records": "99"}},
+                    {"snapshot-id": 23, "parent-snapshot-id": 22,
+                     "summary": {"operation": "replace", "total-records": "107"}}
+                ]
+            }
+        })))
+        .mount(&server)
+        .await;
+    let catalog = IcebergRestCatalog::new(config(&server))?;
+    for (snapshot, rows) in [(21, 100), (22, 99), (23, 99)] {
+        assert_eq!(
+            catalog
+                .load_snapshot_record_count("gold.parcel_panel", snapshot)
+                .await?,
+            Some(rows),
+            "snapshot {snapshot}"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_snapshot_record_count_is_its_summary_total_records() -> Result<(), Box<dyn Error>> {
     let server = MockServer::start().await;

@@ -232,6 +232,9 @@ fi
 source "$(dirname "${BASH_SOURCE[0]}")/admitted-writer-runtime.sh" --current
 source "$(dirname "${BASH_SOURCE[0]}")/by-pnu-bake-shards.sh"
 ENV_PREFIX="$(by_pnu_lane_env_prefix "${UNIT}")"
+# The Gold table the lane bakes (by_pnu_kinds.baked_gold_table): a table of appended row versions
+# names its change set by version_seq (root ADR-0564 §5), every other one by the delta job.
+LANE_GOLD="$(python3 -I -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import by_pnu_kinds; print(by_pnu_kinds.baked_gold_tables().get(sys.argv[2], ""))'   "${RELEASE_ROOT}/infra/lakehouse/spark/jobs" "${UNIT}")"
 STATE_ROOT="${FOUNDATION_BY_PNU_BAKE_STATE_ROOT:-/data/foundation-platform/by-pnu-bake}/${UNIT}"
 # A full bake an operator approved in the console (`force_full`, root ADR-0433 §5) instead of a line
 # in the environment file: switches/full.d/<id> (foundation-api's, read here) names this lane. The
@@ -642,6 +645,18 @@ run_delta() {
   # So is another registry revision of the same name (root ADR-0336).
   [[ -n "${revision}" || "${packs_revisions:--}" == - ]] || revision="${schema_now} revision ${packs_revisions}"
   mkdir -p "${work}"
+  if [[ "${LANE_GOLD}" == *_versions ]]; then
+    # A table of appended row versions (root ADR-0564 §5): the keys whose version_seq lies between the
+    # two snapshots, read by the publisher's DuckDB; no Spark. Its verdict is the delta job's exit code.
+    FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_TABLE="${LANE_GOLD}"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_BASELINE_SNAPSHOT_ID="${reflected}"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_CURRENT_SNAPSHOT_ID="${gold}"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_MAX_DELTA_FRACTION="${max_delta_fraction}"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_DOCUMENT_SCHEMA_REVISION="${revision}"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_UPSERTS="${work}/upserts.txt"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_DELETES="${work}/deletes.txt"     FOUNDATION_PLATFORM_GOLD_VERSIONS_CHANGE_SET_SUMMARY="${work}/change-set.json"       "${PUBLISHER_BIN}" export-gold-versions-change-set >"${work}/delta.log" 2>&1 || return 1
+    case "$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))["verdict"])' "${work}/change-set.json")" in
+      delta) return 0 ;;
+      comparison_gone) return 3 ;;
+      not_a_delta) return 4 ;;
+      explained_full) return 6 ;;
+      *) return 1 ;;
+    esac
+  fi
   # Spark 컨테이너는 uid 185 로 쓴다. 그 init 단계는 마운트한 상태 루트 자체가 쓰기 가능한지 본다
   # (compose.lakehouse.yml lakehouse-target-init) — 실행 디렉터리만 열면 첫 운영 실행처럼 거부된다.
   chmod 0777 "${STATE_ROOT}" "${work}"

@@ -98,6 +98,7 @@ use foundation_publisher_core::test_support;
 mod handoff_object_support;
 mod juso_electronic_map_collect;
 use foundation_publisher_tiles::lakehouse_tile_bake;
+mod gold_versions_change_set;
 mod gold_versions_commit;
 mod lineage_review_items_load;
 mod lineage_steward_fold;
@@ -259,6 +260,7 @@ enum Command {
     AppendLineageStewardFold,
     DeriveParcelLineage,
     BuildParcelNearbyVersions,
+    ExportGoldVersionsChangeSet,
     ExportLegalDongStewardDecisions,
     RecordLineageStewardFolds,
     SealParcelPublicationEvidence,
@@ -575,6 +577,7 @@ async fn run_command(command: Command) -> anyhow::Result<()> {
         Command::AppendLineageStewardFold => Box::pin(lineage_steward_fold::append()),
         Command::DeriveParcelLineage => Box::pin(parcel_lineage_derive::run()),
         Command::BuildParcelNearbyVersions => Box::pin(parcel_nearby_versions_build::run()),
+        Command::ExportGoldVersionsChangeSet => Box::pin(gold_versions_change_set::run()),
         Command::ExportLegalDongStewardDecisions => {
             Box::pin(lineage_steward_fold::export_legal_dong())
         }
@@ -729,6 +732,7 @@ where
         Some("append-lineage-steward-fold") => Ok(Command::AppendLineageStewardFold),
         Some("derive-parcel-lineage") => Ok(Command::DeriveParcelLineage),
         Some("build-parcel-nearby-versions") => Ok(Command::BuildParcelNearbyVersions),
+        Some("export-gold-versions-change-set") => Ok(Command::ExportGoldVersionsChangeSet),
         Some("export-legal-dong-steward-decisions") => Ok(Command::ExportLegalDongStewardDecisions),
         Some("record-lineage-steward-folds") => Ok(Command::RecordLineageStewardFolds),
         Some("seal-parcel-publication-evidence") => Ok(Command::SealParcelPublicationEvidence),
