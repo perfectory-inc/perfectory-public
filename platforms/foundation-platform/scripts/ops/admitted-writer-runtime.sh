@@ -115,11 +115,29 @@ export FOUNDATION_RUN_RELEASE="${RELEASE_ID}"
 #   lakehouse_run_log <file>
 # A file an earlier step of the run already made is closed to other accounts as it is.
 lakehouse_run_log() { [[ -e "$1" ]] || install -m 0640 /dev/null "$1"; [[ ! -f "$1" || ! -O "$1" ]] || chmod o-rwx "$1"; }
+# A container its memory limit killed exits 137 like any SIGKILL, and systemd, outside Docker's cgroup,
+# records a plain exit-code: 2026-10-24..11-13 onbid-silver-load ended 88 times and
+# rt-molit-silver-load 66 times so, each a kernel `Memory cgroup out of memory: Killed process (java)`.
+# The run watches Docker's `oom` events of its own project while it runs (Docker keeps only its last
+# 256 events, about 30 s on this host, so they cannot be asked for afterwards). A run that exits 137
+# after one says `oom-kill`, which the readiness report reads as systemd's word (readiness_report.result_of).
 lakehouse_spark_run() {
+  local project="$1" status=0 events watcher killed
   local compose=(docker compose --project-directory "${RELEASE_ROOT}" -f "${RELEASE_ROOT}/compose.lakehouse.yml"
-    -p "$1" --profile lakehouse-batch run --rm --no-deps)
+    -p "${project}" --profile lakehouse-batch run --rm --no-deps)
   shift
-  "${compose[@]}" lakehouse-target-init && "${compose[@]}" "$@"
+  events="$(mktemp)"
+  docker events --filter type=container --filter event=oom --filter "label=com.docker.compose.project=${project}"     --format '{{index .Actor.Attributes "com.docker.compose.service"}}' >"${events}" 2>/dev/null &
+  watcher=$!
+  { "${compose[@]}" lakehouse-target-init && "${compose[@]}" "$@"; } || status=$?
+  kill "${watcher}" 2>/dev/null || true
+  wait "${watcher}" 2>/dev/null || true
+  killed="$(sort -u "${events}" | paste -sd' ')"
+  rm -f "${events}"
+  if ((status == 137)) && [[ -n "${killed}" ]]; then
+    echo "lakehouse-spark-run: oom-kill: the ${killed} container of ${project} ran out of its memory limit (Docker oom event); exit 137" >&2
+  fi
+  return "${status}"
 }
 readonly RELEASE_ROOT RELEASE_ID ARTIFACT_ROOT PUBLISHER_BIN RELEASE_JARS_DIR SPARK_RELEASE_JARS
 unset admitted_writer_base admitted_writer_require_current admitted_writer_manifest
