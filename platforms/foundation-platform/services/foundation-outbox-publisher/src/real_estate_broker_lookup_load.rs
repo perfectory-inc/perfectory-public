@@ -2,7 +2,7 @@
 //!
 //! The changed offices are the keys of the Silver rows at or after the last load's watermark, read
 //! at one pinned snapshot of each table; their current rows come from the contract's newest-per-key
-//! rule, rendered by `LakehouseCurrentRowLatest::trino_current_rows_sql`. Each batch of offices is
+//! rule, rendered by `LakehouseCurrentRowLatest::current_rows_sql`. Each batch of offices is
 //! one transaction that retires their roster rows, inserts their current rows and records the
 //! batch; the last batch completes the load. A run stopped at its limit keeps its batches and the
 //! next run goes on with the offices they did not hold (root ADR-0457). The first load has no
@@ -221,7 +221,7 @@ async fn current_rows<T: serde::de::DeserializeOwned>(
     };
     let mut rows = Vec::new();
     for filter in filters {
-        let sql = latest.trino_current_rows_sql(&pinned.source(), columns, &filter);
+        let sql = latest.current_rows_sql(&pinned.source(), columns, &filter);
         let mut reader = TrinoRows::start(container, &sql)?;
         while let Some(row) = reader.next::<T>().await? {
             rows.push(row);
@@ -592,7 +592,7 @@ mod tests {
     fn the_current_rows_follow_the_contract_rule() {
         let latest = SILVER_REAL_ESTATE_BROKER_MEMBER.current_row_latest();
         let sql = latest.map(|latest| {
-            latest.trino_current_rows_sql("r2.silver.t FOR VERSION AS OF 7", &["a"], "TRUE")
+            latest.current_rows_sql("r2.silver.t FOR VERSION AS OF 7", &["a"], "TRUE")
         });
         let sql = sql.unwrap_or_default();
         assert!(
