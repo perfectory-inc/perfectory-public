@@ -48,13 +48,53 @@ class SnapshotIds(unittest.TestCase):
         lanes = json.loads(delta.R2_CONTRACT_PATH.read_text(encoding="utf-8"))["by_pnu_lanes"]
         self.assertTrue(lanes)
         import by_pnu_kinds
-        kinds = by_pnu_kinds.kinds()
-        for name, lane in lanes.items():
-            self.assertEqual(delta.GOLD_TABLES[name], kinds[name].gold_table if name in kinds else lane["gold_table"])
+        for name in lanes:
+            self.assertEqual(delta.GOLD_TABLES[name], by_pnu_kinds.lane_fields(name)["gold_table"])
             self.assertEqual(delta.parse_args([
                 "--unit", name, "--current-snapshot-id", "202", "--max-delta-fraction", "0.5",
                 "--upsert-output", "u", "--delete-output", "d", "--summary-output", "s.json",
             ]).unit, name)
+
+
+class LaneGoldTable(unittest.TestCase):
+    """Root ADR-0564 §6-1: the table a lane bakes is resolved from its line in one place."""
+
+    HOST = {"host": "parcel_by_pnu_gateway", "section": "things", "columns": ["things_json"]}
+
+    def contract(self, lanes):
+        import json
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "r2.json"
+        path.write_text(json.dumps({"by_pnu_lanes": lanes}), encoding="utf-8")
+        return path
+
+    def test_a_kind_bakes_its_replaced_table_until_its_line_names_the_versions_table(self):
+        import by_pnu_kinds
+        path = self.contract({
+            "parcel-plain": self.HOST,
+            "parcel-shadow": {**self.HOST, "versions_table": True},
+            "parcel-taken": {**self.HOST, "versions_table": True, "gold_table": "gold.parcel_taken_versions"},
+            "whole": {"gold_table": "gold.whole_panel", "latency_baseline_lane": "building"},
+        })
+        self.assertEqual(by_pnu_kinds.baked_gold_tables(path), {
+            "parcel-plain": "gold.parcel_plain", "parcel-shadow": "gold.parcel_shadow",
+            "parcel-taken": "gold.parcel_taken_versions", "whole": "gold.whole_panel"})
+        self.assertEqual(by_pnu_kinds.line_tables("parcel-shadow", {**self.HOST, "versions_table": True}),
+                         ("gold.parcel_shadow", "gold.parcel_shadow_versions", "gold.parcel_shadow"))
+        # Every script reads the lane's table through lane_fields; the Spark producer keeps its own.
+        for lane, table in by_pnu_kinds.baked_gold_tables(path).items():
+            self.assertEqual(by_pnu_kinds.lane_fields(lane, path)["gold_table"], table)
+        self.assertEqual(by_pnu_kinds.kinds(path)["parcel-taken"].gold_table, "gold.parcel_taken")
+
+    def test_a_line_that_names_another_table_or_no_versions_table_is_refused(self):
+        import by_pnu_kinds
+        for extra in ({"gold_table": "gold.parcel_x_versions"},  # no versions_table beside it
+                      {"versions_table": True, "gold_table": "gold.parcel_x"},  # the replaced table is the default
+                      {"versions_table": True, "gold_table": "gold.elsewhere_versions"},
+                      {"versions_table": "yes"}, {"versions_table": False, "gold_table": "gold.parcel_x_versions"}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                by_pnu_kinds.baked_gold_tables(self.contract({"parcel-x": {**self.HOST, **extra}}))
 
 
 class RefusalCodes(unittest.TestCase):

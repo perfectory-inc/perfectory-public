@@ -189,9 +189,14 @@ read -r gold_table producer master driver_memory < <(python3 -I - "${RELEASE_ROO
 import sys
 sys.dont_write_bytecode = True
 sys.path.insert(0, sys.argv[1])
-import gold_rebuild
+import by_pnu_kinds, gold_rebuild
 contract, unit = gold_rebuild.load_contract(), sys.argv[2]
 (name, entry), = [(n, t) for n, t in contract["tables"].items() if t["unit"] == unit]
+if entry.get("lane") and by_pnu_kinds.baked_gold_table(entry["lane"]) != name:
+    # Root ADR-0564 §6-4: once the lane bakes its table of appended row versions, the replaced table
+    # is written no more. It is rebuilt again only after the line is reverted (§6-6).
+    sys.exit(f"{name} is no longer written: the {entry['lane']} lane bakes "
+             f"{by_pnu_kinds.baked_gold_table(entry['lane'])}, which the publisher appends to")
 print(name, entry["producer"], entry["spark"]["master"], entry["spark"]["driver_memory"])
 PY
 )
