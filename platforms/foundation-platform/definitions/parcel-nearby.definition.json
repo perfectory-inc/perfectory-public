@@ -22,6 +22,7 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
+        "unmeasured_reason": "Its four runs as the cut-over's gold step (2026-11-12..13) each ended at the 160-minute limit, so none measures a full build; off until its Gold is born on DuckDB (W81b, W83b), whose run is measured then.",
         "first_run": {
           "estimate_seconds": 5400,
           "estimated_from": "computed, never run: one read of the served parcel boundaries (39,861,511 parcels, a centroid and an H3 cell each), five Sedona ST_KNN joins against at most 12,004 points, 756 million H3 ring rows (19 per parcel) joined to a broadcast count of 2,753,778 stores by cell, and the highway list per 시군구; the same unit template's parcel-ownership build over 39,396,906 parcels and about 120 million owner rows measured 1,602 s (2026-11-05, its cut-over's gold step), so about three such passes, 5,400 s, inside the 8,100 s share of the 150-minute limit; a first run past it is stopped by TimeoutStartSec and the auto-promotion's gold step resumes it"
@@ -75,6 +76,7 @@
         "limits": [],
         "deadline": null,
         "measured_run_seconds": null,
+        "unmeasured_reason": "Never run as its unit (the lane was never cut over); off 2026-11-13 with gold_parcel_nearby_rebuild, whose Gold is born on DuckDB (W83b). Its first_run estimate stands for when it is switched back on.",
         "first_run": {
           "estimate_seconds": 1500,
           "estimated_from": "computed from the parcel-ownership bake, the same by-pnu-serving-bake.sh: 636 s for 39,396,906 documents (2026-11-05, its cut-over's bake step); the nearby lane bakes one document for each of 39,861,511 parcels, so 1,500 s, more than twice it"
