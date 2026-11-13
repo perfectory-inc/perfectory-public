@@ -1166,9 +1166,9 @@
           },
           "foundation-court-auction-collect.service": {
             "class": "batch",
-            "memory_max": "1G",
-            "measured_peak": "547M",
-            "measured": "journal `memory peak` 2026-10-18..11-08, 4 runs, highest 2026-11-08 (foundation-court-auction-collect)"
+            "memory_max": "2G",
+            "measured_peak": "1024M",
+            "measured": "journal `memory peak` 2026-10-18..11-12: 534M on 2026-11-11 (lists + 1,800 물건상세), then 1,023.9M and oom-kill at the 1G cap on 2026-11-12 after 2 h 9 min, the first night that asked every in-progress property (root ADR-0540 §2) while holding its lines as text; the lines are now held gzipped (GzLines), and the cap leaves the lists (~0.5G) plus the night's compressed lines and in-flight answers room (foundation-court-auction-collect)"
           },
           "foundation-court-auction-silver-load.service": {
             "class": "batch",

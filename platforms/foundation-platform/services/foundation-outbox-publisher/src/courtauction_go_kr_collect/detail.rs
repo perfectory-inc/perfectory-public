@@ -67,6 +67,8 @@ pub(crate) struct ItemDetail {
     pub(crate) status_field: String,
     pub(crate) result_pointer: String,
     pub(crate) per_run_limit: u32,
+    /// How many 물건상세 lines one Bronze object holds: the run commits each part as it fills.
+    pub(crate) commit_every_lines: usize,
     pub(crate) read_from: String,
     pub(crate) photos: PhotoFields,
 }
@@ -331,7 +333,7 @@ pub(crate) struct PhotoReport {
 
 impl PhotoReport {
     /// Adds another answer's report to this one.
-    fn absorb(&mut self, other: Self) {
+    pub(crate) fn absorb(&mut self, other: Self) {
         self.photos += other.photos;
         self.stored += other.stored;
         self.deduplicated += other.deduplicated;
@@ -547,7 +549,8 @@ pub(crate) fn read_result(detail: &ItemDetail, body: &str) -> Result<JsonValue, 
 /// What the detail phase of one run did.
 #[derive(Debug, Default)]
 pub(crate) struct DetailResult {
-    pub(crate) lines: Vec<String>,
+    /// The night's lines, gzipped as they come (a few MB of text each before the photos leave).
+    pub(crate) lines: super::GzLines,
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
@@ -756,7 +759,7 @@ pub(crate) async fn collect_details(
                 result.asked += 1;
                 result.failed += u32::from(failed);
                 result.photos.absorb(photos);
-                result.lines.push(line);
+                result.lines.push(&line)?;
             }
         }
     }
