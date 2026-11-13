@@ -317,6 +317,9 @@ pub(crate) struct MediaRef {
     pub(crate) size_bytes: u64,
     /// The item it was seen for, so the memo is pruned with the open items.
     pub(crate) cltr_mng_no: String,
+    /// The received file this one is the display master of (root ADR-0503); absent before it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) source: Option<crate::media_store::SourceMedia>,
 }
 
 /// A map keyed by `ItemKey` as a JSON list of `[key, value]` pairs (JSON keys are strings only).

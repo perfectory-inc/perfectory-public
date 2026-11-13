@@ -171,6 +171,7 @@ on_error() {
 trap 'on_error ${LINENO}' ERR
 
 spark() {
+  lakehouse_run_log "${run_log}"
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${lakehouse_root}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   lakehouse_spark_run "foundation-parcel-tile-bake-${INVOCATION_ID}" -v "${scratch}:/scratch" \
@@ -291,6 +292,17 @@ read -r ready_snapshot work <"${ready_file}"
 if [[ "${ready_snapshot}" != "${snapshot}" ]]; then
   job_journal "${journal}" "nothing to do: the waiting Gold is ${ready_snapshot}, the contract's edition ${snapshot}"
   echo "foundation-job-outcome unchanged"; exit 0
+fi
+# Root ADR-0490 §6: the tiles of a promoted edition are released only once every Gold of the lockstep
+# barrier is built on it (scripts/ops/edition_lockstep_gate.py tiles), so the map and the by-PNU panels
+# move together. The Gold stays ready; the next start asks again. On a day without a promotion it is `ok`.
+if [[ "${MODE}" == bake ]]; then
+  lockstep="$(python3 -I -B "$(dirname "${BASH_SOURCE[0]}")/edition_lockstep_gate.py" tiles)" \
+    || { job_journal "${journal}" "refused: cannot tell whether every served-universe Gold is on ${snapshot}"; exit 65; }
+  if [[ "${lockstep}" == waiting* ]]; then
+    job_journal "${journal}" "${lockstep}"
+    echo "foundation-job-outcome ${lockstep}"; exit 0
+  fi
 fi
 run_log="${work}/bake.log"
 run_id="$(basename "${work}")"

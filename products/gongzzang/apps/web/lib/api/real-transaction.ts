@@ -55,7 +55,7 @@ export function isMainLotGroup(grade: string | null | undefined): boolean {
   return grade === MAIN_LOT_GROUP_GRADE || grade === MAIN_LOT_GROUP_BELOW_BAR_GRADE;
 }
 
-/** Whether the link is under the bar: the screen says its measured precision (추정 · 정확도 약 95%). */
+/** Whether the link is under the bar: the screen says its measured precision (the contract's below_bar.label_ko). */
 export function isBelowBar(grade: string | null | undefined): boolean {
   return grade === MAIN_LOT_GROUP_BELOW_BAR_GRADE;
 }

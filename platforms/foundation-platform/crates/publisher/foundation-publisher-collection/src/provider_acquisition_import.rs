@@ -22,7 +22,9 @@ use foundation_outbox::{
     ObjectStorageStreamingService,
 };
 use futures_util::{stream, stream::BoxStream, StreamExt as _};
-use reqwest::header::{CONTENT_TYPE, COOKIE, REFERER, USER_AGENT};
+use reqwest::header::{
+    ACCEPT_RANGES, CONTENT_RANGE, CONTENT_TYPE, COOKIE, RANGE, REFERER, USER_AGENT,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -498,51 +500,62 @@ where
     Ok(staged_report)
 }
 
+/// How many times one replay is asked for before it fails: the first request and up to three
+/// more after the provider closed the body early (root ADR-0562). 2026-11-12 08:24..08:32Z four of
+/// eight RAON files, 경기·경북 용도지역지구 among them, ended `end of file before message length
+/// reached` after 2 s to 6 min, while the same session's other four landed in 1.5 to 2.5 min.
+const REPLAY_ATTEMPTS: u32 = 4;
+const REPLAY_RETRY_BASE_SECONDS: u64 = 2;
+
 async fn fetch_and_stage_replay_response(
     request: &ProviderAcquisitionReplayRequest,
     client: &reqwest::Client,
 ) -> Result<StagedLandingReplayReport> {
     validate_replay_request(request)?;
-    let mut replay = if request.method.eq_ignore_ascii_case("GET") {
-        client.get(&request.replay_url)
-    } else {
-        client
-            .post(&request.replay_url)
-            .header(CONTENT_TYPE, request.request_content_type.clone())
-            .body(request.post_data.clone())
+    let mut stage: Option<ReplayStage> = None;
+    let mut attempt = 1_u32;
+    let (replay_status, replay_content_type) = loop {
+        let resume_from = stage
+            .as_ref()
+            .filter(|stage| stage.accepts_ranges && stage.size_bytes > 0)
+            .map(|stage| stage.size_bytes);
+        match fetch_replay_into_stage(request, client, &mut stage, resume_from).await {
+            Ok(done) => break done,
+            Err(ReplayFetchError::Interrupted(error)) if attempt < REPLAY_ATTEMPTS => {
+                tracing::warn!(
+                    object_key = %request.landing_object_key,
+                    attempt,
+                    received_bytes = stage.as_ref().map_or(0, |stage| stage.size_bytes),
+                    error = %format!("{error:#}"),
+                    "provider acquisition replay body ended early; asking again"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(
+                    REPLAY_RETRY_BASE_SECONDS << (attempt - 1),
+                ))
+                .await;
+                attempt += 1;
+            }
+            Err(failure) => {
+                if let Some(stage) = stage.take() {
+                    stage.discard().await;
+                }
+                return Err(match failure {
+                    ReplayFetchError::Interrupted(error) => error.context(format!(
+                        "provider acquisition replay for {} ended early on all {REPLAY_ATTEMPTS} attempts",
+                        request.landing_object_key
+                    )),
+                    ReplayFetchError::Fatal(error) => error,
+                });
+            }
+        }
     };
-    if let Some(cookie_header) = request.cookie_header.as_deref() {
-        replay = replay.header(COOKIE, cookie_header);
-    }
-    if let Some(user_agent) = request.user_agent.as_deref() {
-        replay = replay.header(USER_AGENT, user_agent);
-    }
-    if let Some(referer_url) = request.referer_url.as_deref() {
-        replay = replay.header(REFERER, referer_url);
-    }
-
-    let response = replay
-        .send()
-        .await
-        .context("provider acquisition replay request failed")?;
-    let status = response.status();
-    let replay_status = status.as_u16();
-    if !status.is_success() {
-        return Err(anyhow!(
-            "provider acquisition replay returned non-success status {replay_status}"
-        ));
-    }
-    let replay_content_type = response
-        .headers()
-        .get(CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("application/octet-stream")
-        .to_owned();
-    let source_body = response
-        .bytes_stream()
-        .map(|chunk| chunk.map_err(anyhow::Error::from))
-        .boxed();
-    let staged = stage_replay_response(request, &replay_content_type, source_body).await?;
+    let stage = stage.ok_or_else(|| {
+        anyhow!(
+            "provider acquisition replay for {} returned an empty body",
+            request.landing_object_key
+        )
+    })?;
+    let staged = stage.finish(request).await?;
     if let Err(error) = validate_staged_replay_payload(request, &replay_content_type, &staged).await
     {
         cleanup_staged_replay(Some(&staged)).await;
@@ -571,6 +584,108 @@ async fn fetch_and_stage_replay_response(
         replay_content_type,
         staged: Some(staged),
     })
+}
+
+enum ReplayFetchError {
+    /// The provider closed the connection or the body before its declared length: ask again.
+    Interrupted(anyhow::Error),
+    /// A refusal, an HTML page or a local write failure: asking again would not change it.
+    Fatal(anyhow::Error),
+}
+
+/// One request of a replay into `stage`: from the first byte, or from `resume_from` with an HTTP
+/// range when the provider said it serves them. A 206 whose range starts there is appended; any
+/// other success starts the staged file over, so the bytes are always one body in order (curl
+/// `--continue-at -`, aria2 and rclone resume the same way). Returns the status and content type
+/// of the response that finished the body.
+async fn fetch_replay_into_stage(
+    request: &ProviderAcquisitionReplayRequest,
+    client: &reqwest::Client,
+    stage: &mut Option<ReplayStage>,
+    resume_from: Option<u64>,
+) -> std::result::Result<(u16, String), ReplayFetchError> {
+    use ReplayFetchError::{Fatal, Interrupted};
+
+    let mut replay = if request.method.eq_ignore_ascii_case("GET") {
+        client.get(&request.replay_url)
+    } else {
+        client
+            .post(&request.replay_url)
+            .header(CONTENT_TYPE, request.request_content_type.clone())
+            .body(request.post_data.clone())
+    };
+    if let Some(cookie_header) = request.cookie_header.as_deref() {
+        replay = replay.header(COOKIE, cookie_header);
+    }
+    if let Some(user_agent) = request.user_agent.as_deref() {
+        replay = replay.header(USER_AGENT, user_agent);
+    }
+    if let Some(referer_url) = request.referer_url.as_deref() {
+        replay = replay.header(REFERER, referer_url);
+    }
+    if let Some(offset) = resume_from {
+        replay = replay.header(RANGE, format!("bytes={offset}-"));
+    }
+
+    let response = replay
+        .send()
+        .await
+        .context("provider acquisition replay request failed")
+        .map_err(Interrupted)?;
+    let status = response.status();
+    let replay_status = status.as_u16();
+    if !status.is_success() {
+        return Err(Fatal(anyhow!(
+            "provider acquisition replay returned non-success status {replay_status}"
+        )));
+    }
+    let header = |name| {
+        response
+            .headers()
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let replay_content_type =
+        header(CONTENT_TYPE).unwrap_or_else(|| "application/octet-stream".to_owned());
+    let continues = resume_from.is_some_and(|offset| {
+        status == reqwest::StatusCode::PARTIAL_CONTENT
+            && header(CONTENT_RANGE)
+                .is_some_and(|value| value.starts_with(&format!("bytes {offset}-")))
+    });
+    let accepts_ranges =
+        continues || header(ACCEPT_RANGES).is_some_and(|value| value.eq_ignore_ascii_case("bytes"));
+    if !continues {
+        if let Some(old) = stage.take() {
+            old.discard().await;
+        }
+    }
+    let mut body = response.bytes_stream();
+    while let Some(chunk) = body.next().await {
+        let chunk = chunk
+            .context("failed to read provider acquisition replay chunk")
+            .map_err(Interrupted)?;
+        if chunk.is_empty() {
+            continue;
+        }
+        let current = match stage {
+            Some(current) => current,
+            None => {
+                validate_first_replay_chunk(request, &replay_content_type, &chunk)
+                    .map_err(Fatal)?;
+                stage.insert(ReplayStage::create().await.map_err(Fatal)?)
+            }
+        };
+        current.accepts_ranges = accepts_ranges;
+        current.append(&chunk).await.map_err(Fatal)?;
+    }
+    if stage.is_none() {
+        return Err(Fatal(anyhow!(
+            "provider acquisition replay for {} returned an empty body",
+            request.landing_object_key
+        )));
+    }
+    Ok((replay_status, replay_content_type))
 }
 
 async fn cleanup_staged_replay(staged: Option<&StagedReplayObject>) {
@@ -1107,66 +1222,93 @@ pub struct StagedReplayObject {
     pub checksum_sha256: String,
 }
 
-async fn stage_replay_response(
-    request: &ProviderAcquisitionReplayRequest,
-    content_type: &str,
-    mut source_body: BoxStream<'static, Result<Bytes>>,
-) -> Result<StagedReplayObject> {
-    let first_chunk = source_body
-        .next()
-        .await
-        .transpose()
-        .context("failed to read first provider acquisition replay chunk")?
-        .with_context(|| {
-            format!(
-                "provider acquisition replay for {} returned an empty body",
-                request.landing_object_key
-            )
-        })?;
-    validate_first_replay_chunk(request, content_type, &first_chunk)?;
+/// The staged file a replay's body is written into as it arrives, with its running digest.
+struct ReplayStage {
+    path: PathBuf,
+    file: tokio::fs::File,
+    hasher: Sha256,
+    size_bytes: u64,
+    accepts_ranges: bool,
+}
 
-    let staging_dir = provider_acquisition_staging_dir();
-    tokio::fs::create_dir_all(&staging_dir)
-        .await
-        .with_context(|| {
-            format!(
-                "failed to create provider acquisition staging directory {}",
-                staging_dir.display()
-            )
-        })?;
-    let staging_path = staging_dir.join(format!("{}.bin", Uuid::new_v4()));
-    let mut file = tokio::fs::File::create(&staging_path)
-        .await
-        .with_context(|| {
+impl ReplayStage {
+    async fn create() -> Result<Self> {
+        let staging_dir = provider_acquisition_staging_dir();
+        tokio::fs::create_dir_all(&staging_dir)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to create provider acquisition staging directory {}",
+                    staging_dir.display()
+                )
+            })?;
+        let path = staging_dir.join(format!("{}.bin", Uuid::new_v4()));
+        let file = tokio::fs::File::create(&path).await.with_context(|| {
             format!(
                 "failed to create provider acquisition staging file {}",
-                staging_path.display()
+                path.display()
             )
         })?;
-    let mut hasher = Sha256::new();
-    let mut size_bytes = 0_u64;
-
-    write_replay_chunk(&mut file, &mut hasher, &mut size_bytes, &first_chunk).await?;
-    while let Some(chunk) = source_body.next().await {
-        let chunk = chunk.context("failed to read provider acquisition replay chunk")?;
-        write_replay_chunk(&mut file, &mut hasher, &mut size_bytes, &chunk).await?;
+        Ok(Self {
+            path,
+            file,
+            hasher: Sha256::new(),
+            size_bytes: 0,
+            accepts_ranges: false,
+        })
     }
-    file.flush()
+
+    async fn append(&mut self, chunk: &[u8]) -> Result<()> {
+        write_replay_chunk(
+            &mut self.file,
+            &mut self.hasher,
+            &mut self.size_bytes,
+            chunk,
+        )
         .await
-        .context("failed to flush provider acquisition staging file")?;
-    drop(file);
-    if size_bytes == 0 {
-        return Err(anyhow!(
-            "provider acquisition replay for {} returned an empty body",
-            request.landing_object_key
-        ));
     }
 
-    Ok(StagedReplayObject {
-        path: staging_path,
-        size_bytes,
-        checksum_sha256: bytes_to_hex(&hasher.finalize()),
-    })
+    async fn discard(self) {
+        let Self { path, file, .. } = self;
+        drop(file);
+        if let Err(error) = tokio::fs::remove_file(&path).await {
+            tracing::warn!(
+                path = %path.display(),
+                error = %error,
+                "failed to remove provider acquisition staging file"
+            );
+        }
+    }
+
+    async fn finish(
+        mut self,
+        request: &ProviderAcquisitionReplayRequest,
+    ) -> Result<StagedReplayObject> {
+        self.file
+            .flush()
+            .await
+            .context("failed to flush provider acquisition staging file")?;
+        if self.size_bytes == 0 {
+            self.discard().await;
+            return Err(anyhow!(
+                "provider acquisition replay for {} returned an empty body",
+                request.landing_object_key
+            ));
+        }
+        let Self {
+            path,
+            file,
+            hasher,
+            size_bytes,
+            ..
+        } = self;
+        drop(file);
+        Ok(StagedReplayObject {
+            path,
+            size_bytes,
+            checksum_sha256: bytes_to_hex(&hasher.finalize()),
+        })
+    }
 }
 
 async fn write_replay_chunk(

@@ -5,7 +5,9 @@
 //! the D151 per-parcel official land price CSV (`silver.land_individual_price`, root
 //! ADR-0085), plus the named AL_D195 CSV (`silver.land_characteristic`,
 //! root ADR-0087) and AL_D003 forest ledger CSV (`silver.land_forest_ledger`, root ADR-0088), and the AL_D157 event timeline (root ADR-0089) and AL_D006 land rights (root ADR-0091),
-//! and the AL_D161 land ownership (`silver.land_ownership`, root ADR-0360).
+//! and the AL_D161 land ownership (`silver.land_ownership`, root ADR-0360), and the AL_D171
+//! register of brokerage offices (`silver.real_estate_broker_office`) and the AL_D172 roster of
+//! their people (`silver.real_estate_broker_member`, root ADR-0511 §4).
 //! Either end may be a local path or an R2 object key; an R2 source is read by ranged
 //! request and the handoff is uploaded as it is produced, so a province extract never
 //! lands on a disk. The row shape is the lakehouse contract's column list — the CSV
@@ -548,6 +550,12 @@ pub async fn run_price() -> anyhow::Result<()> {
     run_lane(&PRICE_LANE).await
 }
 
+// The 부동산중개업 lanes (root ADR-0511 §4) live beside this file; they are lanes of this module.
+#[path = "real_estate_broker_lanes.rs"]
+mod real_estate_broker_lanes;
+pub use real_estate_broker_lanes::{run_real_estate_broker_member, run_real_estate_broker_office};
+use real_estate_broker_lanes::{REAL_ESTATE_BROKER_MEMBER_LANE, REAL_ESTATE_BROKER_OFFICE_LANE};
+
 /// What a caller that starts one of these commands as a child needs from it (the Silver refresh,
 /// root ADR-0169 step 3): the environment prefix the command reads, the Silver table it writes,
 /// and whether a ZIP member is the one it converts. Read from the lanes above, so the caller keeps
@@ -577,6 +585,8 @@ pub fn export_command(command: &str) -> Option<ExportCommand> {
         "export-land-transfer-history-silver-handoff" => &LAND_TRANSFER_LANE,
         "export-land-right-registration-silver-handoff" => &LAND_RIGHT_LANE,
         "export-land-ownership-silver-handoff" => &LAND_OWNERSHIP_LANE,
+        "export-real-estate-broker-office-silver-handoff" => &REAL_ESTATE_BROKER_OFFICE_LANE,
+        "export-real-estate-broker-member-silver-handoff" => &REAL_ESTATE_BROKER_MEMBER_LANE,
         // The 용도지역지구 layers are shapefiles, not CSV: their own export, same environment
         // names and summary, so the Silver refresh runs them as it runs these (root ADR-0362).
         "export-land-use-zone-area-silver-handoff" => {
@@ -1187,6 +1197,10 @@ pub mod right_csv_tests;
 pub mod ownership_csv_tests;
 
 #[cfg(test)]
+#[path = "real_estate_broker_csv_tests.rs"]
+pub mod real_estate_broker_csv_tests;
+
+#[cfg(test)]
 mod tests {
     use uuid::Uuid;
 
@@ -1231,6 +1245,8 @@ mod tests {
     #[test]
     fn lane_mappings_cover_their_contracts_exactly() {
         for lane in [
+            &REAL_ESTATE_BROKER_OFFICE_LANE,
+            &REAL_ESTATE_BROKER_MEMBER_LANE,
             &LAND_OWNERSHIP_LANE,
             &LAND_RIGHT_LANE,
             &PLAN_LANE,

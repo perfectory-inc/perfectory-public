@@ -89,7 +89,7 @@ last_reviewed: 2026-11-07
 | 항목 | 상태 |
 | --- | --- |
 | 호스트 자원 경보 | 초안. ADR-0385: node-exporter 호스트 수집기(디스크·메모리·OOM·CPU) + cAdvisor, `foundation-host` 경보 6개 → Slack, promtool 규칙 시험 가드. 처음 잰 것: 10-28~11-03 OOM 100번(공매 Silver 2.5GiB 상한) |
-| 수집 run 당 상한 + 가드 | 가드 있음(ADR-0386): 작업 69개 모두 `per_run_cap` + 잰 run 시간, `test_per_run_cap.py`. 안 맞는 열린 예외 5개(고침은 초안, 배포 뒤 다시 재고 예외를 지운다): `onbid_public_auction_silver`(10-30 timeout 5회·OOM 67회 — #1008), `silver_refresh_building_register_unit_areas`(제한의 95% — #1017), `silver_refresh_building_register_apartment_price`(10-20 timeout — #1010), `silver_refresh_land_transfer_history`(10-21 timeout, 11-03 82% — #1010), `gold_panel_rebuild`(timeout 10회, 마지막 11-03 — #1009) |
+| 수집 run 당 상한 + 가드 | 가드 있음(ADR-0386): 작업 69개 모두 `per_run_cap` + 잰 run 시간, `test_per_run_cap.py`. 안 맞는 열린 예외 6개(고침은 초안, 배포 뒤 다시 재고 예외를 지운다): `onbid_public_auction_silver`(10-30 timeout 5회·OOM 67회 — #1008), `silver_refresh_building_register_unit_areas`(제한의 95% — #1017), `silver_refresh_building_register_apartment_price`(10-20 timeout — #1010), `silver_refresh_land_transfer_history`(10-21 timeout, 11-03 82% — #1010), `gold_panel_rebuild`(timeout 10회, 마지막 11-03 — #1009), `gold_parcel_real_transaction_rebuild`(11-12 첫 전량 구축 약 11,000 s 가 9,000 s 유닛 둘에 걸쳤다: 시도 샤드 17개 8,309 s + 커밋 2,447 s. 단계 저장(ADR-0440)이라 이어지지만 첫 공개 뒤에는 둘째 유닛이 다음 날 일정에야 시작하고 첫 유닛은 timeout 으로 끝난다. 남은 일: 단계 경계에서 스스로 끝나고 곧바로 이어 시작하게 하거나 DuckDB 로 옮기는 Gold(ADR-0559)와 함께 Spark 를 떠난다; 11-13 09:50Z 첫 changed-keys run 을 재서 적는다) |
 | postgres 복원드릴 타이머 + 백업 freshness | freshness 끝(#882, 타이머 있음). 주간 운영 복원 드릴 `foundation-postgres-restore-drill`(W6, 초안) — 병합·첫 일요일 실행 확인 남음 |
 | R2 객체 ↔ silver 색인 대조 | 초안: ADR-0387 — 공매 미디어 `onbid/media` ↔ `silver.onbid_real_estate_item_photo` 매일 대조(`media_reconcile`), 없음·고아 경보. 고아 정리(삭제)는 보고서 뒤 사람 결정 |
 | expand-contract 마이그레이션 가드 | 만들지 않기로 함 — #883 닫음(10-28): 막을 실제 사고가 없고 기존 두 장치가 막는다 |
@@ -142,9 +142,11 @@ last_reviewed: 2026-11-07
 - [ ] 단가 vintage 2단계 실행 → 그 뒤 #919 병합.
 - [ ] `parcel_boundaries` rewrite-all 한 번, 약 ₩300(ADR-0316 §4).
 - [ ] #973 병합 뒤 토지소유 Gold 첫 재구축 시간 재기와 cutover(그 PR 본문의 운영자 명령).
-- [ ] RAON 레인 첫 감독 실행 — 큰 용도지역지구 3개·토지소유 도형 6개(ADR-0359 Consequences).
+- [ ] RAON 레인은 사람 단계 없이 매일 8개씩 새것부터 받는다(ADR-0514) — 배포 뒤 첫 실행(03:40 UTC)의 `| raon` 줄과 용도지역지구 20261109 의 경기·경북 Bronze 도착, parcel-zoning 재발행을 확인한다.
 - [ ] juso.go.kr 전자지도 이용 신청(ADR-0355 §3, 처리 10일).
 - [ ] 규제 구역 지도 타일을 만들지 결정(#974: 타일은 계획만, 월 ₩100 미만 추정).
+- [ ] `MERGE` 로 쓰는 Gold 가 Spark 를 떠나는 길 결정([ADR-0561](../adr/0561-a-gold-that-merges-leaves-spark-by-becoming-a-table-of-appended-row-versions-the-publisher-commits.md), Proposed):
+      아직 없는 두 Gold(주변·실거래)를 "바뀐 행을 쌓는 표"로 태어나게 하고 나머지는 그 둘을 잰 뒤 정한다는 권고. 받아들이기 전에는 짓지 않는다.
 - [x] 가린 지번 추정 진행 결정 — 승인(10-31 "해보자"), 구현은 #982.
 
 ### 7. 미룬 것
@@ -213,11 +215,11 @@ last_reviewed: 2026-11-07
 | 사용자 가치 | Silver 표 | by-PNU 레인 | 타일 | 공짱 화면 |
 | --- | --- | --- | --- | --- |
 | 공장·산업단지 | 산업단지 경계 (`silver.industrial_complex_boundaries`) | — | `complex-tiles` | 화면 |
+| 공장·산업단지 | 산업단지 고시 첨부 (`silver.industrial_complex_notice_attachment`) | — | — | 화면 |
+| 공장·산업단지 | 산업단지 고시 읽은 기록 (`silver.industrial_complex_notice_detail`) | — | — | 화면 |
 | 공장·산업단지 | 산업단지 기본 정보 (`silver.industrial_complexes`) | — | `complex-tiles` | 화면 |
 | 공장·산업단지 | 전국 등록공장 (`silver.registered_factory`) | `parcel-factories` | — | 화면 |
 | 공장·산업단지 | 산업단지와 필지 소속 (`silver.complex_parcel_memberships`) | — | — | 없음 |
-| 공장·산업단지 | 산업단지 고시 첨부 (`silver.industrial_complex_notice_attachment`) | — | — | 없음 |
-| 공장·산업단지 | 산업단지 고시 읽은 기록 (`silver.industrial_complex_notice_detail`) | — | — | 없음 |
 | 토지 | 필지별 토지특성 (`silver.land_characteristic`) | `parcel`<br>`parcel-real-transaction` | — | 화면 |
 | 토지 | 필지별 임야대장 (`silver.land_forest_ledger`) | `parcel` | — | 화면 |
 | 토지 | 필지별 공시지가 (`silver.land_individual_price`) | `parcel` | — | 화면 |
@@ -250,7 +252,30 @@ last_reviewed: 2026-11-07
 | 건물 | 건물 표제부 (`silver.building_register_titles`) | `building`<br>`parcel`<br>`parcel-building-permits`<br>`parcel-real-transaction`<br>`unit-price` | — | 화면 |
 | 건물 | 호별 전유·공용 면적 (`silver.building_register_unit_areas`) | `building` | — | 화면 |
 | 건물 | 건물 호별 정보 (`silver.building_register_units`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 주택인허가 기본개요 (`silver.housing_permit_basis_outline`) | `parcel-building-permits` | — | 화면 |
 | 건물 | 세대별 기준일 공시가격 (`silver.unit_official_price`) | `building`<br>`unit-price` | — | 화면 |
+| 건물 | 건축인허가 지역지구구역 (`silver.building_permit_district_zone`) | — | — | 없음 |
+| 건물 | 건축인허가 전유공용면적 (`silver.building_permit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 건축인허가 주택유형 (`silver.building_permit_housing_type`) | — | — | 없음 |
+| 건물 | 건축인허가 도로명대장 (`silver.building_permit_road_ledger`) | — | — | 없음 |
+| 건물 | 건축인허가 오수정화시설 (`silver.building_permit_sewage_facility`) | — | — | 없음 |
+| 건물 | 건축인허가 호별전유공용면적 (`silver.building_permit_unit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 건축인허가 호별개요 (`silver.building_permit_unit_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 행위개요 (`silver.housing_permit_act_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 행위호전유공용면적 (`silver.housing_permit_act_unit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 주택인허가 부대시설 (`silver.housing_permit_ancillary_facility`) | — | — | 없음 |
+| 건물 | 주택인허가 부설주차장 (`silver.housing_permit_annex_parking`) | — | — | 없음 |
+| 건물 | 주택인허가 동별개요 (`silver.housing_permit_building_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 지역지구구역 (`silver.housing_permit_district_zone`) | — | — | 없음 |
+| 건물 | 주택인허가 전유공용면적 (`silver.housing_permit_exclusive_common_area`) | — | — | 없음 |
+| 건물 | 주택인허가 층별개요 (`silver.housing_permit_floor_overview`) | — | — | 없음 |
+| 건물 | 주택인허가 관리공동부대복리시설 (`silver.housing_permit_managed_communal_ancillary_welfare_facility`) | — | — | 없음 |
+| 건물 | 주택인허가 관리공동형별개요 (`silver.housing_permit_managed_communal_type_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 주차장 (`silver.housing_permit_parking`) | — | — | 없음 |
+| 건물 | 주택인허가 오수정화시설 (`silver.housing_permit_sewage_facility`) | — | — | 없음 |
+| 건물 | 주택인허가 대지위치 (`silver.housing_permit_site_location`) | — | — | 없음 |
+| 건물 | 주택인허가 호별개요 (`silver.housing_permit_unit_outline`) | — | — | 없음 |
+| 건물 | 주택인허가 복리분양시설 (`silver.housing_permit_welfare_sale_facility`) | — | — | 없음 |
 | 거래·공매·경매 | 온비드 공고 (`silver.onbid_announcement`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고 입찰결과 (`silver.onbid_announcement_bid_result`) | `parcel-public-auction` | — | 화면 |
 | 거래·공매·경매 | 온비드 공고상세 (`silver.onbid_announcement_detail`) | `parcel-public-auction` | — | 화면 |
@@ -263,7 +288,13 @@ last_reviewed: 2026-11-07
 | 거래·공매·경매 | 법원경매 진행 물건 (`silver.court_auction_item`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 사건 사진 (`silver.court_auction_item_photo`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
 | 거래·공매·경매 | 법원경매 매각결과 (`silver.court_auction_sale_result`) | `parcel-court-auction (꺼짐)` | — | 길 있음·꺼짐 |
+| 거래·공매·경매 | 법원경매 감정요항표 (`silver.court_auction_appraisal_point`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 사건 (`silver.court_auction_case`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 제시외건물 (`silver.court_auction_item_annex`) | — | — | 없음 |
 | 거래·공매·경매 | 법원경매 물건상세 읽은 기록 (`silver.court_auction_item_detail`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 목록내역 (`silver.court_auction_item_object`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 기일내역 (`silver.court_auction_item_schedule`) | — | — | 없음 |
+| 거래·공매·경매 | 법원경매 매각물건명세서 요약 (`silver.court_auction_item_spec`) | — | — | 없음 |
 | 물류 입지 | 공항 (`silver.airport`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 고속도로 출입시설 (`silver.highway_access_point`) | `parcel-nearby` | — | 화면 |
 | 물류 입지 | 철도역 (`silver.railway_station`) | `parcel-nearby` | — | 화면 |
@@ -280,6 +311,8 @@ last_reviewed: 2026-11-07
 | 행정·내부 | 건축물대장 공동주택가격 판 버전 (`silver.building_register_apartment_price_versions`) | — | — | 없음 |
 | 행정·내부 | 필지고유번호변동연혁 (`silver.parcel_number_change_history`) | — | — | 없음 |
 | 행정·내부 | 필지 ID 원장 (`silver.parcel_registry`) | — | — | 없음 |
+| 행정·내부 | 중개사무소 소속 인원 (`silver.real_estate_broker_member`) | — | — | 없음 |
+| 행정·내부 | 중개사무소 등록 (`silver.real_estate_broker_office`) | — | — | 없음 |
 | 행정·내부 | 실거래가 적재 거부 줄 (`silver.real_transaction_rejected`) | — | — | 없음 |
 | 행정·내부 | 세대별 기준일 공시가격 판 버전 (`silver.unit_official_price_versions`) | — | — | 없음 |
 

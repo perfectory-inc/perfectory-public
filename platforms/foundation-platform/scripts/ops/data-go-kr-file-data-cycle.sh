@@ -90,6 +90,7 @@ done
 chmod -R a+rwX "${lake}" # Spark 컨테이너는 uid 185 로 읽고, 판의 UTF-8 사본을 그 옆에 쓴다.
 
 # 3. 적재와 코드 변경 따라가기
+lakehouse_run_log "${run_log}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute \

@@ -40,7 +40,9 @@ which every job's Compose project draws from (bridge_networks), and docker-conta
 container's cgroup id with its name (container_names), which cAdvisor cannot see without the engine's
 socket and the FoundationContainerMemoryNearCap rule looks up (root ADR-0385), and dagster.prom,
 whether Dagster's code location loads and when the dual run last compared (dagster_state; the
-FoundationDagster*/FoundationDualRun* rules, root ADR-0431). The
+FoundationDagster*/FoundationDualRun* rules, root ADR-0431). Into asset-reconcile.prom also go, for
+every lane and tile layer the lane index names, since when the lane is meant to be served and how far
+each tile layer's served release is behind its snapshot table (served_surfaces, root ADR-0522). The
 FoundationAsset* rules turn them into asset_lag_seconds and asset_unscheduled_seconds and alert. The
 idle-since times are kept under the job's state path between ticks. It changes no data: its outcome
 is `unchanged`, or `failed` when no asset could be read.
@@ -97,6 +99,10 @@ QUEUE_RETRY_CAP = 3600.0
 # within seconds of its slot, and a start waiting in Airflow's own pool is a queued DAG run, which
 # `select` already skips (root ADR-0467).
 MISSED_START_GRACE = 900.0
+# What users are served, lane by lane and tile layer by tile layer (scripts/catalog/declared_definitions.py
+# `lane_index`, root ADR-0418), and the route their maps read the tile layers' releases from (root ADR-0522).
+LANE_INDEX = PLATFORM / "config" / "by-pnu-lane-index.v1.json"
+RUNTIME_MANIFEST_ROUTE = "foundation_platform.public.runtime_manifest_v2"
 
 
 @dataclass(frozen=True)
@@ -395,6 +401,70 @@ def lane_behind_since(asset: Asset, table, reads) -> float | None:
     return min(changes, default=0.0)
 
 
+def served_surfaces(now: float, index: dict, jobs: dict, budget_hours: float, table, runtime_manifest) -> list[str]:
+    """Every lane and tile layer of the lane index held to the serving freshness budget (root ADR-0522),
+    whatever else measures it.
+
+    A by-PNU lane's age is the hourly serving monitor's, and a lane whose monitor timer was never turned
+    on had no series at all: 2026-11-11 parcel-nearby and parcel-real-transaction were registered with
+    their bakes enabled and nothing said they served nothing. So each lane says since when it is meant to
+    serve (its earliest enabled bake's `enabled_since`; 0 when no bake of it is enabled, so an unmeasured
+    one is said at once). A tile layer had no freshness series at all: 2026-11-11 the parcels unit served
+    a 2026-09-28 release while its Gold had changed since 10-15. Its data time is the oldest row change
+    of its snapshot table after the snapshot the served runtime manifest names (root ADR-0444's rule; a
+    snapshot expiry no longer keeps gives the oldest kept change, a lower bound); none when it cannot be
+    told, and FoundationTileUnitUnmeasured says so."""
+    lines = [f"foundation_serving_freshness_budget_seconds {budget_hours * 3600:.0f}"]
+    enabled = {job["id"]: job["enabled_since"] for job in jobs["jobs"] if job.get("enabled") and job.get("enabled_since")}
+    for lane in index["lanes"]:
+        since = [datetime.fromisoformat(enabled[job["id"]].replace("Z", "+00:00")).timestamp()
+                 for job in lane["bake_jobs"] if job["id"] in enabled]
+        lines.append(f'foundation_by_pnu_lane_registered_since_timestamp_seconds{{lane="{lane["lane"]}"}} {min(since, default=0.0):.0f}')
+    try:
+        units = runtime_manifest()["publication_units"]
+    except Exception as error:  # noqa: BLE001 -- the lanes above stand; no unit is measured
+        print(f"asset_reconcile: could not read the tile runtime manifest: {type(error).__name__}: {error}", file=sys.stderr)
+        return lines
+    for unit in index["tile_units"]:
+        key, served = unit["unit"], units.get(unit["unit"])
+        lines.append(f'foundation_tile_unit_served{{unit="{key}"}} {int(served is not None)}')
+        if served is None:
+            continue
+        try:
+            history = table(unit["snapshot_table"])
+        except Exception as error:  # noqa: BLE001 -- this unit is unmeasured, the others stand
+            print(f"asset_reconcile: could not read {unit['snapshot_table']} for the {key} tiles: {type(error).__name__}: {error}",
+                  file=sys.stderr)
+            continue
+        if history["head"] is None:
+            continue
+        went, _, oldest = moved(history, history["head"], served["canonical_iceberg_snapshot_id"])
+        if went and oldest is None:
+            continue
+        lines.append(f'foundation_tile_unit_behind_seconds{{unit="{key}"}} {max(now - oldest, 0.0) if went else 0.0:.0f}')
+    return lines
+
+
+def runtime_manifest_reader(platform: Path = PLATFORM):
+    """The tile runtime manifest users' maps read, from foundation-api on the host: its loopback
+    address (host-layout.contract.json `readiness`) and the public route's path (the traffic policy
+    registry's `foundation_platform.public.runtime_manifest_v2`)."""
+    import urllib.parse  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+
+    layout = json.loads((platform / "config" / "host-layout.contract.json").read_text(encoding="utf-8"))
+    base = urllib.parse.urlsplit(layout["readiness"]["foundation-api"])
+    routes = json.loads((platform / "docs" / "architecture" / "traffic-auth-policy-registry.v1.json")
+                        .read_text(encoding="utf-8"))
+    path = next(route["path"] for route in routes["public_routes"] if route["id"] == RUNTIME_MANIFEST_ROUTE)
+    url = urllib.parse.urlunsplit((base.scheme, base.netloc, path, "", ""))
+
+    def read():
+        with urllib.request.urlopen(url, timeout=20) as response:  # noqa: S310 -- a fixed loopback address
+            return json.loads(response.read().decode("utf-8"))
+    return read
+
+
 def tick(now: float, found: list[Asset], table, reads, running, pool_full, state: dict, timed_out=lambda service: False,
          published=lambda lane: True, current: set | None = None):
     """(owed lines, metric lines, new state, errors): one pass over the assets. Pure but for its callables.
@@ -501,6 +571,27 @@ def queued_starts(now: float, jobs: dict, queued: dict, last_started: dict, runn
     return owed, metrics
 
 
+def claim_metrics(now: float, jobs: dict, claims: list[dict], running_units) -> list[str]:
+    """Metric lines for each live claim on a pool (job_units.live_claims): how long it has been queued,
+    and how many of the units it holds the pool for run (job_units.claim_work: the pool's jobs it waits
+    for, and its own Spark steps' units).
+
+    A claim holds the pool only for a Spark step (root ADR-0462); one that holds it while none of those
+    runs keeps every start of a lower class out for nothing (2026-11-09 06:13Z..07:10Z a claim held
+    through a latency step and refused ten Silver loads; 2026-11-11 08:13Z.. 18 queued starts waited
+    behind the cut-over's claim up to 3.7 hours), and FoundationCapacityClaimHeldWithoutSpark says so (root ADR-0521)."""
+    metrics = []
+    for claim in claims:
+        labels = (f'claimant="{claim["claimant"]}",pool="{claim["pool"]}",'
+                  f'priority_class="{claim["priority_class"]}"')
+        working = running_units(job_units.claim_work(jobs, claim["claimant"]))
+        metrics.append(f"foundation_capacity_claim_age_seconds{{{labels}}} {max(now - (claim.get('since') or now), 0):.0f}")
+        metrics.append(f"foundation_capacity_claim_work_units{{{labels}}} {len(working)}")
+        print(f"capacity claim {claim['claimant']} ({claim.get('unit')}): queued {now - (claim.get('since') or now):.0f}s ago,"
+              f" {len(working)} of its work units run{': ' + ' '.join(sorted(working)) if working else ''}")
+    return metrics
+
+
 def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None, queued: dict, paused, running):
     """(owed lines, metric lines): each job the reconciler starts again (job_specs.requeued) whose newest
     scheduled slot, at least MISSED_START_GRACE old and after it was switched on, no start followed, owed
@@ -601,8 +692,20 @@ HELP = """# HELP foundation_asset_lag_seconds Newest unread input change less th
 # TYPE foundation_job_queue_wait_budget_seconds gauge
 # HELP foundation_job_queue_last_wait_seconds How long the job's last start that had been queued waited.
 # TYPE foundation_job_queue_last_wait_seconds gauge
+# HELP foundation_capacity_claim_age_seconds How long ago a live claim on a pool was queued (root ADR-0435, ADR-0462).
+# TYPE foundation_capacity_claim_age_seconds gauge
+# HELP foundation_capacity_claim_work_units How many of the units a live claim holds its pool for run: the pool's jobs it waits for and its own Spark steps' units; 0 is a claim that holds the pool for nothing.
+# TYPE foundation_capacity_claim_work_units gauge
 # HELP foundation_job_missed_start_seconds How long ago the job's newest scheduled slot passed with no start after it (root ADR-0467); absent once one starts.
 # TYPE foundation_job_missed_start_seconds gauge
+# HELP foundation_serving_freshness_budget_seconds The age past which a served lane or tile layer is stale (r2-connections by_pnu_section_packs.freshness_budget_hours, root ADR-0306).
+# TYPE foundation_serving_freshness_budget_seconds gauge
+# HELP foundation_by_pnu_lane_registered_since_timestamp_seconds Since when the lane is meant to be served: its earliest enabled bake's enabled_since, 0 when none is enabled (root ADR-0522).
+# TYPE foundation_by_pnu_lane_registered_since_timestamp_seconds gauge
+# HELP foundation_tile_unit_served Whether the tile runtime manifest users' maps read serves the lane index's tile unit (root ADR-0522).
+# TYPE foundation_tile_unit_served gauge
+# HELP foundation_tile_unit_behind_seconds How long the tile unit has served data behind its snapshot table: since the oldest row change after the snapshot its release names (root ADR-0522); 0 when it serves every change.
+# TYPE foundation_tile_unit_behind_seconds gauge
 # HELP foundation_asset_reconcile_timestamp_seconds When the asset reconciler last finished a tick.
 # TYPE foundation_asset_reconcile_timestamp_seconds gauge
 """
@@ -891,6 +994,10 @@ def main() -> int:
         queued_owed, queued_metrics = [], []
     owed = [line for line in owed if line.split()[1] not in {queued.split()[1] for queued in queued_owed}] + queued_owed
     metrics += queued_metrics
+    try:
+        metrics += claim_metrics(now, jobs, job_units.live_claims(jobs, now=now), job_units.running)
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        errors.append(f"the capacity claims: {type(error).__name__}: {error}")
     switches = Path(os.environ.get("FOUNDATION_JOB_SWITCHES_DIR") or SWITCHES_DIR)
     try:
         missed_owed, missed_metrics = missed_starts(
@@ -901,6 +1008,14 @@ def main() -> int:
         missed_owed, missed_metrics = [], []
     owed += [line for line in missed_owed if line.split()[1] not in {held.split()[1] for held in owed}]
     metrics += missed_metrics
+    try:
+        budget = json.loads(by_pnu_kinds.CONTRACT_PATH.read_text(encoding="utf-8"))["by_pnu_section_packs"]["freshness_budget_hours"]
+        metrics += served_surfaces(now, json.loads(LANE_INDEX.read_text(encoding="utf-8")), jobs, float(budget), table,
+                                   runtime_manifest_reader())
+    except (OSError, ValueError, KeyError, StopIteration) as error:
+        # The rules then hold no registration and no tile unit: FoundationTileUnitUnmeasured says so.
+        print(f"asset_reconcile: could not read the served lanes and tile layers: {type(error).__name__}: {error}",
+              file=sys.stderr)
     write_replacing(state_dir / STATE_FILE, json.dumps(state, sort_keys=True) + "\n")
     write_replacing(metrics_file, HELP + "\n".join(metrics) + "\n")
     # The pools every job's Compose project draws from; a probe that fails stops nothing, and the

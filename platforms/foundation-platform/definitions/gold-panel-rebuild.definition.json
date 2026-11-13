@@ -40,7 +40,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 3,
+      "priority_weight": 30,
       "priority_class": "publish",
       "priority_class_from": "by_pnu_serving_bake",
       "retries": 0,

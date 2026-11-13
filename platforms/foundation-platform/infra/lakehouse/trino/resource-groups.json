@@ -1,0 +1,31 @@
+{
+  "rootGroups": [
+    {
+      "name": "global",
+      "softMemoryLimit": "100%",
+      "hardConcurrencyLimit": 6,
+      "maxQueued": 200,
+      "schedulingPolicy": "weighted_fair",
+      "subGroups": [
+        {
+          "name": "service",
+          "softMemoryLimit": "80%",
+          "hardConcurrencyLimit": 5,
+          "maxQueued": 150,
+          "schedulingWeight": 3
+        },
+        {
+          "name": "adhoc",
+          "softMemoryLimit": "50%",
+          "hardConcurrencyLimit": 1,
+          "maxQueued": 20,
+          "schedulingWeight": 1
+        }
+      ]
+    }
+  ],
+  "selectors": [
+    {"source": "trino-cli", "group": "global.adhoc"},
+    {"group": "global.service"}
+  ]
+}

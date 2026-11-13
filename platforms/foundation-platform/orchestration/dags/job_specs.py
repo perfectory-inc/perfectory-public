@@ -453,11 +453,55 @@ def retries(job):
 
 
 def priority_weight(job):
-    """Which waiting job Airflow starts first when slots free (`priority_weight`, 1 when absent)."""
+    """The job's tier in its pool's queue (`priority_weight`, 1 when absent); queue_weights raises it
+    above the jobs that read what the job writes, and that is the weight Airflow orders by."""
     value = job.get("priority_weight", 1)
     if type(value) is not int or value < 1:
         raise JobListError(f"{job['id']}: priority_weight must be a positive integer")
     return value
+
+
+def queue_weights(jobs, feeders):
+    """Job id -> the weight Airflow orders its pool's waiting tasks by (root ADR-0138, ADR-0558): the
+    job's own priority_weight, raised until it is above every job of its pool that reads what it
+    writes. The data dependency is the pipeline graph's (`feeders`, producers()), so no weight is kept
+    in step with it by hand; Airflow's own default rule does the same inside one DAG (`weight_rule`
+    "downstream": a task outranks what waits on it), and every job here is its own DAG. Jobs that read
+    each other's outputs in a circle (the two map-edit folds share one ledger) are one group with one
+    weight.
+
+    2026-11-11 12:15Z..: data_go_kr_file_data (weight 1) waited over 16 hours in the spark pool's queue
+    while gold_parcel_nearby_rebuild (weight 2), which reads the eight Silver tables only it loads, ran
+    ahead of it and failed on tables that did not exist yet.
+    """
+    by_id = {job["id"]: job for job in jobs["jobs"]}
+    readers = {job_id: [] for job_id in by_id}
+    for reader, writers in feeders.items():
+        for writer in writers:
+            if by_id[writer]["pool"] == by_id[reader]["pool"]:
+                readers[writer].append(reader)
+
+    def reach(start):
+        seen, stack = set(), [start]
+        while stack:
+            for reader in readers[stack.pop()]:
+                if reader not in seen:
+                    seen.add(reader)
+                    stack.append(reader)
+        return seen
+
+    downstream = {job_id: reach(job_id) for job_id in by_id}
+    group = {job_id: frozenset({job_id} | {other for other in downstream[job_id] if job_id in downstream[other]})
+             for job_id in by_id}
+    weights = {}
+    # A group with fewer jobs downstream reads nothing of one with more, so each is weighed after
+    # everything that waits on it.
+    for members in sorted(set(group.values()), key=lambda members: len(downstream[min(members)] - members)):
+        waiting = {reader for member in members for reader in readers[member]} - members
+        weight = max([priority_weight(by_id[member]) for member in members]
+                     + [weights[reader] + 1 for reader in waiting])
+        weights.update(dict.fromkeys(members, weight))
+    return weights
 
 
 def priority_class(jobs, entry, name):
@@ -495,6 +539,33 @@ def inherited_class(job, by_id, found):
                            f"{other.get('priority_class', 'default')!r}, the class of {source} it takes it from")
 
 
+def memory_claims(jobs):
+    """Each job's `memory_claim` (root ADR-0563), checked: the systemd units whose MemoryMax its run
+    takes beyond what its pool's slots stand for, admitted against the host's available memory when it
+    starts (scripts/deploy/job_units.py memory_short). A claim needs the list's
+    `memory_claims.keep_available`, names units, and belongs to a job of a pool with one slot: two
+    claiming jobs started together would each be admitted against the same available memory."""
+    claiming = [job for job in jobs["jobs"] if "memory_claim" in job]
+    if not claiming:
+        return
+    keep = (jobs.get("memory_claims") or {}).get("keep_available")
+    if not isinstance(keep, str) or not re.fullmatch(r"[1-9][0-9]*[mg]", keep):
+        raise JobListError("memory_claims.keep_available must be a size like 6g when a job states a memory_claim")
+    for job in claiming:
+        claim = job["memory_claim"]
+        units = claim.get("units") if isinstance(claim, dict) else None
+        named = isinstance(units, list) and units and all(
+            isinstance(unit, str) and re.fullmatch(r"[a-z0-9-]+\.service", unit) for unit in units)
+        if not named or set(claim) != {"units"}:
+            raise JobListError(f"{job['id']}: memory_claim must be an object with only `units`, systemd service names")
+        if (jobs.get("pools") or {}).get(job["pool"], {}).get("slots") != 1:
+            raise JobListError(f"{job['id']}: a job with a memory_claim runs in a pool of one slot, so no two claims"
+                               " are admitted against the same available memory")
+    pools = {job["pool"] for job in claiming}
+    if len(pools) > 1:
+        raise JobListError(f"jobs with a memory_claim are in more than one pool ({sorted(pools)}); they must share one")
+
+
 def capacity_claimants(jobs, pools):
     """The work outside the job list that claims pool slots (root ADR-0435), each checked."""
     claimants = jobs.get("capacity_claimants") or {}
@@ -508,6 +579,10 @@ def capacity_claimants(jobs, pools):
             raise JobListError(f"capacity claimant {name}: pool_slots must be 1 to {slots}")
         if not re.fullmatch(r"[a-z0-9@*-]+\.service", claimant.get("unit") or ""):
             raise JobListError(f"capacity claimant {name}: unit must be a systemd service name or pattern")
+        work = claimant.get("work_units", [])
+        if not isinstance(work, list) or not all(isinstance(unit, str) and re.fullmatch(r"[a-z0-9@*-]+\.service", unit)
+                                                 for unit in work):
+            raise JobListError(f"capacity claimant {name}: work_units must be systemd service names or patterns")
         if (jobs["priority_classes"].get(claimant.get("priority_class")) or {}).get("yields_at_step_boundary"):
             raise JobListError(f"capacity claimant {name}: a claimant does not yield; name another class")
         priority_class(jobs, claimant, f"capacity claimant {name}")
@@ -663,8 +738,11 @@ def pool_starvation(jobs, graph=None):
     """Every job that could wait for its pool's slots longer than STARVATION_CYCLES of its runs."""
     problems = []
     cycles = cycle_minutes(jobs, graph)
+    weights = queue_weights(jobs, producers(jobs, graph if graph is not None
+                                           else json.loads(GRAPH.read_text(encoding="utf-8"))))
     for pool, slots in declared_pools(jobs).items():
-        members = [job for job in jobs["jobs"] if job["pool"] == pool]
+        # Weighed as Airflow orders them: by the weight the data dependency raised (queue_weights).
+        members = [{**job, "priority_weight": weights[job["id"]]} for job in jobs["jobs"] if job["pool"] == pool]
         for starved in members:
             if pool_slots(starved) > slots:
                 problems.append(f"{starved['id']} takes {pool_slots(starved)} slots of pool {pool!r}, which has {slots}")
@@ -900,9 +978,13 @@ def load_specs(jobs=None, graph=None):
 
     pools = {DEFAULT_POOL, *declared_pools(jobs)}
     capacity_claimants(jobs, pools)
+    memory_claims(jobs)
     found = datasets(jobs, graph)
     feeders = producers(jobs, graph)
     by_id = {job["id"]: job for job in jobs["jobs"]}
+    for job in jobs["jobs"]:
+        priority_weight(job)
+    weights = queue_weights(jobs, feeders)
 
     specs, seen_ids, seen_services = [], set(), set()
     for job in jobs["jobs"]:
@@ -997,7 +1079,7 @@ def load_specs(jobs=None, graph=None):
                 pool=job["pool"],
                 pool_slots=pool_slots(job),
                 retries=retries(job),
-                priority_weight=priority_weight(job),
+                priority_weight=weights[job_id],
                 systemd_service=service,
                 systemd_timer=timer,
                 enabled=job["enabled"],

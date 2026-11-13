@@ -5,7 +5,8 @@
 //! Their columns are the intelligence platform's contract
 //! (`platforms/intelligence-platform/config/document-extraction.contract.json` `outputs`) plus the
 //! run that appended them; a test in `infra/lakehouse/spark/tests` holds the two equal. Only the
-//! intelligence jobs write these tables; foundation reads them.
+//! intelligence jobs write these tables; foundation reads them, and its read for the complex panel
+//! is `gold.complex_document_facts`.
 
 use crate::lakehouse::{
     LakehouseColumn, LakehouseCurrentRowLatest, LakehouseLayer, LakehouseLoadUnit,
@@ -24,6 +25,7 @@ const fn column(name: &'static str, logical_type: &'static str, required: bool) 
 const DOCUMENT_KEY: &[&str] = &["sha256", "extractor_version"];
 const PAGE_KEY: &[&str] = &["sha256", "extractor_version", "page_number"];
 const FACT_KEY: &[&str] = &["sha256", "extractor_version", "fact_kind", "fact_index"];
+const COMPLEX_KEY: &[&str] = &["official_complex_code"];
 // A key is read once per extractor version, so a second row exists only if a run's append was
 // repeated; the later run (its id is its UTC start, `YYYYMMDDTHHMMSSZ`) is the one kept.
 const NEWEST: &[&str] = &["run_id"];
@@ -167,6 +169,39 @@ pub const INTELLIGENCE_DOCUMENT_FACT_OUTCOME: LakehouseTableContract = Lakehouse
         "append_only",
         "(sha256, extractor_version) unique",
         "appended after the run's facts, so an outcome never names facts that are missing",
+    ],
+    load: LakehouseLoadUnit::Run { column: "run_id" },
+};
+
+/// Foundation's own read of the facts for each industrial complex's panel (root ADR-0477 §1).
+///
+/// Only the kinds the hand-checked gate admits (§5), each from the newest notice that states it
+/// with the page it was read on. Written only by the fact job's fold step, which appends a row for
+/// each complex whose attachments got facts in the run; the newest row per complex is served.
+pub const GOLD_COMPLEX_DOCUMENT_FACTS: LakehouseTableContract = LakehouseTableContract {
+    table_name: "gold.complex_document_facts",
+    layer: LakehouseLayer::Gold,
+    physical_format: LakehousePhysicalFormat::Parquet,
+    serving_role: LakehouseServingRole::Projection,
+    current_row_predicate: None,
+    row_versions: latest(COMPLEX_KEY),
+    columns: &[
+        column("official_complex_code", "string", true),
+        column("document_facts_json", "string", true),
+        column("fact_count", "long", true),
+        column("fact_extractor_version", "string", true),
+        column("accuracy_gate_json", "string", true),
+        column("folded_at_utc", "timestamp", true),
+        column("run_id", "string", true),
+    ],
+    partition_spec: &[],
+    sort_order: COMPLEX_KEY,
+    write_distribution: LakehouseWriteDistribution::Hash,
+    quality_gates: &[
+        "append_only",
+        "(official_complex_code, run_id) unique",
+        "every fact's (fact_kind, method, page_method) is in the row's accuracy_gate_json",
+        "fact_count is the number of facts in document_facts_json",
     ],
     load: LakehouseLoadUnit::Run { column: "run_id" },
 };

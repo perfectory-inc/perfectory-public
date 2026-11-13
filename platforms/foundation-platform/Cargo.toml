@@ -90,7 +90,7 @@ sha2 = "0.10"
 # RFC 2104 HMAC over sha2 (RustCrypto, the same family as sha2) instead of hand-written ipad/opad.
 hmac = "0.12"
 tempfile = "3.27"
-duckdb = { version = "=1.10506.1", default-features = false }
+duckdb = { version = "=1.20000.1", default-features = false }
 futures-util = "0.3"
 bytes = "1"
 http-body = "1"
@@ -108,7 +108,7 @@ shapefile = { version = "0.9.0", default-features = false, features = ["encoding
 # Photo rendition ladder (root ADR-0427): decode with EXIF orientation, Lanczos3 resize, JPEG and
 # AVIF (rav1e through ravif, no nasm) encode. WebP lossy is libwebp itself (the `image` WebP
 # encoder is lossless only). No hand-written codec.
-image = { version = "0.25.10", default-features = false, features = ["avif", "gif", "jpeg", "png", "rayon", "webp"] }
+image = { version = "0.25.10", default-features = false, features = ["avif", "bmp", "gif", "jpeg", "png", "rayon", "tiff", "webp"] }
 webp = { version = "0.3.1", default-features = false }
 # 표 형식 provider 파일(xlsx) 판독기. SpreadsheetML을 직접 파싱하지 않는다.
 calamine = { version = "0.38.0", default-features = false, features = ["dates"] }
@@ -121,6 +121,12 @@ flate2 = "1.1"
 # MVT tiles are protobuf. The lakehouse tile bake's maxzoom gate decodes their ids with it
 # (root ADR-0133 §3) instead of a hand-written wire decoder.
 prost = { version = "0.14", default-features = false, features = ["derive", "std"] }
+# The publisher's Iceberg data commit (root ADR-0560): apache/iceberg-rust writes the manifest,
+# the manifest list and the commit of an append; only `lakehouse_data_commit` calls it. It brings
+# its own arrow/parquet 58.4 beside the workspace's 60 until it moves to 60. S3 storage only.
+iceberg = "=0.11.0"
+iceberg-catalog-rest = "=0.11.0"
+iceberg-storage-opendal = { version = "=0.11.0", default-features = false, features = ["opendal-s3"] }
 arrow-array = "60"
 arrow-schema = "60"
 # Every codec Iceberg's `write.parquet.compression-codec` can name, because a reader is handed

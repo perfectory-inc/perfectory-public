@@ -179,6 +179,32 @@ fi
 RELEASE="$(readlink -e "${RELEASE}")" || refuse "no current release at ${RELEASE}" 65
 PIN=()
 [[ "${RELEASE##*/}" =~ ^[0-9a-f]{40}$ ]] && PIN=(-E "FOUNDATION_RUN_RELEASE=${RELEASE##*/}")
+# Root ADR-0441 (amended by root ADR-0521): every unit a pack-only lane's run starts declares the jobs
+# whose assets it writes, FOUNDATION_RUN_WRITES: the jobs whose asset is the lane's Gold or is made from
+# it, by the same reading of the pipeline graph the deploy's hold set is (release_changes.writers). A
+# deploy waits for the unit only when that set meets what its release holds (2026-11-11: a cut-over
+# whose Gold step ran for hours held every release that changed any table). A unit that declares
+# nothing (a panel lane's, or a lane the graph cannot place) is waited for, as before.
+if [[ "${LANE}" == lanes || "${LANE}" == *,* ]] || is_pack_lane "${LANE}"; then
+  RUN_WRITES="$(python3 -I -B - "${RELEASE}" "${LANE}" <<'PY' 2>/dev/null
+import pathlib, sys
+release, target = pathlib.Path(sys.argv[1]), sys.argv[2]
+sys.dont_write_bytecode = True
+sys.path[:0] = [str(release / "scripts/deploy"), str(release / "infra/lakehouse/spark/jobs")]
+import by_pnu_kinds, release_changes  # noqa: E402
+import json  # noqa: E402
+lanes = json.load(open(release / "config/r2-connections.contract.json", encoding="utf-8"))["by_pnu_lanes"]
+written = set()
+for lane in (list(lanes) if target == "lanes" else target.split(",")):
+    writers, _ = release_changes.writers(release, [by_pnu_kinds.lane_fields(lane)["gold_table"]], every_table=False)
+    if not writers:
+        sys.exit(1)  # the graph cannot place it: declare nothing, so the deploy waits
+    written.update(writers)
+print(",".join(sorted(written)))
+PY
+  )" || RUN_WRITES=""
+  [[ ! "${RUN_WRITES}" =~ ^[a-z][a-z0-9_]*(,[a-z][a-z0-9_]*)*$ ]] || PIN+=(-E "FOUNDATION_RUN_WRITES=${RUN_WRITES}")
+fi
 SYSTEMD_RUN="${FOUNDATION_OPERATOR_SYSTEMD_RUN:-systemd-run}"
 BAKE_ROOT="${FOUNDATION_OPERATOR_BAKE_ROOT:-/data/foundation-platform/by-pnu-bake}"
 ETC="${FOUNDATION_OPERATOR_ETC:-/etc/foundation-platform}"

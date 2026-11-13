@@ -19,7 +19,8 @@ import time
 from typing import Any
 from pathlib import Path
 
-from lakehouse_engine import apply_catalog_settings, assert_catalog_env, assert_iceberg_runtime_loaded, iceberg_packages
+from lakehouse_engine import (NO_AUTO_BROADCAST, apply_catalog_settings, assert_catalog_env,
+                              assert_iceberg_runtime_loaded, iceberg_packages)
 from lakehouse_ingest import append_batch_once
 from platform_contracts import (column_names, create_table_columns_sql, evolve_iceberg_table_to_contract,
                                 load_lakehouse_contract, partition_clause_sql, rows_as_of)
@@ -203,8 +204,7 @@ def main(argv=None):
     started = time.monotonic()
     builder = (SparkSession.builder.appName("foundation-platform-unit-official-price")
                .config("spark.sql.session.timeZone", "UTC")
-               .config("spark.sql.autoBroadcastJoinThreshold", "-1")
-               .config("spark.sql.adaptive.autoBroadcastJoinThreshold", "-1")
+               .config(map=NO_AUTO_BROADCAST)
                .config("spark.sql.shuffle.partitions", "400"))
     spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     try:

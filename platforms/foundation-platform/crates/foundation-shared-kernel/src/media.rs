@@ -19,7 +19,8 @@ use crate::object_key::{ObjectKey, ObjectKeyError, ObjectKeyPrefix};
 /// The photo formats ([`Self::sniff`]) are the ones the parcel sources serve: KAMCO Onbid photos and
 /// appraisal attachments, and court-auction photos; a photo payload matching none of them is not
 /// stored. The document formats ([`Self::sniff_document`], root ADR-0484) are what a notice may be
-/// attached as: every attachment is stored, [`Self::Binary`] when no signature names it.
+/// attached as: every attachment is stored, [`Self::Binary`] when no signature names it. BMP and TIFF
+/// photos are read but never served (root ADR-0503): see [`Self::is_served`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MediaFormat {
@@ -42,6 +43,11 @@ pub enum MediaFormat {
     Hwpx,
     /// Any other ZIP archive (`PK\x03\x04`).
     Zip,
+    /// Windows bitmap (`BM` and a known DIB header size): 공매 photos uploaded as BMP, which the
+    /// provider serves as is even at its thumbnail URL (measured 2026-11-11, root ADR-0503).
+    Bmp,
+    /// TIFF image (`II*\0` / `MM\0*`): a scanner's raster.
+    Tiff,
     /// Bytes no signature names. Only [`Self::sniff_document`] gives it: an attachment is kept
     /// whatever it is, and a later reader decides what it holds.
     Binary,
@@ -62,6 +68,8 @@ impl MediaFormat {
             Self::Hwpx => "hwpx",
             Self::Zip => "zip",
             Self::Binary => "bin",
+            Self::Bmp => "bmp",
+            Self::Tiff => "tif",
         }
     }
 
@@ -79,6 +87,8 @@ impl MediaFormat {
             Self::Hwpx => "application/hwp+zip",
             Self::Zip => "application/zip",
             Self::Binary => "application/octet-stream",
+            Self::Bmp => "image/bmp",
+            Self::Tiff => "image/tiff",
         }
     }
 
@@ -96,6 +106,8 @@ impl MediaFormat {
             Self::Hwpx,
             Self::Zip,
             Self::Binary,
+            Self::Bmp,
+            Self::Tiff,
         ]
         .into_iter()
         .find(|format| format.extension() == extension)
@@ -106,8 +118,17 @@ impl MediaFormat {
     pub const fn is_image(self) -> bool {
         matches!(
             self,
-            Self::Jpeg | Self::Png | Self::Gif | Self::Webp | Self::Avif
+            Self::Jpeg | Self::Png | Self::Gif | Self::Webp | Self::Avif | Self::Bmp | Self::Tiff
         )
+    }
+
+    /// Whether a photo of this format is stored as received in the served store (`<prefix>/sha256/`,
+    /// which the edge serves and every screen reads; root ADR-0503). A raster no screen reads (BMP,
+    /// TIFF) is kept as received under [`source_key`] and stands there as its lossless PNG display
+    /// master, so no reader downstream ever meets it.
+    #[must_use]
+    pub const fn is_served(self) -> bool {
+        !matches!(self, Self::Bmp | Self::Tiff)
     }
 
     /// Detects the format from the payload's leading bytes.
@@ -131,6 +152,10 @@ impl MediaFormat {
             && matches!(bytes.get(8..12), Some(b"avif" | b"avis"))
         {
             Some(Self::Avif)
+        } else if is_bmp(bytes) {
+            Some(Self::Bmp)
+        } else if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+            Some(Self::Tiff)
         } else {
             None
         }
@@ -172,6 +197,18 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
         .any(|window| window == needle)
+}
+
+/// `BM` alone is two common letters, so a bitmap is also its DIB header's size: one of the header
+/// versions Windows defines (`BITMAPCOREHEADER` 12 through `BITMAPV5HEADER` 124).
+fn is_bmp(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"BM")
+        && bytes
+            .get(14..18)
+            .and_then(|size| <[u8; 4]>::try_from(size).ok())
+            .is_some_and(|size| {
+                matches!(u32::from_le_bytes(size), 12 | 40 | 52 | 56 | 64 | 108 | 124)
+            })
 }
 
 /// A lowercase hex SHA-256 digest (exactly 64 characters, `0-9a-f`).
@@ -253,6 +290,27 @@ pub fn content_addressed_key(
     ))
 }
 
+/// The key of a received file no screen reads (root ADR-0503): `<prefix>/sources/sha256/<hash>.<ext>`.
+///
+/// Kept byte for byte and write-once like every stored file, but outside `<prefix>/sha256/`, the
+/// served store the edge reads and the media reconciler lists: what stands for it there is its
+/// display master.
+///
+/// # Errors
+/// Returns [`ObjectKeyError`] when the composed key is not a valid object key.
+pub fn source_key(
+    prefix: &ObjectKeyPrefix,
+    hash: &Sha256Hex,
+    format: MediaFormat,
+) -> Result<ObjectKey, ObjectKeyError> {
+    let prefix = prefix.as_str().trim_end_matches('/');
+    ObjectKey::parse(&format!(
+        "{prefix}/sources/sha256/{}.{}",
+        hash.as_str(),
+        format.extension()
+    ))
+}
+
 /// The key of one display rendition of a stored source (root ADR-0427).
 ///
 /// `<prefix>/renditions/<version>/<source sha256>/<width>.<ext>`: a rendition is named by its source
@@ -320,6 +378,60 @@ mod tests {
             Some(MediaFormat::Avif)
         );
         assert_eq!(MediaFormat::sniff(b"RIFF\x10\0\0\0WAVEfmt "), None);
+        // A Windows bitmap: `BM`, its file header, then a BITMAPINFOHEADER (40).
+        let mut bmp = b"BM\x36\0\0\0\0\0\0\0\x36\0\0\0".to_vec();
+        bmp.extend_from_slice(&40_u32.to_le_bytes());
+        assert_eq!(MediaFormat::sniff(&bmp), Some(MediaFormat::Bmp));
+        assert_eq!(
+            MediaFormat::sniff(b"II*\0\x08\0\0\0"),
+            Some(MediaFormat::Tiff)
+        );
+        assert_eq!(
+            MediaFormat::sniff(b"MM\0*\0\0\0\x08"),
+            Some(MediaFormat::Tiff)
+        );
+    }
+
+    #[test]
+    fn two_letters_bm_are_not_a_bitmap() {
+        assert_eq!(MediaFormat::sniff(b"BM"), None);
+        assert_eq!(
+            MediaFormat::sniff(b"BMW is a word, not a bitmap header"),
+            None
+        );
+    }
+
+    #[test]
+    fn only_bmp_and_tiff_are_kept_out_of_the_served_store() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for format in [
+            MediaFormat::Jpeg,
+            MediaFormat::Png,
+            MediaFormat::Gif,
+            MediaFormat::Pdf,
+            MediaFormat::Webp,
+            MediaFormat::Avif,
+        ] {
+            assert!(format.is_served(), "{format:?}");
+        }
+        for format in [MediaFormat::Bmp, MediaFormat::Tiff] {
+            assert!(!format.is_served() && format.is_image(), "{format:?}");
+            assert_eq!(
+                MediaFormat::from_extension(format.extension()),
+                Some(format)
+            );
+        }
+        let hash = Sha256Hex::of(b"bitmap");
+        assert_eq!(
+            super::source_key(
+                &ObjectKeyPrefix::parse("onbid/media")?,
+                &hash,
+                MediaFormat::Bmp
+            )?
+            .as_str(),
+            format!("onbid/media/sources/sha256/{}.bmp", hash.as_str())
+        );
+        Ok(())
     }
 
     #[test]

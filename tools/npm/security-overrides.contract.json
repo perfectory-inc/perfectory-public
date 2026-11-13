@@ -15,6 +15,21 @@
     },
     {
       "kind": "security",
+      "package": "basic-ftp",
+      "version": "6.2.6",
+      "from": "5.0.0",
+      "advisories": [
+        "GHSA-2w5v-vj22-jp27",
+        "GHSA-5pm8-86m8-9m6r",
+        "GHSA-5rfr-xx34-2xxv",
+        "GHSA-c475-qrg2-pj4r",
+        "GHSA-r4jh-29pc-gfqr"
+      ],
+      "reason": "Directory-listing and control-character advisories fixed only on the 6 line (6.2.1 up to 6.2.6). get-uri 8.0.1, the newest release, still declares ^5.3.1, so no parent upgrade closes them and the floor reaches down to the 5 line. Only gongzzang resolves it, through the docs link checker (markdown-link-check and link-check -> proxy-agent -> pac-proxy-agent -> get-uri), a development tool outside every service. get-uri uses Client, access, lastMod, list, downloadTo and close; the published type declarations of 5.3.1 and 6.2.6 are identical, and the one breaking change of 6.0.0 (separate transfer hosts refused by default) tightens a path the link checker never opens.",
+      "date": "2026-11-13"
+    },
+    {
+      "kind": "security",
       "package": "brace-expansion",
       "version": "5.0.12",
       "advisories": [

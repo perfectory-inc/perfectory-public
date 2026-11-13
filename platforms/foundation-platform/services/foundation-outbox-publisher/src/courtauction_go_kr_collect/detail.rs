@@ -15,7 +15,7 @@
 //! stored photo then gets its display ladder (`media_renditions::ensure_ladders`, root ADR-0427 §7)
 //! once the night's Bronze has landed.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::Context as _;
 use base64::Engine as _;
@@ -40,6 +40,8 @@ pub(crate) struct PhotoFields {
     pub(crate) file_field: String,
     pub(crate) object_prefix_from: String,
     pub(crate) max_file_bytes: u64,
+    /// How many of one answer's photos are stored at once (root ADR-0540 §2).
+    pub(crate) store_concurrency: usize,
     /// The bound of the night's ladder step (root ADR-0427 §7); what it leaves, the backlog job
     /// takes from the Silver photo index.
     pub(crate) renditions: RenditionBudget,
@@ -65,6 +67,8 @@ pub(crate) struct ItemDetail {
     pub(crate) status_field: String,
     pub(crate) result_pointer: String,
     pub(crate) per_run_limit: u32,
+    /// How many 물건상세 lines one Bronze object holds: the run commits each part as it fills.
+    pub(crate) commit_every_lines: usize,
     pub(crate) read_from: String,
     pub(crate) photos: PhotoFields,
 }
@@ -325,19 +329,61 @@ pub(crate) struct PhotoReport {
     /// sources of the night's ladder step.
     #[serde(skip)]
     pub(crate) sources: Vec<(String, String)>,
-    #[serde(skip)]
-    seen: HashSet<String>,
+}
+
+impl PhotoReport {
+    /// Adds another answer's report to this one.
+    pub(crate) fn absorb(&mut self, other: Self) {
+        self.photos += other.photos;
+        self.stored += other.stored;
+        self.deduplicated += other.deduplicated;
+        self.bytes_stored += other.bytes_stored;
+        self.not_stored += other.not_stored;
+        self.sources.extend(other.sources);
+    }
+}
+
+/// What the store answered for a received photo: what the line names (for a raster no screen reads,
+/// its display master with the received file as `source`, root ADR-0503).
+#[derive(Clone, Debug)]
+pub(crate) struct Named {
+    sha256: String,
+    media_format: String,
+    size_bytes: u64,
+    source: Option<crate::media_store::SourceMedia>,
+}
+
+/// The photos a run has stored or found stored, by the received bytes' hash: a case's properties
+/// answer the same photos, so one already here is neither asked of the store nor a ladder source
+/// again (root ADR-0540 §2). Two answers in flight with the same new photo both ask the store, which
+/// deduplicates by content.
+pub(crate) type SeenPhotos = std::sync::Mutex<HashMap<String, Named>>;
+
+/// Stores one decoded photo, keeping where it sits in the answer.
+async fn store_one<'a>(
+    index: usize,
+    bytes: &[u8],
+    received: &'a String,
+    prefix: &ObjectKeyPrefix,
+    storage: &dyn ObjectStorageService,
+    max_file_bytes: u64,
+) -> (usize, &'a String, anyhow::Result<Stored>) {
+    let stored = store_bytes(bytes, prefix, storage, max_file_bytes).await;
+    (index, received, stored)
 }
 
 /// Rewrites one response's photos in place: each `file_field` value is decoded, stored once (when
-/// `storage` is given) and replaced by `sha256:<hex>`, with `sha256`, `media_format` and
-/// `size_bytes` beside it. A value that does not decode, is over the cap or is not an image is
-/// left out of the store and of the line (`null`), and counted. Returns how many photos it has.
+/// `storage` is given, `fields.store_concurrency` at a time; one in `seen` is not stored again) and
+/// replaced by `sha256:<hex>` of what the store holds, with `sha256`, `media_format` and
+/// `size_bytes` beside it (and the received file as `source_*`, root ADR-0503). A value that does
+/// not decode, is over the cap or is not an image is left out of the store and of the line (`null`),
+/// and counted. Returns how many photos it has.
 pub(crate) async fn rewrite_photos(
     result: &mut JsonValue,
     fields: &PhotoFields,
     prefix: &ObjectKeyPrefix,
     storage: Option<&dyn ObjectStorageService>,
+    seen: &SeenPhotos,
     report: &mut PhotoReport,
 ) -> anyhow::Result<u64> {
     let Some(photos) = result
@@ -346,8 +392,11 @@ pub(crate) async fn rewrite_photos(
     else {
         return Ok(0);
     };
+    // Decoded first, in list order: (index, bytes, received hash, format) of every photo that is an
+    // image under the cap.
+    let mut decoded = Vec::new();
     let mut count = 0;
-    for photo in photos.iter_mut() {
+    for (index, photo) in photos.iter_mut().enumerate() {
         let Some(encoded) = photo.get(&fields.file_field).and_then(JsonValue::as_str) else {
             continue;
         };
@@ -357,40 +406,132 @@ pub(crate) async fn rewrite_photos(
             .decode(encoded.trim())
             .ok();
         let format = bytes.as_deref().and_then(MediaFormat::sniff);
-        let (Some(bytes), Some(format)) = (bytes, format) else {
+        match (bytes, format) {
+            (Some(bytes), Some(format)) if bytes.len() as u64 <= fields.max_file_bytes => {
+                let received = hex(&Sha256::digest(&bytes));
+                decoded.push((index, bytes, received, format));
+            }
+            _ => {
+                report.not_stored += 1;
+                photo[fields.file_field.as_str()] = JsonValue::Null;
+            }
+        }
+    }
+    // What each photo's line names, by its place in the list; none when the store refused it.
+    let mut named: HashMap<usize, Named> = HashMap::new();
+    // A photo the answer lists twice is stored once and named from its first place.
+    let mut copies: Vec<(usize, usize)> = Vec::new();
+    if let Some(storage) = storage {
+        let fresh: Vec<_> = {
+            let seen = seen
+                .lock()
+                .map_err(|_| anyhow::anyhow!("the seen photos lock was poisoned"))?;
+            let mut first_of: HashMap<&String, usize> = HashMap::new();
+            decoded
+                .iter()
+                .filter(|(index, _, received, _)| {
+                    if let Some(known) = seen.get(received) {
+                        report.deduplicated += 1;
+                        named.insert(*index, known.clone());
+                        return false;
+                    }
+                    if let Some(first) = first_of.get(received) {
+                        report.deduplicated += 1;
+                        copies.push((*index, *first));
+                        return false;
+                    }
+                    first_of.insert(received, *index);
+                    true
+                })
+                .collect()
+        };
+        // Built here, run only as the stream polls them: no closure lives in the stream (one did and
+        // broke the binary's Send bound, "FnOnce is not general enough", as `collect_details` notes).
+        let stores: Vec<_> = fresh
+            .iter()
+            .map(|(index, bytes, received, _)| {
+                store_one(
+                    *index,
+                    bytes,
+                    received,
+                    prefix,
+                    storage,
+                    fields.max_file_bytes,
+                )
+            })
+            .collect();
+        let mut stored = stream::iter(stores).buffer_unordered(fields.store_concurrency.max(1));
+        let mut done = Vec::new();
+        while let Some(outcome) = stored.next().await {
+            done.push(outcome);
+        }
+        // In list order, so the ladder sources keep the order read.
+        done.sort_by_key(|(index, ..)| *index);
+        for (index, received, stored) in done {
+            let media = match stored? {
+                Stored::New(media) => {
+                    report.stored += 1;
+                    report.bytes_stored += media.size_bytes;
+                    media
+                }
+                Stored::Deduplicated(media) => {
+                    report.deduplicated += 1;
+                    media
+                }
+                Stored::Oversize | Stored::UnknownFormat | Stored::Gone => continue,
+            };
+            let entry = Named {
+                sha256: media.sha256,
+                media_format: media.media_format,
+                size_bytes: media.size_bytes,
+                source: media.source,
+            };
+            let first = seen
+                .lock()
+                .map_err(|_| anyhow::anyhow!("the seen photos lock was poisoned"))?
+                .insert(received.clone(), entry.clone())
+                .is_none();
+            if first {
+                report
+                    .sources
+                    .push((entry.sha256.clone(), entry.media_format.clone()));
+            }
+            named.insert(index, entry);
+        }
+        for (index, first) in copies {
+            if let Some(entry) = named.get(&first).cloned() {
+                named.insert(index, entry);
+            }
+        }
+    } else {
+        for (index, bytes, received, format) in &decoded {
+            named.insert(
+                *index,
+                Named {
+                    sha256: received.clone(),
+                    media_format: format.extension().to_owned(),
+                    size_bytes: bytes.len() as u64,
+                    source: None,
+                },
+            );
+        }
+    }
+    for (index, ..) in decoded {
+        let photo = &mut photos[index];
+        let Some(entry) = named.remove(&index) else {
             report.not_stored += 1;
             photo[fields.file_field.as_str()] = JsonValue::Null;
             continue;
         };
-        if bytes.len() as u64 > fields.max_file_bytes {
-            report.not_stored += 1;
-            photo[fields.file_field.as_str()] = JsonValue::Null;
-            continue;
+        photo[fields.file_field.as_str()] = json!(format!("sha256:{}", entry.sha256));
+        photo["sha256"] = json!(entry.sha256);
+        photo["media_format"] = json!(entry.media_format);
+        photo["size_bytes"] = json!(entry.size_bytes);
+        if let Some(source) = entry.source {
+            photo["source_sha256"] = json!(source.sha256);
+            photo["source_media_format"] = json!(source.media_format);
+            photo["source_size_bytes"] = json!(source.size_bytes);
         }
-        let sha256 = hex(&Sha256::digest(&bytes));
-        if let Some(storage) = storage {
-            match store_bytes(&bytes, prefix, storage, fields.max_file_bytes).await? {
-                Stored::New(media) => {
-                    report.stored += 1;
-                    report.bytes_stored += media.size_bytes;
-                }
-                Stored::Deduplicated(_) => report.deduplicated += 1,
-                Stored::Oversize | Stored::UnknownFormat | Stored::Gone => {
-                    report.not_stored += 1;
-                    photo[fields.file_field.as_str()] = JsonValue::Null;
-                    continue;
-                }
-            }
-            if report.seen.insert(sha256.clone()) {
-                report
-                    .sources
-                    .push((sha256.clone(), format.extension().to_owned()));
-            }
-        }
-        photo[fields.file_field.as_str()] = json!(format!("sha256:{sha256}"));
-        photo["sha256"] = json!(sha256);
-        photo["media_format"] = json!(format.extension());
-        photo["size_bytes"] = json!(bytes.len() as u64);
     }
     Ok(count)
 }
@@ -408,7 +549,8 @@ pub(crate) fn read_result(detail: &ItemDetail, body: &str) -> Result<JsonValue, 
 /// What the detail phase of one run did.
 #[derive(Debug, Default)]
 pub(crate) struct DetailResult {
-    pub(crate) lines: Vec<String>,
+    /// The night's lines, gzipped as they come (a few MB of text each before the photos leave).
+    pub(crate) lines: super::GzLines,
     pub(crate) asked: u32,
     pub(crate) failed: u32,
     pub(crate) photos: PhotoReport,
@@ -482,9 +624,91 @@ async fn send(
     )
 }
 
+/// One property's read, as its Bronze line, or why the run stops.
+enum Read {
+    Line {
+        line: String,
+        failed: bool,
+        photos: PhotoReport,
+    },
+    Stopped(Stop),
+}
+
+/// Asks one property's 물건상세 and turns the answer into its Bronze line, its photos stored (root
+/// ADR-0384 §4) as it goes, so the next answers are asked while these are stored.
+#[allow(clippy::too_many_arguments)]
+async fn read_one(
+    asking: &Asking<'_>,
+    gate: &PaceGate,
+    deadline: Instant,
+    detail: &ItemDetail,
+    headers: &[(String, String)],
+    wanted: &Wanted,
+    now: &(dyn Fn() -> DateTime<Utc> + Sync),
+    store: &PhotoStore<'_>,
+    seen: &SeenPhotos,
+) -> anyhow::Result<Read> {
+    let (at, body, asked) = match send(asking, gate, deadline, detail, headers, wanted, now).await?
+    {
+        Sent::Answered { at, body, asked } => (at, body, asked),
+        Sent::Stopped(why) => return Ok(Read::Stopped(why)),
+    };
+    let mut line = json!({
+        "operation": detail.operation,
+        "request": body,
+        "requested_at_utc": at.to_rfc3339(),
+        "list_fingerprint": wanted.fingerprint,
+    });
+    let read = match asked {
+        Asked::Data { reply, .. } => {
+            line["http_status"] = json!(reply.status);
+            read_result(detail, &reply.body).map_err(|reason| (reason, Some(reply.body)))
+        }
+        Asked::Failed { reason, reply } => {
+            line["http_status"] = json!(reply.as_ref().map(|reply| reply.status));
+            Err((reason, reply.map(|reply| reply.body)))
+        }
+        Asked::Unfinished => return Ok(Read::Stopped(Stop::TimeBudget)),
+    };
+    let mut photos = PhotoReport::default();
+    let failed = read.is_err();
+    match read {
+        Err((reason, text)) => {
+            line["read_outcome"] = json!("failed");
+            line["failure"] = json!(reason);
+            line["body"] = json!(text);
+        }
+        Ok(mut value) => {
+            let photo_count = match value.pointer_mut(&detail.result_pointer) {
+                Some(found) => {
+                    rewrite_photos(
+                        found,
+                        &detail.photos,
+                        &store.prefix,
+                        store.storage,
+                        seen,
+                        &mut photos,
+                    )
+                    .await?
+                }
+                None => 0,
+            };
+            line["read_outcome"] = json!("read");
+            line["photo_count"] = json!(photo_count);
+            line["body"] = json!(serde_json::to_string(&value)?);
+        }
+    }
+    Ok(Read::Line {
+        line: serde_json::to_string(&line)?,
+        failed,
+        photos,
+    })
+}
+
 /// Asks the 물건상세 of `asked` until `deadline`, as many in flight as the detail's pace group
-/// allows, and reads the answers in order, one at a time (an answer is a few MB of base64, so only
-/// the ones in flight are held). `now` is asked before every request, as the list searches do.
+/// allows, each answer read and its photos stored while the next are asked (root ADR-0540 §2; an
+/// answer is a few MB of base64, so only the ones in flight are held), and keeps the lines in the
+/// order asked. `now` is asked before every request, as the list searches do.
 pub(crate) async fn collect_details(
     contract: &SourceContract,
     asking: &Asking<'_>,
@@ -513,65 +737,31 @@ pub(crate) async fn collect_details(
         .collect();
     // Built here, run only as the stream polls them: no closure lives across an await (a closure in
     // the stream broke the binary's Send bound, "FnOnce is not general enough").
-    let sends: Vec<_> = asked
+    let seen = SeenPhotos::default();
+    let reads: Vec<_> = asked
         .iter()
-        .map(|wanted| send(asking, gate, deadline, detail, &headers, wanted, &now))
+        .map(|wanted| {
+            read_one(
+                asking, gate, deadline, detail, &headers, wanted, &now, store, &seen,
+            )
+        })
         .collect();
-    let mut answers = stream::iter(sends).buffered(rule.max.max(1) as usize);
+    let mut answers = stream::iter(reads).buffered(rule.max.max(1) as usize);
     let mut result = DetailResult::default();
-    for wanted in asked {
-        let Some(sent) = answers.next().await else {
-            break;
-        };
-        let (at, body, asked) = match sent? {
-            Sent::Answered { at, body, asked } => (at, body, asked),
-            Sent::Stopped(why) => return Ok((result, Some(why))),
-        };
-        result.asked += 1;
-        let mut line = json!({
-            "operation": detail.operation,
-            "request": body,
-            "requested_at_utc": at.to_rfc3339(),
-            "list_fingerprint": wanted.fingerprint,
-        });
-        let read = match asked {
-            Asked::Data { reply, .. } => {
-                line["http_status"] = json!(reply.status);
-                read_result(detail, &reply.body).map_err(|reason| (reason, Some(reply.body)))
-            }
-            Asked::Failed { reason, reply } => {
-                line["http_status"] = json!(reply.as_ref().map(|reply| reply.status));
-                Err((reason, reply.map(|reply| reply.body)))
-            }
-            Asked::Unfinished => return Ok((result, Some(Stop::TimeBudget))),
-        };
-        match read {
-            Err((reason, text)) => {
-                result.failed += 1;
-                line["read_outcome"] = json!("failed");
-                line["failure"] = json!(reason);
-                line["body"] = json!(text);
-            }
-            Ok(mut value) => {
-                let photo_count = match value.pointer_mut(&detail.result_pointer) {
-                    Some(found) => {
-                        rewrite_photos(
-                            found,
-                            &detail.photos,
-                            &store.prefix,
-                            store.storage,
-                            &mut result.photos,
-                        )
-                        .await?
-                    }
-                    None => 0,
-                };
-                line["read_outcome"] = json!("read");
-                line["photo_count"] = json!(photo_count);
-                line["body"] = json!(serde_json::to_string(&value)?);
+    while let Some(read) = answers.next().await {
+        match read? {
+            Read::Stopped(why) => return Ok((result, Some(why))),
+            Read::Line {
+                line,
+                failed,
+                photos,
+            } => {
+                result.asked += 1;
+                result.failed += u32::from(failed);
+                result.photos.absorb(photos);
+                result.lines.push(&line)?;
             }
         }
-        result.lines.push(serde_json::to_string(&line)?);
     }
     Ok((result, None))
 }
@@ -606,8 +796,10 @@ mod tests {
             "onbid/media",
             "the shared store the parcel edge serves (root ADR-0296 §5)"
         );
-        // The bound the contract measured against the unit's 300 minutes (root ADR-0384).
-        assert_eq!(detail.per_run_limit, 1800);
+        // A safety bound above every in-progress property: the run's deadline ends the asking
+        // (root ADR-0540 §2).
+        assert!(detail.per_run_limit >= 40_000);
+        assert!(detail.photos.store_concurrency >= 1);
         let body = request_body(
             detail,
             &vec!["B999999".into(), "20990130000001".into(), "1".into()],
@@ -724,9 +916,16 @@ mod tests {
         ]});
         let mut report = PhotoReport::default();
         let prefix = photo_prefix(&contract.item_detail).unwrap();
-        let count = rewrite_photos(&mut result, fields, &prefix, None, &mut report)
-            .await
-            .unwrap();
+        let count = rewrite_photos(
+            &mut result,
+            fields,
+            &prefix,
+            None,
+            &SeenPhotos::default(),
+            &mut report,
+        )
+        .await
+        .unwrap();
         assert_eq!(count, 2);
         let first = &result["csPicLst"][0];
         assert!(first["picFile"].as_str().unwrap().starts_with("sha256:"));
@@ -757,14 +956,41 @@ mod tests {
             {"picFile": jpeg, "cortAuctnPicSeq": "1"},
             {"picFile": jpeg, "cortAuctnPicSeq": "2"}
         ]});
+        let seen = SeenPhotos::default();
         let mut report = PhotoReport::default();
         let prefix = photo_prefix(&contract.item_detail).unwrap();
-        rewrite_photos(&mut result, fields, &prefix, Some(&storage), &mut report)
-            .await
-            .unwrap();
+        rewrite_photos(
+            &mut result,
+            fields,
+            &prefix,
+            Some(&storage),
+            &seen,
+            &mut report,
+        )
+        .await
+        .unwrap();
         assert_eq!((report.stored, report.deduplicated), (1, 1));
         let sha = hex(&Sha256::digest(&pixels));
         assert_eq!(report.sources, vec![(sha.clone(), "jpg".to_owned())]);
+        // Another property of the case answers the same photo later in the run: not stored or a
+        // ladder source again (root ADR-0540 §2).
+        let mut again = json!({"csPicLst": [{"picFile": jpeg, "cortAuctnPicSeq": "1"}]});
+        let mut later = PhotoReport::default();
+        rewrite_photos(
+            &mut again,
+            fields,
+            &prefix,
+            Some(&storage),
+            &seen,
+            &mut later,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (later.stored, later.deduplicated, later.sources.len()),
+            (0, 1, 0)
+        );
+        assert_eq!(again["csPicLst"][0]["sha256"], json!(sha.clone()));
         assert!(storage
             .read_object_sha256(&format!("onbid/media/sha256/{sha}.jpg"))
             .await

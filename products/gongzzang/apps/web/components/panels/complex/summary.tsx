@@ -11,6 +11,7 @@ import {
   stated,
 } from "@/lib/complexes/wire-values";
 import type { PanelStackEntry } from "@/lib/panel/types";
+import { ComplexDocumentFactsSection } from "./document-facts";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -73,9 +74,10 @@ function ProseBlock({ label, value }: { label: string; value: string | null | un
  *
  * Order answers what a user who just clicked a boundary asks, in the order they ask it: what is
  * this and where (name, code, address), what state is it in (조성 단계, 분양, 진행률, 면적), when
- * did that happen (지정·착공·준공·사업기간), who runs it (관리기관·시행자), and finally the
- * reference prose (근거법·개발방식·조성목적·유치업종), which is the longest and the least likely
- * to be the reason for the click.
+ * did that happen (지정·착공·준공·사업기간), who runs it (관리기관·시행자), what its notices
+ * plan (토지이용계획·유치업종 read from the attachments, labelled AI 추출), and finally the reference
+ * prose (근거법·개발방식·조성목적·유치업종), which is the longest and the least likely to be the
+ * reason for the click.
  *
  * A column the source did not state has **no row at all**, rather than a row reading `—`: a dash
  * asserts that the field was considered and found empty, which is a claim the data does not make.
@@ -149,6 +151,8 @@ export function ComplexSummaryCard({
           { label: t("developer"), value: data.developer_name },
         ]}
       />
+
+      <ComplexDocumentFactsSection facts={data.document_facts} />
 
       <ProseBlock label={t("designationBasisLaw")} value={data.designation_basis_law_raw} />
       <ProseBlock label={t("developmentMethod")} value={data.development_method_raw} />

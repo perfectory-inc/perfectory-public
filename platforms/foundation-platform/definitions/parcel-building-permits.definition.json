@@ -8,7 +8,7 @@
       "scope": "changed-keys",
       "interruptible": true,
       "commits": "as_it_goes",
-      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요) and, by the same 관리허가대장PK, silver.building_permit_parking (root ADR-0452), and one list per other file of the permit family (동별개요, 층별개요, 대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장 by their own PNU, and 정기점검이력 through the 표제부 its 관리건축물대장PK names, root ADR-0404 §2, ADR-0464), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) of the permits whose parking rows changed (before and after), whose rows of another file of the family changed (before and after; a changed 표제부 counts as a change of the inspections it links), and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
+      "description": "건축인허가 kind Gold (root ADR-0451; scripts/ops/gold-panel-rebuild.sh parcel-building-permits): gold.parcel_building_permits from the current rows of silver.building_permit_basis_outline (건축인허가 기본개요) and, by the same 관리허가대장PK, silver.building_permit_parking (root ADR-0452), and one list per other file of the permit family (동별개요, 층별개요, 대지위치, 대수선, 가설건축물, 부설주차장, 공작물관리대장 and 주택인허가 기본개요 (root ADR-0511) by their own PNU, and 정기점검이력 through the 표제부 its 관리건축물대장PK names, root ADR-0404 §2, ADR-0464), when the Silver lane or the served parcel edition moved past the pins the current Gold recorded. It recomputes only the PNUs whose current permit rows differ between the pinned and the current Silver (both directions, so a permit that moved PNU leaves its old parcel) of the permits whose parking rows changed (before and after), whose rows of another file of the family changed (before and after; a changed 표제부 counts as a change of the inspections it links), and of parcels that entered or left the served edition, and merges them; a change of the code change table rebuilds whole (building_permit_silver_to_gold.WHOLE_TABLE_INPUTS). Its own job because an own-producer kind is never a table of `kinds` (root ADR-0287 §9). by_pnu_parcel_building_permits_bake bakes its commit.",
       "systemd_service": "foundation-gold-lane-rebuild@parcel-building-permits.service",
       "systemd_timer": null,
       "state_paths": [],
@@ -29,7 +29,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 2,
+      "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-building-permit-basis-outline-to-gold-parcel-building-permits",
@@ -42,6 +42,7 @@
         "silver-building-permit-site-location-to-gold-parcel-building-permits",
         "silver-building-permit-structure-ledger-to-gold-parcel-building-permits",
         "silver-building-permit-temporary-building-to-gold-parcel-building-permits",
+        "silver-housing-permit-basis-outline-to-gold-parcel-building-permits",
         "silver-building-register-titles-to-gold-parcel-building-permits",
         "reference-legal-dong-code-change-to-gold-parcel-building-permits"
       ],
@@ -83,7 +84,7 @@
       },
       "pool": "spark",
       "pool_slots": 2,
-      "priority_weight": 1,
+      "priority_weight": 10,
       "priority_class": "publish",
       "retries": 0,
       "pipeline_graph_edges": [
@@ -201,6 +202,16 @@
         "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
       ],
       "description": "행마다 그 행의 PNU 로 필지 문서의 목록 하나(원천 글자 그대로, 최대 50건과 전체 건수)에 싣는다(루트 ADR-0464). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산한다."
+    },
+    {
+      "from": "silver-housing-permit-basis-outline",
+      "to": "gold-parcel-building-permits",
+      "relation": "feeds",
+      "status": "implemented",
+      "via": [
+        "platforms/foundation-platform/infra/lakehouse/spark/jobs/building_permit_silver_to_gold.py"
+      ],
+      "description": "승인마다 그 행의 PNU 로 필지 문서의 목록 하나(housing_permits, 원천 글자 그대로, 승인일 새것부터 최대 50건과 전체 건수)에 싣는다(루트 ADR-0511 §2). 행이 바뀐 PNU 만(바뀌기 전과 뒤) 다시 계산하고, 법정동 코드가 바뀐 행은 views.changed_codes 로 현재 코드에서 읽는다(ADR-0329 §3)."
     },
     {
       "from": "silver-building-permit-site-location",
@@ -325,6 +336,13 @@
           "schema_version": "foundation-platform.parcel_building_permits_by_pnu.v1",
           "decision": "docs/adr/0464-a-parcel-shows-every-file-of-the-building-permit-family-each-as-its-own-list.md",
           "reason": "the document gains one optional list per other file of the permit family ({total, records}, null when the parcel has none): building_outlines (동별개요), floor_overviews (층별개요), site_locations (대지위치), major_repairs (대수선), temporary_buildings (가설건축물), annex_parkings (부설주차장), structures (공작물관리대장), regular_inspections (건축물 정기점검이력, through the 표제부)"
+        },
+        {
+          "major": 1,
+          "revision": 4,
+          "schema_version": "foundation-platform.parcel_building_permits_by_pnu.v1",
+          "decision": "docs/adr/0511-housing-permits-and-the-rest-of-the-collected-files-reach-silver-and-the-permit-panel-shows-housing-permits.md",
+          "reason": "the document gains one more optional list, housing_permits ({total, records}, null when the parcel has none): the parcel's 주택인허가 기본개요 rows in the provider's words (용도·구조명, 주건축물수, 연면적, 총세대수, 승인일, 착공예정일, 착공일, 사용검사예정일, 사용검사일), newest approval first, from silver.housing_permit_basis_outline"
         }
       ],
       "consumers": [
@@ -702,6 +720,58 @@
             },
             {
               "path": "building_permits.regular_inspections.records[].processed_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.total",
+              "required": true
+            },
+            {
+              "path": "building_permits.housing_permits.records",
+              "required": true
+            },
+            {
+              "path": "building_permits.housing_permits.records[].purpose_name",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].structure_name",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].main_building_count",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].total_floor_area_m2",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].total_household_count",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].approval_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].start_scheduled_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].start_actual_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].use_inspection_scheduled_date",
+              "required": false
+            },
+            {
+              "path": "building_permits.housing_permits.records[].use_inspection_date",
               "required": false
             },
             {

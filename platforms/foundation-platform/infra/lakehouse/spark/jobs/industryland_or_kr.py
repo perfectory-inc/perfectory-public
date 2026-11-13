@@ -65,12 +65,9 @@ def ymd(value: Any) -> date | None:
 def utc(value: Any) -> datetime | None:
     """An RFC 3339 time as a naive UTC datetime, the tables' timestamp form."""
 
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value)).astimezone(timezone.utc).replace(tzinfo=None)
-    except ValueError:
-        return None
+    from platform_contracts import rfc3339_utc  # noqa: PLC0415
+
+    return rfc3339_utc(value)
 
 
 def snapshot_id(object_key: str) -> str:

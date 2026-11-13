@@ -52,6 +52,21 @@ class MaskedLots(unittest.TestCase):
         self.assertEqual(r.unique_pick([]), (None, "inference_no_candidate", 0))
 
 
+class TheCandidateJoinChecksOnlyWhatEveryLevelAsks(unittest.TestCase):
+    def test_the_join_evidence_is_the_parcel_evidence_every_conjunction_names(self) -> None:
+        group = {"grade": r.MAIN_LOT_GROUP, "evidence": ["lot_range", "zone", "jimok", "land_area", "ownership_change"]}
+        registers = {"grade": "inferred_attributes", "evidence": ["lot_range", "zone", "land_area", "registers_agree"]}
+        self.assertEqual(r.join_evidence([group]), {"zone", "jimok", "land_area"})
+        # The building register's conjunction names no land area: only the zone is common.
+        self.assertEqual(r.join_evidence([registers]), {"zone"})
+        self.assertEqual(r.join_evidence([group, registers]), {"zone"})
+        self.assertEqual(r.join_evidence([]), frozenset())
+
+    def test_the_contracts_levels_join_on_the_land_area(self) -> None:
+        for dataset in ("real_transaction_land_trade", "real_transaction_industrial_trade"):
+            self.assertIn("land_area", r.join_evidence(r.enabled_levels(INFERENCE, dataset)), dataset)
+
+
 class TheBarIsInTheContract(unittest.TestCase):
     def test_the_bar_is_ninety_nine_percent(self) -> None:
         self.assertGreaterEqual(float(INFERENCE["precision_bar"]), 0.99)
@@ -190,6 +205,35 @@ class InfersInSpark(unittest.TestCase):
         # Evidence leaving no parcel links no group.
         self.assertEqual((got[4]["pnu_group"], got[4]["pnu_unresolved_reason"]), (None, "inference_no_candidate"))
 
+    def test_a_deal_under_the_current_code_finds_parcels_still_under_the_old_one(self) -> None:
+        # 2026-11-11: the deals name the current code (2026-07-01 pairs) while the land file and the
+        # served edition still name the old one; without the crosswalk no parcel was a candidate.
+        from pyspark.sql import functions as F
+
+        deals, parcels, titles, owners = self.frames()
+        current = deals.withColumn("legal_dong_code", F.lit("9999833021"))
+        levels = [{"grade": "inferred_attributes", "evidence": ["lot_range", "zone", "land_area", "registers_agree"]}]
+        apart = r.infer_masked(current, parcels, titles, owners, levels, 0.05, (0, 120), INFERENCE["ownership_causes"])
+        self.assertEqual({row["row_id"]: row["pnu_unresolved_reason"] for row in apart.collect()}[1], "inference_no_candidate")
+        out = r.infer_masked(current, parcels, titles, owners, levels, 0.05, (0, 120), INFERENCE["ownership_causes"],
+                             remap={"9999933021": "9999833021"})
+        got = {row["row_id"]: row.asDict() for row in out.collect()}
+        # The pick is the pnu the served edition names, under the old code.
+        self.assertEqual((got[1]["pnu"], got[1]["place_identity_grade"]), ("9999933021103010000", "inferred_attributes"))
+
+    def test_a_deal_zoned_before_a_split_matches_the_zones_it_was_split_into(self) -> None:
+        # 2026-11-11: deals before 2015 say 관리지역; the land file says 계획·생산·보전관리지역.
+        from pyspark.sql import functions as F
+
+        deals, parcels, titles, owners = self.frames()
+        older = deals.withColumn("zone", F.lit("관리지역"))
+        levels = [{"grade": "inferred_attributes", "evidence": ["lot_range", "zone", "land_area", "registers_agree"]}]
+        apart = r.infer_masked(older, parcels, titles, owners, levels, 0.05, (0, 120), INFERENCE["ownership_causes"])
+        self.assertEqual({row["row_id"]: row["pnu_unresolved_reason"] for row in apart.collect()}[1], "inference_no_candidate")
+        out = r.infer_masked(older, parcels, titles, owners, levels, 0.05, (0, 120), INFERENCE["ownership_causes"],
+                             zone_subdivisions=INFERENCE["zone_subdivisions"])
+        self.assertEqual({row["row_id"]: row["pnu"] for row in out.collect()}[1], "9999933021103010000")
+
     def test_the_group_is_drawn_from_the_served_parcels(self) -> None:
         level = {"grade": r.MAIN_LOT_GROUP, "evidence": ["lot_range", "zone", "land_area", "ownership_change"]}
         served = self.spark.createDataFrame([("9999933021101020000",), ("9999933021101020002",),
@@ -197,6 +241,23 @@ class InfersInSpark(unittest.TestCase):
         # 102-2 has no land row but is a current parcel; 산 102 is another group.
         got = self.run_levels([level], group_parcels=served)
         self.assertEqual(got[2]["pnu_group"], ["9999933021101020000", "9999933021101020002"])
+
+    def test_a_range_over_many_bins_finds_its_parcel_in_any_of_them(self) -> None:
+        # `1***` is 1000-1999: a hundred bins of 본번; the parcel sits in the last one, and the 산
+        # parcel of the same 본번 is another lot.
+        deals = self.spark.createDataFrame(
+            [(9, "9999933021", False, 1000, 1999, None, None, 321.0, None, None, date(2098, 1, 10))],
+            "row_id int, legal_dong_code string, lot_mountain boolean, lot_low int, lot_high int, zone string, "
+            "jimok string, land_area_m2 double, building_year int, floor_area_m2 double, deal_date date")
+        parcels = self.spark.createDataFrame([
+            ("9999933021119990003", "대", 321.0, None), ("9999933021219990003", "대", 321.0, None),
+            ("9999933021109990000", "대", 321.0, None), ("9999933021120000000", "대", 321.0, None),
+        ], "pnu string, land_category string, area_m2 double, zone_name_1 string")
+        titles = self.spark.createDataFrame([], "pnu string, approval_year int, floor_area_m2 double")
+        level = {"grade": "inferred_attributes", "evidence": ["lot_range", "land_area"]}
+        out = r.infer_masked(deals, parcels, titles, None, [level], 0.05, (0, 120), INFERENCE["ownership_causes"])
+        got = out.first().asDict()
+        self.assertEqual((got["pnu"], got["pnu_candidate_count"]), ("9999933021119990003", 1))
 
     def test_a_single_parcel_level_still_comes_before_the_group(self) -> None:
         levels = [{"grade": "inferred_ownership_change", "evidence": ["lot_range", "zone", "land_area", "ownership_change"]},

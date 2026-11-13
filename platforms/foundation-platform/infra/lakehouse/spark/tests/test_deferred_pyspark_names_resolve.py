@@ -54,7 +54,6 @@ MODULES = (
     "parcel_matching_gate",
     "place_id_release_to_gold",
     "lineage_review_queue_to_gold",
-    "lineage_steward_fold_to_silver",
     "legal_dong_code_change_pairs",
     "vworld_parcel_number_change_history",
     "data_go_kr_onbid",
@@ -69,11 +68,13 @@ MODULES = (
 
 
 def bound_in(node: ast.AST) -> set[str]:
-    """이 함수 안에서 대입·인자·for·with·except·import 로 묶이는 이름."""
+    """이 함수 안에서 대입·인자·for·with·except·import·def·class 로 묶이는 이름."""
     names: set[str] = set()
     for child in ast.walk(node):
         if isinstance(child, ast.arg):
             names.add(child.arg)
+        elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and child is not node:
+            names.add(child.name)
         elif isinstance(child, ast.Name) and isinstance(child.ctx, (ast.Store, ast.Del)):
             names.add(child.id)
         elif isinstance(child, ast.ExceptHandler) and child.name:
@@ -92,9 +93,20 @@ def unresolved(module_name: str, source: str | None = None) -> list[str]:
     shared = sys.modules.get(SHARED_MODULE)
     known = set(vars(module)) | set(dir(builtins)) | PYSPARK_BOUND
 
+    # 중첩 함수는 감싸는 함수가 묶은 이름을 읽는다(클로저). 가장 바깥 함수에서 한 번만 걷고, 그
+    # 안의 모든 함수는 바깥 함수가 묶은 이름을 함께 본다. 2026-11-11: #1330 이 courtauction_go_kr
+    # 에 중첩 함수 셋을 넣자 바깥 함수의 지역 이름 13개를 없는 이름으로 읽어 main 이 깨졌다.
+    tree = ast.parse(source)
+    nested = {
+        id(inner)
+        for outer in ast.walk(tree)
+        if isinstance(outer, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for inner in ast.walk(outer)
+        if inner is not outer and isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
     problems: list[str] = []
-    for node in ast.walk(ast.parse(source)):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or id(node) in nested:
             continue
         visible = bound_in(node) | known
         for child in ast.walk(node):
@@ -150,6 +162,30 @@ class DeferredPysparkNamesResolveTest(unittest.TestCase):
 
         self.assertEqual(len(problems), 1, f"없는 공용 속성을 잡지 못했다: {problems}")
         self.assertIn("a_function_the_shared_module_does_not_have", problems[0])
+
+    def test_a_nested_function_reads_the_names_its_enclosing_function_binds(self) -> None:
+        planted = (
+            "def a_planted_function(rules):\n"
+            "    stop = set(rules)\n"
+            "    def inner(word):\n"
+            "        return word in stop\n"
+            "    return [inner(word) for word in rules]\n"
+        )
+
+        self.assertEqual(unresolved(SHARED_MODULE, planted), [])
+
+    def test_the_check_catches_a_missing_name_inside_a_nested_function(self) -> None:
+        planted = (
+            "def a_planted_function(rules):\n"
+            "    def inner(word):\n"
+            "        return word in a_name_that_does_not_exist\n"
+            "    return inner\n"
+        )
+
+        problems = unresolved(SHARED_MODULE, planted)
+
+        self.assertEqual(len(problems), 1, f"중첩 함수 안의 없는 이름을 잡지 못했다: {problems}")
+        self.assertIn("a_name_that_does_not_exist", problems[0])
 
     def test_the_check_does_not_flag_the_deferred_pyspark_names(self) -> None:
         """`F` 를 결함으로 읽으면 이 검사는 매번 빨갛고 아무도 안 본다."""

@@ -58,6 +58,10 @@
     "precision_bar": 0.99,
     "min_measured_rows": 200,
     "area_tolerance_m2": 0.05,
+    "zone_subdivisions": {
+      "관리지역": ["계획관리지역", "생산관리지역", "보전관리지역"]
+    },
+    "zone_subdivisions_reason": "A deal names the 용도지역 of its day; the land file names today's. 관리지역 was split into 계획·생산·보전관리지역 (국토의 계획 및 이용에 관한 법률, 2003, subdivided by each 시군 by 2014), so a deal that says 관리지역 matches a parcel whose zone is one of the three. Measured 2026-11-11 (read-only Trino, 법정동 xxhash 1% sample, 93,735 masked 토지 deals): 9,589 (10.2%) had no parcel of their zone in range, 8,802 of them before 2015, and the 15 largest (deal zone, parcel zone) pairs were all 관리지역 against the three.",
     "ownership_window_days": [
       0,
       120
@@ -207,9 +211,10 @@
       "$comment": "Root ADR-0483 §4: the one switch for a dataset whose 본번 group measurement is under precision_bar. `shown` false (the default, until the owner decides) leaves its masked deals unlinked (jibun_masked); true links them by the inferred_same_main_lot_group level's evidence under the grade inferred_same_main_lot_group_below_bar, and the screen says label_ko (place_identity_resolver.below_bar_level). Only a dataset `measured` here, at or above `floor` on at least min_measured_rows, can be shown. Switching changes every masked deal of the dataset, so the 실거래 Gold rebuilds whole once (a declared exception, root ADR-0312).",
       "shown": true,
       "decision": "the owner, 2026-11-11 (relayed by the coordinator, W53c): option A, show the masked 토지 deals at the 본번 group level as label_ko; the categories over precision_bar keep their own grade (inferred_same_main_lot_group)",
-      "label_reason": "label_ko's percent is the gating measurement's precision rounded to a whole percent (test_place_id_join pins it), so a new measurement changes the words with it",
+      "label_reason": "label_ko is label_ko_template with the newest measurement's same-parcel precision (the gating one or a later holdout, by measured_on) as a whole percent: place_identity_resolver.below_bar_label, which test_place_id_join compares with label_ko and the web test with its message, so a new measurement cannot leave the old number on the screen. 2026-11-11: the gating measurement says 95.46%, the two fresh holdouts 94.37% and 91.31%, so the screen says 91%. The floor still judges the gating measurement (the owner's decision A shows the deals; the fresh lower bounds 93.47% and 90.56% are under it, reported to the owner).",
       "floor": 0.95,
-      "label_ko": "추정 · 정확도 약 95%",
+      "label_ko_template": "추정 · 정확도 약 {percent}%",
+      "label_ko": "추정 · 정확도 약 91%",
       "measured": {
         "real_transaction_land_trade": {
           "precision": 0.9546,
@@ -234,6 +239,18 @@
               "coverage": 0.5613,
               "ambiguous": 0.0111,
               "method": "a fresh holdout, disjoint from the measurement above: silver.real_transaction 토지 deals contracted 2024-03..2024-08 in the 법정동s whose xxhash64 is 0 mod 10 (지분 excluded), read-only Trino 2026-11-11; the same two pieces of evidence (본번 range + 용도지역 + 지목 + a 소유권이전 0-120 days after the contract on any owner row of silver.land_ownership; the 20260519 land characteristic's area ±0.05 m² + 용도지역) each narrowing to one parcel. `right` counts the same parcel (the measurement above's score), `group_right` the same 본번 group (the level's own link); coverage and ambiguous are the level's (all five checks) over the sampled deals",
+              "measured_on": "2026-11-11"
+            },
+            {
+              "rows": 5856,
+              "right": 5347,
+              "precision": 0.9131,
+              "precision_wilson_low": 0.9056,
+              "group_right": 5471,
+              "group_precision": 0.9343,
+              "group_precision_wilson_low": 0.9276,
+              "deals": 29974,
+              "method": "a second fresh holdout, disjoint from both above: silver.real_transaction 토지 deals contracted 2023-01..2023-12 in the 법정동s whose xxhash64 is 3 mod 10 (지분 excluded), read-only Trino 2026-11-11 (W53d), the same two pieces of evidence as the holdout above, each narrowing to one parcel. Deals under the 2026-07-01 전남광주 codes (12…) have no parcel of their 법정동 in the land file and are not in `rows` (#1307)",
               "measured_on": "2026-11-11"
             }
           ]

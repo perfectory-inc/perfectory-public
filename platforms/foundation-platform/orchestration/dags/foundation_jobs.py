@@ -288,7 +288,8 @@ for spec in SPECS:
             pool=spec.pool,
             pool_slots=spec.pool_slots,
             # Airflow starts the heaviest waiting task that fits when slots free; absolute, so the
-            # weight is the job's own (root ADR-0138).
+            # weight is the one job_specs.queue_weights gave the job: its tier, raised above every job
+            # of its pool that reads what it writes (root ADR-0138, ADR-0558).
             priority_weight=spec.priority_weight,
             weight_rule="absolute",
             retries=spec.retries,

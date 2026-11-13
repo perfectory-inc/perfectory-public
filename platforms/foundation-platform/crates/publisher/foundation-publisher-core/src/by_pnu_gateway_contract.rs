@@ -1028,7 +1028,9 @@ fn front_door_origins() -> anyhow::Result<&'static BTreeMap<String, String>> {
                 let Some(gateway) = door.get("gateway").and_then(serde_json::Value::as_str) else {
                     continue;
                 };
-                let public = written[gateway]["public_hostname"].as_str();
+                // A top-level gateway block, or a dotted path into one (`by_pnu_lanes.<lane>`, root ADR-0190).
+                let block = gateway.split('.').fold(&written, |block, part| &block[part]);
+                let public = block["public_hostname"].as_str();
                 let origin = door["origin_hostname"].as_str();
                 let (Some(public), Some(origin)) = (public, origin) else {
                     return Err(format!(
@@ -1224,16 +1226,20 @@ mod tests {
     #[test]
     fn a_lane_behind_a_front_door_is_read_on_its_origin_hostname() -> anyhow::Result<()> {
         let doors: Value = serde_json::from_str(CDN_FRONT_DOOR_CONTRACT)?;
-        let catalog = doors["doors"]["catalog"]["origin_hostname"]
-            .as_str()
-            .context("the catalog door names its origin")?;
-        assert_eq!(ByPnuLane::Parcel.worker_hostname()?, catalog);
-        assert_ne!(catalog, ByPnuLane::Parcel.policy()?.public_hostname);
-        // A lane no door stands before is read where the public reads it.
-        assert_eq!(
-            ByPnuLane::Building.worker_hostname()?,
-            ByPnuLane::Building.policy()?.public_hostname
-        );
+        // A door names its gateway by a top-level block or a dotted path into one (the unit price lane's).
+        let unit_price =
+            ByPnuLane::from_unit("unit-price-by-pnu").context("the unit price lane")?;
+        let lanes = [
+            ("catalog", ByPnuLane::Parcel),
+            ("buildings", ByPnuLane::Building),
+        ];
+        for (door, lane) in lanes.into_iter().chain([("unit_prices", unit_price)]) {
+            let origin = doors["doors"][door]["origin_hostname"]
+                .as_str()
+                .with_context(|| format!("the {door} door names its origin"))?;
+            assert_eq!(lane.worker_hostname()?, origin);
+            assert_ne!(origin, lane.policy()?.public_hostname);
+        }
         Ok(())
     }
 

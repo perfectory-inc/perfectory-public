@@ -44,6 +44,7 @@ usage:
   foundation-release.sh timers [<airflow-scheduler-ssh-public-key-file>]
   foundation-release.sh datahub
   foundation-release.sh observability
+  foundation-release.sh trino
   foundation-release.sh console
   foundation-release.sh rollback
   foundation-release.sh prune
@@ -1006,6 +1007,8 @@ prepare_spark_tmp() {
     "${release_root}/current/config/host-layout.contract.json")"
 }
 
+# Trino follows the release (root ADR-0504): scripts/deploy/trino-follows-the-release.sh.
+
 # The job state directories, each with its owner and mode, before any unit or container uses one
 # (orchestration/jobs.v1.json state_directories, rendered by foundation-jobs; root ADR-0270 §1). On
 # 2026-10-15 a directory made only in `timers` was mounted by `migrate` first, Docker made it root
@@ -1038,7 +1041,7 @@ prepare_job_state_directories() {
 retire_hand_installed_ollama() {
   # The Ollama an operator installed on 2026-09-11 runs all day with no memory cap on 0.0.0.0:11434
   # (cgroup peak 29.7 GiB); intelligence-model-runtime-ollama.service replaces it under a cap and only
-  # while a spark-pool job needs it (root ADR-0478 §2). A model it holds is someone's request in
+  # while a job that claims its memory needs it (root ADR-0478 §2, ADR-0563). A model it holds is someone's request in
   # progress, so that deploy leaves it and the next one retires it. The unit file stays, disabled.
   local loaded running
   # The host's one answer to whether a unit runs (job_units.py); no answer retires nothing.
@@ -1105,6 +1108,26 @@ migrate_lakehouse() {
       grep -a '^lakehouse-migrate' | tail -40 >&2
     printf 'lakehouse migration failed; the release is installed but not migrated\n' >&2
     exit 75
+  fi
+}
+
+# one-off: scripts/ops/redact-logged-credentials.py says when it ends; this goes with it. Once per
+# host, and again only when that script changes (deploy step redact-logged-credentials): every
+# credential of the host's environment files that a run log holds is blanked in place (2026-11-11:
+# Spark printed the catalog writer token into a Gold run log every account could read). A run that
+# could not read everything is not recorded, so the next deploy asks again; it never stops a deploy.
+redact_logged_credentials() {
+  local steps="${release_root}/current/scripts/deploy/deploy_steps.py" gate=0
+  local script="${release_root}/current/scripts/ops/redact-logged-credentials.py"
+  [[ -f "${script}" && -f "${steps}" ]] || return 0
+  prepare_deploy_steps_state
+  python3 -I -B "${steps}" should-run "${release_root}/current" redact-logged-credentials || gate=$?
+  [[ "${gate}" != 3 ]] || return 0
+  if python3 -I -B "${script}" /var/lib/foundation-gold-panel-rebuild /var/lib/foundation-lakehouse-maintenance \
+      /var/lib/foundation-platform /var/lib/foundation-run-now /data/foundation-platform; then
+    python3 -I -B "${steps}" ran "${release_root}/current" redact-logged-credentials || true
+  else
+    printf 'redact-logged-credentials could not read everything; the next deploy runs it again\n' >&2
   fi
 }
 
@@ -1228,6 +1251,12 @@ case "${command}" in
     [[ "$#" == 1 ]] || usage
     apply_observability
     ;;
+  trino)
+    [[ "$#" == 1 ]] || usage
+    # shellcheck source=trino-follows-the-release.sh
+    source "${release_root}/current/scripts/deploy/trino-follows-the-release.sh"
+    apply_trino
+    ;;
   console)
     # The console comes up as the deploy brings it up, once its files exist: edge_settings.py runs this
     # after it wrote the tunnel token (root ADR-0436), so the console does not wait for the next deploy.
@@ -1329,6 +1358,7 @@ for job in json.load(open(sys.argv[1]))["jobs"]:
     prepare_job_state_directories
     prepare_spark_tmp
     install_host_retention
+    redact_logged_credentials
     # The service checks' file, served read-only by foundation-api (compose.orchestration-bridge.yml),
     # and their kept CI runs (root ADR-0209). Its unit names the path in ReadWritePaths.
     install -d -o foundation-platform -g foundation-platform -m 0755 /var/lib/foundation-platform/service-checks

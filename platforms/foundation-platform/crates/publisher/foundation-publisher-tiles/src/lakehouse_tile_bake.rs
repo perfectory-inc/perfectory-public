@@ -48,7 +48,7 @@ use catalog_domain::{
     FeatureIdProperty, PmtilesChecksum, RuntimeTileLayer, RuntimeTilesUrlTemplate,
     ServingGeneration, ValidatedPmtilesArtifact, VectorTileBuildOutcome,
 };
-use catalog_infrastructure::PgCatalogUnitOfWork;
+use catalog_infrastructure::{PgCatalogUnitOfWork, RELEASE_IS_LAKEHOUSE_MADE_SQL};
 use foundation_outbox::object_storage::R2ObjectStorage;
 use foundation_shared_kernel::ids::{
     FileAssetId, StaffId, VectorTileBuildJobId, VectorTileReleaseId,
@@ -103,7 +103,7 @@ pub use partitions::{
     PartitionedCsv, Warmed,
 };
 use tile_equivalence::{ActiveOrigin, SampleCollector, SampleContract};
-use upload::{bake_and_upload, compared_with, rehearse, Upload};
+use upload::{bake_and_upload, compared_with, ensure_comparable, rehearse, Upload};
 
 const PREFIX: &str = "FOUNDATION_PLATFORM_LAKEHOUSE_TILE_BAKE";
 const CONTRACT_JSON: &str = include_str!("../../../../config/tile-bake-containers.contract.json");
@@ -795,21 +795,19 @@ impl ActiveStatic {
 /// contract's `tile_max_zoom` when it sets one (root ADR-0492).
 async fn read_active_static(pool: &PgPool, config: &Config) -> anyhow::Result<ActiveStatic> {
     let unit_key = config.unit_key.as_str();
-    let row = sqlx::query(
+    let row = sqlx::query(&format!(
         "SELECT unit.active_release_id, unit.serving_generation, release.source_kind,
                 release.canonical_iceberg_snapshot_id, release.pmtiles_object_key,
                 release.bake_inputs_sha256,
-                EXISTS (SELECT 1 FROM catalog.vector_tile_build_job AS build
-                        WHERE build.result_release_id = release.id
-                          AND build.kind = 'lakehouse_bake') AS produced_by_lakehouse_bake,
+                {RELEASE_IS_LAKEHOUSE_MADE_SQL} AS produced_by_lakehouse_bake,
                 layer.source_layer, layer.feature_id_property,
                 layer.tile_min_zoom, layer.tile_max_zoom, layer.render_max_zoom,
                 layer.feature_filter_properties
          FROM catalog.vector_tile_publication_unit AS unit
          JOIN catalog.vector_tile_release AS release ON release.id = unit.active_release_id
          JOIN catalog.vector_tile_release_layer AS layer ON layer.release_id = release.id
-         WHERE unit.unit_key = $1",
-    )
+         WHERE unit.unit_key = $1"
+    ))
     .bind(unit_key)
     .fetch_all(pool)
     .await?;
@@ -1366,6 +1364,11 @@ async fn bake_in(
         unchanged(&config.unit_key, &active.snapshot);
         return Ok(());
     }
+    ensure_comparable(
+        &config.unit_key,
+        compared_with(&active),
+        config.low_zoom_generalization.as_ref(),
+    )?;
     if let Some(parts) = prepared.2.as_deref() {
         let unbaked = (&contract.images, prepared.0.as_slice(), srid, &active.layer);
         if partitions::deferred(config, work, parts, &inputs, &summary, unbaked).await? {

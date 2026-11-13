@@ -58,6 +58,38 @@ pub struct LakehouseCurrentRowLatest {
     pub keep_ties: bool,
 }
 
+/// The value of a [`LakehouseCurrentRowLatest::removal_column`] that marks a key as gone; the
+/// Rust twin of `platform_contracts.REMOVED`.
+pub const REMOVED_MARKER: &str = "removed";
+
+impl LakehouseCurrentRowLatest {
+    /// A Trino query of the current rows of `source` (a table reference, pinned by the caller),
+    /// projecting `columns`, among the rows `filter` keeps: the Rust twin of
+    /// `platform_contracts.current_rows` for a newest-per-key table (root ADR-0267, ADR-0550 §2).
+    /// The newest rows per key by `newest_first`, every tied row when `keep_ties` (else a tie keeps
+    /// one more row than one, which the caller refuses), and none for a key whose newest is a
+    /// removal marker. `filter` restricts which keys are read, never which versions of a key.
+    #[must_use]
+    pub fn trino_current_rows_sql(&self, source: &str, columns: &[&str], filter: &str) -> String {
+        let order = self
+            .newest_first
+            .iter()
+            .map(|column| format!("{column} DESC NULLS LAST"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let removal = self.removal_column.map_or_else(String::new, |column| {
+            format!(" AND ({column} IS NULL OR {column} <> '{REMOVED_MARKER}')")
+        });
+        format!(
+            "SELECT {projection} FROM (SELECT *, rank() OVER (PARTITION BY {key} ORDER BY {order}) \
+             AS foundation_current_rank FROM {source} WHERE {filter}) \
+             WHERE foundation_current_rank = 1{removal}",
+            projection = columns.join(", "),
+            key = self.key.join(", "),
+        )
+    }
+}
+
 /// How a table's rows pile up, and so which rows a reader takes as current (root ADR-0286).
 ///
 /// Required on every contract: a table that appends without saying how is what failed the complex
@@ -382,6 +414,7 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::SILVER_BUILDING_REGISTER_APARTMENT_PRICE,
     crate::SILVER_BUILDING_REGISTER_EXCLUSIVE_UNIT,
     crate::SILVER_BUILDING_PERMIT_BASIS_OUTLINE,
+    crate::SILVER_HOUSING_PERMIT_BASIS_OUTLINE,
     crate::SILVER_BUILDING_REGISTER_MASTER,
     crate::SILVER_BUILDING_ENERGY_MONTHLY_ELECTRICITY,
     crate::SILVER_BUILDING_ENERGY_MONTHLY_GAS,
@@ -423,6 +456,8 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_LAND_TRANSFER_HISTORY,
     SILVER_LAND_RIGHT_REGISTRATION,
     SILVER_LAND_OWNERSHIP,
+    crate::SILVER_REAL_ESTATE_BROKER_OFFICE,
+    crate::SILVER_REAL_ESTATE_BROKER_MEMBER,
     SILVER_BUILDING_REGISTER_FLOORS,
     SILVER_BUILDING_REGISTER_TITLES,
     SILVER_BUILDING_REGISTER_UNITS,
@@ -456,6 +491,12 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     SILVER_COURT_AUCTION_SALE_RESULT,
     SILVER_COURT_AUCTION_ITEM_DETAIL,
     SILVER_COURT_AUCTION_ITEM_PHOTO,
+    SILVER_COURT_AUCTION_CASE,
+    SILVER_COURT_AUCTION_ITEM_SPEC,
+    SILVER_COURT_AUCTION_ITEM_SCHEDULE,
+    SILVER_COURT_AUCTION_ITEM_OBJECT,
+    SILVER_COURT_AUCTION_ITEM_ANNEX,
+    SILVER_COURT_AUCTION_APPRAISAL_POINT,
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL,
     SILVER_INDUSTRIAL_COMPLEX_NOTICE_ATTACHMENT,
     SILVER_PARCEL_LINEAGE,
@@ -469,16 +510,21 @@ const INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS: &[LakehouseTableContract] = &[
     crate::INTELLIGENCE_DOCUMENT_TEXT_PAGE,
     crate::INTELLIGENCE_DOCUMENT_FACT,
     crate::INTELLIGENCE_DOCUMENT_FACT_OUTCOME,
+    crate::GOLD_COMPLEX_DOCUMENT_FACTS,
 ];
 
-/// Returns the industrial complex lakehouse `PoC` table contracts in publish order, then the Gold
-/// table of every by-PNU data kind the R2 connection contract names (root ADR-0193).
+/// Returns every lakehouse table contract.
+///
+/// The industrial complex `PoC` contracts come in publish order, then the Silver table of every HUB
+/// family lane (root ADR-0551) and the Gold table of every by-PNU data kind the R2 connection
+/// contract names (root ADR-0193).
 #[must_use]
 pub fn industrial_complex_lakehouse_contracts() -> &'static [LakehouseTableContract] {
     static ALL: std::sync::OnceLock<Vec<LakehouseTableContract>> = std::sync::OnceLock::new();
     ALL.get_or_init(|| {
         [
             INDUSTRIAL_COMPLEX_LAKEHOUSE_CONTRACTS,
+            &crate::hub_lane_family::hub_family_tables(),
             crate::by_pnu_kind_tables(),
         ]
         .concat()

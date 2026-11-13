@@ -239,6 +239,9 @@ jobs:
         run: scripts/compose-smoke.sh -- rerun-all
       - name: Verify migration history and role separation
         run: |
+          # The provisioner grants every capability the principal policy lists (root ADR-0550 gave
+          # gongzzang-api a second one): the count is the policy's, not a number here.
+          grants="$(python3 -c 'import json; print(sum(len(p["capabilities"]) for p in json.load(open("config/workload-principal-policy.v1.json"))["principals"]))')"
           contract="$(docker compose exec -T identity-db psql -X -A -t -v ON_ERROR_STOP=1 -U identity_admin -d identity -c "
             SELECT
               NOT EXISTS (
@@ -260,7 +263,7 @@ jobs:
               AND NOT has_table_privilege('identity_provisioner', 'identity.service_principal', 'DELETE')
               AND NOT has_table_privilege('identity_provisioner', 'identity.staff', 'SELECT')
               AND (SELECT count(*) FROM identity.service_principal) = 4
-              AND (SELECT count(*) FROM identity.service_capability_grant) = 4
+              AND (SELECT count(*) FROM identity.service_capability_grant) = ${grants}
               AND NOT EXISTS (SELECT 1 FROM public._sqlx_migrations WHERE NOT success);")"
           test "$contract" = "t"
           # `! cmd` skips errexit entirely — a found secret on any non-final line

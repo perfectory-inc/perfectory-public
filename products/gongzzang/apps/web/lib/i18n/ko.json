@@ -258,7 +258,7 @@
           "factories": "등록공장",
           "buildings": "건물",
           "registerMasters": "총괄표제부",
-          "buildingPermits": "건축인허가",
+          "buildingPermits": "인허가 이력",
           "subParcels": "부속지번",
           "energy": "에너지",
           "utility": "인입 가능성",
@@ -322,6 +322,17 @@
           "outdoorSelfParking": "옥외자주식 {value}대",
           "indoorMechanicalParking": "옥내기계식 {value}대",
           "more": "최근 {shown}건만 보임 · 전체 {total}건",
+          "housing_permits": {
+            "title": "주택인허가 {count}건",
+            "total_household_count": "총세대수 {value}세대",
+            "main_building_count": "주건축물수 {value}",
+            "total_floor_area_m2": "연면적 {value}㎡",
+            "approval_date": "승인일 {value}",
+            "start_scheduled_date": "착공예정일 {value}",
+            "start_actual_date": "착공일 {value}",
+            "use_inspection_scheduled_date": "사용검사예정일 {value}",
+            "use_inspection_date": "사용검사일 {value}"
+          },
           "building_outlines": {
             "title": "동별개요 {count}건",
             "building_area_m2": "건축면적 {value}㎡",
@@ -509,7 +520,7 @@
         "share": "지분",
         "inferred": "추정",
         "inferredSameMainLot": "추정 · 같은 본번",
-        "inferredBelowBar": "추정 · 정확도 약 95%",
+        "inferredBelowBar": "추정 · 정확도 약 91%",
         "mainLotGroupOthers": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 같은 본번의 다른 필지: {lots}",
         "mainLotGroupAlone": "추정 · 같은 본번 거래는 이 본번의 필지 중 하나의 거래예요. 지금 이 본번의 필지는 이 필지뿐이에요",
         "mainLotGroupSize": "같은 본번 {count}필지",
@@ -855,7 +866,21 @@
         "designationBasisLaw": "지정 근거 법률",
         "developmentMethod": "개발 방식",
         "developmentPurpose": "조성 목적",
-        "invitedIndustries": "유치 업종"
+        "invitedIndustries": "유치 업종",
+        "documentFacts": {
+          "aiExtracted": "AI 추출",
+          "landUse": "토지이용계획",
+          "landUseLabel": "용지",
+          "landUseArea": "면적",
+          "landUseRatio": "비율",
+          "areaM2": "{value} ㎡",
+          "ratio": "{value}%",
+          "invitedIndustries": "고시의 유치 업종",
+          "industry": "{name} ({code})",
+          "page": "{page}쪽",
+          "pages": "{first}–{last}쪽",
+          "original": "원문 {label}"
+        }
       }
     },
     "listing": {

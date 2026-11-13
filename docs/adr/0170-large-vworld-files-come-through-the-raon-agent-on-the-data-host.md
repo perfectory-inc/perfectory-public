@@ -1,6 +1,6 @@
 # ADR 0170: VWorld 대용량 파일은 데이터 호스트의 RAON 에이전트로 받는다
 
-- Status: Accepted
+- Status: Accepted — §9 와 "첫 감독 실행" 절은 [ADR-0514](./0514-the-raon-lane-takes-a-capped-count-of-the-newest-files-every-day-and-a-listed-file-not-in-bronze-pages.md) 가 대체
 - Date: 2026-10-09
 - Amends: [ADR-0168](./0168-the-daily-sweep-collects-the-vworld-land-datasets-within-a-byte-budget.md) §6(매일 훑기의
   레인)과 Consequences("선택 묶음은 이 레인에서 보류되고 수동 수집 몫")
@@ -154,3 +154,5 @@ raon -E FOUNDATION_RAON_LARGE_FILES_MAX_FILES=1 \
   것이 없으면 부르지 않음, 오늘 증거로 부름, 78·상한 초과·실패가 빨강, vworld 레인 예산 초과와 독립, 어제 요약을 읽지
   않음, 요구가 단위의 부분집합; 상한 0 이면 부르지 않고 수·크기·id 를 적고 안내 한 줄로 성공, 꺼진 레인이 다른 레인의
   실패를 가리지 않음, 운영자 상한이 꺼진 레인을 돌림, 정수가 아닌 상한은 빨강.
+
+2026-11-11 개정 주석: §9 의 상한 0 시작과 운영자의 첫 감독 실행은 [ADR-0514](./0514-the-raon-lane-takes-a-capped-count-of-the-newest-files-every-day-and-a-listed-file-not-in-bronze-pages.md) 가 대체했다 — 그 실행이 33일 오지 않는 동안 경기·경북이 빠진 용도지역지구 판 때문에 parcel-zoning 이 2026-06 판을 서빙했다. 레인은 이제 매일 정한 개수를 새것부터 받는다.

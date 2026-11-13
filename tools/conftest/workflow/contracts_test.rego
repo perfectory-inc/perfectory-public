@@ -77,6 +77,26 @@ test_fallback_named_in_a_shell_comment_is_accepted if {
 	accepted(one(with_job("test", "steps", [{"run": "# `|| true` would hide a real failure\ncargo check || exit 1"}])))
 }
 
+test_bare_apt_get_is_refused if {
+	refused(one(with_job("test", "steps", [{"run": "sudo apt-get update\nsudo apt-get install -y postgresql-client"}])))
+}
+
+test_bare_apt_install_is_refused if refused(one(with_job("test", "steps", [{"run": "sudo apt install -y cmake"}])))
+
+test_the_apt_install_script_and_a_comment_naming_apt_are_accepted if {
+	accepted(one(with_job("test", "steps", [{"run": "# apt-get once spent 4m07s here\nbash \"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh\" postgresql-client"}])))
+}
+
+test_playwright_with_deps_is_refused if {
+	refused(one(with_job("test", "steps", [{"run": "pnpm exec playwright install chromium --with-deps"}])))
+}
+
+test_playwright_install_deps_is_refused if refused(one(with_job("test", "steps", [{"run": "pnpm exec playwright install-deps chromium"}])))
+
+test_playwright_install_deps_dry_run_is_accepted if {
+	accepted(one(with_job("test", "steps", [{"run": "pnpm exec playwright install-deps --dry-run chromium"}])))
+}
+
 test_strict_or_is_accepted if accepted(one(with_job("test", "steps", [{"run": "cargo check --workspace || exit 1"}])))
 
 test_secret_reference_is_refused if {
@@ -201,6 +221,8 @@ advisory := {
 
 test_issue_write_only_in_the_advisory_workflow_on_schedule if {
 	accepted(array.concat(one(valid), named("dependency-advisories.yml", advisory)))
+	accepted(array.concat(one(valid), named("main-health.yml", advisory)))
+	refused(array.concat(one(valid), named("main-health.yml", object.union(advisory, {"true": {"push": {"branches": ["main"]}}}))))
 	refused(array.concat(one(valid), named("other.yml", advisory)))
 	refused(array.concat(one(valid), named("dependency-advisories.yml", object.union(advisory, {"true": {"push": {"branches": ["main"]}}}))))
 }

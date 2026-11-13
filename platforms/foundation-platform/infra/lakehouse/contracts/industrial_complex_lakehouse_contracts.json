@@ -317,6 +317,183 @@
         "object_suffix_separator": null
       }
     },
+    "silver.housing_permit_basis_outline": {
+      "table_name": "silver.housing_permit_basis_outline",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purpose_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purpose_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_building_count",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "total_floor_area_m2",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "total_household_count",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "approval_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "start_scheduled_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "start_actual_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_inspection_scheduled_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_inspection_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_register_master": {
       "table_name": "silver.building_register_master",
       "physical_format": "Parquet",
@@ -7242,6 +7419,261 @@
         "object_suffix_separator": null
       }
     },
+    "silver.real_estate_broker_office": {
+      "table_name": "silver.real_estate_broker_office",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sigungu_code",
+          "registration_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sigungu_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "registration_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "office_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "representative_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "status_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "status_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "registered_on",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "phone_number",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "guarantee_start_on",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "guarantee_end_on",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jibun_address",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_address",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_address_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sigungu_code",
+        "registration_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "sigungu_code_not_null",
+        "registration_no_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.real_estate_broker_member": {
+      "table_name": "silver.real_estate_broker_member",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "sigungu_code",
+          "registration_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "sigungu_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "sigungu_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "registration_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "office_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "member_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "member_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "member_kind_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "license_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "license_acquired_on",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "position_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "position_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "data_reference_date",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "sigungu_code",
+        "registration_no",
+        "position_code",
+        "license_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "sigungu_code_not_null",
+        "registration_no_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
     "silver.building_register_apartment_price": {
       "table_name": "silver.building_register_apartment_price",
       "physical_format": "Parquet",
@@ -9743,6 +10175,888 @@
       "quality_gates": [
         "append_only",
         "(court_office_code, case_no, sha256, source_snapshot_id) unique"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_case": {
+      "table_name": "silver.court_auction_case",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "court_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "court_branch_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "user_case_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "case_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "case_received_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "commencement_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "claim_amount_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "department_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "department_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "department_phone",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "execution_officer_phone",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "case_progress_status_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "suspension_status_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "closure_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "closed_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "duplicate_merge_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "appeal_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lawsuit_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dividend_demand_deadline",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, source_snapshot_id, source_line_number) unique",
+        "no person's name (root ADR-0540 §4)"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_item_spec": {
+      "table_name": "silver.court_auction_item_spec",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "court_office_code",
+          "case_no",
+          "property_seq"
+        ],
+        "newest_first": [
+          "source_snapshot_id",
+          "source_line_number"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "property_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "item_usage_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "item_status_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "schedule_item_status_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "real_item_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "appraisal_amount_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "minimum_bid_price_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "failed_bid_count",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "bid_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sale_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "sale_time_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sale_place",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bid_start_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "bid_end_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "sale_decision_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "sale_decision_time_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sale_decision_place",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "deposit_rate_percent",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "spec_written_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "assumed_rights",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "superficies",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "spec_remarks",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "first_rank_setting",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "item_remarks",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "spec_document_id",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "property_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, property_seq, source_snapshot_id, source_line_number) unique",
+        "free text masked by courtauction-go-kr.contract.json personal_names (root ADR-0540 §4)"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_item_schedule": {
+      "table_name": "silver.court_auction_item_schedule",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "per": [
+          "court_office_code",
+          "case_no",
+          "property_seq"
+        ],
+        "read": "newest"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "property_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "schedule_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "schedule_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "schedule_time_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "schedule_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "schedule_place",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "result_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "schedule_item_status_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "minimum_bid_price_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "sale_amount_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "bid_start_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "bid_end_date",
+          "logical_type": "date",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "property_seq",
+        "schedule_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, property_seq, schedule_seq, source_snapshot_id) unique",
+        "a property's rows of one read are appended together, only when its list changed"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_item_object": {
+      "table_name": "silver.court_auction_item_object",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "per": [
+          "court_office_code",
+          "case_no",
+          "property_seq"
+        ],
+        "read": "newest"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "property_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "object_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "list_kind_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "realty_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_structure",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "land_category",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "appraisal_amount_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "usage_lcls_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_mcls_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "usage_scls_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "legal_dong_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lot_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_pnu_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_name",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "building_unit_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "print_address_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "x_raw",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "y_raw",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "share_numerator",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "share_denominator",
+          "logical_type": "double",
+          "required": false
+        },
+        {
+          "name": "register_read_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "property_seq",
+        "object_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, property_seq, object_seq, source_snapshot_id) unique",
+        "a property's rows of one read are appended together, only when its list changed",
+        "no share text (it names its holders, root ADR-0540 §4)"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_item_annex": {
+      "table_name": "silver.court_auction_item_annex",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "per": [
+          "court_office_code",
+          "case_no",
+          "property_seq"
+        ],
+        "read": "newest"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "property_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "object_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "annex_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "usage_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "structure_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area_raw",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "appraisal_amount_krw",
+          "logical_type": "long",
+          "required": false
+        },
+        {
+          "name": "remarks",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "property_seq",
+        "object_seq",
+        "annex_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, property_seq, object_seq, annex_seq, source_snapshot_id) unique",
+        "a property's rows of one read are appended together, only when its list changed"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_record_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.court_auction_appraisal_point": {
+      "table_name": "silver.court_auction_appraisal_point",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": null,
+      "row_versions": {
+        "kind": "editions",
+        "edition_column": "source_snapshot_id",
+        "newest_first": [
+          "source_snapshot_id"
+        ],
+        "per": [
+          "court_office_code",
+          "case_no"
+        ],
+        "read": "newest"
+      },
+      "columns": [
+        {
+          "name": "court_office_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "case_no",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "point_seq",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "table_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "item_code",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "detail_seq",
+          "logical_type": "int",
+          "required": false
+        },
+        {
+          "name": "content",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "int",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "court_office_code",
+        "case_no",
+        "point_seq"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(court_office_code, case_no, point_seq, source_snapshot_id) unique",
+        "a case's rows of one read are appended together, only when its list changed",
+        "free text masked by courtauction-go-kr.contract.json personal_names (root ADR-0540 §4)"
       ],
       "load": {
         "unit": "object",
@@ -13516,6 +14830,4066 @@
       "load": {
         "unit": "run",
         "column": "run_id"
+      }
+    },
+    "gold.complex_document_facts": {
+      "table_name": "gold.complex_document_facts",
+      "physical_format": "Parquet",
+      "serving_role": "Projection",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "official_complex_code"
+        ],
+        "newest_first": [
+          "run_id"
+        ],
+        "removal_column": null,
+        "keep_ties": false
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "official_complex_code",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "document_facts_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "fact_count",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "fact_extractor_version",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "accuracy_gate_json",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "folded_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "run_id",
+          "logical_type": "string",
+          "required": true
+        }
+      ],
+      "partition_spec": [],
+      "sort_order": [
+        "official_complex_code"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "(official_complex_code, run_id) unique",
+        "every fact's (fact_kind, method, page_method) is in the row's accuracy_gate_json",
+        "fact_count is the number of facts in document_facts_json"
+      ],
+      "load": {
+        "unit": "run",
+        "column": "run_id"
+      }
+    },
+    "silver.building_permit_district_zone": {
+      "table_name": "silver.building_permit_district_zone",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_pmsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "repr_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_dong_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_dong_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_exclusive_common_area": {
+      "table_name": "silver.building_permit_exclusive_common_area",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_pmsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pngtyp_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "expos_pubuse_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "expos_pubuse_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_housing_type": {
+      "table_name": "silver.building_permit_housing_type",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_pmsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hstp_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hstp_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sil_ho_hhld_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sil_ho_hhld_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_road_ledger": {
+      "table_name": "silver.building_permit_road_ledger",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_pmsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rano_year",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rano_seqno",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rdasn_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rdasn_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rdasn_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_chang_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_chang_odr",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_close_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rdasn_chang_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_len_total",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_width_total",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "road_area_total",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_sewage_facility": {
+      "table_name": "silver.building_permit_sewage_facility",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_pmsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "repr_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wclf_mode_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wclf_mode_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_dong_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_dong_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "capa_psper",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "capa_lube",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_unit_exclusive_common_area": {
+      "table_name": "silver.building_permit_unit_exclusive_common_area",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_ho_detl_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pngtyp_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "expos_pubuse_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "expos_pubuse_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.building_permit_unit_outline": {
+      "table_name": "silver.building_permit_unit_outline",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_dong_ouln_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_pmsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ho_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ho_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pngtyp_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "chang_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "chang_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_act_outline": {
+      "table_name": "silver.housing_permit_act_outline",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_gb",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cmplx_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bld_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "fc_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "arch_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tot_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "btm_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "const_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ugrnd_flr_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "grnd_flr_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tot_wkp",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "stcns_sched_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_inspt_sched_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cmplx_flr_cnt_dong_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "regstr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "regstr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_bef_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_bef_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_bef_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_aft_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_aft_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_aft_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "fc_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_bef_etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "act_aft_etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_act_unit_exclusive_common_area": {
+      "table_name": "silver.housing_permit_act_unit_exclusive_common_area",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_ho_detl_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pngtyp_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "expos_pubuse_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "expos_pubuse_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_ancillary_facility": {
+      "table_name": "silver.housing_permit_ancillary_facility",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sbsdfc_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sbsdfc_kind_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_fc_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "instal_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cmplxin_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "cmplxbynd_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_instal_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_cmplxin_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_cmplxbynd_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bef_sbsd_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bef_sbsd_kind_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bef_etc_fc_kind",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_annex_parking": {
+      "table_name": "silver.housing_permit_annex_parking",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jimok_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jimok_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rel_jibun_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_building_outline": {
+      "table_name": "silver.housing_permit_building_outline",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_atch_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "main_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_pepl_rent",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_pub_rent_5",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_pub_rent_10",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_pub_rent_etc",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_pub_rent_tot",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_pub_lotou",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_empl_rent",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_labor_wlfar",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_cvl_rent",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hhld_cnt_cvl_lotou",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "strct_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "roof_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "roof_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "arch_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tot_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ugrnd_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "vl_rat_estm_tot_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ugrnd_flr_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "grnd_flr_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "heit",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ride_use_elvt_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "emgen_use_elvt_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flrh_from",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ceil_heit",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "stair_valid_width",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hway_width",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ouwl_thick",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "adj_hhld_wall_thick",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_district_zone": {
+      "table_name": "silver.housing_permit_district_zone",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "repr_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jijigu_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_rel_gb",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_rel_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_exclusive_common_area": {
+      "table_name": "silver.housing_permit_exclusive_common_area",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_type_ouln_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_floor_overview": {
+      "table_name": "silver.housing_permit_floor_overview",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_dong_ouln_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_managed_communal_ancillary_welfare_facility": {
+      "table_name": "silver.housing_permit_managed_communal_ancillary_welfare_facility",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_coophsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "grnd_pklot_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ugrnd_pklot_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "tot_pklot_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pkng_cctv_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "repr_mtrm_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_offc_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "plgnd_cctv_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wttnk_capa",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "lndsc_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "guardrm_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hsold_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "life_conv_fc_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ntur_fc_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jm_excs_fc_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "kgt_flr_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "kgt_lot_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "kgt_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "medi_fc_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "plgnd_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_managed_communal_type_outline": {
+      "table_name": "silver.housing_permit_managed_communal_type_outline",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_coophsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "type_gb",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_type",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "exuse_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "biz_apprv_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "use_inspt_day",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_parking": {
+      "table_name": "silver.housing_permit_parking",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "indr_auto_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "indr_auto_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "oudr_auto_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "oudr_auto_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "indr_mech_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "indr_mech_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "oudr_mech_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "oudr_mech_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "neig_auto_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "neig_auto_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "neig_mech_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "neig_mech_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "exmpt_utcnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_sewage_facility": {
+      "table_name": "silver.housing_permit_sewage_facility",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "repr_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wclf_mode_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wclf_mode_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_wclf",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "capa_psper",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "capa_lube",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_rel_gb",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_rel_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_site_location": {
+      "table_name": "silver.housing_permit_site_location",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "repr_yn",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "hjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jimok_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "jimok_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "rel_jibun_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "plat_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "min_plat_width",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "max_plat_width",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_rel_gb",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_rel_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_unit_outline": {
+      "table_name": "silver.housing_permit_unit_outline",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_dong_ouln_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "dong_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "flr_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ho_no",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "ho_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pngtyp_gb_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "chang_gb_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "chang_gb_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
+      }
+    },
+    "silver.housing_permit_welfare_sale_facility": {
+      "table_name": "silver.housing_permit_welfare_sale_facility",
+      "physical_format": "Parquet",
+      "serving_role": "Canonical",
+      "current_row_predicate": null,
+      "current_row_latest": {
+        "key": [
+          "mgmt_key"
+        ],
+        "newest_first": [
+          "vintage",
+          "ingested_at_utc"
+        ],
+        "removal_column": "row_state",
+        "keep_ties": true
+      },
+      "row_versions": {
+        "kind": "latest_per_key"
+      },
+      "columns": [
+        {
+          "name": "mgmt_key",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "mgm_hsrgst_pk",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "sigungu_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bjdong_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "san_gubun",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bonbeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bubeon",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wlfar_lotou_fc_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "wlfar_lotou_fc_kind_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_fc",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "open_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_purps_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_purps_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_etc_purps",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_area",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_cnt",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "changbef_etc_curst",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bef_wlfar_fc_kind_cd",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bef_wlfar_fc_kind_cd_nm",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "bef_etc_fc",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "pnu",
+          "logical_type": "string",
+          "required": false
+        },
+        {
+          "name": "raw_columns",
+          "logical_type": "array<string>",
+          "required": true
+        },
+        {
+          "name": "vintage",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_record_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_part_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "source_line_number",
+          "logical_type": "long",
+          "required": true
+        },
+        {
+          "name": "source_snapshot_id",
+          "logical_type": "string",
+          "required": true
+        },
+        {
+          "name": "ingested_at_utc",
+          "logical_type": "timestamp",
+          "required": true
+        },
+        {
+          "name": "row_state",
+          "logical_type": "string",
+          "required": false
+        }
+      ],
+      "partition_spec": [
+        "vintage"
+      ],
+      "sort_order": [
+        "pnu",
+        "mgmt_key"
+      ],
+      "write_distribution": "hash",
+      "quality_gates": [
+        "append_only",
+        "raw_columns_not_null",
+        "vintage_not_null",
+        "source_part_id_not_null"
+      ],
+      "load": {
+        "unit": "object",
+        "column": "source_part_id",
+        "object_prefix": null,
+        "object_suffix_separator": null
       }
     }
   },

@@ -34,10 +34,19 @@ def unit_lines(key):
 
 
 def lane_contracts():
+    """Every lane's contract: a hand lane's file, then each HUB family entry's `silver_refresh` block as
+    lakehouse-domain `hub_lane_family` derives it (root ADR-0551), named `hub-family-<lane>`."""
     for path in sorted(CONTRACTS.glob("*.json")):
         document = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(document, dict) and "silver_refresh" in document:
             yield path.name, document
+    for path in sorted(CONTRACTS.glob("hub-lane-family-*.v1.json")):
+        family = json.loads(path.read_text(encoding="utf-8"))
+        for lane in sorted(family["lanes"]):
+            snake = lane.replace("-", "_")
+            yield f"hub-family-{lane}", {"silver_refresh": {
+                "table": f"silver.{snake}", "roles": {"source": f"hubgokr__{snake}"},
+                "export": f"export-{lane}-silver-handoff", "spark": family["defaults"]["spark"]}}
 
 
 class TheUnit(unittest.TestCase):
@@ -68,7 +77,9 @@ class TheUnit(unittest.TestCase):
         self.assertIn('install_release_admission "${service}"', release)
         services = [job["systemd_service"] for job in json.loads(job_specs.JOBS.read_text(encoding="utf-8"))["jobs"]]
         lanes = [service for service in services if service.startswith("foundation-silver-refresh@")]
-        self.assertEqual(len(lanes), len(list(lane_contracts())))
+        # One instance per hand lane, and one for the HUB family's lanes (root ADR-0551).
+        hand = [name for name, _ in lane_contracts() if not name.startswith("hub-family-")]
+        self.assertEqual(len(lanes), len(hand) + 1)
         self.assertEqual({job_specs.service_unit_file(service) for service in lanes}, {UNIT})
 
 
@@ -95,7 +106,9 @@ class TheLanes(unittest.TestCase):
         found = list(lane_contracts())
         # The hub lanes of root ADR-0169 step 2 (건축인허가 root ADR-0356, 총괄표제부 root ADR-0357) and
         # the nine VWorld land lanes of step 3 (토지소유 root ADR-0360, 용도지역지구 root ADR-0362).
-        self.assertEqual(sorted(name.split("-")[0] for name, _ in found), ["hub"] * 20 + ["vworld"] * 9)
+        # The HUB family lanes (root ADR-0551) are entries, not files: they are not counted here.
+        hand = [name for name, _ in found if not name.startswith("hub-family-")]
+        self.assertEqual(sorted(name.split("-")[0] for name in hand), ["hub"] * 21 + ["vworld"] * 11)
         for name, document in found:
             with self.subTest(contract=name):
                 lane = document["silver_refresh"]

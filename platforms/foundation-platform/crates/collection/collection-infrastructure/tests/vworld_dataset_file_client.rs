@@ -488,6 +488,57 @@ async fn client_reclassifies_empty_single_resource_response_when_selection_page_
 }
 
 #[tokio::test]
+async fn an_empty_answer_to_a_listed_file_that_is_no_raon_archive_is_the_provider_not_serving(
+) -> TestResult {
+    // 2026-11-11: two files of the day's real estate broker edition answered empty on both sweep
+    // runs; read as our infrastructure error, they failed the whole VWorld lane.
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/dtmk/downloadResourceFile.do"))
+        .and(query_param("ds_id", "20991231DS99991"))
+        .and(query_param("fileNo", "20"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-length", "0")
+                .set_body_bytes(Vec::new()),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/dtmk/downloadDtnaResourceFile.do"))
+        .and(query_param("ds_file_sq", "20991231DS9999120"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("<html><body>synthetic</body></html>"),
+        )
+        .mount(&server)
+        .await;
+    let client = VWorldDatasetFileClient::new(&VWorldDatasetFileConfig {
+        base_uri: server.uri(),
+        user_agent: "foundation-platform-test/1.0".to_owned(),
+        page_size: 100,
+        cookie_header: None,
+    })?;
+
+    let error = client
+        .open_file_stream(&VWorldDatasetFileDownloadRequest {
+            download_ds_id: "20991231DS99991".to_owned(),
+            file_no: "20".to_owned(),
+            download_kind: VWorldDatasetFileKind::SingleResourceFile,
+        })
+        .await
+        .err()
+        .ok_or_else(|| std::io::Error::other("expected the provider not serving"))?;
+    let CollectionError::ProviderUnavailable(message) = &error else {
+        return Err(format!("expected ProviderUnavailable, got {error:?}").into());
+    };
+    assert!(
+        message.contains("download_ds_id=20991231DS99991") && message.contains("file_no=20"),
+        "{message}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn client_retries_transient_inventory_failures_until_success() -> TestResult {
     let server = MockServer::start().await;
 

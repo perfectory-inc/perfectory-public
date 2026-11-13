@@ -1,0 +1,689 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "foundation-platform.parcel_building_permits_by_pnu",
+  "description": "A parcel's 건축인허가 기본개요 as 건축HUB lists them (root ADR-0356, ADR-0451): the current permit rows (one per 관리허가대장PK) on the parcel, newest first by the latest of its dates, each in the provider's words with its parking counts from the same 관리허가대장PK (ADR-0452), at most 50; building_permit_total counts them all (0 for a parcel with none). Each other file of the permit family is one optional list (ADR-0464): its rows on the parcel in the provider's words, at most 50, and their total; null when the parcel has none. The 주택인허가 기본개요 is one more such list (ADR-0511): a housing project's approval and the dates it was started and inspected for use, newest approval first.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "foundation-platform.parcel_building_permits_by_pnu.v1"
+      ]
+    },
+    "schema_revision": {
+      "type": "integer"
+    },
+    "pnu": {
+      "type": "string",
+      "pattern": "^[0-9]{19}$"
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "table": {
+          "type": "string"
+        },
+        "iceberg_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "table",
+        "iceberg_snapshot_id"
+      ]
+    },
+    "building_permits": {
+      "type": "object",
+      "properties": {
+        "records": {
+          "description": "The parcel's permits newest first, at most 50.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "arch_kind_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "main_purpose_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "plot_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "building_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "total_floor_area_m2": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "permit_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "start_scheduled_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "start_delayed_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "start_actual_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "use_approval_date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "indoor_self_parking_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outdoor_self_parking_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "indoor_mechanical_parking_count": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "building_outlines": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "main_annex_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "main_purpose_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "structure_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "roof_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "building_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "total_floor_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "far_floor_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "unit_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "family_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "household_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "passenger_elevator_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "emergency_elevator_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "floor_overviews": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "floor_kind_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "floor_no": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "main_purpose_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "structure_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "floor_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "arch_kind_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "site_locations": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "representative_flag": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "main_building_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "land_category_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "major_repairs": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "major_repair_kind_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "major_repair_change_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "temporary_buildings": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "main_purpose_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "structure_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "building_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "total_floor_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "plot_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "ground_floor_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "existence_expiry_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "annex_parkings": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "land_category_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "related_jibun_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "structures": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "facility_kind_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "structure_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "length": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "height": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "building_coverage_ratio": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "zone_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "district_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "precinct_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "regular_inspections": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "inspection_agency_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "inspection_start_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "processed_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        },
+        "housing_permits": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "total": {
+              "type": "integer"
+            },
+            "records": {
+              "description": "At most 50.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "purpose_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "structure_name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "main_building_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "total_floor_area_m2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "total_household_count": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "approval_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "start_scheduled_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "start_actual_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "use_inspection_scheduled_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "use_inspection_date": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "total",
+            "records"
+          ]
+        }
+      },
+      "required": [
+        "records"
+      ]
+    },
+    "building_permit_total": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "attached_via": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "pnu",
+    "source",
+    "building_permits"
+  ]
+}

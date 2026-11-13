@@ -66,16 +66,19 @@ if [ "${owed}" = 0 ]; then
 fi
 chmod -R a+rX "${work}" # Spark 컨테이너는 uid 185 로 읽는다.
 
-# 힙은 컨테이너(spark-small 2560m) 안에 JVM 바깥 몫과 드라이버 파이썬을 함께 넣을 만큼만 준다. 2g 힙은 객체를
-# 여럿 지나며 2g 까지 차고, JVM 이 2.37 GB 일 때 컨테이너 상한에 걸려 죽었다(2026-11-08 05:20Z~11:13Z 7 번 연속 137,
-# 실행마다 객체 2~5 개만 커밋). 같은 컨테이너의 by-PNU 변경 집합과 같은 1500m 이다(by-pnu-serving-bake.sh).
+# 힙은 컨테이너(spark-small 2560m) 안에 JVM 바깥 몫과 파이썬 워커를 함께 넣을 만큼만 준다. 내보내기는 파이썬
+# 워커가 줄 단위로 읽고(rt_molit_real_transaction.export_records), 드라이버는 행을 쥐지 않으며, 단계 사이 프레임은
+# 디스크에 둔다. 2g 힙은 2026-11-08 7 번 연속 137, 1500m 도 11-10 21:16Z·21:19Z·11-11 09:58Z 137(java 2.33~2.42 GB)
+# 이었다. 잰 값(2026-11-11, 실제 13~16 MB 내보내기 4개를 한 실행 8 객체로, 같은 2560m 컨테이너): 예전 경로 1500m 는
+# 익명 메모리 2.67 GB 에서 죽고, 새 경로는 1500m 2.39 GB, 1000m 1.76 GB(java 1,417 MB·파이썬 296 MB, 상한까지 31%).
 
+lakehouse_run_log "${run_log}"
 FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
 FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
 lakehouse_spark_run foundation-platform-compute \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_URI -e FOUNDATION_PLATFORM_LAKEHOUSE_WAREHOUSE \
   -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_WRITER_TOKEN -e FOUNDATION_PLATFORM_LAKEHOUSE_CATALOG_PROVIDER \
-  spark-small spark-submit --master 'local[2,8]' --driver-memory 1500m \
+  spark-small spark-submit --master 'local[2,8]' --driver-memory 1000m \
   --jars "${SPARK_RELEASE_JARS}" \
   /workspace/infra/lakehouse/spark/jobs/rt_molit_real_transaction.py load \
   --plan-dir "/workspace/target/lakehouse/runs/${run_id}/plans/real_transaction" \

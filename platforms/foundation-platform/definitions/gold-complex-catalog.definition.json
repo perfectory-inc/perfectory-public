@@ -131,6 +131,13 @@
           "schema_version": "foundation-platform.industrial_complex_gold_profile.v1",
           "decision": "docs/adr/0456-industrial-complexes-are-served-from-the-catalog-edge-as-one-index-and-per-complex-profiles.md",
           "reason": "the profile written since root ADR-0036 (gold.complex_catalog's row verbatim), registered when the parcel edge starts serving it; from this revision on it carries schema_revision"
+        },
+        {
+          "major": 1,
+          "revision": 2,
+          "schema_version": "foundation-platform.industrial_complex_gold_profile.v1",
+          "decision": "docs/adr/0477-foundation-hands-intelligence-documents-and-place-ids-and-takes-back-cited-facts-in-tables-only-intelligence-writes.md",
+          "reason": "document_facts, optional: the facts the complex's notice attachments state that foundation admits for the panel (gold.complex_document_facts), each with its notice and page, so the panel shows them labelled AI 추출 with their source (root ADR-0477 §5)"
         }
       ],
       "consumers": [
@@ -230,6 +237,110 @@
             {
               "path": "attributes.invited_industries_raw",
               "required": false
+            },
+            {
+              "path": "document_facts",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.invited_industry",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.source",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.source.notice_number",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.source.notice_date",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.source.sha256",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.source.media_format",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts[].page_number",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts[].value",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.source",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.source.notice_number",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.source.notice_date",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.source.sha256",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.source.media_format",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.facts",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.facts[].page_number",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.facts[].value",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts[].value.label",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts[].value.parent",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts[].value.area_m2",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.land_use_area.facts[].value.ratio_pct",
+              "required": false
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.facts[].value.ksic_division",
+              "required": true
+            },
+            {
+              "path": "document_facts.kinds.invited_industry.facts[].value.ksic_name",
+              "required": true
             }
           ]
         }

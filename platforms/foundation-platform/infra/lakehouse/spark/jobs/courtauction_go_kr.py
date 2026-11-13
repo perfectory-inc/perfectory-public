@@ -22,7 +22,10 @@ yet, fetched into a plan directory of the load's own run. For each object, oldes
   (by content hash) not yet recorded, then to `silver.court_auction_item_detail` one row per read,
   failed reads included: the record the collector's next detail frontier is computed from
   (root ADR-0352). The photo table commits first, so an object the detail table records has its
-  photos.
+  photos. Between them, the document's parts (root ADR-0540): `silver.court_auction_case` and
+  `silver.court_auction_item_spec` the rows whose content changed, the lists (기일내역, 목록내역,
+  제시외건물, 감정요항표) a whole edition per property or case whose list changed. A field that names a
+  person is not read; free text has its names masked (the contract's `personal_names`).
 
 `parse` reads the plan directories without Spark. The last stdout line is `court-auction-summary-json {json}`.
 """
@@ -57,6 +60,22 @@ DETAIL_ROLE = "item_detail"
 DETAIL_TABLE = "silver.court_auction_item_detail"
 PHOTO_TABLE = "silver.court_auction_item_photo"
 PHOTO_KEY = ("court_office_code", "case_no", "sha256")
+CASE = ("court_office_code", "case_no")
+PROPERTY = (*CASE, "property_seq")
+# The 물건상세 document, one Silver table per part (root ADR-0540 §4). A case or spec row is the newest
+# per key; a list is one edition per property (or case) and is appended whole when it changed.
+CASE_TABLE = "silver.court_auction_case"
+SPEC_TABLE = "silver.court_auction_item_spec"
+SCHEDULE_TABLE = "silver.court_auction_item_schedule"
+OBJECT_TABLE = "silver.court_auction_item_object"
+ANNEX_TABLE = "silver.court_auction_item_annex"
+APPRAISAL_POINT_TABLE = "silver.court_auction_appraisal_point"
+LATEST_KEYS = {CASE_TABLE: CASE, SPEC_TABLE: PROPERTY}
+EDITION_PER = {SCHEDULE_TABLE: PROPERTY, OBJECT_TABLE: PROPERTY, ANNEX_TABLE: PROPERTY, APPRAISAL_POINT_TABLE: CASE}
+DOCUMENT_TABLES = (*LATEST_KEYS, *EDITION_PER)
+# What one 물건상세 object commits, in order: its photos, its documents, then the read record the
+# collector's next frontier is computed from, so an object the record holds has everything else.
+DETAIL_TABLES = (PHOTO_TABLE, *DOCUMENT_TABLES, DETAIL_TABLE)
 
 
 def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
@@ -64,6 +83,58 @@ def load_source_contract(path: Path = CONTRACT_PATH) -> dict[str, Any]:
 
 
 FROM_CODE = load_source_contract()["pnu_resolution"]["from_code"]
+PERSONAL_NAMES = load_source_contract()["personal_names"]
+# A listed object's legal-dong code: the 물건상세's own four fields, of the list rows' widths.
+OBJECT_CODE = {"legal_dong_code_fields": load_source_contract()["collection"]["pnu_assembly"]["legal_dong_code_fields"],
+               "legal_dong_code_widths": FROM_CODE["legal_dong_code_widths"]}
+
+
+# The one-syllable particles a name may be followed by in the site's text.
+PARTICLES = ("은", "는", "이", "가", "의", "에", "와", "과", "도", "로")
+
+
+def name_patterns(rules: Mapping[str, Any]) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    """(a name before a `before` word, a name after an `after` word) of the contract's rules."""
+
+    low, high = rules["name_syllables"]
+    word = f"[가-힣]{{{low},{high}}}"
+    before = "|".join(map(re.escape, rules["before"]))
+    after = "|".join(map(re.escape, sorted(rules["after"], key=len, reverse=True)))
+    ends = f"(?=[^가-힣]|$|{'|'.join(PARTICLES)}|씨|님)"
+    # A role word starts a word ("다세대주택" holds no 세대주) and is set off from the name; the names
+    # a comma joins to the first are masked too ("소유자 ○○○, ○○○").
+    return (re.compile(f"({word})(?=\\s*(?:의\\s*)?(?:{before}))"),
+            re.compile(f"((?<![가-힣])(?:{after})(?:\\s+|\\s*[:：(]\\s*))"
+                       f"({word}{ends}(?:\\s*,\\s*(?!{after}){word}{ends})*)"))
+
+
+NAME_PATTERNS = name_patterns(PERSONAL_NAMES)
+
+
+def mask_names(text: str | None, rules: Mapping[str, Any] = PERSONAL_NAMES,
+               patterns: tuple[re.Pattern[str], re.Pattern[str]] = NAME_PATTERNS) -> str | None:
+    """``text`` with each person's name the contract's rules recognise replaced by its mask (root
+    ADR-0540 §4). Bronze keeps the text as received."""
+
+    if not text:
+        return text
+    stop, mask, low = set(rules["not_names"]), rules["mask"], rules["name_syllables"][0]
+
+    def masked(word: str) -> str:
+        # A particle the word ends in is kept, and the word is judged without it ("미상의" is "미상").
+        stem, tail = (word[:-1], word[-1]) if word[-1] in PARTICLES and len(word) > low else (word, "")
+        return word if stem in stop or word in stop else mask + tail
+
+    def names(listed: str) -> str:
+        return re.sub("[가-힣]+", lambda m: masked(m.group(0)), listed)
+
+    before, after = patterns
+    text = before.sub(lambda m: masked(m.group(1)), text)
+    return after.sub(lambda m: m.group(1) + names(m.group(2)), text)
+
+
+def masked_text(value: Any) -> str | None:
+    return mask_names(text_or_none(value))
 
 
 def text_or_none(value: Any) -> str | None:
@@ -234,6 +305,7 @@ def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> l
 
     roles = search_roles(contract)
     objects = []
+    seen: set[str] = set()
     for plan_dir in plan_dirs:
         plan = json.loads((plan_dir / "plan.json").read_text(encoding="utf-8"))
         if plan.get("schema_version") != PLAN_SCHEMA:
@@ -241,6 +313,11 @@ def planned_objects(plan_dirs: Sequence[Path], contract: Mapping[str, Any]) -> l
         for entry in plan["objects"]:
             if entry["source_slug"] not in roles:
                 raise ValueError(f"{entry['object_key']}: {entry['source_slug']} is not a search this job loads")
+            # A 물건상세 object is planned against its read record and its last document table (each
+            # records it on its own commit), so two plans may name it; it is loaded once.
+            if entry["object_key"] in seen:
+                continue
+            seen.add(entry["object_key"])
             objects.append({"object_key": entry["object_key"], "role": roles[entry["source_slug"]],
                             "source_snapshot_id": snapshot_id(entry["object_key"]),
                             "path": plan_dir / entry["local_path"]})
@@ -273,6 +350,8 @@ def detail_rows_of(lines: Sequence[Mapping[str, Any]], detail: Mapping[str, Any]
     request_field = {source: request for request, source in detail["key_fields"].items()}
     details: list[dict[str, Any]] = []
     found: dict[tuple, dict[str, Any]] = {}
+    # Per table, per key (case or spec) or per edition group (a list): the last line naming it wins.
+    documents: dict[str, dict[tuple, Any]] = {table: {} for table in DOCUMENT_TABLES}
     for number, line in enumerate(lines, start=1):
         asked = (line.get("request") or {}).get(detail["request_object"]) or {}
         court, case, seq = (asked.get(request_field[name]) for name in ("boCd", "saNo", "maemulSer"))
@@ -294,6 +373,15 @@ def detail_rows_of(lines: Sequence[Mapping[str, Any]], detail: Mapping[str, Any]
         result = body
         for part in detail["result_pointer"].strip("/").split("/"):
             result = result.get(part) if isinstance(result, dict) else None
+        if isinstance(result, dict):
+            keyed = {"court_office_code": str(court), "case_no": str(case), "property_seq": whole(seq)}
+            for table, rows in document_rows(result, keyed).items():
+                group = EDITION_PER.get(table) or LATEST_KEYS[table]
+                stamped = [{**row, **load} for row in rows]
+                if table in LATEST_KEYS:
+                    documents[table].update({tuple(row[k] for k in group): row for row in stamped})
+                else:
+                    documents[table][tuple(keyed[k] for k in group)] = stamped
         for photo in (result or {}).get(photos["list_field"]) or []:
             sha256 = text_or_none(photo.get("sha256"))
             if not sha256 or not text_or_none(photo.get("media_format")):
@@ -306,18 +394,124 @@ def detail_rows_of(lines: Sequence[Mapping[str, Any]], detail: Mapping[str, Any]
                    "title": text_or_none(photo.get(photos["title_field"])),
                    "media_format": photo["media_format"], "size_bytes": whole(photo.get("size_bytes")), **load}
             found[(row["court_office_code"], row["case_no"], sha256)] = row
-    return {"rows": details, "photo_rows": list(found.values())}
+    return {"rows": details, "photo_rows": list(found.values()),
+            "documents": {table: [row for value in rows.values() for row in (value if isinstance(value, list) else [value])]
+                          for table, rows in documents.items()}}
+
+
+def _list(value: Any) -> list[Mapping[str, Any]]:
+    return [item for item in value if isinstance(item, Mapping)] if isinstance(value, list) else []
+
+
+def _sold(value: Any) -> int | None:
+    amount = whole(value)
+    return amount if amount else None  # The site writes 0 for an unsold item.
+
+
+def document_rows(result: Mapping[str, Any], keyed: Mapping[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """A 물건상세 result's rows for each document table (root ADR-0540 §4), keyed by the read's
+    request (``keyed``: court office, case, property). The fields that name a person (the share text
+    `dspslStkCtt`, the 사법보좌관 `jdgeAojAsstnNm`) are not read; free text is masked."""
+
+    case_key = {k: keyed[k] for k in CASE}
+    base = result.get("csBaseInfo") if isinstance(result.get("csBaseInfo"), Mapping) else {}
+    deadlines = [d for d in (ymd(item.get("dstrtDemnLstprdYmd")) for item in _list(result.get("dstrtDemnInfo"))) if d]
+    out: dict[str, list[dict[str, Any]]] = {table: [] for table in DOCUMENT_TABLES}
+    if base:
+        out[CASE_TABLE].append({
+            **case_key, "court_name": text_or_none(base.get("cortOfcNm")),
+            "court_branch_name": text_or_none(base.get("cortSptNm")), "user_case_no": text_or_none(base.get("userCsNo")),
+            "case_name": text_or_none(base.get("csNm")), "case_received_date": ymd(base.get("csRcptYmd")),
+            "commencement_date": ymd(base.get("csCmdcYmd")), "claim_amount_krw": whole(base.get("clmAmt")),
+            "department_code": text_or_none(base.get("jdbnCd")), "department_name": text_or_none(base.get("cortAuctnJdbnNm")),
+            "department_phone": text_or_none(base.get("jdbnTelno")),
+            "execution_officer_phone": text_or_none(base.get("execrCsTelno")),
+            "case_progress_status_code": text_or_none(base.get("csProgStatCd")),
+            "suspension_status_code": text_or_none(base.get("auctnSuspStatCd")),
+            "closure_kind_code": text_or_none(base.get("ultmtDvsCd")), "closed_date": ymd(base.get("csUltmtYmd")),
+            "duplicate_merge_kind_code": text_or_none(base.get("auctnDpcnMrgDvsCd")),
+            "appeal_yn": text_or_none(base.get("rletApalYn")), "lawsuit_kind_code": text_or_none(base.get("lwstDvsCd")),
+            "dividend_demand_deadline": max(deadlines) if deadlines else None,
+        })
+    spec = result.get("dspslGdsDxdyInfo") if isinstance(result.get("dspslGdsDxdyInfo"), Mapping) else {}
+    if spec:
+        out[SPEC_TABLE].append({
+            **keyed, "item_usage_code": text_or_none(spec.get("auctnGdsUsgCd")),
+            "item_status_code": text_or_none(spec.get("auctnGdsStatCd")),
+            "schedule_item_status_code": text_or_none(spec.get("auctnDxdyGdsStatCd")),
+            "real_item_kind": text_or_none(spec.get("realMulKind")), "appraisal_amount_krw": whole(spec.get("aeeEvlAmt")),
+            "minimum_bid_price_krw": whole(spec.get("fstPbancLwsDspslPrc")), "failed_bid_count": whole(spec.get("flbdNcnt")),
+            "bid_kind_code": text_or_none(spec.get("bidDvsCd")), "sale_date": ymd(spec.get("dspslDxdyYmd")),
+            "sale_time_raw": text_or_none(spec.get("fstDspslHm")), "sale_place": text_or_none(spec.get("dspslPlcNm")),
+            "bid_start_date": ymd(spec.get("bidBgngYmd")), "bid_end_date": ymd(spec.get("bidEndYmd")),
+            "sale_decision_date": ymd(spec.get("dspslDcsnDxdyYmd")),
+            "sale_decision_time_raw": text_or_none(spec.get("dspslDcsnHm")),
+            "sale_decision_place": text_or_none(spec.get("dspslDcsnPlcNm")),
+            "deposit_rate_percent": whole(spec.get("prchDposRate")), "spec_written_date": ymd(spec.get("gdsSpcfcWrtYmd")),
+            "assumed_rights": masked_text(spec.get("ndstrcRghCtt")), "superficies": masked_text(spec.get("sprfcExstcDts")),
+            "spec_remarks": masked_text(spec.get("gdsSpcfcRmk")),
+            "first_rank_setting": masked_text(spec.get("tprtyRnkHypthcStngDts")),
+            "item_remarks": masked_text(spec.get("dspslGdsRmk")),
+            "spec_document_id": text_or_none(spec.get("dspslGdsSpcfcEcdocId")),
+        })
+    for n, item in enumerate(_list(result.get("gdsDspslDxdyLst")), start=1):
+        out[SCHEDULE_TABLE].append({
+            **keyed, "schedule_seq": n, "schedule_date": ymd(item.get("dxdyYmd")),
+            "schedule_time_raw": text_or_none(item.get("dxdyHm")), "schedule_kind_code": text_or_none(item.get("auctnDxdyKndCd")),
+            "schedule_place": text_or_none(item.get("dxdyPlcNm")), "result_code": text_or_none(item.get("auctnDxdyRsltCd")),
+            "schedule_item_status_code": text_or_none(item.get("auctnDxdyGdsStatCd")),
+            "minimum_bid_price_krw": _sold(item.get("tsLwsDspslPrc")), "sale_amount_krw": _sold(item.get("dspslAmt")),
+            "bid_start_date": ymd(item.get("bidBgngYmd")), "bid_end_date": ymd(item.get("bidEndYmd")),
+        })
+    seen_objects: set[int] = set()
+    for item in _list(result.get("gdsDspslObjctLst")):
+        seq = whole(item.get("dspslObjctSeq"))
+        if seq is None or seq in seen_objects:
+            continue
+        seen_objects.add(seq)
+        out[OBJECT_TABLE].append({
+            **keyed, "object_seq": seq, "list_kind_code": text_or_none(item.get("auctnLstDvsCd")),
+            "realty_kind": text_or_none(item.get("rletDvsDts")), "building_structure": text_or_none(item.get("pjbBuldList")),
+            "area_raw": text_or_none(item.get("objctArDts")), "land_category": text_or_none(item.get("ldcgDts")),
+            "appraisal_amount_krw": whole(item.get("aeeEvlAmt")),
+            "usage_lcls_code": text_or_none(item.get("lclDspslGdsLstUsgCd")),
+            "usage_mcls_code": text_or_none(item.get("mclDspslGdsLstUsgCd")),
+            "usage_scls_code": text_or_none(item.get("sclDspslGdsLstUsgCd")),
+            "legal_dong_code": code_of(item, OBJECT_CODE), "lot_raw": text_or_none(item.get("rprsLtnoAddr")),
+            "source_pnu_raw": text_or_none(item.get("pnuNoCtt")), "building_name": text_or_none(item.get("bldNm")),
+            "building_unit_raw": text_or_none(item.get("bldDtlDts")), "print_address_raw": text_or_none(item.get("userPrintSt")),
+            "x_raw": decimal(item.get("stXcrd")), "y_raw": decimal(item.get("stYcrd")),
+            "share_numerator": decimal(item.get("dspslStkNmrtVal")) or None,
+            "share_denominator": decimal(item.get("dspslStkDnmnVal")) or None,
+            "register_read_yn": text_or_none(item.get("rgstRdngYn")),
+        })
+    annex_seen: dict[int, int] = {}
+    for group in result.get("gdsNotSugtBldLsstAll") or []:
+        for item in _list(group):
+            seq = whole(item.get("dspslObjctSeq"))
+            if seq is None:
+                continue
+            annex_seen[seq] = annex_seen.get(seq, 0) + 1
+            out[ANNEX_TABLE].append({
+                **keyed, "object_seq": seq, "annex_seq": annex_seen[seq], "usage_raw": text_or_none(item.get("etcUsgCtt")),
+                "structure_raw": text_or_none(item.get("bldStrcDts")), "area_raw": text_or_none(item.get("bldArDts")),
+                "appraisal_amount_krw": whole(item.get("evlAmt")), "remarks": masked_text(item.get("sugtBsdsBldRmk")),
+            })
+    for n, item in enumerate(_list(result.get("aeeWevlMnpntLst")), start=1):
+        out[APPRAISAL_POINT_TABLE].append({
+            **case_key, "point_seq": n, "table_code": text_or_none(item.get("aeeWevlMnpntTbltDvsCd")),
+            "item_code": text_or_none(item.get("aeeWevlMnpntItmCd")), "detail_seq": whole(item.get("aeeWevlMnpntDtlSeq")),
+            "content": masked_text(item.get("aeeWevlMnpntCtt")),
+        })
+    return out
 
 
 def _utc(value: Any) -> datetime | None:
     """An RFC 3339 time as a naive UTC datetime, the tables' timestamp form."""
 
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value)).astimezone(timezone.utc).replace(tzinfo=None)
-    except ValueError:
-        return None
+    from platform_contracts import rfc3339_utc  # noqa: PLC0415
+
+    return rfc3339_utc(value)
 
 
 def content_columns(contract: Mapping[str, Any]) -> list[str]:
@@ -412,9 +606,28 @@ def search_changes(spark: Any, role: str, search: Mapping[str, Any], contract: M
     return staged, changes
 
 
+def changed_editions(staged: Any, current: Any, per: Sequence[str], content: Sequence[str]) -> Any:
+    """The staged rows of each group (``per``) whose whole list is new or differs from the group's
+    current edition (root ADR-0540 §3): an unchanged list appends nothing, a changed one is appended
+    whole, so the group's newest edition is always its last read's list. Null-ness is hashed apart
+    from the value, as ``changed_only`` does."""
+
+    from pyspark.sql import functions as F  # noqa: PLC0415
+
+    row_hash = F.xxhash64(*(F.col(c).isNull() for c in content), *(F.col(c) for c in content))
+
+    def lists(frame: Any) -> Any:
+        return frame.groupBy(*per).agg(F.xxhash64(F.sort_array(F.collect_list(row_hash))).alias("_edition"))
+
+    mine = lists(staged)
+    unchanged = mine.join(lists(current.join(mine.select(*per), list(per), "left_semi")), [*per, "_edition"], "inner")
+    return staged.join(unchanged.select(*per), list(per), "left_anti")
+
+
 def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str, Any],
                        search: Mapping[str, Any]) -> dict[str, Any]:
-    """Commits one 물건상세 object: its new photos, then its reads (root ADR-0384)."""
+    """Commits one 물건상세 object, table by table in `DETAIL_TABLES` order: its new photos, its
+    changed documents (root ADR-0540), then its reads (root ADR-0384)."""
 
     from data_go_kr_onbid import changed_only  # noqa: PLC0415 - the same changed-key compare
     from lakehouse_ingest import append_source_object  # noqa: PLC0415
@@ -424,16 +637,23 @@ def load_detail_object(spark: Any, args: argparse.Namespace, entry: Mapping[str,
 
     counts: dict[str, Any] = {"object": entry["object_key"], "role": DETAIL_ROLE, "rows": len(search["rows"]),
                               "photos": len(search["photo_rows"])}
-    for name, rows in ((PHOTO_TABLE, search["photo_rows"]), (DETAIL_TABLE, search["rows"])):
+    given = {PHOTO_TABLE: search["photo_rows"], DETAIL_TABLE: search["rows"], **search["documents"]}
+    for name in DETAIL_TABLES:
+        rows = given[name]
         contract = load_lakehouse_contract(name)
         table = f"`{args.iceberg_catalog_name}`.`silver`.`{name.split('.', 1)[1]}{args.table_suffix}`"
         ensure_contract_table(spark, table, contract)
         columns = list(column_names(contract))
         ddl = ", ".join(f"{c['name']} {spark_sql_type(c['logical_type'])}" for c in contract["columns"])
         staged = spark.createDataFrame([tuple(row.get(c) for c in columns) for row in rows], ddl)
-        if name == PHOTO_TABLE:
-            content = [c for c in columns if c not in (*PHOTO_KEY, *LOAD_COLUMNS)]
-            staged = changed_only(staged, current_rows(spark.table(table), contract), PHOTO_KEY, content)
+        key = PHOTO_KEY if name == PHOTO_TABLE else LATEST_KEYS.get(name)
+        if key is not None:
+            content = [c for c in columns if c not in (*key, *LOAD_COLUMNS)]
+            staged = changed_only(staged, current_rows(spark.table(table), contract), key, content)
+        elif name in EDITION_PER:
+            per = EDITION_PER[name]
+            content = [c for c in columns if c not in (*per, *LOAD_COLUMNS)]
+            staged = changed_editions(staged, current_rows(spark.table(table), contract), per, content)
         staged = staged.select(*columns).cache()
         short = name.split(".", 1)[1]
         counts[f"{short}_appended_rows"] = staged.count()

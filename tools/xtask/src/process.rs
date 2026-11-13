@@ -42,89 +42,28 @@ pub(crate) fn cargo_capturing_stdout(area_dir: &Path, args: &[&str]) -> Result<S
     Ok(stdout)
 }
 
-/// Install Debian packages needed by an area's complete verification suite. No-op
-/// when empty. On the rust Docker image we are root (no sudo); on the CI runner we
-/// are not (sudo). apt is idempotent, so re-running is cheap.
+/// Install Debian packages needed by an area's complete verification suite. No-op when empty.
+///
+/// The one implementation is `scripts/ci/apt-install.sh`, which every workflow step that needs a
+/// package also runs: it returns at once when everything is installed (the verification image bakes
+/// these in, so the harness needs no network), installs from the runner's package cache when it can,
+/// and otherwise downloads only from mirrors that answered a probe, with retries. A second copy of
+/// that logic here is how the 2026-11-11 mirror outage failed xtask's lanes while a workflow step
+/// alone would have been fixed.
 pub(crate) fn ensure_apt(deps: &[&str]) {
     if deps.is_empty() {
         return;
     }
-    // Already satisfied is the normal case: the verification image bakes these in, and a CI runner
-    // that installed them once keeps them for the job. Returning here is what lets the harness run
-    // the verification with no network at all — an `apt-get update` would be the only reason it
-    // needed one, and a step that reaches the internet is a step that can fail for reasons the
-    // thing being verified has nothing to do with.
-    let missing: Vec<&str> = deps
-        .iter()
-        .copied()
-        .filter(|dep| !debian_package_installed(dep))
-        .collect();
-    if missing.is_empty() {
-        return;
-    }
     if !tool_exists("apt-get") {
         eprintln!(
-            "xtask: apt-get not found; install these manually before verifying: {}",
-            missing.join(" ")
+            "xtask: apt-get not found; make sure these are installed before verifying: {}",
+            deps.join(" ")
         );
         return;
     }
-    let sudo = !is_root();
-    // `apt-get update` exits 0 even when every source failed — measured, seven errors and a zero.
-    // Its status therefore proves nothing, and only the install below is a real judgment.
-    let _ = run_reporting(apt(sudo).arg("update"));
-    run(apt(sudo)
-        .args(["install", "-y", "--no-install-recommends"])
-        .args(&missing));
-}
-
-/// Whether dpkg reports a package as installed.
-///
-/// `command -v` cannot answer this: half of these deps are `-dev` packages that ship headers and no
-/// executable, so a binary probe would call them missing on an image that already has them and
-/// reach for the network every run.
-pub(crate) fn debian_package_installed(package: &str) -> bool {
-    Command::new("dpkg-query")
-        .args(["-W", "-f=${db:Status-Status}", package])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "installed")
-        .unwrap_or(false)
-}
-
-/// apt with a bound on how long one mirror may stall. apt's own default waits on a silent
-/// connection for as long as it stays open: on 2026-10-07 two merge-queue runs sat at
-/// `Get: https://archive.ubuntu.com/ubuntu noble-security InRelease` for 23 minutes, until the
-/// job's timeout cancelled the Postgres lane and the queue dropped both PRs. With a timeout and
-/// retries a stalled mirror costs seconds, and the install below still judges the result.
-pub(crate) fn apt(sudo: bool) -> Command {
-    let mut c = if sudo {
-        let mut c = Command::new("sudo");
-        c.arg("apt-get");
-        c
-    } else {
-        Command::new("apt-get")
-    };
-    c.args([
-        "-o",
-        "Acquire::http::Timeout=30",
-        "-o",
-        "Acquire::https::Timeout=30",
-        "-o",
-        "Acquire::Retries=3",
-    ]);
-    c
-}
-
-pub(crate) fn is_root() -> bool {
-    Command::new("id")
-        .arg("-u")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim() == "0")
-        .unwrap_or(false)
+    run(Command::new("bash")
+        .arg(repo_root().join("scripts/ci/apt-install.sh"))
+        .args(deps));
 }
 
 pub(crate) fn tool_exists(name: &str) -> bool {

@@ -35,8 +35,27 @@ if [ "${planned}" = 0 ]; then
 fi
 
 intelligence_document_fetch_media "${work}/plan/media.tsv"
-intelligence_document_text_run
+# The image writes each document's rows as it finishes it: a run that stops (its memory cap, its
+# time limit) still appends what it finished, then fails. 2026-11-12 three runs in a row were killed
+# at the cap after about a hundred documents each and appended none, so each next run read them again.
+# A stop (systemd's TERM: a deploy draining the jobs, an operator) ends the image the same way, and
+# the finished documents are appended before the unit stops (TimeoutStopSec 4 min, under the job's
+# stop_grace_minutes). 2026-11-12 19:30Z a deploy stopped a 63-minute run and nothing was kept.
+stopping=0
+trap 'stopping=1' TERM
+text_rc=0
+intelligence_document_text_run || text_rc=$?
 intelligence_document_spark append-text --run-dir "${container_work}/out" --run-id "${run_id}"
+trap - TERM
+if [ "${stopping}" = 1 ]; then
+  job_journal "${journal}" "intelligence document text stopped; its finished documents were appended run=${run_id}" >&2
+  exit 143
+fi
+if [ "${text_rc}" != 0 ]; then
+  job_journal "${journal}" "intelligence document text FAILED: the image exited ${text_rc}; its finished documents were appended run=${run_id}" >&2
+  job_run_log_tail "${run_log}"
+  exit "${text_rc}"
+fi
 
 read_summary="$(python3 -I -c '
 import json, sys

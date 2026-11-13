@@ -200,6 +200,139 @@ class DetailRowsTest(unittest.TestCase):
         self.assertEqual(job.search_roles(CONTRACT)["courtauctiongokr__auction_item_detail"], job.DETAIL_ROLE)
 
 
+def synthetic_result(seq="1", schedule_result="002"):
+    """A 물건상세 result of the shape the site answers (root ADR-0540), with made-up values and names."""
+
+    case = {"cortOfcCd": "B999999", "csNo": "20990130000001"}
+    return {
+        "csBaseInfo": {**case, "cortOfcNm": "합성지방법원", "cortSptNm": "합성지방법원", "csNm": "부동산임의경매",
+                       "userCsNo": "2099타경1", "csRcptYmd": "20990101", "csCmdcYmd": "20990105", "clmAmt": "150000000",
+                       "jdbnCd": "1001", "cortAuctnJdbnNm": "경매1계", "jdbnTelno": "099-000-0000",
+                       "jdgeAojAsstnNm": "홍길동", "ultmtDvsCd": "000", "csUltmtYmd": "", "lwstDvsCd": "1"},
+        "dstrtDemnInfo": [{"orddcsDvsCd": "021", "dstrtDemnLstprdYmd": "20990301"},
+                          {"orddcsDvsCd": "022", "dstrtDemnLstprdYmd": "20990315"}],
+        "dspslGdsDxdyInfo": {**case, "dspslGdsSeq": seq, "auctnGdsUsgCd": "10", "aeeEvlAmt": "100000000",
+                             "fstPbancLwsDspslPrc": "70000000", "flbdNcnt": "1", "dspslDxdyYmd": "20990415",
+                             "fstDspslHm": "1000", "dspslPlcNm": "제1호 법정", "dspslDcsnDxdyYmd": "20990422",
+                             "prchDposRate": "10", "gdsSpcfcWrtYmd": "20990401",
+                             "ndstrcRghCtt": "토지: 갑구 제14번 홍길동지분전부이전청구권가등기",
+                             "tprtyRnkHypthcStngDts": "2099.1.5. 근저당권(김가상 지분)",
+                             "gdsSpcfcRmk": "일괄매각. 토지 지분매각", "sprfcExstcDts": "해당사항없음",
+                             "dspslGdsRmk": "소유자 이합성 지분 전부", "dspslGdsSpcfcEcdocId": "SYNTHETIC"},
+        "gdsDspslDxdyLst": [
+            {"dxdyYmd": "20990315", "dxdyHm": "1000", "auctnDxdyKndCd": "01", "dxdyPlcNm": "제1호 법정",
+             "auctnDxdyRsltCd": schedule_result, "tsLwsDspslPrc": "100000000", "dspslAmt": "0"},
+            {"dxdyYmd": "20990415", "dxdyHm": "1000", "auctnDxdyKndCd": "01", "dxdyPlcNm": "제1호 법정",
+             "auctnDxdyRsltCd": "", "tsLwsDspslPrc": "70000000", "dspslAmt": "0"},
+        ],
+        "gdsDspslObjctLst": [
+            {**case, "dspslGdsSeq": seq, "dspslObjctSeq": "1", "rletDvsDts": "토지", "objctArDts": "330㎡",
+             "ldcgDts": "공장용지", "aeeEvlAmt": "60000000", "rprsAdongSdCd": "99", "rprsAdongSggCd": "999",
+             "rprsAdongEmdCd": "101", "rprsAdongRiCd": "00", "rprsLtnoAddr": "7", "pnuNoCtt": "9999910100100070000",
+             "dspslStkCtt": "갑구 2번 홍길동 지분 2분의 1 전부", "dspslStkNmrtVal": "1", "dspslStkDnmnVal": "2",
+             "stXcrd": "100", "stYcrd": "200"},
+            {**case, "dspslGdsSeq": seq, "dspslObjctSeq": "2", "rletDvsDts": "일반건물",
+             "pjbBuldList": "철골조 공장\n1층 200㎡", "aeeEvlAmt": "40000000", "dspslStkNmrtVal": "0"},
+        ],
+        "gdsNotSugtBldLsstAll": [[{**case, "dspslObjctSeq": "2", "etcUsgCtt": "창고", "bldStrcDts": "판넬조",
+                                   "bldArDts": "20㎡", "evlAmt": "3000000", "sugtBsdsBldRmk": "제시외건물"}]],
+        "aeeWevlMnpntLst": [{**case, "aeeWevlMnpntTbltDvsCd": "00082001", "aeeWevlMnpntItmCd": "00083001",
+                             "aeeWevlMnpntDtlSeq": "1", "aeeWevlMnpntCtt": "본건은 합성도 가나동 소재"}],
+        "csPicLst": [],
+    }
+
+
+def document_line(seq="1", **kwargs):
+    line = detail_line(seq)
+    line["body"] = json.dumps({"data": {"dma_result": synthetic_result(seq, **kwargs)}})
+    return line
+
+
+class DocumentRowsTest(unittest.TestCase):
+    """Root ADR-0540: the 물건상세's documents, one Silver table each, with no person's name."""
+
+    def documents(self, lines):
+        rows = job.detail_rows_of(lines, CONTRACT["item_detail"], "bronze/d.gz", "20990102T030405Z", NOW)
+        return rows["documents"]
+
+    def test_each_part_of_the_document_is_a_table_and_a_case_is_one_row_however_many_properties_read_it(self):
+        docs = self.documents([document_line("1"), document_line("2")])
+        [case] = docs[job.CASE_TABLE]
+        self.assertEqual((case["claim_amount_krw"], case["commencement_date"], case["dividend_demand_deadline"],
+                          case["source_line_number"]), (150000000, date(2099, 1, 5), date(2099, 3, 15), 2),
+                         "the latest 배당요구종기, the last line naming the case wins")
+        self.assertNotIn("홍길동", json.dumps(case, default=str, ensure_ascii=False), "the 사법보좌관 stays in Bronze")
+        self.assertEqual([r["property_seq"] for r in docs[job.SPEC_TABLE]], [1, 2])
+        self.assertEqual([(r["property_seq"], r["schedule_seq"], r["result_code"], r["sale_amount_krw"])
+                          for r in docs[job.SCHEDULE_TABLE]],
+                         [(1, 1, "002", None), (1, 2, None, None), (2, 1, "002", None), (2, 2, None, None)])
+        objects = {(r["property_seq"], r["object_seq"]): r for r in docs[job.OBJECT_TABLE]}
+        land = objects[(1, 1)]
+        self.assertEqual((land["legal_dong_code"], land["lot_raw"], land["land_category"], land["share_numerator"],
+                          land["share_denominator"]), ("9999910100", "7", "공장용지", 1.0, 2.0))
+        self.assertIsNone(objects[(1, 2)]["share_numerator"], "the site writes 0 for no share")
+        self.assertNotIn("dspslStkCtt", json.dumps(docs[job.OBJECT_TABLE], default=str))
+        self.assertNotIn("홍길동", json.dumps(docs[job.OBJECT_TABLE], default=str, ensure_ascii=False),
+                         "the share text names its holders and is not read")
+        self.assertEqual([(r["property_seq"], r["object_seq"], r["annex_seq"]) for r in docs[job.ANNEX_TABLE]],
+                         [(1, 2, 1), (2, 2, 1)])
+        [point] = docs[job.APPRAISAL_POINT_TABLE]
+        self.assertEqual((point["point_seq"], point["item_code"], point["source_line_number"]), (1, "00083001", 2),
+                         "a case's 감정요항표 is its last line's list")
+
+    def test_names_in_the_free_text_are_masked(self):
+        [spec] = self.documents([document_line("1")])[job.SPEC_TABLE]
+        self.assertEqual(spec["assumed_rights"], "토지: 갑구 제14번 ○○○지분전부이전청구권가등기")
+        self.assertEqual(spec["first_rank_setting"], "2099.1.5. 근저당권(○○○ 지분)")
+        self.assertEqual(spec["item_remarks"], "소유자 ○○○ 지분 전부")
+        self.assertEqual(spec["spec_remarks"], "일괄매각. 토지 지분매각", "a word that is not a name stays")
+
+    def test_the_mask_keeps_words_that_are_not_names(self):
+        for text in ("토지 지분매각", "공유 지분", "소유자 미상의 분묘", "임차인 없음", "대지권 지분 전부", "해당사항없음"):
+            self.assertEqual(job.mask_names(text), text, text)
+        self.assertEqual(job.mask_names("임차인 홍길동은 점유"), "임차인 ○○○은 점유")
+        self.assertEqual(job.mask_names("채무자: 김가상, 소유자 이합성"), "채무자: ○○○, 소유자 ○○○")
+        self.assertIsNone(job.mask_names(None))
+
+    def test_a_failed_read_states_no_document(self):
+        failed = {**detail_line("3", "failed"), "body": "<html>"}
+        self.assertEqual({table: rows for table, rows in self.documents([failed]).items() if rows}, {})
+
+    def test_every_document_table_is_a_contract_table_of_this_load(self):
+        for table in job.DOCUMENT_TABLES:
+            names = {c["name"] for c in load_lakehouse_contract(table)["columns"]}
+            rows = self.documents([document_line("1")])[table]
+            self.assertTrue(rows, table)
+            self.assertLessEqual(set(rows[0]), names, f"{table} rows name only its columns")
+        self.assertEqual(job.DETAIL_TABLES[0], job.PHOTO_TABLE)
+        self.assertEqual(job.DETAIL_TABLES[-1], job.DETAIL_TABLE, "the read record commits last")
+        self.assertEqual(job.DETAIL_TABLES[-2], job.APPRAISAL_POINT_TABLE,
+                         "the load script plans against the last document table too")
+
+
+class DetailPartTest(unittest.TestCase):
+    def test_a_detail_part_carries_its_runs_id(self):
+        key = ("bronze/source=courtauctiongokr__auction_item_detail/operation=selectAuctnCsSrchRslt/"
+               "auction-item-detail-part0002-20990102t030405z.gz")
+        self.assertEqual(job.snapshot_id(key), "20990102T030405Z")
+
+
+class DetailPlanTest(unittest.TestCase):
+    def test_an_object_two_plans_name_is_loaded_once(self):
+        key = "bronze/source=courtauctiongokr__auction_item_detail/operation=selectAuctnCsSrchRslt/auction-item-detail-20990102t030405z.gz"
+        with tempfile.TemporaryDirectory() as tmp:
+            dirs = []
+            for name in ("details", "documents"):
+                plan_dir = Path(tmp) / name
+                (plan_dir / "objects").mkdir(parents=True)
+                (plan_dir / "objects" / "o.gz").write_bytes(gzip.compress(b""))
+                (plan_dir / "plan.json").write_text(json.dumps({"schema_version": job.PLAN_SCHEMA, "objects": [
+                    {"object_key": key, "source_slug": "courtauctiongokr__auction_item_detail",
+                     "local_path": "objects/o.gz"}]}), encoding="utf-8")
+                dirs.append(plan_dir)
+            self.assertEqual(len(job.planned_objects(dirs, CONTRACT)), 1)
+
+
 @unittest.skipUnless(HAS_SPARK, "requires the pinned Spark runtime")
 class ChangesTest(unittest.TestCase):
     @classmethod
@@ -256,6 +389,16 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual((row.pnu, row.pnu_basis, row.pnu_unresolved_reason, row.legal_dong_code),
                          ("9999910100100070000", "legal_dong_code_superseded", None, "9999910100"))
         self.assertEqual(row.source_code_pnu_raw, "9999920100100070000", "the source code stays as evidence")
+
+    def test_a_list_is_appended_whole_only_when_it_changed(self):
+        # Root ADR-0540 §3: an unchanged list appends nothing; a changed or new one, all its rows.
+        schema = "court_office_code string, case_no string, property_seq int, schedule_seq int, result_code string"
+        current = self.spark.createDataFrame([("B", "1", 1, 1, "002"), ("B", "1", 1, 2, None),
+                                              ("B", "1", 2, 1, "002")], schema)
+        staged = self.spark.createDataFrame([("B", "1", 1, 2, None), ("B", "1", 1, 1, "002"),
+                                             ("B", "1", 2, 1, "001"), ("B", "1", 3, 1, None)], schema)
+        changed = job.changed_editions(staged, current, job.PROPERTY, ["schedule_seq", "result_code"])
+        self.assertEqual(sorted((r.property_seq, r.schedule_seq) for r in changed.collect()), [(2, 1), (3, 1)])
 
     def test_an_incomplete_search_and_the_result_search_mark_nothing(self):
         for role, complete in (("item_search", False), ("sale_result_search", True)):

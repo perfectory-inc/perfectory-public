@@ -25,9 +25,17 @@
 #     claimed nothing and is asked again at the next run, without a backoff: the readiness it reads
 #     comes from loads that run on their own, and a doubled wait would hold the lane hours after its
 #     last input landed (2026-11-09: parcel-nearby, whose seven Silver tables wait for one load).
-#     Only attempts by the release that runs now count toward the backoff (the order counts them all):
-#     a new release is new evidence, the way Argo Rollouts analyses a new revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold
-#     step in 1 s left each lane three attempts, and the release that fixed it would have waited 4 hours).
+#     An attempt that failed fast counts toward the backoff only under the release that made it (the
+#     order counts them all): a new release is new evidence, the way Argo Rollouts analyses a new
+#     revision afresh (2026-11-08 16:12Z-17:00Z: a release that broke every gold step in 1 s left each
+#     lane three attempts, and the release that fixed it would have waited 4 hours). An attempt whose
+#     gold or bake step failed after it held the whole spark pool for COSTLY_SECONDS or more counts
+#     under every release (root ADR-0521), as Kubernetes keeps a CrashLoopBackOff across restarts that change nothing
+#     the pod runs: the host deploys every few hours, and a Gold that runs out of memory fails again
+#     whatever else the release changed (2026-11-11: parcel-real-transaction's first full Gold died of
+#     `Java heap space` or a lost driver after 47 to 147 minutes, 03:42Z, 08:15Z, 10:14Z, each new
+#     release restarted it within the hour, and its claim kept 18 queued Spark starts out of the pool
+#     for up to 3.7 hours).
 #   - the generation: the lane's newest bake directory, resumed (its finished shards are kept), or the
 #     next one when the last attempt of that generation failed in its bake or its equality gate: a
 #     bake pinned to a Gold snapshot that has moved since cannot match the Gold it is compared with
@@ -94,8 +102,27 @@ import datetime, glob, json, os, re, sys
 marks, bake_root, now, jobs, release, *lanes = sys.argv[1:]
 now = int(now)
 HOUR, CAP = 3600, 86400
+# A failed Spark step that held the pool this long was not a release's broken start (11-08: 1 s).
+COSTLY_SECONDS = 600
 with open(jobs, encoding="utf-8") as handle:
     GOLD_LIMIT = 60 * next(job["time_limit_minutes"] for job in json.load(handle)["jobs"] if job["id"] == "gold_panel_rebuild")
+
+
+def load_runs():
+    """Every cut-over run: (its start, %Y%m%dT%H%M%SZ of its id, its steps), newest first."""
+    found = []
+    for run in sorted(glob.glob(os.path.join(bake_root, "cutover", "*.jsonl")), reverse=True):
+        try:
+            began = int(datetime.datetime.strptime(os.path.basename(run)[:-6], "%Y%m%dT%H%M%SZ")
+                        .replace(tzinfo=datetime.timezone.utc).timestamp())
+            with open(run, encoding="utf-8") as handle:
+                found.append((began, [json.loads(line) for line in handle if line.strip()]))
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+RUNS = load_runs()
 
 def attempts(lane, any_release=False):
     try:
@@ -107,54 +134,62 @@ def attempts(lane, any_release=False):
 
 def evidence(lane, generation):
     """The steps of the newest cut-over run that worked on this lane and generation."""
-    runs = sorted(glob.glob(os.path.join(bake_root, "cutover", "*.jsonl")), reverse=True)
-    for run in runs:
-        try:
-            with open(run, encoding="utf-8") as handle:
-                steps = [json.loads(line) for line in handle if line.strip()]
-        except (OSError, ValueError):
-            continue
+    for _, steps in RUNS:
         mine = [step for step in steps if step.get("lane") == lane and step.get("generation") == generation]
         if mine:
             return mine
     return []
 
-def waited(lane, attempt):
-    """The attempt's run ended `waiting`: a readiness step found something not loaded yet. Only a run
-    that began at or after the attempt's mark is its own (a run id is its start, %Y%m%dT%H%M%SZ)."""
-    runs = sorted(glob.glob(os.path.join(bake_root, "cutover", "*.jsonl")), reverse=True)
-    for run in runs:
-        try:
-            began = int(datetime.datetime.strptime(os.path.basename(run)[:-6], "%Y%m%dT%H%M%SZ")
-                        .replace(tzinfo=datetime.timezone.utc).timestamp())
-            with open(run, encoding="utf-8") as handle:
-                steps = [json.loads(line) for line in handle if line.strip()]
-        except (OSError, ValueError):
-            continue
+def own_run(lane, attempt, later):
+    """The steps of the attempt's own run: the newest that worked on its lane and generation and began
+    at or after its mark and before the lane's next attempt (`later`), or []."""
+    for began, steps in RUNS:
         mine = [step for step in steps if step.get("lane") == lane and step.get("generation") == attempt.get("generation")]
         if mine:
-            return began >= attempt["at"] and mine[-1].get("outcome") == "waiting"
-    return False
+            if attempt["at"] <= began < later:
+                return mine
+            if began < attempt["at"]:
+                return []
+    return []
+
+def waited(lane, attempt):
+    """The attempt's run ended `waiting`: a readiness step found something not loaded yet."""
+    mine = own_run(lane, attempt, float("inf"))
+    return bool(mine) and mine[-1].get("outcome") == "waiting"
+
+def costly(steps):
+    """The run's gold or bake step failed after it held the spark pool COSTLY_SECONDS or more."""
+    return any(step.get("step") in ("gold", "bake") and step.get("outcome") == "failed"
+               and step.get("seconds", 0) >= COSTLY_SECONDS for step in steps)
+
+def counted(lane):
+    """The attempts the backoff counts: this release's, and any release's whose run failed costly."""
+    every = attempts(lane, any_release=True)
+    nexts = [mark["at"] for mark in every[1:]] + [float("inf")]
+    return [mark for mark, later in zip(every, nexts)
+            if mark.get("release") == release or costly(own_run(lane, mark, later))]
 
 def stopped_by_its_bound(lane, attempt):
     """The attempt's gold step ran to the rebuild's time bound: stopped, with its stages kept."""
     return any(step.get("step") == "gold" and step.get("outcome") == "failed" and step.get("seconds", 0) >= GOLD_LIMIT
                for step in evidence(lane, attempt.get("generation")))
 
-# The order counts every attempt, the backoff only this release's: a deploy resets every lane's wait,
-# and the lane at the head of the contract must not go first again after each one (2026-11-08 23:12Z:
-# parcel-regulation-zones, five attempts, restarted ahead of three lanes tried three times each).
+# The order counts every attempt, the backoff this release's and the costly ones (`counted`): a deploy
+# resets a wait only fast failures made, and the lane at the head of the contract must not go first
+# again after each one (2026-11-08 23:12Z: parcel-regulation-zones, five attempts, restarted ahead of
+# three lanes tried three times each). The wait runs from the lane's last attempt, whichever release.
 for lane in sorted(lanes, key=lambda lane: len(attempts(lane, any_release=True))):  # stable: contract order among equals
-    tried = attempts(lane)
+    tried = counted(lane)
     if tried:
-        if waited(lane, tried[-1]):
+        last = attempts(lane, any_release=True)[-1]
+        if waited(lane, last):
             wait = 0
-        elif stopped_by_its_bound(lane, tried[-1]):
+        elif stopped_by_its_bound(lane, last):
             wait = HOUR
         else:
             wait = min(CAP, HOUR * 2 ** (len(tried) - 1))
-        if now < tried[-1]["at"] + wait:
-            print(f"wait {lane} {tried[-1]['at'] + wait}")
+        if now < last["at"] + wait:
+            print(f"wait {lane} {last['at'] + wait}")
             continue
     generations = [int(m.group(1)) for path in glob.glob(os.path.join(bake_root, f"{lane}-pack-g*"))
                    if (m := re.fullmatch(rf"{re.escape(lane)}-pack-g([1-9][0-9]{{0,3}})", os.path.basename(path)))]

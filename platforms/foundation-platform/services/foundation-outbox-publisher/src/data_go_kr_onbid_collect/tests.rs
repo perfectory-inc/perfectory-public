@@ -807,6 +807,7 @@ fn the_media_memo_keeps_the_open_items_only_and_the_state_round_trips() -> anyho
         media_format: "jpg".to_owned(),
         size_bytes: 1,
         cltr_mng_no: cltr.to_owned(),
+        source: None,
     };
     state
         .media

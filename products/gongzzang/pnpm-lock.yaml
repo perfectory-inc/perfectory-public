@@ -6,6 +6,7 @@ settings:
 
 overrides:
   '@grpc/grpc-js@>=1.0.0 <2.0.0': ^1.14.5
+  basic-ftp@>=5.0.0 <7.0.0: ^6.2.6
   brace-expansion@>=5.0.0 <6.0.0: ^5.0.12
   esbuild@>=0.0.0 <0.29.0: ^0.28.1
   glob@>=13.0.0 <15.0.0: ^14.0.2
@@ -2196,8 +2197,8 @@ packages:
     engines: {node: '>=6.0.0'}
     hasBin: true
 
-  basic-ftp@5.3.1:
-    resolution: {integrity: sha512-bopVNp6ugyA150DDuZfPFdt1KZ5a94ZDiwX4hMgZDzF+GttD80lEy8kj98kbyhLXnPvhtIo93mdnLIjpCAeeOw==}
+  basic-ftp@6.2.6:
+    resolution: {integrity: sha512-0EjZCaodOz6yiokv2JA1VyKGNdGxULZ+GGlPgG9tm4d+T/bHtX1hUch8CumDneBfpIbiSdn7TaCGwpM+gwsOlw==}
     engines: {node: '>=10.0.0'}
 
   bin-links@6.0.2:
@@ -5672,7 +5673,7 @@ snapshots:
 
   baseline-browser-mapping@2.11.21: {}
 
-  basic-ftp@5.3.1: {}
+  basic-ftp@6.2.6: {}
 
   bin-links@6.0.2:
     dependencies:
@@ -5997,7 +5998,7 @@ snapshots:
 
   get-uri@8.0.1:
     dependencies:
-      basic-ftp: 5.3.1
+      basic-ftp: 6.2.6
       data-uri-to-buffer: 8.0.0
       debug: 4.4.3(supports-color@10.2.2)
     transitivePeerDependencies:

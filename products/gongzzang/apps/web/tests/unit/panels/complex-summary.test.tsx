@@ -1,11 +1,15 @@
 import { render, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ComplexSummaryCard } from "@/components/panels/complex/summary";
 import { type ComplexInfo, ComplexInfoSchema } from "@/lib/api/complexes";
 import koMessages from "@/lib/i18n/ko.json";
 import type { PanelStackEntry } from "@/lib/panel/types";
+
+vi.mock("@/lib/env", () => ({
+  env: { NEXT_PUBLIC_PARCEL_EDGE_BASE_URL: "https://catalog.example.test" },
+}));
 
 const COMPLEX_ID = "7df3859c-1e0a-51fa-8b7d-9a1c2e3f4a5b";
 const entry = {
@@ -99,6 +103,74 @@ describe("ComplexSummaryCard", () => {
     expect(body.indexOf("1977-03-07")).toBeGreaterThan(-1);
     expect(body.indexOf("1977-03-07")).toBeLessThan(body.indexOf("수도권 공업 재배치"));
     expect(body.indexOf("수도권 공업 재배치")).toBeLessThan(body.indexOf("기계, 전기전자"));
+  });
+});
+
+describe("ComplexSummaryCard document facts", () => {
+  const SHA = "a".repeat(64);
+  const source = (media_format: string) => ({
+    notice_sequence: 99001,
+    notice_number: "합성시 고시 제2099-1호",
+    notice_date: "2099-01-01",
+    sha256: SHA,
+    media_format,
+  });
+  const fact = (value: Record<string, unknown>, page_number: number) => ({
+    value,
+    page_number,
+    quote: "합성 인용",
+    method: "rule",
+    page_method: "text_layer",
+    check: "table_total",
+  });
+  const facts = (media_format = "pdf") => ({
+    table: "gold.complex_document_facts",
+    iceberg_snapshot_id: "999990000000000001",
+    run_id: "20991231T000000Z",
+    kinds: {
+      land_use_area: {
+        source: source(media_format),
+        facts: [
+          fact({ label: "산업시설용지", area_m2: 123456, ratio_pct: 61.5 }, 4),
+          fact({ label: "도로", parent: "공공시설용지", area_m2: 2345.5, ratio_pct: null }, 5),
+        ],
+      },
+      invited_industry: {
+        source: source(media_format),
+        facts: [fact({ ksic_division: "24", ksic_name: "1차 금속 제조업" }, 7)],
+      },
+    },
+  });
+
+  it("labels what the notices state as AI 추출 and opens the PDF at the page it was read on", () => {
+    renderCard(complexInfo({ document_facts: facts() }));
+
+    expect(screen.getAllByText("AI 추출")).toHaveLength(2);
+    expect(screen.getByText("산업시설용지")).toBeTruthy();
+    expect(screen.getByText("공공시설용지 · 도로")).toBeTruthy();
+    expect(screen.getByText("123,456 ㎡")).toBeTruthy();
+    expect(screen.getByText("61.5%")).toBeTruthy();
+    expect(screen.getByText("1차 금속 제조업 (24)")).toBeTruthy();
+    const link = screen.getByRole("link", {
+      name: "원문 합성시 고시 제2099-1호 · 2099-01-01 · 4–5쪽",
+    });
+    expect(link.getAttribute("href")).toBe(
+      `https://catalog.example.test/onbid/media/sha256/${SHA}.pdf#page=4`,
+    );
+  });
+
+  it("names an HWP notice's page without a link the edge does not serve", () => {
+    renderCard(complexInfo({ document_facts: facts("hwp") }));
+
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("원문 합성시 고시 제2099-1호 · 2099-01-01 · 7쪽")).toBeTruthy();
+  });
+
+  it("shows nothing for a complex with no admitted facts or an older profile", () => {
+    renderCard(complexInfo());
+    expect(screen.queryByText("AI 추출")).toBeNull();
+    renderCard(complexInfo({ document_facts: { ...facts(), kinds: {} } }));
+    expect(screen.queryByText("AI 추출")).toBeNull();
   });
 });
 

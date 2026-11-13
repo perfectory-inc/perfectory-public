@@ -2,12 +2,11 @@
 
 A test copy of the script points its fixed paths at a fixture tree: the control checkout's Git
 transport answers main's head, its release_checks.py answers a verdict, and its foundation-deploy.sh
-records what it was asked to deploy and exits as told. release_checks.py itself is tested against
-a local stand-in for the GitHub API.
+records what it was asked to deploy and exits as told. release_checks.py itself is tested in
+test_release_checks.py.
 """
 
 import getpass
-import http.server
 import json
 import os
 import pathlib
@@ -16,7 +15,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import unittest
 
@@ -45,229 +43,6 @@ sys.path.insert(0, str(CHECKS.parent))
 import release_checks  # noqa: E402
 sys.path.insert(0, str(PLATFORM / "orchestration/dags"))
 import job_specs  # noqa: E402
-
-
-def run(name, status="completed", conclusion="success", suite=1):
-    return {"name": name, "status": status, "conclusion": conclusion, "check_suite": {"id": suite}}
-
-
-def queue_run(suite, status="completed", conclusion="success"):
-    return {"check_suite_id": suite, "event": "merge_group", "status": status, "conclusion": conclusion}
-
-
-class TheVerdict(unittest.TestCase):
-    def test_every_run_passed_deploys(self):
-        decision, _ = release_checks.verdict([run("ci"), run("docs", conclusion="skipped"), run("x", conclusion="neutral")])
-        self.assertEqual(decision, "deploy")
-
-    def test_no_run_or_one_still_running_waits(self):
-        self.assertEqual(release_checks.verdict([])[0], "wait")
-        self.assertEqual(release_checks.verdict([run("ci"), run("slow", status="in_progress", conclusion=None)])[0], "wait")
-
-    def test_any_failure_refuses_even_while_others_run(self):
-        for conclusion in ("failure", "cancelled", "timed_out", "action_required", "stale", None):
-            with self.subTest(conclusion):
-                decision, reason = release_checks.verdict(
-                    [run("ci", conclusion=conclusion), run("slow", status="queued", conclusion=None)]
-                )
-                self.assertEqual(decision, "refuse")
-                self.assertIn("ci", reason)
-
-
-class TheMergeQueueRunDecides(unittest.TestCase):
-    """main's commit is the tree the merge queue tested (root ADR-0167)."""
-
-    def test_a_passed_queue_deploys_while_mains_second_run_still_runs(self):
-        decision, reason = release_checks.verdict(
-            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8)], [queue_run(7)]
-        )
-        self.assertEqual(decision, "deploy")
-        self.assertIn("merge queue", reason)
-
-    def test_a_queue_still_running_waits(self):
-        for queue in ([queue_run(7, status="in_progress", conclusion=None)], [queue_run(7), queue_run(9, "queued", None)]):
-            with self.subTest(queue):
-                decision, _ = release_checks.verdict(
-                    [run("ci", suite=7), run("slow", status="in_progress", conclusion=None, suite=8)], queue
-                )
-                self.assertEqual(decision, "wait")
-
-    def test_a_failure_in_mains_second_run_still_refuses(self):
-        decision, _ = release_checks.verdict(
-            [run("ci", suite=7), run("ci", conclusion="failure", suite=8)], [queue_run(7)]
-        )
-        self.assertEqual(decision, "refuse")
-
-    def test_a_commit_the_queue_never_ran_waits_for_every_run(self):
-        decision, _ = release_checks.verdict([run("ci"), run("slow", status="queued", conclusion=None)], [])
-        self.assertEqual(decision, "wait")
-
-
-class ReportsDoNotDecide(unittest.TestCase):
-    """A schedule's or a dispatch's run reports on the repository, not on this commit (2026-10-19:
-    a cache budget over its line refused fc61aa36)."""
-
-    def report(self, suite, event="schedule"):
-        return {"check_suite_id": suite, "event": event, "status": "completed", "conclusion": "failure"}
-
-    def test_a_failed_report_neither_refuses_nor_hides(self):
-        for event in ("schedule", "workflow_dispatch"):
-            with self.subTest(event):
-                decision, reason = release_checks.verdict(
-                    [run("ci", suite=7), run("Actions cache budget", conclusion="failure", suite=5)],
-                    [queue_run(7), self.report(5, event)],
-                )
-                self.assertEqual(decision, "deploy")
-                self.assertIn("Actions cache budget=failure", reason)
-
-    def test_a_running_report_is_not_waited_for(self):
-        decision, _ = release_checks.verdict(
-            [run("ci", suite=7), run("Actions cache budget", status="in_progress", conclusion=None, suite=5)],
-            [{"check_suite_id": 7, "event": "push", "status": "completed", "conclusion": "success"}, self.report(5)],
-        )
-        self.assertEqual(decision, "deploy")
-
-    def test_reports_alone_are_no_verdict(self):
-        decision, _ = release_checks.verdict([run("Actions cache budget", suite=5)], [self.report(5)])
-        self.assertEqual(decision, "wait")
-
-    def test_the_same_check_from_a_push_still_refuses(self):
-        decision, _ = release_checks.verdict(
-            [run("ci", suite=7), run("guard", conclusion="failure", suite=6)],
-            [queue_run(7), {"check_suite_id": 6, "event": "push", "status": "completed", "conclusion": "failure"}],
-        )
-        self.assertEqual(decision, "refuse")
-
-
-class ARegistryReleaseIsWaitedFor(unittest.TestCase):
-    """Root ADR-0276 R3: admission installs the release CI published, so the deploy waits for it."""
-
-    RELEASE = "Build and attest the release"
-
-    def test_the_queue_alone_waits_for_the_release(self):
-        runs = [run("ci", suite=7), run(self.RELEASE, status="in_progress", conclusion=None, suite=8)]
-        self.assertEqual(release_checks.verdict(runs, [queue_run(7)])[0], "deploy", "server-build: as before")
-        decision, reason = release_checks.verdict(runs, [queue_run(7)], self.RELEASE)
-        self.assertEqual(decision, "wait")
-        self.assertIn(self.RELEASE, reason)
-
-    def test_a_published_release_deploys_and_a_failed_one_refuses(self):
-        self.assertEqual(release_checks.verdict([run("ci", suite=7), run(self.RELEASE, suite=8)], [queue_run(7)],
-                                                self.RELEASE)[0], "deploy")
-        self.assertEqual(release_checks.verdict([run("ci", suite=7), run(self.RELEASE, conclusion="failure", suite=8)],
-                                                [queue_run(7)], self.RELEASE)[0], "refuse")
-        self.assertEqual(release_checks.verdict([run("ci", suite=7)], [queue_run(7)], self.RELEASE)[0], "wait",
-                         "no release run yet")
-
-    def test_the_contract_names_the_release_check_only_in_registry_mode(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            contract = pathlib.Path(temporary) / "release-build.contract.json"
-            contract.write_text(json.dumps({"artifacts_from": "server-build", "registry": {"check_run": self.RELEASE}}))
-            self.assertIsNone(release_checks.required_release_check(contract))
-            contract.write_text(json.dumps({"artifacts_from": "registry", "registry": {"check_run": self.RELEASE}}))
-            self.assertEqual(release_checks.required_release_check(contract), self.RELEASE)
-
-
-class TheChecksAreReadPageByPage(unittest.TestCase):
-    def serve(self, runs, queue=(), published=()):
-        class Handler(http.server.BaseHTTPRequestHandler):
-            asked = []
-
-            def do_HEAD(self):
-                # GitHub's container registry: the release tags that are in the package.
-                Handler.asked.append(f"HEAD {self.path}")
-                found = self.headers.get("Authorization") == "Bearer anonymous" and self.path in {
-                    f"/v2/owner/foundation-release/manifests/release-{commit}" for commit in published}
-                self.send_response(200 if found else 404)
-                self.end_headers()
-
-            def do_GET(self):
-                Handler.asked.append(self.path)
-                if self.path.startswith("/token?scope=repository:owner/foundation-release:pull"):
-                    self.send_response(200)
-                    self.end_headers()
-                    self.wfile.write(b'{"token": "anonymous"}')
-                    return
-                page = int(self.path.rsplit("page=", 1)[1])
-                key, items = ("workflow_runs", queue) if "/actions/runs?" in self.path else ("check_runs", runs)
-                body = json.dumps({"total_count": len(items), key: items[(page - 1) * 100:page * 100]})
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(body.encode())
-
-            def log_message(self, *_):
-                pass
-
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        return f"http://127.0.0.1:{server.server_port}", Handler.asked
-
-    def test_a_failure_on_the_second_page_refuses(self):
-        api, asked = self.serve([run(f"ok{i}") for i in range(130)] + [run("late", conclusion="failure")])
-        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD],
-                                capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(result.stdout.startswith("refuse "), result.stdout)
-        self.assertEqual(len([path for path in asked if "/check-runs?" in path]), 2)
-
-    def test_the_commits_workflow_runs_are_asked_for_every_event(self):
-        # Every event: the merge queue's runs decide early, a schedule's or a dispatch's do not decide.
-        # The release the contract may require has published (ARegistryReleaseIsWaitedFor).
-        api, asked = self.serve(
-            [run("ci", suite=7), run("ci", status="in_progress", conclusion=None, suite=8),
-             run("Build and attest the release", suite=9)], [queue_run(7)], published=[HEAD]
-        )
-        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
-                                capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(result.stdout.startswith("deploy "), result.stdout)
-        self.assertIn(f"/repos/owner/repo/actions/runs?head_sha={HEAD}&per_page=", "".join(asked))
-
-    def test_a_release_not_in_the_registry_yet_waits_and_is_never_deployed(self):
-        # 2026-10-19: e6fb99e6 was deployed with every check passed and refused at step 2 with 404.
-        # In registry mode (the contract) the tag admission pulls first must be there.
-        runs = [run("ci"), run("Build and attest the release")]
-        for published, expected in (([], "wait "), (["0" * 40], "wait "), ([HEAD], "deploy ")):
-            with self.subTest(published=published):
-                api, asked = self.serve(runs, published=published)
-                result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
-                                        capture_output=True, text=True, check=False)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertTrue(result.stdout.startswith(expected), result.stdout)
-                self.assertIn(f"HEAD /v2/owner/foundation-release/manifests/release-{HEAD}", asked)
-        self.assertIn(f"release-{HEAD} is not in owner/foundation-release yet", self.check([], runs))
-
-    def check(self, published, runs):
-        api, _ = self.serve(runs, published=published)
-        return subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, api],
-                              capture_output=True, text=True, check=False).stdout
-
-    def test_newest_released_names_the_first_published_of_the_commits_newest_first(self):
-        building, released, older = HEAD, "1" * 40, "2" * 40
-        for published, expected in (([released, older], released), ([older], older), ([], "")):
-            with self.subTest(published=published):
-                api, _ = self.serve([], published=published)
-                result = subprocess.run([sys.executable, str(CHECKS), "newest-released", "owner/repo",
-                                         building, released, older, "--registry", api],
-                                        capture_output=True, text=True, check=False)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.stdout.strip(), expected)
-        result = subprocess.run([sys.executable, str(CHECKS), "newest-released", "owner/repo", building,
-                                 "--registry", "http://127.0.0.1:9"], capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 2)
-
-    def test_an_unreadable_registry_exits_2_to_ask_again(self):
-        api, _ = self.serve([run("ci"), run("Build and attest the release")])
-        result = subprocess.run([sys.executable, str(CHECKS), api, "owner/repo", HEAD, "http://127.0.0.1:9"],
-                                capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("cannot read whether", result.stderr)
-
-    def test_an_unreachable_api_exits_2(self):
-        result = subprocess.run([sys.executable, str(CHECKS), "http://127.0.0.1:9", "owner/repo", HEAD],
-                                capture_output=True, text=True, check=False)
-        self.assertEqual(result.returncode, 2)
 
 
 def bash_assignment(name, value):
@@ -737,12 +512,31 @@ class TheHostDeploysMainByItself(unittest.TestCase):
         self.assertEqual(self.deployed(), [released])
         self.assertEqual(self.series(), {'foundation_autodeploy_tick_timestamp_seconds{reason=""}': "now"})
 
+    def test_a_second_commit_whose_deploy_fails_is_counted_and_a_success_clears_it(self):
+        # 2026-11-11 15:34Z and 15:41Z: two commits in a row failed on the same tmpfiles line.
+        name = "foundation_autodeploy_failed_deploys_in_a_row"
+        first, second, third = "1" * 40, "2" * 40, "3" * 40
+        self.assertEqual(self.tick(head=first, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.assertEqual(self.series().get(name), 1)
+        self.assertEqual(self.tick(head=second, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
+        self.assertEqual(self.series().get(name), 2)
+        # A later tick that deploys nothing still says so: the page stays until a deploy succeeds.
+        self.assertEqual(self.tick(head=second).returncode, 0)
+        self.assertEqual(self.series().get(name), 2)
+        # The success is newer than both failures (file times have whole-second steps on some hosts).
+        for failed in (first, second):
+            os.utime(self.state / "failed" / failed, (1_700_000_000, 1_700_000_000))
+        self.assertEqual(self.tick(head=third).returncode, 0)
+        self.assertEqual(self.deployed(), [first, second, third])
+        self.assertNotIn(name, self.series())
+
     def test_a_failing_deploy_says_so_and_the_host_stays_behind(self):
         (head,) = self.main_with((self.IN_SCOPE, 1_700_000_000))
         self.assertEqual(self.tick(head=head, FIXTURE_DEPLOY_EXIT="1").returncode, 1)
         self.assertEqual(self.series(), {
             'foundation_autodeploy_tick_timestamp_seconds{reason="deploy_failed"}': "now",
             f'foundation_autodeploy_behind_since_timestamp_seconds{{reason="deploy_failed",commit="{head[:12]}"}}': 1_700_000_000,
+            "foundation_autodeploy_failed_deploys_in_a_row": 1,
         })
         self.assertEqual(self.tick(head=head).returncode, 0)
         self.assertEqual(list(self.series())[0], 'foundation_autodeploy_tick_timestamp_seconds{reason="every_newer_commit_refused_or_failed"}')
@@ -785,7 +579,7 @@ class TheWholeDeploy(unittest.TestCase):
     for real is the script's order of steps and what it does to the DAGs when one of them fails.
     """
 
-    ENABLED = ("source_sweep", "outbox_publish", "map_edit_fold_admin")
+    ENABLED = ("media_reconcile", "outbox_publish", "map_edit_fold_admin")
     DISABLED = ("vworld_parcel_edition",)
 
     def setUp(self):
@@ -797,11 +591,11 @@ class TheWholeDeploy(unittest.TestCase):
         running = release_root / "releases" / old
         (running / "orchestration").mkdir(parents=True)
         (running / "scripts/deploy").mkdir(parents=True)
-        once = {"source_sweep": 5, "outbox_publish": 1}
+        once = {"media_reconcile": 5, "outbox_publish": 1}
         jobs = [{"id": job, "enabled": job in self.ENABLED, "systemd_service": f"foundation-{job}.service",
                  "time_limit_minutes": once.get(job, 30), "stop_grace_minutes": 0,
                  "started_once_after_deploy": job in once,
-                 "interruptible": job == "source_sweep"}
+                 "interruptible": job == "media_reconcile"}
                 for job in self.ENABLED + self.DISABLED]
         (running / "orchestration/jobs.v1.json").write_text(json.dumps({"jobs": jobs}))
         # airflow-runtime.sh exec airflow-scheduler airflow <args>: record <args>; `dags list` answers
@@ -862,7 +656,7 @@ class TheWholeDeploy(unittest.TestCase):
             '[[ -z "${FIXTURE_NO_ANSWER:-}" ]] || exit 65\n'
             'count="$(grep -c running-jobs "$FIXTURE_ROOT/admission.log")"\n'
             'if ((count <= ${FIXTURE_BUSY_ANSWERS:-0})); then\n'
-            '  echo "${FIXTURE_BUSY_UNIT:-foundation-source_sweep.service} activating"; exit 75; fi\n')
+            '  echo "${FIXTURE_BUSY_UNIT:-foundation-media_reconcile.service} activating"; exit 75; fi\n')
         running_jobs.chmod(0o755)
         # The commit's checkout exists already, so step 1 only moves `current` to it.
         new = control_root / "releases" / HEAD / "platforms/foundation-platform/scripts/deploy"
@@ -924,6 +718,9 @@ class TheWholeDeploy(unittest.TestCase):
                           '  list-units*) if [[ -n "${FIXTURE_OPERATOR_UNIT:-}" ]]; then\n'
                           '      printf "%s loaded active running operator\\n" "${FIXTURE_OPERATOR_UNIT}"; fi ;;\n'
                           '  *Transient*) if [[ "${service}" == "${FIXTURE_OPERATOR_UNIT:-}" ]]; then echo yes; else echo no; fi ;;\n'
+                          # The jobs an operator's unit declares it writes (root ADR-0521), when the test names them.
+                          '  *Environment*) if [[ "${service}" == "${FIXTURE_OPERATOR_UNIT:-}" ]]; then\n'
+                          '      echo "FOUNDATION_RUN_RELEASE=abc ${FIXTURE_OPERATOR_WRITES:+FOUNDATION_RUN_WRITES=${FIXTURE_OPERATOR_WRITES}}"; fi ;;\n'
                           '  *ActiveState*) echo inactive ;;\n'
                           '  *Result*) if [[ "${failing}" == *" ${service} "* ]]; then echo exit-code; else echo success; fi ;;\n'
                           'esac\n'),
@@ -1053,12 +850,12 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertLess(result.stdout.index("2b. the schedule comes back"), result.stdout.index("4. activate"))
 
     def test_a_changed_table_holds_its_writers_and_the_jobs_the_graph_cannot_place(self):
-        # silver.building_register_floors: its writer is not on this fixture host; source_sweep and
+        # silver.building_register_floors: its writer is not on this fixture host; media_reconcile and
         # outbox_publish name no table in the graph, so they are held; the fold writes another table.
         self.commit_tells_what_it_changes("silver.building_register_floors")
         result = self.deploy(FIXTURE_FAIL_AT="migrate")
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "source_sweep": "pause",
+        self.assertEqual(self.dags(), {"map_edit_fold_admin": "unpause", "media_reconcile": "pause",
                                        "outbox_publish": "pause", "vworld_parcel_edition": "pause"})
 
     def test_an_operators_unit_waits_the_deploy_only_when_the_release_holds_jobs(self):
@@ -1072,6 +869,25 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual(self.dags(), {}, "nothing was paused")
 
     OPERATOR = "foundation-by-pnu-lane-cutover-g1.service"
+
+    def test_an_operators_unit_that_writes_none_of_the_held_jobs_does_not_hold_the_deploy(self):
+        # Root ADR-0521 (amending ADR-0441): 2026-11-11 a cut-over whose Gold step ran for hours held
+        # every release that changed a table it never writes. Its unit declares the jobs whose assets it
+        # writes (FOUNDATION_RUN_WRITES); the deploy waits for it only when one of them is held. Pulled
+        # from the registry, as on the host: a release the host builds holds every job.
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        writes = "by_pnu_parcel_real_transaction_bake,gold_parcel_real_transaction_rebuild"
+        free = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR, FIXTURE_OPERATOR_WRITES=writes)
+        self.assertNotEqual(free.returncode, 75, free.stdout + free.stderr)
+        self.assertNotIn("waiting for the operator's", free.stderr)
+        self.assertIn(f"{self.OPERATOR} writes {writes}, none of what", free.stderr)
+
+    def test_an_operators_unit_that_writes_a_held_job_still_holds_the_deploy(self):
+        # media_reconcile names no table in the graph, so every table change holds it.
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        held = self.deploy(FIXTURE_OPERATOR_UNIT=self.OPERATOR, FIXTURE_OPERATOR_WRITES="media_reconcile")
+        self.assertEqual(held.returncode, 75, held.stdout + held.stderr)
+        self.assertIn(f"waiting for the operator's {self.OPERATOR} (root ADR-0441)", held.stderr)
 
     def test_a_release_that_holds_nothing_deploys_beside_an_operators_unit(self):
         # Pulled from the registry, as on the host: a release the host builds holds every job.
@@ -1124,16 +940,16 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertIn("no unheld DAG was paused", result.stdout)
 
     def test_a_registry_release_pauses_only_what_it_holds_and_never_waits_for_another_job(self):
-        # source_sweep and outbox_publish are held (the graph cannot place them); the fold is not,
+        # media_reconcile and outbox_publish are held (the graph cannot place them); the fold is not,
         # and its run goes on through the whole deploy.
         self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
         result = self.deploy(FIXTURE_BUSY_ANSWERS="1000", FIXTURE_BUSY_UNIT="foundation-map_edit_fold_admin.service")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(sorted(self.airflow_told("pause")), ["outbox_publish", "source_sweep"])
+        self.assertEqual(sorted(self.airflow_told("pause")), ["media_reconcile", "outbox_publish"])
         self.assertIn("no held job is running", result.stdout)
         self.assertFalse((self.root / "sleep.log").exists(), "an unheld job is not waited for")
-        self.assertEqual(sorted(self.airflow_told("unpause")), ["outbox_publish", "source_sweep"])
-        self.assertEqual(self.dags(), {"outbox_publish": "unpause", "source_sweep": "unpause"})
+        self.assertEqual(sorted(self.airflow_told("unpause")), ["media_reconcile", "outbox_publish"])
+        self.assertEqual(self.dags(), {"outbox_publish": "unpause", "media_reconcile": "unpause"})
         self.assertNotIn("dags pause foundation_vworld_parcel_edition", (self.root / "airflow.log").read_text())
 
     def test_a_held_job_that_is_not_interruptible_is_waited_for(self):
@@ -1157,8 +973,8 @@ class TheWholeDeploy(unittest.TestCase):
         result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         stops = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("stop")]
-        self.assertEqual(stops, ["stop --no-block foundation-source_sweep.service"])
-        self.assertIn("stopped foundation-source_sweep.service", result.stdout)
+        self.assertEqual(stops, ["stop --no-block foundation-media_reconcile.service"])
+        self.assertIn("stopped foundation-media_reconcile.service", result.stdout)
 
     def test_a_stopped_job_is_owed_a_run_and_started_when_the_schedule_comes_back(self):
         # 2026-10-29 review: a `*` deploy (a Postgres migration) stops every interruptible job, and one
@@ -1167,18 +983,18 @@ class TheWholeDeploy(unittest.TestCase):
         owed = self.owed_runs_are_recorded()
         result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(sorted(path.name for path in owed.iterdir()), ["source_sweep"],
+        self.assertEqual(sorted(path.name for path in owed.iterdir()), ["media_reconcile"],
                          "the record stays until the runner starts it")
         self.assertIn("it is owed a run, started when the deploy gives the schedule back", result.stdout)
         log = (self.root / "airflow.log").read_text().splitlines()
-        self.assertLess(log.index("dags unpause foundation_source_sweep"), log.index("dags trigger foundation_source_sweep"))
-        self.assertIn("started foundation_source_sweep", result.stdout)
+        self.assertLess(log.index("dags unpause foundation_media_reconcile"), log.index("dags trigger foundation_media_reconcile"))
+        self.assertIn("started foundation_media_reconcile", result.stdout)
 
     def test_a_stopped_job_is_started_again_when_the_deploy_stops_before_the_switch(self):
         owed = self.owed_runs_are_recorded()
         result = self.deploy(FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed), FIXTURE_FAIL_AT="prepare")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("dags trigger foundation_source_sweep", (self.root / "airflow.log").read_text())
+        self.assertIn("dags trigger foundation_media_reconcile", (self.root / "airflow.log").read_text())
 
     def test_a_job_that_cannot_be_recorded_as_owed_is_waited_for_not_stopped(self):
         # The running release has no job_units.py: nowhere to record the run it would lose.
@@ -1214,7 +1030,7 @@ class TheWholeDeploy(unittest.TestCase):
         (current / "config").mkdir()
         (current / "config/deploy-steps.contract.json").write_text(json.dumps({
             "state_directory": "/var/lib/perfectory/deploy-steps", "steps": {
-            "start-once.source_sweep": {"inputs": ["orchestration/jobs.v1.json"]},
+            "start-once.media_reconcile": {"inputs": ["orchestration/jobs.v1.json"]},
             "start-once.outbox_publish": {"inputs": ["scripts/deploy/airflow-runtime.sh"]}}}))
         starts = lambda: [line for line in (self.root / "systemctl.log").read_text().splitlines()  # noqa: E731
                           if line.startswith("start")]
@@ -1233,11 +1049,11 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(starts()[2:], ["start foundation-outbox_publish.service"],
                          "the one that succeeded is skipped; the one that failed starts again")
-        self.assertRegex(result.stdout, r"foundation-source_sweep\.service +skipped")
+        self.assertRegex(result.stdout, r"foundation-media_reconcile\.service +skipped")
         (current / "orchestration/jobs.v1.json").write_text((current / "orchestration/jobs.v1.json").read_text() + "\n")
         result = again()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("start foundation-source_sweep.service", starts()[3:], "a changed input starts it again")
+        self.assertIn("start foundation-media_reconcile.service", starts()[3:], "a changed input starts it again")
 
     def series(self, name):
         """The series of the deploy's metrics file, or of its copy at a step, without HELP/TYPE."""
@@ -1387,7 +1203,7 @@ class TheWholeDeploy(unittest.TestCase):
         # ADR-0177); a smoke that passed lets the deploy go on to the switch.
         self.assertEqual(self.released(),
                          ["prepare", "floor-config", "staging-smoke", "activate", "migrate", "timers", "status",
-                          "observability", "datahub"])
+                          "observability", "datahub", "trino"])
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
         # Nothing was deferred, so nothing is started out of its schedule (root ADR-0260).
@@ -1419,15 +1235,15 @@ class TheWholeDeploy(unittest.TestCase):
     def test_a_failed_post_deploy_run_leaves_every_enabled_dag_unpaused(self):
         # 2026-10-09, three deploys in a row: the sweep's post-deploy run failed, the deploy exited at
         # step 6 before step 7, and all 17 DAGs stayed paused for about three hours.
-        result = self.deploy(FIXTURE_FAILING="foundation-source_sweep.service")
+        result = self.deploy(FIXTURE_FAILING="foundation-media_reconcile.service")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("DONE: production runs", result.stdout)
         self.assertEqual(self.dags(), {**{job: "unpause" for job in self.ENABLED},
                                        **{job: "pause" for job in self.DISABLED}})
-        self.assertIn(f"the post-deploy run did not succeed under {HEAD}: foundation-source_sweep.service",
+        self.assertIn(f"the post-deploy run did not succeed under {HEAD}: foundation-media_reconcile.service",
                       result.stderr)
         started = [line for line in (self.root / "systemctl.log").read_text().splitlines() if line.startswith("start")]
-        self.assertEqual(started, ["start foundation-source_sweep.service", "start foundation-outbox_publish.service"],
+        self.assertEqual(started, ["start foundation-media_reconcile.service", "start foundation-outbox_publish.service"],
                          "a failed run does not stop the next one from being started")
 
     def test_a_deploy_that_stops_before_the_switch_gives_the_running_release_its_schedule_back(self):

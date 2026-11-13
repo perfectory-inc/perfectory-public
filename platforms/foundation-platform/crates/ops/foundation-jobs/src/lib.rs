@@ -34,6 +34,13 @@ pub const JOB_UNIT_LINES: &[&str] = &[
 pub const TMPFILES: &str = "infra/tmpfiles/foundation-job-state.conf";
 /// The account and group that own every job state directory.
 pub const STATE_OWNER: &str = "foundation-platform";
+/// The operator's directory on the data disk; a state directory here is its direct child.
+///
+/// Its account owns it, not root and not the jobs, so systemd-tmpfiles refuses to step through one
+/// of our directories inside it ("unsafe path transition", exit 73; every deploy from 2026-11-11
+/// 15:34Z stopped on `/data/foundation-platform/intelligence-documents/lakehouse`). Deeper ones the
+/// job makes itself.
+pub const OPERATOR_OWNED_ROOT: &str = "/data/foundation-platform";
 /// What a reader of the units is told when one differs from its rendering.
 pub const GENERATE: &str =
     "cargo run -p foundation-jobs -- generate (from platforms/foundation-platform)";
@@ -293,6 +300,15 @@ pub fn state_directory_problems(list: &JobList) -> Vec<String> {
             .written_by
             .as_deref()
             .is_some_and(|writer| !writer.trim().is_empty());
+        if path
+            .strip_prefix(OPERATOR_OWNED_ROOT)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .is_some_and(|rest| rest.contains('/'))
+        {
+            problems.push(format!(
+                "{path}: below a directory of {OPERATOR_OWNED_ROOT}, which systemd-tmpfiles will not step through from the operator's account; the job makes it"
+            ));
+        }
         if !under_a_state_path && !writer_named {
             problems.push(format!(
                 "{path}: a state directory under no job's state_paths and with no written_by"
@@ -592,6 +608,26 @@ mod tests {
         );
         let problems = state_directory_problems(&jobs);
         assert_eq!(problems.len(), 3, "{problems:?}");
+    }
+
+    #[test]
+    fn a_directory_two_levels_into_the_operators_data_root_is_refused() {
+        // 2026-11-11 15:34Z: systemd-tmpfiles exited 73 on .../intelligence-documents/lakehouse and
+        // every deploy stopped there.
+        let root = OPERATOR_OWNED_ROOT;
+        let state = format!("{root}/job");
+        let nested = format!("{state}/lakehouse");
+        let jobs = with_state(&[&state], &[(&state, "0755"), (&nested, "0777")], &[]);
+        let problems = state_directory_problems(&jobs);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .all(|problem| problem.starts_with(&format!("{nested}:"))),
+            "{problems:?}"
+        );
+        let direct = with_state(&[&state], &[(&state, "0755")], &[]);
+        assert_eq!(state_directory_problems(&direct), Vec::<String>::new());
     }
 
     #[test]

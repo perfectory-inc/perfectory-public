@@ -38,7 +38,7 @@
     ]
   },
   "item_detail": {
-    "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384, ADR-0289. 물건상세, asked after a list pass that was not cut short, in the same run, on the same session pool and tally as the lists (collection.session; a block renews the session and asks again), paced in pace_group (collection.pace.goods_detail, the photo-heavy group), with the session headers and its own headers (none: measured 2026-11-04, one plain POST answered). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit. Measured 2026-11-04: HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. The details are asked until the run's deadline (collection.session.run_time_budget_seconds) less photos.renditions.run_time_budget_seconds, so the ladder step after the Bronze commit still ends inside the run's budget; what is left is due again next run. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
+    "$comment": "Root ADR-0290 §7, ADR-0352, ADR-0384, ADR-0289. 물건상세, asked after a list pass that was not cut short, in the same run, on the same session pool and tally as the lists (collection.session; a block renews the session and asks again), paced in pace_group (collection.pace.goods_detail, the photo-heavy group), with the session headers and its own headers (none: measured 2026-11-04, one plain POST answered). Which properties are asked is computed each run (ADR-0352): this run's in-progress list rows against the last read recorded in read_from, never-read first, then what collection.recrawl says is due, soonest sale date first, at most per_run_limit: a safety bound above every in-progress property (37,244 measured 2026-11-11), so the run's deadline, not a count, ends the asking (root ADR-0540 §2; ADR-0384 §2 asked 1,800). As many answers are read at once as the pace group lets fly, each answer's photos stored photos.store_concurrency at a time, and a hash stored earlier in the run is not stored again (a case's properties answer the same photos). Measured 2026-11-10: 1,800 details and 21,283 photos took 2 h 30 min read one answer and one photo at a time. Measured 2026-11-04: HTTP 200 JSON, 3,274,352 bytes in 0.36 s, 11 JPEG photos, 221 KB each decoded. The details are asked until the run's deadline (collection.session.run_time_budget_seconds) less photos.renditions.run_time_budget_seconds, so the ladder step after the Bronze commit still ends inside the run's budget; what is left is due again next run. Each photo (photos.file_field, base64) is decoded, its format sniffed, and stored once under the shared content-addressed media prefix (photos.object_prefix_from, the 공매 store the parcel edge already serves); the Bronze line keeps the response with that value replaced by sha256:<hex>.",
     "dataset_slug": "auction_item_detail",
     "operation": "selectAuctnCsSrchRslt",
     "path": "/pgj/pgj15B/selectAuctnCsSrchRslt.on",
@@ -52,7 +52,9 @@
     "sale_date_field": "maeGiil",
     "status_field": "jinstatCd",
     "result_pointer": "/data/dma_result",
-    "per_run_limit": 1800,
+    "per_run_limit": 60000,
+    "$commit_every_lines": "Root ADR-0540 §2. The run commits its 물건상세 lines a part at a time, each part its own Bronze object (auction-item-detail-partNNNN-<run>.gz), as soon as it fills: on 2026-11-12 the first night that asked every in-progress property held all its lines until one end-of-run commit and was oom-killed at its 1G cap after 2 h 9 min, so nothing of the night landed. A killed run keeps every committed part and the next run's frontier asks only what is left. 10,000 lines ≈ 190 MB of text (19 KB each, measured), held gzipped; a night of the 37,244 in-progress properties is 4 parts, inside silver_load.max_objects (7) per table.",
+    "commit_every_lines": 10000,
     "read_from": "silver.court_auction_item_detail",
     "photos": {
       "list_field": "csPicLst",
@@ -63,6 +65,7 @@
       "page_field": "pageSeq",
       "object_prefix_from": "data-go-kr-onbid.contract.json#/media/object_prefix",
       "max_file_bytes": 52428800,
+      "store_concurrency": 8,
       "$renditions": "루트 ADR-0427 §7. 그 밤의 Bronze 가 커밋된 뒤(사이트 요청 없음), 그 밤 저장했거나 이미 있던 사진마다 공용 저장소의 표시 사다리(r2-connections.contract.json parcel_media.renditions)를 공매와 같은 media_renditions::ensure_ladders 로 만든다. 이미 사다리 표시가 있으면 HEAD 한 번이다. 상한(계산): 사진 원천 하나 ~4.5 초(ADR-0427 Consequences 의 rav1e 추정) × per_run_limit 1,500 ÷ concurrency 4 ≈ 28 분 ≤ run_time_budget_seconds 1,800. 상세 묻기는 collection.session.run_time_budget_seconds 16,000 초에서 이 1,800 초를 뺀 14,200 초에 멈추므로, 사다리는 그 밤 Bronze 커밋 뒤 이 1,800 초 안이니, 실행 전체가 16,000 초에 Bronze 커밋 시간을 더한 만큼으로 작업 한도 18,000 초 안에 끝난다. 남거나 실패한 사진은 잃지 않는다: media_ladder_backlog 가 Silver 사진 색인에서 가져간다.",
       "renditions": {
         "per_run_limit": 1500,
@@ -124,6 +127,14 @@
       "flat_ledger_kind": "1",
       "mountain_ledger_kind": "2"
     }
+  },
+  "personal_names": {
+    "$comment": "Root ADR-0540 §4. The free text a Silver table keeps (매각물건명세서 인수되는 권리·지상권 개요·비고·최선순위 설정, 물건 비고, 제시외건물 비고, 감정요항표) sometimes names a person: measured 2026-10-21 on the prototype's 39,296 물건상세, 258 of 4,269 filled 인수되는 권리, 2,381 of 20,267 명세서 비고 and 154 of 29,275 최선순위 설정 matched a name pattern (\"갑구 제14번 ○○○지분\", \"소유자 ○○○\"), most of the 비고 hits being 공유 지분 words, not names. A name is a 2-4 syllable word right before one of `before`, or right after one of `after` where that word starts a word and is set off by a space, colon or bracket (with the names a comma joins to it), followed by a particle or the end; one of `not_names` (judged without a trailing particle) is not a name. A name is replaced by `mask`. A pattern-and-context recognizer as Microsoft Presidio's PatternRecognizer is; Bronze keeps the text as received. The Silver load (courtauction_go_kr.py mask_names) and its tests read this; nothing else restates it.",
+    "mask": "○○○",
+    "name_syllables": [2, 4],
+    "before": ["지분"],
+    "after": ["소유자", "채무자", "임차인", "채권자", "점유자", "가처분권자", "가등기권자", "근저당권자", "전세권자", "공유자", "임대인", "세대주", "전입자", "신청채권자", "압류권자"],
+    "not_names": ["토지", "건물", "대지", "대지권", "공유", "전부", "일부", "나머지", "해당", "전체", "본건", "본인", "소유", "소유권", "구분", "구분소유", "목록", "각자", "등기", "미상", "불명", "없음", "있음", "이며", "으로", "에게", "이고", "이나", "측", "등", "겸", "및", "외", "지분", "주택", "상가", "점포", "공장", "창고", "임야", "전답", "도로", "아파트", "법인", "회사", "주식회사", "은행", "금고", "조합", "공사", "국가", "대한민국", "지방자치단체", "있을", "있으며", "있는", "있고", "없는", "없으며", "없고", "제시외", "포함", "권리", "원고", "피고", "시설물", "별도", "확인", "모두", "전원", "다수", "현황", "불명확", "들", "각각", "우선", "우선매수", "맹지", "대항력", "매각", "도로", "전입", "점유", "보증금", "배당"]
   },
   "silver_load": {
     "$comment": "What one Silver load may take (plan-silver-load-objects): objects of each search that no commit of its table records, landed within window_days, oldest first, at most max_objects per table (a week of nights). The window stays shorter than the snapshot retention (lakehouse-maintenance.contract.json retain_days, refused otherwise): an expired snapshot takes its load record with it.",

@@ -6,15 +6,15 @@
 #   0a'. 산업단지 — 0a 가 짝을 새로 썼으면(또는 아직 한 번도 따라가지 않았으면) 바뀐 짝의 코드 밑의 산업단지만
 #               시도·시군구·시도 이름을 다시 놓고 canonical 표에 올린다(root ADR-0426). 실패해도 계보는 돌고 단위는 끝에 실패한다.
 #
-#   0a''. 산업단지 엣지 — gold.complex_catalog 에서 내용이 바뀐 단지만 프로필을 쓰고, 목록(index)이 바뀌었으면
-#               새 세대를 낸다(export-industrial-complex-gold-profiles, root ADR-0456). 필지 엣지가 그 둘을 서빙한다.
-#               Gold 가 그대로면 아무것도 쓰지 않는다. 실패해도 계보는 돌고 단위는 끝에 실패한다.
+#   산업단지 엣지(프로필·목록)는 이 순환이 아니라 industrial_complex_edge_export 가 낸다: Gold 나 문서 사실이
+#   바뀌면 바로 돌고 Spark 를 쓰지 않는다(root ADR-0563 §3). 0a' 가 Gold 를 바꾸면 이 순환의 `changed` 가 그것을 시작시킨다.
 #
 #   0b. 도출   — 원천 계약의 필지 판 이웃 쌍마다, 시도 묶음마다 계보를 한 번 도출해 쌓는다
 #               (parcel_lineage_scheduled.py, root ADR-0113 §1). 쌓인 묶음은 건너뛰고 예산을 넘기면 다음 회차가 잇는다.
 #
 #   1. 접기   — 서 있는 스튜어드 결정을 silver.parcel_lineage 에 steward 행으로 쌓는다
-#               (export-lineage-steward-fold → Spark → record-lineage-steward-folds).
+#               (export-lineage-steward-fold → append-lineage-steward-fold → record-lineage-steward-folds;
+#               발행기 안의 DuckDB 와 발행기의 Iceberg 추가 커밋, root ADR-0560).
 #   2. 목록   — 계보에서 검토 목록을 다시 만든다(gold.lineage_review_queue + 넘김 파일).
 #               접기를 먼저 해야 방금 결정한 필지가 목록에서 빠진다.
 #   3. 적재   — 넘김 파일을 스튜어드 DB 에 통째로 바꿔 넣는다(load-lineage-review-items).
@@ -68,6 +68,7 @@ on_error() {
 trap 'on_error ${LINENO}' ERR
 
 spark() {
+  lakehouse_run_log "${run_log}"
   FOUNDATION_PLATFORM_LAKEHOUSE_STATE_ROOT="${LAKEHOUSE_STATE_ROOT}" \
   FOUNDATION_PLATFORM_LAKEHOUSE_IVY_CACHE="${RELEASE_JARS_DIR}" FOUNDATION_PLATFORM_LAKEHOUSE_IVY_MODE=ro \
   lakehouse_spark_run foundation-platform-compute \
@@ -141,16 +142,6 @@ if [ "${legal_dong_code_wrote}" != 0 ] || [ ! -f "${COMPLEX_REGION_STATE}" ]; th
   complex_region_wrote=1
 fi
 
-# 0a''. 산업단지 엣지 (root ADR-0456). 0a' 가 쓴 Gold 든 손으로 다시 지은 Gold 든, 매 회차 지금 Gold 를 읽어
-# 바뀐 단지만 내보낸다(바뀐 게 없으면 index_generation=null, 쓰기 0).
-complex_edge_rc=0
-complex_edge_generation=None
-FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_CONFIRM_EXPORT=true FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_OUTPUT_STORAGE_DRIVER=r2 FOUNDATION_PLATFORM_INDUSTRIAL_COMPLEX_GOLD_PROFILE_SUMMARY_PATH="${work}/complex-edge.json"   publisher export-industrial-complex-gold-profiles >> "${run_log}" 2>&1 || complex_edge_rc=$?
-if [ "${complex_edge_rc}" = 0 ]; then
-  complex_edge_generation="$(json_field "${work}/complex-edge.json" '["index_generation"]')"
-  job_journal "${journal}" "industrial-complex edge generation=${complex_edge_generation} written=$(json_field "${work}/complex-edge.json" '["artifact_count"]') unchanged=$(json_field "${work}/complex-edge.json" '["unchanged_profile_count"]') run=${run_id}"
-fi
-
 # 0b. 계보 도출 (root ADR-0113 §1). 원천 계약이 가진 필지 판의 이웃 쌍마다, 시도 묶음마다 한 번 도출해
 # silver.parcel_lineage 에 쌓는다. 이미 쌓은 묶음은 건너뛰고, 예산이 지나면 새 묶음을 시작하지 않는다 —
 # 남은 묶음은 다음 회차가 잇는다. 예산은 단위 상한(2h) 안에서 뒤 단계 몫을 남긴다.
@@ -184,8 +175,11 @@ FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_OUTPUT="${work}/fold.json" \
   "${PUBLISHER_BIN}" export-lineage-steward-fold >> "${run_log}" 2>&1
 folded=0
 if [ "$(json_field "${work}/fold.json" '["row_count"]')" != 0 ]; then
-  spark lineage_steward_fold_to_silver.py --input "${container_work}/fold.json" \
-    --summary-output "${container_work}/fold-summary.json" --allow-non-smoke-write
+  # 발행기 안의 DuckDB 가 행을 준비하고 발행기가 한 번의 Iceberg 추가 커밋으로 붙인다(root ADR-0560).
+  # Spark 세션을 열지 않는다. main 이 이미 그 run 을 기록했으면 아무것도 쓰지 않는다.
+  FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_OUTPUT="${work}/fold.json" \
+  FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY="${work}/fold-summary.json" \
+    "${PUBLISHER_BIN}" append-lineage-steward-fold >> "${run_log}" 2>&1
   FOUNDATION_PLATFORM_LINEAGE_STEWARD_FOLD_SUMMARY="${work}/fold-summary.json" \
     "${PUBLISHER_BIN}" record-lineage-steward-folds >> "${run_log}" 2>&1
   folded="$(json_field "${work}/fold-summary.json" '["rows"]')"
@@ -238,13 +232,6 @@ if [ "${complex_region_rc}" != 0 ]; then
   printf 'foundation-job-outcome failed industrial-complex region codes\n'
   exit 1
 fi
-if [ "${complex_edge_rc}" != 0 ]; then
-  job_journal "${journal}" "stewardship FAILED: industrial-complex edge export rc=${complex_edge_rc} run=${run_id}" >&2
-  job_run_log_tail "${run_log}"
-  printf 'foundation-job-outcome failed industrial-complex edge export
-'
-  exit 1
-fi
 if [ "${reference_rc}" != 0 ]; then
   job_journal "${journal}" "stewardship FAILED: place-reference queue rc=${reference_rc} run=${run_id}" >&2
   job_run_log_tail "${run_log}"
@@ -261,7 +248,7 @@ fi
 # The run's last line (root ADR-0171, ADR-0260): `changed` only when a step wrote — the 법정동 load or
 # pairing, a derived group, a folded decision, a rebuilt queue (10-24..27 said `changed` daily on
 # derived=0, folded 0, queue unchanged).
-if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "${complex_edge_generation}" != None ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
+if [ "${legal_dong_code_wrote}" != 0 ] || [ "${complex_region_wrote}" != 0 ] || [ "$(json_field "${work}/derive-summary.json" '["derived"]')" != 0 ] \
   || [ "${folded}" != 0 ] || [ "${queue_rebuilt}" != 0 ] || [ "${reference_wrote}" != 0 ]; then
   printf 'foundation-job-outcome changed\n'
 else

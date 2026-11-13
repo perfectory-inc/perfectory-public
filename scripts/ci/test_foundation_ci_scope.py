@@ -493,16 +493,21 @@ class FoundationWorkflowScopeContractTest(unittest.TestCase):
         for step in steps[selector + 1 :]:
             if not step.strip():
                 continue
-            # The shared Rust setup and its cache (root ADR-0155) carry the gate as a
-            # step condition instead: the cache is an action, so it cannot open with a
-            # shell guard, and an unselected run must neither restore nor save it.
+            # The shared Rust setup and its cache (root ADR-0155), and the apt package cache,
+            # carry the gate as a step condition instead: a cache is an action, so it cannot open
+            # with a shell guard, and an unselected run must neither restore nor save it.
             if "FOUNDATION_CI_GATE_SELECTED == 'true'" in step:
                 self.assertRegex(
                     step,
-                    r"(?m)^      - name: (Set up Rust|Rust cache)\n"
+                    r"(?m)^      - name: (Set up Rust|Rust cache|Restore apt package cache)\n"
                     r"        if: \$\{\{ env\.FOUNDATION_CI_GATE_SELECTED == 'true' \}\}\n",
-                    "only the shared Rust setup and cache may skip by step condition",
+                    "only the shared Rust setup and the caches may skip by step condition",
                 )
+                continue
+            # Its save is asked for only by scripts/ci/apt-install.sh, which runs only behind the
+            # gate's shell guard, so an unselected run never sets PERFECTORY_APT_CACHE_SAVE.
+            if re.search(r"(?m)^      - name: Save apt package cache\n", step):
+                self.assertIn("env.PERFECTORY_APT_CACHE_SAVE != ''", step)
                 continue
             self.assertNotRegex(
                 step,

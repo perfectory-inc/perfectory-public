@@ -57,6 +57,11 @@ pub mod building_permit_temporary_building_silver_export;
 /// Headerless HUB 건축인허가 대지위치 ZIP to partitioned Silver handoff (root ADR-0402).
 pub mod building_permit_site_location_silver_export;
 
+/// Headerless HUB 주택인허가 기본개요 ZIP to partitioned Silver handoff, keyed by 관리주택대장PK (root ADR-0511).
+pub mod housing_permit_basis_outline_silver_export;
+/// Every HUB family lane's headerless ZIP to partitioned Silver handoff (root ADR-0551).
+pub mod hub_family_silver_export;
+
 /// Headerless HUB 건축물 정기점검이력 ZIP to partitioned Silver handoff (root ADR-0402).
 pub mod building_maintenance_regular_inspection_history_silver_export;
 
@@ -95,6 +100,15 @@ pub mod serving_scratch;
 
 /// Shared FLOOR producer and native resource contract support.
 pub mod lakehouse_engine_contract;
+
+/// `DuckDB` computes a transform's rows and stages them as Parquet an Iceberg table can adopt
+/// (root ADR-0559, ADR-0560).
+pub mod duckdb_parquet_stage;
+
+/// Stages standing steward decisions as `silver.parcel_lineage` rows (root ADR-0115 §9).
+///
+/// The first transform that left Spark with its commit (root ADR-0560).
+pub mod lineage_steward_fold_stage;
 
 /// The remote lakehouse job runner (Silver refresh, FLOOR cycle). It lived in the executable and
 /// keeps the executable's lint posture (root ADR-0200 §4).

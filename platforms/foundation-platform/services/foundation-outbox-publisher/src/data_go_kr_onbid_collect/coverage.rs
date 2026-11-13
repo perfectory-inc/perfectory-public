@@ -121,11 +121,13 @@ pub(crate) fn owed_bid_infos(
 /// location map, cadastral map, 360-degree photo and video to the photos and appraisals; 2 since
 /// root ADR-0424 added the photos' full-size originals; 3 since root ADR-0427 made each photo's
 /// rendition ladder part of its media; 4 (root ADR-0486) when the originals rule first reached the
-/// URLs the API gives, so every open item completed under 3 asks its photos' originals once. An item
+/// URLs the API gives, so every open item completed under 3 asks its photos' originals once; 5 (root
+/// ADR-0503) when BMP and TIFF photos, skipped before as an unknown format (which settled their
+/// lines), are kept and shown through a PNG display master. An item
 /// completed under a lower number is fetched once more;
 /// that refetch is not a refresh, so the media it already stored are not downloaded again (its
 /// ladder is made from the stored original).
-pub(crate) const MEDIA_FIELDS: u32 = 4;
+pub(crate) const MEDIA_FIELDS: u32 = 5;
 
 fn owed_items(
     marks: &mut BTreeMap<String, ItemMark>,

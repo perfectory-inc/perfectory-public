@@ -80,6 +80,14 @@ jobs:
           path: ~/.cache/perfectory/pinned
           key: pinned-release-binaries-v1-${{ runner.os }}
           restore-keys: pinned-release-binaries-v1-${{ runner.os }}-
+      # scripts/ci/apt-install.sh keeps the .deb files it had to download here; a hit installs this
+      # job's packages with no network (the 2026-11-11 Ubuntu mirror outage).
+      - name: Restore apt package cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}
+          restore-keys: apt-packages-v1-${{ runner.os }}-${{ github.job }}-
       - name: Set up Rust
         working-directory: ${{ github.workspace }}
         shell: bash
@@ -111,6 +119,14 @@ jobs:
           CHANGE_SCOPE_HEAD: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || github.event.after || github.sha }}
           INTELLIGENCE_TEST_DATABASE_URL: postgres://postgres:test@localhost:5432/intelligence
         run: cargo xtask integration intelligence postgres --affected
+      # Saved from main's runs only (root ADR-0269), and only when apt-install.sh downloaded a set the
+      # restored cache did not hold.
+      - name: Save apt package cache
+        if: ${{ always() && env.PERFECTORY_APT_CACHE_SAVE != '' && (github.event_name == 'push' || github.event_name == 'schedule') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/perfectory/apt
+          key: apt-packages-v1-${{ runner.os }}-${{ github.job }}-${{ env.PERFECTORY_APT_CACHE_SAVE }}
 
   supply-chain:
     needs: [scope]

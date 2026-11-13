@@ -40,7 +40,8 @@ class KoreaEdgeMeasureTest(unittest.TestCase):
 
     def test_the_shipped_contract_has_a_door_for_every_sample_kind(self):
         contract = json.loads(measure.CONTRACT.read_text(encoding="utf-8"))
-        self.assertEqual({name for name, door in contract["doors"].items() if "gateway" in door}, {"tiles", "catalog"})
+        self.assertEqual({name for name, door in contract["doors"].items() if "gateway" in door},
+                         {"tiles", "catalog", "buildings", "unit_prices"})
 
 
 if __name__ == "__main__":

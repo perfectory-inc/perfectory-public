@@ -16,7 +16,7 @@
   },
   "routes": [
     {
-      "pattern": "unit-prices.perfectory.io",
+      "pattern": "unit-prices-origin.perfectory.io",
       "custom_domain": true
     }
   ],

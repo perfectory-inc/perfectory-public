@@ -235,6 +235,19 @@ groups:
         annotations:
           summary: '호스트가 main 보다 {{ humanizeDuration $value }} 뒤처져 있어요(가장 오래된 미배포 커밋 {{ $labels.commit }}) — 이유: {{ $labels.reason }}. 런북의 이유 표를 보세요'
           runbook: docs/runbooks/deploy-alerts.md
+      # Two commits in a row could not be deployed (root ADR-0555). One failed deploy is that
+      # commit's and reaches Slack through the unit's OnFailure; a second commit failing means the
+      # host itself refuses releases, and every merge after it stays off the host. 2026-11-11: the
+      # deploys of 9ded86a4 (15:34Z) and the next commit (15:41Z) failed on the same tmpfiles line;
+      # this fires at the second, 7 minutes in, where FoundationHostBehindMain waits 6 hours.
+      - alert: FoundationDeployFailedTwice
+        expr: foundation_autodeploy_failed_deploys_in_a_row >= 2
+        labels:
+          severity: page
+          service: deploy
+        annotations:
+          summary: '배포가 연달아 {{ $value }}번 실패했어요 — 호스트가 새 릴리스를 받지 못하고 있고, 뒤에 병합되는 것도 전부 운영에 닿지 않아요. journalctl -u foundation-autodeploy.service 의 마지막 실패를 보고, 고치는 PR 에 hotfix:deploy-stop 라벨을 붙여 큐 앞에 세우세요'
+          runbook: docs/runbooks/deploy-alerts.md
       - alert: FoundationAutodeployStopped
         # The two above are written by the autodeploy's ticks; without ticks they cannot fire. A deploy
         # holds the tick lock while it runs, and FoundationDeployLong speaks for that time.
@@ -336,6 +349,35 @@ groups:
         annotations:
           summary: '공매 사진 있는 물건 중 원본 크기 사진이 있는 것이 {{ $value | humanizePercentage }} 뿐이에요 — 화면은 178×134 썸네일이에요. 물건상세의 potoUrlList[].urlAdr 를 data-go-kr-onbid.contract.json media.fields.originals 규칙과 대조하고 onbid-media-summary-json 의 originals_attempted 를 보세요'
           runbook: docs/runbooks/data-go-kr-onbid.md
+  # Listed and not in Bronze (root ADR-0514). 2026-10-09..11-11 the RAON large-file lane was off and 49
+  # files the provider listed never reached Bronze; 경기·경북 of every 용도지역지구 month since 2026-07 were
+  # among them, so silver.land_use_plan stayed on 2026-06-09 and parcel-zoning served it 24 days past its
+  # last bake with every other rule quiet: the lane served all Silver had (ADR-0444) and the source's
+  # other files kept its Bronze fresh (ADR-0443). The sweep writes what it still lacks after each run.
+  - name: foundation-source-sweep
+    rules:
+      - alert: FoundationSourceFilesUnfetched
+        # The provider dated the oldest such file more than 72 hours ago: a daily run that takes it
+        # (newest first, eight a run) has had three turns. Users then see data older than it.
+        expr: time() - foundation_source_sweep_unfetched_oldest_listed_timestamp_seconds > 72 * 3600
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '{{ $labels.source }} 에 공급자가 올린 지 {{ humanizeDuration $value }} 된 파일이 아직 Bronze 에 없어요 — 그 원천을 읽는 Silver·Gold·화면이 그만큼 옛 판이에요. journalctl -u foundation-source-sweep.service 의 "| raon" 줄(받은 것·실패·상한)을 보세요'
+          runbook: docs/runbooks/provider-acquisition-fargate.md
+      - alert: FoundationSourceSweepMetricsSilent
+        # The sweep runs daily; two missed days and the files above are no longer measured.
+        expr: >-
+          time() - foundation_source_sweep_metrics_timestamp_seconds > 50 * 3600
+          or (absent(foundation_source_sweep_metrics_timestamp_seconds) and on () (foundation_api_up == 1))
+        for: 2d
+        labels:
+          severity: ticket
+          service: serving-freshness
+        annotations:
+          summary: '매일 원천 훑기가 이틀 넘게 "받지 못한 파일" 을 재지 못했어요 — 공급자 파일이 밀려도 알 수 없어요. systemctl status foundation-source-sweep.service 를 보세요'
+          runbook: docs/runbooks/provider-acquisition-fargate.md
   # Bronze ingestion (root ADR-0443). Each source is held to its own bounds, which foundation-api
   # renders from the endpoint catalog's expected_cadence (its provider's release schedule): one
   # 24-hour line for all would page about 85 of 105 sources that are healthy, because most
@@ -445,6 +487,19 @@ groups:
         annotations:
           summary: '{{ $labels.job }} 의 시작이 {{ $labels.pool }} 풀 대기열에서 {{ humanizeDuration $value }}째 기다려요({{ $labels.priority_class }} 예산 넘음). journalctl -u foundation-asset-reconcile.service 의 queued start 줄과 무엇이 풀을 잡고 있는지 보세요'
           runbook: docs/runbooks/asset-reconcile.md
+      - alert: FoundationCapacityClaimHeldWithoutSpark
+        # Root ADR-0462: a claim holds its pool only for a Spark step. One live for 15 minutes while
+        # none of the units it holds the pool for runs keeps every lower start out for nothing
+        # (2026-11-09 06:13Z..07:10Z a cut-over's claim held through a latency step and refused ten
+        # Silver loads).
+        expr: foundation_capacity_claim_work_units == 0
+        for: 15m
+        labels:
+          severity: ticket
+          service: data-flow
+        annotations:
+          summary: '{{ $labels.claimant }} 의 {{ $labels.pool }} 풀 claim 이 살아 있는데 그 claim 이 기다리거나 돌리는 Spark 유닛이 하나도 없어요. 낮은 등급의 시작이 이유 없이 막혀 있어요. journalctl -u foundation-asset-reconcile.service 의 capacity claim 줄과 /var/lib/foundation-run-now/capacity/ 를 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
       - alert: FoundationJobMissedStartNotTaken
         # Root ADR-0467: the reconciler starts a slot no start followed once, keyed by the slot; still
         # missed two hours later, the start it asked for did not run (2026-11-09 11:40Z
@@ -520,6 +575,61 @@ groups:
         annotations:
           summary: '{{ $labels.lane }} 레인의 서빙 모니터가 {{ humanizeDuration $value }}째 화면을 재지 못했어요 — 오래된 데이터를 보여 줘도 알 수 없어요. systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
           runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+      # Root ADR-0522. The two rules above hold only lanes a serving monitor measures, and a monitor's
+      # timer is turned on by a lane's first publish: 2026-11-11 parcel-nearby and parcel-real-transaction
+      # had been registered with enabled bakes for two days, served nothing, and no series named them.
+      # Every lane of the lane index says since when it is meant to be served (asset_reconcile.py
+      # served_surfaces); unmeasured past the freshness budget, it is as stale as a lane past it.
+      - alert: FoundationByPnuLaneUnmeasured
+        expr: >-
+          (
+            time() - foundation_by_pnu_lane_registered_since_timestamp_seconds
+            > on() group_left() foundation_serving_freshness_budget_seconds
+          )
+          unless on(lane) foundation_by_pnu_served_manifest_age_seconds
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '{{ $labels.lane }} 레인은 서빙하기로 등록됐는데, 신선도 예산이 지나도록 화면에 나간 manifest 를 재는 것이 없어요 — 첫 발행이 안 됐거나 서빙 모니터 타이머가 꺼져 있어요. 그 레인의 cut-over 기록(by-pnu-auto-promote)과 systemctl status foundation-by-pnu-serving-monitor@{{ $labels.lane }}.timer 를 보세요'
+          runbook: docs/runbooks/parcel-by-pnu-serving-bake.md
+      # Root ADR-0522. The map's tile layers had no freshness series at all: 2026-11-11 the parcels unit
+      # served its 2026-09-28 release while gold.parcel_boundary_served had changed rows since 10-15, and
+      # the zoning unit's bake failed daily on an unchanged Silver snapshot. Behind its snapshot table,
+      # not old (root ADR-0444's rule): admin and complex serve releases weeks old that hold every change.
+      - alert: FoundationTileUnitBehind
+        expr: >-
+          foundation_tile_unit_behind_seconds
+          > on() group_left() foundation_serving_freshness_budget_seconds
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '지도 타일 {{ $labels.unit }} 이 입력보다 {{ humanizeDuration $value }} 뒤처진 릴리스를 보여 주고 있어요(예산을 넘김) — 그 뒤 타일 굽기·릴리스가 발행하지 못했어요. 레인 색인(config/by-pnu-lane-index.v1.json tile_units)의 그 유닛 굽기 작업 journalctl 과 거부 이유를 보세요'
+          runbook: docs/runbooks/parcel-tile-bake.md
+      - alert: FoundationTileUnitNotServed
+        # A tile layer the definitions declare that the runtime manifest users' maps read lacks.
+        expr: foundation_tile_unit_served == 0
+        for: 30m
+        labels:
+          severity: page
+          service: serving-freshness
+        annotations:
+          summary: '지도 타일 {{ $labels.unit }} 이 정의에는 있는데 지도가 읽는 런타임 manifest 에 없어요 — 그 층이 지도에 안 나와요. /catalog/v1/vector-tiles/runtime-manifest 의 publication_units 와 그 유닛의 승격 기록을 보세요'
+          runbook: docs/runbooks/parcel-tile-bake.md
+      - alert: FoundationTileUnitUnmeasured
+        # A served unit whose snapshot table cannot be read, or no unit at all when the runtime
+        # manifest cannot be read: a stale layer would then say nothing.
+        expr: >-
+          (foundation_tile_unit_served == 1 unless on(unit) foundation_tile_unit_behind_seconds)
+          or absent(foundation_tile_unit_served)
+        for: 1h
+        labels:
+          severity: ticket
+          service: serving-freshness
+        annotations:
+          summary: '지도 타일{{ if $labels.unit }} {{ $labels.unit }}{{ end }}의 신선도를 1시간째 재지 못했어요 — 뒤처진 릴리스를 보여 줘도 알 수 없어요. journalctl -u foundation-asset-reconcile.service 의 "could not read the tile runtime manifest" 나 "could not read" 줄을 보세요'
+          runbook: docs/runbooks/asset-reconcile.md
       # Root ADR-0490 §7. The map and every parcel panel serve one cadastral edition. 2026-11-11 it was
       # still 202606, from before the 2026-07-01 reorganization, while 202609 had been in Silver since
       # 2026-10-05: 37 days, and resolvers failed on every code changed since. Nothing said so.

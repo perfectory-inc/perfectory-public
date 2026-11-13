@@ -262,7 +262,10 @@ async fn settled_from_lakehouse(detail: &NoticeDetail) -> anyhow::Result<HashSet
         SILVER_INDUSTRIAL_COMPLEX_NOTICE_DETAIL.table_name
     );
     let catalog = IcebergRestCatalog::new(
-        LakehouseCatalogConfig::from_env().context("failed to configure the Iceberg catalog")?,
+        // The unit holds only operations-map.env's read-only token (root ADR-0247); the writer
+        // token is unset there and the catalog answered 401 (2026-11-12 00:20Z run).
+        LakehouseCatalogConfig::reader_from_env()
+            .context("failed to configure the Iceberg catalog")?,
     )
     .context("failed to build the Iceberg catalog client")?;
     let Some(snapshot) = catalog

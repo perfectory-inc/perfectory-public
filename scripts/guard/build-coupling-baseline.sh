@@ -343,7 +343,21 @@ BUILD_SCRIPT_BASELINE="${2:-10}"
 # collector does (root ADR-0475).
 # 167 -> 168: the ILIS notice collector embeds its source contract once
 # (industryland-or-kr.contract.json), as the court auction collector does (root ADR-0484).
-COMPILE_TIME_READ_BASELINE="${3:-168}"
+# 168 -> 169: the 주택인허가 기본개요 lane embeds its source contract once, as every hub part lane does
+# (root ADR-0511).
+# 169 -> 170: the Silver refresh's 중개사무소 lane compiles in its source contract
+# (vworld-real-estate-broker-office-source-objects.json, root ADR-0511), as each land lane does.
+# 170 -> 171: its 소속 인원 lane does the same (vworld-real-estate-broker-member-source-objects.json).
+# 171 -> 172: foundation-api's live VWorld broker register reads its credential names from the
+# naming contract (environment-variable-naming.contract.json), as the collection adapter does
+# (root ADR-0550 §5).
+# 172 -> 174: lakehouse-domain compiles in the two HUB family files (hub-lane-family-*.v1.json, root
+# ADR-0551) once each; every lane they hold is an entry, so a new HUB lane no longer adds a read here.
+# 174 -> 178: the steward fold left Spark (root ADR-0560). foundation-publisher-silver compiles in
+# the two SQL files DuckDB runs for it (lineage_steward_fold_stage/refusals.sql, rows.sql: the SQL is
+# reviewed and compared as SQL, and the engine-equality verdict ran those files), and its test
+# compiles in the handoff fixture and the rows the Spark job built from it (fixtures/).
+COMPILE_TIME_READ_BASELINE="${3:-178}"
 
 cd "$repo_root"
 

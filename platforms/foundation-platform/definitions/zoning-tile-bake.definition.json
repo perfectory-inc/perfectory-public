@@ -35,7 +35,7 @@
       },
       "pool": "spark",
       "pool_slots": 3,
-      "priority_weight": 2,
+      "priority_weight": 20,
       "retries": 0,
       "pipeline_graph_edges": [
         "silver-land-use-zone-area-to-zoning-overlay-tiles",
@@ -63,7 +63,11 @@
         "platforms/foundation-platform/config/tile-bake-containers.contract.json",
         "platforms/foundation-platform/config/r2-connections.contract.json"
       ],
-      "surface_kind": "tiles"
+      "surface_kind": "tiles",
+      "publication_unit": {
+        "key": "zoning",
+        "snapshot_table": "silver.land_use_zone_area"
+      }
     },
     {
       "id": "gold-land-use-zone-area-by-tile",

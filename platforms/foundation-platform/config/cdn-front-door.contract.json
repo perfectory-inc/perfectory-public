@@ -32,6 +32,18 @@
       "answered_by": "cloudfront",
       "caching": "origin"
     },
+    "buildings": {
+      "gateway": "building_by_pnu_gateway",
+      "origin_hostname": "buildings-origin.perfectory.io",
+      "answered_by": "cloudfront",
+      "caching": "origin"
+    },
+    "unit_prices": {
+      "gateway": "by_pnu_lanes.unit-price",
+      "origin_hostname": "unit-prices-origin.perfectory.io",
+      "answered_by": "cloudfront",
+      "caching": "origin"
+    },
     "web_preview": {
       "public_hostname": "web-preview.perfectory.io",
       "workers_dev_worker": "gongzzang-web-preview",

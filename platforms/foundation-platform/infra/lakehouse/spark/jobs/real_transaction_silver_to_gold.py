@@ -227,10 +227,13 @@ def lineage_candidates(lineage: Any, sources: list[str]) -> Any:
         picked, "successor_pnu string, source_pnu string, hop int, path string"))
 
 
-def placed_deals(frames: dict[str, Any], inference: dict[str, Any]) -> Any:
+def placed_deals(frames: dict[str, Any], inference: dict[str, Any], stage: Any = None) -> Any:
     """Every deal with the PNU it is placed on (`pnu`, null for none), `place_identity_grade` and
     `attached_via`; a deal the lineage places on several parcels is a row for each, and so is a deal
-    linked to a 본번 group (`main_lot_group_key`, its 15-digit key, and `main_lot_group_size`)."""
+    linked to a 본번 group (`main_lot_group_key`, its 15-digit key, and `main_lot_group_size`).
+
+    `stage(name, frame)` (`gold_incremental.Lane.staged_build`) writes the inferred links and the
+    resolved sales, each read several times over, and reads them back."""
     from pyspark.sql import functions as F  # noqa: PLC0415
 
     import onbid_public_auction_silver_to_gold as auction  # noqa: PLC0415
@@ -255,11 +258,13 @@ def placed_deals(frames: dict[str, Any], inference: dict[str, Any]) -> Any:
             inferred.append(resolver.infer_masked(
                 masked.where(F.col("dataset_slug") == dataset), land, frames[TITLE_SOURCE], frames[OWNERSHIP_SOURCE],
                 levels, float(inference["area_tolerance_m2"]), tuple(inference["ownership_window_days"]),
-                inference["ownership_causes"], parcels).where(F.col("pnu").isNotNull() | F.col("pnu_group").isNotNull()))
+                inference["ownership_causes"], parcels, remap, inference.get("zone_subdivisions")).where(F.col("pnu").isNotNull() | F.col("pnu_group").isNotNull()))
     if inferred:
         found = inferred[0]
         for frame in inferred[1:]:
             found = found.unionByName(frame)
+        found = (stage or (lambda _name, frame: frame))("inferred", found.select(
+            "row_id", "pnu", "pnu_group", "place_identity_grade"))
         found = found.select("row_id", F.col("pnu").alias("_inferred"), F.col("pnu_group").alias("_group"),
                              F.col("place_identity_grade").alias("_grade"))
         resolved = (resolved.join(found, "row_id", "left")
@@ -275,6 +280,8 @@ def placed_deals(frames: dict[str, Any], inference: dict[str, Any]) -> Any:
     # One pass: a group deal explodes to its members, any other deal stays one row (its pnu or null).
     resolved = resolved.withColumn("pnu", F.explode(F.coalesce("_group", F.array(F.col("pnu"))))).drop("_group")
     sales = resolved.withColumn("source_pnu", F.coalesce("pnu", "pnu_candidate")).drop("pnu", "pnu_candidate")
+    if stage is not None:
+        sales = stage("sales", sales)
     candidates = merges = None
     if LINEAGE_SOURCE in frames:
         retired = sales.where(F.col("source_pnu").isNotNull()).join(
@@ -324,16 +331,19 @@ def history_coverage(months: list[tuple[str, str]], datasets: dict[str, dict[str
 
 
 def gold_rows(frames: dict[str, Any], inference: dict[str, Any], as_of: date, source_snapshot_id: str,
-              published_at_utc: str, columns: tuple[str, ...], *, coverage: list[dict[str, Any]]) -> Any:
+              published_at_utc: str, columns: tuple[str, ...], *, coverage: list[dict[str, Any]],
+              stage: Any = None) -> Any:
     """One row per served PNU with a deal or a comparable: `real_transaction_json`, `transaction_total`.
     `coverage` is `history_coverage` of the whole Silver the build pinned, never of the 법정동s an
-    incremental run restricts its inputs to."""
+    incremental run restricts its inputs to. `stage` as `placed_deals`: the placed deals, which every
+    part of the document reads, are staged too; without it they are cached."""
     from pyspark.sql import Window, functions as F  # noqa: PLC0415
 
     import place_identity_resolver as resolver  # noqa: PLC0415
 
     as_of = month_start(as_of)
-    deals = placed_deals(frames, inference).cache()
+    deals = (placed_deals(frames, inference).cache() if stage is None
+             else stage("placed", placed_deals(frames, inference, stage)))
     entry = F.struct(*[F.col(f).cast("string").alias(f) if f in ("deal_date", "cancel_date") else F.col(f)
                        for f in TRANSACTION_FIELDS])
     own = (deals.where(F.col("pnu").isNotNull())
@@ -736,7 +746,8 @@ def main(argv=None) -> int:
     import rt_molit_real_transaction as rt  # noqa: PLC0415
     import section_coverage  # noqa: PLC0415
     from gold_rebuild import assert_minimum_row_count, pins_properties  # noqa: PLC0415
-    from lakehouse_engine import apply_catalog_settings, assert_catalog_env  # noqa: PLC0415
+    from lakehouse_engine import (NO_AUTO_BROADCAST, SHUFFLE_SETTINGS, apply_catalog_settings,  # noqa: PLC0415
+                                  assert_catalog_env)
     from lakehouse_snapshot_pins import load_source_snapshot_pins  # noqa: PLC0415
     from platform_contracts import column_names, ensure_contract_table, load_lakehouse_contract  # noqa: PLC0415
 
@@ -760,8 +771,9 @@ def main(argv=None) -> int:
     region_table = f"`{args.iceberg_catalog_name}`.`{args.target_iceberg_namespace}`.`{REGION_TABLE.split('.', 1)[1]}`"
     rt_table = f"{args.iceberg_catalog_name}.{args.source_iceberg_namespace}.{RT_SOURCE.split('.', 1)[1]}"
     assert_catalog_env(args.iceberg_catalog_name)
-    spark = apply_catalog_settings(SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}")
-                                   .config("spark.sql.session.timeZone", "UTC"), args.iceberg_catalog_name).getOrCreate()
+    builder = (SparkSession.builder.appName(f"{JOB_NAME}:{args.lane}").config("spark.sql.session.timeZone", "UTC")
+               .config(map={**SHUFFLE_SETTINGS, **NO_AUTO_BROADCAST}))
+    spark = apply_catalog_settings(builder, args.iceberg_catalog_name).getOrCreate()
     counters: dict[str, int] = {}
     try:
         # The registers only the inference reads stay uncached: with no level enabled they are never
@@ -801,10 +813,13 @@ def main(argv=None) -> int:
         history = history_coverage([(r["dataset_slug"], r["deal_ym"]) for r in
                                     frames[RT_SOURCE].select("dataset_slug", "deal_ym").distinct().collect()],
                                    source["datasets"], as_of, source["recent_history_months"])
+        def build(inputs: dict[str, Any], stage: Any = None) -> Any:
+            return with_place_ids(gold_rows(inputs, inference, as_of, pins[PARCEL_SOURCE], args.published_at_utc, built,
+                                            coverage=history, stage=stage),
+                                  inputs[place_id_join.BRIDGE_SOURCE], content, columns)
+
         lane = incremental.Lane(
-            build=lambda inputs: with_place_ids(
-                gold_rows(inputs, inference, as_of, pins[PARCEL_SOURCE], args.published_at_utc, built, coverage=history),
-                inputs[place_id_join.BRIDGE_SOURCE], content, columns),
+            build=build, staged_build=build,
             restrict=restrict_inputs, affected=affected, validate=validate_gold,
             content_columns=content, gold_columns=columns,
             append_inputs={RT_SOURCE: rt_table, place_id_join.CHANGELOG_SOURCE: place_id_join.changelog_table(args)},
