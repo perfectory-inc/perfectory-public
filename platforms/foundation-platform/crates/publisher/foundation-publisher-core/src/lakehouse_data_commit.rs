@@ -335,7 +335,21 @@ impl LakehouseDataCommitter {
         &self,
         contract: &LakehouseTableContract,
     ) -> anyhow::Result<bool> {
-        let ident = table_ident(contract.table_name)?;
+        self.create_table_if_absent_named(contract, contract.table_name)
+            .await
+    }
+
+    /// [`Self::create_table_if_absent`] under another `namespace.table` of the same contract (a
+    /// scratch or `_smoke` copy, as [`DataAppend::table_name`] allows).
+    ///
+    /// # Errors
+    /// As [`Self::create_table_if_absent`].
+    pub async fn create_table_if_absent_named(
+        &self,
+        contract: &LakehouseTableContract,
+        table_name: &str,
+    ) -> anyhow::Result<bool> {
+        let ident = table_ident(table_name)?;
         if self.catalog.table_exists(&ident).await? {
             return Ok(false);
         }
@@ -368,11 +382,12 @@ impl LakehouseDataCommitter {
             Ok(_) => Ok(true),
             // Another run created it between the check and the create.
             Err(error) if self.catalog.table_exists(&ident).await.unwrap_or(false) => {
-                tracing::info!(table = contract.table_name, %error, "the table was created by another run");
+                tracing::info!(table = table_name, %error, "the table was created by another run");
                 Ok(false)
             }
-            Err(error) => Err(anyhow::Error::new(error)
-                .context(format!("failed to create {}", contract.table_name))),
+            Err(error) => {
+                Err(anyhow::Error::new(error).context(format!("failed to create {table_name}")))
+            }
         }
     }
 
