@@ -172,6 +172,12 @@ for lane in chosen:
     table = rebuild.get(entry["gold_table"])
     if table is None:
         sys.exit(f"{lane}: its Gold {entry['gold_table']} is not a table of gold-panel-rebuild.contract.json")
+    # A list leaves out a lane whose own Gold job is off (its disabled_reason says why): its gold step
+    # would build that Gold anyway, under the one rebuild lock (2026-11-12..13 parcel-nearby's Spark
+    # build ran out its 160 minutes four times and held the owed panel rebuild back each time).
+    own_gold = by_service.get(f"foundation-gold-lane-rebuild@{table['unit']}.service")
+    if listed and own_gold is not None and not own_gold.get("enabled", True):
+        continue
     own, capabilities = block(lane)
     base, base_capabilities = block(entry["latency_baseline_lane"])
     parity = (table.get("pins_from") or {}).get("parity_argument") or "-"

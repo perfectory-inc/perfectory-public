@@ -44,9 +44,8 @@
         "gold-place-id-bridge-to-gold-parcel-nearby",
         "gold-place-id-changelog-to-gold-parcel-nearby"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-09T18:00:00Z",
-      "dagster_stage": "shadow",
+      "enabled": false,
+      "disabled_reason": "Off 2026-11-13 (W83b): its first full build on Spark did not finish within the 160-minute limit four times in a row (2026-11-12 19:42Z, 11-13 00:15Z, 05:21Z, 14:22Z, each a by-PNU auto-promotion cut-over's gold step), and each attempt held the one Gold rebuild lock for those 160 minutes, so the owed gold.parcel_panel rebuild could only end `waiting` behind it. gold.parcel_nearby is born on DuckDB instead (root ADR-0559; measured on 경기: DuckDB 260 s / 3.84 GiB, Spark 1,766 s / 6.88 GiB). Turned on, with by_pnu_parcel_nearby_bake, by the pull request that makes the DuckDB producer this lane's and records its first measured run. While it is off, the auto-promotion does not start the lane's cut-over (by-pnu-lane-cutover.sh lanes --pending leaves out a lane whose own Gold job is off).",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
@@ -89,9 +88,8 @@
       "pipeline_graph_edges": [
         "gold-parcel-nearby-to-parcel-nearby-by-pnu-section-packs"
       ],
-      "enabled": true,
-      "enabled_since": "2026-11-09T18:00:00Z",
-      "dagster_stage": "shadow",
+      "enabled": false,
+      "disabled_reason": "Off 2026-11-13 (W83b) with gold_parcel_nearby_rebuild, which feeds it: gold.parcel_nearby has no snapshot and its first build moves to DuckDB (see that job's disabled_reason). Switched on with it.",
       "expected_outcome": {
         "changes_within_hours": null,
         "no_change_bound_reason": "Changes only when its inputs moved. That it is not behind them is the asset reconciler's lag (root ADR-0333) and its lane's behind-inputs bound (root ADR-0444); a change bound here would report a source that published nothing."
