@@ -74,6 +74,13 @@ COMPARED = ("shadow", "proxied")
 # (orchestration/dagster/run_jobs.py, root ADR-0417). Both sides read these names from here, so the
 # Airflow image and the Dagster code location cannot drift apart.
 DAGSTER_JOB_PREFIX = "foundation_job__"
+# The sensor that decides a job at `dagster` (orchestration/dagster/decide.py). A deploy holds such a job by
+# stopping this sensor, as it pauses the DAG of a job Airflow decides (scripts/deploy/job_orchestrator.py).
+DAGSTER_SENSOR_PREFIX = "foundation_decide__"
+# The code location and the repository a `@definitions` function makes (orchestration/dagster/workspace.yaml):
+# what Airflow's proxied `run` task and the host's deploy and run-now name a Dagster job or sensor by.
+DAGSTER_LOCATION = "foundation"
+DAGSTER_REPOSITORY = "__repository__"
 # Run tags. Airflow sends how the run was started (the forced command's words after the job id: empty for
 # a clock start, `triggered`, or `requested <id>`); Dagster's run answers with its outcome word and, for
 # the asset reconciler, the runs it found owed, which Airflow's `run` task pushes as today's XComs.
@@ -101,6 +108,9 @@ WITHHOLDS_EVENTS = ("unchanged", "waiting", "failed", "skipped")
 # The line a job's check service prints last (jobs.v1.json `check_service`, root ADR-0277). Only
 # `unchanged` skips the run; any other word, or none, lets the run decide for itself.
 CHECK_LINE = re.compile(r"^foundation-job-check (\S+)\r?$", re.MULTILINE)
+# A job's check and its bound: the slowest lane's took 4.2 s (2026-10-14..18), the unit's own
+# TimeoutStartSec is 5 minutes. Airflow's `check` task and Dagster's run of a job it decides both keep it.
+CHECK_TIMEOUT_MINUTES = 6
 # The run's output is the journal of a run that can last a day; the line is at its end.
 OUTCOME_TAIL_BYTES = 64 * 1024
 # What the asset reconciler prints for each job it finds owed a run (root ADR-0333 §7): the job and
@@ -143,7 +153,7 @@ class JobSpec:
 
     def dagster_tags(self, run_kind=""):
         """The tags a Dagster run of this job carries: how it was started, and what the run queue reads."""
-        return {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: self.pool, PRIORITY_TAG: str(self.priority)}
+        return run_tags(self.pool, self.priority, run_kind)
 
     @property
     def starting_inputs(self):
@@ -158,6 +168,12 @@ class JobSpec:
 
 class JobListError(ValueError):
     pass
+
+
+def run_tags(pool, priority, run_kind=""):
+    """The tags a Dagster run of a job carries, whoever launches it (Airflow's proxied task, the job's
+    sensor, the deploy or a run-now): how it was started, and what the run queue reads."""
+    return {RUN_KIND_TAG: run_kind, JOB_RUN_TAG: "job", POOL_TAG: pool, PRIORITY_TAG: str(priority)}
 
 
 def asset_uri(dataset):
@@ -688,20 +704,43 @@ def dagster_order(jobs, feeders):
     a Dagster run never records. Downstream families move first."""
     stages = {job["id"]: job.get("dagster_stage", "airflow") for job in jobs["jobs"]}
     by_id = {job["id"]: job for job in jobs["jobs"]}
-    return [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
-            for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
-            for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
+    problems = [f"{consumer}: started by the outputs of {producer}, which Dagster decides; it moves to dagster first"
+                for consumer, producers in sorted(feeders.items()) if started_by(by_id[consumer]) == "inputs"
+                for producer in producers if stages[producer] == "dagster" and stages[consumer] != "dagster"]
+    # A reconciler and the jobs it starts (started_for). A job Dagster decides reads what it is owed from
+    # the reconciler's Dagster run, which exists only once Dagster runs the reconciler; a reconciler Dagster
+    # decides has no DAG whose `start` task could trigger the DAG of a job Airflow decides. So the
+    # reconciler is `proxied` before the first job it starts moves, and `dagster` after the last.
+    for job in jobs["jobs"]:
+        for started in started_for(jobs, job):
+            if stages[started] == "dagster" and stages[job["id"]] not in DAGSTER_RUNS:
+                problems.append(f"{started}: Dagster decides it, but {job['id']}, which starts it when it is owed a "
+                                f"run, runs in Airflow; {job['id']} moves to proxied first")
+            if stages[job["id"]] == "dagster" and stages[started] != "dagster":
+                problems.append(f"{job['id']}: Dagster decides it, but it starts {started}, which Airflow decides; "
+                                f"{started} moves to dagster first")
+    return problems
 
 
 def requeued(jobs, job):
     """The jobs whose starts their pool refused `job` starts again from the host's start queue
-    (`requeues_refused_starts_in`, its pools; root ADR-0462): every enabled job of those pools that
-    Airflow starts, besides the ones it reconciles. A job Dagster decides has no DAG to start."""
+    (`requeues_refused_starts_in`, its pools; root ADR-0462): every enabled job of those pools, besides
+    the ones it reconciles. Which orchestrator starts an owed job is the job's stage (started_for)."""
     pools = job.get("requeues_refused_starts_in") or ()
     reconciled = set(job.get("reconciles", ()))
     return tuple(sorted(other["id"] for other in jobs["jobs"]
-                        if other["pool"] in pools and other["enabled"] and other["id"] not in reconciled
-                        and dagster_stage(other, jobs) != "dagster"))
+                        if other["pool"] in pools and other["enabled"] and other["id"] not in reconciled))
+
+
+def started_for(jobs, job):
+    """The jobs `job`'s run may say are owed a run: those it reconciles and those it requeues.
+
+    Its run prints them (OWED_LINE). While Airflow decides the owed job, the reconciler's DAG triggers the
+    job's DAG (foundation_jobs.py `select`, `start`); once Dagster decides it, the job's own sensor reads
+    the reconciler's Dagster run (OWED_TAG, orchestration/dagster/decide.py). dagster_order holds the two
+    to stages in which each can reach the other.
+    """
+    return tuple(job.get("reconciles", ())) + requeued(jobs, job)
 
 
 def started_by(job):
@@ -954,7 +993,9 @@ def owed_by_inputs(specs, newest_event, newest_run, queued):
     """
     owed = []
     for spec in specs:
-        if not spec.enabled or spec.started_by != "inputs" or spec.dag_id in queued:
+        # A job Dagster decides has no DAG to miss an event: its sensor keeps the events that came while it
+        # was stopped and starts one run for them (orchestration/dagster/decide.py).
+        if not spec.enabled or spec.started_by != "inputs" or spec.dag_id in queued or spec.dagster_stage == "dagster":
             continue
         changes = [newest_event[asset_uri(dataset)] for dataset in spec.starting_inputs
                    if newest_event.get(asset_uri(dataset)) is not None]
@@ -1068,7 +1109,7 @@ def load_specs(jobs=None, graph=None):
             if len(made) != 1 and not all(by_pnu_lane_of(node) for _, node in made) \
                     and not (golds and all(node.startswith("gold.") for node in golds)):
                 raise JobListError(f"{job_id}: reconciles {name}, which does not make exactly one asset")
-        requeues = requeued(jobs, job)
+        requeues = requeued(jobs, job)  # dagster_order holds the stages of these to the reconciler's
         unknown = set(job.get("requeues_refused_starts_in") or ()) - set(declared_pools(jobs))
         if unknown or requeues and not reconciles:
             raise JobListError(f"{job_id}: requeues_refused_starts_in names pools the list bounds"

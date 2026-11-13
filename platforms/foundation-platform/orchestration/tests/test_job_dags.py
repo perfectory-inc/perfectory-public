@@ -6,6 +6,7 @@ classes do not take; whether Airflow itself accepts the result (the asset-or-tim
 assets, the serialized DAG) is `WithAirflow`, which runs where Airflow is installed.
 """
 
+import copy
 import dataclasses
 import importlib.util
 import json
@@ -361,6 +362,23 @@ class TheReconcilerStartsWhatIsOwed(unittest.TestCase):
                                    "trigger_run_id": "reconcile__by_pnu_public_auction_bake__fedcba9876543210"}])
         runtime.RuntimeTaskInstance.get_dr_count.assert_any_call(
             dag_id="foundation_gold_unit_price_rebuild", states=["queued", "running"])
+
+    def test_select_leaves_an_owed_job_dagster_decides_to_that_jobs_sensor(self):
+        # Root ADR-0565 §4: such a job has no DAG to trigger; its sensor reads the same owed runs from the
+        # reconciler's Dagster run. Triggering a DAG that does not exist would fail `start` every tick.
+        self.assertEqual(self.tasks["select"].decided_by_dagster, frozenset(), "no job is at dagster yet")
+        select = copy.copy(self.tasks["select"])
+        select.decided_by_dagster = frozenset({"gold_unit_price_rebuild"})
+        ti = mock.Mock()
+        ti.xcom_pull.return_value = [["gold_unit_price_rebuild", "0123456789abcdef"],
+                                     ["by_pnu_public_auction_bake", "fedcba9876543210"]]
+        runtime = types.ModuleType("airflow.sdk.execution_time.task_runner")
+        runtime.RuntimeTaskInstance = mock.Mock()
+        runtime.RuntimeTaskInstance.get_dr_count.return_value = 0
+        with mock.patch.dict(sys.modules, {"airflow.sdk.execution_time.task_runner": runtime}):
+            starts = select.execute({"ti": ti})
+        self.assertEqual([start["trigger_dag_id"] for start in starts], ["foundation_by_pnu_public_auction_bake"])
+        runtime.RuntimeTaskInstance.get_dr_count.assert_called_once()
 
 
 class TheCheckBeforeThePool(unittest.TestCase):

@@ -959,6 +959,80 @@ class TheWholeDeploy(unittest.TestCase):
         self.assertEqual((self.root / "sleep.log").read_text().split(), ["10", "10"])
         self.assertNotIn("stop", (self.root / "systemctl.log").read_text())
 
+    # Root ADR-0565 §5: a job Dagster decides has no DAG. The deploy holds it by stopping its sensor,
+    # gives it back by starting the sensor, and starts a run it owes as the job's Dagster job, all
+    # through the running release's job_orchestrator.py; Airflow is told nothing about it.
+
+    def dagster_decides(self, *job_ids):
+        """The running release's registry says Dagster decides these jobs; its job_orchestrator.py stands
+        in and records what it was told (the verb and the job ids)."""
+        running = self.root / "opt/foundation-platform/current"
+        path = running / "orchestration/jobs.v1.json"
+        jobs = json.loads(path.read_text())
+        for job in jobs["jobs"]:
+            if job["id"] in job_ids:
+                job["dagster_stage"] = "dagster"
+        path.write_text(json.dumps(jobs))
+        # Airflow builds no DAG for such a job, so its list does not name it.
+        self.no_dag = " ".join(job_ids)
+        (running / "scripts/deploy/job_orchestrator.py").write_text(
+            "import importlib.util, os, sys\n"
+            f"spec = importlib.util.spec_from_file_location('real_job_orchestrator', {str(PLATFORM / 'scripts/deploy/job_orchestrator.py')!r})\n"
+            "real = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(real)\n"
+            "decided = real.decided\n"
+            "if __name__ == '__main__':\n"
+            "    if sys.argv[1] == 'decided':\n"
+            "        sys.exit(real.main(sys.argv[1:]))\n"
+            "    with open(os.path.join(os.environ['FIXTURE_ROOT'], 'dagster.log'), 'a') as log:\n"
+            "        log.write(' '.join([sys.argv[1], *sys.argv[3:]]) + '\\n')\n"
+            "    sys.exit(1 if os.environ.get('FIXTURE_DAGSTER_FAILS') in ('1', sys.argv[1]) else 0)\n")
+
+    def dagster_told(self):
+        path = self.root / "dagster.log"
+        return path.read_text().splitlines() if path.exists() else []
+
+    def test_a_job_dagster_decides_is_held_and_released_through_dagster_not_airflow(self):
+        self.dagster_decides("outbox_publish")
+        result = self.deploy(FIXTURE_UNLISTED=self.no_dag)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.dagster_told(), ["pause outbox_publish", "unpause outbox_publish"])
+        self.assertNotIn("foundation_outbox_publish", (self.root / "airflow.log").read_text())
+        self.assertEqual(sorted(self.airflow_told("pause")), ["map_edit_fold_admin", "media_reconcile", "vworld_parcel_edition"])
+        self.assertEqual(sorted(self.airflow_told("unpause")), ["map_edit_fold_admin", "media_reconcile"])
+        self.assertIn("paused 3 DAGs", result.stdout)
+        self.assertIn("the 1 jobs Dagster decides have their sensors running", result.stdout)
+
+    def test_a_release_that_does_not_hold_a_dagster_job_does_not_stop_its_sensor(self):
+        self.dagster_decides("map_edit_fold_admin")
+        self.commit_tells_what_it_changes("silver.building_register_floors", artifacts_from="registry")
+        result = self.deploy(FIXTURE_UNLISTED=self.no_dag)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Step 7 still asks that every job Dagster decides has its sensor running (one question): a
+        # sensor an earlier deploy left stopped is started again, as a paused DAG is unpaused.
+        self.assertEqual(self.dagster_told(), ["unpause map_edit_fold_admin"])
+
+    def test_a_stopped_dagster_job_is_owed_a_run_that_dagster_starts(self):
+        self.dagster_decides("media_reconcile")
+        owed = self.owed_runs_are_recorded()
+        result = self.deploy(FIXTURE_UNLISTED=self.no_dag, FIXTURE_BUSY_ANSWERS="3", FOUNDATION_SCHEDULED_DEFERRED_DIR=str(owed))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.dagster_told(), ["pause media_reconcile", "unpause media_reconcile", "start media_reconcile"])
+        self.assertNotIn("dags trigger", (self.root / "airflow.log").read_text())
+        self.assertIn("started foundation_media_reconcile", result.stdout)
+
+    def test_a_sensor_that_cannot_be_stopped_stops_the_deploy_before_anything_changes(self):
+        self.dagster_decides("outbox_publish")
+        result = self.deploy(FIXTURE_UNLISTED=self.no_dag, FIXTURE_DAGSTER_FAILS="pause")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.released(), [], "nothing of the new release was prepared")
+
+    def test_a_sensor_that_cannot_be_started_says_the_jobs_may_still_be_held(self):
+        self.dagster_decides("outbox_publish")
+        result = self.deploy(FIXTURE_UNLISTED=self.no_dag, FIXTURE_DAGSTER_FAILS="unpause")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("DAGS MAY STILL BE PAUSED", result.stderr)
+
     def owed_runs_are_recorded(self):
         (self.root / "opt/foundation-platform/current/scripts/deploy/job_units.py").write_bytes(
             (PLATFORM / "scripts/deploy/job_units.py").read_bytes())

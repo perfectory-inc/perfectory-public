@@ -6,6 +6,7 @@ Dagster's own: open_pipes_session, the message handler, the step's result. Run b
 `dagster-observe` lane in the code location's image; skipped elsewhere, where a skip fails that lane.
 """
 
+import dataclasses
 import importlib.util
 import io
 import json
@@ -124,11 +125,16 @@ class SystemdPipesTest(unittest.TestCase):
 class Stand:
     """The forced command as the host streams it, for run_jobs: records what it was asked, prints `lines`."""
 
-    def __init__(self, lines, status=0):
-        self.lines, self.status, self.asked = lines, status, []
+    def __init__(self, lines, status=0, check=None):
+        self.lines, self.status, self.asked, self.check = lines, status, [], check
 
     def start(self, request):
         self.asked.append(request)
+        if request.endswith(" check"):
+            # The job's check service, as start-scheduled-job.sh streams it; None is a check that cannot answer.
+            if self.check is None:
+                raise OSError("the host did not answer")
+            return iter(line + "\n" for line in self.check), lambda: 0
         return iter(line + "\n" for line in self.lines), lambda: self.status
 
 
@@ -137,11 +143,11 @@ class AJobDagsterRunsTest(unittest.TestCase):
     """The Dagster job of a job past `shadow` (run_jobs.py, root ADR-0431 §5): one op that runs the unit,
     logs its outputs' materializations when it changed them, and answers Airflow through its tags."""
 
-    def execute(self, spec, lines, status=0, tags=None):
+    def execute(self, spec, lines, status=0, tags=None, check=None):
         import run_jobs
         from dagster import DagsterInstance
 
-        stand = Stand(lines, status)
+        stand = Stand(lines, status, check)
         instance = DagsterInstance.ephemeral()
         self.addCleanup(instance.dispose)
         result = run_jobs.run_job(spec, transport=stand).execute_in_process(instance=instance, tags=tags or {},
@@ -210,6 +216,50 @@ class AJobDagsterRunsTest(unittest.TestCase):
             "foundation-job-outcome changed"])
         self.assertFalse(result.success)
         self.assertEqual(materialized, {})
+
+    def decided_by_dagster(self):
+        """A Silver refresh with a check, as if Dagster decided it (no job is at `dagster` yet)."""
+        import observe_assets
+
+        spec = next(spec for spec in observe_assets.job_specs.load_specs() if spec.check_service and spec.enabled)
+        return dataclasses.replace(spec, dagster_stage="dagster", retries=0)
+
+    def test_a_job_dagster_decides_checks_first_and_a_run_with_nothing_to_do_never_starts_its_unit(self):
+        # Root ADR-0565 §3, ADR-0277: Airflow's `check` task did this before `run`; without it every
+        # unchanged Silver lane would start its unit and wait for the spark pool to find nothing.
+        spec = self.decided_by_dagster()
+        result, tags, materialized, asked = self.execute(
+            spec, ["foundation-job-outcome changed"], check=["nothing new", "foundation-job-check unchanged"])
+        self.assertTrue(result.success)
+        self.assertEqual(asked, [f"{spec.job_id} check"], "the unit is not started")
+        self.assertEqual((tags["foundation/job-outcome"], materialized), ("unchanged", {}))
+
+    def test_any_other_check_answer_or_none_lets_the_run_decide(self):
+        spec = self.decided_by_dagster()
+        for check in (["foundation-job-check changed"], ["no line at all"], None):
+            with self.subTest(check=check):
+                result, tags, _, asked = self.execute(spec, ["foundation-job-outcome changed"], check=check)
+                self.assertTrue(result.success)
+                self.assertEqual(asked, [f"{spec.job_id} check", f"{spec.job_id} triggered"])
+                self.assertEqual(tags["foundation/job-outcome"], "changed")
+
+    def test_a_proxied_job_is_not_checked_or_retried_here(self):
+        # Airflow's `check` task and its retries still surround a proxied job's `run`; doing either here
+        # too would check twice and retry (retries + 1) squared times.
+        import run_jobs
+
+        spec = dataclasses.replace(self.decided_by_dagster(), dagster_stage="proxied", retries=2)
+        _, _, _, asked = self.execute(spec, ["foundation-job-outcome unchanged"], check=["foundation-job-check unchanged"])
+        self.assertEqual(asked, [f"{spec.job_id} triggered"])
+        self.assertIsNone(run_jobs.run_job(spec, transport=Stand([])).graph.node_defs[0].retry_policy)
+
+    def test_a_job_dagster_decides_is_retried_as_airflow_retried_it(self):
+        import observe_assets
+        import run_jobs
+
+        spec = dataclasses.replace(self.decided_by_dagster(), retries=2)
+        policy = run_jobs.run_job(spec, transport=Stand([])).graph.node_defs[0].retry_policy
+        self.assertEqual((policy.max_retries, policy.delay), (2, 60 * observe_assets.job_specs.RETRY_DELAY_MINUTES))
 
     def test_the_reconcilers_owed_runs_go_back_to_airflow(self):
         spec = self.spec(reconciles=True)

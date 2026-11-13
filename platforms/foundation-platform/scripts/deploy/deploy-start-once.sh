@@ -12,6 +12,13 @@
 #   release_root        the release tree root; deploy_step asks its current release's deploy_steps.py
 #   owed_by_inputs      the enabled job ids an input changed for while their DAG was paused, one per
 #                       line (scripts/deploy/owed_by_inputs.py in the scheduler, root ADR-0337)
+#   dagster_jobs <pause|unpause|start> <job id>...   scripts/deploy/job_orchestrator.py of the current
+#                       release, for the jobs `jobs_of dagster-decided` lists (root ADR-0565); a caller
+#                       whose jobs_of lists none never has it called
+#
+# A job is held, released and started through the orchestrator that decides it (its `dagster_stage`):
+# its Airflow DAG, or for a job Dagster decides its sensor and its Dagster job. "DAG" below means
+# either; the lines the deploy prints count both.
 #
 # start_once_then_unpause <sha>   steps 6 and 7. Starts once, with the held DAGs still paused, each job the
 #     registry marks `started_once_after_deploy` whose step says it has work (it never succeeded here
@@ -91,13 +98,53 @@ deploy_metric_end() {
   deploy_metric_write
 }
 
+# The enabled jobs Dagster decides in the release now current, by key. Read again by each step: the
+# release (and with it a job's stage) changes between step 0 and step 7.
+declare -gA dagster_decided=()
+deploy_dagster_decided() {
+  local id
+  dagster_decided=()
+  while read -r id; do
+    [[ -z "${id}" ]] || dagster_decided["${id}"]=1
+  done < <(jobs_of dagster-decided 2>/dev/null || true)
+}
+
+# deploy_pause_jobs <job id>... and deploy_unpause_jobs <job id>...   each job through its orchestrator:
+#     `airflow dags pause|unpause` of its DAG, or one call that stops or starts the sensors of all the
+#     named jobs Dagster decides. Non-zero when one could not be done.
+deploy_hold_jobs() {
+  local verb="$1" id
+  local -a sensors=()
+  shift
+  for id in "$@"; do
+    if [[ -n "${dagster_decided["${id}"]-}" ]]; then
+      sensors+=("${id}")
+    else
+      airflow dags "${verb}" "foundation_${id}" >/dev/null || return 1
+    fi
+  done
+  ((${#sensors[@]} == 0)) || dagster_jobs "${verb}" "${sensors[@]}" >/dev/null || return 1
+}
+deploy_pause_jobs() { deploy_hold_jobs pause "$@"; }
+deploy_unpause_jobs() { deploy_hold_jobs unpause "$@"; }
+
+# deploy_start_job <job id>   one run of the job now, as an operator's trigger: its DAG's, or its Dagster job's.
+deploy_start_job() {
+  if [[ -n "${dagster_decided["$1"]-}" ]]; then
+    dagster_jobs start "$1" >/dev/null
+  else
+    airflow dags trigger "foundation_$1" >/dev/null
+  fi
+}
+
 # deploy_unpause_unheld <hold-file>   after the build (deploy D5, root ADR-0270 §3): unpauses every
 #     enabled DAG the hold file does not name; `*` names every job, so nothing is unpaused. The held
 #     ones stay paused until step 7. A job owed a run waits for step 7 too.
 deploy_unpause_unheld() {
-  local id count=0
-  local -a enabled listed
+  local id
+  local -a enabled listed free=()
   local -A held=()
+  deploy_dagster_decided
   mapfile -t listed <"$1"
   for id in "${listed[@]}"; do held["${id}"]=1; done
   if [[ -n "${held["*"]-}" ]]; then
@@ -107,14 +154,15 @@ deploy_unpause_unheld() {
   mapfile -t enabled < <(jobs_of enabled-consumers-first)
   for id in "${enabled[@]}"; do
     [[ -z "${held["${id}"]-}" ]] || continue
-    airflow dags unpause "foundation_${id}" >/dev/null || return 1
-    count=$((count + 1))
+    free+=("${id}")
   done
-  echo "unpaused ${count} DAGs; held until the release is live: ${listed[*]:-none}"
+  deploy_unpause_jobs "${free[@]}" || return 1
+  echo "unpaused ${#free[@]} DAGs; held until the release is live: ${listed[*]:-none}"
 }
 
 # The enabled job ids (the arguments, in their order) whose DAG may be paused: every one Airflow does
-# not list as unpaused. A DAG Airflow has not parsed yet (a job the new release adds) is not listed,
+# not list as unpaused. A job Dagster decides is never in Airflow's list, so it is always named, and
+# job_orchestrator.py asks Dagster which of those sensors are stopped (one question for all of them). A DAG Airflow has not parsed yet (a job the new release adds) is not listed,
 # and Airflow creates it paused, so it is unpaused too; a list that cannot be read names every one.
 # One question instead of an unpause per DAG (root ADR-0308): on 2026-10-27 unpausing 33 DAGs one by
 # one took 55 s, and a deploy that drains only what its release holds leaves most of them unpaused.
@@ -134,16 +182,19 @@ sys.stdout.write("".join(f"{job}\n" for job in order if job not in unpaused))
 
 deploy_unpause_enabled() {
   local id count=0
-  local -a order enabled
+  local -a order enabled paused=()
+  deploy_dagster_decided
   mapfile -t order < <(jobs_of enabled-consumers-first)
   # A filter that fails leaves nothing paused behind: every enabled DAG is unpaused, as before.
   mapfile -t enabled < <(deploy_paused_of "${order[@]}" || printf '%s\n' "${order[@]}")
   for id in "${enabled[@]}"; do
     [[ -n "${id}" ]] || continue
-    airflow dags unpause "foundation_${id}" >/dev/null || return 1
-    count=$((count + 1))
+    paused+=("${id}")
+    [[ -n "${dagster_decided["${id}"]-}" ]] || count=$((count + 1))
   done
+  deploy_unpause_jobs "${paused[@]}" || return 1
   echo "unpaused ${count} DAGs"
+  ((${#dagster_decided[@]} == 0)) || echo "the ${#dagster_decided[@]} jobs Dagster decides have their sensors running"
   # A job that came due while the release built was not started; it is owed its run now (root
   # ADR-0260). Its record goes when it starts, so a trigger that fails is tried by the next deploy.
   local -a owed
@@ -151,7 +202,7 @@ deploy_unpause_enabled() {
   mapfile -t owed < <(jobs_of deferred)
   for id in "${owed[@]}"; do
     [[ -n "${id}" ]] || continue
-    if airflow dags trigger "foundation_${id}" >/dev/null; then
+    if deploy_start_job "${id}"; then
       started["${id}"]=1
       echo "started foundation_${id}: it came due while the release built"
     else
@@ -165,7 +216,7 @@ deploy_unpause_enabled() {
   mapfile -t owed < <(owed_by_inputs || echo "foundation-deploy: could not ask which jobs missed an input event while paused; their fallback schedules start them" >&2)
   for id in "${owed[@]}"; do
     [[ -n "${id}" && -z "${started["${id}"]-}" ]] || continue
-    if airflow dags trigger "foundation_${id}" >/dev/null; then
+    if deploy_start_job "${id}"; then
       echo "started foundation_${id}: an input changed while its DAG was paused"
     else
       echo "foundation-deploy: could not start foundation_${id}, whose input changed while it was paused; its fallback schedule starts it" >&2

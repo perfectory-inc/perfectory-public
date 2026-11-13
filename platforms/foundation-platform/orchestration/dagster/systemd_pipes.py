@@ -199,5 +199,20 @@ class SystemdUnitPipesClient(PipesClient):
             raise Failure(f"{job_id} failed: {reason}", metadata={"outcome": word, "reason": reason})
         context.log.info(f"{job_id} ended {word}{(': ' + reason) if reason else ''}")
         return SystemdRun(context, job_id, word, reason, messages, extras,
-                          job_specs.owed_runs("".join(owed), tuple(listed[job_id].get("reconciles", ()))
-                                              + job_specs.requeued(jobs, listed[job_id])))
+                          job_specs.owed_runs("".join(owed), job_specs.started_for(jobs, listed[job_id])))
+
+    def check(self, *, context, job_id) -> bool:
+        """Whether the job's check says its run has nothing to do (`<job> check`, jobs.v1.json
+        `check_service`, root ADR-0277), as Airflow's `check` task asks before `run`. A check that fails
+        or cannot answer is not `unchanged`: the run decides again for itself."""
+        try:
+            lines, wait = self.transport.start(f"{job_id} check")
+            said = []
+            for line in lines:
+                said.append(line)
+                context.log.info(line.rstrip("\n"))
+            wait()
+        except Exception as error:  # noqa: BLE001 - a check that cannot answer must not stop the run
+            context.log.warning(f"the check of {job_id} did not answer ({error}); the run decides for itself")
+            return False
+        return job_specs.check_says_unchanged("".join(said))

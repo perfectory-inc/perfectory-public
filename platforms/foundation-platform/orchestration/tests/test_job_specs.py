@@ -1411,6 +1411,10 @@ class TheDagsterStage(unittest.TestCase):
         consumer = next(job_id for job_id, found in feeders.items()
                         if found and job_specs.started_by(by_id[job_id]) == "inputs")
         by_id[feeders[consumer][0]]["dagster_stage"] = "dagster"
-        self.assertTrue(any(problem.startswith(consumer) for problem in job_specs.dagster_order(jobs, feeders)))
+
+        def waits_on_its_producer():
+            return any(problem.startswith(f"{consumer}: started by the outputs")
+                       for problem in job_specs.dagster_order(jobs, feeders))
+        self.assertTrue(waits_on_its_producer())
         by_id[consumer]["dagster_stage"] = "dagster"
-        self.assertFalse(any(problem.startswith(consumer) for problem in job_specs.dagster_order(jobs, feeders)))
+        self.assertFalse(waits_on_its_producer())

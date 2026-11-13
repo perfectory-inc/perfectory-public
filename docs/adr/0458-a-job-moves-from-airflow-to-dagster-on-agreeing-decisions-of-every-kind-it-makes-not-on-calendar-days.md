@@ -79,3 +79,9 @@ ADR-0431 §4 는 가족마다 "연속 7일" 을 문턱으로 정했다. 잰 값�
 - **가족 필드를 작업 목록에 더하기**: 가족은 한 번의 이행 계획이고 단계는 작업마다 적혀 있다(ADR-0431 §7). 이행이 끝나면 쓸모가 없는 필드를
   정본에 두지 않는다.
 - **Dagster 의 검사를 ERROR 로 바꿔 호출을 대신하기**: Dagster 의 검사 결과는 사람에게 가지 않는다. 운영의 호출 경로는 Alertmanager 하나다.
+
+## 개정 각주 — 2026-11-14, 가족 2 에서 자산 조정자를 뗀다
+
+[ADR-0565](./0565-a-job-dagster-decides-is-reached-through-dagster-by-everything-that-reached-it-through-its-airflow-dag.md) §4 에 따라
+`asset_reconcile` 은 가족 2 와 함께 `dagster` 로 가지 않는다: 그것이 시작하는 작업(spark·documents 풀)이 `dagster` 인 동안 `proxied` 에 남고, 그
+마지막 작업 뒤에 간다. 가족 2 의 나머지 넷은 §2 그대로 함께 옮긴다. 문턱(§1)은 바뀌지 않는다.

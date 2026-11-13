@@ -612,7 +612,9 @@ def missed_starts(now: float, jobs: dict, reconciler: dict, starts: dict | None,
     owed, metrics = [], []
     for job_id in job_specs.requeued(jobs, reconciler):
         job = listing[job_id]
-        if job.get("takes_turns") or job_id in queued or paused(job_id):
+        # A job Dagster decides has its missed ticks decided by its own sensor, which runs one late only
+        # if it ends before the next tick (orchestration/dagster/decide.py, root ADR-0565 §4): one rule.
+        if job.get("takes_turns") or job_id in queued or paused(job_id) or job.get("dagster_stage") == "dagster":
             continue
         slot = job_specs.previous_slot(job["schedule"], now - MISSED_START_GRACE)
         since = job_specs._instant(job.get("enabled_since"))
